@@ -474,6 +474,7 @@ jobs:
           tests/test_contracts_registry.py
           tests/test_approval_ux_contract.py
           tests/test_run_manifest.py
+          tests/test_request_limits.py
       - name: Run the SDK cookbook example tests against their stateful stand-ins
         # Every cookbook lab has an SDK example script that is replayed here against a
         # stateful stand-in server (the labs themselves run for real in cookbook-labs.yml).

@@ -193,6 +193,88 @@ class TestPublishWorkflow:
         assert result["type"] == "workflow"
 
 
+class TestPublishWorkflowExperimentClaims:
+    """A published workflow's ``default_experiment_id`` is a claim like any other: ownership is decided on the
+    experiment the tracking backend resolves it to, and an unresolvable one is not guessed."""
+
+    @staticmethod
+    def _foreign_agent(session_factory: sessionmaker[Session], experiment_ref: str) -> None:
+        from caliber.db.models import CaliberAgentConfig
+
+        with session_factory() as db:
+            db.add(
+                CaliberAgentConfig(
+                    agent_id="agent-foreign",
+                    experiment_id=experiment_ref,
+                    name="foreign",
+                    owner="@someone-else",
+                    project_id="PRJ-someone-else",
+                    visibility="project",
+                    artifact_types=["prompt"],
+                    optimizer_config={},
+                )
+            )
+            db.commit()
+
+    @staticmethod
+    def _publish(publisher: AssistantPublisher, session_factory: sessionmaker[Session], ref: str):
+        return publisher.publish(
+            artifact_type="workflow",
+            artifact={"name": "claimer", "manifest": {"steps": []}, "default_experiment_id": ref},
+            draft_id="ADRF-claim",
+            session_factory=session_factory,
+            user=USER,
+            identity=_project_identity(),
+        )
+
+    def test_an_alias_of_another_projects_experiment_is_refused(
+        self,
+        publisher: AssistantPublisher,
+        session_factory: sessionmaker[Session],
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        import types
+
+        import mlflow
+
+        self._foreign_agent(session_factory, "billing-exp")
+        monkeypatch.setattr(
+            mlflow,
+            "get_experiment_by_name",
+            lambda name: (
+                types.SimpleNamespace(experiment_id="7") if name == "billing-exp" else None
+            ),
+        )
+        monkeypatch.setattr(
+            mlflow,
+            "get_experiment",
+            lambda experiment_id: types.SimpleNamespace(experiment_id=experiment_id),
+        )
+        refused = self._publish(publisher, session_factory, "7")
+        assert not refused["success"]
+        assert "already claimed" in refused["error"]
+
+    def test_an_unresolvable_experiment_is_not_claimed(
+        self,
+        publisher: AssistantPublisher,
+        session_factory: sessionmaker[Session],
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        import mlflow
+
+        def backend_down(name: str) -> None:
+            raise ConnectionError("tracking server unreachable")
+
+        monkeypatch.setattr(mlflow, "get_experiment_by_name", backend_down)
+        refused = self._publish(publisher, session_factory, "some-experiment")
+        assert not refused["success"]
+        assert "was not claimed" in refused["error"]
+        with session_factory() as db:
+            from caliber.db.models import CaliberWorkflow
+
+            assert db.query(CaliberWorkflow).filter_by(name="claimer").count() == 0
+
+
 class TestPublishMcpServer:
     def test_publish_creates_mcp_server_row(
         self,

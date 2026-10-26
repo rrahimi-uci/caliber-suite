@@ -59,6 +59,7 @@ from caliber.ids import (
 )
 from caliber.observability.trace_access import (
     ExperimentClaimConflict,
+    ExperimentLookupError,
     assert_experiment_claim_allowed,
 )
 from caliber.resource_access import (
@@ -129,8 +130,11 @@ def _claim_experiment_or_409(session: Any, experiment_id: str | None, **scope: A
         assert_experiment_claim_allowed(session, experiment_id, **scope)
     except ExperimentClaimConflict as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except ExperimentLookupError as exc:
+        raise HTTPException(status_code=503, detail=_LOOKUP_UNAVAILABLE.format(exc)) from exc
 
 
+_LOOKUP_UNAVAILABLE = "the experiment could not be resolved, so it was not claimed: {}"
 logger = logging.getLogger("caliber.routes.workflows")
 
 
