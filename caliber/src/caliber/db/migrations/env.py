@@ -25,9 +25,12 @@ from caliber.db_url import normalize_database_url
 # Alembic config object provides access to alembic.ini values.
 config = context.config
 
-# Configure logging from alembic.ini if present.
+# Configure logging from alembic.ini if present. ``disable_existing_loggers=False``: the default (True) silently
+# disables every logger that already exists in the process, which is every ``caliber.*`` logger when migrations
+# run in-process with an ini file, as the test suite does. Nothing is logged afterwards and ``caplog`` sees
+# nothing, so unrelated tests failed depending on which worker had run a migration test first.
 if config.config_file_name is not None:
-    fileConfig(config.config_file_name)
+    fileConfig(config.config_file_name, disable_existing_loggers=False)
 
 # Wire model metadata so `--autogenerate` can diff DB ↔ model definitions.
 target_metadata = Base.metadata
