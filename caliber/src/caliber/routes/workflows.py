@@ -56,6 +56,10 @@ from caliber.ids import (
     new_workflow_id,
     new_workflow_version_id,
 )
+from caliber.observability.trace_access import (
+    ExperimentClaimConflict,
+    assert_experiment_claim_allowed,
+)
 from caliber.resource_access import (
     ACTION_WRITE_EVIDENCE,
     ACTION_WRITE_RUNTIME,
@@ -116,6 +120,16 @@ BENCHMARK_REPORT_DETAIL_PATH = BENCHMARK_REPORTS_PATH + "/{report_id}"
 _LIST_STATUS_VALUES = frozenset({"active", "paused", "archived", "all"})
 _BENCHMARK_REPORT_STATUS_VALUES = frozenset({"draft", "completed", "archived", "all"})
 _UPDATABLE_FIELDS = ("name", "description", "owner", "status", "default_experiment_id")
+
+
+def _claim_experiment_or_409(session: Any, experiment_id: str | None, **scope: Any) -> None:
+    """409 when another project or user already claims the experiment (it decides who sees its traces)."""
+    try:
+        assert_experiment_claim_allowed(session, experiment_id, **scope)
+    except ExperimentClaimConflict as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
 logger = logging.getLogger("caliber.routes.workflows")
 
 
@@ -677,6 +691,13 @@ async def create_workflow(request: Request) -> JSONResponse:
             raise HTTPException(
                 status_code=409, detail=f"workflow id {workflow_id!r} already exists"
             )
+        _claim_experiment_or_409(
+            session,
+            payload.default_experiment_id,
+            visibility="project" if identity.active_project_id else "user",
+            project_id=identity.active_project_id,
+            owner=actor,
+        )
         workflow = CaliberWorkflow(
             workflow_id=workflow_id,
             name=payload.name,
@@ -765,6 +786,15 @@ async def update_workflow(request: Request) -> JSONResponse:
                     detail="cannot archive workflow with active production deployments",
                 )
 
+        if changes.get("default_experiment_id"):
+            _claim_experiment_or_409(
+                session,
+                changes["default_experiment_id"],
+                visibility=workflow.visibility,
+                project_id=workflow.project_id,
+                owner=workflow.owner,
+                workflow_id=workflow.workflow_id,
+            )
         diff: dict[str, dict[str, object]] = {}
         for field in _UPDATABLE_FIELDS:
             if field not in changes:

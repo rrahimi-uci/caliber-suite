@@ -27,6 +27,7 @@ from caliber.assistant.service import AssistantService
 from caliber.auth import SCOPE_VIEWER, CaliberIdentity
 from caliber.config import CaliberConfig
 from caliber.db.models import (
+    CaliberAgentConfig,
     CaliberAuditLog,
     CaliberEvalDataset,
     CaliberJudge,
@@ -300,7 +301,56 @@ def test_dispatch_creates_eval_dataset(svc, session_factory) -> None:
         assert row is not None and row.owner == USER
 
 
-def test_dispatch_enqueues_review_items(svc, session_factory) -> None:
+def _fake_traces(monkeypatch: pytest.MonkeyPatch, experiments: dict[str, str]) -> None:
+    """MLflow stand-in: ``{trace_id: experiment_id}``; anything else is not found."""
+    from types import SimpleNamespace
+
+    import mlflow
+
+    def trace(trace_id: str, experiment_id: str) -> SimpleNamespace:
+        return SimpleNamespace(
+            info=SimpleNamespace(
+                trace_id=trace_id,
+                state=SimpleNamespace(name="OK"),
+                request_time=1,
+                execution_duration=1,
+                request_preview="",
+                response_preview="",
+                tags={},
+                trace_metadata={},
+                trace_location=SimpleNamespace(
+                    mlflow_experiment=SimpleNamespace(experiment_id=experiment_id)
+                ),
+            ),
+            data=SimpleNamespace(spans=[]),
+        )
+
+    traces = {tid: trace(tid, exp) for tid, exp in experiments.items()}
+    monkeypatch.setattr(mlflow, "get_trace", lambda trace_id, silent=False: traces.get(trace_id))
+    monkeypatch.setattr(mlflow, "search_experiments", lambda max_results=100: [])
+
+
+def _own_agent(session_factory, experiment_id: str) -> None:
+    with session_factory() as db:
+        db.add(
+            CaliberAgentConfig(
+                agent_id="cap-agent",
+                experiment_id=experiment_id,
+                name="cap agent",
+                owner=USER,
+                visibility="user",
+                artifact_types=["prompt"],
+                optimizer_config={},
+            )
+        )
+        db.commit()
+
+
+def test_dispatch_enqueues_review_items(svc, session_factory, monkeypatch) -> None:
+    # The Aria user holds no admin scope, so the traces they name must be ones they can read:
+    # filed under an experiment of an agent they own.
+    _own_agent(session_factory, "exp-cap")
+    _fake_traces(monkeypatch, {"tr-a": "exp-cap", "tr-b": "exp-cap"})
     sid = _session(svc, session_factory)
     ts = _toolset(svc, session_factory, sid, mode="build", approval="auto_all")
     queue = json.loads(
@@ -321,3 +371,31 @@ def test_dispatch_enqueues_review_items(svc, session_factory) -> None:
             .all()
         )
         assert {i.trace_id for i in items} == {"tr-a", "tr-b"}
+
+
+def test_dispatch_refuses_review_items_for_a_trace_the_user_cannot_read(
+    svc, session_factory, monkeypatch
+) -> None:
+    _own_agent(session_factory, "exp-cap")
+    _fake_traces(monkeypatch, {"tr-mine": "exp-cap", "tr-foreign": "exp-someone-else"})
+    sid = _session(svc, session_factory)
+    ts = _toolset(svc, session_factory, sid, mode="build", approval="auto_all")
+    queue = json.loads(
+        ts.dispatch(
+            "review_queue_create",
+            {"name": "cap-q3", "questions": [{"key": "ok", "title": "OK?", "type": "pass_fail"}]},
+        )
+    )
+    queue_id = queue["data"]["queue_id"]
+    for refused in (["tr-foreign"], ["tr-mine", "tr-foreign"], ["tr-missing"]):
+        out = json.loads(
+            ts.dispatch("review_queue_add_items", {"queue_id": queue_id, "trace_ids": refused})
+        )
+        assert "error" in out and "not found" in out["error"], out
+    with session_factory() as db:
+        queued = (
+            db.execute(select(CaliberReviewItem).where(CaliberReviewItem.queue_id == queue_id))
+            .scalars()
+            .all()
+        )
+        assert queued == [], "a refused request adds none of its traces"

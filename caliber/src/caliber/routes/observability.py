@@ -33,7 +33,12 @@ from starlette.routing import Route
 
 from caliber.audit import record as audit_record
 from caliber.auth import require_user, resolve_identity
-from caliber.observability.trace_access import is_visible, visible_experiment_ids
+from caliber.observability.trace_access import (
+    TraceNotReadableError,
+    is_visible,
+    require_readable_trace,
+    visible_experiments,
+)
 from caliber.routes._deps import get_session_factory, parse_json_object
 from caliber.trace_client import (
     TraceNotFoundError,
@@ -96,7 +101,7 @@ def visible_experiments_for(request: Request) -> set[str] | None:
     """The experiments the caller may see traces from; ``None`` is every experiment (an admin)."""
     identity = resolve_identity(request)
     with get_session_factory(request)() as session:
-        return visible_experiment_ids(session, identity)
+        return visible_experiments(session, identity)
 
 
 def _require_visible_filter(experiment_filter: str, visible: set[str] | None) -> None:
@@ -111,13 +116,11 @@ def _require_visible_filter(experiment_filter: str, visible: set[str] | None) ->
 def _require_visible_trace(trace_id: str, visible: set[str]) -> None:
     """404 unless the trace exists and is filed under an experiment in ``visible``."""
     try:
-        detail = fetch_trace_detail(trace_id, strict=True)
-    except TraceNotFoundError as exc:
-        raise HTTPException(status_code=404, detail=f"trace {trace_id!r} not found") from exc
+        require_readable_trace(trace_id, visible)
+    except TraceNotReadableError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
     except TraceStoreUnavailableError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
-    if not is_visible(detail.experiment_id, visible):
-        raise HTTPException(status_code=404, detail=f"trace {trace_id!r} not found")
 
 
 def _experiment_ids(mlflow_mod: Any, configured: str) -> list[str]:

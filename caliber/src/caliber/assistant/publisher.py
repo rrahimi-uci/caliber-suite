@@ -8,6 +8,10 @@ from datetime import datetime, timezone
 from typing import Any, cast
 
 from caliber.auth import CaliberIdentity
+from caliber.observability.trace_access import (
+    ExperimentClaimConflict,
+    assert_experiment_claim_allowed,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -400,13 +404,27 @@ class AssistantPublisher:
         with session_factory() as db:
             if db.get(CaliberWorkflow, wf_id) is not None:
                 return {"success": False, "error": f"Workflow id {wf_id!r} already exists"}
+            scope = _publisher_scope(identity, no_project_visibility="user")
+            owner = identity.user_id if identity is not None else user
+            try:
+                assert_experiment_claim_allowed(
+                    db,
+                    artifact.get("default_experiment_id"),
+                    visibility=scope.get(
+                        "visibility", "project"
+                    ),  # the column default when no identity
+                    project_id=scope.get("project_id"),
+                    owner=owner,
+                )
+            except ExperimentClaimConflict as exc:
+                return {"success": False, "error": str(exc)}
             wf = CaliberWorkflow(
                 workflow_id=wf_id,
                 name=artifact.get("name", ""),
                 description=artifact.get("description", ""),
-                owner=identity.user_id if identity is not None else user,
+                owner=owner,
                 default_experiment_id=artifact.get("default_experiment_id"),
-                **_publisher_scope(identity, no_project_visibility="user"),
+                **scope,
             )
             db.add(wf)
             db.flush()

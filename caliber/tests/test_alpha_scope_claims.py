@@ -32,7 +32,9 @@ def test_the_page_states_every_known_limitation() -> None:
     page = _text(SCOPE)
     for phrase in (
         "No trace-to-refinement automation",
-        "visible to every signed-in user",
+        "scoped by experiment ownership in CALIBER, not in MLflow",
+        "MLflow's own UI and API run on the same server and are not scoped",
+        "whoever binds it first",
         "no two-person rule",
         "CSRF protection is off by default",
         "Simulated by default",

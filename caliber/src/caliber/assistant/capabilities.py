@@ -263,6 +263,7 @@ def _review_queue_add_items(ctx: CapabilityContext, args: dict[str, Any]) -> Any
             assigned_to=args.get("assigned_to"),
             actor=ctx.actor,
             identity=identity,
+            verify_traces=True,
         )
         session.commit()
         return {"queue_id": queue_id, "added": len(created)}

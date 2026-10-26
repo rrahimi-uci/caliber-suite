@@ -141,9 +141,19 @@ These are real and deliberate for the alpha. Read them before you rely on the pr
   poller and no "flag this trace" action in the app, and verifying an item in the queue does not start a
   job. Calibration starts from a prompt and a test set, which you create. Submitting feedback on a trace
   records an assessment in MLflow and an audit row, and does nothing else.
-- **Traces and MLflow data are visible to every signed-in user.** The observability pages and the trace
-  and metric routes are not scoped to a project, so anyone who can sign in can read traces, including
-  their inputs and outputs. Do not put sensitive data in traces on a shared alpha deployment.
+- **Traces are scoped by experiment ownership in CALIBER, not in MLflow.** The observability pages, the
+  trace, metric and feedback routes, and the Gateway usage tab show a non-admin only the traces filed
+  under an MLflow experiment that an agent or workflow they can see is bound to (an agent's
+  `experiment_id`, a workflow's `default_experiment_id`); the same rule gates adding a trace to an
+  evaluation dataset or a review queue. A trace in any other experiment is hidden from non-admins,
+  including workflow runs recorded under a named experiment when the workflow sets no
+  `default_experiment_id`. An admin sees every trace, as an admin sees every agent, workflow and run.
+  An experiment cannot be claimed by a different project or user once it is bound, but one that nobody
+  has bound yet goes to whoever binds it first; proving ownership needs CALIBER to create the
+  experiment, which is planned work. **MLflow's own UI and API run on the same server and are not
+  scoped**: anyone who can reach the MLflow port can read every project's traces, so keep it off a
+  network shared with people who must not. Do not put sensitive data in traces on a shared alpha
+  deployment.
 - **Apply has no two-person rule.** One person with the `owner` or `editor` role in the project can
   review and apply a candidate. The approval record is created at Apply time as the audit and rollback
   anchor, and it records who applied. It is not a second approver.

@@ -223,7 +223,7 @@ Status legend:
 | Review step in UI | ⚠️ | Apply or Cancel only; request-changes and quality-review are API-only | IN | P2 |
 | Audit log list/export | ✅ | Admin-only, CSV export | IN | [P1-02](#p1-02) |
 | Lineage version → job → evidence | ⚠️ | Data exists; no public path from a released version | IN | [P1-14](#p1-14) |
-| Traces, feedback, SSE, metrics | ✅ | Traces are visible org-wide (unscoped) | IN | [P1-15](#p1-15) |
+| Traces, feedback, SSE, metrics | ✅ | Traces were visible org-wide; scoped by experiment ownership since #569 (MLflow's own UI still is not) | IN | [P1-15](#p1-15) |
 | Feedback → verification queue | ⛔ | `MLflowAssessmentClientImpl` has no caller | OUT | [P1-15](#p1-15) (docs) |
 | Session auth, throttling, cookies, PATs, secret store | ✅ | 363 auth/isolation tests pass; probes | IN | [P1-01](#p1-01) |
 | Bootstrap admin on documented native path | ❌ | Logs in as `caliber.viewer`; `POST /projects` 403 | IN | [P0-5](#p0-5) |
@@ -1425,7 +1425,7 @@ The first draft kept skills, tools, workflows and knowledge bases as preview. Th
 | CSRF off; JSON accepted as `text/plain` | SameSite=Lax mitigates | Require `application/json` for cookie auth; document the CSRF flag | `routes/_deps.py`, `csrf.py` |
 | Provider keys are process-memory only | Lost on restart | Persist via the secret store | `routes/settings.py` |
 | Dashboard counts and duplicate-name errors leak cross-project metadata | — | Scope the counts; drop foreign ids | `routes/dashboard.py`, `routes/eval_datasets.py` |
-| Traces scoped per project | Org-wide (documented in P1-15) | Filter by visible agents' experiments | `routes/observability.py` |
+| ~~Traces scoped per project~~ (done in #569: filtered by the experiments of visible agents and workflows; MLflow's own UI is still unscoped) | Org-wide (documented in P1-15) | Filter by visible agents' experiments | `routes/observability.py`, `observability/trace_access.py` |
 | CLI verbs: job apply, prompt rollback, release reconcile | SDK only | Thin wrappers | `sdk/caliber-cli` |
 | Async SDK parity for the journey | Partial | Mirror the sync resources | `sdk/caliber-sdk/aio` |
 | `make dev` presents the embedded topology | Contradicts the docs | Update the target text and the deploy README | `Makefile`, `deploy/README.md` |
