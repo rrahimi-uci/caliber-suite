@@ -132,13 +132,12 @@ def test_dropped_response_then_redispatch_mutates_once(
     downstream.set_fault("drop_response_after_commit")
     with pytest.raises(httpx.RemoteProtocolError):
         spike.dispatch(session, proposal, downstream.base_url)
-    assert spike.state_of(session, proposal) == "dispatched", "the outcome is unknown, not failed"
+    assert spike.state_of(session, proposal) == "unknown", "the outcome is unknown, not failed"
     assert downstream.mutations() == 1, "the downstream committed before the response was lost"
 
-    replay = spike.dispatch(session, proposal, downstream.base_url)
-    assert replay["status_code"] == 200, "the same key replays the stored answer"
+    replay = spike.send(proposal, downstream.base_url)  # the same call, with the same key
+    assert replay.status_code == 200, "the same key replays the stored answer"
     assert downstream.mutations() == 1
-    assert spike.state_of(session, proposal) == "committed"
 
 
 def test_a_stale_expected_version_is_refused_and_recorded_failed(

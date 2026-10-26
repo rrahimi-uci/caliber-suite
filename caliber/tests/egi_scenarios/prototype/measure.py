@@ -51,7 +51,7 @@ def main() -> None:
                 spike.dispatch(session, proposal, downstream.base_url)
                 first.append(time.perf_counter() - started)
                 started = time.perf_counter()
-                spike.dispatch(session, proposal, downstream.base_url)
+                spike.send(proposal, downstream.base_url)
                 replay.append(time.perf_counter() - started)
 
                 downstream.reset()
