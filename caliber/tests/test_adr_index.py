@@ -354,3 +354,23 @@ def test_a_protected_path_without_an_owner_fails() -> None:
 def test_a_row_id_in_prose_does_not_count_as_owned() -> None:
     adr = "### Protected paths\n\nEP-002 is mentioned here only.\n\n| row | e | o | b |\n| --- | --- | --- | --- |\n| EP-001 | x | y | z |\n"
     assert uncovered(adr, ["EP-001", "EP-002"]) == ["EP-002"]
+
+
+def test_adr_0001_records_the_connector_decision_and_its_report_exists() -> None:
+    text = (ADR_DIR / "0001-reference-profile.md").read_text(encoding="utf-8")
+    match = re.search(
+        r"^Connector: (keep|switch) — see (docs/reports/egi/D1-connector-capability\.md)",
+        text,
+        re.M,
+    )
+    assert match, (
+        "ADR 0001 needs a line 'Connector: keep|switch — see docs/reports/egi/D1-connector-capability.md'"
+    )
+    report = REPO / match.group(2)
+    assert report.exists(), f"the report {match.group(2)} is missing"
+    decision = report.read_text(encoding="utf-8").split("## Decision", 1)[1]
+    assert decision.lstrip().startswith(f"`{match.group(1)}`"), (
+        "the report's decision differs from ADR 0001"
+    )
+    row = next(line for line in text.splitlines() if line.startswith("| connector |"))
+    assert match.group(1) in row

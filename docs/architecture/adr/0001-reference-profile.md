@@ -37,8 +37,10 @@ source of truth for the list).
 | egress and connectors | egress policy on; plain-HTTP MCP off; trusted connectors only | yes for `egress_policy_disabled` and `mcp_insecure_http`; the trusted-connector list is #534 |
 | approvals | no self-approval | yes: `self_approval_allowed` |
 | model adapters | the scripted adapter (`caliber/src/caliber/llm/fake.py`) for deterministic runs, and one real provider | not yet |
-| connector | the OpenAPI document-request connector, unless `docs/reports/egi/D1-connector-capability.md` (#567) finds it cannot meet the connector contract and records a switch | not yet (#534) |
+| connector | keep: the OpenAPI document-request connector (decided by the D1 experiment, `docs/reports/egi/D1-connector-capability.md`) | not yet (#534) |
 | profile switch | `CALIBER_PROFILE=reference` (#570); `CALIBER_FAULT_BARRIERS` must be unset | yes: the switch itself, and `fault_barriers_enabled` (#541) |
+
+Connector: keep — see docs/reports/egi/D1-connector-capability.md. The D1 experiment (#567) found the OpenAPI document-request connector carries a stable key, a precondition and a query by key; the decision is conditional on #522 task 3 delivering the executor changes that report lists.
 
 Every effect class in `docs/architecture/protected-effect-paths.md` has a required control. The control is what the
 dispatcher (B04) enforces before the effect leaves the platform:
