@@ -1283,6 +1283,56 @@ jobs:
           # signal we actually gate on.
           GITLEAKS_ENABLE_UPLOAD_ARTIFACT: "false"
 
+  # The EGI scenarios (caliber/tests/egi_scenarios/, V01-V35) act on a real CALIBER app on the reference
+  # profile, a real downstream system of record and, for recovery claims, real processes killed at named
+  # fault barriers. The reference profile refuses SQLite, so these only mean something on PostgreSQL. No
+  # `if:` path filter, unlike an ordinary job: this is a required gate, and the ledger below fails a
+  # required gate that was skipped, so a change that "does not touch the backend" would otherwise fail it.
+  egi-scenarios-postgres:
+    name: EGI scenarios (PostgreSQL)
+    runs-on: ubuntu-latest
+    needs: [lint, type-check]
+    timeout-minutes: 30
+    services:
+      postgres:
+        # pgvector image for the same reason as the migration-parity job above (migration 0060).
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: caliber
+          POSTGRES_PASSWORD: caliber
+          POSTGRES_DB: caliber_egi_admin
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U caliber"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v10.0.1
+        with:
+          enable-cache: true
+          cache-dependency-glob: caliber/pyproject.toml
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+      - name: Install package + dev + postgres extras
+        run: uv pip install --system -e ".[dev,postgres]"
+      - name: Run the EGI scenarios against PostgreSQL
+        # An *admin* connection string, as in the migration-parity job: each test creates and drops its
+        # own throwaway database (tests/dialect_helpers.py::dialect_database_url).
+        env:
+          CALIBER_TEST_POSTGRES_URL: postgresql+psycopg://caliber:caliber@localhost:5432/caliber_egi_admin
+        run: pytest tests/egi_scenarios --no-cov -q --junitxml=egi-scenarios-junit.xml
+      - name: Upload the scenario results
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: egi-scenarios-junit
+          path: caliber/egi-scenarios-junit.xml
+          if-no-files-found: ignore
+
   gate-ledger:
     name: Gate execution ledger
     runs-on: ubuntu-latest
@@ -1295,6 +1345,7 @@ jobs:
       - type-check
       - test-smoke
       - migration-parity-postgres
+      - egi-scenarios-postgres
       - docs-validation
       - ui
       - compose

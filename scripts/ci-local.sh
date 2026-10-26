@@ -56,7 +56,7 @@ VENV_PY="$CALIBER_DIR/.venv/bin/python"
 # shellcheck disable=SC2034  # read by tests/test_ci_local_parity.py, and the install target to use
 CI_EXTRAS="dev,postgres,ingest,ocr,llm,knowledge,dspy,knowledge-local,memory"
 
-ALL_JOBS=(lint type-check test-smoke backend-core migration-parity-postgres test compatibility integration docs-validation ui cookbook-ui-only compose package alpha-install alpha-journey security sdk plugin-sdk cli)
+ALL_JOBS=(lint type-check test-smoke backend-core migration-parity-postgres egi-scenarios-postgres test compatibility integration docs-validation ui cookbook-ui-only compose package alpha-install alpha-journey security sdk plugin-sdk cli)
 FAST_SKIP=(test compatibility integration cookbook-ui-only package alpha-install alpha-journey)
 
 bold() { printf '\033[1m%s\033[0m\n' "$*"; }
@@ -243,6 +243,44 @@ job_migration_parity_postgres() {
         tests/test_workspace_revision_allocation_concurrency.py \
         tests/test_profile.py \
         -k postgresql --no-cov -q
+    status=$?
+  fi
+  docker rm -f "$container" >/dev/null 2>&1
+  return "$status"
+}
+
+# CI's "EGI scenarios (PostgreSQL)" job: the scenario tests in tests/egi_scenarios against a
+# live PostgreSQL, because the reference profile they run on refuses SQLite. Same image and admin
+# connection pattern as job_migration_parity_postgres, on its own container and port.
+job_egi_scenarios_postgres() {
+  cd "$CALIBER_DIR" || return 1
+  command -v docker >/dev/null 2>&1 || {
+    SKIP_REASON="docker is unavailable; CI still runs the EGI scenarios (PostgreSQL) job"
+    return "$EXIT_SKIPPED"
+  }
+  local container="caliber-ci-local-pg-egi"
+  local port="${CALIBER_LOCAL_EGI_PG_PORT:-55433}"
+  docker rm -f "$container" >/dev/null 2>&1
+  docker run -d --name "$container" \
+    -e POSTGRES_USER=caliber -e POSTGRES_PASSWORD=caliber -e POSTGRES_DB=caliber_egi_admin \
+    -p "127.0.0.1:${port}:5432" \
+    pgvector/pgvector:pg16 >/dev/null || return 1
+
+  local ready=1
+  for _ in $(seq 1 30); do
+    if docker exec "$container" pg_isready -U caliber >/dev/null 2>&1; then
+      ready=0
+      break
+    fi
+    sleep 1
+  done
+  local status
+  if [ "$ready" -ne 0 ]; then
+    yellow "postgres container did not become ready within 30s"
+    status=1
+  else
+    CALIBER_TEST_POSTGRES_URL="postgresql+psycopg://caliber:caliber@localhost:${port}/caliber_egi_admin" \
+      "$VENV_PY" -m pytest tests/egi_scenarios --no-cov -q
     status=$?
   fi
   docker rm -f "$container" >/dev/null 2>&1
@@ -692,6 +730,7 @@ main() {
       test-smoke) run_job test-smoke job_test_smoke ;;
       backend-core) run_job backend-core job_backend_core ;;
       migration-parity-postgres) run_job migration-parity-postgres job_migration_parity_postgres ;;
+      egi-scenarios-postgres) run_job egi-scenarios-postgres job_egi_scenarios_postgres ;;
       test) run_job test job_test ;;
       compatibility) run_job compatibility job_compatibility ;;
       integration) run_job integration job_integration ;;

@@ -1,36 +1,42 @@
 """Fixtures shared by the EGI scenario tests (``caliber/tests/egi_scenarios/``).
 
 ``downstream`` starts the disposable system of record (``downstream/app.py``) as a real process and
-hands tests the handle they measure effects through. #541 extends this file with ``reference_app``,
-``two_workspaces`` and the fault barriers; the naming convention for scenario tests is
-``test_vNN_<slug>.py``.
+hands tests the handle they measure effects through. ``reference_app`` is a CALIBER app on the reference
+profile (see its docstring for the one SQLite difference), ``two_workspaces`` seeds two projects and their
+users, and ``scripted_model`` replays the two model turns of the document-request journey. Killing a
+real CALIBER process at a fault barrier is ``harness/process.py``. The naming convention for scenario
+tests is ``test_vNN_<slug>.py`` (see README.md).
 """
 
 from __future__ import annotations
 
 import os
 import signal
-import socket
 import subprocess
 import sys
 import time
 from collections.abc import Iterator
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import IO, Any
 
 import httpx
 import pytest
+from alembic import command
+from sqlalchemy.orm import Session, sessionmaker
+from starlette.testclient import TestClient
+
+from caliber.config import CaliberConfig
+from caliber.db.migrate import build_config
+from caliber.db.models import CaliberProject, CaliberProjectMember
+from caliber.server import create_app
+from tests.dialect_helpers import DIALECTS, dialect_database_url
+from tests.egi_scenarios.harness.process import free_port
 
 APP_PATH = Path(__file__).parent / "downstream" / "app.py"
 #: How long ``start()`` waits for ``/health``. Raise it with the environment variable on a loaded CI runner.
 START_TIMEOUT_SECONDS = float(os.environ.get("EGI_DOWNSTREAM_START_TIMEOUT", "5"))
 STOP_TIMEOUT_SECONDS = 5.0
-
-
-def free_port() -> int:
-    with socket.socket() as s:
-        s.bind(("127.0.0.1", 0))
-        return int(s.getsockname()[1])
 
 
 class Downstream:
@@ -146,3 +152,182 @@ def _fresh_downstream(request: pytest.FixtureRequest) -> None:
     """
     if "downstream" in request.fixturenames:
         request.getfixturevalue("downstream").reset()
+
+
+# ------------------------------------------------------------------------------ reference app
+
+PROXY_SECRET_ENV = "EGI_TEST_PROXY_SECRET"
+CSRF_SECRET_ENV = "CALIBER_CSRF_SIGNING_SECRET"
+PROXY_SECRET = "p" * 40
+CSRF_SECRET = "c" * 48
+
+PROJECT_A = "egi-project-a"
+PROJECT_B = "egi-project-b"
+EDITOR_A = "editor_a"
+APPROVER_A = "approver_a"
+EDITOR_B = "editor_b"
+
+
+def reference_environment(database_url: str, profile: str, workdir: Path) -> dict[str, str]:
+    """The environment of a safe reference deployment (every setting the profile checks is safe).
+
+    It is the single source for the in-process app and for a :class:`ServerProcess` started from the same
+    test, so both run the same configuration. Providers are the offline ones: scenarios measure effects at
+    the downstream, not at a model or an MLflow registry.
+    """
+    return {
+        "CALIBER_PROFILE": profile,
+        "CALIBER_DATABASE_URL": database_url,
+        "CALIBER_AUTH_MODE": "trusted_header",
+        "CALIBER_AUTH_TRUSTED_PROXY_SECRET_ENV": PROXY_SECRET_ENV,
+        PROXY_SECRET_ENV: PROXY_SECRET,
+        "CALIBER_CSRF_ENABLED": "true",
+        "CALIBER_CSRF_SIGNING_SECRET_ENV": CSRF_SECRET_ENV,
+        CSRF_SECRET_ENV: CSRF_SECRET,
+        "CALIBER_AUTH_DEV_FALLBACK_ENABLED": "false",
+        "CALIBER_AUTH_BOOTSTRAP_ALLOW_INSECURE_DEFAULT": "false",
+        "CALIBER_EGRESS_POLICY_ENABLED": "true",
+        "CALIBER_MCP_ALLOW_INSECURE_HTTP": "false",
+        "CALIBER_APPROVAL_ALLOW_SELF_APPROVAL": "false",
+        "CALIBER_OPERATOR_USERS": f"{EDITOR_A},{EDITOR_B}",
+        "CALIBER_APPROVER_USERS": APPROVER_A,
+        "CALIBER_LLM_PROVIDER": "fake",
+        "CALIBER_EVAL_PROVIDER": "fake",
+        "CALIBER_PROMOTER_PROVIDER": "fake",
+        "CALIBER_ARTIFACT_STORE_PROVIDER": "fake",
+        "CALIBER_ALLOW_SIMULATED_PROVIDERS": "true",
+        "CALIBER_ASSISTANT_ENGINE": "fake",
+        "CALIBER_BACKGROUND_TASKS_ENABLED": "false",
+        "CALIBER_WORKFLOW_STORAGE_BASE_URI": f"file://{workdir / 'workspaces'}",
+    }
+
+
+@dataclass
+class ReferenceApp:
+    """A migrated CALIBER app and the settings it runs on.
+
+    ``env`` is what a :class:`ServerProcess` needs to run the same configuration in another process.
+    """
+
+    dialect: str
+    profile: str
+    database_url: str
+    env: dict[str, str]
+    config: CaliberConfig
+    client: TestClient
+    session_factory: sessionmaker[Session]
+    proxy_headers: dict[str, str] = field(default_factory=dict)
+
+    def headers(self, user: str, project: str | None = None) -> dict[str, str]:
+        """Request headers that act as ``user`` (in ``project``), through the trusted proxy."""
+        headers = {**self.proxy_headers, "X-CALIBER-User": user}
+        if project:
+            headers["X-CALIBER-Project"] = project
+        return headers
+
+
+@pytest.fixture(params=DIALECTS)
+def reference_app(
+    request: pytest.FixtureRequest, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> Iterator[ReferenceApp]:
+    """A CALIBER app on a migrated database, once per dialect.
+
+    On PostgreSQL it runs ``CALIBER_PROFILE=reference``. The reference profile refuses SQLite, so the
+    SQLite instance runs the ``development`` profile with the very same safe settings: it exercises the
+    scenario logic on a laptop, and the PostgreSQL instance (the "EGI scenarios (PostgreSQL)" CI job) is
+    the one that proves the profile.
+    """
+    dialect: str = request.param
+    profile = "reference" if dialect == "postgresql" else "development"
+    with dialect_database_url(dialect, tmp_path, "egi_reference") as url:
+        alembic = build_config()
+        alembic.set_main_option("sqlalchemy.url", url)
+        command.upgrade(alembic, "head")
+        env = reference_environment(url, profile, tmp_path)
+        for key, value in env.items():
+            monkeypatch.setenv(key, value)
+        config = CaliberConfig.load(environ=env)
+        app = create_app(config)
+        with TestClient(app) as client:
+            yield ReferenceApp(
+                dialect=dialect,
+                profile=profile,
+                database_url=url,
+                env=env,
+                config=config,
+                client=client,
+                session_factory=app.state.session_factory,
+                proxy_headers={"X-CALIBER-Proxy-Secret": PROXY_SECRET},
+            )
+
+
+@dataclass(frozen=True)
+class Workspaces:
+    project_a: str
+    project_b: str
+    editor_a: str
+    approver_a: str
+    editor_b: str
+
+
+@pytest.fixture
+def two_workspaces(reference_app: ReferenceApp) -> Workspaces:
+    """Project A (``editor_a`` and ``approver_a``) and project B (``editor_b``), seeded in the database."""
+    with reference_app.session_factory() as session:
+        session.add_all(
+            [
+                CaliberProject(project_id=PROJECT_A, name="EGI project A", owner="@egi"),
+                CaliberProject(project_id=PROJECT_B, name="EGI project B", owner="@egi"),
+            ]
+        )
+        session.flush()
+        for member, user, project in (
+            ("egi-m-editor-a", EDITOR_A, PROJECT_A),
+            ("egi-m-approver-a", APPROVER_A, PROJECT_A),
+            ("egi-m-editor-b", EDITOR_B, PROJECT_B),
+        ):
+            session.add(
+                CaliberProjectMember(
+                    member_id=member,
+                    project_id=project,
+                    user_id=user,
+                    role="editor",
+                    created_by="@egi",
+                )
+            )
+        session.commit()
+    return Workspaces(PROJECT_A, PROJECT_B, EDITOR_A, APPROVER_A, EDITOR_B)
+
+
+# ------------------------------------------------------------------------------ scripted model
+
+
+@dataclass
+class ScriptedModel:
+    """The two model turns of the document-request journey, the same on every run.
+
+    The first turn proposes the tool call ``request_missing_document(case_id, document_type)``; the
+    second reports ``completed``. A scenario feeds these to whatever consumes model turns (the agent step
+    arrives with #524), so no scenario depends on a live model and every proposal is reproducible.
+    """
+
+    case_id: str = "MORT-2026-000184"
+    document_type: str = "pay_statement"
+    calls: list[dict[str, Any]] = field(default_factory=list)
+
+    def next_turn(self) -> dict[str, Any]:
+        if not self.calls:
+            turn: dict[str, Any] = {
+                "type": "tool_call",
+                "name": "request_missing_document",
+                "arguments": {"case_id": self.case_id, "document_type": self.document_type},
+            }
+        else:
+            turn = {"type": "completed", "summary": f"requested {self.document_type}"}
+        self.calls.append(turn)
+        return turn
+
+
+@pytest.fixture
+def scripted_model() -> ScriptedModel:
+    return ScriptedModel()

@@ -319,3 +319,49 @@ def test_safe_reference_config_starts(
     monkeypatch.setenv(app_config.csrf_signing_secret_env, "x" * 48)
     app = create_app(_config(app_config))
     assert TestClient(app).get(HEALTH).status_code == 200
+
+
+# ---------------------------------------------------------------- armed fault barriers
+
+
+def test_an_armed_fault_barrier_breaks_the_profile(
+    app_config: CaliberConfig, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("CALIBER_FAULT_BARRIERS", "before_dispatch, after_outbox_commit")
+    (violation,) = reference_profile_violations(_config(app_config))
+    assert violation.code == "fault_barriers_enabled"
+    assert violation.setting == "fault_barriers"
+    assert violation.env_var == "CALIBER_FAULT_BARRIERS"
+    assert violation.message == (
+        "fault barriers are armed (after_outbox_commit, before_dispatch), so this process exits on "
+        "purpose when it reaches one; unset CALIBER_FAULT_BARRIERS for the reference profile"
+    )
+
+
+@pytest.mark.parametrize("value", [None, "", "  ", " , "])
+def test_unset_or_blank_fault_barriers_are_not_a_violation(
+    app_config: CaliberConfig, monkeypatch: pytest.MonkeyPatch, value: str | None
+) -> None:
+    if value is None:
+        monkeypatch.delenv("CALIBER_FAULT_BARRIERS", raising=False)
+    else:
+        monkeypatch.setenv("CALIBER_FAULT_BARRIERS", value)
+    assert reference_profile_violations(_config(app_config)) == []
+
+
+def test_the_reference_profile_refuses_to_start_with_an_armed_barrier(
+    app_config: CaliberConfig, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("CALIBER_FAULT_BARRIERS", "after_downstream_commit")
+    with pytest.raises(ConfigError) as refused:
+        create_app(_config(app_config))
+    assert str(refused.value).splitlines()[0] == "reference profile refused (1 violation):"
+    assert "after_downstream_commit" in str(refused.value)
+
+
+def test_the_development_profile_starts_with_an_armed_barrier(
+    app_config: CaliberConfig, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Scenarios arm barriers on development-profile apps; only the reference profile forbids it."""
+    monkeypatch.setenv("CALIBER_FAULT_BARRIERS", "before_dispatch")
+    assert TestClient(create_app(app_config)).get(HEALTH).status_code == 200
