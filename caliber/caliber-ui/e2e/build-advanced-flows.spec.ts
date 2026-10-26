@@ -92,7 +92,7 @@ test.describe("Build Section Advanced Journeys", () => {
     const updatedSnippet = "Revised playbook guidance for customer escalations.";
 
     // Seed a prompt via the API (agent registration no longer creates a prompt),
-    // then drive the card's Edit → Save-as-new-version → version-history flow.
+    // then drive the card's Edit → Save new version → Promote → version-history flow.
     const { name: promptName } = await createPromptViaApi(page, {
       template: `You are a calm support agent. ${initialSnippet}`,
     });
@@ -113,7 +113,10 @@ test.describe("Build Section Advanced Journeys", () => {
     const editTemplate = page.locator("form textarea").first();
     await editTemplate.fill(`You are a calm support agent. ${updatedSnippet}`);
     await page.getByPlaceholder("Updated prompt").fill("Playwright prompt revision");
-    await page.getByRole("button", { name: "Save as New Version" }).click();
+    // Saving and promoting are separate controls: save keeps the panel open and offers "Promote vN to @alias",
+    // and a successful promote closes it.
+    await page.getByTestId("prompt-edit-save").click();
+    await page.getByTestId("prompt-edit-promote").click();
 
     await expect(page.getByRole("heading", { name: /Edit Prompt:/ })).toHaveCount(0);
 

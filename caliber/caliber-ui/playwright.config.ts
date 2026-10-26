@@ -26,6 +26,9 @@ const FEATURE_FLAGS = {
   CALIBER_FEATURE_INTEGRATIONS: "true",
   CALIBER_FEATURE_COOKBOOKS: "true",
   CALIBER_FEATURE_RELEASE_CANDIDATES: "true",
+  // The Aria toggle is disabled while no LLM key is set, which made the shell spec fail on any machine without one.
+  // The suite asserts the product surface, not a model, so it runs the deterministic fake engine.
+  CALIBER_ASSISTANT_ENGINE: "fake",
 };
 
 export default defineConfig({
