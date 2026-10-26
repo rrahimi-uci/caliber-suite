@@ -1,5 +1,11 @@
 # CALIBER delivery plan for a five-person team
 
+> **Historical plan.** For executable tasks and corrected contracts use the
+> [2026-10-26 single-tenant Beta/MVP execution plan](planning/BETA_MVP_EXECUTION_PLAN.md).
+> The old task-order, kickoff-splitting, exactly-once and merge guidance below is not operational authority.
+> Current GitHub child issues supersede it; only the owner merges PRs. Current staffing is three people and
+> dates require reforecast. D9 is core proof, not the full MVP release.
+
 > **Planning proposal, not a commitment and not part of the `0.1.0a1` alpha.** It describes a possible post-alpha program
 > (a Beta and an MVP gate) built on the [reference architecture gap analysis](CALIBER_REFERENCE_ARCHITECTURE_GAP_ANALYSIS.md).
 > The current product boundary is [Alpha scope and limitations](start/alpha-scope.md).
