@@ -44,6 +44,7 @@ REQUIRED_GATES = (
     "Backend smoke",
     "Backend core journey",
     "Migration parity (PostgreSQL)",
+    "EGI scenarios (PostgreSQL)",
     "Docs validation",
     "UI (test + build)",
     "Compose merged-config validation",

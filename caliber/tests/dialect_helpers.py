@@ -9,10 +9,11 @@ here so a second test module -- currently
 cross-dialect concurrent-allocation gap) -- can run the same
 ``DIALECTS``-parametrized pattern against a real PostgreSQL server without
 duplicating the throwaway-database bookkeeping. Any test module using this
-must also be added to the ``migration-parity-postgres`` job's ``pytest``
-invocation (both ``.github/workflows/ci.yml`` and
-``scripts/ci-local.sh::job_migration_parity_postgres``) or its
-``postgresql``-parametrized cases will simply never run.
+must also be run by a job that sets ``CALIBER_TEST_POSTGRES_URL``: either added to the
+``migration-parity-postgres`` job's ``pytest`` invocation (both ``.github/workflows/ci.yml`` and
+``scripts/ci-local.sh::job_migration_parity_postgres``), or, for the EGI scenarios, living under
+``tests/egi_scenarios`` (the "EGI scenarios (PostgreSQL)" job), or its ``postgresql``-parametrized cases
+will simply never run.
 """
 
 from __future__ import annotations
