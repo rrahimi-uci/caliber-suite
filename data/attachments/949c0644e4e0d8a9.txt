@@ -1,1 +1,0 @@
-INFO     caliber.observability.incidents:incidents.py:355 incident INC-silenced is silenced until 2026-10-26T18:28:18.646533; recorded but not routed
