@@ -32,9 +32,11 @@ from starlette.responses import (
 from starlette.routing import Route
 
 from caliber.audit import record as audit_record
-from caliber.auth import require_user, resolve_identity
+from caliber.auth import SCOPE_ADMIN, require_scopes, require_user, resolve_identity
 from caliber.observability.trace_access import (
+    ExperimentLookupError,
     TraceNotReadableError,
+    experiment_claim_conflicts,
     is_visible,
     require_readable_trace,
     visible_experiments,
@@ -59,6 +61,7 @@ TRACES_PATH = PREFIX + "/observability/traces"
 TRACE_DETAIL_PATH = PREFIX + "/observability/traces/{trace_id}"
 FEEDBACK_PATH = PREFIX + "/observability/traces/{trace_id}/feedback"
 EXPERIMENTS_PATH = PREFIX + "/observability/experiments"
+CLAIM_CONFLICTS_PATH = PREFIX + "/observability/experiment-claim-conflicts"
 METRICS_PATH = PREFIX + "/observability/metrics"
 ALLURE_REPORT_PATH = PREFIX + "/observability/allure-report"
 ALLURE_REPORT_FILE_PATH = PREFIX + "/observability/allure-report/{path:path}"
@@ -101,7 +104,11 @@ def visible_experiments_for(request: Request) -> set[str] | None:
     """The experiments the caller may see traces from; ``None`` is every experiment (an admin)."""
     identity = resolve_identity(request)
     with get_session_factory(request)() as session:
-        return visible_experiments(session, identity)
+        try:
+            return visible_experiments(session, identity)
+        except ExperimentLookupError as exc:
+            # Ownership cannot be decided while the tracking backend does not answer: closed, not empty.
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
 def _require_visible_filter(experiment_filter: str, visible: set[str] | None) -> None:
@@ -347,6 +354,20 @@ async def list_experiments(request: Request) -> JSONResponse:
         and is_visible(str(exp.experiment_id), visible)
     ]
     return JSONResponse({"data": {"experiments": out}})
+
+
+async def list_experiment_claim_conflicts(request: Request) -> JSONResponse:
+    """Experiments claimed by more than one project or user, which are hidden from everyone but an admin.
+
+    An operator resolves each by removing the claim that should not exist; nothing here picks a winner.
+    """
+    require_scopes(request, [SCOPE_ADMIN])
+    with get_session_factory(request)() as session:
+        try:
+            conflicts = experiment_claim_conflicts(session)
+        except ExperimentLookupError as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+    return JSONResponse({"data": {"conflicts": conflicts}})
 
 
 async def get_trace(request: Request) -> JSONResponse:
@@ -768,6 +789,7 @@ async def redirect_allure_report(request: Request) -> RedirectResponse:
 
 def register(app: Starlette) -> None:
     app.routes.append(Route(EXPERIMENTS_PATH, list_experiments, methods=["GET"]))
+    app.routes.append(Route(CLAIM_CONFLICTS_PATH, list_experiment_claim_conflicts, methods=["GET"]))
     app.routes.append(Route(METRICS_PATH, get_metrics, methods=["GET"]))
     app.routes.append(Route(ALLURE_REPORT_PATH, redirect_allure_report, methods=["GET"]))
     app.routes.append(Route(ALLURE_REPORT_FILE_PATH, serve_allure_report, methods=["GET"]))

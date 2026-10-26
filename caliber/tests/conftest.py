@@ -261,6 +261,33 @@ _PERMISSIVE_TEST_USERS = "@test,@admin,@reza,@sarah,@alex,@a,@b"
 
 
 @pytest.fixture(autouse=True)
+def _hermetic_experiment_resolution(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
+    """No test asks a real tracking backend what an experiment reference means.
+
+    Claims and visibility resolve experiment names and ids through MLflow (``trace_access.resolve_experiment``),
+    behind a process-wide cache. By default every reference resolves to "no such experiment", so a claim is
+    compared as written; a test that cares installs its own ``mlflow.get_experiment*`` (as the trace scoping
+    tests do). The cache is cleared around every test so none inherits another's answers.
+    """
+    import mlflow
+    from mlflow.exceptions import MlflowException
+    from mlflow.protos.databricks_pb2 import RESOURCE_DOES_NOT_EXIST
+
+    from caliber.observability.trace_access import clear_resolution_cache
+
+    def not_found(experiment_id: str) -> None:
+        raise MlflowException(
+            f"No Experiment with id={experiment_id} exists", error_code=RESOURCE_DOES_NOT_EXIST
+        )
+
+    monkeypatch.setattr(mlflow, "get_experiment_by_name", lambda name: None)
+    monkeypatch.setattr(mlflow, "get_experiment", not_found)
+    clear_resolution_cache()
+    yield
+    clear_resolution_cache()
+
+
+@pytest.fixture(autouse=True)
 def _default_tests_to_trusted_header_auth(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     """Make every test app resolve identity from ``X-CALIBER-User``.
 

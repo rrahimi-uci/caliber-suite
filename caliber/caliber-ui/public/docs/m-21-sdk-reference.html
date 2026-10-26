@@ -4070,6 +4070,13 @@
 <p><strong>Returns:</strong> <code>Any</code></p>
 <p><strong>Raises:</strong></p>
 <ul><li><a href="#caliberapierror"><code>CaliberAPIError</code></a></li><li><a href="#calibertransporterror"><code>CaliberTransportError</code></a></li></ul>
+<h6 id="experiment_claim_conflicts-listdictstr-any"><code>experiment_claim_conflicts() -&gt; list[dict[str, Any]]</code><a class="anchor" href="#experiment_claim_conflicts-listdictstr-any" aria-hidden="true" tabindex="-1">#</a></h6>
+<p>Experiments claimed by more than one project or user (admin only).</p>
+<p>Such an experiment is hidden from every non-admin until an operator removes the claim that should not exist. Each item is `<code>{"experiment": &lt;canonical id&gt;, "claims": [{"claim", "scope", "agent_id", "workflow_id"}, ...]}</code>`; nothing here picks a winner.</p>
+<p>This callable takes no public parameters.</p>
+<p><strong>Returns:</strong> <code>list[dict[str, Any]]</code></p>
+<p><strong>Raises:</strong></p>
+<ul><li><a href="#caliberapierror"><code>CaliberAPIError</code></a></li><li><a href="#calibertransporterror"><code>CaliberTransportError</code></a></li></ul>
 <h6 id="metricsparams-any"><code>metrics(**params) -&gt; Any</code><a class="anchor" href="#metricsparams-any" aria-hidden="true" tabindex="-1">#</a></h6>
 <p>Operate on the observability traces and metrics surface with the supplied arguments and return the server response.</p>
 <div class="table-wrap"><table><thead><tr><th>Parameter</th><th>Kind</th><th>Type</th><th>Default</th></tr></thead><tbody><tr><td><code>params</code></td><td>var-keyword</td><td><code>Any</code></td><td><code>—</code></td></tr></tbody></table></div>
