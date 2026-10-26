@@ -68,6 +68,10 @@ class WorkerNote:
     tables: tuple[str, ...]
     ownership: Ownership
 
+    def __post_init__(self) -> None:
+        if self.ownership not in OWNERSHIP_VALUES:
+            raise ValueError(f"ownership must be one of {OWNERSHIP_VALUES}, got {self.ownership!r}")
+
 
 #: One entry per background worker, keyed by class name (the stable
 #: identity -- `_build_lifespan`'s parameter names are local implementation
@@ -78,11 +82,11 @@ class WorkerNote:
 #: Every worker is ``owner_only`` (ADR 0002: only the execution-owner lease
 #: holder runs the loops). Per-row claims (an atomic ``UPDATE ... WHERE
 #: status = 'queued'``, a job lease, an idempotency key) make an overlap
-#: harmless today, but they do not fence a stale process whose lease
-#: expired mid-transition, and the sweeps (janitor, reconciler, scheduler)
-#: and the webhook retry loop have no per-row claim at all. ``any_process``
-#: is therefore empty until a loop is shown safe under fencing, and moving
-#: one there is an ADR 0002 change.
+#: harmless today for most loops, but none fences a stale process whose lease
+#: expired mid-transition, and ``AriaPlanWorker`` and
+#: ``ReleaseReconcilerTask`` have no per-row claim at all. ``any_process`` is
+#: therefore empty until a loop is shown safe under fencing, and moving one
+#: there is an ADR 0002 change.
 _WORKER_NOTES: dict[str, WorkerNote] = {
     "RefinementWorker": WorkerNote(
         description="Advances refinement jobs through the 6-stage pipeline.",

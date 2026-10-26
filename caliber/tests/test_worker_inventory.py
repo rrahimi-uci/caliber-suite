@@ -13,7 +13,6 @@ from pathlib import Path
 import pytest
 
 from caliber.db import models
-from caliber.observability import worker_inventory as inventory_module
 from caliber.observability.worker_inventory import (
     _WORKER_NOTES,
     OWNERSHIP_VALUES,
@@ -21,6 +20,8 @@ from caliber.observability.worker_inventory import (
     discover_lifespan_workers,
     worker_inventory,
 )
+
+ADR_PATH = Path(__file__).resolve().parents[2] / "docs/architecture/adr/0002-execution-ownership.md"
 
 #: The 9 workers known to be started by server.py::_build_lifespan today,
 #: in startup order. A literal pin: the whole point of deriving rather than
@@ -140,24 +141,14 @@ def test_a_discovered_worker_with_no_note_has_no_ownership(monkeypatch: pytest.M
     assert by_class["RefinementWorker"].ownership == "owner_only"
 
 
-def test_a_note_with_an_unsupported_ownership_fails_the_gate(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    note = _WORKER_NOTES["JanitorTask"]
-    monkeypatch.setitem(
-        _WORKER_NOTES,
-        "JanitorTask",
-        WorkerNote(description=note.description, tables=note.tables, ownership="whoever"),  # type: ignore[arg-type]
-    )
-    bad = [d.cls_name for d in worker_inventory() if d.ownership not in OWNERSHIP_VALUES]
-    assert bad == ["JanitorTask"]
+def test_a_note_with_an_unsupported_ownership_is_refused() -> None:
+    with pytest.raises(ValueError, match="ownership must be one of"):
+        WorkerNote(description="x", tables=(), ownership="whoever")  # type: ignore[arg-type]
 
 
+@pytest.mark.skipif(not ADR_PATH.is_file(), reason="docs/ is not part of this installation")
 def test_adr_0002_appendix_matches_the_inventory() -> None:
-    adr = (
-        Path(inventory_module.__file__).resolve().parents[4]
-        / "docs/architecture/adr/0002-execution-ownership.md"
-    ).read_text(encoding="utf-8")
+    adr = ADR_PATH.read_text(encoding="utf-8")
     section = adr.split("## Appendix: worker ownership classification", 1)[1]
     rows = re.findall(r"^\| `(\w+)` \| `(\w+)` \|", section, flags=re.M)
     assert dict(rows) == {d.cls_name: d.ownership for d in worker_inventory()}

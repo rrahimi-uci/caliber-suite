@@ -212,10 +212,10 @@ and `exempt` rows stay with the module the row names.
 The same ten loops, classified for the lease: `owner_only` means only the execution-owner lease holder runs the
 loop and it stops claiming when the lease is lost; every other replica serves requests only. `any_process` would
 mean the loop is safe on every replica at once. The classification is the `ownership` field of
-`caliber/src/caliber/observability/worker_inventory.py`, and `caliber/tests/test_adr_index.py` fails if this table
-and the inventory disagree. All ten are `owner_only`: the claim in the last column makes an overlap harmless today
-but does not fence a stale process whose lease expired mid-transition, and three loops have no per-row claim at
-all. A loop moves to `any_process` only by an amendment to this record that shows it safe under fencing.
+`caliber/src/caliber/observability/worker_inventory.py`, and `caliber/tests/test_worker_inventory.py` fails if this
+table and the inventory disagree. All ten are `owner_only`: the claim in the last column makes an overlap harmless today
+but does not fence a stale process whose lease expired mid-transition, and two loops (`AriaPlanWorker`,
+`ReleaseReconcilerTask`) have no per-row claim at all. A loop moves to `any_process` only by an amendment to this record that shows it safe under fencing.
 
 | background loop | ownership | claim mechanism today |
 | --- | --- | --- |
@@ -224,10 +224,14 @@ all. A loop moves to `any_process` only by an amendment to this record that show
 | `AriaPlanWorker` | `owner_only` | none: polls parked plan steps and resumes them |
 | `KnowledgeBaseWorker` | `owner_only` | per-build lease (`knowledge_build_lease_seconds`) |
 | `WorkflowSchedulerTask` | `owner_only` | unique `(workflow_id, source, idempotency_key)` on `cron:{alias}:{minute}` |
-| `JanitorTask` | `owner_only` | none: idempotent sweeps, one audit entry per reclaimed row |
+| `JanitorTask` | `owner_only` | conditional `UPDATE ... WHERE` per stale row, audit entry only for the winner; the retention prune is unguarded and harmless when repeated |
 | `ReleaseReconcilerTask` | `owner_only` | none: settles incomplete release operations by scan |
 | `CalibrationDrain` | `owner_only` | conditional `UPDATE ... WHERE status = 'queued'` claim |
-| `WebhookDispatcher` | `owner_only` | accept lease (60 s default) plus an in-process in-flight claim |
+| `WebhookDispatcher` | `owner_only` | accept lease (at least 60 s, covering the retry window) plus an in-process in-flight claim |
 | `WorkspaceImportWorker` | `owner_only` | per-job lease (`workspace_import_lease_seconds`) |
 
 The event bus is not in the worker inventory and is classified by its own row in the table above.
+
+One consequence to plan for: `WebhookDispatcher` runs only on the lease holder, so an event published on an API-only
+replica reaches it only if the event bus crosses processes (the database, Redis or NATS bus). An in-process bus on
+a multi-replica deployment would never deliver it, so a multi-replica reference deployment must not use one.
