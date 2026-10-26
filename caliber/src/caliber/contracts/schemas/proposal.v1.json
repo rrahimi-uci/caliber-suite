@@ -1,0 +1,104 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://caliber.dev/schemas/proposal.v1.json",
+  "title": "Proposal: one effect a run asks to perform, before it is performed",
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "const": "v1"
+    },
+    "proposal_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "workflow_run_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "node_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "logical_key": {
+      "type": "string",
+      "minLength": 1
+    },
+    "intent_hash": {
+      "type": "string",
+      "minLength": 1
+    },
+    "effect_class": {
+      "type": "string",
+      "enum": [
+        "read",
+        "reversible_write",
+        "irreversible_write",
+        "export"
+      ]
+    },
+    "target": {
+      "type": "object",
+      "properties": {
+        "connector": {
+          "type": "string",
+          "minLength": 1
+        },
+        "resource": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "connector",
+        "resource"
+      ],
+      "additionalProperties": false
+    },
+    "args": {
+      "type": "object"
+    },
+    "expected_resource_version": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "minLength": 1
+    },
+    "state": {
+      "type": "string",
+      "enum": [
+        "proposed",
+        "approved",
+        "dispatched",
+        "committed",
+        "failed",
+        "unknown",
+        "reconciled"
+      ]
+    },
+    "tenant_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "region": {
+      "type": "string",
+      "minLength": 1
+    }
+  },
+  "required": [
+    "schema_version",
+    "proposal_id",
+    "workflow_run_id",
+    "node_id",
+    "logical_key",
+    "intent_hash",
+    "effect_class",
+    "target",
+    "args",
+    "expected_resource_version",
+    "state",
+    "tenant_id",
+    "region"
+  ],
+  "additionalProperties": false
+}

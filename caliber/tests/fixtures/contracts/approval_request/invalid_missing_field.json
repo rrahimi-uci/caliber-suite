@@ -1,0 +1,16 @@
+{
+  "schema_version": "v1",
+  "proposal_id": "pr-0001",
+  "intent_hash": "sha256:cccc",
+  "evidence_hash": "sha256:ffff",
+  "policy_digest": "sha256:1111",
+  "expected_resource_version": "1",
+  "risk_class": "irreversible_write",
+  "requested_by": "editor_a",
+  "expires_at": "2026-10-26T10:00:00Z",
+  "allowed_responses": [
+    "approve",
+    "reject",
+    "request_changes"
+  ]
+}

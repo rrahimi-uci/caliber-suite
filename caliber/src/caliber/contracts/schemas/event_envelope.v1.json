@@ -1,0 +1,78 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://caliber.dev/schemas/event_envelope.v1.json",
+  "title": "EventEnvelope: a CloudEvents 1.0 envelope; the payload is referenced, never inline",
+  "type": "object",
+  "properties": {
+    "specversion": {
+      "const": "1.0"
+    },
+    "id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "source": {
+      "type": "string",
+      "minLength": 1
+    },
+    "type": {
+      "type": "string",
+      "minLength": 1
+    },
+    "time": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^\\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\\d|3[01])T([01]\\d|2[0-3]):[0-5]\\d:([0-5]\\d|60)(\\.\\d+)?(Z|[+-]([01]\\d|2[0-3]):[0-5]\\d)\\Z"
+    },
+    "tenantid": {
+      "type": "string",
+      "minLength": 1
+    },
+    "correlationid": {
+      "type": "string",
+      "minLength": 1
+    },
+    "causationid": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "minLength": 1
+    },
+    "traceparent": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "minLength": 1,
+      "pattern": "^[0-9a-f]{2}-[0-9a-f]{32}-[0-9a-f]{16}-[0-9a-f]{2}\\Z"
+    },
+    "dataref": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "minLength": 1
+    },
+    "datahash": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "minLength": 1
+    },
+    "schemaversion": {
+      "const": "v1"
+    }
+  },
+  "required": [
+    "specversion",
+    "id",
+    "source",
+    "type",
+    "time",
+    "tenantid",
+    "correlationid"
+  ],
+  "additionalProperties": false
+}
