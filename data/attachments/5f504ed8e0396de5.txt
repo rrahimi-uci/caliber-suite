@@ -1,0 +1,2 @@
+{"t":"2026-10-26T14:36:26.049Z","severity":"INFO","logger":"caliber.orchestrator.candidate","message":"DSPy trainset: no eval dataset 'default' for agent=support-agent; provider will fall back"}
+{"t":"2026-10-26T14:36:26.056Z","severity":"INFO","logger":"caliber.orchestrator.candidate","message":"candidate complete: job=RFN-D optimizer=DSPyBootstrapFewShot cost_usd=0.0040"}
