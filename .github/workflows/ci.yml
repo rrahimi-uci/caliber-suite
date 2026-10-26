@@ -470,6 +470,7 @@ jobs:
           tests/test_profile.py
           tests/egi_scenarios/test_downstream_fixture.py
           tests/test_protected_effect_inventory.py
+          tests/test_adr_index.py
       - name: Run the SDK cookbook example tests against their stateful stand-ins
         # Every cookbook lab has an SDK example script that is replayed here against a
         # stateful stand-in server (the labs themselves run for real in cookbook-labs.yml).
