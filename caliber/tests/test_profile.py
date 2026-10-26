@@ -202,8 +202,15 @@ def test_safe_reference_config_starts_on_postgresql(
         cfg.set_main_option("sqlalchemy.url", url)
         command.upgrade(cfg, "head")
         app = create_app(_config(app_config, database_url=url))
-        response = TestClient(app).get(HEALTH)
+        client = TestClient(app)
+        response = client.get(HEALTH)
+        # The reference profile also bounds request bodies: one byte over the limit is refused outright.
+        oversized = client.post(
+            HEALTH, content=b"x" * (app.state.config.reference_max_body_bytes + 1)
+        )
     assert response.status_code == 200, response.text
+    assert oversized.status_code == 413, oversized.text
+    assert oversized.json()["reason"] == "request_too_large"
 
 
 # ---------------------------------------------------------------- what the operator reads
