@@ -467,6 +467,8 @@ jobs:
           tests/test_plugin_contract.py
           tests/test_feature_flags.py
           tests/test_trace_project_scoping.py
+          tests/test_profile.py
+          tests/egi_scenarios/test_downstream_fixture.py
       - name: Run the SDK cookbook example tests against their stateful stand-ins
         # Every cookbook lab has an SDK example script that is replayed here against a
         # stateful stand-in server (the labs themselves run for real in cookbook-labs.yml).
@@ -559,6 +561,7 @@ jobs:
         run: >-
           pytest tests/test_migrations.py
           tests/test_workspace_revision_allocation_concurrency.py
+          tests/test_profile.py
           -k postgresql --no-cov -q
 
   test:

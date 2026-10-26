@@ -111,6 +111,7 @@ remain supported overrides.
 
 | Setting | Purpose |
 | --- | --- |
+| `CALIBER_PROFILE` | `development` (the default: start with whatever is set) or `reference` (refuse to start while any setting breaks the reference deployment: a SQLite database, CSRF off, the dev identity fallback, the `admin/admin` bootstrap, `trusted_header` without a proxy secret, egress policy off, plain-HTTP MCP, self-approval; every violation is listed with the variable to change) |
 | `CALIBER_AUTH_MODE` | `session` (the default: server-side sessions and personal access tokens) or `trusted_header` (trusts `X-CALIBER-User`; only behind a proxy) |
 | `CALIBER_ADMIN_USERS`, `CALIBER_OPERATOR_USERS`, `CALIBER_APPROVER_USERS` | comma-separated user ids granted `caliber.admin`, `caliber.operator` and `caliber.approver`; all empty by default, so a first login is a viewer. These are global scopes, not project roles, and `caliber.admin` is not an implicit project member |
 | `CALIBER_CSRF_ENABLED` | `false` by default; when `true`, every `POST`, `PATCH`, `PUT` and `DELETE` (bearer-token calls included) needs an `X-CALIBER-CSRF` token, signed with the secret named by `CALIBER_CSRF_SIGNING_SECRET_ENV` and valid for `CALIBER_CSRF_TOKEN_TTL_SECONDS` (3600 by default) |

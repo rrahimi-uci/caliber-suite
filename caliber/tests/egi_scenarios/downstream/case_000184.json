@@ -1,0 +1,6 @@
+{
+  "case_id": "MORT-2026-000184",
+  "version": 1,
+  "document_requests": [],
+  "missing_documents": ["pay_statement"]
+}

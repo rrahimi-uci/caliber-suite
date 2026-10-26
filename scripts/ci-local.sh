@@ -185,6 +185,8 @@ BACKEND_CORE_TESTS=(
   tests/test_plugin_contract.py
   tests/test_feature_flags.py
   tests/test_trace_project_scoping.py
+  tests/test_profile.py
+  tests/egi_scenarios/test_downstream_fixture.py
 )
 
 job_backend_core() {
@@ -238,6 +240,7 @@ job_migration_parity_postgres() {
     CALIBER_TEST_POSTGRES_URL="postgresql+psycopg://caliber:caliber@localhost:${port}/caliber_migration_admin" \
       "$VENV_PY" -m pytest tests/test_migrations.py \
         tests/test_workspace_revision_allocation_concurrency.py \
+        tests/test_profile.py \
         -k postgresql --no-cov -q
     status=$?
   fi
