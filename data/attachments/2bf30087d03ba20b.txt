@@ -1,1 +1,0 @@
-{"t":"2026-10-26T10:32:29.541Z","severity":"INFO","logger":"caliber.config","message":"CALIBER_LLM_PROVIDER=auto resolved to openai (the key is set)"}
