@@ -41,6 +41,15 @@ An unknown profile name is a configuration error. `GET /ajax-api/2.0/mlflow/cali
 The messages in the refusal name the setting and the variable to change. The table is checked by
 `caliber/tests/test_profile.py`: a rule that is not listed here, or a row without a rule, fails the build.
 
+## What it also does at runtime
+
+Beyond refusing to start, the reference profile **bounds every request body**: a body above
+`CALIBER_REFERENCE_MAX_BODY_BYTES` (default 1 MiB) is answered `413` with
+`{"reason": "request_too_large", "max_bytes": N}`, whether the client declared a large `Content-Length` or
+streamed the body without one (or understated it). The check is the outermost layer, so an oversized request
+is refused before authentication, CSRF or routing reads it. A request at exactly the limit is accepted, and the
+development profile installs no limit.
+
 ## A configuration that passes
 
 ```ini
