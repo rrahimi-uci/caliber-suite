@@ -5,10 +5,10 @@ A record is changed by a new record that supersedes it, not by editing the old o
 
 | ADR | Title | Status |
 | --- | --- | --- |
-| 0001 | Reference profile | planned: B01, #565 (D1) |
-| 0002 | Execution ownership | planned: B01, #565 (D1) |
+| [0001](0001-reference-profile.md) | Reference profile | Accepted |
+| [0002](0002-execution-ownership.md) | Execution ownership | Accepted |
 | 0003 | Control-record schemas | planned: B01, #566 (D1) |
-| [0004](0004-autonomy-levels.md) | Autonomy levels: which roles an agent may hold, per use case | Proposed |
+| [0004](0004-autonomy-levels.md) | Autonomy levels: which roles an agent may hold, per use case | Accepted |
 | 0005 | Credential leases and workload identity | planned: M01, #543 (D6) |
 | 0006 | Release signing and promotion | planned: M02, #544 (D6) |
 | 0007 | Sandbox trust level and egress | planned: M07, #549 (D7) |

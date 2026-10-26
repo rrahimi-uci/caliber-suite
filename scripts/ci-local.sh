@@ -188,6 +188,7 @@ BACKEND_CORE_TESTS=(
   tests/test_profile.py
   tests/egi_scenarios/test_downstream_fixture.py
   tests/test_protected_effect_inventory.py
+  tests/test_adr_index.py
 )
 
 job_backend_core() {

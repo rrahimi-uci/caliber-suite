@@ -2,8 +2,9 @@
 
 ## Status
 
-Proposed, 2026-10-25. Accepted when B01 (#565) lands the ADR index and 0001–0003, which this ADR builds on.
-Enforced by package M27 (D10); the vocabulary applies from D2 so earlier packages use it.
+Accepted, 2026-10-26 (proposed 2026-10-25). Accepted with B01 (#565), which landed the ADR index and 0001–0002;
+0003 (#566) follows in D1 and this ADR builds on it. Enforced by package M27 (D10); the vocabulary applies from
+D2 so earlier packages use it.
 
 ## Context
 
