@@ -1,0 +1,17 @@
+{
+  "schema_version": "v1",
+  "approval_request_id": "ar-ux-0001",
+  "proposal_id": "pr-ux-0001",
+  "intent_hash": "sha256:3f9a1c0b77d2e5a8c1d4b6f90a2c7e3b5d8f1a4c6e9b0d2f5a7c8e1b3d6f9a0c",
+  "evidence_hash": "sha256:9c2e4a6b8d0f1357a9bdf2c4e6081a3c5e7f9b1d3f5a7c9e0b2d4f6a8c0e2b4d",
+  "policy_digest": "sha256:5e7b2d9f0a1c3e5b7d9f1a3c5e7b9d0f2a4c6e8b0d1f3a5c7e9b2d4f6a8c0e1b",
+  "expected_resource_version": "1",
+  "risk_class": "reversible_write",
+  "requested_by": "editor_a",
+  "expires_at": "2026-10-26T14:30:00Z",
+  "allowed_responses": [
+    "approve",
+    "reject",
+    "request_changes"
+  ]
+}
