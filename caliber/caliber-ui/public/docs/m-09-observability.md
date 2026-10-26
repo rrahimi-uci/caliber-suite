@@ -14,7 +14,7 @@
 | **Key surfaces** | In-app trace viewer and monitoring dashboard (`Observability.tsx`), structured review queues that write back to MLflow, and operator queue/alert/incident/dead-letter APIs. |
 | **Retention** | Server-owned MLflow trace archival (Postgres → MinIO) via `MLFLOW_TRACE_ARCHIVAL_CONFIG` on the Docker MLflow image, opt-in and read transparently. |
 | **Alerting** | Operator-declared SLO objectives evaluated on read, with incidents opened/resolved in `caliber_incidents` and routed over the event bus to the webhook dispatcher. Silencing and acknowledgement are recorded, not inferred. |
-| **Trust / safety** | Authenticated trace surfaces (not scoped to a project: any signed-in user can read traces, see [Alpha scope](m-61-alpha-scope.md)), redaction and byte-caps before MLflow, and an explicit `503` (not an empty list) when the trace store is unreachable; the monitoring and experiment reads degrade to empty. |
+| **Trust / safety** | Authenticated trace surfaces scoped by experiment ownership (a non-admin sees only traces of experiments bound to an agent or workflow they can see; admins see all; MLflow's own UI is not scoped, see [Alpha scope](m-61-alpha-scope.md)), redaction and byte-caps before MLflow, and an explicit `503` (not an empty list) when the trace store is unreachable; the monitoring and experiment reads degrade to empty. |
 
 The sections below start from this picture and drill down into each concern in detail, from scope and module boundaries through to retention and review queues.
 
