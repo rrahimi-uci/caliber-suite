@@ -217,3 +217,25 @@ def test_projects_resource_pin_does_not_leak_into_the_next_call() -> None:
         caliber.whoami()
 
     assert seen == ["PRJ-B", "PRJ-A"]
+
+
+def test_experiment_claim_conflicts_unwraps_the_server_envelope() -> None:
+    seen: dict[str, str] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["path"] = request.url.path
+        conflict = {"experiment": "7", "claims": [{"claim": "billing-exp", "agent_id": "a"}]}
+        return httpx.Response(200, json={"data": {"conflicts": [conflict]}})
+
+    with client_with(handler, token="calpat_x") as caliber:
+        found = caliber.observability.experiment_claim_conflicts()
+    assert seen["path"].endswith("/observability/experiment-claim-conflicts")
+    assert found == [{"experiment": "7", "claims": [{"claim": "billing-exp", "agent_id": "a"}]}]
+
+
+def test_experiment_claim_conflicts_is_empty_when_there_are_none() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"data": {"conflicts": []}})
+
+    with client_with(handler, token="calpat_x") as caliber:
+        assert caliber.observability.experiment_claim_conflicts() == []

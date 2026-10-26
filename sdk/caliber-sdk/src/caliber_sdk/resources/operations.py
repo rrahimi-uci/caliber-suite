@@ -664,6 +664,17 @@ class ObservabilityAPI(Resource):
     def experiments(self) -> Any:
         return self._get("/observability/experiments")
 
+    def experiment_claim_conflicts(self) -> _List[dict[str, Any]]:
+        """Experiments claimed by more than one project or user (admin only).
+
+        Such an experiment is hidden from every non-admin until an operator removes the claim
+        that should not exist. Each item is ``{"experiment": <canonical id>, "claims":
+        [{"claim", "scope", "agent_id", "workflow_id"}, ...]}``; nothing here picks a winner.
+        """
+        payload = self._get("/observability/experiment-claim-conflicts")
+        items = payload.get("conflicts") if isinstance(payload, dict) else payload
+        return list(items or [])
+
     def metrics(self, **params: Any) -> Any:
         return self._get("/observability/metrics", params=params or None)
 

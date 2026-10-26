@@ -148,9 +148,15 @@ These are real and deliberate for the alpha. Read them before you rely on the pr
   evaluation dataset or a review queue. A trace in any other experiment is hidden from non-admins,
   including workflow runs recorded under a named experiment when the workflow sets no
   `default_experiment_id`. An admin sees every trace, as an admin sees every agent, workflow and run.
-  An experiment cannot be claimed by a different project or user once it is bound, but one that nobody
-  has bound yet goes to whoever binds it first; proving ownership needs CALIBER to create the
-  experiment, which is planned work. **MLflow's own UI and API run on the same server and are not
+  An experiment cannot be claimed by a different project or user once it is bound, **under any alias**:
+  a claim is compared on the experiment id the tracking backend assigns, so naming project B's experiment
+  by its numeric id, its name or a second name of the same experiment is refused (409), and a claim whose
+  experiment cannot be resolved (or that clashes with a claim that cannot) is refused with 503, never
+  guessed, and trace reads answer 503 while a claim cannot be resolved. An experiment that two projects
+  already claim from before this check is hidden from everyone but an admin until an operator removes
+  one of the claims (`GET /observability/experiment-claim-conflicts`, admin only). One that nobody has
+  bound yet goes to whoever binds it first; proving ownership needs CALIBER to create the experiment,
+  which is planned work. **MLflow's own UI and API run on the same server and are not
   scoped**: anyone who can reach the MLflow port can read every project's traces, so keep it off a
   network shared with people who must not. Do not put sensitive data in traces on a shared alpha
   deployment.

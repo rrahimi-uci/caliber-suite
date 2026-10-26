@@ -47,6 +47,7 @@ from caliber.db.models import (
 from caliber.db.scoping import apply_visibility_filter, get_visible
 from caliber.observability.trace_access import (
     ExperimentClaimConflict,
+    ExperimentLookupError,
     assert_experiment_claim_allowed,
 )
 from caliber.prompt_targets import is_hidden_prompt_target
@@ -192,6 +193,11 @@ async def register_agent(request: Request) -> JSONResponse:
             )
         except ExperimentClaimConflict as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
+        except ExperimentLookupError as exc:
+            raise HTTPException(
+                status_code=503,
+                detail=f"the experiment could not be resolved, so it was not claimed: {exc}",
+            ) from exc
 
         # `resource.write.runtime`, composed with the `SCOPE_OPERATOR`
         # global-scope floor above -- the same project-role check every other

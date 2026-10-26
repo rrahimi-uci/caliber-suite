@@ -1689,6 +1689,27 @@ class CaliberConfig(BaseModel):
             "object."
         ),
     )
+    reference_max_body_bytes: int = Field(
+        default=1_048_576,
+        gt=0,
+        description=(
+            "Largest request body, in bytes, the reference profile accepts (413 above it). Enforced by "
+            "``caliber.request_limits.BodySizeLimitMiddleware`` on the declared ``Content-Length`` and on the "
+            "bytes actually streamed, so a chunked or understated body is bounded too. Applies only under "
+            "``CALIBER_PROFILE=reference``; the default profile is unchanged."
+        ),
+    )
+    reference_max_upload_bytes: int = Field(
+        default=268_435_456,
+        gt=0,
+        description=(
+            "Largest ``multipart/form-data`` request body, in bytes, the reference profile accepts (413 above "
+            "it): the file-upload routes (skill zips, attachments, workspace imports, storage objects), whose "
+            "own limits (``workflow_storage.max_upload_bytes``, 250 MiB by default, plus per-route caps) are "
+            "larger than ``reference_max_body_bytes``. Raise it together with ``max_upload_bytes``; the larger "
+            "of the two limits applies to a multipart request. Applies only under ``CALIBER_PROFILE=reference``."
+        ),
+    )
     csrf_token_ttl_seconds: int = Field(
         default=3600,
         gt=0,
@@ -2344,6 +2365,8 @@ _ENV_VAR_TABLE: list[tuple[str, str, Any]] = [
     ("CALIBER_CSRF_ENABLED", "csrf_enabled", _flag),
     ("CALIBER_CSRF_SIGNING_SECRET_ENV", "csrf_signing_secret_env", str),
     ("CALIBER_CSRF_TOKEN_TTL_SECONDS", "csrf_token_ttl_seconds", int),
+    ("CALIBER_REFERENCE_MAX_BODY_BYTES", "reference_max_body_bytes", int),
+    ("CALIBER_REFERENCE_MAX_UPLOAD_BYTES", "reference_max_upload_bytes", int),
     (
         "CALIBER_SERVICE_INVOKE_MAX_BODY_BYTES",
         "service_invoke_max_body_bytes",
