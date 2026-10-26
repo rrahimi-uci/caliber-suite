@@ -45,9 +45,19 @@ import inspect
 import textwrap
 from dataclasses import dataclass
 from types import ModuleType
+from typing import Literal, get_args
 
 _LIFESPAN_BUILDER = "_build_lifespan"
 _LIFESPAN_CALLBACK = "lifespan"
+
+
+#: Who may run a background loop once the execution-owner lease exists
+#: (ADR 0002, #536). ``owner_only``: only the process holding the lease runs
+#: it and it stops claiming when the lease is lost; every other replica
+#: serves requests only. ``any_process``: safe on every replica at once.
+Ownership = Literal["owner_only", "any_process"]
+
+OWNERSHIP_VALUES: tuple[str, ...] = get_args(Ownership)
 
 
 @dataclass(frozen=True)
@@ -56,6 +66,7 @@ class WorkerNote:
 
     description: str
     tables: tuple[str, ...]
+    ownership: Ownership
 
 
 #: One entry per background worker, keyed by class name (the stable
@@ -63,10 +74,20 @@ class WorkerNote:
 #: detail). A class `discover_lifespan_workers()` finds with no entry here,
 #: or an entry naming a class no longer found, fails
 #: `tests/test_worker_inventory.py` by name.
+#:
+#: Every worker is ``owner_only`` (ADR 0002: only the execution-owner lease
+#: holder runs the loops). Per-row claims (an atomic ``UPDATE ... WHERE
+#: status = 'queued'``, a job lease, an idempotency key) make an overlap
+#: harmless today, but they do not fence a stale process whose lease
+#: expired mid-transition, and the sweeps (janitor, reconciler, scheduler)
+#: and the webhook retry loop have no per-row claim at all. ``any_process``
+#: is therefore empty until a loop is shown safe under fencing, and moving
+#: one there is an ADR 0002 change.
 _WORKER_NOTES: dict[str, WorkerNote] = {
     "RefinementWorker": WorkerNote(
         description="Advances refinement jobs through the 6-stage pipeline.",
         tables=("CaliberRefinementJob", "CaliberAgentConfig", "CaliberAuditLog"),
+        ownership="owner_only",
     ),
     "WorkflowRunWorker": WorkerNote(
         description="Executes queued workflow runs and their step checkpoints.",
@@ -79,10 +100,12 @@ _WORKER_NOTES: dict[str, WorkerNote] = {
             "CaliberRuntimeApprovalRequest",
             "CaliberWorkerHeartbeat",
         ),
+        ownership="owner_only",
     ),
     "AriaPlanWorker": WorkerNote(
         description="Resumes and advances durable Aria goal-plan execution.",
         tables=("CaliberAriaPlanStep",),
+        ownership="owner_only",
     ),
     "KnowledgeBaseWorker": WorkerNote(
         description="Runs knowledge-base build/sync jobs and their events.",
@@ -92,26 +115,32 @@ _WORKER_NOTES: dict[str, WorkerNote] = {
             "CaliberKnowledgeBaseRunEvent",
             "CaliberKnowledgeBaseVersion",
         ),
+        ownership="owner_only",
     ),
     "WorkflowSchedulerTask": WorkerNote(
         description="Sweeps cron-scheduled workflow deployments and enqueues runs.",
         tables=("CaliberWorkflow", "CaliberWorkflowDeployment", "CaliberWorkflowVersion"),
+        ownership="owner_only",
     ),
     "JanitorTask": WorkerNote(
         description="Reclaims stuck refinement jobs and prunes retained workflow runs.",
         tables=("CaliberRefinementJob", "CaliberAuditLog", "CaliberWorkflowRun"),
+        ownership="owner_only",
     ),
     "ReleaseReconcilerTask": WorkerNote(
         description="Settles incomplete prompt-alias release operations after missed webhooks.",
         tables=("CaliberReleaseOperation",),
+        ownership="owner_only",
     ),
     "CalibrationDrain": WorkerNote(
         description="Drains queued tool-calibration jobs against the live registry.",
         tables=("CaliberCalibrationJob", "CaliberToolRegistry"),
+        ownership="owner_only",
     ),
     "WebhookDispatcher": WorkerNote(
         description="Delivers accepted outbound webhook events; retries into the dead-letter queue.",
         tables=("CaliberWebhookAcceptedEvent", "CaliberWebhookDeadLetter"),
+        ownership="owner_only",
     ),
     "WorkspaceImportWorker": WorkerNote(
         description=(
@@ -126,6 +155,7 @@ _WORKER_NOTES: dict[str, WorkerNote] = {
             "CaliberWorkspaceRevisionResource",
             "CaliberProject",
         ),
+        ownership="owner_only",
     ),
 }
 
@@ -140,6 +170,7 @@ class WorkerDescriptor:
     description: str | None
     tables: tuple[str, ...]
     registers_heartbeat: bool
+    ownership: Ownership | None
 
 
 def _strip_optional(annotation: ast.expr) -> ast.expr:
@@ -285,12 +316,15 @@ def worker_inventory() -> list[WorkerDescriptor]:
                 description=note.description if note else None,
                 tables=note.tables if note else (),
                 registers_heartbeat=_module_source_mentions_heartbeat(cls_name),
+                ownership=note.ownership if note else None,
             )
         )
     return descriptors
 
 
 __all__ = [
+    "OWNERSHIP_VALUES",
+    "Ownership",
     "WorkerDescriptor",
     "WorkerNote",
     "discover_lifespan_workers",

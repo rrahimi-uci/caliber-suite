@@ -7,9 +7,17 @@ between what's derived and the hand-maintained `_WORKER_NOTES` registry.
 
 from __future__ import annotations
 
+import re
+from pathlib import Path
+
+import pytest
+
 from caliber.db import models
+from caliber.observability import worker_inventory as inventory_module
 from caliber.observability.worker_inventory import (
     _WORKER_NOTES,
+    OWNERSHIP_VALUES,
+    WorkerNote,
     discover_lifespan_workers,
     worker_inventory,
 )
@@ -96,3 +104,61 @@ def test_only_workflow_run_worker_registers_a_heartbeat() -> None:
 def test_worker_inventory_covers_every_expected_class() -> None:
     cls_names = {d.cls_name for d in worker_inventory()}
     assert cls_names == {cls_name for _name, cls_name in _EXPECTED_WORKERS}
+
+
+def test_ownership_values_are_the_two_documented_modes() -> None:
+    assert OWNERSHIP_VALUES == ("owner_only", "any_process")
+
+
+def test_every_loop_has_ownership() -> None:
+    """Every discovered lifespan worker declares who may run it; a loop with no
+    classification, or one outside the two modes, fails by name."""
+    bad = {
+        d.cls_name: d.ownership for d in worker_inventory() if d.ownership not in OWNERSHIP_VALUES
+    }
+    assert not bad, f"workers with no valid ownership in worker_inventory.py: {bad}"
+
+
+def test_every_loop_is_owner_only_until_an_adr_amendment_says_otherwise() -> None:
+    """ADR 0002: only the execution-owner lease holder runs the loops."""
+    assert {d.cls_name: d.ownership for d in worker_inventory()} == {
+        cls: "owner_only" for _name, cls in _EXPECTED_WORKERS
+    }
+
+
+def test_a_worker_note_cannot_be_written_without_ownership() -> None:
+    with pytest.raises(TypeError, match="ownership"):
+        WorkerNote(description="x", tables=())  # type: ignore[call-arg]
+
+
+def test_a_discovered_worker_with_no_note_has_no_ownership(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The inventory reports the gap rather than guessing, so the gate above fails by name."""
+    monkeypatch.delitem(_WORKER_NOTES, "JanitorTask")
+    by_class = {d.cls_name: d for d in worker_inventory()}
+    assert by_class["JanitorTask"].ownership is None
+    assert by_class["JanitorTask"].description is None
+    assert by_class["RefinementWorker"].ownership == "owner_only"
+
+
+def test_a_note_with_an_unsupported_ownership_fails_the_gate(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    note = _WORKER_NOTES["JanitorTask"]
+    monkeypatch.setitem(
+        _WORKER_NOTES,
+        "JanitorTask",
+        WorkerNote(description=note.description, tables=note.tables, ownership="whoever"),  # type: ignore[arg-type]
+    )
+    bad = [d.cls_name for d in worker_inventory() if d.ownership not in OWNERSHIP_VALUES]
+    assert bad == ["JanitorTask"]
+
+
+def test_adr_0002_appendix_matches_the_inventory() -> None:
+    adr = (
+        Path(inventory_module.__file__).resolve().parents[4]
+        / "docs/architecture/adr/0002-execution-ownership.md"
+    ).read_text(encoding="utf-8")
+    section = adr.split("## Appendix: worker ownership classification", 1)[1]
+    rows = re.findall(r"^\| `(\w+)` \| `(\w+)` \|", section, flags=re.M)
+    assert dict(rows) == {d.cls_name: d.ownership for d in worker_inventory()}
+    assert len(rows) == len({cls for cls, _ in rows}), "a loop is listed twice"

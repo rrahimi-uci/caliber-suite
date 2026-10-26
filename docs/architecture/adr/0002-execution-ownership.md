@@ -206,3 +206,28 @@ and `exempt` rows stay with the module the row names.
   not a code change. Until #536 lands the platform runs as it does today, with per-job leases only.
 - `exempt` is an owner decision, not a safe harbour: the inventory's notes say why each exempt row cannot be
   reached by a model proposal, and a change that makes one reachable moves the row to `dispatch` in the same PR.
+
+## Appendix: worker ownership classification (B13.1, #660)
+
+The same ten loops, classified for the lease: `owner_only` means only the execution-owner lease holder runs the
+loop and it stops claiming when the lease is lost; every other replica serves requests only. `any_process` would
+mean the loop is safe on every replica at once. The classification is the `ownership` field of
+`caliber/src/caliber/observability/worker_inventory.py`, and `caliber/tests/test_adr_index.py` fails if this table
+and the inventory disagree. All ten are `owner_only`: the claim in the last column makes an overlap harmless today
+but does not fence a stale process whose lease expired mid-transition, and three loops have no per-row claim at
+all. A loop moves to `any_process` only by an amendment to this record that shows it safe under fencing.
+
+| background loop | ownership | claim mechanism today |
+| --- | --- | --- |
+| `RefinementWorker` | `owner_only` | atomic `UPDATE ... RETURNING` claim of the oldest queued job |
+| `WorkflowRunWorker` | `owner_only` | per-run lease (`workflow_run_lease_seconds`) |
+| `AriaPlanWorker` | `owner_only` | none: polls parked plan steps and resumes them |
+| `KnowledgeBaseWorker` | `owner_only` | per-build lease (`knowledge_build_lease_seconds`) |
+| `WorkflowSchedulerTask` | `owner_only` | unique `(workflow_id, source, idempotency_key)` on `cron:{alias}:{minute}` |
+| `JanitorTask` | `owner_only` | none: idempotent sweeps, one audit entry per reclaimed row |
+| `ReleaseReconcilerTask` | `owner_only` | none: settles incomplete release operations by scan |
+| `CalibrationDrain` | `owner_only` | conditional `UPDATE ... WHERE status = 'queued'` claim |
+| `WebhookDispatcher` | `owner_only` | accept lease (60 s default) plus an in-process in-flight claim |
+| `WorkspaceImportWorker` | `owner_only` | per-job lease (`workspace_import_lease_seconds`) |
+
+The event bus is not in the worker inventory and is classified by its own row in the table above.
