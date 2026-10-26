@@ -75,6 +75,8 @@ from caliber.runtime_advisories import (
     get_runtime_dependency_advisories,
 )
 from caliber.storage import WorkingDirectoryService, build_backend
+from caliber.testing.fault_barriers import ENV_VAR as FAULT_BARRIERS_ENV
+from caliber.testing.fault_barriers import armed_barriers
 from caliber.trace_client import MLflowTraceClient
 from caliber.workflows.runtime import bind_sandbox_config
 from caliber.workflows.tools import bind_module_allowlist
@@ -171,6 +173,16 @@ def _require_reference_profile(config: CaliberConfig) -> None:
     Every violation is listed, so an operator fixes them in one pass. Runs before the engine is
     created and before the bootstrap admin account is written: a refused start must leave no trace.
     """
+    armed = armed_barriers()
+    if armed:
+        # A barrier ends the process on purpose, without cleanup, so it must never be a surprise: say so
+        # in every profile (the reference profile goes on to refuse it).
+        logger.warning(
+            "fault barriers are armed (%s): this process exits at once when it reaches one. "
+            "Unset %s outside scenario tests.",
+            ", ".join(sorted(armed)),
+            FAULT_BARRIERS_ENV,
+        )
     if config.profile != "reference":
         return
     violations = reference_profile_violations(config)

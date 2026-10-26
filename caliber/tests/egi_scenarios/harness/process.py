@@ -46,8 +46,9 @@ class ServerStartError(RuntimeError):
 class ServerProcess:
     """``uvicorn <app> --factory`` as a subprocess on ``127.0.0.1:<port>``.
 
-    ``env`` is added to the test process's environment, so a scenario passes the barrier it arms
-    (``CALIBER_FAULT_BARRIERS``) and the settings it needs, and the child sees nothing else of the test's.
+    The child runs with ``env`` and the test process's environment **minus every ``CALIBER_*`` variable**, so
+    it is configured by ``env`` alone, the same as an in-process app built from that dict, and a variable in
+    a developer's shell (an ambient ``CALIBER_FAULT_BARRIERS``, say) cannot change the run.
     ``app_dir`` is where ``app`` is imported from when it is not an installed module. ``log_path`` receives stdout and stderr of every start, appended, so a failed start can be read.
     """
 
@@ -96,16 +97,21 @@ class ServerProcess:
             command += ["--app-dir", str(self.app_dir)]
         stream: IO[bytes] | int = subprocess.DEVNULL
         if self.log_path is not None:
+            self._close_log()
             self._log = self.log_path.open("ab")
             stream = self._log
         self._proc = subprocess.Popen(
-            command, env={**os.environ, **self.env}, stdout=stream, stderr=subprocess.STDOUT
+            command, env=self._child_environment(), stdout=stream, stderr=subprocess.STDOUT
         )
         try:
             self._wait_until_healthy()
         except ServerStartError:
             self._close_log()
             raise
+
+    def _child_environment(self) -> dict[str, str]:
+        inherited = {k: v for k, v in os.environ.items() if not k.startswith("CALIBER_")}
+        return {**inherited, **self.env}
 
     def _wait_until_healthy(self) -> None:
         assert self._proc is not None
@@ -151,11 +157,11 @@ class ServerProcess:
         """Wait for the process to end on its own (for example at a fault barrier); return its status."""
         assert self._proc is not None, "server was never started"
         try:
-            return self._proc.wait(timeout=timeout)
+            status = self._proc.wait(timeout=timeout)
         except subprocess.TimeoutExpired as exc:
             raise TimeoutError(f"server still running after {timeout}s") from exc
-        finally:
-            self._close_log()
+        self._close_log()
+        return status
 
     # -- state ---------------------------------------------------------------------------------
 

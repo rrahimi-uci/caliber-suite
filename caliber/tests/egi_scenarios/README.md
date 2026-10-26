@@ -40,10 +40,10 @@ with ServerProcess(
     ...  # drive the scenario to the barrier
     assert server.wait_for_exit() == 137
     server.restart()  # a fresh, unarmed process on the same port and database
-    assert downstream.mutations() == 1
+    ...  # recover, then assert on what the downstream saw: downstream.mutations() == 1
 ```
 
-`harness/process.py::ServerProcess` starts `uvicorn caliber.server:create_app --factory`, waits for the
-health endpoint, and supports `kill()`, `restart()`, `wait_for_exit()`, `exit_code` and the context manager.
+`harness/process.py::ServerProcess` starts `uvicorn caliber.server:create_app --factory` configured by the
+`env` it is given alone (no ambient `CALIBER_*` variable reaches it), waits for the health endpoint, and supports `kill()`, `restart()`, `wait_for_exit()`, `exit_code` and the context manager.
 The platform's own barriers arrive with the dispatcher and the ledger (#522); until then
 `harness/barrier_app.py` reaches a barrier on request so the harness itself is tested.

@@ -6,6 +6,7 @@ failure in a scenario can be told apart from a failure of the harness.
 
 from __future__ import annotations
 
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -31,6 +32,8 @@ from tests.egi_scenarios.conftest import (
 )
 from tests.egi_scenarios.harness import process as process_module
 from tests.egi_scenarios.harness.process import ServerProcess, ServerStartError
+
+pytestmark = pytest.mark.xdist_group("egi-scenario-processes")
 
 CALIBER_DIR = Path(__file__).resolve().parents[2]
 BARRIER_APP = "tests.egi_scenarios.harness.barrier_app:app"
@@ -140,7 +143,7 @@ def test_barrier_in_a_subprocess(armed: str, expected_status: int, expected_outp
             "import sys\nfrom caliber.testing.fault_barriers import barrier\n"
             "barrier('x')\nsys.stdout.write('alive')\nsys.stdout.flush()",
         ],
-        env={**__import__("os").environ, ENV_VAR: armed},
+        env={**os.environ, ENV_VAR: armed},
         capture_output=True,
         text=True,
         check=False,
@@ -280,3 +283,45 @@ def test_an_armed_process_refuses_to_start_on_the_reference_profile(
         server.start()
     assert "fault barriers are armed (before_dispatch)" in str(failure.value)
     assert server.exit_code not in (None, 0)
+
+
+def test_a_process_is_configured_by_its_env_alone(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A barrier armed in the developer's shell must not arm the child, or survive a restart."""
+    monkeypatch.setenv(ENV_VAR, "before_dispatch")
+    monkeypatch.setenv("CALIBER_PROFILE", "reference")
+    monkeypatch.setenv("UNRELATED_VARIABLE", "kept")
+    probe = ServerProcess({}, app=BARRIER_APP, factory=False, health_path="/health")
+    child = probe._child_environment()
+    assert ENV_VAR not in child
+    assert "CALIBER_PROFILE" not in child
+    assert child["UNRELATED_VARIABLE"] == "kept"
+    with ServerProcess(
+        {"CALIBER_PROFILE": "development"},
+        app=BARRIER_APP,
+        factory=False,
+        health_path="/health",
+        app_dir=CALIBER_DIR,
+        log_path=tmp_path / "ambient.log",
+    ) as running:
+        hit = httpx.get(f"{running.base_url}/barrier/before_dispatch", timeout=5)
+        assert hit.status_code == 200, "the ambient arming must not reach the child"
+        running.restart()
+        assert (
+            httpx.get(f"{running.base_url}/barrier/before_dispatch", timeout=5).status_code == 200
+        )
+
+
+def test_starting_again_after_a_barrier_exit_does_not_leak_the_log(tmp_path: Path) -> None:
+    server = barrier_server("before_dispatch", tmp_path)
+    try:
+        server.start()
+        with pytest.raises(httpx.TransportError):
+            httpx.get(f"{server.base_url}/barrier/before_dispatch", timeout=5)
+        assert server.wait_for_exit() == EXIT_CODE
+        server.env.pop(ENV_VAR)
+        server.start()  # no kill() or restart() in between
+        assert httpx.get(f"{server.base_url}/health", timeout=5).status_code == 200
+    finally:
+        server.kill()

@@ -359,6 +359,26 @@ def test_the_reference_profile_refuses_to_start_with_an_armed_barrier(
     assert "after_downstream_commit" in str(refused.value)
 
 
+def test_an_armed_barrier_is_logged_in_every_profile(
+    app_config: CaliberConfig, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    monkeypatch.setenv("CALIBER_FAULT_BARRIERS", "after_outbox_commit,before_dispatch")
+    with caplog.at_level("WARNING", logger="caliber"):
+        create_app(app_config)
+    (record,) = [r for r in caplog.records if "fault barriers are armed" in r.getMessage()]
+    assert "after_outbox_commit, before_dispatch" in record.getMessage()
+    assert "CALIBER_FAULT_BARRIERS" in record.getMessage()
+
+
+def test_no_warning_without_an_armed_barrier(
+    app_config: CaliberConfig, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    monkeypatch.delenv("CALIBER_FAULT_BARRIERS", raising=False)
+    with caplog.at_level("WARNING", logger="caliber"):
+        create_app(app_config)
+    assert not [r for r in caplog.records if "fault barriers" in r.getMessage()]
+
+
 def test_the_development_profile_starts_with_an_armed_barrier(
     app_config: CaliberConfig, monkeypatch: pytest.MonkeyPatch
 ) -> None:
