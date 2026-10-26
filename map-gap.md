@@ -1,10 +1,14 @@
 # CALIBER architecture, MVP and enterprise evolution: map and gap analysis
 
-Review date: **26 October 2026**. Implementation baseline: [`4729508db7b948e4cb555d5b365dade2d5c458af`](https://github.com/rrahimi-uci/caliber-suite/commit/4729508db7b948e4cb555d5b365dade2d5c458af), including merged PR #653. This is an architectural assessment and recommendation, not a change to approved scope or a production certification.
+Review date: **26 October 2026**. Implementation baseline: [`4729508db7b948e4cb555d5b365dade2d5c458af`](https://github.com/rrahimi-uci/caliber-suite/commit/4729508db7b948e4cb555d5b365dade2d5c458af), including merged PR #653. This is an architectural assessment, not a production certification.
+
+**Scope update — owner decision, 26 October 2026: this version is single-tenant only.** This report now evaluates release gaps against that boundary. One customer/organization has a dedicated CALIBER deployment, database, storage boundary, credentials and configuration; multiple authorized users and projects remain supported within it. Shared-customer hosting, tenant provisioning/routing and cross-tenant administration are out of scope for this version. This updates the report's scope; the existing EGI delivery-plan file and its broader schedule have not been rewritten.
 
 ## 1. Executive Summary
 
 **CALIBER has a credible control-plane foundation, but not yet a complete governed-execution control plane.** Its strongest implemented assets are versioned resources, workflow execution/checkpoints, project-aware access, evaluation/refinement workflows, approval controls, trace integration, and a useful Python SDK/CLI. The missing center is an enforced, end-to-end chain from admitted authority and pinned behavior to a verified external outcome. Building more UI resource types does not close that gap.
+
+**Single tenancy materially reduces the enterprise-platform gap.** Shared-tenant isolation, tenant lifecycle administration, cross-tenant scheduling/fairness and per-tenant quotas are no longer release blockers. The remaining execution-safety gap is still significant: project/user access, exact-intent approvals, protected dispatch, uncertain-write recovery, evaluated outcomes and restore evidence remain required. No percentage reduction or revised delivery date is claimed without re-estimating the retained scope.
 
 The latest code materially improves the picture relative to earlier reviews. There are now seven versioned control-record schemas, a protected-effect inventory, explicit reference-profile startup refusals, project-scoped trace access, and real process-kill recovery experiments. However, schemas are not their production writers, inventory classifications are not dispatch enforcement, and experiments under `tests/` are not production reconciliation. These distinctions drive this report.
 
@@ -12,8 +16,8 @@ Five decisions matter most:
 
 1. **Finish a narrow vertical assurance path first.** One admitted, release-pinned use case; one trusted connector; exact-intent human approval; ambiguous-effect reconciliation; independently checked outcome; verifiable evidence export. Refuse unsupported execution paths in the supported profile.
 2. **Make CALIBER own authority and evidence, not every engine.** Keep domain contracts, policy enforcement points, release eligibility, effect semantics and acceptance in CALIBER. Reuse databases, identity providers, agent frameworks, telemetry, evaluation engines and isolated execution infrastructure.
-3. **Fix irreversible architectural choices early.** Tenant/project/resource identity, immutable release references, effect identity, versioned APIs/events, ownership fencing and data lineage must precede broad deployment. Full multi-tenancy, multi-region operations and federation need not precede a bounded single-tenant release.
-4. **Separate an earlier product release from the approved book-complete MVP.** The controlling plan explicitly calls the entire EGI program the MVP: three people, 122 weeks at its midpoint, with a March 2029 release decision. This report recommends considering an earlier bounded release at D5/D9; it does not silently redefine the approved MVP.
+3. **Fix irreversible architectural choices early without building shared tenancy.** Preserve deployment identity, project/resource ownership, immutable releases, effect identity, versioned contracts and lineage. Retain existing tenant fields as deployment-scoped values; a database-wide multi-tenant retrofit is not a prerequisite for this version.
+4. **Separate this single-tenant version from the broader EGI program.** The existing plan still describes a three-person, 122-week book-complete MVP including multi-tenancy. The owner's new single-tenant decision governs this report; that old program estimate is not the estimate for this release. Reconcile the delivery plan and re-estimate retained work separately.
 5. **Do not sell aspirations as differentiators.** Portable governed changes and cross-framework evidence could become defensible. Today, cloud platforms and LangSmith have stronger documented operational offerings; CALIBER has not established superiority in scale, isolation, integration breadth or autonomy.
 
 The recommended product promise is: **“Deploy, change and operate a bounded AI use case with explicit authority, independently checked outcomes, recoverable effects and portable evidence.”** It is narrower and more testable than “enterprise-ready autonomous AI platform.”
@@ -145,16 +149,17 @@ The current application is a standalone Starlette service with a React SPA, sync
 
 | Document/state | Authority in this review |
 | --- | --- |
-| [EGI delivery plan](docs/CALIBER_EGI_DELIVERY_PLAN.md), 24–25 October | Controlling scope, staffing and calendar: B01–B16 and M01–M27 are the approved book-complete MVP. |
+| Owner's single-tenant decision, 26 October | Current-version scope for this report: one organization per dedicated deployment; shared tenancy excluded. |
+| [EGI delivery plan](docs/CALIBER_EGI_DELIVERY_PLAN.md), 24–25 October | Existing broader program baseline: B01–B16 and M01–M27, including tenancy. Its scope/calendar have not yet been reconciled with this version's single-tenant boundary. |
 | [Five-person plan](docs/CALIBER_FIVE_PERSON_DELIVERY_PLAN.md) | Superseded staffing/calendar; D1–D8 milestone contracts are explicitly reused. |
 | [Reference architecture gap analysis](docs/CALIBER_REFERENCE_ARCHITECTURE_GAP_ANALYSIS.md) | Package definitions/scenarios remain useful; historical implementation statements require rechecking. |
 | [PRD](docs/prd.md) and [roadmap](docs/roadmap.md) | Supersession banners are authoritative; old monthly release train and narrower MVP text are historical. |
 | [Published alpha](https://github.com/rrahimi-uci/caliber-suite/releases/tag/caliber-v0.1.0a1) | Prerelease published 23 October; older “alpha unpublished” statements are obsolete. Publication is not enterprise readiness. |
 | [D1 control issue #609](https://github.com/rrahimi-uci/caliber-suite/issues/609) | Open at review; merged tasks do not imply acceptance of the whole milestone. |
 
-The approved plan has three full-time people, 2.25 effective person-weeks/week, 1.8 base implementation capacity and 0.45 uncertainty allowance. Its midpoint is 211 base person-weeks, or 263.75 including 25% allowance; milestone rounding yields **122 weeks**, with an upper-estimate calculation of **148 weeks**. Its assumed start is 2 November 2026.
+The existing broader plan has three full-time people, 2.25 effective person-weeks/week, 1.8 base implementation capacity and 0.45 uncertainty allowance. Its midpoint is 211 base person-weeks, or 263.75 including 25% allowance; milestone rounding yields **122 weeks**, with an upper-estimate calculation of **148 weeks**. Its assumed start is 2 November 2026. These numbers describe the book-complete program, **not a newly estimated single-tenant release**. Do not simply subtract M17: it also contains identity work potentially needed by a single enterprise, and downstream package dependencies need re-evaluation.
 
-| Decision point | Current commitment | Assessment |
+| Existing program decision point | Recorded commitment, not a new release estimate | Assessment |
 | --- | --- | --- |
 | D5, week 29, 21 May 2027 | Beta; B packages and failure evidence | Appropriate bounded assurance target, but long time to initial external learning. |
 | D9, week 60, 24 December 2027 | Core platform proof; **no release decision** | Consider adding a separately named product-release decision if an independently operated use case is safe and useful. Requires owner approval. |
@@ -166,21 +171,31 @@ Do not subtract the D1 prototype estimate from the entire B04/B05 budget twice. 
 
 ### Three timing categories
 
-Here, “bounded release” is a recommendation; “approved MVP” means the existing D15 commitment.
+Here, the current version is **single-tenant only by owner decision**. Other narrowing choices remain recommendations; single tenancy does not automatically authorize deferring identity, regional resilience, concurrency, memory or governance requirements.
 
-| Required for a bounded release | Architectural foundation required now | Safely deferred from that release, with conditions |
+| Scope boundary | Treatment for this version |
+| --- | --- |
+| Customer isolation | One organization per dedicated deployment/database/storage boundary; separate service credentials, backup access and configuration. This is deployment separation, not a claim of physical hardware exclusivity. |
+| Users and projects | Multiple users/projects remain; authentication, least privilege, project boundaries and separation of duties are release requirements. |
+| Shared tenancy | No customer tenant CRUD/provisioning/router, shared-tenant isolation certification, tenant billing or cross-tenant fairness requirement. |
+| Resource management | Deployment/project/run budgets, queue bounds and connector/provider limits remain; per-tenant quota infrastructure is deferred. |
+| Independent deployment choices | Single region, one active execution owner and trusted authors remain the recommended reference profile, not automatic consequences of the tenancy decision. |
+
+| Required for this single-tenant release | Architectural foundation required now | Deferred or separately recommended narrowing |
 | --- | --- | --- |
-| One complete governed use case and supported profile | Stable tenant/project/principal/resource IDs | Shared multi-tenancy: dedicated installation per customer until isolation is tested. |
+| One complete governed use case and supported profile | Stable deployment/project/principal/resource IDs; preserve existing tenant fields | Shared multi-tenancy: explicitly outside this version; revisit only for a later release. |
 | Auth, scoped data, exact approvals and protected effects | Authority intersection and centralized enforcement points | Broad agent autonomy: human approval ceiling until M27 gates exist. |
 | Durable recovery, accepted outcomes and evidence export | Immutable pins, versioned contracts and causal identity | Multi-region failover: one declared region with tested backup/restore. |
 | Actual evaluation and rollback of future assignment | Context provenance, revocation and memory ownership | Knowledge Hub/federation: curated knowledge and local tasks only. |
 | Installation/upgrade/restore, failure suite, operator documentation | Storage/identity/framework adapter seams and capability declarations | Broad catalog/high throughput: small certified set and measured workload limits. |
 
-All the deferred enterprise capabilities above remain inside the **approved** book-complete MVP unless the owner changes its scope. Architectural foundations must not be mistaken for permission to expose unsafe partially implemented features.
+Shared tenancy is excluded from this version, not merely a proposed deferral. The other deferrals above remain recommendations requiring a supported feature/profile decision; they are not implied by single tenancy. The broader EGI program document still contains all these packages and needs a separately authorized planning update. Architectural foundations must not be mistaken for permission to expose unsafe partially implemented features.
 
 ## 6. Target MVP Reference Architecture
 
 Use the accepted [ADR 0001](docs/architecture/adr/0001-reference-profile.md) as the deployment anchor: one tenant, one region, PostgreSQL 16 with pgvector, external MLflow, S3-compatible storage, at least two projects, and a scripted plus real-provider path. Reconcile the broader architecture document's PostgreSQL version with this profile; do not silently support both by documentation alone.
+
+For this version, bind any required tenant identity to the deployment's configured organization; do not expose customer-controlled tenant switching or multi-tenant onboarding. Keep project authorization independent of this fixed identity. Database/object/MLflow credentials and backup/export access must not accidentally connect separate customer installations. Preserve portable identifiers and existing schema fields without requiring a full tenant-aware query/schema migration now.
 
 ### Minimal complete transaction
 
@@ -274,17 +289,17 @@ Before adding a dependency, record exact version, license, maintainer health, se
 
 | Dimension | Foundation required now | Later implementation and proof | Expensive mistake to avoid |
 | --- | --- | --- | --- |
-| Multi-tenancy | Canonical tenant/project/principal identity across records, object keys, events and adapter requests; deny ambiguous scope. | M17: tenant-aware queries/constraints, organizational admin, quotas, deprovisioning and leakage suite. | Treating nullable project filters or mem0 labels as tenant security. |
+| Multi-tenancy | Dedicated deployment identity; preserve existing tenant fields and project/principal ownership; no tenant switching. | Later release: M17 shared-tenant query/constraint, administration, quota and leakage work after re-scoping identity needs. | Requiring the full tenant retrofit now, or treating project filters/mem0 labels as future tenant security. |
 | Horizontal scale | Explicit process roles, transition ownership, fencing and durable queue contracts. | Partition workers and introduce fair scheduling under measured load. | Starting all background loops in every web replica and assuming job leases cover every path. |
 | HA/reliability | Unknown-effect state, recovery ownership, coordinated backup manifests and supported failure modes. | Failover, restore drills and stated RPO/RTO under representative data. | Reporting success from an HTTP response or forgetting uncertain effects after restore. |
 | Performance | Queue/latency/cost instrumentation, bounded inputs and workload envelope. | Tune indexes/batching/pools and separate hot paths based on profiling. | Broad async/database rewrites without bottleneck measurements. |
 | Security/isolation | Trusted-author limit, verified identity, dispatcher-only credentials and denied bypasses. | Isolated workers, credential broker, independent security review before expanded trust. | Advertising subprocess limits as a hostile multi-tenant sandbox. |
 | Governance | Named owner, risk/effect classification, explicit exceptions and release gates. | M24/M27 inventory service, expiry, reports and evidence-governed autonomy. | Postponing basic ownership/risk decisions until the full governance UI exists. |
-| Cost/resources | Durable identity for reservations and usage; account for retries/children. | M08/M17 shared budgets, bulkheads, fairness and tenant quotas. | Treating in-memory token counters or estimated cost spans as spend enforcement. |
+| Cost/resources | Durable deployment/project/run reservations and usage; account for retries/children. | M08 bulkheads and workload fairness remain relevant; M17 cross-tenant fairness/quotas are later-release work. | Treating single tenancy as unlimited capacity, or in-memory counters as spend enforcement. |
 | Residency | Region/home-cell fields and data classification; separate global metadata from resident payload. | M18 regional bindings, routing, key/storage controls and region-loss drill. | Replicating sensitive traces/objects globally before defining residency. |
 | Extensibility | Capability declarations, contract versions and conformance tests. | Independent adapter certification, revocation and compatibility reports. | Accepting an interface match as proof of effect/recovery semantics. |
 
-A modular monolith with one supported profile is compatible with this evolution. A monolith without explicit authority/data boundaries is not. Tenant columns alone do not guarantee isolation; even a dedicated deployment must protect distinct projects and users. Shared infrastructure should remain disabled until all read/write/list/export/search/trace/memory/cache paths meet the negative tests.
+A modular monolith with one supported profile is compatible with this evolution. A monolith without explicit authority/data boundaries is not. Tenant columns alone do not guarantee isolation; even a dedicated deployment must protect distinct projects and users. Shared-customer CALIBER hosting is unsupported in this version. Any later shared-tenant offering must first pass read/write/list/export/search/trace/memory/cache isolation tests; this does not prohibit ordinary managed infrastructure underneath a dedicated deployment.
 
 ## 10. Competitive Landscape and Comparison
 
@@ -317,7 +332,7 @@ CALIBER cells describe current implementation unless marked “planned.” Exter
 | Governance | Access/approval controls; uniform effect policy planned. | Platform access controls; domain policy application-owned. | Detailed effect governance NV. |
 | Human in loop | Workflow approvals/quorum; exact-intent lifecycle planned. | Interrupt/resume support. | Exact-intent semantics NV. |
 | DX/SDKs | Typed sync/async SDK, CLI, UI. | Framework/platform SDKs. | Visual builder and APIs. |
-| Multi-tenancy | Projects are not certified tenant boundaries. | Enterprise organization/workspace controls; isolation benchmark NV. | Workspaces; licensing constraints. |
+| Multi-tenancy | Deliberately out of scope for this version; project isolation still required. | Enterprise organization/workspace controls; isolation benchmark NV. | Workspaces; licensing constraints. |
 | Enterprise scale | No measured supported scale established here. | Managed/self-host operations documented. | Workload limits NV. |
 | Deployment flexibility | Wheel/Compose; independent operations proof planned. | Managed, hybrid, self-host. | Cloud and self-host. |
 | Vendor lock-in | MLflow/registry and runtime semantics still couple. | Platform/history coupling remains. | Workflow/plugin and license coupling. |
@@ -352,13 +367,13 @@ CALIBER cells describe current implementation unless marked “planned.” Exter
 
 ## 11. Detailed Gap Matrix
 
-Rows are split into two joined tables to keep them readable. **Together the two tables provide all nine requested fields for each gap.** Priority reflects consequence and reversal cost, not an implementation estimate. Critical blocks safe supported execution; High blocks credible product/enterprise assurance; Medium improves extensibility/operability; Low is discretionary polish. No artificial Low items are added to dilute material gaps.
+Rows are split into two joined tables to keep them readable. **Together the two tables provide all nine requested fields for each gap.** Priority is assessed for the **single-tenant version**, not against shared-tenant feature completeness. Critical blocks safe supported execution; High blocks assurance for enabled behavior; Medium includes bounded foundations for later evolution; Low is discretionary polish. The timing field separates current work from future or conditional features. No artificial Low items are added to dilute material gaps.
 
 ### Current state, target, evidence and gap
 
 | ID / area | Current State | Target State | Evidence | Gap |
 | --- | --- | --- | --- | --- |
-| G01 Scope/roadmap | Book-complete 122-week MVP; older narrower prose remains. | One authoritative scope plus explicit earlier learning/release decisions. | [EGI plan](docs/CALIBER_EGI_DELIVERY_PLAN.md), [roadmap](docs/roadmap.md) | Product validation and program completeness conflated. |
+| G01 Scope/roadmap | Owner selected single-tenant version; plan still describes 122-week book-complete program. | Version-specific acceptance scope and separately estimated schedule. | Owner decision in §5; [EGI plan](docs/CALIBER_EGI_DELIVERY_PLAN.md), [roadmap](docs/roadmap.md) | Report scope and wider delivery-plan scope now need explicit reconciliation. |
 | G02 Admission/API identity | Run snapshot and replay-key lookup exist. | Immutable resolved manifest, grant, canonical intent and conflict semantics on all ingress. | [run_launch.py](caliber/src/caliber/workflows/run_launch.py), ADR 0003 | Snapshot/key do not establish universal pinned admission or intent equivalence. |
 | G03 Protected execution | Guarded helper and effect inventory; multiple invocation paths. | Every allowed effect crosses one enforced dispatcher; others refused. | [runtime](caliber/src/caliber/workflows/runtime.py), [inventory](caliber/src/caliber/effects/inventory.py) | Bypass paths and incomplete policy/effect integration. |
 | G04 Recovery/connector | Existing ledger; test-only recovery spike; retry ambiguity. | Durable unknown state, authoritative reconciliation and safe redrive. | [D1 findings](docs/reports/egi/D1-prototype-findings.md), [executor](caliber/src/caliber/integrations/openapi/executor.py) | New proposal reconciliation not in production; legacy intervention exists; unsafe retry assumptions remain. |
@@ -367,13 +382,13 @@ Rows are split into two joined tables to keep them readable. **Together the two 
 | G07 Acceptance/replay | Runtime outputs/checkpoints and evaluation results. | Authoritative business acceptance; side-effect-free evidence replay. | [runtime](caliber/src/caliber/workflows/runtime.py), B09 | Successful execution/result text is not uniformly separated from accepted outcome. |
 | G08 Release evaluation | Workspace queue/state and claim/complete methods. | Production consumer executes pinned plan; manual/automatic release paths require actual valid evidence. | [release service](caliber/src/caliber/workspace_release_service.py), [eval provider](caliber/src/caliber/eval/provider.py) | Scaffold can be mistaken for completed evaluation integration. |
 | G09 Release compatibility | Family-specific versions, intents and rollback. | Signed compatible bundle; promotion by same digest; old runs retain pins. | [capabilities](caliber/src/caliber/artifact_capabilities.py), M02 | Cross-resource atomicity/compatibility and in-flight quarantine not unified. |
-| G10 Tenancy/data model | Project-aware scoping; tenant fields on only a small subset of models. | Tenant/region identity in contracts now; complete tenant boundaries before shared service. | [models](caliber/src/caliber/db/models.py), M17/M18 | Mixed global/project/tenant semantics create costly later retrofit. |
+| G10 Deployment identity / future tenancy | Project-aware scoping; limited tenant fields; no certified shared tenancy. | Dedicated organization deployment, fixed identity, correct project ownership; preserved extension seams. | [models](caliber/src/caliber/db/models.py), owner decision in §5; future M17 | Full tenant coverage is not a release gap now; ambiguous deployment/project ownership still needs closure. |
 | G11 Identity/secrets | Sessions/PATs/proxy identity and secret integrations. | Workload principal, audience-bound expiring credential lease, revocation. | [auth](caliber/src/caliber/auth.py), M01/M17 | User access is not constrained execution authority; OIDC/SCIM enterprise path planned. |
 | G12 Profile/isolation | Nine startup refusals; subprocess sandbox; pluggable backend. | Enforced supported-path profile and OS-isolated execution where authors untrusted. | [profile guide](docs/operate/reference-profile.md), [sandbox](caliber/src/caliber/tool_sandbox/service.py) | Host/network authority and unsupported code/connector paths remain. |
 | G13 Traces/audit/evidence | Scoped trace list/detail/metrics; audit and readiness. | Verified ownership, redacted causal joins, independently protected evidence/archive. | [trace access](caliber/src/caliber/observability/trace_access.py), B11/B14/M05 | First-claim ownership, complete evidence join and archive guarantees incomplete. |
 | G14 Knowledge/context | Versioned KB, graph/vector/hybrid retrieval. | Authorized pinned context; freshness/revocation/deletion lineage; later verified Hub. | [knowledge](caliber/src/caliber/knowledge/service.py), B07/M04/M21 | Retrieval capability exceeds established lifecycle/authority assurance. |
 | G15 Memory | mem0 and session memory; partial route authorization. | Owned namespace, consent/purpose/TTL, governed writes and deletion propagation. | [routes](caliber/src/caliber/routes/memory.py), [service](caliber/src/caliber/memory/service.py), M20 | Free-form partitions have no owner; inferred facts can outlive their authority. |
-| G16 Budgets/performance | Token budgets and cost telemetry; local/process limits. | Durable parent/child reservations, retry accounting, bulkheads and measured envelope. | [runtime](caliber/src/caliber/workflows/runtime.py), M08/M12/M17 | No evidence of unified persistent cross-worker cost/concurrency enforcement. |
+| G16 Budgets/performance | Token budgets and cost telemetry; local/process limits. | Durable deployment/project/run reservations, retry accounting, bulkheads and measured envelope. | [runtime](caliber/src/caliber/workflows/runtime.py), M08/M12; future M17 quotas | Persistent cost/concurrency enforcement still matters; cross-tenant quotas do not block this version. |
 | G17 SDK/API/extensions | Typed SDK/CLI and provider/plugin interfaces. | Public proposal/approval/replay/evidence contracts with consistent errors, versions and conformance. | [SDK](sdk/caliber-sdk/README.md), ADR 0003, B15/M14 | New control records not yet a complete supported developer workflow. |
 | G18 Deployment/DR | Wheel/Compose, migrations, readiness and CI packaging. | Independently installed/upgraded/restored supported profile with measured RPO/RTO. | [Compose](deploy/compose.yaml), [CI](.github/workflows/ci.yml), M11/M12 | Packaging success is not recovery/HA evidence; SQL/object/MLflow consistency needs proof. |
 | G19 Testing/evidence | Extensive unit/browser/CI; EGI harness and prototypes. | Public-path invariant suite with all required gates executed and SHA-bound evidence. | [CI](.github/workflows/ci.yml), [EGI tests](caliber/tests/egi_scenarios), §16 | Coverage and scenario names can conceal unexecuted/incomplete runtime guarantees. |
@@ -383,11 +398,11 @@ Rows are split into two joined tables to keep them readable. **Together the two 
 
 ### Impact, priority, action, timing and dependencies
 
-“MVP” below means the approved EGI MVP; D milestones identify when. “Deferred” is relative to the recommended bounded release only, unless explicitly labeled post-MVP.
+“MVP” below means this report's single-tenant release target. D milestones and B/M package IDs retain traceability to the **existing broader plan**, not a revised calendar or a requirement to ship every package in this version. Shared tenancy is explicitly deferred to a later release. Other enterprise features retain the conditional scope recommendations in §5; single tenancy alone does not remove them.
 
 | ID | MVP Impact | Priority | Recommendation | Timing | Dependencies |
 | --- | --- | --- | --- | --- | --- |
-| G01 | Late market learning and conflicting promises. | High | Maintain one scope index; propose separate D5/D9 release/learning criteria without renaming D15. | MVP now; owner decision before further expansion. | Owner, domain/pilot operator, capacity baseline. |
+| G01 | Conflicting release promises and an inapplicable schedule. | High | Record single-tenant acceptance boundary; separately reconcile the delivery plan and re-estimate retained work. | Scope fixed in this report; planning follow-up before release commitment. | Owner, domain/pilot operator, capacity baseline. |
 | G02 | Non-reproducible or wrongly deduplicated runs. | Critical | B02: resolve/pin at admission; validate schema; canonical request digest; explicit legacy-run policy. | MVP D2, before supported governed dispatch. | B01/ADR 0003, releases, API/SDK, migrations. |
 | G03 | Unauthorized or unrecorded external effects. | Critical | B03/B04: enforce capability intersection and route/refuse every inventory path; negative bypass tests. | MVP D2–D3. | G02, G06, G11, G12, connector contract. |
 | G04 | Duplicate business mutation or false failure/success. | Critical | B05/#522: fix actual-key retry condition; typed ambiguity; stable key/precondition; durable reconcile loop; keep unknown without definitive evidence. | MVP D3; second connector M03 D8. | G03, downstream lookup/fencing, ownership. |
@@ -396,23 +411,23 @@ Rows are split into two joined tables to keep them readable. **Together the two 
 | G07 | Cannot prove task success or safely investigate it. | Critical | B09: domain acceptance service and recorded observations; historical replay never calls live effect paths. | MVP D4. | G02–G06, domain owner, evidence. |
 | G08 | Release decisions can lack executed evaluation. | High | B10: connect queue consumer to real pinned evaluation, recover leases and enforce all release paths. | MVP D4. | G02, G06, eval adapters, fixtures. |
 | G09 | Drift between evaluated/promoted/running behavior. | High | M02: signed bundle/compatibility gate, same-digest promotion, rollback assignment and in-flight quarantine. | Foundations MVP D2/D4; full core D6 onward. | G02, G08, G13, signing/registry. |
-| G10 | Tenant retrofit breaks identifiers, authorization and exports. | Critical | Reserve canonical scope now; inventory every store/query/cache/export; prohibit shared-tenant claims until V28. | MVP foundations D1–D2; full M17 D11. | Admission, identity, storage, all data consumers. |
-| G11 | Agent/tool inherits reusable or excessive authority. | Critical | B03 now; M01 credential lease/rotation/revocation; OIDC/SCIM M17; never put raw secrets in model context. | MVP D2/core; full enterprise identity D11. | IdP/broker, G03/G10/G12. |
+| G10 | Future migration cost; no shared-tenant release blocker. | Medium | Fix deployment identity, retain existing tenant fields and project ownership, refuse tenant switching; do not retrofit all models for shared hosting now. Project/user access remains a hard gate under G11–G15. | Minimal foundation now; shared-tenant M17/V28 deferred beyond this version. | Admission, deployment configuration, project scoping; no dependency on completed M17. |
+| G11 | Agent/tool inherits reusable or excessive authority. | Critical | B03 now; M01 credential lease/rotation/revocation; never put raw secrets in model context. Decide OIDC/SCIM by customer requirements, not by tenancy count. | Current-version identity/secret controls; shared-tenant administration later. | IdP/broker, G03/G12 and G10 identity foundation only. |
 | G12 | Unsupported execution invalidates the safety promise. | Critical | B12: restrict connector/modules/code paths; test origin/CSRF/egress/secret canaries; M07 OS isolation before untrusted authors. | MVP Beta restrictions; core isolation. | Deployment, sandbox adapter, dispatcher, threat model. |
 | G13 | Data leakage or unverifiable incident/release evidence. | High | B11/B14: prove ownership, join records and redact; M05 protected archive and retention/legal-hold policy. | MVP Beta joins; core archive. | G02–G07, storage, auth, audit policy. |
 | G14 | Revoked/stale knowledge silently influences action. | High | B07 pinned authorized context; M04 revocation/deletion; M21 reuse-first extraction with field verdicts. | MVP Beta/core; Hub D13, deferred from bounded release. | Source ACLs, versions, G10/G13, domain validators. |
 | G15 | Cross-user access or persistent poisoned knowledge. | High | Refuse unowned memory in strict profile; server-derived namespace now; implement M20 lifecycle before cross-run memory promise. | MVP immediate restriction; governed memory D14. | G10/G14, consent/retention policy, mem0 adapter. |
-| G16 | Retry storms/overspend and unsupported scale claims. | High | B08 bounded step budget; M08 durable reservations/fairness; M12 publish measured latency/queue/cost limits. | MVP Beta bounds; core D8–D9; tenant quotas D11. | G06, provider usage, child tasks, workload definition. |
+| G16 | Retry storms/overspend within one organization. | High | B08 bounded step budget; M08 deployment/project/run reservations and bulkheads; M12 measured limits. Exclude cross-tenant scheduling and quotas from this version. | Current-version workload bounds; tenant quotas/fairness deferred beyond this version. | G06, provider usage, child tasks, workload definition. |
 | G17 | Control plane works only through internal paths. | High | B15/M14: typed public happy/failure paths, reason codes and contract compatibility; independent adapter fixture. | MVP Beta APIs; core conformance. | G02–G09, SDK/CLI/plugin compatibility matrix. |
 | G18 | Operator cannot recover the promised system. | High | M11/M12: artifact-pinned install, upgrade preflight, coordinated restore and owner-loss drills; record achievable RPO/RTO. | MVP Beta smoke; core D9; regions D12. | G06/G09/G13, independent operator, backing services. |
-| G19 | Green reports overstate assurance. | High | B16: map every invariant to executed scenario/artifact/SHA; separate unit, fault, real-provider and independent review evidence. | MVP every gate; full safety review D15. | All packages, PostgreSQL CI, artifact retention. |
+| G19 | Green reports overstate assurance. | High | B16: map every invariant to executed scenario/artifact/SHA; separate unit, fault, real-provider and independent review evidence. | Every release gate; security review of the actual single-tenant boundary before release, not postponed solely to D15. | All in-scope packages, PostgreSQL CI, artifact retention. |
 | G20 | Autonomous approvals without enforceable responsibility. | High | Record owner/risk/effect ceiling now; keep human approval; implement M24/M27 and V35 before raising levels. | MVP foundation now; full levels D10. | G03/G05/G07/G09, principal types, measured evaluation. |
 | G21 | Replaceable-in-name architecture becomes lock-in. | Medium | Extend existing seams only where needed; maintain capability matrix and export test; timebox reuse-vs-build ADR. | MVP foundations; second adapter core; ecosystem D15. | G17/G19, license review, external adapter author. |
 | G22 | Residency violations or widened remote authority. | High | Preserve scope/home-cell fields now; later implement local adoption, intersected grants, cancel/budget semantics and region-loss drill. | MVP foundations; enterprise M18 D12/M19 D14. | G06/G10/G11/G13/G16, peer trust, regional infrastructure. |
 
 ## 12. Prioritized MVP Recommendations
 
-These are ordered outcomes aligned to existing packages, not a parallel backlog or fabricated delivery estimate.
+These are ordered single-tenant outcomes aligned to existing packages, not a parallel backlog or fabricated delivery estimate. Dependencies on G10 mean its minimal deployment/ownership foundation, not completion of M17. The region/federation gap G22 remains conditional on those features being enabled; their deferral is a separate reference-profile recommendation, not a consequence of single tenancy.
 
 1. **Close D1 honestly.** Reconcile task completion with control issue #609; retain prototype artifacts, accepted ADRs, scope inventory and re-estimate. Resolve the external operator/security/adapter-author dependencies. Publish the acceptance report only when its gate is satisfied.
 2. **Build the admission/authority/owner spine (D2).** Complete B02/B03/B07/B13 together: pinned manifest, scoped context, capability grant, consistent ownership and migration semantics. Test altered replay intent, cross-project access and stale owners before adding more execution features.
@@ -420,7 +435,7 @@ These are ordered outcomes aligned to existing packages, not a parallel backlog 
 4. **Prove accepted outcome and release eligibility (D4).** Add B09/B10/B14: actual evaluation consumer, explicit domain acceptance, joined evidence and read-only replay. Demonstrate that a high model score cannot override a missing receipt or a failed critical invariant.
 5. **Ship an independently usable Beta (D5).** Finish SDK/CLI/UI/operator path and B16. Document limitations prominently. Do not label the broad platform enterprise-ready because the reference scenario works.
 6. **Harden the product before expanding trust.** In D6–D9, prioritize credential leases, protected audit, isolation, persistent budgets, independent restore and the second use case. Conduct security review before external/shared deployment rather than relying only on the final D15 review.
-7. **Ask the owner to decide the product/program split.** Keep D15 book completeness if desired, but add a bounded release decision and customer learning loop earlier. No scope change is authorized by this report.
+7. **Carry the single-tenant decision into a separate planning update.** Remove shared-tenant implementation as a blocker for this version, retain project/user isolation and execution safeguards, and re-estimate the selected release. Do not claim the old D15 date or a guessed percentage saving as the new schedule. This PR updates the report, not the plan or issue assignments.
 
 Measure progress by invariants, not a single architecture-completeness percentage. Useful indicators are: supported effect paths actually enforced; failed negative isolation cases; unknown-effect age; stale-approval refusals; evidence-chain completeness; queue delay; restore result; and independently completed operator journeys. Establish baselines before setting numerical SLOs. Coverage is one signal, not one of these outcomes.
 
@@ -430,8 +445,8 @@ The first four ADRs already exist. Do not reopen their settled terminology unnec
 
 | Decision | Recommended direction | Why reversal is expensive | Gate/owner |
 | --- | --- | --- | --- |
-| Supported product boundary | Keep approved EGI program; explicitly decide whether to add a bounded earlier release. | APIs, marketing and support commitments depend on it. | Owner, before next scope expansion. |
-| Canonical identity and scope | Tenant/project/principal/resource IDs independent of vendor IDs; server-derived authorization context. | Every row, object key, trace, export and migration consumes it. | Technical lead + security, D2. |
+| Supported product boundary | Decided: single-tenant only for this version. Reconcile the wider EGI plan separately; region/concurrency/autonomy choices remain independent. | APIs, marketing and support commitments depend on it. | Owner decision recorded; release planning follow-up. |
+| Canonical identity and scope | Fixed deployment identity; preserve existing tenant fields; project/principal/resource IDs independent of vendor IDs. No universal tenant retrofit for this release. | Every row, object key, trace, export and migration consumes ownership semantics. | Technical lead + security, current foundation. |
 | Immutable run admission | Resolve dependencies before admission; define legacy and same-key/different-intent behavior. | Historical runs cannot be safely repinned after execution. | Backend/API owner, D2. |
 | State authority and ownership | ADR 0002 owner map; one execution owner initially; transactional transition/outbox. | Retrofitting fences after multi-worker deployment changes all side-effect paths. | Platform/backend, D2. |
 | Effect assurance contract | Unknown is first-class; capability-specific reconcile/fence/compensate semantics; no blanket exactly-once claim. | Wrong retry semantics cause irreversible external damage. | Backend + connector/domain owner, D3. |
@@ -445,25 +460,27 @@ Explicitly distinguish `not found`, `forbidden`, `backend unavailable` and `unkn
 
 ## 14. Post-MVP / Enterprise Roadmap
 
-This section uses **two clocks** to avoid silently changing the approved plan.
+This section separates **this single-tenant version** from the broader book-complete program still recorded in the delivery plan. Package IDs are retained for traceability, not as an unchanged release commitment.
 
-| Horizon | Approved program | Recommended emphasis and exit evidence |
+| Horizon for this report | Existing program mapping | Recommended emphasis and exit evidence |
 | --- | --- | --- |
 | Foundation/Beta | D1–D5, B01–B16 | One governed case, enforced profile, public failure scenarios, installable artifacts and independently checkable evidence. |
 | Core platform | D6–D9, M01–M15 | Leased credentials, signed promotion, isolation, protected audit, persistent budgets, second connector/use case, independent restore and measured limits. |
-| Enterprise expansion within the approved MVP | D10–D12, M24/M27/M23/M25/M17/M18 | Governance/autonomy, contracts, tenancy and regional cells; gates V25–V29/V35 before claims expand. |
-| Knowledge, federation and ecosystem within the approved MVP | D13–D15, M21/M20/M19/M22/M26/M16 | Governed extraction/memory, peer adoption, independently conformant adapters, book traceability and final security/release review. |
+| Shared tenancy — later version, excluded now | M17/D11 shared-hosting work and V28 | Tenant provisioning/routing, query isolation, cross-tenant fairness/quotas and leakage certification. Identity features inside M17 need separate customer-driven triage. |
+| Other enterprise expansion — scope-dependent | D10–D12, M24/M27/M23/M25/M18 | Governance/autonomy, contracts and regional cells are independent of tenancy. Require their gates if enabled; otherwise retain explicit future scope. |
+| Knowledge, federation and ecosystem — broader program | D13–D15, M21/M20/M19/M22/M26/M16 | Governed extraction/memory, peer adoption and adapter certification remain conditional recommendations. Final review must match the actual release trust boundary, not wait for unrelated tenancy work. |
 | Actual post-book-MVP | Not committed by the current plan | More certified providers/regions, more domain solutions, workload-driven optimizations and improved operations. Reassess demand and evidence before adding scope. |
 
-Under the proposed earlier bounded release, full shared tenancy, multi-region, Knowledge Hub, federated tasks and broad autonomous approval can be deferred **only while corresponding unsafe paths remain unavailable and foundations are preserved**. They are not “post-MVP” under today's approved definition. Beyond the already planned M23 gated substitution and M22 catalog, unrestricted automatic substitution, an enlarged marketplace and global active-active execution should be demand-led follow-ons, not prerequisites invented by this review.
+Shared tenancy is **out of scope for this version by owner decision**. Multi-region, Knowledge Hub, federated tasks and broad autonomous approval are separately recommended deferrals for a bounded release, not newly approved exclusions. A deferred feature's unsupported paths must remain unavailable while extension foundations are preserved. The delivery-plan file still includes these capabilities and must be reconciled separately. Beyond its planned M23 gated substitution and M22 catalog, unrestricted automatic substitution, an enlarged marketplace and global active-active execution should be demand-led follow-ons.
 
-Review the schedule at each gate using actual throughput, incident/support load and external dependency availability. The D1 happy-path experiment narrows a feasibility question; it cannot validate a 122-week capacity forecast, the safety of all connectors or production throughput.
+Re-estimate this release using retained work, actual throughput, incident/support load and external dependency availability. The 122-week estimate belongs to the broader program; neither the single-tenant decision nor the D1 experiment supplies a new calendar. Dedicated deployments also multiply installation, upgrade, backup and support effort per customer; reduced engineering scope does not eliminate that operational cost.
 
 ## 15. Risks and Technical Debt
 
 | Risk | Consequence | Containment / evidence needed |
 | --- | --- | --- |
-| Broad program before market learning | Years of feature work without a validated product wedge. | Earlier bounded pilot and explicit owner decision on release cadence. |
+| Scope drift back to the full program | Shared-tenant features reappear as blockers for a single-tenant release. | Keep the recorded boundary explicit; reconcile plan and release acceptance separately. |
+| Dedicated-deployment operations | Per-customer configuration drift and repeated upgrade/restore work. | Reproducible deployment artifacts, separate credentials/backups and an independently tested operator runbook. |
 | Competing execution truths | SQL, bus, framework checkpoint and external system disagree. | One authoritative writer per state; causal records and reconciliation. |
 | False definitive failure | Duplicate remote mutation after a successful-but-unacknowledged call. | Typed ambiguity, stable keys and authoritative downstream proof. |
 | Policy/approval time-of-check gap | Revoked identity or changed resource still executes. | Recheck at dispatch; bind policy/intent/version; consume approval atomically with local transition. |
@@ -487,6 +504,8 @@ The immediate priority is to demonstrate one case within a declared safety envel
 
 The strongest potential differentiator is **consistent, portable governance over heterogeneous execution**, demonstrated through independently conformant adapters. The current code does not yet justify claims of enterprise tenancy, hostile-code isolation, platform-wide governed autonomy, production recovery across every effect path or superior scale. Keep those claims conditional and testable.
 
+For this single-tenant version, lack of shared-tenant support is an explicit product boundary, **not a missing release feature**. G10 moves from Critical enterprise implementation work to a Medium, limited foundation task; project/user isolation and G02–G07 execution safety retain their urgency. This is a materially smaller enterprise gap, but not evidence that the remaining runtime gaps are low risk.
+
 ### Verification and second-pass critique
 
 This report was reviewed a second time in a critical-reviewer pass against the source baseline and external primary documentation. This was an author-performed adversarial review, **not independent human approval**. The following challenges changed or constrained the conclusions:
@@ -499,7 +518,7 @@ This report was reviewed a second time in a critical-reviewer pass against the s
 | Was existing approval control ignored? | Credited roles, distinct quorum and self-approval checks; isolated exact-intent and Apply-policy gaps. |
 | Was memory treated as entirely unprotected? | Credited user/governed-resource checks; identified the explicitly documented free-form ownership limitation. |
 | Did the target duplicate mature OSS? | Retained current protocols; delegated commodity infrastructure; proposed a bounded execution-engine decision rather than an immediate rewrite. |
-| Did “post-MVP” contradict the owner-approved plan? | Distinguished the proposed bounded release from the existing D15 book-complete MVP throughout. |
+| Did the new tenancy decision propagate consistently? | Applied the owner-selected single-tenant boundary to summary, target, comparison, gap priority, dependencies and roadmap; the broader plan is identified as not yet reconciled. |
 | Were competitor claims marketing-led? | Separated frameworks from paid platforms, credited self-hosted LangSmith, noted Dify licensing and used NV instead of invented absences. |
 | Did the report prove scale/security? | No. No load benchmark, penetration test, independent operator trial or vendor benchmark was run by this review. |
 | Did the experiment prove safe retry universally? | No. A missing lookup result is not final failure while a request can still commit; connector-specific proof remains required. |
@@ -508,7 +527,7 @@ This report was reviewed a second time in a critical-reviewer pass against the s
 
 ### Validation record
 
-All code inspection used the isolated review branch; unrelated changes in the user's original checkout were preserved. This PR changes documentation only. It does not implement the identified fixes, alter thresholds, change runtime behavior or modify the approved roadmap.
+All code inspection used the isolated review branch; unrelated changes in the user's original checkout were preserved. This PR changes documentation only, including the owner's subsequent single-tenant scope decision. It does not implement the identified fixes, alter thresholds, change runtime behavior or edit the delivery-plan/roadmap files. The initial diagnostic results below remain historical results from the original review, not new runtime certification of the scope update.
 
 Focused command at the initial baseline, from `caliber/` (using the existing development environment's Python and `PYTHONPATH=src`):
 
@@ -544,8 +563,10 @@ python -m pytest tests/test_docs_mermaid_contract.py \
 
 Result: **51 passed** in 51.71 seconds. An explicit report validator additionally checked the 16-section sequence, all 78 local links (including referenced headings), both halves of all 22 gaps, consistent table widths, balanced fences and **both diagrams with the Mermaid 11 parser under jsdom**. It found no failures. External sources were inspected through live browsing, not mechanically certified by the local-link check. `git diff --check` passed.
 
+Single-tenant revision validation: the same documentation regression command was rerun after the scope edits: **51 passed in 98.97 seconds**. The explicit validator again passed all structural/link/diagram checks, plus assertions for the single-tenant boundary, G10's Medium priority, deferred shared tenancy, retained execution safeguards and absence of the superseded MVP-scope wording. `git diff --check` passed. No runtime code or delivery-plan file changed.
+
 The refreshed baseline's [CI run 40365196133](https://github.com/rrahimi-uci/caliber-suite/actions/runs/40365196133) had successful PostgreSQL EGI scenarios and migration-parity jobs when inspected; full backend and alpha-browser jobs were still running. That is remote evidence for those specific jobs, not a claim that PostgreSQL ran locally or that the entire workflow had passed.
 
 PR CI results are recorded in the PR validation section. Full backend/UI builds, coverage runs, Docker/Compose services, real-model calls and live deployment tests are not rerun locally merely for this root-level report; no executable behavior or generated-document source is changed. The root report is not automatically included in the documentation generator's input list. Its links, required sections and diagrams were checked explicitly rather than assuming the existing docs gate covers it.
 
-**Decision requested:** retain the EGI program as the long-term commitment, prioritize the governed-execution spine above feature breadth, and explicitly consider an earlier bounded product-release decision. No implementation, scope change or merge is authorized by the recommendations themselves.
+**Decision recorded:** this version is single-tenant only. Deliver a dedicated deployment with strong project/user boundaries and the governed-execution spine; defer shared-tenant implementation to a later version while preserving minimal extension seams. **Planning follow-up:** reconcile the broader delivery plan and estimate the retained release scope separately. This report update does not implement controls, revise that plan's dates or authorize a merge.
