@@ -62,6 +62,7 @@ from caliber.profile import reference_profile_violations
 from caliber.promoter import Promoter, build_promoter
 from caliber.rate_limit import RateLimitMiddleware, build_limiter
 from caliber.redaction import build_redactor
+from caliber.request_limits import BodySizeLimitMiddleware
 from caliber.routes import register_routes
 from caliber.routes._errors import http_exception_handler, validation_error_handler
 from caliber.routes.csrf import CSRF_PATH
@@ -912,6 +913,17 @@ def create_app(config: CaliberConfig | None = None) -> ASGIApp:  # noqa: PLR0915
     # Outermost, so a disabled preview area answers 404 before CSRF or rate limiting
     # have an opinion about a request to something this deployment does not serve.
     app.add_middleware(FeatureGateMiddleware, config=resolved)
+    # The reference profile bounds every request body (declared and streamed) before anything else reads it, so
+    # it is the outermost middleware (so it echoes its own trace id on a refusal). The default profile installs
+    # nothing.
+    if resolved.profile == "reference":
+        app.add_middleware(
+            BodySizeLimitMiddleware,
+            max_bytes=resolved.reference_max_body_bytes,
+            multipart_max_bytes=resolved.reference_max_upload_bytes,
+            # The webhook route enforces its own, larger limit (github_webhook_max_body_bytes).
+            path_limits={GITHUB_WEBHOOK_PATH: resolved.github_webhook_max_body_bytes},
+        )
     app.state.config = resolved
     app.state.engine = engine
     app.state.session_factory = session_factory
