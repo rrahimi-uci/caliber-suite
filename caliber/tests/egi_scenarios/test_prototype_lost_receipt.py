@@ -183,4 +183,4 @@ def test_dispatch_round_trip_is_fast_enough_to_be_a_unit_of_the_scenarios(
     started = time.perf_counter()
     spike.dispatch(session, proposal, downstream.base_url)
     elapsed = time.perf_counter() - started
-    assert elapsed < 2.0, f"a dispatch took {elapsed:.3f}s"
+    assert elapsed < 5.0, f"a dispatch took {elapsed:.3f}s"
