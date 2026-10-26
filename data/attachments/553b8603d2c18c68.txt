@@ -1,0 +1,2 @@
+usage: -c [-h] --port PORT [--db DB] [--host HOST]
+-c: error: --db or EGI_DOWNSTREAM_DB is required

@@ -1,0 +1,2 @@
+INFO     caliber.config:config.py:1862 CALIBER_LLM_PROVIDER=auto resolved to openai (the key is set)
+WARNING  caliber.config:config.py:1865 CALIBER_LLM_PROVIDER=auto resolved to fake: the key is not set, so workflow agents, calibration and judges are SIMULATED. Configure a real model key to use a real provider (OPENAI_API_KEY is the default source).
