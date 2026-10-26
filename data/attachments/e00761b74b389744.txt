@@ -1,0 +1,1 @@
+{"t":"2026-10-26T17:29:05.067Z","severity":"INFO","logger":"caliber.knowledge.worker","message":"knowledge-base worker started (interval=0.0s lease=120.0s worker=knowledge-build-worker-2536-7fcb7d443950)"}

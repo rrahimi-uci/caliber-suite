@@ -1,3 +1,0 @@
-{"t":"2026-10-26T14:37:20.418Z","severity":"INFO","logger":"caliber.events.webhooks","message":"webhook dispatcher started (urls=1, events=*, pending_capacity=4096)"}
-{"t":"2026-10-26T14:37:20.430Z","severity":"ERROR","logger":"caliber.events.webhooks","message":"webhook delivery exhausted, dead-lettering: url=https://picky.example/hook event='approval.promoted' err=receiver returned HTTP 422","trace_id":"0f59b843e4ab8517"}
-{"t":"2026-10-26T14:37:20.441Z","severity":"INFO","logger":"caliber.events.webhooks","message":"webhook dispatcher stopped"}
