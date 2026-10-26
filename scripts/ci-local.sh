@@ -187,6 +187,7 @@ BACKEND_CORE_TESTS=(
   tests/test_trace_project_scoping.py
   tests/test_profile.py
   tests/egi_scenarios/test_downstream_fixture.py
+  tests/test_protected_effect_inventory.py
 )
 
 job_backend_core() {
