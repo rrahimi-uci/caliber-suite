@@ -14,6 +14,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from caliber.config import CaliberConfig
+from caliber.testing.fault_barriers import ENV_VAR as FAULT_BARRIERS_ENV
+from caliber.testing.fault_barriers import armed_barriers
 
 
 @dataclass(frozen=True)
@@ -117,6 +119,19 @@ def reference_profile_violations(config: CaliberConfig) -> list[ProfileViolation
                 "true",
                 "CALIBER_APPROVAL_ALLOW_SELF_APPROVAL",
                 "false",
+            )
+        )
+    armed = sorted(armed_barriers())
+    if armed:
+        found.append(
+            ProfileViolation(
+                code="fault_barriers_enabled",
+                setting="fault_barriers",
+                env_var=FAULT_BARRIERS_ENV,
+                message=(
+                    f"fault barriers are armed ({', '.join(armed)}), so this process exits on purpose "
+                    f"when it reaches one; unset {FAULT_BARRIERS_ENV} for the reference profile"
+                ),
             )
         )
     return found
