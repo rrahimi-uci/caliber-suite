@@ -28,6 +28,87 @@ class ProfileViolation:
     message: str
 
 
+@dataclass(frozen=True)
+class Requirement:
+    """One thing the reference profile requires, as the operator page lists it."""
+
+    code: str
+    setting: str
+    env_var: str
+    required: str
+    why: str
+
+
+#: Every rule of :func:`reference_profile_violations`, in the order it is checked. The operator page
+#: ``docs/operate/reference-profile.md`` has one row per entry, and ``tests/test_profile.py`` fails when the
+#: page, this table and the rules disagree, so a new rule cannot be added without documenting it.
+REFERENCE_REQUIREMENTS: tuple[Requirement, ...] = (
+    Requirement(
+        "sqlite_database",
+        "database_url",
+        "CALIBER_DATABASE_URL",
+        "a PostgreSQL URL",
+        "SQLite allows one writer and the reference profile's recovery and ownership guarantees need row locks and real transactions.",
+    ),
+    Requirement(
+        "csrf_disabled",
+        "csrf_enabled",
+        "CALIBER_CSRF_ENABLED",
+        "true (with CALIBER_CSRF_SIGNING_SECRET set)",
+        "Without CSRF protection a page the approver visits can submit an approval for them.",
+    ),
+    Requirement(
+        "dev_fallback_enabled",
+        "auth_dev_fallback_enabled",
+        "CALIBER_AUTH_DEV_FALLBACK_ENABLED",
+        "false",
+        "The no-header fallback makes an unauthenticated request an admin.",
+    ),
+    Requirement(
+        "insecure_bootstrap",
+        "auth_bootstrap_allow_insecure_default",
+        "CALIBER_AUTH_BOOTSTRAP_ALLOW_INSECURE_DEFAULT",
+        "false",
+        "It creates an `admin`/`admin` account when no bootstrap password is set.",
+    ),
+    Requirement(
+        "trusted_header_without_proxy_secret",
+        "auth_mode",
+        "CALIBER_AUTH_TRUSTED_PROXY_SECRET_ENV",
+        "`session`, or `trusted_header` with the name of the variable that holds the proxy secret",
+        "Trusting an identity header without a proxy secret lets any client claim any identity.",
+    ),
+    Requirement(
+        "egress_policy_disabled",
+        "egress_policy_enabled",
+        "CALIBER_EGRESS_POLICY_ENABLED",
+        "true",
+        "The egress policy is what stops a tool or webhook from reaching internal addresses.",
+    ),
+    Requirement(
+        "mcp_insecure_http",
+        "mcp_allow_insecure_http",
+        "CALIBER_MCP_ALLOW_INSECURE_HTTP",
+        "false",
+        "Plain-HTTP MCP servers send tool calls and results in the clear.",
+    ),
+    Requirement(
+        "self_approval_allowed",
+        "approval_allow_self_approval",
+        "CALIBER_APPROVAL_ALLOW_SELF_APPROVAL",
+        "false",
+        "The account that started a run could approve its own protected action.",
+    ),
+    Requirement(
+        "fault_barriers_enabled",
+        "fault_barriers",
+        "CALIBER_FAULT_BARRIERS",
+        "unset",
+        "An armed fault barrier makes the process exit on purpose; it exists only for scenario tests.",
+    ),
+)
+
+
 def _violation(code: str, setting: str, value: str, env_var: str, safe: str) -> ProfileViolation:
     return ProfileViolation(
         code=code,

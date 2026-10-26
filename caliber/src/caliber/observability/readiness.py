@@ -221,6 +221,9 @@ class Check:
 @dataclass(frozen=True)
 class ReadinessReport:
     checks: list[Check]
+    #: The deployment profile this process runs (``development`` or ``reference``), so an operator reading
+    #: readiness can see which rules the process was started under.
+    profile: str = "development"
 
     @property
     def ready(self) -> bool:
@@ -233,6 +236,7 @@ class ReadinessReport:
     def to_dict(self) -> dict[str, Any]:
         return {
             "ready": self.ready,
+            "profile": self.profile,
             "checks": [check.to_dict() for check in self.checks],
             "blockers": self.blockers,
         }
@@ -620,7 +624,7 @@ async def collect_readiness(
         "code_execution_allowlists": 6,
     }
     checks.sort(key=lambda check: order.get(check.name, 99))
-    return ReadinessReport(checks=checks)
+    return ReadinessReport(checks=checks, profile=str(getattr(config, "profile", "development")))
 
 
 __all__ = [

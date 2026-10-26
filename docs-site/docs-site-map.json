@@ -298,6 +298,13 @@
       "nav_order": 40
     },
     {
+      "href": "m-64-reference-profile.html",
+      "label": "Reference profile",
+      "section": "operate",
+      "nav_order": 45,
+      "doc_type": "reference"
+    },
+    {
       "href": "m-51-operator-troubleshooting.html",
       "label": "Operator troubleshooting",
       "section": "operate",

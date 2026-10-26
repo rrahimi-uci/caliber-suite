@@ -30,3 +30,18 @@ def test_readiness_leaks_no_secrets(client: TestClient) -> None:
     # Only enum-y provider values + flags; never keys/secrets.
     for needle in ("api_key", "secret", "openai_api_key", "sk-"):
         assert needle not in body
+
+
+def test_readiness_reports_profile(client: TestClient) -> None:
+    """The profile the process was started under is part of readiness, for both profiles."""
+    assert client.get(READINESS_PATH).json()["data"]["profile"] == "development"
+    config = client.app.state.config
+    client.app.state.config = config.model_copy(update={"profile": "reference"})
+    assert client.get(READINESS_PATH).json()["data"]["profile"] == "reference"
+
+
+def test_a_readiness_report_names_its_profile() -> None:
+    from caliber.observability.readiness import ReadinessReport
+
+    assert ReadinessReport(checks=[]).to_dict()["profile"] == "development"
+    assert ReadinessReport(checks=[], profile="reference").to_dict()["profile"] == "reference"
