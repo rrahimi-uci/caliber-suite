@@ -13,6 +13,7 @@ behind the routes that records what it was asked to search and what feedback it 
 
 from __future__ import annotations
 
+import sys
 from types import SimpleNamespace
 from typing import Any
 
@@ -728,6 +729,38 @@ def test_a_name_claim_mlflow_cannot_resolve_grants_only_that_name(
     monkeypatch.setattr(mlflow, "get_experiment_by_name", down)
     found = visible_experiments(db_session, _identity(ALICE, PROJECT_A))
     assert found == ALICE_VISIBLE | {"a-name"}
+
+
+def test_numeric_claims_never_ask_mlflow_to_resolve_a_name(
+    db_session: Session, world: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def must_not_resolve(_name: str) -> None:
+        raise AssertionError("a numeric experiment id is not a name")
+
+    monkeypatch.setattr("mlflow.get_experiment_by_name", must_not_resolve)
+    assert visible_experiments(db_session, _identity(ALICE, PROJECT_A)) == ALICE_VISIBLE
+
+
+def test_a_named_claim_survives_mlflow_not_being_importable(
+    db_session: Session, world: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    db_session.add(
+        CaliberAgentConfig(
+            agent_id="agent-named",
+            experiment_id="a-name",
+            name="named",
+            owner="@test",
+            project_id=PROJECT_A,
+            visibility="project",
+            artifact_types=["prompt"],
+            optimizer_config={},
+        )
+    )
+    db_session.commit()
+    monkeypatch.setitem(sys.modules, "mlflow", None)  # ``import mlflow`` now raises ImportError
+    assert visible_experiments(db_session, _identity(ALICE, PROJECT_A)) == ALICE_VISIBLE | {
+        "a-name"
+    }
 
 
 # ---------------------------------------------------------------- other places a trace id is accepted
