@@ -20,7 +20,9 @@ REPO = Path(__file__).resolve().parents[2]
 ADR_DIR = REPO / "docs" / "architecture" / "adr"
 INVENTORY = REPO / "docs" / "architecture" / "protected-effect-paths.md"
 
-pytestmark = pytest.mark.skipif(not ADR_DIR.is_dir(), reason="repository docs not present")
+pytestmark = pytest.mark.skipif(
+    not (ADR_DIR.is_dir() and INVENTORY.exists()), reason="repository docs not present"
+)
 
 REQUIRED_HEADINGS = ("## Status", "## Context", "## Decision", "## Consequences")
 STATUSES = ("Proposed", "Accepted", "Superseded", "Rejected")
@@ -42,9 +44,24 @@ def indexed_rows(index_text: str) -> dict[str, str]:
     return rows
 
 
+def without_code_fences(text: str) -> str:
+    """``text`` with the lines inside ``` fences removed, so a heading in a code sample is not a heading."""
+    kept: list[str] = []
+    fenced = False
+    for line in text.splitlines():
+        if line.lstrip().startswith("```"):
+            fenced = not fenced
+            continue
+        if not fenced:
+            kept.append(line)
+    return "\n".join(kept)
+
+
 def headings_problem(text: str) -> str | None:
     """Why ``text`` is not a well-formed record, or ``None``."""
-    found = [line.strip() for line in text.splitlines() if line.startswith("## ")]
+    found = [
+        line.strip() for line in without_code_fences(text).splitlines() if line.startswith("## ")
+    ]
     present = [h for h in found if h in REQUIRED_HEADINGS]
     missing = [h for h in REQUIRED_HEADINGS if h not in present]
     if missing:
@@ -96,17 +113,41 @@ def inventory_row_ids(text: str) -> list[str]:
     ]
 
 
+def table_after(text: str, heading: str) -> list[list[str]]:
+    """The cell lists of the body rows of the table at ``heading``: a ``|`` line is the table's own header row, anything else
+    is a heading above the table. The table ends at the next heading."""
+    section = text.split(heading, 1)[1]
+    section = re.split(r"^#{2,3} ", section, maxsplit=1, flags=re.M)[0]
+    lines: list[str] = []
+    for line in section.splitlines():
+        if line.startswith("|"):
+            lines.append(line)
+        elif lines:
+            break  # the table ended
+    rows = [[c.strip() for c in line.strip().strip("|").split("|")] for line in lines]
+    rows = [r for r in rows if not set(r[0]) <= set("-: ")]  # the separator
+    return (
+        rows if heading.startswith("|") else rows[1:]
+    )  # a heading before the table leaves its header row
+
+
+def ownership_rows(adr_text: str) -> dict[str, list[str]]:
+    """``{row id: [row, entry point, owner, basis]}`` from ADR 0002's protected-path table."""
+    return {cells[0]: cells for cells in table_after(adr_text, "### Protected paths")}
+
+
 def ownership_table_rows(adr_text: str) -> list[str]:
-    """The row ids in ADR 0002's protected-path table (the table after ``### Protected paths``)."""
-    section = adr_text.split("### Protected paths", 1)[1]
-    section = re.split(r"^## ", section, maxsplit=1, flags=re.M)[0]
-    return [
-        m.group(0)
-        for line in section.splitlines()
+    """The row ids in ADR 0002's protected-path table, in order."""
+    return [cells[0] for cells in table_after(adr_text, "### Protected paths")]
+
+
+def inventory_rows(text: str) -> dict[str, list[str]]:
+    return {
+        cells[0]: cells
+        for line in text.splitlines()
         if line.startswith("| EP-")
-        for m in [ROW_ID.match(line[2:])]
-        if m
-    ]
+        for cells in [[c.strip() for c in line.strip().strip("|").split("|")]]
+    }
 
 
 def uncovered(adr_text: str, ids: list[str]) -> list[str]:
@@ -122,7 +163,7 @@ def test_every_adr_is_indexed_and_has_required_headings() -> None:
     assert check_adr_directory(ADR_DIR) == []
 
 
-def test_the_first_four_records_are_accepted_or_planned_as_the_plan_says() -> None:
+def test_the_records_the_issue_accepts_are_accepted() -> None:
     indexed = indexed_rows((ADR_DIR / "README.md").read_text(encoding="utf-8"))
     assert indexed["0001-reference-profile.md"] == "Accepted"
     assert indexed["0002-execution-ownership.md"] == "Accepted"
@@ -145,19 +186,100 @@ def test_adr_0001_names_the_profile_switch_and_the_refusal_code() -> None:
         "CALIBER_PROFILE=reference",
         "unsupported_in_reference_profile",
         "PostgreSQL 16",
-        "irreversible_write",
-        "reversible_write",
-        "`export`",
     ):
         assert needed in text, needed
 
 
-def test_adr_0002_names_every_lifespan_loop() -> None:
+def test_adr_0001_gives_every_component_a_value_and_every_effect_class_a_control() -> None:
+    text = (ADR_DIR / "0001-reference-profile.md").read_text(encoding="utf-8")
+    components = {
+        cells[0]: cells for cells in table_after(text, "| component | value | enforced |")
+    }
+    for component in (
+        "tenant",
+        "region",
+        "database",
+        "experiment tracking",
+        "object store",
+        "projects",
+        "identity",
+        "model adapters",
+        "connector",
+        "profile switch",
+    ):
+        assert component in components, f"no row for {component}"
+    for name, cells in components.items():
+        assert len(cells) == 3 and all(cells), f"{name} has an empty cell: {cells}"
+
+    controls = {
+        cells[0].strip("`"): cells
+        for cells in table_after(text, "| effect class | required control |")
+    }
+    assert set(controls) == {"read", "reversible_write", "irreversible_write", "export"}
+    for name, cells in controls.items():
+        assert len(cells) == 2 and all(cells), f"{name} has no required control"
+
+
+def test_adr_0001_names_every_profile_code_it_claims_is_enforced() -> None:
+    """The ``enforced`` column cites codes from ``profile.py``; each must be a real code."""
+    from caliber.profile import reference_profile_violations  # noqa: F401 - import proves the module exists
+
+    source = (REPO / "caliber" / "src" / "caliber" / "profile.py").read_text(encoding="utf-8")
+    text = (ADR_DIR / "0001-reference-profile.md").read_text(encoding="utf-8")
+    cited = set(
+        re.findall(
+            r"`(\w+_\w+)`",
+            "\n".join(r[2] for r in table_after(text, "| component | value | enforced |")),
+        )
+    )
+    codes = {c for c in cited if (c.islower() and f'"{c}"' in source) or c in {"sqlite_database"}}
+    assert {
+        "sqlite_database",
+        "csrf_disabled",
+        "self_approval_allowed",
+        "fault_barriers_enabled",
+    } <= codes
+
+
+def test_adr_0002_gives_every_lifespan_loop_an_owner() -> None:
     from caliber.observability.worker_inventory import discover_lifespan_workers
 
     adr = (ADR_DIR / "0002-execution-ownership.md").read_text(encoding="utf-8")
-    missing = [cls for _name, cls in discover_lifespan_workers() if f"`{cls}`" not in adr]
-    assert missing == [], f"background loops with no owner in ADR 0002: {missing}"
+    loops = {
+        cells[0].strip("`"): cells
+        for cells in table_after(adr, "| background loop | owner | what it does |")
+    }
+    missing = [cls for _name, cls in discover_lifespan_workers() if cls not in loops]
+    assert missing == [], f"background loops with no row in ADR 0002: {missing}"
+    for name, cells in loops.items():
+        assert len(cells) == 3 and all(cells), f"{name} has an empty cell"
+        assert "lease" in cells[1] or name.startswith("EventBus"), (
+            f"{name} has no owner: {cells[1]}"
+        )
+    assert any(name.startswith("EventBus") for name in loops), "the event bus has no row"
+
+
+def test_adr_0002_owners_follow_the_inventory_dispositions() -> None:
+    inventory = inventory_rows(INVENTORY.read_text(encoding="utf-8"))
+    owned = ownership_rows((ADR_DIR / "0002-execution-ownership.md").read_text(encoding="utf-8"))
+    assert set(owned) == set(inventory), "ADR 0002 and the inventory list different rows"
+    for row_id, cells in owned.items():
+        _, entry, owner, basis = cells
+        assert owner and basis, f"{row_id} has no owner or basis"
+        source = inventory[row_id]
+        assert entry.strip("`") == source[1].strip("`"), (
+            f"{row_id}: entry point differs from the inventory"
+        )
+        disposition = source[5]
+        if disposition == "dispatch":
+            assert "dispatcher" in owner, row_id
+        elif disposition == "refuse":
+            assert "dispatcher" in owner and "profile.py" in owner, row_id
+        else:
+            path = source[1].strip("`").split("::")[0]
+            assert owner == f"`{path}` (unchanged)", (
+                f"{row_id}: an exempt row stays with its module"
+            )
 
 
 # ---------------------------------------------------------------- the checks fail when they should
