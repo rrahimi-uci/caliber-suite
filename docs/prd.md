@@ -24,8 +24,9 @@ tags:
 
 ## Status and decision
 
-> **Superseded as the MVP definition on 2026-10-24.** The MVP is now the book-complete reference implementation in
-> the [EGI delivery plan](CALIBER_EGI_DELIVERY_PLAN.md). The prompt-refinement journey below remains a supported
+> **Superseded as the MVP definition.** The [2026-10-26 single-tenant execution plan](https://github.com/rrahimi-uci/caliber-suite/blob/main/docs/planning/BETA_MVP_EXECUTION_PLAN.md)
+> defines the current Beta/MVP scope. Shared-customer hosting is excluded; OIDC/SCIM and all other retained
+> enterprise packages remain required. The prompt-refinement journey below remains a supported
 > CALIBER journey and a useful acceptance case, but its v1.0.0 release gate is no longer the product's MVP gate.
 
 **Status: draft for approval.** This PRD defines the product contract that the

@@ -160,7 +160,7 @@ flowchart LR
     subgraph L1["1 · INFRASTRUCTURE"]
       direction LR
       i1["Process host<br/>Starlette ASGI<br/>standalone service"]:::store
-      i2["PostgreSQL 17<br/>pgvector · Apache AGE<br/>SQLite for dev"]:::store
+      i2["PostgreSQL<br/>pgvector · optional Apache AGE<br/>SQLite for dev"]:::store
       i3["Object storage<br/>S3 · MinIO · local<br/><i>GCS only via MLflow</i>"]:::store
       i4["MLflow ≥ 3.15<br/>tracking · registry<br/>artifacts · evaluate"]:::ext
       i5["Event transport<br/>in-process · NATS<br/>Redis · database"]:::async
@@ -395,6 +395,13 @@ share the semantics.**
 
 Topology B is the only supported CALIBER deployment. Topology A remains only as
 internal compatibility coverage where the code still exists.
+
+The planned Beta reference profile pins **PostgreSQL 16 with pgvector**, external MLflow and S3-compatible
+storage under [ADR 0001](https://github.com/rrahimi-uci/caliber-suite/blob/main/docs/architecture/adr/0001-reference-profile.md). This is distinct from generic adapter
+availability and is not a new certification of other database versions or optional graph extensions. The
+[single-tenant execution plan](https://github.com/rrahimi-uci/caliber-suite/blob/main/docs/planning/BETA_MVP_EXECUTION_PLAN.md) tracks the missing production controls:
+one fenced execution owner with API-only peers, then same-organization regional cells. These are future gates,
+not capabilities established by the current multi-loop process or the existence of configuration switches.
 
 | Topology | Status | Description |
 | --- | --- | --- |

@@ -1,4 +1,12 @@
-# CALIBER EGI delivery plan: three people, book-complete MVP
+# CALIBER EGI delivery plan: three people, single-tenant MVP
+
+> **Execution baseline, 2026-10-26:** the [Beta/MVP execution plan](planning/BETA_MVP_EXECUTION_PLAN.md)
+> and its linked GitHub child tasks control implementation scope, contract decisions and task dependencies.
+> One organization per deployment; multiple projects/users. Shared-customer hosting is excluded; OIDC/SCIM,
+> regions, Hub, memory, federation, catalog and autonomy remain required. The capacity/calendar figures below
+> are the **historical broader-scope estimate**, not a single-tenant commitment. GitHub due dates are unset
+> pending the staffing, external-review and scope reforecast in [#608](https://github.com/rrahimi-uci/caliber-suite/issues/608).
+> D5 is Beta, D9 is core proof (not a release), D15 is the full retained MVP. No feature is implemented here.
 
 > **Controlling delivery plan as of 2026-10-24.** It supersedes the
 > [five-person D1–D9 plan](CALIBER_FIVE_PERSON_DELIVERY_PLAN.md) for staffing, scope and calendar, and the monthly
@@ -16,13 +24,13 @@ The repository owner decided on 2026-10-24:
 2. **Three full-time people.** Five working days per week each; not five people and not 1.5 developers.
 3. **CALIBER is the reference implementation of *Building Enterprise General Intelligence*.** The MVP therefore
    includes the breadth the gap analysis had deferred (A2A federation, governed memory, the Knowledge Hub with
-   automated extraction, multi-region execution, multi-tenancy with organizational administration, and a
+   automated extraction, multi-region execution, single-tenant enterprise identity/organizational administration, and a
    connector/framework ecosystem), plus the book contracts no package covered yet. These become packages M17–M26.
 4. **Autonomy is a per-use-case ladder of agent-held roles** (added 2026-10-25). Roles stay fixed; which of them
    an agent may hold for a use case is a governed level, L0–L5, with the owner role always human. This is package
    M27 and [ADR 0004](architecture/adr/0004-autonomy-levels.md).
 
-## Capacity
+## Historical capacity baseline — reforecast required
 
 The availability model is unchanged from the five-person plan; only the head count changes.
 
@@ -60,10 +68,13 @@ raised from 0.5 to 1 PW (scenario harness, fault barriers and a required CI job)
 **Added 2026-10-25:** package M27, autonomy levels (4–6 PW, midpoint 5), in D10. It defines which roles an agent
 principal may hold per use case and enforces it; see [ADR 0004](architecture/adr/0004-autonomy-levels.md).
 
-## Calendar
+<a id="calendar"></a>
 
-**Assumed start: Monday 2 November 2026.** Due dates are the Friday of each milestone's QA week and move with the
-start date. Holidays are inside the 25% unavailability.
+## Historical calendar — not current due dates
+
+**Historical assumed start: Monday 2 November 2026.** These dates are retained for estimate provenance only.
+They are not current GitHub due dates. Re-estimate retained M17 work and corrected contracts against measured
+capacity under #608; shifting the old dates or subtracting all of M17 is not an adequate reforecast.
 
 | ID | Weeks | QA week | Due | Base PW | Outcome |
 | --- | --- | ---: | --- | ---: | --- |
@@ -77,7 +88,7 @@ start date. Holidays are inside the 25% unavailability.
 | D8 | 47–54 | 54 | 2027-11-12 | 14 | Second connector recovery, persistent budgets and bounded delegation |
 | D9 | 55–60 | 60 | **2027-12-24** | 10.5 | **Core platform proof**: independent install/restore/pilot and measured limits (no release decision) |
 | D10 | 61–73 | 73 | 2028-03-24 | 22.5 | Governance inventory, autonomy levels, routing and ownership transfer, remaining platform contracts |
-| D11 | 74–83 | 83 | 2028-06-02 | 17.5 | Multi-tenant isolation and organizational administration |
+| D11 | 74–83 | 83 | 2028-06-02 | 17.5 | Historical shared-tenancy allocation; replaced by retained enterprise identity, estimate pending |
 | D12 | 84–93 | 93 | 2028-08-11 | 18 | Regional cells, residency and region-loss recovery |
 | D13 | 94–103 | 103 | 2028-10-20 | 18 | Knowledge Hub: governed extraction, ontology and Hub views |
 | D14 | 104–112 | 112 | 2028-12-22 | 15 | Governed memory and A2A federation |
@@ -108,22 +119,24 @@ again before D9 and D15; their unavailability blocks the relevant gate, it does 
 
 ## Milestone contracts
 
-**D1–D8** keep the contracts, ordering, exit evidence and demos of the
+**D1–D8** keep the outcomes, exit evidence and demos of the
 [five-person plan](CALIBER_FIVE_PERSON_DELIVERY_PLAN.md#detailed-milestone-contracts); only their length and the
-person wearing each lead hat change. Two additions apply from D1:
+person wearing each lead hat change. The execution plan's corrected contracts and native task dependencies
+supersede conflicting historical ordering/pseudocode (especially approval consumption, outbox delivery and
+immutable manifests). The following foundations apply from D1:
 
 - **B01's ADR fixes the identifiers later packages need**: tenant, region and residency fields on run, event,
   artifact and binding records, and the CloudEvent envelope (`tenantid`, `correlationid`, `causationid`,
-  `traceparent`). Single-tenant, single-region values are fine until D11/D12; adding the columns then would rewrite
-  every admitted run. This stays inside B01's 1–2 PW range.
+  `traceparent`). Tenant identity remains server-configured for this release; M18 adds regional enforcement.
+  Required fields on new governed records do not imply a universal shared-tenant retrofit of legacy tables.
 - **The Beta scenario is the book's companion case.** B15's synthetic document-request fixture uses the
   Harborlight Mortgage anchor case `MORT-2026-000184` and its C01–C03 data from the book's companion code
   (Appendix H), so the Beta already exercises the book's own example.
-- **D1 is task-sized now.** Task 0 readiness (#608) first; then the downstream service and harness (#568) by week 2,
+- **D1 implementation is already closed.** Preserve the downstream service and harness (#568),
   the two disposable prototypes (#625, #626), the connector experiment (#567) and the re-estimate (#572); the
   protected-effect inventory (#627) before the ADRs (#565) and schemas (#566); the trace deny fix (#569), unsafe-profile
   refusal (#570) and approval UX contract (#571); and the scenario harness and CI job (#541). The control issue #609
-  holds the order.
+  holds the acceptance decision; #608 retains genuine external readiness/reforecast inputs. Do not recreate closed work.
 
 **Allocation changes from the 2026-10-24 review.** M09's waiver record moves into D6 (#551) because M02 and M24
 build on it; trajectory slices, drift and the pilot protocol finish in D7 (#552). M14 task 1 splits: Beta contracts in
@@ -144,9 +157,10 @@ case at L3 refuses an agent approval and routes it to a human, is promoted to L4
 automatically when an agent-approved apply fails acceptance; a route falls back with a recorded RoutingDecision; a
 handoff transfers ownership only after acknowledgment.
 
-**D11 — Multi-tenancy and organizational administration (weeks 74–83).** M17. **Exit evidence:** V28; zero
-cross-tenant leakage across runs, traces, knowledge, evaluations, audit and exports. **Decision:** D12 does not start
-while any cross-tenant finding is open.
+**D11 — Single-tenant enterprise identity and deprovisioning.** M17. **Exit evidence:** V28-identity: OIDC,
+SCIM, project-role/session/PAT/grant/lease revocation within 60 seconds, and isolated installation
+storage/backup/export boundaries. V28-shared-tenancy is explicitly excluded, not passed. D12 consumes the
+retained identity/isolation gate; it has no prerequisite on removed customer routing or cross-tenant quotas.
 
 **D12 — Regions and residency (weeks 84–93).** M18. **Exit evidence:** V29; a region-loss drill meets the agreed
 RPO/RTO without moving resident data. **Demo:** promote the same signed release to two regional cells and lose one.
@@ -161,18 +175,20 @@ local checks.
 **D15 — Ecosystem, companion case and book-complete MVP release (weeks 113–122).** M22 catalog and certification;
 M26 companion case and book traceability; M16 complete safety/migration matrix, independent security review over the
 final trust boundary, rebuilt artifacts and the release decision. **Exit evidence:** **all B01–B16, M01–M27 and
-V01–V35 pass**, the [traceability tables](#book-traceability) below have no uncovered row, and the gap analysis's MVP
+V01–V35 pass within the declared scope (V28-identity required; V28-shared-tenancy explicitly excluded)**,
+the [traceability tables](#book-traceability) below have no unexplained row, and the gap analysis's MVP
 definition of done holds. **Decision:** release within the measured envelope, or remain a release candidate with
 explicit blockers.
 
 ## New packages M17–M27
 
-Base PW ranges for M18–M21 come from the gap analysis's deferred backlog (M17 narrowed on code evidence); M22–M27 are this plan's estimates. The issue for each package (#598–#607, #632) holds the executable task table. Each
-package splits into 1–2 day child issues when its milestone starts.
+The PW ranges below are historical sizing, not a re-estimate. Each package issue (#598–#607, #632) now links
+actual child issues containing scope, prerequisites, tests, acceptance and documentation. Use the
+[execution manifest](planning/beta-mvp-execution.json) and native GitHub dependencies, not future kickoff splitting.
 
 | Package | Book source | Concrete slices | Depends on | Acceptance | PW (mid) | Milestone |
 | --- | --- | --- | --- | --- | ---: | --- |
-| M17 Multi-tenant isolation and organizational administration | Ch. 4, 21, 26; App. G | 1. Tenant as first-class scope in admission and the tenant router. 2. Per-tenant data and key separation, enforced in queries. 3. OIDC SSO and SCIM provisioning (the book requires identities from the enterprise IdP; SAML is out of scope). 4. Per-tenant quotas and budgets. 5. Cross-tenant leakage suite. | B03, B11, M01, M05, M08 | V28: no cross-tenant read, write, enumeration or export; a deprovisioned user loses access within the stated bound | 15–20 (17.5) | D11 |
+| M17 Single-tenant enterprise identity | Ch. 4, 21, 26; App. G scoped exception | Fixed deployment identity; project/principal boundaries; dedicated installation credentials/storage/backup; OIDC issuer+subject identity; SCIM users/groups; session/PAT/grant/lease/approval revocation. No shared-customer router, universal tenant columns, per-tenant keys or quotas. | B03, B11, M01, M05, M27 | V28-identity: deprovisioned access refused within 60 seconds; project and installation boundaries hold. V28-shared-tenancy excluded. | Reforecast #608 | D11 |
 | M18 Multi-region execution and residency cells | Ch. 4, 15, 27 | 1. Global definition plane vs regional cells. 2. Home region/shard on WorkflowExecution. 3. Residency enforcement for data, knowledge and artifacts. 4. Per-region Environment/KnowledgeBinding and promotion. 5. Region-loss drill with RPO/RTO. | B13, M02, M03, M04, M11, M12, M17 | V29: resident data never leaves its region; region loss recovers within target; promotion is per cell | 12–24 (18) | D12 |
 | M19 A2A gateway and federated task adoption | Ch. 19; App. G phase 4 | 1. A2A gateway/Task Bridge. 2. FederatedTask state mapping, deadlines and budgets. 3. Signed task envelope and peer trust. 4. Authority intersection with the remote peer. 5. Local artifact adoption checks and federated trace links. 6. Cancellation. | M01, M13, B14 | V32: a peer cannot widen scope, duplicate an effect or have an artifact adopted without passing local checks | 6–12 (9) | D14 |
 | M20 Governed cross-run memory | Ch. 6, 17 | 1. MemoryRecord with tenant, scope, consent, purpose allowlist, TTL and provenance. 2. Writes as gated proposals. 3. Corrections and supersession. 4. Deletion propagation into derived context. | B07, M04, M05, M17 | V31: untrusted provenance cannot become durable memory; deleted memory cannot resurface | 4–8 (6) | D14 |
@@ -189,8 +205,9 @@ Validation scenarios V25–V35 for these packages are in the gap analysis's
 
 ## Book traceability
 
-These tables are the completeness test for "reference implementation of the book". D15 does not pass while a row
-lacks a delivered package and a passing test.
+These tables are the traceability test for the single-tenant reference implementation. D15 does not pass while an
+in-scope row lacks a delivered package and passing test. Shared-customer hosting has an explicit exclusion,
+not a fabricated passing test or an unqualified book-completeness claim.
 
 ### Appendix C contracts
 
@@ -276,14 +293,15 @@ Every level has one home, so a developer can walk from the strategy to the test 
 | Roadmap | [Calendar](#calendar) | Order, dates and stage gates |
 | Milestone | GitHub milestone D1–D15 plus its **milestone control issue** (#609–#623) | Work order, kickoff checklist, QA-week checklist, exit evidence, demo, decision |
 | Epic | **Package issue** (one per package part, e.g. #519 and #520 for B04) | Goal, why, tasks of this part, blocked-by/provides-to issues, code seams, out of scope, acceptance, validation commands, deliverables |
-| Task | A row of the package issue's task table | The exact change, its output artifact, done-when and test |
-| Subtask | 1–2 day **child issue** (sub-issue of the package issue), created at the milestone kickoff | Files, test, done-when; D1's are already created (#565–#572, #608, #625–#627) |
+| Task | Actual GitHub child issue linked from its package | Exact scope/files/contracts, native prerequisites, tests, observable acceptance and documentation |
+| Subtask | Further focused split when source drift reveals independently reviewable work | Preserve scope and traceability; do not silently leave reasoning-heavy work unspecified |
 | Deliverable | The "Deliverables at close" list of each issue | Modules, migrations, tests, docs, ADRs, reports that must exist |
 | Acceptance | The issue's acceptance checklist | Observable criteria with a denial case where applicable, and the V-scenario IDs |
 | Validation | The issue's validation commands; V01–V35 in [gap analysis §13](CALIBER_REFERENCE_ARCHITECTURE_GAP_ANALYSIS.md#13-end-to-end-validation-strategy); `docs/reports/egi/Dk-acceptance.md` | Exact commands, the CI job that runs them, and the retained evidence |
 
-**Definition of ready (a child issue may start)**: its parent's blocked-by issues are closed or the needed slice is
-merged; it names the files to change, the test to add and the done-when; it is at most two days.
+**Definition of ready (a child issue may start)**: its own native prerequisites are merged; scope, contracts,
+files, tests and acceptance are explicit; shared-file ownership is coordinated. Parent completion is not a
+prerequisite when the child itself produces a contract another package consumes.
 
 **Definition of done (a package issue may close)**: every task row's done-when is met; its acceptance checklist is
 ticked with links to the passing CI run; changed behavioral code has ≥95% line coverage under the repository's
@@ -321,13 +339,13 @@ Where two packages touch the same mechanism, one builds it and the other extends
 | Mechanism | Builds it | Extends it | Rule |
 | --- | --- | --- | --- |
 | Waiver record (scope, compensating control, approver, expiry) | M09, for release/evaluation gates | M24, for every other control, plus the governance inventory | One waiver store |
-| BudgetReservation (tokens, spend, concurrency) and retry ownership | M08 | M17 adds the tenant dimension; M23 reads it for cost-aware routing | One reservation ledger |
+| BudgetReservation (tokens, spend, concurrency) and retry ownership | B08 step reservations | M08 extends deployment/project/run/connector accounting; M23 reads it | One reservation ledger; no cross-tenant quotas |
 | Eligible model routes | B02 pins them in the RunManifest | M23 records RoutingDecision and falls back within the pinned list | No second pinning mechanism |
 | CloudEvent envelope | B01 defines it (ADR 0003); B13 emits it for new outbox events | M25 converts every remaining producer and adds the contract test | One envelope |
-| Tenant and region identifiers | B01 defines them; B02 stores constant defaults on every run | M17 and M18 enforce them | No backfill migration later |
+| Organization and region identifiers | B01 defines them; B02 stores server-derived values on new governed runs | M17 validates fixed organization; M18 enforces regional cells | No universal legacy tenant retrofit; preserve admitted history |
 | Companion case | B15 builds the Beta fixture from the book's anchor case `MORT-2026-000184` (C01–C03 data) | M26 runs the full Appendix H case and the traceability tests | One fixture lineage |
 | Distinct-approver check | B06, for runtime effect approvals | #589 reuses it for prompt/job Apply | One eligibility function |
-| Trace authorization | B11, project scope | M17 adds tenant scope | One check |
+| Trace authorization | B11 canonical exclusive experiment ownership and project scope | M17 adds enterprise principal lifecycle checks | One canonical ownership check; aliases cannot create foreign claims |
 | Upgrade testing | #594 (0.1.0a1 → Beta database) | M11 (general upgrade preflight and backup automation) | One migration test harness |
 | Autonomy (who may hold a role) | M24 stores `autonomy_level` on the GovernanceRecord; B06 owns the distinct-approver check | M27 enforces the level table and promotion/demotion; Aria's `AssistantApprovalMode` reads the level | One level per use case, no second role model |
 
@@ -345,15 +363,15 @@ done-when list. The steps are the same for every issue:
    not re-create it. Every path is repo-root-relative. Register any new test module that uses
    `caliber/tests/dialect_helpers.py` in the Migration parity command in `.github/workflows/ci.yml` and
    `scripts/ci-local.sh`.
-4. **Work row by row** in the task table's order. A row is done when its "Done when" statement holds and the test
-   in its "Test" column passes. Do not start the next row before that.
+4. **Implement one child task** using its native blocked-by prerequisites, exact scope and acceptance oracle.
+   The parent issue is an epic/index, not a request to implement all rows in one PR.
 5. **Run the issue's Validation commands** and `git diff --check`; measure line coverage of the changed behavioral
    code with the repository's pytest-cov run (≥95%).
 6. **Open the PR** with the repository template, filled as the repository's `CLAUDE.md` requires: what changed,
    why, the commands run and their results, coverage, risks. Link the issue. Tick the acceptance criteria on the
    issue with links to the passing CI run.
-7. **Merge** per `CLAUDE.md` once every required check is green and the self-review is done; then close the issue
-   and note anything the next issue in the package must know as a comment on that issue.
+7. **Leave the PR open for owner review and merge.** Agents do not auto-merge. After owner merge, verify the
+   integrated baseline, close the task with evidence and notify dependent tasks of contract changes.
 
 What an implementer never does: invent a file name or field name the issue does not give (ask on the issue
 instead); widen scope into an "Out of scope" item; weaken a test or a "Done when" to make it pass; skip a row.
@@ -361,10 +379,10 @@ instead); widen scope into an "Out of scope" item; weaken a test or a "Done when
 ## Tracking
 
 - [GitHub Project #3](https://github.com/users/rrahimi-uci/projects/3) tracks every package issue, milestone control
-  issue and child issue, with repository milestones D1–D15 carrying the due dates above. Use the Package, Stage and
-  Role fields to group and filter.
-- D1 is task-sized now: readiness #608, then #565–#572 and #625–#627. Later milestones are split into child issues at their
-  kickoff, by the control issue's checklist.
+  issue and child issue. Milestones D1–D15 have no committed dates pending #608. Use Package, Stage, Item type,
+  Priority, Readiness, Lane, Gap IDs and Execution order fields; Role retains historical responsibility hats.
+- Completed D1 issues remain closed. Remaining package rows are now actual child issues, with native parent and
+  blocked-by relationships. Do not recreate their work at a future kickoff.
 - The roadmap's monthly milestones and Project #4 are closed. Beta tickets #588–#596, created from the alpha
   release notes' "Toward Beta" list, were folded into the EGI packages they duplicate or attached to them as child
   issues.

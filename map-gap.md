@@ -4,6 +4,11 @@ Review date: **26 October 2026**. Latest checked main: [`eafd6fce4933c202f43d579
 
 **Scope update — owner decision, 26 October 2026: this version is single-tenant only.** This report now evaluates release gaps against that boundary. One customer/organization has a dedicated CALIBER deployment, database, storage boundary, credentials and configuration; multiple authorized users and projects remain supported within it. Shared-customer hosting, tenant provisioning/routing and cross-tenant administration are out of scope for this version. This updates the report's scope; the existing EGI delivery-plan file and its broader schedule have not been rewritten.
 
+**Subsequent planning reconciliation:** the [execution plan](docs/planning/BETA_MVP_EXECUTION_PLAN.md) now applies
+this report's corrections to GitHub and proposed repository documentation, against main
+`5b2fb2a408fad887f1c8704e311b46b09da0f15f`. The review baselines above remain historical; production controls
+are not implemented by the planning update. Old milestone dates are uncommitted pending #608.
+
 **Scope interpretation:** retain the current EGI MVP commitments except shared-customer multi-tenancy. Single tenancy does **not** remove OIDC/SCIM, multi-region operation, Knowledge Hub, governed memory, federation, certification or autonomy. D5 is the bounded **Beta**, D9 is **core operating proof**, and the full **single-tenant MVP** still requires the retained D10–D15 capabilities. A smaller product release would require another owner decision; it is not the default used below.
 
 ## 1. Executive Summary
@@ -156,7 +161,7 @@ In particular, the database startup rule rejects a URL beginning with `sqlite`; 
 | Document/state | Authority in this review |
 | --- | --- |
 | Owner's single-tenant decision, 26 October | Current-version scope for this report: one organization per dedicated deployment; shared tenancy excluded. |
-| [EGI delivery plan](docs/CALIBER_EGI_DELIVERY_PLAN.md), 24–25 October | Existing broader program baseline: B01–B16 and M01–M27, including tenancy. Its scope/calendar have not yet been reconciled with this version's single-tenant boundary. |
+| [EGI delivery plan](docs/CALIBER_EGI_DELIVERY_PLAN.md), historical 24–25 October baseline | B01–B16 and M01–M27 originally included shared tenancy. The subsequent execution plan reconciles scope/tasks; calendar reforecast remains #608. |
 | [Five-person plan](docs/CALIBER_FIVE_PERSON_DELIVERY_PLAN.md) | Superseded staffing/calendar; D1–D8 milestone contracts are explicitly reused. |
 | [Reference architecture gap analysis](docs/CALIBER_REFERENCE_ARCHITECTURE_GAP_ANALYSIS.md) | Package definitions/scenarios remain useful; historical implementation statements require rechecking. |
 | [PRD](docs/prd.md) and [roadmap](docs/roadmap.md) | Supersession banners are authoritative; old monthly release train and narrower MVP text are historical. |
@@ -197,7 +202,11 @@ Here, the current version is **single-tenant only by owner decision**. No furthe
 
 **M17 dependency replacement, not deletion:** before M18/M20/M21, establish one server-configured organization identity, project/principal authorization, required contract scope fields, IdP/deprovisioning controls, and deployment-scoped key/storage/export boundaries. M18 adds region/residency enforcement; M20 uses owned memory scope; M21 retains organization-specific ontology extensions. Review M19 peer bindings and M22 rollout cohorts against the same fixed organization identity. Retain the original B/M dependencies unrelated to shared tenancy. Replace D12's current D11 cross-tenant blocker with an explicitly approved retained-identity/isolation gate, rather than treating the whole prerequisite as satisfied.
 
-The plan and issues have **not** been edited by this report. The scope split, V28 acceptance mapping and dependent task updates require a focused planning change before those packages start. No other enterprise package is deferred by this review. Architectural foundations are not permission to expose unsafe partially implemented features.
+The report itself did not edit plans/issues. The subsequent **2026-10-26 planning reconciliation** applies this
+scope split, V28-identity acceptance and dependency corrections in the
+[Beta/MVP execution plan](docs/planning/BETA_MVP_EXECUTION_PLAN.md) and linked GitHub backlog.
+That plan supersedes the old issue pseudocode discussed below; these findings remain the audit record, not
+claims that production controls were implemented. No other enterprise package is deferred.
 
 ## 6. Target MVP Reference Architecture
 
@@ -238,11 +247,12 @@ Start with one active execution owner and API-only secondaries, not claims of ho
 
 ### Implementation contracts that must be settled before coding consumers
 
-These are review findings and proposed acceptance clarifications, not already approved changes to the issue specifications:
+These were review findings and proposed acceptance clarifications. The subsequent execution-plan reconciliation
+records the resulting task contracts; the table remains their rationale, not a production implementation claim:
 
 | Contract | Required clarification / safe default | Evidence needed before closing the package |
 | --- | --- | --- |
-| Admission idempotency — B02 | Specify a canonical **client request** digest covering input, requested release/version selector, purpose and scope. Retry the same request against its original admitted pins even if an alias later moves; an explicitly different selector under the same key conflicts. Authorize access before returning a prior run; use a unique key scope and atomic insert/conflict handling. | Two concurrent identical admissions yield one run; changed intent returns 409; alias movement does not turn a legitimate retry into a new execution; no cross-project disclosure. Existing #517 hashes only input, so this expansion needs reconciliation. |
+| Admission idempotency — B02 | Specify a canonical **client request** digest covering input, requested release/version selector, purpose and scope. Retry the same request against its original admitted pins even if an alias later moves; an explicitly different selector under the same key conflicts. Authorize access before returning a prior run; use a unique key scope and atomic insert/conflict handling. | Two concurrent identical admissions yield one run; changed intent returns 409; alias movement does not turn a legitimate retry into a new execution; no cross-project disclosure. The old #517 input-only brief is replaced by child #687's expanded contract; implementation remains future work. |
 | Manifest immutability — B02/B03/B07 | Write final admission pins once; do not backfill policy pins into an admitted manifest or mutate it for later context. Link later policy/context records separately, or complete resolution before persistence. ORM update hooks alone are not a database invariant. | ORM, bulk/Core SQL and runtime-role update attempts are rejected under the declared threat model; consumers verify digests. Migration/operator privileges and legacy runs are explicitly separated. |
 | Schema evolution — ADR 0003 | Inspect the seven strict schemas before adding fields/state values. Assign ownership, compatibility/version changes and reader-first rollout; never assume a new writer's fields are accepted by an old validator. | Old supported fixtures remain readable; unsupported versions fail explicitly; producer/consumer and SDK tests run on both upgrade and rollback paths. |
 | Outbox/inbox — B13 | Default to **at-least-once durable handoff with deduplicated processing**, not universal exactly-once publication. Use a durable SQL consumer/inbox or an acknowledged durable transport; SSE fan-out is only notification. Record completion after durable handoff, not after `EventBus.publish()` returns. | Crash before publish, after handoff before marker, and after consumer work before acknowledgement; queue-full and absent-subscriber cases; no lost authoritative transition and one applied transition despite duplicate deliveries. |
@@ -397,7 +407,7 @@ Rows are split into two joined tables to keep them readable. **Together the two 
 
 | ID / area | Current State | Target State | Evidence | Gap |
 | --- | --- | --- | --- | --- |
-| G01 Scope/roadmap | Owner selected single-tenant version; plan still describes 122-week book-complete program. | Version-specific acceptance scope and separately estimated schedule. | Owner decision in §5; [EGI plan](docs/CALIBER_EGI_DELIVERY_PLAN.md), [roadmap](docs/roadmap.md) | Report scope and wider delivery-plan scope now need explicit reconciliation. |
+| G01 Scope/roadmap | At audit baseline, owner selected single tenancy while the plan retained the broader 122-week model. | Version-specific acceptance scope and separately estimated schedule. | Owner decision in §5; [execution plan](docs/planning/BETA_MVP_EXECUTION_PLAN.md) | Scope/tasks are now reconciled; staffing, external inputs and schedule reforecast remain #608. |
 | G02 Admission/API identity | Run snapshot and replay-key lookup exist. | Immutable resolved manifest, grant, canonical intent and conflict semantics on all ingress. | [run_launch.py](caliber/src/caliber/workflows/run_launch.py), ADR 0003 | Snapshot/key do not establish universal pinned admission or intent equivalence. |
 | G03 Protected execution | Guarded helper and effect inventory; multiple invocation paths. | Every allowed effect crosses one enforced dispatcher; others refused. | [runtime](caliber/src/caliber/workflows/runtime.py), [inventory](caliber/src/caliber/effects/inventory.py) | Bypass paths and incomplete policy/effect integration. |
 | G04 Recovery/connector | Existing ledger; test-only recovery spike; retry ambiguity. | Durable unknown state, authoritative reconciliation and safe redrive. | [D1 findings](docs/reports/egi/D1-prototype-findings.md), [executor](caliber/src/caliber/integrations/openapi/executor.py) | New proposal reconciliation not in production; legacy intervention exists; unsafe retry assumptions remain. |
@@ -464,7 +474,10 @@ These are ordered single-tenant outcomes aligned to existing packages, not a par
 
 ### Execution readiness and feasible sequencing
 
-**Judgment:** the Beta is technically plausible through incremental changes to existing seams; the full single-tenant MVP remains a substantial, conditionally feasible platform program. It is **not yet an ambiguity-free executable backlog or a validated schedule**. The blocking contract decisions below are bounded engineering/planning work, not evidence that a rewrite is needed.
+**Judgment at the original report baseline:** the Beta is technically plausible through incremental changes to
+existing seams; the full single-tenant MVP remains substantial and conditionally feasible. At that baseline it was
+**not yet an ambiguity-free executable backlog or a validated schedule**. The subsequent execution plan resolves
+the task-contract/backlog findings below; it does not validate an unstaffed calendar or future runtime behavior.
 
 Use the current three-person mapping: **P1** technical lead/backend (former A/B), **P2** platform/security (C), **P3** full-stack/test (D/E). These are proposed accountable roles, not new issue assignments. Run at most two substantial implementation streams, with the third integrating/testing/reviewing. Preserve the milestone QA week and independent operator/security/domain/adapter contributors; do not count self-review as their capacity.
 
@@ -502,7 +515,12 @@ The first four ADRs already exist. Do not reopen their settled terminology unnec
 
 Explicitly distinguish `not found`, `forbidden`, `backend unavailable` and `unknown outcome`. For example, the current artifact store can return `None` after an MLflow failure as well as on a missing prompt. That is convenient for cold-start refinement but should not authorize a production release as if the registry had proved absence. Boundary error semantics are as important as interface signatures.
 
-**Open decision register:** P1 must reconcile B02 digest/immutability and B13 delivery semantics before those task rows begin; P2 must define lease-loss/remote-fencing and the retained M17 identity gate before dependent implementations. The domain/connector owner must supply the authoritative acceptance predicate and lookup/retention contract before D3 dispatch or D4 acceptance can pass. Until resolved, use the conservative defaults in §6: no new protected dispatch without the contract, unknown stays blocked, no mutation of admitted pins, and no claim of durable delivery from SSE. The product owner must approve the separate plan/issue scope reconciliation before a revised date or reduced acceptance matrix is committed. M21's reuse-vs-build ADR and M22's external adapter evidence remain their existing later gates. This makes uncertainty explicit; it does not pretend the decisions have already been taken.
+**Decision-register update:** the execution plan settles B02 intent/immutability, B13 at-least-once durable delivery,
+captured lease/fence checks and retained M17 identity. Connector-specific authoritative lookup/retention and domain
+predicate proof still gate their implementations: unknown remains blocked without final evidence; no mutated pins
+or SSE durability claim is allowed. #608 retains domain thresholds, live-provider budget, independent people and
+calendar approval. M21 has a reuse-first default plus bounded comparison; M22 still requires independent adapter
+evidence. These are explicit execution/acceptance gates, not fabricated evidence that a provider or pilot passed.
 
 ## 14. Post-MVP / Enterprise Roadmap
 
@@ -568,7 +586,7 @@ This report was reviewed a second time in a critical-reviewer pass against the s
 | Was existing approval control ignored? | Credited roles, distinct quorum and self-approval checks; isolated exact-intent and Apply-policy gaps. |
 | Was memory treated as entirely unprotected? | Credited user/governed-resource checks; identified the explicitly documented free-form ownership limitation. |
 | Did the target duplicate mature OSS? | Retained current protocols; delegated commodity infrastructure; proposed a bounded execution-engine decision rather than an immediate rewrite. |
-| Did the new tenancy decision propagate consistently? | Applied the owner-selected single-tenant boundary to summary, target, comparison, gap priority, dependencies and roadmap; the broader plan is identified as not yet reconciled. |
+| Did the new tenancy decision propagate consistently? | Report scope was corrected first; the subsequent execution plan now reconciles GitHub packages, V28-identity, dependencies and documentation. Calendar remains uncommitted. |
 | Were competitor claims marketing-led? | Separated frameworks from paid platforms, credited self-hosted LangSmith, noted Dify licensing and used NV instead of invented absences. |
 | Did the report prove scale/security? | No. No load benchmark, penetration test, independent operator trial or vendor benchmark was run by this review. |
 | Did the experiment prove safe retry universally? | No. A missing lookup result is not final failure while a request can still commit; connector-specific proof remains required. |
@@ -666,4 +684,9 @@ The latest checked main's [CI run 40375390641](https://github.com/rrahimi-uci/ca
 
 Correction validation: the five-file documentation command above initially produced **50 passed, 1 failed** because the local, Git-ignored packaged docs copy lacked the reference-profile pages. The standard strict docs sync refreshed generated copies without any tracked generated-file changes; the unchanged test command then passed **51 tests in 15.96 seconds**. The eight-file CI documentation contract suite also passed **105 tests in 16.15 seconds**. The explicit report validator passed 16 sections, 84 local links/anchors, 22 complete gaps, table/fence checks, both Mermaid diagrams and assertions that the alias finding replaces the obsolete isolation guarantee. `git diff --check` passed. This corrects the report, not the runtime flaw.
 
-**Decision recorded:** this version is single-tenant only; all other current MVP commitments remain. Deliver the Beta spine first, then the retained core and enterprise packages with strong project/user boundaries. Defer shared-customer hosting, not enterprise identity or required contract scope fields. **Planning follow-up:** reconcile M17/V28 and downstream dependencies, resolve the task-level contract findings, and re-estimate retained scope. This report does not implement controls, edit plan/issues, revise dates or authorize a merge.
+**Decision recorded:** this version is single-tenant only; all other current MVP commitments remain. Deliver the
+Beta spine first, then retained core/enterprise packages with strong project/user boundaries. Defer shared-customer
+hosting, not enterprise identity or required scope fields. The
+[execution plan](docs/planning/BETA_MVP_EXECUTION_PLAN.md) applies M17/V28 and dependency/task-contract
+corrections. Reforecasting remains #608; old dates are not commitments. Neither report nor plan implements
+controls, certifies a release or authorizes an agent merge.

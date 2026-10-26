@@ -181,7 +181,7 @@
     subgraph L1["1 · INFRASTRUCTURE"]
       direction LR
       i1["Process host&lt;br/&gt;Starlette ASGI&lt;br/&gt;standalone service"]:::store
-      i2["PostgreSQL 17&lt;br/&gt;pgvector · Apache AGE&lt;br/&gt;SQLite for dev"]:::store
+      i2["PostgreSQL&lt;br/&gt;pgvector · optional Apache AGE&lt;br/&gt;SQLite for dev"]:::store
       i3["Object storage&lt;br/&gt;S3 · MinIO · local&lt;br/&gt;&lt;i&gt;GCS only via MLflow&lt;/i&gt;"]:::store
       i4["MLflow ≥ 3.15&lt;br/&gt;tracking · registry&lt;br/&gt;artifacts · evaluate"]:::ext
       i5["Event transport&lt;br/&gt;in-process · NATS&lt;br/&gt;Redis · database"]:::async
@@ -306,6 +306,7 @@
 <hr>
 <h2 id="5-supported-and-unsupported-topologies">5 · Supported and unsupported topologies<a class="anchor" href="#5-supported-and-unsupported-topologies" aria-hidden="true" tabindex="-1">#</a></h2>
 <p>Topology B is the only supported CALIBER deployment. Topology A remains only as internal compatibility coverage where the code still exists.</p>
+<p>The planned Beta reference profile pins <strong>PostgreSQL 16 with pgvector</strong>, external MLflow and S3-compatible storage under ADR 0001. This is distinct from generic adapter availability and is not a new certification of other database versions or optional graph extensions. The <a href="https://github.com/rrahimi-uci/caliber-suite/blob/main/docs/planning/BETA_MVP_EXECUTION_PLAN.md" target="_blank" rel="noopener">single-tenant execution plan</a> tracks the missing production controls: one fenced execution owner with API-only peers, then same-organization regional cells. These are future gates, not capabilities established by the current multi-loop process or the existence of configuration switches.</p>
 <div class="table-wrap"><table><thead><tr><th>Topology</th><th>Status</th><th>Description</th></tr></thead><tbody><tr><td><strong>Topology B — standalone service</strong></td><td>✅ Supported</td><td>CALIBER ASGI runs independently; integrates with MLflow over HTTP via <code>MLFLOW_TRACKING_URI</code>. One CALIBER process, separate MLflow server, separate databases.</td></tr><tr><td>Topology A — embedded <code>mlflow.app</code></td><td>❌ Unsupported (internal compatibility only)</td><td>CALIBER loaded as an in-process MLflow plugin. Not a supported product or developer path.</td></tr></tbody></table></div>
 <div class="diagram"><pre class="mermaid">flowchart TB
     spa["React SPA — &lt;code&gt;/caliber/&lt;/code&gt;"]:::ui
