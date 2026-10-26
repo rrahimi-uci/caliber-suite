@@ -61,3 +61,35 @@ Spike for #626, extending #625: an ambiguous dispatch is recorded as `unknown`, 
 - SIGKILL leaves the proposal `dispatched`, not `unknown`: only a recovery path can say "this was in flight when its process died", so `dispatched` older than the lease is the signal a loop looks for, which is why the timestamp columns above matter. A design that waits for the process to record `unknown` itself would never see it.
 - With `delay_response_seconds` the downstream commits first and then waits, so the kill window is wide (the 20 s delay, with the child's client timeout raised past it) and deterministic: the test polls `mutations()` rather than sleeping. With the spike's default 5 s client timeout the child would have turned the row `unknown` itself after 5 s, which a first version of the test would have hit on a slow runner.
 - A 502 after a real commit was the case that showed `failed` is only safe for a 4xx.
+
+## Re-estimate
+
+Budgets for B04 (#520) and B05 (#522) from the D1 evidence instead of the gap-analysis midpoints. Both packages carried **3 PW** each (6 PW together, one PW being five person-days). The estimates below are in person-days of focused work by one engineer who knows the codebase, including tests, the independent review pass and CI; they are my reading of the prototype and the code, not a measurement of any person's speed, and the three owners tick the PR to confirm them.
+
+Evidence: the inventory has **127** protected-effect rows (39 `dispatch`, 24 `refuse`, 64 `exempt`; `docs/architecture/protected-effect-paths.md`); the B04 and B05 spikes ran on both dialects (sections above); the connector experiment (`D1-connector-capability.md`) found the connector sufficient (`keep`) with five executor changes. Reading across them:
+
+- **Savings.** The propose, key, dispatch sequence, the `unknown` state, the kill-and-reconcile scenario and the connector's query-by-key are proven, so no feasibility risk remains on the hard path; the transition table and the key derivation are copied rather than designed.
+- **Added work the prototypes found.** The executor changes (retry only when a key is sent; one way to supply the key; a first-class expected version; retry and key binding reachable from an import; typed transport errors), the seven-state contract against the spike's five, a compare-and-set for every transition, treating a 5xx as `unknown`, a fence before a 404 becomes `failed` (with `dispatched_at`, `unknown_at`, owner columns), backfilling or segregating legacy ledger rows, and the `occurrence` counter in the key. The two roughly cancel.
+
+| issue | task | days | evidence |
+| --- | --- | --- | --- |
+| #520 | 1 Dispatcher core (`effects/dispatcher.py`, backends registry, propose, approve, dispatch, fencing) | 3.0 | Sequence proven in `dispatch_spike.py`; adds the registry, the approval hand-off and the compare-and-set and 5xx rules found in B05. |
+| #520 | 2 Webhook and API nodes (the two `_perform_guarded_effect` call sites, legacy path kept) | 2.5 | `runtime.py` 6019 and 6085; the default sender sends no key and its "definitive failure" list rarely matches `httpx` errors (B04 findings). |
+| #520 | 3 Registered tools (`bind_registered_tool`) | 1.5 | Inventory rows for the tool names; `effect_class(..., caliber_defined=True)` (#627); name reservation is #641. |
+| #520 | 4 OpenAPI (route non-GET through `dispatch`) | 2.0 | Connector report: the executor already carries key, precondition and query; the executor changes themselves are counted in #522 task 3. |
+| #520 | 5 MCP (`invoke_tool_sync` and by-server-id) | 2.0 | Inventory rows EP-035 to EP-040; `mcp_policy` needs a write marking if none exists. |
+| #520 | 6 Model-selected calls (`_execute_model_tool_call`) | 1.5 | Depends on #526 task 2; the `proposed_action` disposition. |
+| #520 | 7 Refusals (`UnsupportedEffectPath` for every `refuse` row) | 1.5 | 24 `refuse` rows in the inventory, parametrized by disposition. |
+| #522 | 1 Proposals model and migration (`caliber_effect_proposals`) | 1.5 | `proposal.v1` (#566) fixes the columns; the spike table is the shape. |
+| #522 | 2 State machine (seven states, `transition`, reasons) | 1.5 | Spike has five states and a compare-and-set; the contract adds `approved` and `reconciled`. |
+| #522 | 3 Connector adapter (`DocumentRequestConnector`, with the executor changes) | 3.0 | Connector report: changes 1 to 5 (retry gating, key plumbing, expected version, config exposure, typed errors); query-by-key answers in about 4 ms. |
+| #522 | 4a Receipts (`verify_and_commit`) | 1.5 | Spike `reconcile` verifies case and document type; a receipt adds digest and version. |
+| #522 | 4b Callback endpoint | 1.0 | Small route; auth and idempotency of the callback. |
+| #522 | 5a Fencing at commit | 1.0 | Depends on `ownership.py` (#536); same-transaction token compare. |
+| #522 | 5b Reconcile loop | 3.0 | The 404 fence rule, `dispatched_at` and `unknown_at`, ownership under the lease, legacy backfill (B05 findings). |
+| #522 | 6 Legacy ledger stays read-only (list both kinds) | 1.0 | `list_system_effects` and its tests. |
+| #522 | 7 Timeout case for V08 | 0.5 | Spike `test_a_timeout_after_the_commit_is_unknown_and_reconciles_to_committed` is the template. |
+
+The issue text counts 13 rows (#520 tasks 1 to 7 and #522 tasks 1 to 6); #522's table has since been split (4a, 4b, 5a, 5b) and gained task 7, so the table above has 16 rows.
+
+B04 total: 14.0 days = 2.8 PW; B05 total: 14.0 days = 2.8 PW. Together 5.6 PW against the planned 6 PW: **0.4 PW lower, inside the 0.5 PW band, so the plan, the D3 budget and the two issues' budget lines are unchanged** (3 PW each; the unspent 0.2 PW each is headroom, not a saving to plan against). What would move it: the executor changes proving larger than five small edits (the review rated "small and local" as unproven), the real document-request system declaring different headers from the experiment's downstream (to be checked against its OpenAPI document when #522 starts), and #536 (`ownership.py`) landing later than D3 week 1, which blocks 5a and 5b.
