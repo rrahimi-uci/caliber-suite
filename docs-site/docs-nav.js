@@ -1559,7 +1559,7 @@ window.DOCS_DATA = {
         "A running CALIBER deployment"
       ],
       "stability": "ga",
-      "reviewed_on": "2026-10-14",
+      "reviewed_on": "2026-10-26",
       "version_applicability": "current main branch docs contract",
       "tags": [
         "health",

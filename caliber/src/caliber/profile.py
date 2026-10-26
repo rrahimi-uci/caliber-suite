@@ -69,7 +69,7 @@ REFERENCE_REQUIREMENTS: tuple[Requirement, ...] = (
         "auth_bootstrap_allow_insecure_default",
         "CALIBER_AUTH_BOOTSTRAP_ALLOW_INSECURE_DEFAULT",
         "false",
-        "It creates an `admin`/`admin` account when no bootstrap password is set.",
+        "It allows an `admin`/`admin` bootstrap account when no password is set and the session cookie is not marked secure.",
     ),
     Requirement(
         "trusted_header_without_proxy_secret",

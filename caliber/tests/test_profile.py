@@ -446,6 +446,12 @@ def test_the_env_example_on_the_page_passes_the_profile(monkeypatch: pytest.Monk
     monkeypatch.delenv("CALIBER_FAULT_BARRIERS", raising=False)
     config = CaliberConfig.load(environ=environ)
     assert config.profile == "reference"
+    assert config.admin_users and config.approver_users, (
+        "a usable deployment names its admin and approver"
+    )
+    assert environ["CALIBER_AUTH_BOOTSTRAP_ADMIN_PASSWORD_ENV"], (
+        "the bootstrap password source is named"
+    )
     assert reference_profile_violations(config) == []
 
 

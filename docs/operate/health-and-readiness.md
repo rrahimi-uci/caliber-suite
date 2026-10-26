@@ -7,7 +7,7 @@ product_area: operations
 stability: ga
 prerequisites:
   - A running CALIBER deployment
-reviewed_on: 2026-10-14
+reviewed_on: 2026-10-26
 version_applicability: current main branch docs contract
 tags:
   - health
