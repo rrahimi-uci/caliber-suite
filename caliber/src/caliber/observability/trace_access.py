@@ -19,6 +19,7 @@ import logging
 import threading
 import time
 from collections import defaultdict
+from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -100,6 +101,7 @@ def _lookup_experiment(ref: str) -> str | None:
         from mlflow.exceptions import MlflowException  # noqa: PLC0415
     except Exception as exc:
         raise ExperimentLookupError("the tracking client is not available") from exc
+    experiment: Any
     try:
         if ref.isdigit():
             experiment = mlflow.get_experiment(ref)
