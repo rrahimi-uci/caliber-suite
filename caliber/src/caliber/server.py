@@ -175,7 +175,11 @@ def _require_reference_profile(config: CaliberConfig) -> None:
         return
     violations = reference_profile_violations(config)
     if violations:
-        raise ConfigError("reference profile refused:\n" + "\n".join(v.message for v in violations))
+        count = len(violations)
+        raise ConfigError(
+            f"reference profile refused ({count} violation{'s' if count != 1 else ''}):\n"
+            + "\n".join(f"- {v.message}" for v in violations)
+        )
 
 
 def _require_simulated_opt_in(config: CaliberConfig) -> None:

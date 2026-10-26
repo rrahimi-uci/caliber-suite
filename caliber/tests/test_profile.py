@@ -204,3 +204,118 @@ def test_safe_reference_config_starts_on_postgresql(
         app = create_app(_config(app_config, database_url=url))
         response = TestClient(app).get(HEALTH)
     assert response.status_code == 200, response.text
+
+
+# ---------------------------------------------------------------- what the operator reads
+
+#: code -> (setting, the whole message). The messages are the operator's only guide, so they are pinned.
+MESSAGES: dict[str, tuple[str, str]] = {
+    "sqlite_database": (
+        "database_url",
+        "database_url is a SQLite file; set CALIBER_DATABASE_URL=<a PostgreSQL URL> for the reference profile",
+    ),
+    "csrf_disabled": (
+        "csrf_enabled",
+        "csrf_enabled is false; set CALIBER_CSRF_ENABLED=true for the reference profile",
+    ),
+    "dev_fallback_enabled": (
+        "auth_dev_fallback_enabled",
+        "auth_dev_fallback_enabled is true; set CALIBER_AUTH_DEV_FALLBACK_ENABLED=false for the reference profile",
+    ),
+    "insecure_bootstrap": (
+        "auth_bootstrap_allow_insecure_default",
+        "auth_bootstrap_allow_insecure_default is true; "
+        "set CALIBER_AUTH_BOOTSTRAP_ALLOW_INSECURE_DEFAULT=false for the reference profile",
+    ),
+    "egress_policy_disabled": (
+        "egress_policy_enabled",
+        "egress_policy_enabled is false; set CALIBER_EGRESS_POLICY_ENABLED=true for the reference profile",
+    ),
+    "mcp_insecure_http": (
+        "mcp_allow_insecure_http",
+        "mcp_allow_insecure_http is true; set CALIBER_MCP_ALLOW_INSECURE_HTTP=false for the reference profile",
+    ),
+    "self_approval_allowed": (
+        "approval_allow_self_approval",
+        "approval_allow_self_approval is true; "
+        "set CALIBER_APPROVAL_ALLOW_SELF_APPROVAL=false for the reference profile",
+    ),
+}
+
+
+@pytest.mark.parametrize("code", list(MESSAGES))
+def test_the_message_and_setting_of_each_violation(app_config: CaliberConfig, code: str) -> None:
+    settings, _ = UNSAFE[code]
+    (violation,) = reference_profile_violations(_config(app_config, **settings))
+    setting, message = MESSAGES[code]
+    assert violation.setting == setting
+    assert violation.message == message
+
+
+def test_the_trusted_header_violation_names_both_ways_out(app_config: CaliberConfig) -> None:
+    settings, _ = UNSAFE["trusted_header_without_proxy_secret"]
+    (violation,) = reference_profile_violations(_config(app_config, **settings))
+    assert violation.setting == "auth_mode"
+    assert violation.message.startswith("auth_mode is trusted_header with no proxy secret")
+    assert "CALIBER_AUTH_TRUSTED_PROXY_SECRET_ENV=" in violation.message
+    assert "CALIBER_AUTH_MODE=session" in violation.message
+    assert violation.message.endswith("for the reference profile")
+
+
+def test_the_refusal_counts_and_bullets_every_violation(app_config: CaliberConfig) -> None:
+    every_unsafe: dict[str, Any] = {}
+    for settings, _ in UNSAFE.values():
+        every_unsafe.update(settings)
+    with pytest.raises(ConfigError) as refused:
+        create_app(_config(app_config, **every_unsafe))
+    lines = str(refused.value).splitlines()
+    assert lines[0] == "reference profile refused (8 violations):"
+    assert len(lines) == 1 + len(UNSAFE)
+    assert all(line.startswith("- ") for line in lines[1:])
+
+
+def test_a_single_violation_is_not_pluralised(app_config: CaliberConfig) -> None:
+    with pytest.raises(ConfigError) as refused:
+        create_app(_config(app_config, csrf_enabled=False))
+    assert str(refused.value).splitlines()[0] == "reference profile refused (1 violation):"
+
+
+# ---------------------------------------------------------------- a refusal precedes everything
+
+
+def test_a_refusal_happens_before_logging_tracing_the_engine_or_the_bootstrap_admin(
+    app_config: CaliberConfig, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Each of these has a side effect (S3 log sink, MLflow tracer, a database, an account)."""
+    from caliber import server
+
+    def must_not_run(*_a: object, **_k: object) -> None:
+        raise AssertionError("ran before the reference profile was checked")
+
+    for name in (
+        "configure_logging",
+        "configure_redactor",
+        "configure_tracing",
+        "create_engine_from_config",
+        "_bootstrap_admin_account",
+    ):
+        monkeypatch.setattr(server, name, must_not_run)
+    with pytest.raises(ConfigError, match="reference profile refused"):
+        create_app(_config(app_config, csrf_enabled=False))
+
+
+def test_safe_reference_config_starts(
+    app_config: CaliberConfig, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A safe reference config is accepted by the check and boots. Run everywhere: the PostgreSQL URL is
+    only a setting here, the engine behind the app is the test SQLite one (the real PostgreSQL boot is
+    ``test_safe_reference_config_starts_on_postgresql``)."""
+    from caliber.db.session import create_engine_from_config
+
+    monkeypatch.setattr(
+        "caliber.server.create_engine_from_config",
+        lambda _config: create_engine_from_config(app_config),
+    )
+    monkeypatch.setenv(app_config.csrf_signing_secret_env, "x" * 48)
+    app = create_app(_config(app_config))
+    assert TestClient(app).get(HEALTH).status_code == 200
