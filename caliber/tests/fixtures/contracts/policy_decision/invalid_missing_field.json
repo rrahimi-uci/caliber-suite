@@ -2,7 +2,7 @@
   "schema_version": "v1",
   "grant_id": "gr-1",
   "action": "request_document",
-  "resource": "cases/MORT-2026-000184",
+  "resource": "cases/MORT-2026-000184/document-requests",
   "result": "allow",
   "reason_codes": [],
   "policy_version": "pol-1",

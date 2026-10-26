@@ -8,7 +8,7 @@
   "expected_resource_version": "1",
   "risk_class": "irreversible_write",
   "requested_by": "editor_a",
-  "expires_at": "2026-10-27T09:00:00Z",
+  "expires_at": "2026-10-26T10:00:00Z",
   "allowed_responses": [
     "approve",
     "reject",

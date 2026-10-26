@@ -25,17 +25,31 @@ disagree on a field or on whether it is required.
 Rules that apply to every kind:
 
 - Every schema sets `additionalProperties: false`: an unknown field is a violation, so a typo cannot be stored.
-- A record names its version in `schema_version` (a constant, `v1` today). The CloudEvents envelope names it in
-  `specversion` (`1.0`), which is schema `v1`.
+- A record names its version in `schema_version` (a constant, `v1` today). The CloudEvents envelope cannot: its
+  `specversion` is CloudEvents' own and stays `1.0` whatever its attributes do, so it names its schema version in
+  the extension attribute `schemaversion`, which is `v1` when absent. A later envelope schema is `v2`, selected
+  by `schemaversion: v2`.
 - **Versioning.** Adding an optional field keeps the version. Removing a field, retyping one, or making an
   optional field required creates `v2` as a new file; `v1` stays supported until a decision record retires it.
   A record whose version is not supported is rejected with `UnsupportedSchemaVersion`, never read as the nearest
-  version.
-- Timestamps are RFC 3339 `date-time` strings. Digests are non-empty strings; the digest algorithm is the writer's
+  version. A schema nobody has written a record against yet may still change in place: the `v2` rule protects
+  stored records, and none exists before a package's first release. The element shapes of `pins` and the fields
+  of `subject` and `workload` are in that position until #517 and #518 write them.
+- **Readers before writers.** Because unknown fields are rejected, a build that reads `v1` rejects a record that
+  uses an optional field added later. A writer must not emit a new optional field until every reader of that
+  kind has been upgraded.
+- Timestamps are RFC 3339 `date-time` strings with an offset (`Z` or `+hh:mm`) and a real calendar date and time
+  (`2026-02-30T00:00:00Z` is rejected); a naive `datetime` must be given an offset before it is written. Digests are non-empty strings; the digest algorithm is the writer's
   concern (ADR 0002) and is part of the value, for example `sha256:<hex>`.
-- `tenant_id` and `region` default to `local` (ADR 0001) and are **required** on `run_manifest` and `proposal`
+- `tenant_id` and `region` are `local` in the reference profile (ADR 0001) and are **required** on `run_manifest` and `proposal`
   (`tenantid` on `event_envelope`): a writer states them, it does not leave them to a default.
-- A payload is referenced, never inlined: `event_envelope` carries `dataref` and `datahash`, not the data.
+- A payload is referenced, never inlined: `event_envelope` carries `dataref` and `datahash`, not the data. It is
+  a strict subset of CloudEvents: the optional attributes `subject`, `datacontenttype`, `dataschema`, `data` and
+  `data_base64` are not carried.
+- A record is plain JSON: a set, bytes, `NaN` or `Infinity` anywhere in it is a violation, so the digests that
+  cover it are computed over something every reader can reproduce.
+- Two rules cross fields: a `receipt` with `verified_by` `query` has a `verified_at` and one with `none` has
+  `null`; a `policy_decision` that denies carries at least one reason code.
 
 ### run_manifest
 
@@ -46,14 +60,14 @@ RunManifest: what a workflow run was pinned to and who started it.
 | `schema_version` | const `v1` | yes | the schema version of this record |
 | `manifest_id` | string | yes | unique id of the manifest |
 | `workflow_run_id` | string | yes | the run it describes (`caliber_workflow_runs.workflow_run_id`) |
-| `tenant_id` | string | yes | default `local` (ADR 0001); maps to the existing column `caliber_workflow_runs.tenant_id` |
-| `region` | string | yes | default `local` (ADR 0001); the column is added by #517 |
-| `residency` | string | no | default `local`; where data may be processed |
+| `tenant_id` | string | yes | `local` in the reference profile (ADR 0001); maps to the existing column `caliber_workflow_runs.tenant_id` |
+| `region` | string | yes | `local` in the reference profile; the column is added by #517 |
+| `residency` | string | no | where data may be processed; `local` when absent |
 | `pins` | object | yes | `workflow_version`, `bundle_digest`, `prompt_versions`, `tool_versions`, `skill_versions`, `knowledge_base_versions` (array of `{knowledge_base_id, version_id}`), `model_routes` (list), `policy_version`; all required |
 | `subject` | object | yes | `user_id`, `auth_method` |
 | `workload` | object | yes | `workload_id`, `name`, `workflow_version_digest` |
 | `purpose` | string | yes | why the run exists |
-| `legacy` | boolean | no | default false; true for a run that predates manifests |
+| `legacy` | boolean | no | false when absent; true for a run that predates manifests |
 | `rule_bundle_path` | string or null | no | written by #525 |
 | `rule_bundle_sha256` | string or null | no | written by #525 |
 | `created_at` | string (RFC 3339 date-time) | yes | when the manifest was written |
@@ -75,8 +89,8 @@ Proposal: one effect a run asks to perform, before it is performed.
 | `args` | object | yes | the arguments of the effect |
 | `expected_resource_version` | string or null | yes | the downstream version the proposer saw; null when the target is not versioned |
 | `state` | enum | yes | `proposed`, `approved`, `dispatched`, `committed`, `failed`, `unknown`, `reconciled` |
-| `tenant_id` | string | yes | default `local` |
-| `region` | string | yes | default `local` |
+| `tenant_id` | string | yes | `local` in the reference profile |
+| `region` | string | yes | `local` in the reference profile |
 
 ### receipt
 
@@ -151,12 +165,13 @@ EventEnvelope: a CloudEvents 1.0 envelope; the payload is referenced, never inli
 | `source` | string | yes | who emitted it |
 | `type` | string | yes | the event type |
 | `time` | string (RFC 3339 date-time) | yes | when it happened |
-| `tenantid` | string | yes | extension attribute; default `local` |
+| `tenantid` | string | yes | extension attribute; `local` in the reference profile |
 | `correlationid` | string | yes | extension attribute: groups the events of one run |
+| `schemaversion` | const `v1` | no | extension attribute: the schema version of this envelope; `v1` when absent |
 | `causationid` | string or null | no | extension attribute: the event that caused this one |
-| `traceparent` | string (W3C traceparent) | no | extension attribute; links to the trace |
-| `dataref` | string | no | where the payload is stored |
-| `datahash` | string | no | digest of the payload at `dataref` |
+| `traceparent` | string (W3C traceparent) or null | no | extension attribute; links to the trace |
+| `dataref` | string or null | no | where the payload is stored |
+| `datahash` | string or null | no | digest of the payload at `dataref` |
 
 ## Consequences
 

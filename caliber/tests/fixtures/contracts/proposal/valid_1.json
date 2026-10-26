@@ -14,7 +14,7 @@
     "document_type": "pay_statement"
   },
   "expected_resource_version": "1",
-  "state": "proposed",
+  "state": "committed",
   "tenant_id": "local",
   "region": "local"
 }

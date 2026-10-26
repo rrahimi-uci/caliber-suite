@@ -1,0 +1,14 @@
+{
+  "specversion": "1.0",
+  "id": "ev-0001",
+  "source": "caliber/workflow-runs",
+  "type": "caliber.effect.committed",
+  "time": "2026-10-26T09:00:06Z",
+  "tenantid": "local",
+  "correlationid": "run-0001",
+  "causationid": null,
+  "traceparent": null,
+  "dataref": "s3://evidence/run-0001/receipt.json",
+  "datahash": "sha256:2222",
+  "schemaversion": "v1"
+}

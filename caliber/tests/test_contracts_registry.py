@@ -37,7 +37,7 @@ TESTS = Path(__file__).resolve().parent
 FIXTURES = TESTS / "fixtures" / "contracts"
 SCHEMAS = Path(contracts.__file__).parent / "schemas"
 ADR = TESTS.parent.parent / "docs" / "architecture" / "adr" / "0003-control-record-schemas.md"
-VERSION_FIELD = {"event_envelope": "specversion"}
+VERSION_FIELD = {"event_envelope": "schemaversion"}
 
 
 def fixture_files() -> list[Path]:
@@ -56,8 +56,8 @@ def valid_record(kind: str) -> dict[str, Any]:
 # ---------------------------------------------------------------- the schemas
 
 
-def test_there_are_seven_kinds_and_a_schema_for_each() -> None:
-    assert len(KINDS) == 7
+def test_every_kind_has_a_schema_file_and_every_schema_file_a_kind() -> None:
+    assert len(set(KINDS)) == len(KINDS)
     assert set(KINDS) == set(SUPPORTED_VERSIONS)
     on_disk = {p.name for p in SCHEMAS.glob("*.json")}
     assert on_disk == {f"{kind}.v1.json" for kind in KINDS}
@@ -78,7 +78,14 @@ def test_the_version_field_is_a_constant(kind: str) -> None:
     field = VERSION_FIELD.get(kind, "schema_version")
     schema = load_schema(kind, SUPPORTED_VERSIONS[kind][0])
     assert schema["properties"][field] == {"const": SUPPORTED_VERSIONS[kind][0]}
-    assert field in schema["required"]
+    # The envelope's version attribute is optional (absent means v1); every other kind requires it.
+    assert (field in schema["required"]) == (kind != "event_envelope")
+
+
+@pytest.mark.parametrize("kind", KINDS)
+def test_every_kind_loads_as_v1(kind: str) -> None:
+    assert SUPPORTED_VERSIONS[kind] == ("v1",)
+    assert load_schema(kind, "v1")["$id"] == f"https://caliber.dev/schemas/{kind}.v1.json"
 
 
 @pytest.mark.parametrize("kind", ["run_manifest", "proposal", "event_envelope"])
@@ -149,11 +156,14 @@ def test_unknown_version_is_rejected() -> None:
     assert isinstance(rejected.value, ValueError)
 
 
-def test_the_envelope_names_its_version_in_specversion() -> None:
-    record = {**valid_record("event_envelope"), "specversion": "2.0"}
-    with pytest.raises(UnsupportedSchemaVersion, match="supported: 1.0"):
-        validate_record("event_envelope", record)
-    assert validate_record("event_envelope", valid_record("event_envelope")) is None
+def test_the_envelope_names_its_schema_version_in_schemaversion_and_defaults_to_v1() -> None:
+    envelope = valid_record("event_envelope")
+    assert "schemaversion" not in envelope and validate_record("event_envelope", envelope) is None
+    assert validate_record("event_envelope", {**envelope, "schemaversion": "v1"}) is None
+    with pytest.raises(UnsupportedSchemaVersion, match="supported: v1"):
+        validate_record("event_envelope", {**envelope, "schemaversion": "v2"})
+    with pytest.raises(ContractValidationError, match="specversion"):
+        validate_record("event_envelope", {**envelope, "specversion": "2.0"})
 
 
 def test_missing_field_is_rejected() -> None:
@@ -211,6 +221,26 @@ def test_an_unknown_kind_is_a_typed_error() -> None:
 # ---------------------------------------------------------------- what each schema refuses
 
 
+IMPOSSIBLE_TIMESTAMPS = [
+    "2026-13-45T00:00:00Z",
+    "2026-02-30T00:00:00Z",
+    "2026-02-29T00:00:00Z",  # 2026 is not a leap year
+    "0000-00-00T00:00:00Z",
+    "2026-10-26T25:61:61Z",
+    "2026-10-26T24:00:00Z",
+    "2026-10-26T09:05:00+25:99",
+    "2026-10-26T09:05:00Z\n",
+    "2026-10-26 09:05:00Z",
+    "2026-10-26T09:05:00",
+]
+REAL_TIMESTAMPS = [
+    "2026-10-26T09:05:00Z",
+    "2028-02-29T23:59:59.999+05:30",
+    "2026-12-31T23:59:60Z",  # a leap second
+    "2026-10-26T09:05:00-08:00",
+]
+
+
 def with_change(kind: str, **changes: Any) -> dict[str, Any]:
     record = copy.deepcopy(valid_record(kind))
     record.update(changes)
@@ -245,6 +275,20 @@ def with_change(kind: str, **changes: Any) -> dict[str, Any]:
         ("event_envelope", {"data": {"inline": "payload"}}),
         ("event_envelope", {"traceparent": "not-a-traceparent"}),
         ("event_envelope", {"time": "now"}),
+        ("event_envelope", {"specversion": "0.3"}),
+        (
+            "event_envelope",
+            {"traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01\n"},
+        ),
+        ("policy_decision", {"reason_codes": [1]}),
+        ("policy_decision", {"result": "deny", "reason_codes": []}),
+        ("receipt", {"verified_at": None}),  # verified_by is "query"
+        ("receipt", {"verified_by": "none"}),  # but verified_at is set
+        ("proposal", {"args": {"nan": float("nan")}}),
+        ("proposal", {"args": {"bytes": b"x"}}),
+        ("proposal", {"args": {"set": {1, 2}}}),
+        *[("approval_request", {"expires_at": bad}) for bad in IMPOSSIBLE_TIMESTAMPS],
+        *[("run_manifest", {"created_at": bad}) for bad in IMPOSSIBLE_TIMESTAMPS],
     ],
 )
 def test_a_malformed_record_is_rejected(kind: str, changes: dict[str, Any]) -> None:
@@ -264,7 +308,12 @@ def test_a_malformed_record_is_rejected(kind: str, changes: dict[str, Any]) -> N
         ("approval_request", {"allowed_responses": ["approve"], "expected_resource_version": None}),
         ("approval_decision", {"reason": ""}),
         ("policy_decision", {"result": "deny", "reason_codes": ["no_grant"]}),
-        ("event_envelope", {"causationid": None}),
+        (
+            "event_envelope",
+            {"causationid": None, "traceparent": None, "dataref": None, "datahash": None},
+        ),
+        ("policy_decision", {"result": "allow", "reason_codes": []}),
+        *[("approval_request", {"expires_at": ok}) for ok in REAL_TIMESTAMPS],
     ],
 )
 def test_the_documented_optional_and_nullable_shapes_are_accepted(
@@ -346,3 +395,148 @@ def test_adr_0003_lists_every_enum_value_of_every_field() -> None:
             row = next(line for line in section.splitlines() if line.startswith(f"| `{field}` |"))
             for value in enum_values(fragment):
                 assert f"`{value}`" in row, f"{kind}.{field}: ADR 0003 does not list `{value}`"
+
+
+# ---------------------------------------------------------------- nested structure and plain JSON
+
+
+def object_paths(schema: dict[str, Any], path: tuple[str, ...] = ()) -> list[tuple[str, ...]]:
+    """Paths (through properties and array items) to every object schema, starting at the root."""
+    found: list[tuple[str, ...]] = []
+    if schema.get("type") == "object" and "properties" in schema:
+        found.append(path)
+        for name, child in schema["properties"].items():
+            found += object_paths(child, (*path, name))
+    if isinstance(schema.get("items"), dict):
+        found += object_paths(schema["items"], (*path, "[]"))
+    return found
+
+
+def at(record: Any, path: tuple[str, ...]) -> list[dict[str, Any]]:
+    """The objects of ``record`` found at ``path`` (``[]`` fans out over an array)."""
+    nodes = [record]
+    for step in path:
+        nodes = [
+            x
+            for n in nodes
+            for x in (n if step == "[]" else [n[step]] if isinstance(n, dict) and step in n else [])
+        ]
+    return [n for n in nodes if isinstance(n, dict)]
+
+
+def schema_at(schema: dict[str, Any], path: tuple[str, ...]) -> dict[str, Any]:
+    for step in path:
+        schema = schema["items"] if step == "[]" else schema["properties"][step]
+    return schema
+
+
+def nested_cases() -> list[tuple[str, tuple[str, ...], str, str]]:
+    cases: list[tuple[str, tuple[str, ...], str, str]] = []
+    for kind in KINDS:
+        schema = load_schema(kind, "v1")
+        for path in object_paths(schema):
+            node = schema_at(schema, path)
+            cases += [(kind, path, name, "remove") for name in node["required"]]
+            cases.append((kind, path, "unexpected_field", "add"))
+    return cases
+
+
+@pytest.mark.parametrize(
+    ("kind", "path", "name", "action"),
+    nested_cases(),
+    ids=lambda v: "/".join(v) if isinstance(v, tuple) else str(v),
+)
+def test_every_required_field_and_every_object_boundary_is_enforced_at_every_level(
+    kind: str, path: tuple[str, ...], name: str, action: str
+) -> None:
+    record = copy.deepcopy(valid_record(kind))
+    targets = at(record, path)
+    if not targets:
+        pytest.skip(f"the valid {kind} fixture has nothing at {'/'.join(path)}")
+    for target in targets:
+        if action == "remove":
+            target.pop(name, None)
+        else:
+            target[name] = 1
+    with pytest.raises(ContractValidationError):
+        validate_record(kind, record)
+
+
+def test_a_mapping_subclass_is_accepted_at_every_level() -> None:
+    import collections
+    import types
+
+    record = valid_record("proposal")
+    record["target"] = collections.OrderedDict(record["target"])
+    assert validate_record("proposal", collections.UserDict(record)) is None
+    assert validate_record("proposal", types.MappingProxyType(record)) is None
+
+
+def test_a_payload_is_not_changed_by_validation() -> None:
+    record = valid_record("run_manifest")
+    before = copy.deepcopy(record)
+    validate_record("run_manifest", record)
+    assert record == before
+
+
+def test_a_record_that_is_not_plain_json_names_why() -> None:
+    record = valid_record("proposal")
+    record["args"] = {"nan": float("inf")}
+    with pytest.raises(ContractValidationError, match="not plain JSON"):
+        validate_record("proposal", record)
+
+
+def test_an_unhashable_kind_is_an_unknown_kind_not_a_type_error() -> None:
+    with pytest.raises(UnknownContractKind):
+        validate_record([], {})  # type: ignore[arg-type]
+    with pytest.raises(UnknownContractKind):
+        load_schema({}, "v1")  # type: ignore[arg-type]
+
+
+def test_the_missing_field_fixtures_name_the_field_they_lack() -> None:
+    for kind in KINDS:
+        valid = valid_record(kind)
+        missing = load_fixture(FIXTURES / kind / "invalid_missing_field.json")
+        gone = set(valid) - set(missing)
+        assert len(gone) == 1, (
+            f"{kind}: invalid_missing_field must lack exactly one field, lacks {gone}"
+        )
+        with pytest.raises(ContractValidationError) as rejected:
+            validate_record(kind, missing)
+        assert [f"'{next(iter(gone))}' is a required property"] == [
+            e.split(": ", 1)[1] for e in rejected.value.errors
+        ]
+
+
+#: The nested objects and the fields each requires, stated independently of the schema files (the nested cases
+#: above are derived from the schemas, so a field dropped from a schema's ``required`` would otherwise vanish
+#: from the tests with it). ADR 0003 describes these in prose, not in its tables.
+NESTED_REQUIRED: dict[tuple[str, tuple[str, ...]], set[str]] = {
+    ("run_manifest", ("pins",)): {
+        "workflow_version",
+        "bundle_digest",
+        "prompt_versions",
+        "tool_versions",
+        "skill_versions",
+        "knowledge_base_versions",
+        "model_routes",
+        "policy_version",
+    },
+    ("run_manifest", ("pins", "knowledge_base_versions", "[]")): {
+        "knowledge_base_id",
+        "version_id",
+    },
+    ("run_manifest", ("subject",)): {"user_id", "auth_method"},
+    ("run_manifest", ("workload",)): {"workload_id", "name", "workflow_version_digest"},
+    ("proposal", ("target",)): {"connector", "resource"},
+}
+
+
+@pytest.mark.parametrize(("kind", "path"), list(NESTED_REQUIRED))
+def test_nested_objects_require_exactly_the_documented_fields(
+    kind: str, path: tuple[str, ...]
+) -> None:
+    node = schema_at(load_schema(kind, "v1"), path)
+    assert set(node["required"]) == NESTED_REQUIRED[(kind, path)]
+    assert set(node["properties"]) == NESTED_REQUIRED[(kind, path)]
+    assert node["additionalProperties"] is False

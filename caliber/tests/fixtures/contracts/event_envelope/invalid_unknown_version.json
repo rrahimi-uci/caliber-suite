@@ -1,5 +1,5 @@
 {
-  "specversion": "9.9",
+  "specversion": "1.0",
   "id": "ev-0001",
   "source": "caliber/workflow-runs",
   "type": "caliber.effect.committed",
@@ -9,5 +9,6 @@
   "causationid": "ev-0000",
   "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
   "dataref": "s3://evidence/run-0001/receipt.json",
-  "datahash": "sha256:2222"
+  "datahash": "sha256:2222",
+  "schemaversion": "v9"
 }
