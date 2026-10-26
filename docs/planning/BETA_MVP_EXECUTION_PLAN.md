@@ -10,6 +10,12 @@ The [machine-readable manifest](beta-mvp-execution.json) records every epic/task
 GitHub child issues contain the complete agent briefs. Repository changes in this planning PR remain proposed until owner merge;
 GitHub issue/project metadata has been applied separately. No Beta/MVP feature is implemented by this plan.
 
+Post-merge contract correction: [review findings and resolutions](EXECUTION_CONTRACT_CORRECTIONS.md)
+against main `9687bc99e19f47c0f9ac19af0da238323cf4848e`. The first structural validator did not detect
+contradictory child pseudocode and acceptance oracles. Corrected briefs now cover those findings directly;
+offline negative tests protect the reviewed contracts, while live checks compare every brief field.
+Neither validator substitutes for source review or future feature validation.
+
 ## Release boundary and source precedence
 
 1. Owner's single-tenant decision: one configured organization per installation, multiple projects/users.
@@ -76,12 +82,12 @@ not prerequisites; a consumer depends on the producing child, not on completion 
 
 Key chains:
 
-- B03 principal/grant/policy contracts → B02 immutable admission → B03 integration → B07 context.
+- Pure B03 principal/grant/policy contracts plus B07 rule loader #726 → B02 immutable admission → B03 worker/resume integration → B07 context. The loader is D2; #736 remains D3 consumption, never manifest backfill.
 - B13 lease/outbox + B05 proposal/receipt + B06 approval validator → B04 dispatcher → atomic approval consumption → bounded adapters → acceptance/replay → evidence/public journey → Beta gate.
 - Beta investment gate → M01/M02/M05/M06/M09 foundations → isolation/knowledge/trajectory → budgets/child tasks/second connector → conformance/restore/pilot → D9 proof.
 - D9 proof → governance/contracts/routing/autonomy → retained M17 identity → regional cells → Hub and memory; federation follows regional/child-task contracts → catalog/companion traceability → final security/release gate.
 
-Safe parallel starting work includes B02 immutable storage, B03 principal contracts, B13 worker/lease inventory,
+Safe parallel starting work includes B02 immutable storage, pure B03 principal contracts, B07 rule-bundle loader, B13 worker/lease inventory,
 B11 trace-alias correction and B12 request/memory restrictions. After Beta, credential leases and protected audit
 can progress independently; in D10 routing and contract work can progress alongside governance's producer slice.
 Memory and federation are independent after their own prerequisites; they need not serialize solely because both are D14.
@@ -168,14 +174,14 @@ for arbitrary changes outside Caliber. No future GitHub Release/tag is created d
 | --- | --- | --- |
 | D2 / B02 | [#517](https://github.com/rrahimi-uci/caliber-suite/issues/517) | [#656](https://github.com/rrahimi-uci/caliber-suite/issues/656), [#676](https://github.com/rrahimi-uci/caliber-suite/issues/676), [#680](https://github.com/rrahimi-uci/caliber-suite/issues/680), [#683](https://github.com/rrahimi-uci/caliber-suite/issues/683), [#687](https://github.com/rrahimi-uci/caliber-suite/issues/687), [#691](https://github.com/rrahimi-uci/caliber-suite/issues/691), [#695](https://github.com/rrahimi-uci/caliber-suite/issues/695) |
 | D2 / B03 | [#518](https://github.com/rrahimi-uci/caliber-suite/issues/518) | [#657](https://github.com/rrahimi-uci/caliber-suite/issues/657), [#664](https://github.com/rrahimi-uci/caliber-suite/issues/664), [#671](https://github.com/rrahimi-uci/caliber-suite/issues/671), [#684](https://github.com/rrahimi-uci/caliber-suite/issues/684), [#688](https://github.com/rrahimi-uci/caliber-suite/issues/688) |
-| D2 / B07 | [#524](https://github.com/rrahimi-uci/caliber-suite/issues/524) | [#692](https://github.com/rrahimi-uci/caliber-suite/issues/692), [#696](https://github.com/rrahimi-uci/caliber-suite/issues/696), [#699](https://github.com/rrahimi-uci/caliber-suite/issues/699), [#704](https://github.com/rrahimi-uci/caliber-suite/issues/704), [#710](https://github.com/rrahimi-uci/caliber-suite/issues/710) |
+| D2 / B07 | [#524](https://github.com/rrahimi-uci/caliber-suite/issues/524) | [#692](https://github.com/rrahimi-uci/caliber-suite/issues/692), [#696](https://github.com/rrahimi-uci/caliber-suite/issues/696), [#699](https://github.com/rrahimi-uci/caliber-suite/issues/699), [#704](https://github.com/rrahimi-uci/caliber-suite/issues/704), [#710](https://github.com/rrahimi-uci/caliber-suite/issues/710), [#726](https://github.com/rrahimi-uci/caliber-suite/issues/726) |
 | D2 / B11 | [#530](https://github.com/rrahimi-uci/caliber-suite/issues/530) | [#672](https://github.com/rrahimi-uci/caliber-suite/issues/672), [#677](https://github.com/rrahimi-uci/caliber-suite/issues/677), [#658](https://github.com/rrahimi-uci/caliber-suite/issues/658), [#665](https://github.com/rrahimi-uci/caliber-suite/issues/665) |
 | D2 / B12 | [#533](https://github.com/rrahimi-uci/caliber-suite/issues/533) | [#659](https://github.com/rrahimi-uci/caliber-suite/issues/659), [#666](https://github.com/rrahimi-uci/caliber-suite/issues/666), [#667](https://github.com/rrahimi-uci/caliber-suite/issues/667) |
 | D2 / B13 | [#536](https://github.com/rrahimi-uci/caliber-suite/issues/536) | [#660](https://github.com/rrahimi-uci/caliber-suite/issues/660), [#668](https://github.com/rrahimi-uci/caliber-suite/issues/668), [#673](https://github.com/rrahimi-uci/caliber-suite/issues/673), [#685](https://github.com/rrahimi-uci/caliber-suite/issues/685) |
 | D3 / B04 | [#520](https://github.com/rrahimi-uci/caliber-suite/issues/520) | [#724](https://github.com/rrahimi-uci/caliber-suite/issues/724), [#733](https://github.com/rrahimi-uci/caliber-suite/issues/733), [#741](https://github.com/rrahimi-uci/caliber-suite/issues/741), [#750](https://github.com/rrahimi-uci/caliber-suite/issues/750), [#759](https://github.com/rrahimi-uci/caliber-suite/issues/759), [#768](https://github.com/rrahimi-uci/caliber-suite/issues/768), [#774](https://github.com/rrahimi-uci/caliber-suite/issues/774), [#641](https://github.com/rrahimi-uci/caliber-suite/issues/641) |
 | D3 / B05 | [#522](https://github.com/rrahimi-uci/caliber-suite/issues/522) | [#700](https://github.com/rrahimi-uci/caliber-suite/issues/700), [#705](https://github.com/rrahimi-uci/caliber-suite/issues/705), [#711](https://github.com/rrahimi-uci/caliber-suite/issues/711), [#717](https://github.com/rrahimi-uci/caliber-suite/issues/717), [#725](https://github.com/rrahimi-uci/caliber-suite/issues/725), [#734](https://github.com/rrahimi-uci/caliber-suite/issues/734), [#742](https://github.com/rrahimi-uci/caliber-suite/issues/742), [#751](https://github.com/rrahimi-uci/caliber-suite/issues/751), [#760](https://github.com/rrahimi-uci/caliber-suite/issues/760) |
 | D3 / B06 | [#523](https://github.com/rrahimi-uci/caliber-suite/issues/523) | [#706](https://github.com/rrahimi-uci/caliber-suite/issues/706), [#712](https://github.com/rrahimi-uci/caliber-suite/issues/712), [#718](https://github.com/rrahimi-uci/caliber-suite/issues/718), [#735](https://github.com/rrahimi-uci/caliber-suite/issues/735), [#743](https://github.com/rrahimi-uci/caliber-suite/issues/743) |
-| D3 / B07 | [#525](https://github.com/rrahimi-uci/caliber-suite/issues/525) | [#719](https://github.com/rrahimi-uci/caliber-suite/issues/719), [#726](https://github.com/rrahimi-uci/caliber-suite/issues/726), [#736](https://github.com/rrahimi-uci/caliber-suite/issues/736) |
+| D3 / B07 | [#525](https://github.com/rrahimi-uci/caliber-suite/issues/525) | [#719](https://github.com/rrahimi-uci/caliber-suite/issues/719), [#736](https://github.com/rrahimi-uci/caliber-suite/issues/736) |
 | D3 / B08 | [#526](https://github.com/rrahimi-uci/caliber-suite/issues/526) | [#713](https://github.com/rrahimi-uci/caliber-suite/issues/713), [#720](https://github.com/rrahimi-uci/caliber-suite/issues/720), [#744](https://github.com/rrahimi-uci/caliber-suite/issues/744), [#752](https://github.com/rrahimi-uci/caliber-suite/issues/752), [#761](https://github.com/rrahimi-uci/caliber-suite/issues/761), [#769](https://github.com/rrahimi-uci/caliber-suite/issues/769), [#729](https://github.com/rrahimi-uci/caliber-suite/issues/729), [#730](https://github.com/rrahimi-uci/caliber-suite/issues/730), [#728](https://github.com/rrahimi-uci/caliber-suite/issues/728), [#727](https://github.com/rrahimi-uci/caliber-suite/issues/727) |
 | D3 / B11 | [#531](https://github.com/rrahimi-uci/caliber-suite/issues/531) | [#737](https://github.com/rrahimi-uci/caliber-suite/issues/737), [#745](https://github.com/rrahimi-uci/caliber-suite/issues/745) |
 | D3 / B12 | [#534](https://github.com/rrahimi-uci/caliber-suite/issues/534) | [#738](https://github.com/rrahimi-uci/caliber-suite/issues/738), [#746](https://github.com/rrahimi-uci/caliber-suite/issues/746) |

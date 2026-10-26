@@ -9,6 +9,11 @@ this report's corrections to GitHub and proposed repository documentation, again
 `5b2fb2a408fad887f1c8704e311b46b09da0f15f`. The review baselines above remain historical; production controls
 are not implemented by the planning update. Old milestone dates are uncommitted pending #608.
 
+**Post-merge critic correction:** review of planning PR #935 found contradictory child instructions that the
+structural checks did not catch. The [contract correction record](docs/planning/EXECUTION_CONTRACT_CORRECTIONS.md)
+tracks the corrected scopes, tests, acceptance and prerequisite edges. Do not read earlier “resolved” planning
+statements as certification of every task's pseudocode or of implemented controls.
+
 **Scope interpretation:** retain the current EGI MVP commitments except shared-customer multi-tenancy. Single tenancy does **not** remove OIDC/SCIM, multi-region operation, Knowledge Hub, governed memory, federation, certification or autonomy. D5 is the bounded **Beta**, D9 is **core operating proof**, and the full **single-tenant MVP** still requires the retained D10–D15 capabilities. A smaller product release would require another owner decision; it is not the default used below.
 
 ## 1. Executive Summary
@@ -476,8 +481,9 @@ These are ordered single-tenant outcomes aligned to existing packages, not a par
 
 **Judgment at the original report baseline:** the Beta is technically plausible through incremental changes to
 existing seams; the full single-tenant MVP remains substantial and conditionally feasible. At that baseline it was
-**not yet an ambiguity-free executable backlog or a validated schedule**. The subsequent execution plan resolves
-the task-contract/backlog findings below; it does not validate an unstaffed calendar or future runtime behavior.
+**not yet an ambiguity-free executable backlog or a validated schedule**. The subsequent execution plan and
+post-merge contract correction address the identified backlog findings; neither certifies an unstaffed calendar,
+arbitrary future task edits or runtime behavior. Known-regression checks supplement, not replace, source review.
 
 Use the current three-person mapping: **P1** technical lead/backend (former A/B), **P2** platform/security (C), **P3** full-stack/test (D/E). These are proposed accountable roles, not new issue assignments. Run at most two substantial implementation streams, with the third integrating/testing/reviewing. Preserve the milestone QA week and independent operator/security/domain/adapter contributors; do not count self-review as their capacity.
 

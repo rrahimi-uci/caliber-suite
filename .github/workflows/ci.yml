@@ -808,6 +808,11 @@ jobs:
           CALIBER_DOCS_PYTHON: python
           CALIBER_DOCS_STRICT: "1"
         run: node caliber/caliber-ui/scripts/sync-docs.mjs
+      - name: Validate execution-plan graph and reviewed contract regressions offline
+        working-directory: ${{ github.workspace }}
+        run: |
+          node docs/planning/validate-execution-plan.mjs
+          node --test docs/planning/test-execution-plan-validator.mjs
       - name: Require committed generated docs to match their sources
         working-directory: ${{ github.workspace }}
         run: >-

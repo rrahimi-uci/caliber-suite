@@ -133,7 +133,8 @@
         696,
         699,
         704,
-        710
+        710,
+        726
       ]
     },
     {
@@ -148,7 +149,6 @@
       "decision": "Rule bundles are operator-authored, validated, digest-pinned at initial admission and read from verified immutable bytes. Context attachments cannot mutate an existing RunManifest. Allocation/omission records describe the actual consumed context; untrusted source text never becomes policy.",
       "children": [
         719,
-        726,
         736
       ]
     },
@@ -1101,7 +1101,7 @@
       "execution_order": 2001,
       "blocked_by": [],
       "scope": "Persist canonical manifest bytes/digest with one row per run, database UPDATE/DELETE guards and runtime role permissions. Test ORM update, bulk SQL, delete, duplicate insertion and migration rollback behavior on PostgreSQL and SQLite development. Legacy runs are explicitly identified without manufactured manifests.",
-      "files": "`caliber/src/caliber/db/models.py` (modify), `caliber/src/caliber/db/migrations/versions/0114_run_manifests.py` (create)",
+      "files": "`caliber/src/caliber/db/models.py` (modify), `caliber/src/caliber/db/migrations/versions/<next_unused_revision>_<task_specific_name>.py` (create)",
       "tests": "`caliber/tests/test_run_manifest.py::test_update_raises_immutable_record_error` (parametrized over `DIALECTS`), `caliber/tests/test_migrations.py`",
       "acceptance": "Persist canonical manifest bytes/digest with one row per run, database UPDATE/DELETE guards and runtime role permissions. Test ORM update, bulk SQL, delete, duplicate insertion and migration rollback behavior on PostgreSQL and SQLite development. Legacy runs are explicitly identified without manufactured manifests.",
       "documentation": "docs/operate/reference-profile.md and the affected API/SDK/cookbook page; add exact refusal/recovery examples."
@@ -1124,12 +1124,13 @@
       "execution_order": 2004,
       "blocked_by": [
         656,
-        671
+        671,
+        726
       ],
-      "scope": "Implement a pure admission builder accepting resolved pins, typed subject/workload and fixed deployment scope. Validate ADR0003 v1 before persistence; reject unresolved policy/bundle/knowledge/model references. Compute reproducible canonical hash and reject malformed/unknown schema versions.",
+      "scope": "Implement pure build_run_manifest from resolved pins, typed subject/workload and fixed deployment/project/region scope. Use #726 load_rule_bundle before building final pins when a bundle is enabled. Validate strict ADR0003 schema; any additional bundle reference requires a reader-compatible registered schema extension and fixtures before writers use it. Reject unresolved policy/knowledge/model/bundle references; canonical JSON hash excludes its own digest. No later backfill of pins. No SQL or provider calls inside this builder.",
       "files": "`caliber/src/caliber/run_manifest.py` (create)",
-      "tests": "`caliber/tests/test_run_manifest.py::test_build_validates_against_schema`, `::test_one_manifest_per_run`",
-      "acceptance": "Implement a pure admission builder accepting resolved pins, typed subject/workload and fixed deployment scope. Validate ADR0003 v1 before persistence; reject unresolved policy/bundle/knowledge/model references. Compute reproducible canonical hash and reject malformed/unknown schema versions.",
+      "tests": "caliber/tests/test_run_manifest.py: build_validates_against_schema, unresolved_reference_refused, bundle_bytes_pinned_before_insert, strict_subject_shape, canonical_digest and old_fixture_readable.",
+      "acceptance": "A fully resolved fixture validates before persistence; missing/changed configured bundle bytes prevent admission. Canonical digest is repeatable; existing v1 fixtures retain their declared compatibility.",
       "documentation": "docs/operate/reference-profile.md and the affected API/SDK/cookbook page; add exact refusal/recovery examples."
     },
     {
@@ -1152,10 +1153,10 @@
         676,
         664
       ],
-      "scope": "Wire enqueue_workflow_run to resolve release, policy version and configured rule bundle before one atomic run/manifest/grant insertion. Authenticate and authorize first. Route every public admission path through this builder and verify persisted pins do not change after alias movement.",
+      "scope": "Authenticate and authorize every public admission path, allocate run/grant identifiers, resolve immutable release/policy/bundle pins through #676 and evaluate #671 policy in the same SQL transaction as run/grant/manifest creation. Pass explicit run_id/grant_id and typed identities; roll back all rows on denial. Store subject/workload/purpose once. Use the final pinned bundle hash from #726, not an alias to be filled later. No partial admitted run is dispatchable.",
       "files": "`caliber/src/caliber/workflows/run_launch.py` (modify)",
-      "tests": "`caliber/tests/test_run_manifest.py::test_admission_persists_pins`",
-      "acceptance": "Wire enqueue_workflow_run to resolve release, policy version and configured rule bundle before one atomic run/manifest/grant insertion. Authenticate and authorize first. Route every public admission path through this builder and verify persisted pins do not change after alias movement.",
+      "tests": "caliber/tests/test_run_manifest.py: admission_persists_pins, policy_denial_rolls_back_all, alias_move_preserves_pins, missing_rule_bundle_denies; PostgreSQL transaction assertions and public create route.",
+      "acceptance": "Successful public admission persists exactly one complete run/grant/manifest set; denial or missing bundle persists none. Readback matches the exact policy/identity/bundle used to decide.",
       "documentation": "docs/operate/reference-profile.md and the affected API/SDK/cookbook page; add exact refusal/recovery examples."
     },
     {
@@ -1238,7 +1239,7 @@
       "key": "517:5",
       "parent": 517,
       "package": "B02",
-      "title": "[D2] B02.5 · Manifest route",
+      "title": "[D2] B02.5 · Preserve workflow manifest API and expose governed admission separately",
       "milestone": "D2",
       "stage": "Beta",
       "gaps": [
@@ -1252,10 +1253,10 @@
       "blocked_by": [
         691
       ],
-      "scope": "Manifest route: `GET /workflow-runs/{run_id}/manifest` → 200 `{\"manifest\": {...}, \"manifest_digest\": \"...\"}`; legacy run without a manifest → 200 `{\"manifest\": null, \"manifest_digest\": null, \"legacy\": true}` (extend the existing `get_workflow_run_manifest`, line ~969, which today returns `manifest_snapshot`)",
-      "files": "`caliber/src/caliber/routes/workflow_runs.py` (modify)",
-      "tests": "`caliber/tests/test_run_manifest.py::test_manifest_route`, `::test_legacy_run_manifest_route`",
-      "acceptance": "Both responses as listed",
+      "scope": "Preserve GET /workflow-runs/{run_id}/manifest and WorkflowRunManifestSchema exactly: workflow IDs, manifest_mode, manifest_hash and workflow manifest remain available to current UI/SDK and legacy runs. Add a distinct project-authorized GET /workflow-runs/{run_id}/admission-manifest endpoint returning the normal data envelope with schema_version, run_manifest and manifest_digest; legacy returns run_manifest=null, manifest_digest=null, legacy=true only on this new endpoint. Include typed sync/async SDK method and UI API type for the new endpoint; do not overload workflow-manifest meaning.",
+      "files": "Modify caliber/src/caliber/routes/workflow_runs.py and associated route registry, sdk/caliber-sdk sync/async workflow run resources and models, caliber/caliber-ui/src/api/workflowTypes.ts and caliberApi.ts. Preserve existing WorkflowRunManifestSchema.",
+      "tests": "caliber/tests/test_workflow_runs.py and caliber/tests/test_run_manifest.py: existing_manifest_response_unchanged, legacy_snapshot_preserved, admission_manifest_digest, foreign_run404; sdk/caliber-sdk/tests/test_workflow_runs.py and UI API contract tests.",
+      "acceptance": "Existing workflow-manifest consumers pass unchanged. New admission endpoint returns verified governed record or explicit legacy absence, never a foreign payload.",
       "documentation": "docs/operate/reference-profile.md and the affected API/SDK/cookbook page; add exact refusal/recovery examples."
     },
     {
@@ -1263,7 +1264,7 @@
       "key": "518:1",
       "parent": 518,
       "package": "B03",
-      "title": "[D2] B03.1 · Principals",
+      "title": "[D2] B03.1 · Define pure principal types without admission or worker dependencies",
       "milestone": "D2",
       "stage": "Beta",
       "gaps": [
@@ -1275,10 +1276,10 @@
       "lane": "P2",
       "execution_order": 2001,
       "blocked_by": [],
-      "scope": "Principals. `caliber/src/caliber/policy/principal.py`: `@dataclass(frozen=True) class Subject(user_id: str, auth_method: str, project_id: str | None)`, `class Workload(workload_id: str, name: str, workflow_version_digest: str)` (`workload_id` = `f\"caliber-worker:{workflow_version_digest[:16]}\"`), `class RunPrincipal(subject: Subject, workload: Workload, grant_id: str)` and `identity_for_run(session, run_id) -> CaliberIdentity` building a `caliber/src/caliber/auth.py::CaliberIdentity` from the manifest's `subject` plus the grant. In `run_launch.enqueue_workflow_run` write `subject` (from `resolve_identity`), `workload` (`name=\"caliber-worker\"`, digest = `pins.bundle_digest`) and `purpose` (the request body's `purpose` string, default `\"workflow\"`) into the manifest (#517's `build_run_manifest` takes them). In `caliber/src/caliber/orchestrator/workflow_run_worker.py` replace line 1568 with `identity_for_run(...)`; runs without a manifest (legacy) keep the old call behind an `else` branch",
-      "files": "`caliber/src/caliber/policy/__init__.py`, `caliber/src/caliber/policy/principal.py` (create); `caliber/src/caliber/workflows/run_launch.py`, `caliber/src/caliber/orchestrator/workflow_run_worker.py` (modify)",
-      "tests": "`caliber/tests/test_policy_decisions.py::test_run_executes_as_subject`, `::test_worker_never_uses_owner_identity_for_manifest_runs`",
-      "acceptance": "A run admitted by user U (editor in project P) executes with U's role; `caliber/tests/test_policy_decisions.py::test_worker_never_uses_owner_identity_for_manifest_runs` greps `caliber/src/caliber/orchestrator/workflow_run_worker.py` and asserts `synthetic_identity(workflow.owner` appears only inside the `else` legacy branch (one occurrence, preceded by a comment `# legacy run without manifest`)",
+      "scope": "Define immutable Subject(user_id, auth_method, project_id), Workload(workload_id, name, workflow_version_digest) and RunPrincipal(subject, workload, grant_id) value objects in policy/principal.py. Derive workload ID from the full workflow digest, never a caller-selected identity. Provide pure conversion of an already resolved Subject to CaliberIdentity. This task has no database lookup, admission writer or worker integration; #680 persists identity and #684 resolves identity_for_run after manifests/grants exist. Keep project_id in server-side context; serialize only fields accepted by the strict subject schema.",
+      "files": "Create caliber/src/caliber/policy/principal.py and caliber/tests/test_policy_principal.py; read caliber/src/caliber/auth.py and contracts/schemas/run_manifest.v1.json. Integration is owned by #680/#684.",
+      "tests": "caliber/tests/test_policy_principal.py: immutable values, full digest identity, subject serialization, forged identity rejection and pure CaliberIdentity conversion; no manifest/grant table required.",
+      "acceptance": "Pure principal tests run on current main before manifest persistence exists. No import or call to build_run_manifest, load_run_manifest or grants persistence is introduced.",
       "documentation": "docs/operate/reference-profile.md and the affected API/SDK/cookbook page; add exact refusal/recovery examples."
     },
     {
@@ -1325,10 +1326,10 @@
       "blocked_by": [
         664
       ],
-      "scope": "Implement typed PolicyDecision with explicit run_id and grant_id input, immutable policy version, action/resource/purpose, allow/deny reason codes, canonical input hash and evaluated timestamp. No optional envelope fallback or newest active grant lookup. Evaluate revocation, expiry, membership, purpose, explicit deny, action/resource and numeric risk ceiling in order; persist and schema-validate every decision. Test cross-run grant substitution and evaluator outage denial.",
-      "files": "`caliber/src/caliber/policy/decisions.py` (create); `caliber/src/caliber/db/models.py` (modify); migration (same file as task 2)",
-      "tests": "`caliber/tests/test_policy_decisions.py::test_decide_is_deterministic`, `::test_deny_wins`",
-      "acceptance": "Implement typed PolicyDecision with explicit run_id and grant_id input, immutable policy version, action/resource/purpose, allow/deny reason codes, canonical input hash and evaluated timestamp. No optional envelope fallback or newest active grant lookup. Evaluate revocation, expiry, membership, purpose, explicit deny, action/resource and numeric risk ceiling in order; persist and schema-validate every decision. Test cross-run grant substitution and evaluator outage denial.",
+      "scope": "Define decide(session, *, run_id, grant_id, subject: Subject, workload: Workload, action, resource, purpose) -> PolicyDecision. Exact run/grant identity and grant subject/workload must match; no optional envelope or newest-grant fallback. Check revocation, expiry, current membership, purpose, explicit deny, action/resource and numeric risk ceiling, then persist immutable version/input hash/time/reason codes. Schema-validate decision rows; run linkage is explicit in storage and any wire extension is registered readers-first. For initial admission, IDs and grant row exist in the same uncommitted transaction; commit only after allow.",
+      "files": "`caliber/src/caliber/policy/decisions.py` (create); `caliber/src/caliber/db/models.py` (modify); allocate a fresh unused migration after the grants prerequisite",
+      "tests": "caliber/tests/test_policy_decisions.py: missing_run_or_grant, cross_run_substitution, wrong_subject/workload, revoked/expired grant, membership loss, outage denial, initial_transaction_rollback and v1 compatibility.",
+      "acceptance": "Every policy caller supplies the exact run_id/grant_id; cross-run, cross-subject and cross-workload substitutions deny with zero protected calls. No admitted manifest is mutated by subsequent decisions.",
       "documentation": "docs/operate/reference-profile.md and the affected API/SDK/cookbook page; add exact refusal/recovery examples."
     },
     {
@@ -1346,15 +1347,15 @@
       ],
       "priority": "P0",
       "lane": "P2",
-      "execution_order": 2006,
+      "execution_order": 2007,
       "blocked_by": [
         671,
-        680
+        683
       ],
-      "scope": "Integrate the policy decision into initial admission before manifest persistence, and recheck current grant/membership on resume. Keep immutable policy pin separate from subsequent decision rows. Reject foreign run/grant combinations and unavailable policy; test no mutation of admitted pins.",
+      "scope": "Implement identity_for_run(session, run_id) using the persisted manifest and exact grant ID, and integrate it into worker/resume entry points after #683 pin loading. Validate manifest integrity, current subject membership, grant/run/subject/workload equality, expiry and revocation through #671 decide(session, *, run_id, grant_id, subject, workload, action, resource, purpose). #680 already owns the initial admission transaction; do not add a second writer. Preserve explicitly labeled legacy development behavior without manufacturing a grant.",
       "files": "`caliber/src/caliber/workflows/run_launch.py`, `caliber/src/caliber/routes/workflow_runs.py` (modify)",
-      "tests": "`caliber/tests/egi_scenarios/test_v05_revocation_while_waiting.py::test_role_removed_while_waiting_denies_resume`",
-      "acceptance": "Integrate the policy decision into initial admission before manifest persistence, and recheck current grant/membership on resume. Keep immutable policy pin separate from subsequent decision rows. Reject foreign run/grant combinations and unavailable policy; test no mutation of admitted pins.",
+      "tests": "caliber/tests/test_policy_principal.py and caliber/tests/test_run_manifest.py: worker_identity_from_exact_grant, foreign_grant_denied, revoked_resume_denied, no_manifest_mutation and legacy_profile_behavior.",
+      "acceptance": "Worker and resume use saved pins plus current authority. A foreign/revoked grant causes zero dispatch and does not mutate immutable admission records.",
       "documentation": "docs/operate/reference-profile.md and the affected API/SDK/cookbook page; add exact refusal/recovery examples."
     },
     {
@@ -1372,7 +1373,7 @@
       ],
       "priority": "P0",
       "lane": "P2",
-      "execution_order": 2007,
+      "execution_order": 2008,
       "blocked_by": [
         684
       ],
@@ -1573,10 +1574,10 @@
         688,
         668
       ],
-      "scope": "Persist immutable proposal intent and durable occurrence ID. Unique logical key is deployment/run/node/occurrence; independent intent digest covers connector/version/target/arguments/expected version. Same occurrence+same intent is idempotent; same occurrence+changed intent is 409; identical arguments in the next loop occurrence form a distinct effect.",
+      "scope": "Persist immutable proposal intent and durable occurrence. Unique logical key is deployment/run/node/occurrence, separate from intent_hash. Define one versioned canonical intent helper over connector identity/version, effect_class, target, arguments and expected_resource_version; canonical JSON bytes and algorithm version are stored/recomputable. All approval/receipt consumers reuse this full digest. Same occurrence/same intent is idempotent; changed intent conflicts409; next occurrence may repeat identical arguments. Register compatible schema fields/readers before new writers.",
       "files": "`caliber/src/caliber/effects/records.py` (create); `caliber/src/caliber/effects/__init__.py` (modify; package created by #627), `caliber/src/caliber/db/models.py` (modify); migration (create)",
-      "tests": "`caliber/tests/test_effect_records.py::test_same_intent_is_idempotent`, `::test_intent_conflict_raises`",
-      "acceptance": "Persist immutable proposal intent and durable occurrence ID. Unique logical key is deployment/run/node/occurrence; independent intent digest covers connector/version/target/arguments/expected version. Same occurrence+same intent is idempotent; same occurrence+changed intent is 409; identical arguments in the next loop occurrence form a distinct effect.",
+      "tests": "caliber/tests/test_effect_proposals.py: duplicate_occurrence_idempotent, changed_intent_409, repeated_loop_distinct, connector_version_or_effect_class_changes_digest and concurrent_insert_postgres.",
+      "acceptance": "One immutable logical effect per occurrence. Changing any intent field changes its digest; retries preserve the original key and digest. Approval consumers never compute a reduced three-field hash.",
       "documentation": "docs/operate/reference-profile.md and the affected API/SDK/cookbook page; add exact refusal/recovery examples."
     },
     {
@@ -1646,7 +1647,7 @@
         711
       ],
       "scope": "Persist immutable verified receipts matching proposal logical key, intent, target/version and connector identity. Reject mismatched or tampered receipts. Verify domain result through authoritative query without allowing query 404 to certify final failure. One authoritative receipt association per attempt/identity, duplicate delivery is idempotent.",
-      "files": "`caliber/src/caliber/effects/records.py`, `caliber/src/caliber/db/models.py` (modify); same migration",
+      "files": "`caliber/src/caliber/effects/records.py`, `caliber/src/caliber/db/models.py` (modify); allocate a fresh unused migration after the merged prerequisite",
       "tests": "`caliber/tests/test_effect_records.py::test_committed_requires_verified_receipt`, `::test_200_without_query_match_is_unknown`",
       "acceptance": "Persist immutable verified receipts matching proposal logical key, intent, target/version and connector identity. Reject mismatched or tampered receipts. Verify domain result through authoritative query without allowing query 404 to certify final failure. One authoritative receipt association per attempt/identity, duplicate delivery is idempotent.",
       "documentation": "docs/operate/reference-profile.md and the affected API/SDK/cookbook page; add exact refusal/recovery examples."
@@ -1838,10 +1839,10 @@
       "blocked_by": [
         712
       ],
-      "scope": "Recheck at commit. `approval_valid_at_commit(session, proposal, approval, *, envelope, current_resource_version: str | None) -> tuple[bool, str | None]` in `caliber/src/caliber/workflows/approval_policy.py`: `intent_hash` equal to `records.intent_hash(proposal.target, proposal.args, proposal.expected_resource_version)`; not expired; not superseded; `policy.decide(session, subject=<approver subject>, workload=envelope.workload, action=\"approval.decide\", resource=f\"proposal:{proposal.proposal_id}\", purpose=envelope.purpose)` still allows; `current_resource_version == approval.expected_resource_version` when set. The dispatcher (#520 task 1 step 4) calls it and refuses with `EffectRefused(\"approval_invalid\")` carrying the reason code (`intent_mismatch`, `expired`, `superseded`, `role_revoked`, `stale_version`)",
+      "scope": "approval_valid_at_commit validates the exact stored proposal.intent_hash using #700 canonical helper, evidence/policy pins, expiry, supersession, consumption and current downstream version. Recheck run authority with #671 decide using explicit run_id/grant_id and the original run subject/workload/purpose. Separately check the actual approving principal is still active, a current project member with required approval role, distinct from initiator where required, and permitted by the configured principal-type policy. Do not pass the approver subject with the initiator grant or invent an approver grant. The dispatcher calls both checks in its fenced claim transaction; return stable intent_mismatch/expired/superseded/role_revoked/stale_version refusal codes.",
       "files": "`caliber/src/caliber/workflows/approval_policy.py`, `caliber/src/caliber/effects/dispatcher.py` (modify)",
-      "tests": "`caliber/tests/egi_scenarios/test_v04_stale_approval.py::test_<code>_refused_at_commit` (parametrized over the five codes), `caliber/tests/egi_scenarios/test_v05_revocation_while_waiting.py::test_role_revoked_after_approval_refused_at_commit`",
-      "acceptance": "Each mismatch refuses with its code and `downstream.mutations() == 0`",
+      "tests": "caliber/tests/egi_scenarios/test_v04_stale_approval.py and test_v05_revocation_while_waiting.py: exact_grant_arguments, approver_checked_separately, connector_version_changed, expired/superseded, membership_revoked and concurrent_dispatch.",
+      "acceptance": "Each changed intent or revoked authority yields zero downstream mutations. A valid distinct approver can approve an initiator-owned grant without grant substitution; final approval consumption is atomic with dispatch claim.",
       "documentation": "docs/operate/reference-profile.md and the affected API/SDK/cookbook page; add exact refusal/recovery examples."
     },
     {
@@ -1907,7 +1908,7 @@
       ],
       "priority": "P0",
       "lane": "P1",
-      "execution_order": 2008,
+      "execution_order": 2009,
       "blocked_by": [
         688
       ],
@@ -1931,7 +1932,7 @@
       ],
       "priority": "P0",
       "lane": "P1",
-      "execution_order": 2009,
+      "execution_order": 2010,
       "blocked_by": [
         692
       ],
@@ -1955,14 +1956,14 @@
       ],
       "priority": "P0",
       "lane": "P1",
-      "execution_order": 2010,
+      "execution_order": 2011,
       "blocked_by": [
         696
       ],
-      "scope": "Authorize before load: `caliber/src/caliber/context/authorize.py::authorize_source(session, identity, run_manifest, knowledge_base_id, version_id) -> PolicyDecision` calls `policy.decisions.decide(session, subject=identity, workload=run_manifest.workload_id, action=\"context.read\", resource=f\"kb:{knowledge_base_id}:{version_id}\", purpose=run_manifest.purpose)` (#518) and `is_approved`; wrap `knowledge_query_runner` in `caliber/src/caliber/workflows/promoter.py::build_knowledge_runtime_runners` so the wrapper calls `authorize_source` before `KnowledgeService.query` (`caliber/src/caliber/knowledge/service.py` line 1588) and, on deny, returns the deny decision and never calls `query`. Non-reference profile: wrapper is a pass-through.",
+      "scope": "authorize_source(session, identity, run_manifest, grant_id, knowledge_base_id, version_id) checks the saved subject equals the authenticated run identity and invokes #671 decide with explicit run_id=run_manifest.workflow_run_id, grant_id, typed subject and nested run_manifest.workload. Use action=context.read, exact kb/version resource and saved purpose; check current approved-source state before KnowledgeService.query. Do not read a nonexistent run_manifest.workload_id or infer a latest grant. Wrap the existing knowledge runner and return a typed denial before loading bytes.",
       "files": "create `caliber/src/caliber/context/authorize.py`; modify `caliber/src/caliber/workflows/promoter.py`",
-      "tests": "`caliber/tests/test_context_authorize.py::test_denied_source_never_reaches_retrieval`",
-      "acceptance": "With `KnowledgeService.query` replaced by a spy, a foreign-workspace or unapproved source yields a `PolicyDecision(result=\"deny\")` and the spy's call count is 0; an approved source calls the spy once",
+      "tests": "caliber/tests/test_context_authorize.py: exact_policy_arguments, wrong_grant_denied, foreign_or_unapproved_source_never_reaches_query, revoked_membership and allowed_source_query_once.",
+      "acceptance": "A spy verifies exact run/grant/subject/workload arguments and zero retrieval calls for every denial. Authorized pinned source invokes query once.",
       "documentation": "docs/operate/reference-profile.md and the affected API/SDK/cookbook page; add exact refusal/recovery examples."
     },
     {
@@ -1979,7 +1980,7 @@
       ],
       "priority": "P0",
       "lane": "P1",
-      "execution_order": 2011,
+      "execution_order": 2012,
       "blocked_by": [
         699
       ],
@@ -2003,7 +2004,7 @@
       ],
       "priority": "P0",
       "lane": "P1",
-      "execution_order": 2012,
+      "execution_order": 2013,
       "blocked_by": [
         704
       ],
@@ -2026,7 +2027,7 @@
       ],
       "priority": "P0",
       "lane": "P1",
-      "execution_order": 3013,
+      "execution_order": 3014,
       "blocked_by": [
         710
       ],
@@ -2038,25 +2039,23 @@
     },
     {
       "number": 726,
-      "key": "525:5a",
-      "parent": 525,
+      "key": "524:rule-loader",
+      "parent": 524,
       "package": "B07",
-      "title": "[D3] B07.5a · Rule bundle format and loader",
-      "milestone": "D3",
+      "title": "[D2] B07 · Produce the pure rule-bundle loader before immutable admission",
+      "milestone": "D2",
       "stage": "Beta",
       "gaps": [
         "G14"
       ],
       "priority": "P0",
       "lane": "P1",
-      "execution_order": 3014,
-      "blocked_by": [
-        719
-      ],
-      "scope": "Rule bundle format and loader: YAML file with top-level `bundle_id` (str), `version` (str), `rules` (list of `{id: str, text: str, source_ref: str, applies_to: list[str]}`). `caliber/src/caliber/context/rule_bundle.py::load_rule_bundle(path: Path, expected_sha256: str) -> RuleBundle` reads the file, computes sha256 of the bytes, raises `RuleBundleUnavailable(reason)` with reason `missing` (file absent), `digest_mismatch`, or `invalid` (schema); `RuleBundle.rule(rule_id) -> Rule` raises `RuleBundleUnavailable(\"unknown_rule\")`. Fixture bundle: the Harborlight evidence-review rules (minimum three: required document present, document matches applicant, document not older than 90 days), agreed with the domain owner booked in #608.",
-      "files": "create `caliber/src/caliber/context/rule_bundle.py`, `caliber/tests/fixtures/egi/harborlight_rules.v1.yaml`",
-      "tests": "`caliber/tests/test_rule_bundle.py::test_loader_fails_closed` (parametrized over the four reasons)",
-      "acceptance": "Each of the four failure reasons raises; the fixture loads and `rule(\"doc_present\")` returns its text",
+      "execution_order": 2001,
+      "blocked_by": [],
+      "scope": "Define RuleBundle v1 YAML (bundle_id, version, rules with id/text/source_ref/applies_to) and pure load_rule_bundle(path, expected_sha256). Verify raw bytes hash before parsing; reject missing bytes, unknown rule, duplicate rule IDs and malformed fields with typed reason codes. Use a licensed scripted fixture, clearly not domain acceptance. No context/admission/database integration in this producer; #676 consumes it before immutable admission and #736 verifies pinned bytes at context use.",
+      "files": "Create caliber/src/caliber/context/rule_bundle.py and caliber/tests/test_rule_bundle.py; fixture under caliber/tests/fixtures/rule_bundles/.",
+      "tests": "caliber/tests/test_rule_bundle.py: valid fixture, deterministic hash, missing file, digest mismatch, duplicate ID, invalid YAML and unknown rule; zero provider/database calls.",
+      "acceptance": "The loader is executable before #676 with no dependency on ContextManifest or a persisted run. An altered byte is refused even when the YAML values appear equivalent.",
       "documentation": "docs/operate/reference-profile.md and the affected API/SDK/cookbook page; add exact refusal/recovery examples."
     },
     {
@@ -2074,12 +2073,14 @@
       "lane": "P1",
       "execution_order": 3015,
       "blocked_by": [
+        719,
+        680,
         726
       ],
-      "scope": "Resolve enabled rule bundle bytes and hash in the admission builder before first RunManifest persistence; verify bytes on consumption. Later context records reference the pinned hash separately. Changed alias/path bytes cannot alter an admitted run; mismatch refuses use.",
+      "scope": "Consume the already admitted rule-bundle hash from #680 through #726 loader and reference it in ContextManifest. Verify bytes again at context use and refuse mismatch; never rewrite/backfill RunManifest pins. Support approved rule selection with source provenance, leaving domain-owner approval as #608 evidence. This task is context integration only, not the producer of the admission loader.",
       "files": "modify `caliber/src/caliber/workflows/run_launch.py`, `caliber/src/caliber/workflows/runtime.py`, `caliber/src/caliber/config.py`",
-      "tests": "`caliber/tests/test_rule_bundle.py::test_tampered_bundle_stops_step_before_model_call`",
-      "acceptance": "Resolve enabled rule bundle bytes and hash in the admission builder before first RunManifest persistence; verify bytes on consumption. Later context records reference the pinned hash separately. Changed alias/path bytes cannot alter an admitted run; mismatch refuses use.",
+      "tests": "caliber/tests/test_rule_bundle.py and caliber/tests/test_context_manifest.py: admitted_hash_unchanged, changed_bytes_refused_at_use, context_references_pinned_hash and no_run_manifest_update.",
+      "acceptance": "Alias/path changes after admission cannot alter run pins. Context either uses matching pinned bytes or refuses; no UPDATE of admission manifest occurs.",
       "documentation": "docs/operate/reference-profile.md and the affected API/SDK/cookbook page; add exact refusal/recovery examples."
     },
     {
@@ -2097,7 +2098,7 @@
       ],
       "priority": "P0",
       "lane": "P1",
-      "execution_order": 3012,
+      "execution_order": 3013,
       "blocked_by": [
         704,
         700
@@ -2123,7 +2124,7 @@
       ],
       "priority": "P0",
       "lane": "P1",
-      "execution_order": 3013,
+      "execution_order": 3014,
       "blocked_by": [
         713
       ],
@@ -2983,10 +2984,10 @@
       "blocked_by": [
         818
       ],
-      "scope": "Assembler `caliber/src/caliber/evidence/package.py::assemble(session, run_id) -> EvidencePackage`: walks `_causal_links(session, run_id)` (#531), loads each member row, serialises it with canonical JSON (sorted keys, no whitespace), computes each `sha256`, sets `parent_ids` from the chain, carries `missing_links` through, and computes `package_sha256` over the sorted member digests. `EvidencePackage.to_dict()` matches the schema.",
+      "scope": "Define assemble(session, *, run_id, identity) with server-derived authorized/redacted view; never accept caller-selected project/visibility. Assemble registered evidence_package v1 as a canonical manifest containing schema/version, run/project identity, selected authorization/redaction view, complete member IDs/kinds, each payload digest, parent_ids, canonical metadata and explicit missing_links. Sort members by stable identity and parent references canonically. Compute package_sha256 over this entire canonical manifest, excluding only package_sha256 and later signatures; never hash only the sorted payload digests. Before serialization select the authorized view and redact as required; #833 serializes the exact same manifest. No read of foreign payloads.",
       "files": "create `caliber/src/caliber/evidence/__init__.py`, `caliber/src/caliber/evidence/package.py`",
-      "tests": "`caliber/tests/test_evidence_package.py::test_v01_package_complete`, `::test_missing_member_listed_not_dropped`",
-      "acceptance": "For a V01 run: one member per kind listed above (at least eleven members), every `sha256` equals a recomputation from the stored row, `missing_links` empty; after deleting the effect receipt row in the test, `missing_links` has one entry with `\"receipt\"` and the package still assembles",
+      "tests": "caliber/tests/test_evidence_package.py: complete_membership, missing_receipt_explicit, parent_link_tamper, member_id_or_metadata_tamper, wrong_view_scope, canonical_order and digest_recomputed.",
+      "acceptance": "Changing a member ID, link, metadata, view or missing-link declaration changes the package digest even when all payload bytes are identical. Export and verifier use one manifest canonicalization.",
       "documentation": "docs/operate/reference-profile.md and the affected API/SDK/cookbook page; add exact refusal/recovery examples."
     },
     {
@@ -3346,10 +3347,10 @@
       "blocked_by": [
         613
       ],
-      "scope": "Workload identity: `issue_workload_token(worker_id: str, key: bytes, ttl_s: int) -> str` (HMAC-SHA256 over `worker_id|issued_at|expires_at`, base64url) and `verify_workload_token(token: str, key: bytes, now: datetime) -> WorkloadIdentity(worker_id, issued_at, expires_at)`, raising `WorkloadIdentityError(\"workload_identity_invalid\")` for missing, forged or expired. Key read via `caliber/src/caliber/secrets.py::resolve_secret` from new config field `workload_key_ref: str = \"secret://caliber-workload-key\"` (`CALIBER_WORKLOAD_KEY_REF` in `_ENV_VAR_TABLE`). The worker issues its token at startup; the B04 dispatcher calls `verify_workload_token` before every lease request.",
-      "files": "create `caliber/src/caliber/workload_identity.py`; modify `caliber/src/caliber/config.py`, `caliber/src/caliber/orchestrator/workflow_run_worker.py`, `caliber/src/caliber/effects/dispatcher.py` (from #520)",
-      "tests": "`caliber/tests/test_workload_identity.py` (create): `test_valid_token`, `test_forged_rejected`, `test_expired_rejected`, `test_dispatch_refuses_invalid_token`",
-      "acceptance": "Valid token verifies; missing, one-byte-forged and expired tokens raise; a dispatch with an invalid token leaves the downstream counter unchanged.",
+      "scope": "Use the existing PyJWT integration pattern to issue RS256 workload JWTs, not a custom delimiter-HMAC format. Claims are iss (configured installation issuer), aud=caliber-credential-broker, sub (registered worker principal), iat, nbf, exp and unique jti. Bind key ID to configured trusted public key; require explicit algorithm/issuer/audience and every claim at verification. TTL is bounded to300seconds; refresh before expiry. Reject missing/unknown worker, revoked jti/key, future/expired times and tampering. jti is token identity/revocation, not one-use-per-lease: repeated valid use is constrained by lease accounting. Signing key stays outside tool/model processes.",
+      "files": "Create caliber/src/caliber/workload_identity.py and caliber/tests/test_workload_identity.py; reuse caliber/src/caliber/github_app_auth.py PyJWT conventions; modify config.py, worker and dispatcher. Declare PyJWT directly if it is currently only transitive.",
+      "tests": "caliber/tests/test_workload_identity.py: issuer/audience/algorithm confusion, missing claims, expiry/not_before, unknown worker, revoked jti/key, refresh boundary and safe repeated token use.",
+      "acceptance": "Valid configured worker token authenticates only to the configured broker. Each invalid claim fails before lease issuance; refresh preserves worker identity without exposing keys.",
       "documentation": "Affected docs/operate or docs/sdk page and its milestone acceptance evidence fragment; update architecture/config/API contracts changed by this task."
     },
     {
@@ -3370,7 +3371,7 @@
         661
       ],
       "scope": "Persist credential leases with lease/grant/decision/run/workload IDs, audience, resource, secret reference, issued/expiry timestamps, max/use counts and revocation fields. Add uniqueness/foreign-key constraints appropriate to existing IDs and a fresh unused migration revision. Raw credentials are not stored in this record. Migration and redemption race tests use PostgreSQL.",
-      "files": "modify `caliber/src/caliber/db/models.py`, `caliber/tests/test_migrations.py`; create `caliber/src/caliber/db/migrations/versions/0114_credential_leases.py`",
+      "files": "modify `caliber/src/caliber/db/models.py`, `caliber/tests/test_migrations.py`; create `caliber/src/caliber/db/migrations/versions/<next_unused_revision>_<task_specific_name>.py`",
       "tests": "`caliber/tests/test_migrations.py`; `caliber/tests/test_credential_leases.py::test_lease_requires_grant_and_decision` (create)",
       "acceptance": "Persist credential leases with lease/grant/decision/run/workload IDs, audience, resource, secret reference, issued/expiry timestamps, max/use counts and revocation fields. Add uniqueness/foreign-key constraints appropriate to existing IDs and a fresh unused migration revision. Raw credentials are not stored in this record. Migration and redemption race tests use PostgreSQL.",
       "documentation": "Affected docs/operate or docs/sdk page and its milestone acceptance evidence fragment; update architecture/config/API contracts changed by this task."
@@ -3415,10 +3416,10 @@
       "blocked_by": [
         674
       ],
-      "scope": "Bind at redeem: check in order `revoked_at is None`, `expires_at > now`, `use_count < max_uses`, `workload_id ==`, `audience ==`, `resource` inside the grant's resource set (`caliber/src/caliber/policy/grants.py` from #518); failure raises `LeaseDenied(reason)` with `lease_revoked`, `lease_expired`, `lease_exhausted`, `lease_wrong_workload`, `lease_wrong_audience`, `lease_resource_outside_grant`; success increments `use_count` in the same transaction.",
+      "scope": "Redeem a credential lease under row lock/CAS after authenticating the workload JWT from #661. Recheck exact run/grant/decision, current subject membership and grant revocation/expiry/action/resource, lease audience/resource/workload, expiry, revocation and use_count. Increment use_count in the same transaction before returning the resolved secret only to trusted connector transport. Concurrent revocation/last-use races have one serializable authorization outcome. Broker resolution failure does not dispatch and records no plaintext.",
       "files": "modify `caliber/src/caliber/credential_leases.py`",
-      "tests": "`caliber/tests/test_credential_leases.py::test_redeem_denials[<reason>]`",
-      "acceptance": "Each of the six reasons is produced by its own parametrized case; the downstream counter is unchanged in every denial case.",
+      "tests": "caliber/tests/test_credential_leases.py: revoked_grant_before_redeem, removed_member, wrong_run/decision/action, last_use_race, revoke_race, broker_outage and secret_canary.",
+      "acceptance": "Revoked run authority cannot redeem an otherwise unexpired lease. Two concurrent last-use requests produce one authorized redemption; every denial makes zero connector calls.",
       "documentation": "Affected docs/operate or docs/sdk page and its milestone acceptance evidence fragment; update architecture/config/API contracts changed by this task."
     },
     {
@@ -3485,10 +3486,10 @@
         613,
         740
       ],
-      "scope": "Sign: `sign_digest(digest: str, private_key_ref: str) -> BundleSignature(alg=\"ed25519\", key_id: str, publisher: str, value: str)` (Ed25519 via `cryptography`; key via `caliber/src/caliber/secrets.py::resolve_secret`; `key_id` = first 16 hex of SHA-256 of the public key) and `verify_signature(digest, signature, trusted: dict[str, bytes]) -> bool`. `caliber/src/caliber/workflows/deployment_bundle.py::build_deployment_bundle` sets `bundle[\"signature\"]` after `seal_bundle`. Config fields `release_signing_key_ref: str = \"\"` (`CALIBER_RELEASE_SIGNING_KEY_REF`), `trusted_publisher_keys: str = \"\"` (`CALIBER_TRUSTED_PUBLISHER_KEYS`, comma-separated `publisher=key_id=base64pubkey`). Columns on `caliber_workflow_deployments`: `signature_key_id String(32) NULL`, `signature_value Text NULL`, `publisher String(128) NULL`; migration `caliber/src/caliber/db/migrations/versions/0115_release_signatures.py`.",
-      "files": "create `caliber/src/caliber/release_signing.py`, `caliber/src/caliber/db/migrations/versions/0115_release_signatures.py`; modify `caliber/src/caliber/workflows/deployment_bundle.py`, `caliber/src/caliber/config.py`, `caliber/src/caliber/db/models.py`",
-      "tests": "`caliber/tests/test_release_signing.py` (create): `test_sign_and_verify`, `test_wrong_key_rejected`, `test_reference_profile_requires_key`",
-      "acceptance": "A bundle built with the key ref verifies with the configured key and fails with any other; in the reference profile a build without the key ref raises `ValueError(\"release signing key not configured\")`.",
+      "scope": "Introduce a versioned signed deployment-bundle envelope without changing v1 digest interpretation. v1 remains read-only compatible; v2 canonical content excludes integrity and signature fields by explicit schema definition, while including kind/schema_version and all behavior content. Build content, compute its digest, then sign a domain-separated payload containing kind, schema_version, digest, publisher and key_id with Ed25519. Verification selects the declared version and trusted publisher/key before accepting the signature; adding/removing a signature cannot change the v2 content digest. Register readers and old/new fixtures before emitting v2. Use fresh migration for optional deployment signature metadata; no hardcoded revision.",
+      "files": "create `caliber/src/caliber/release_signing.py`, `caliber/src/caliber/db/migrations/versions/<next_unused_revision>_<task_specific_name>.py`; modify `caliber/src/caliber/workflows/deployment_bundle.py`, `caliber/src/caliber/config.py`, `caliber/src/caliber/db/models.py`",
+      "tests": "caliber/tests/test_release_signing.py and caliber/tests/test_workflow_deployment_bundles.py: signed_round_trip, v1_fixture_unchanged, content_tamper, signature_tamper, publisher/key_swap, unknown_version and missing_key_refusal.",
+      "acceptance": "A signed v2 bundle passes the ordinary bundle verifier and signature verifier; changed content or signer metadata fails. Stored v1 fixtures retain their exact digest and remain readable; no self-referential signature hash.",
       "documentation": "Affected docs/operate or docs/sdk page and its milestone acceptance evidence fragment; update architecture/config/API contracts changed by this task."
     },
     {
@@ -3508,10 +3509,10 @@
       "blocked_by": [
         748
       ],
-      "scope": "Verify bundle digest, publisher signature, pinned schema version and compatibility before run admission. Use versions actually registered by bundle schema readers, not an invented supported={1} constant. Reject malformed/signature-invalid/incompatible bundle with stable reason codes and zero admitted run.",
+      "scope": "Admission verifies the versioned bundle content digest and signature contract from #748, trusted publisher/key and pinned compatibility report before creating a run. Existing v1 bundles remain readable for historical/development compatibility but are not silently treated as signed v2 releases in the reference profile. Unknown version, malformed signature, untrusted publisher, modified content or incompatible dependencies refuse with stable reason and zero admitted run.",
       "files": "modify `caliber/src/caliber/workflows/run_launch.py`, `caliber/src/caliber/workflows/deployment_bundle.py`, `caliber/tests/test_workflow_deployment_bundles.py`",
-      "tests": "`caliber/tests/test_workflow_deployment_bundles.py` (modify): `test_admission_refuses_unsigned`, `_tampered`, `_unknown_key`, `_incompatible_schema`",
-      "acceptance": "Verify bundle digest, publisher signature, pinned schema version and compatibility before run admission. Use versions actually registered by bundle schema readers, not an invented supported={1} constant. Reject malformed/signature-invalid/incompatible bundle with stable reason codes and zero admitted run.",
+      "tests": "caliber/tests/test_release_signing.py: ordinary_verifier_accepts_signed_v2, unsigned_reference_refused, v1_history_readable, unknown_version and incompatible_bundle_zero_admission.",
+      "acceptance": "Signature verification and the normal content verifier agree on the same digest; reference admission never bypasses either verifier.",
       "documentation": "Affected docs/operate or docs/sdk page and its milestone acceptance evidence fragment; update architecture/config/API contracts changed by this task."
     },
     {
@@ -3531,8 +3532,8 @@
       "blocked_by": [
         756
       ],
-      "scope": "Promote the identical digest: `POST /ajax-api/2.0/mlflow/caliber/workflows/{workflow_id}/deployments/{alias}/promote` (`caliber/src/caliber/routes/workflow_deployments.py::promote_deployment`) copies `content_digest`, signature columns and `publisher` from the source environment; body `digest` different from the source returns 409 `{\"error\": \"digest_mismatch\"}`. Table `caliber_promotion_decisions`: `promotion_id String(64) PK`, `workflow_id String(128)`, `digest String(64)`, `from_environment String(64)`, `to_environment String(64)`, `gate_decision_id String(64) NOT NULL`, `approvers Text` (JSON list), `decided_at DateTime`; migration `caliber/src/caliber/db/migrations/versions/0116_promotion_decisions.py`.",
-      "files": "modify `caliber/src/caliber/routes/workflow_deployments.py`, `caliber/src/caliber/db/models.py`; create `caliber/src/caliber/db/migrations/versions/0116_promotion_decisions.py`",
+      "scope": "Promote the identical digest: `POST /ajax-api/2.0/mlflow/caliber/workflows/{workflow_id}/deployments/{alias}/promote` (`caliber/src/caliber/routes/workflow_deployments.py::promote_deployment`) copies `content_digest`, signature columns and `publisher` from the source environment; body `digest` different from the source returns 409 `{\"error\": \"digest_mismatch\"}`. Table `caliber_promotion_decisions`: `promotion_id String(64) PK`, `workflow_id String(128)`, `digest String(64)`, `from_environment String(64)`, `to_environment String(64)`, `gate_decision_id String(64) NOT NULL`, `approvers Text` (JSON list), `decided_at DateTime`; migration `caliber/src/caliber/db/migrations/versions/<next_unused_revision>_<task_specific_name>.py`.",
+      "files": "modify `caliber/src/caliber/routes/workflow_deployments.py`, `caliber/src/caliber/db/models.py`; create `caliber/src/caliber/db/migrations/versions/<next_unused_revision>_<task_specific_name>.py`",
       "tests": "`caliber/tests/test_release_promotion.py` (create): `test_promotion_keeps_digest`, `test_mismatched_digest_409`, `test_promotion_requires_gate`",
       "acceptance": "dev → staging → prod leaves one `content_digest` across the three rows; mismatched digest returns 409; every promotion row has a non-null `gate_decision_id`.",
       "documentation": "Affected docs/operate or docs/sdk page and its milestone acceptance evidence fragment; update architecture/config/API contracts changed by this task."
@@ -3554,7 +3555,7 @@
       "blocked_by": [
         765
       ],
-      "scope": "Canary: columns `candidate_digest String(64) NULL`, `candidate_weight Integer DEFAULT 0` on `caliber_workflow_deployments` (same migration as task 3); `assign_digest(binding, admission_key: str) -> str` in `caliber/src/caliber/release_signing.py` returns `candidate_digest` when `int(sha256(admission_key).hexdigest()[:8], 16) % 100 < candidate_weight`; `enqueue_workflow_run` calls it. When `caliber/src/caliber/eval/gate.py::GateDecision.passed` is false for the candidate digest (B10 now, #552 from D7), set `candidate_weight = 0` in the transaction that records the decision.",
+      "scope": "Canary: columns `candidate_digest String(64) NULL`, `candidate_weight Integer DEFAULT 0` on `caliber_workflow_deployments` (allocate a fresh unused migration after the merged prerequisite; keep prior files unchanged); `assign_digest(binding, admission_key: str) -> str` in `caliber/src/caliber/release_signing.py` returns `candidate_digest` when `int(sha256(admission_key).hexdigest()[:8], 16) % 100 < candidate_weight`; `enqueue_workflow_run` calls it. When `caliber/src/caliber/eval/gate.py::GateDecision.passed` is false for the candidate digest (B10 now, #552 from D7), set `candidate_weight = 0` in the transaction that records the decision.",
       "files": "modify `caliber/src/caliber/release_signing.py`, `caliber/src/caliber/workflows/run_launch.py`, `caliber/src/caliber/db/models.py`, `caliber/src/caliber/eval/gate.py`",
       "tests": "`caliber/tests/test_release_canary.py` (create): `test_canary_share`, `test_gate_failure_stops_canary`",
       "acceptance": "With `candidate_weight=10`, 1,000 admissions assign 70–130 runs to the candidate; after a failing gate decision `candidate_weight == 0` and the next admission uses the bound digest.",
@@ -3670,10 +3671,10 @@
       "blocked_by": [
         795
       ],
-      "scope": "Reconcile: `SupportTicketConnector.reconcile(logical_key: str) -> Literal[\"committed\", \"not_committed\", \"partial\"]` does `GET /tickets/{id}` and compares `status`, `note`, `version` with the proposal; registered by connector name in `caliber/src/caliber/effects/reconcile.py` (#522).",
+      "scope": "SupportTicketConnector.reconcile receives the complete proposal and attempt context (logical key, intent digest, target, expected version and send interval) and returns committed, partial, proven_not_committed or unknown with evidence. Read the authoritative idempotency operation record plus ticket state. Unchanged ticket,404,timeout or eventual visibility alone returns unknown. Only connector evidence excluding any late commit within the supported retention/fencing horizon permits proven_not_committed. Never infer outcome from a later unrelated ticket version.",
       "files": "modify `caliber/src/caliber/effects/connectors/support_ticket.py`, `caliber/src/caliber/effects/reconcile.py` (from #522)",
-      "tests": "`caliber/tests/test_support_ticket_connector.py::test_reconcile_committed`, `::test_reconcile_partial`, `::test_reconcile_not_committed`",
-      "acceptance": "`drop_response_after_commit` → `committed`; `partial_update` → `partial`; `fail_before_commit` → `not_committed`; no second mutation in any case.",
+      "tests": "caliber/tests/test_support_ticket_connector.py: commit_then_disconnect, partial_update, delayed_commit_after_unchanged_read, lookup404_unknown, expired_key_unknown and final_noncommit_proof.",
+      "acceptance": "Delayed commit/404 remains unknown and redrive makes zero calls; authoritative terminal receipt yields committed/partial. Only final noncommit proof makes redrive eligible.",
       "documentation": "Affected docs/operate or docs/sdk page and its milestone acceptance evidence fragment; update architecture/config/API contracts changed by this task."
     },
     {
@@ -3694,7 +3695,7 @@
         802
       ],
       "scope": "Create compensation as a separate effect proposal with compensates_effect_id, its own intent, current grant and exact approval. Keep original receipt immutable. Failed or ambiguous compensation remains intervention-required/unknown with both effect histories visible.",
-      "files": "modify `caliber/src/caliber/routes/system_effects.py`, `caliber/src/caliber/db/models.py`, `caliber/src/caliber/effects/records.py` (from #522); create `caliber/src/caliber/db/migrations/versions/0117_effect_compensation.py`, `caliber/tests/egi_scenarios/test_v15_partial_compensation.py`",
+      "files": "modify `caliber/src/caliber/routes/system_effects.py`, `caliber/src/caliber/db/models.py`, `caliber/src/caliber/effects/records.py` (from #522); create `caliber/src/caliber/db/migrations/versions/<next_unused_revision>_<task_specific_name>.py`, `caliber/tests/egi_scenarios/test_v15_partial_compensation.py`",
       "tests": "`caliber/tests/egi_scenarios/test_v15_partial_compensation.py` (create): `test_v15_partial_then_compensation`, `test_compensation_without_approval_409`, `test_failed_compensation_keeps_both_rows`",
       "acceptance": "Create compensation as a separate effect proposal with compensates_effect_id, its own intent, current grant and exact approval. Keep original receipt immutable. Failed or ambiguous compensation remains intervention-required/unknown with both effect histories visible.",
       "documentation": "Affected docs/operate or docs/sdk page and its milestone acceptance evidence fragment; update architecture/config/API contracts changed by this task."
@@ -3716,10 +3717,10 @@
       "blocked_by": [
         807
       ],
-      "scope": "Redrive: `POST /ajax-api/2.0/mlflow/caliber/system/effects/{effect_key}/redrive` (operator scope), body `{\"reason\": str}`, allowed only when the stored reconcile result is `not_committed`; re-dispatches with the same logical key; sets `redriven_at DateTime NULL` (same migration); `audit.record(action=\"effect_redriven\", details={\"reason\", \"reconcile_result\"})`. Second redrive → 409 `effect_already_redriven`; committed effect → 409 `effect_committed`.",
+      "scope": "Operator-scoped redrive accepts reason and expected proposal version only when #802 persisted proven_not_committed evidence is current and the connector still guarantees key retention/conflict/fencing safety. In one fenced transaction recheck grant, stop state, approval/intent/precondition and atomically claim one redrive attempt. Reuse the original logical key and intent; do not allocate a new mutation identity. Unknown/partial/committed or stale proof refuses409. A post-send timeout returns unknown and requires reconciliation, not another blind redrive.",
       "files": "modify `caliber/src/caliber/routes/system_effects.py`, `caliber/src/caliber/db/models.py`; create `caliber/tests/test_routes_system_effects_redrive.py`",
-      "tests": "`caliber/tests/test_routes_system_effects_redrive.py` (create): `test_redrive_once`, `test_second_redrive_409`, `test_redrive_committed_409`",
-      "acceptance": "First redrive 200 and exactly one more downstream mutation; second redrive 409; redrive of a committed effect 409 with no mutation.",
+      "tests": "caliber/tests/test_support_ticket_connector.py and caliber/tests/test_effect_redrive.py: unknown_refused, expired_retention_refused, concurrent_redrive_single_claim, stale_approval_denied and redrive_commit_then_timeout.",
+      "acceptance": "Exactly one claimed redrive follows valid final-noncommit evidence; ambiguous or stale evidence produces zero downstream calls. Audit records actor/reason/proof and keeps original receipt history.",
       "documentation": "Affected docs/operate or docs/sdk page and its milestone acceptance evidence fragment; update architecture/config/API contracts changed by this task."
     },
     {
@@ -3740,8 +3741,8 @@
         780,
         710
       ],
-      "scope": "Release and binding tables: `caliber_knowledge_releases` (`release_id String(64) PK`, `knowledge_base_id String(64) FK`, `stream String(128)`, `version Integer`, `digest String(64)`, `source_revisions Text` JSON `{source_id: fingerprint}`, `author String(256)`, `approved_by String(256) NULL`, `approved_at DateTime NULL`, `status String(16)` in `draft|approved|revoked`, `previous_release_id String(64) NULL`) and `caliber_knowledge_bindings` (`binding_id String(64) PK`, `knowledge_base_id`, `environment String(64)`, `active_release_id String(64) NULL`, `binding_version Integer`, `previous_release_id String(64) NULL`, UNIQUE(`knowledge_base_id`, `environment`)); models `CaliberKnowledgeRelease`, `CaliberKnowledgeBinding`; migration `caliber/src/caliber/db/migrations/versions/0118_knowledge_releases.py`.",
-      "files": "modify `caliber/src/caliber/db/models.py`, `caliber/tests/test_migrations.py`; create `caliber/src/caliber/db/migrations/versions/0118_knowledge_releases.py`",
+      "scope": "Release and binding tables: `caliber_knowledge_releases` (`release_id String(64) PK`, `knowledge_base_id String(64) FK`, `stream String(128)`, `version Integer`, `digest String(64)`, `source_revisions Text` JSON `{source_id: fingerprint}`, `author String(256)`, `approved_by String(256) NULL`, `approved_at DateTime NULL`, `status String(16)` in `draft|approved|revoked`, `previous_release_id String(64) NULL`) and `caliber_knowledge_bindings` (`binding_id String(64) PK`, `knowledge_base_id`, `environment String(64)`, `active_release_id String(64) NULL`, `binding_version Integer`, `previous_release_id String(64) NULL`, UNIQUE(`knowledge_base_id`, `environment`)); models `CaliberKnowledgeRelease`, `CaliberKnowledgeBinding`; migration `caliber/src/caliber/db/migrations/versions/<next_unused_revision>_<task_specific_name>.py`.",
+      "files": "modify `caliber/src/caliber/db/models.py`, `caliber/tests/test_migrations.py`; create `caliber/src/caliber/db/migrations/versions/<next_unused_revision>_<task_specific_name>.py`",
       "tests": "`caliber/tests/test_knowledge_release_lifecycle.py::test_binding_unique_per_environment` (create)",
       "acceptance": "`pytest tests/test_migrations.py -k upgrade_head_matches_metadata` passes on both dialects; the UNIQUE constraint rejects a second binding for the same base and environment.",
       "documentation": "Affected docs/operate or docs/sdk page and its milestone acceptance evidence fragment; update architecture/config/API contracts changed by this task."
@@ -3786,8 +3787,8 @@
       "blocked_by": [
         792
       ],
-      "scope": "Source ACL and freshness: columns on `caliber_knowledge_base_sources` (`CaliberKnowledgeBaseSource`): `acl_project_id String(64) NULL`, `acl_data_class String(32) DEFAULT 'internal'`, `max_age_seconds Integer NULL`, `fetched_at DateTime NULL` (same migration `0118`). `caliber/src/caliber/context/manifest.py` omits a source when `acl_project_id` differs from the run's project, when the run's allowed data classes exclude `acl_data_class`, or when `now - fetched_at > max_age_seconds`, recording `omissions.append({source_id, reason})` with reason `acl_project`, `acl_data_class` or `stale`.",
-      "files": "modify `caliber/src/caliber/db/models.py`, `caliber/src/caliber/context/manifest.py` (from #524), `caliber/src/caliber/db/migrations/versions/0118_knowledge_releases.py`",
+      "scope": "Source ACL and freshness: columns on `caliber_knowledge_base_sources` (`CaliberKnowledgeBaseSource`): `acl_project_id String(64) NULL`, `acl_data_class String(32) DEFAULT 'internal'`, `max_age_seconds Integer NULL`, `fetched_at DateTime NULL` (allocate a fresh unused migration after the merged prerequisite; keep prior files unchanged). `caliber/src/caliber/context/manifest.py` omits a source when `acl_project_id` differs from the run's project, when the run's allowed data classes exclude `acl_data_class`, or when `now - fetched_at > max_age_seconds`, recording `omissions.append({source_id, reason})` with reason `acl_project`, `acl_data_class` or `stale`.",
+      "files": "modify `caliber/src/caliber/db/models.py`, `caliber/src/caliber/context/manifest.py` (from #524), `caliber/src/caliber/db/migrations/versions/<next_unused_revision>_<task_specific_name>.py`",
       "tests": "`caliber/tests/test_knowledge_source_acl.py` (create): `test_acl_project_omitted`, `test_data_class_omitted`, `test_stale_omitted`",
       "acceptance": "A source outside the ACL or older than `max_age_seconds` never reaches retrieval; the ContextManifest lists the omission with its reason.",
       "documentation": "Affected docs/operate or docs/sdk page and its milestone acceptance evidence fragment; update architecture/config/API contracts changed by this task."
@@ -3833,7 +3834,7 @@
         806
       ],
       "scope": "Deletion and tombstones: `DELETE .../knowledge-bases/{knowledge_base_id}/sources/{source_id}` writes a row in `caliber_knowledge_tombstones` (`tombstone_id`, `source_id`, `deleted_by`, `deleted_at`, `legal_hold Boolean`) and enqueues a deletion job in `caliber/src/caliber/knowledge/worker.py::KnowledgeBaseWorker` that deletes derived chunks, entities, relationships and pgvector rows for that source and invalidates cached summaries containing its text; when `legal_hold` is true (from #547), bytes are kept in the archive only.",
-      "files": "modify `caliber/src/caliber/routes/knowledge_bases.py`, `caliber/src/caliber/knowledge/worker.py`, `caliber/src/caliber/db/models.py`, migration `0118`; create `caliber/tests/egi_scenarios/test_v22_knowledge_revocation.py`",
+      "files": "modify `caliber/src/caliber/routes/knowledge_bases.py`, `caliber/src/caliber/knowledge/worker.py`, `caliber/src/caliber/db/models.py`, a fresh unused migration; create `caliber/tests/egi_scenarios/test_v22_knowledge_revocation.py`",
       "tests": "`caliber/tests/egi_scenarios/test_v22_knowledge_revocation.py::test_deletion_leaves_no_derived_rows` (create)",
       "acceptance": "After the job runs, `SELECT count(*)` over chunks, entities, relationships and embeddings for the source is 0 and no retrieval or summary returns its text.",
       "documentation": "Affected docs/operate or docs/sdk page and its milestone acceptance evidence fragment; update architecture/config/API contracts changed by this task."
@@ -3855,10 +3856,10 @@
       "blocked_by": [
         813
       ],
-      "scope": "Affected runs: on `revoke`, runs whose manifest cites the release and whose effects are not `committed` are set `paused` with `cancel_reason = \"knowledge_revoked\"`; `GET .../releases/{release_id}/affected-runs` lists paused and completed runs separately.",
-      "files": "modify `caliber/src/caliber/routes/knowledge_bases.py`, `caliber/src/caliber/routes/workflow_runs.py`",
-      "tests": "`caliber/tests/egi_scenarios/test_v22_knowledge_revocation.py::test_v22_revocation`",
-      "acceptance": "V22 on PostgreSQL: revoke a source, attempt reuse through a cached summary and a derived chunk — nothing returns; the in-flight run is paused with the reason; the completed run is listed.",
+      "scope": "On knowledge revoke, reuse #780 dispatch-quarantine service and its versioned quarantine metadata; do not invent a paused workflow lifecycle status. Keep current queued/running/waiting_approval/waiting_event/terminal status vocabulary. Block new dispatch and subsequent context retrieval for affected pins, invalidate caches immediately, preserve immutable manifests/receipts, and allow read-only unknown-effect reconciliation. Expose affected runs with lifecycle_status plus dispatch_blocked and reason=knowledge_revoked; terminal history stays visible. Any operator continue requires newly valid source authority, never silent repinning.",
+      "files": "Modify knowledge release service, shared dispatch quarantine service from #780, workflow/API/SDK/UI quarantine serializers and regression tests; no unregistered paused status.",
+      "tests": "caliber/tests/test_knowledge_releases.py and caliber/tests/test_workflow_run_state.py: each_current_state_on_revoke, cache_denied, unknown_reconciliation_allowed, terminal_history_unchanged and public_api_quarantine_metadata.",
+      "acceptance": "All existing lifecycle consumers still deserialize revoked-source runs. No new dispatch/retrieval uses revoked pins, while in-flight unknown effects remain recoverable.",
       "documentation": "Affected docs/operate or docs/sdk page and its milestone acceptance evidence fragment; update architecture/config/API contracts changed by this task."
     },
     {
@@ -3878,10 +3879,10 @@
       "blocked_by": [
         613
       ],
-      "scope": "Append-only export: `export_segments(session, storage, *, max_rows: int = 10000, max_age_s: int = 300) -> list[SegmentRef]` writes `caliber_audit_log` rows in `log_id` order to gzip JSONL objects `audit/segments/<first_log_id>-<last_log_id>.jsonl.gz`; watermark table `caliber_audit_export_state` (`last_exported_log_id Integer`, `last_segment_hash String(64)`). Migration `caliber/src/caliber/db/migrations/versions/0119_audit_archive.py` adds that table and, on PostgreSQL only, a trigger `caliber_audit_log_immutable` raising on UPDATE and DELETE (`op.get_bind().dialect.name == \"postgresql\"`).",
-      "files": "create `caliber/src/caliber/audit_archive.py`, `caliber/src/caliber/db/migrations/versions/0119_audit_archive.py`, `caliber/tests/test_audit_archive.py`; modify `caliber/src/caliber/db/models.py`, `caliber/tests/test_migrations.py`",
-      "tests": "`caliber/tests/test_audit_archive.py` (create): `test_update_rejected_postgresql` (dialect-parametrized), `test_each_row_in_one_segment`",
-      "acceptance": "On PostgreSQL `UPDATE caliber_audit_log SET actor='x'` raises; after two exports every row appears in exactly one segment.",
+      "scope": "Export immutable audit rows using per-row export membership with unique log_id, not a last_exported_log_id cutoff: PostgreSQL sequence allocation is not commit order. Claim visible unexported rows transactionally under the captured owner, create stable segment ID/canonical member list and content hash, then mark rows exported only after durable acknowledged archive handoff; retain retryable pending segments. Late-committing lower IDs are discovered in later scans. Apply database immutability/runtime privileges to audit rows; allocate fresh migration for membership/segment state. #670 supplies conditional object writes and #675 signed chain checkpoints.",
+      "files": "create `caliber/src/caliber/audit_archive.py`, `caliber/src/caliber/db/migrations/versions/<next_unused_revision>_<task_specific_name>.py`, `caliber/tests/test_audit_archive.py`; modify `caliber/src/caliber/db/models.py`, `caliber/tests/test_migrations.py`",
+      "tests": "caliber/tests/test_audit_archive.py: lower_id_commits_after_higher_id_export, crash_before_upload, upload_ack_lost_retry_same_segment, concurrent_exporters and immutable_rows; PostgreSQL two-session barrier test.",
+      "acceptance": "Every committed audit row eventually belongs to one acknowledged segment, including out-of-order commits; failed upload never permanently advances past unexported data.",
       "documentation": "Affected docs/operate or docs/sdk page and its milestone acceptance evidence fragment; update architecture/config/API contracts changed by this task."
     },
     {
@@ -3971,7 +3972,7 @@
         679
       ],
       "scope": "Retention, legal hold, outage: config `audit_retention_days: int = 365`, `audit_archive_max_backlog: int = 50000` (`CALIBER_AUDIT_RETENTION_DAYS`, `CALIBER_AUDIT_ARCHIVE_MAX_BACKLOG`); table `caliber_legal_holds` (`hold_id`, `scope_type` in `audit_segment|knowledge_source|memory_record`, `scope_id`, `placed_by`, `placed_at`, `released_at NULL`); expired segments not under hold are deleted and a `deletion_evidence` audit row written; `caliber/src/caliber/observability/readiness.py` adds check `audit_archive_backlog` (blocking when unexported rows > max backlog) and the dispatcher refuses new protected effects with `audit_archive_backlog` while it is blocking.",
-      "files": "modify `caliber/src/caliber/config.py`, `caliber/src/caliber/audit_archive.py`, `caliber/src/caliber/db/models.py`, `caliber/src/caliber/observability/readiness.py`, `caliber/src/caliber/effects/dispatcher.py` (from #520), migration `0119`",
+      "files": "modify `caliber/src/caliber/config.py`, `caliber/src/caliber/audit_archive.py`, `caliber/src/caliber/db/models.py`, `caliber/src/caliber/observability/readiness.py`, `caliber/src/caliber/effects/dispatcher.py` (from #520), a fresh unused migration",
       "tests": "`caliber/tests/egi_scenarios/test_v23_audit_tamper.py::test_legal_hold_survives_retention`, `::test_backlog_blocks_effects`",
       "acceptance": "V23 on PostgreSQL: a held segment survives retention; with the backlog over the limit `/readiness` lists `audit_archive_backlog` and a new protected effect is refused with that reason.",
       "documentation": "Affected docs/operate or docs/sdk page and its milestone acceptance evidence fragment; update architecture/config/API contracts changed by this task."
@@ -3996,7 +3997,7 @@
         743
       ],
       "scope": "Extend existing B06 expiry service with escalation/intervention routing. Reuse expires_at and extract service logic callable by both API and janitor, not route invocation. Atomic pending-to-expired/approved race produces one terminal decision; expired approval cannot dispatch.",
-      "files": "modify `caliber/src/caliber/db/models.py`, `caliber/src/caliber/workflows/approval_policy.py`, `caliber/src/caliber/orchestrator/janitor.py`, `caliber/src/caliber/routes/workflow_runs.py`; create `caliber/src/caliber/db/migrations/versions/0120_runtime_approval_timers.py`",
+      "files": "modify `caliber/src/caliber/db/models.py`, `caliber/src/caliber/workflows/approval_policy.py`, `caliber/src/caliber/orchestrator/janitor.py`, `caliber/src/caliber/routes/workflow_runs.py`; create `caliber/src/caliber/db/migrations/versions/<next_unused_revision>_<task_specific_name>.py`",
       "tests": "`caliber/tests/test_approval_policy.py` (modify: `test_timeout_behaviors_accepted`), `caliber/tests/test_orchestrator_janitor.py` (modify: `test_expire_runtime_approvals`, `test_escalate_creates_one_item`)",
       "acceptance": "Extend existing B06 expiry service with escalation/intervention routing. Reuse expires_at and extract service logic callable by both API and janitor, not route invocation. Atomic pending-to-expired/approved race produces one terminal decision; expired approval cannot dispatch.",
       "documentation": "Affected docs/operate or docs/sdk page and its milestone acceptance evidence fragment; update architecture/config/API contracts changed by this task."
@@ -4019,7 +4020,7 @@
       "blocked_by": [
         757
       ],
-      "scope": "Claim and reassign: columns `assignee String(256) NULL`, `version Integer DEFAULT 0` (same migration); `POST /ajax-api/2.0/mlflow/caliber/workflow-runs/{run_id}/approvals/{runtime_approval_id}/claim` body `{\"expected_version\": int}` and `/reassign` body `{\"expected_version\": int, \"assignee\": str}`; mismatch → 409 `approval_version_conflict`; success increments `version`.",
+      "scope": "Claim and reassign: columns `assignee String(256) NULL`, `version Integer DEFAULT 0` (allocate a fresh unused migration after the merged prerequisite; keep prior files unchanged); `POST /ajax-api/2.0/mlflow/caliber/workflow-runs/{run_id}/approvals/{runtime_approval_id}/claim` body `{\"expected_version\": int}` and `/reassign` body `{\"expected_version\": int, \"assignee\": str}`; mismatch → 409 `approval_version_conflict`; success increments `version`.",
       "files": "modify `caliber/src/caliber/routes/workflow_runs.py`; create `caliber/tests/test_runtime_approval_claim.py`",
       "tests": "`caliber/tests/test_runtime_approval_claim.py` (create): `test_claim`, `test_stale_version_409`, `test_reassign`",
       "acceptance": "A stale `expected_version` returns 409 and leaves `assignee` and `version` unchanged; a correct one sets the assignee and increments `version`.",
@@ -4044,7 +4045,7 @@
         766
       ],
       "scope": "Add scoped override service requiring authorized human rationale and auditable compensating control. Never override project authorization, changed intent/version, authoritative receipt or critical acceptance/security failures. Tests distinguish allowed noncritical override from each forbidden boundary.",
-      "files": "modify `caliber/src/caliber/auth.py`, `caliber/src/caliber/config.py`, `caliber/src/caliber/db/models.py`, `caliber/src/caliber/routes/workflow_runs.py`, migration `0120`; create `caliber/tests/test_runtime_approval_override.py`",
+      "files": "modify `caliber/src/caliber/auth.py`, `caliber/src/caliber/config.py`, `caliber/src/caliber/db/models.py`, `caliber/src/caliber/routes/workflow_runs.py`, a fresh unused migration; create `caliber/tests/test_runtime_approval_override.py`",
       "tests": "`caliber/tests/test_runtime_approval_override.py` (create): `test_override_422_without_reason`, `test_override_403_without_scope`, `test_override_records_intervention`",
       "acceptance": "Add scoped override service requiring authorized human rationale and auditable compensating control. Never override project authorization, changed intent/version, authoritative receipt or critical acceptance/security failures. Tests distinguish allowed noncritical override from each forbidden boundary.",
       "documentation": "Affected docs/operate or docs/sdk page and its milestone acceptance evidence fragment; update architecture/config/API contracts changed by this task."
@@ -4068,7 +4069,7 @@
         773
       ],
       "scope": "Scoped emergency stop: table `caliber_emergency_stops` (`stop_id String(64) PK`, `scope_type String(16)` in `project|workflow|connector`, `scope_id String(128)`, `actor`, `reason Text`, `active Boolean`, `created_at`, `released_at NULL`); `POST /ajax-api/2.0/mlflow/caliber/system/stops` (admin) and `DELETE .../system/stops/{stop_id}`; `is_stopped(session, *, project_id, workflow_id, connector) -> StopMatch | None`; `caliber/src/caliber/workflows/run_launch.py::enqueue_workflow_run` and the B04 dispatcher refuse with `emergency_stop_active` when matched; `caliber/src/caliber/effects/reconcile.py` (#522), reads and compensation approvals (#545) stay allowed.",
-      "files": "create `caliber/src/caliber/emergency_stop.py`, `caliber/tests/test_emergency_stop.py`; modify `caliber/src/caliber/db/models.py`, `caliber/src/caliber/workflows/run_launch.py`, `caliber/src/caliber/effects/dispatcher.py` (from #520), `caliber/src/caliber/server.py` (register routes), migration `0120`",
+      "files": "create `caliber/src/caliber/emergency_stop.py`, `caliber/tests/test_emergency_stop.py`; modify `caliber/src/caliber/db/models.py`, `caliber/src/caliber/workflows/run_launch.py`, `caliber/src/caliber/effects/dispatcher.py` (from #520), `caliber/src/caliber/server.py` (register routes), a fresh unused migration",
       "tests": "`caliber/tests/test_emergency_stop.py` (create): `test_stop_refuses_admission`, `test_stop_refuses_effect`, `test_reconcile_allowed`, `test_other_scope_unaffected`",
       "acceptance": "With a project stop active: a new run in that project → 503 `emergency_stop_active`; a new protected effect in scope is refused with the same reason; a reconcile call succeeds; another project is unaffected.",
       "documentation": "Affected docs/operate or docs/sdk page and its milestone acceptance evidence fragment; update architecture/config/API contracts changed by this task."
@@ -4277,7 +4278,7 @@
         686
       ],
       "scope": "Extend step reservations to explicit deployment/project/run/connector buckets, integer token units and integer micro-USD. Lock capacity transactionally; unique reservation/settlement identity prevents duplicate charges. Unknown calls retain conservative usage; concurrent requests and restart cannot overspend.",
-      "files": "create `caliber/src/caliber/budget/reservations.py`, `caliber/src/caliber/db/migrations/versions/0121_budget_reservations.py`, `caliber/tests/test_budgets.py`; modify `caliber/src/caliber/db/models.py`, `caliber/src/caliber/workflows/runtime.py`, `caliber/tests/test_migrations.py`",
+      "files": "create `caliber/src/caliber/budget/reservations.py`, `caliber/src/caliber/db/migrations/versions/<next_unused_revision>_<task_specific_name>.py`, `caliber/tests/test_budgets.py`; modify `caliber/src/caliber/db/models.py`, `caliber/src/caliber/workflows/runtime.py`, `caliber/tests/test_migrations.py`",
       "tests": "`caliber/tests/test_budgets.py` (create, `DIALECTS`-parametrized): `test_concurrent_reserve_respects_parent`, `test_balance_survives_restart`",
       "acceptance": "Extend step reservations to explicit deployment/project/run/connector buckets, integer token units and integer micro-USD. Lock capacity transactionally; unique reservation/settlement identity prevents duplicate charges. Unknown calls retain conservative usage; concurrent requests and restart cannot overspend.",
       "documentation": "Affected docs/operate or docs/sdk page and its milestone acceptance evidence fragment; update architecture/config/API contracts changed by this task."
@@ -4369,7 +4370,7 @@
         796
       ],
       "scope": "Implement deterministic bounded weighted round-robin within priority with configurable aging threshold. Preserve per-project FIFO and count active reservations. A fake-clock starvation test proves lower-priority queued work becomes eligible within its configured bound; queue saturation returns explicit backpressure.",
-      "files": "modify `caliber/src/caliber/orchestrator/workflow_run_worker.py`, `caliber/src/caliber/db/models.py`, migration `0121`; create `caliber/tests/test_worker_fair_claim.py`",
+      "files": "modify `caliber/src/caliber/orchestrator/workflow_run_worker.py`, `caliber/src/caliber/db/models.py`, a fresh unused migration; create `caliber/tests/test_worker_fair_claim.py`",
       "tests": "`caliber/tests/test_worker_fair_claim.py` (create): `test_round_robin`, `test_weights`",
       "acceptance": "Implement deterministic bounded weighted round-robin within priority with configurable aging threshold. Preserve per-project FIFO and count active reservations. A fake-clock starvation test proves lower-priority queued work becomes eligible within its configured bound; queue saturation returns explicit backpressure.",
       "documentation": "Affected docs/operate or docs/sdk page and its milestone acceptance evidence fragment; update architecture/config/API contracts changed by this task."
@@ -4394,7 +4395,7 @@
         740
       ],
       "scope": "Inspect and extend existing judge/version persistence instead of creating a parallel registry. Pin immutable judge instructions/model and threshold/slice configuration versions on every gate. Fresh migration adds only missing fields/tables; never hardcode reserved revision0122. Updating a judge creates new version without changing old evaluation meaning.",
-      "files": "modify `caliber/src/caliber/db/models.py`, `caliber/src/caliber/routes/judges.py`, `caliber/tests/test_migrations.py`; create `caliber/src/caliber/db/migrations/versions/0122_judge_threshold_versions.py`",
+      "files": "modify `caliber/src/caliber/db/models.py`, `caliber/src/caliber/routes/judges.py`, `caliber/tests/test_migrations.py`; create `caliber/src/caliber/db/migrations/versions/<next_unused_revision>_<task_specific_name>.py`",
       "tests": "`caliber/tests/test_routes_judges.py` (modify): `test_judge_edit_creates_version`",
       "acceptance": "Inspect and extend existing judge/version persistence instead of creating a parallel registry. Pin immutable judge instructions/model and threshold/slice configuration versions on every gate. Fresh migration adds only missing fields/tables; never hardcode reserved revision0122. Updating a judge creates new version without changing old evaluation meaning.",
       "documentation": "Affected docs/operate or docs/sdk page and its milestone acceptance evidence fragment; update architecture/config/API contracts changed by this task."
@@ -4442,7 +4443,7 @@
         758
       ],
       "scope": "Implement human-owned expiring noncritical quality waivers with exact control type, resource/scope, rationale, compensating control and usage audit. Enumerate non-waivable critical acceptance/security controls and reject waivers for them. Reuse this schema later in M24.",
-      "files": "create `caliber/src/caliber/waivers.py`, `caliber/src/caliber/routes/waivers.py`, `caliber/tests/test_waivers.py`; modify `caliber/src/caliber/db/models.py`, `caliber/src/caliber/eval/gate.py`, `caliber/src/caliber/server.py`, migration `0122`",
+      "files": "create `caliber/src/caliber/waivers.py`, `caliber/src/caliber/routes/waivers.py`, `caliber/tests/test_waivers.py`; modify `caliber/src/caliber/db/models.py`, `caliber/src/caliber/eval/gate.py`, `caliber/src/caliber/server.py`, a fresh unused migration",
       "tests": "`caliber/tests/test_waivers.py` (create): `test_active_waiver_scopes_one_slice`, `test_expired_waiver_ignored`, `test_self_approval_403`",
       "acceptance": "Implement human-owned expiring noncritical quality waivers with exact control type, resource/scope, rationale, compensating control and usage audit. Enumerate non-waivable critical acceptance/security controls and reject waivers for them. Reuse this schema later in M24.",
       "documentation": "Affected docs/operate or docs/sdk page and its milestone acceptance evidence fragment; update architecture/config/API contracts changed by this task."
@@ -4466,10 +4467,10 @@
         767,
         812
       ],
-      "scope": "Trajectory suite model: `caliber/src/caliber/eval/trajectory.py` with `TrajectoryCase(case_id: str, slice: str, critical: bool, recorded_run_id: str, expected: TrajectoryExpectation(tool_calls: list[str], denials: list[str], effect_count: int, accepted: bool))` loaded from `caliber/tests/fixtures/trajectory/<suite>.json`; `run_trajectory_suite(session, *, candidate_digest: str, suite_path: Path) -> TrajectoryReport(cases: list[CaseResult(case_id, slice, critical, passed, defects: list[str])])` replays each case through `caliber/src/caliber/replay/runner.py` (#527) and checks with `caliber/src/caliber/acceptance/predicates.py` (#527).",
+      "scope": "Evaluate each frozen trajectory case against candidate_digest through #812 authorized counterfactual fork, with a new run, independent budget and pinned deterministic candidate adapter. Historical replay remains a separate read-only reproducibility diagnostic and cannot qualify candidate quality. Use scripted downstream observations and block real protected effects; record candidate/model/adapter/dataset/judge versions plus actual per-case outputs and acceptance decisions. Candidate execution must occur even when recorded baseline responses exist. Live quality trials remain separate #841 work.",
       "files": "create `caliber/src/caliber/eval/trajectory.py`, `caliber/tests/fixtures/trajectory/harborlight.json`, `caliber/tests/test_eval_trajectory.py`",
-      "tests": "`caliber/tests/test_eval_trajectory.py` (create): `test_suite_runs_offline`, `test_case_defects_named`",
-      "acceptance": "The Harborlight suite (four cases, two critical) runs with zero live provider or connector calls (refusing stub from #527) and reports per-case results.",
+      "tests": "caliber/tests/test_eval_trajectory.py: changed_candidate_changes_result, counterfactual_adapter_invoked, baseline_recordings_not_used_as_candidate, no_live_effects, provenance_pinned and per_case_defects.",
+      "acceptance": "Two candidates with different scripted behavior yield different trajectory outcomes over the same frozen cases. Zero live providers/effects in CI; a baseline replay alone cannot produce candidate-qualified evidence.",
       "documentation": "Affected docs/operate or docs/sdk page and its milestone acceptance evidence fragment; update architecture/config/API contracts changed by this task."
     },
     {
@@ -4490,10 +4491,10 @@
       "blocked_by": [
         820
       ],
-      "scope": "Critical-slice gate rule: `apply_gate` gains `trajectory: TrajectoryReport | None`; any `critical` case failure makes `passed = False` with reason `critical_slice_failed:<slice>` unless `waivers.active_waiver(control_type=\"release_gate\", control_id=<suite>, slice=<slice>, candidate_digest=...)` (#551) returns a waiver; the mean score cannot override it.",
+      "scope": "Extend apply_gate with TrajectoryReport. Every failed critical case forces passed=false and critical_slice_failed:<slice>, regardless of mean score or any waiver. Check critical failures before consulting noncritical waivers. Waivers may affect only explicitly noncritical controls with matching candidate/scope, authorized human approval and unexpired window. Every promotion/apply caller consumes this same result; no break-glass bypass of critical criteria.",
       "files": "modify `caliber/src/caliber/eval/gate.py`, `caliber/src/caliber/orchestrator/eval_stage.py`; create `caliber/tests/egi_scenarios/test_v18_trajectory_gate.py`",
-      "tests": "`caliber/tests/egi_scenarios/test_v18_trajectory_gate.py` (create): `test_v18_critical_blocks_despite_mean`, `test_waiver_scoped`",
-      "acceptance": "V18 on PostgreSQL: a candidate with a higher mean and one failed critical case is blocked; with an active waiver for that slice it passes; an expired waiver blocks again.",
+      "tests": "caliber/tests/egi_scenarios/test_v18_trajectory_gate.py: critical_blocks_despite_mean, critical_blocks_with_active_waiver, critical_blocks_expired_or_forged_waiver, permitted_noncritical_waiver and all_promotion_paths_block.",
+      "acceptance": "A failed critical slice is blocked with and without a valid waiver. A permitted noncritical waiver affects only its exact control/candidate; all other failures remain blocking.",
       "documentation": "Affected docs/operate or docs/sdk page and its milestone acceptance evidence fragment; update architecture/config/API contracts changed by this task."
     },
     {
@@ -4562,7 +4563,7 @@
         812
       ],
       "scope": "Record true feedback creator/reviewer and immutable reviewed status. Legacy rows with unknown creator remain explicitly unverified until independent human review; never substitute assigned_to as creator. Require current project permissions and distinct review before dataset promotion.",
-      "files": "modify `caliber/src/caliber/db/models.py`, `caliber/src/caliber/routes/verification.py`, `caliber/src/caliber/schemas.py`, `caliber/tests/test_routes_verification_queue.py`, `caliber/tests/test_migrations.py`; create `caliber/src/caliber/db/migrations/versions/0123_verification_created_by.py`",
+      "files": "modify `caliber/src/caliber/db/models.py`, `caliber/src/caliber/routes/verification.py`, `caliber/src/caliber/schemas.py`, `caliber/tests/test_routes_verification_queue.py`, `caliber/tests/test_migrations.py`; create `caliber/src/caliber/db/migrations/versions/<next_unused_revision>_<task_specific_name>.py`",
       "tests": "`caliber/tests/test_routes_verification_queue.py` (modify): `test_self_verify_403`, `test_other_operator_verifies`, `test_dismissed_kept`",
       "acceptance": "Record true feedback creator/reviewer and immutable reviewed status. Legacy rows with unknown creator remain explicitly unverified until independent human review; never substitute assigned_to as creator. Require current project permissions and distinct review before dataset promotion.",
       "documentation": "Affected docs/operate or docs/sdk page and its milestone acceptance evidence fragment; update architecture/config/API contracts changed by this task."
@@ -4586,7 +4587,7 @@
         842
       ],
       "scope": "Promote accepted feedback into a dataset version: `POST /ajax-api/2.0/mlflow/caliber/eval-datasets/{dataset_id}/versions/from-feedback` body `{\"item_ids\": [str], \"input_key_map\": {str: str}, \"gold_label_key\": str}` → increments `CaliberEvalDataset.version`, inserts `CaliberEvalDatasetExample` rows with `dataset_version = new`, `input` mapped by `input_key_map`, `expected = {gold_label_key: <label>}`, `tags` copied from the item's category and severity, and new column `feedback_item_id String(64) NULL`; items must be `verified`, else 422 `item_not_verified`; response `{\"dataset_version\": int, \"example_ids\": [str]}`.",
-      "files": "modify `caliber/src/caliber/routes/eval_datasets.py`, `caliber/src/caliber/db/models.py`, migration `0123`; create `caliber/tests/test_eval_dataset_from_feedback.py`",
+      "files": "modify `caliber/src/caliber/routes/eval_datasets.py`, `caliber/src/caliber/db/models.py`, a fresh unused migration; create `caliber/tests/test_eval_dataset_from_feedback.py`",
       "tests": "`caliber/tests/test_eval_dataset_from_feedback.py` (create): `test_creates_new_version`, `test_rows_link_items`, `test_unverified_item_422`",
       "acceptance": "The new version is immutable (a second call creates version N+1, never edits N); every new row resolves to its item through `feedback_item_id`; tags and the gold label survive.",
       "documentation": "Affected docs/operate or docs/sdk page and its milestone acceptance evidence fragment; update architecture/config/API contracts changed by this task."
@@ -4609,10 +4610,10 @@
         846,
         841
       ],
-      "scope": "Bounded candidates: `CaliberRefinementJob` config fields `max_diff_chars: int = 4000` and `max_changed_sections: int = 3` (columns on `caliber_refinement_jobs`, migration `caliber/src/caliber/db/migrations/versions/0124_candidate_bounds.py`); `caliber/src/caliber/orchestrator/candidate.py::run_candidate` discards a candidate whose unified diff against the baseline exceeds either bound, recording `candidate_discarded:<bound>` in `review_notes`; artifact types other than `prompt` and `skill` are refused at job creation with 422 `unsupported_artifact_type`.",
-      "files": "modify `caliber/src/caliber/orchestrator/candidate.py`, `caliber/src/caliber/db/models.py`, `caliber/src/caliber/routes/prompts.py`; create `caliber/src/caliber/db/migrations/versions/0124_candidate_bounds.py`, `caliber/tests/test_orchestrator_candidate_bounds.py`",
-      "tests": "`caliber/tests/test_orchestrator_candidate_bounds.py` (create): `test_diff_bound`, `test_sections_bound`, `test_artifact_type_refused`",
-      "acceptance": "A candidate 1 char over `max_diff_chars` is never persisted as eligible and the reason is in `review_notes`.",
+      "scope": "Apply max_diff_chars=4000 and max_changed_sections=3 bounds to prompt/skill refinement candidates and record explicit discard reasons. Preserve existing supported workflow calibration and job creation; do not globally refuse every non-prompt artifact. Dispatch family-specific eligibility through the existing artifact capability registry; unsupported families refuse only the new bounded-learning path. Add fresh migration only for missing configuration persistence.",
+      "files": "modify `caliber/src/caliber/orchestrator/candidate.py`, `caliber/src/caliber/db/models.py`, `caliber/src/caliber/routes/prompts.py`; create `caliber/src/caliber/db/migrations/versions/<next_unused_revision>_<task_specific_name>.py`, `caliber/tests/test_orchestrator_candidate_bounds.py`",
+      "tests": "caliber/tests/test_candidate_bounds.py and existing workflow calibration tests: exact_limit, over_limit_discard, unsupported_learning_family_refused and existing_workflow_creation_unchanged.",
+      "acceptance": "Prompt/skill candidate bounds are enforced without disabling working workflow calibration. Existing family-specific Apply contracts remain available.",
       "documentation": "Affected docs/operate or docs/sdk page and its milestone acceptance evidence fragment; update architecture/config/API contracts changed by this task."
     },
     {
@@ -4679,10 +4680,10 @@
         686,
         780
       ],
-      "scope": "Reference artifact: `deploy/reference/compose.yaml` with services `postgres` (`pgvector/pgvector:pg16@sha256:<digest>`), `minio`, `mlflow`, `caliber` (one server, `CALIBER_PROFILE=reference`, `CALIBER_EXECUTION_OWNER=1`), `proxy` (Caddy with a self-signed cert for `https://localhost`); secrets mounted from `deploy/reference/secrets/` as files (`file://` sources); every container `user: 65534:65534` and `read_only: true` where the image allows; `deploy/reference/README.md` lists each env var.",
+      "scope": "Extend deploy/compose.yaml through a small reference-profile overlay deploy/reference/compose.yaml; do not duplicate the complete service stack. Pin merged PostgreSQL16/pgvector, MLflow/object-store/app/proxy images and document supported image-specific users/filesystem requirements. Keep bootstrap secret file mounts separate from broker-leased connector credentials. Render merged configuration in tests, start the same reference stack used by existing deployment tooling, and prove readiness/refusal. Never impose UID65534 on images whose initialization requires a different supported account.",
       "files": "create `deploy/reference/compose.yaml`, `deploy/reference/README.md`, `deploy/reference/secrets/README.md`",
-      "tests": "`scripts/verify-reference-deploy.sh --config-only` (task 1b)",
-      "acceptance": "`docker compose -f deploy/reference/compose.yaml config` succeeds and the rendered config contains `CALIBER_PROFILE=reference`.",
+      "tests": "caliber/tests/test_reference_deploy.py: merged_compose_uses_base_services, required_pins, bootstrap_secret_scope, unsafe_profile_refused; scripts/verify-reference-deploy.sh config and boot checks.",
+      "acceptance": "One base stack plus reference overlay produces the supported profile; existing deployment tests remain passing and no parallel drifting service definitions exist.",
       "documentation": "Affected docs/operate or docs/sdk page and its milestone acceptance evidence fragment; update architecture/config/API contracts changed by this task."
     },
     {
@@ -4702,10 +4703,10 @@
       "blocked_by": [
         786
       ],
-      "scope": "Verifier: `scripts/verify-reference-deploy.sh [--config-only]` brings the stack up, waits for `https://localhost/ajax-api/2.0/mlflow/caliber/readiness` to report `ready: true`, then starts an override with `CALIBER_AUTH_SESSION_COOKIE_SECURE=false` and asserts the server exits non-zero with `ProfileViolation` in its log (#570), then tears down.",
+      "scope": "scripts/verify-reference-deploy.sh uses docker compose -f deploy/compose.yaml -f deploy/reference/compose.yaml with an isolated project name. --config-only validates merged settings without services. Boot mode waits for reference readiness, then a separate unsafe-cookie override must fail startup. Cleanup targets only the isolated test project and never shared volumes or the user deployment.",
       "files": "create `scripts/verify-reference-deploy.sh`; modify `.github/workflows/stack-smoke.yml`, `scripts/ci-local.sh`",
-      "tests": "the script itself, run in the \"Build and probe the compose stack\" job",
-      "acceptance": "The script exits 0 on a clean machine with Docker; the unsafe override step prints `unsafe override refused: OK`.",
+      "tests": "caliber/tests/test_reference_deploy.py: config_only_no_start, merged_files_selected, isolated_project_cleanup and unsafe_cookie_startup_refusal; real stack smoke records actual result.",
+      "acceptance": "Both configuration and boot checks use the same merged base/overlay; unsafe config fails, unrelated Compose projects remain untouched.",
       "documentation": "Affected docs/operate or docs/sdk page and its milestone acceptance evidence fragment; update architecture/config/API contracts changed by this task."
     },
     {
@@ -4725,10 +4726,10 @@
       "blocked_by": [
         793
       ],
-      "scope": "Pins: every `image:` in `deploy/reference/compose.yaml` is `name@sha256:<64 hex>`; `deploy/reference/requirements.lock` produced by `uv pip compile --generate-hashes caliber/pyproject.toml -o deploy/reference/requirements.lock`; `deploy/caliber/Dockerfile` gains a build arg `REQUIREMENTS_LOCK` used by the reference build.",
+      "scope": "Pin every effective image in the merged base/reference Compose configuration to a verified digest while preserving existing non-reference developer defaults. Produce a hashed dependency lock for the reference image using the repository supported Python range. Reuse existing image build definition with explicit reference lock argument; no second standalone service stack. Record exact image/lock provenance and test merged config plus reproducible installation.",
       "files": "create `deploy/reference/requirements.lock`, `caliber/tests/test_reference_deploy_pins.py`; modify `deploy/caliber/Dockerfile`",
-      "tests": "`caliber/tests/test_reference_deploy_pins.py` (create): `test_images_digest_pinned`, `test_lock_has_hashes`",
-      "acceptance": "A tag-only image reference or a lock line without `--hash` fails the test.",
+      "tests": "caliber/tests/test_reference_deploy.py: every_merged_image_pinned, reference_lock_used, base_development_defaults_preserved; compose config and image build smoke.",
+      "acceptance": "The actual merged reference configuration contains no floating images and installs from the recorded lock; ordinary development deployment remains supported.",
       "documentation": "Affected docs/operate or docs/sdk page and its milestone acceptance evidence fragment; update architecture/config/API contracts changed by this task."
     },
     {
@@ -4748,10 +4749,10 @@
       "blocked_by": [
         801
       ],
-      "scope": "Preflight checks: `python -m caliber.db.upgrade_preflight --target <revision|head> --backup-dir <dir> --max-backup-age 3600` reads current revision via `caliber/src/caliber/db/migrate.py::schema_status`, target via `head_revision`, requires in `--backup-dir` files `postgres.dump`, `minio-manifest.json`, `mlflow.dump` newer than `--max-backup-age` seconds, free disk ≥ 2× the database size, and that `caliber/src/caliber/ownership.py` (#536) reports this process as the owner or no owner; prints a JSON report and exits 2 on any failed check without migrating.",
-      "files": "create `caliber/src/caliber/db/upgrade_preflight.py`, `caliber/tests/test_upgrade_preflight.py`",
-      "tests": "`caliber/tests/test_upgrade_preflight.py` (create): `test_missing_backup_exits_2`, `test_stale_backup_exits_2`, `test_report_names_checks`",
-      "acceptance": "Without a fresh backup the command exits 2 and `schema_status` is unchanged; each failed check names itself in the JSON.",
+      "scope": "Preflight obtains an exclusive PostgreSQL session advisory migration lock on a dedicated connection held through #815 completion; development SQLite uses an exclusive maintenance lock. Persist maintenance mode, stop new admissions/worker claims and drain active writers; quiescence explicitly excludes unresolved remote effects, which remain recorded unknown and cannot be redriven. All API-only peers also enforce maintenance mode. Validate a coordinated SQL/object/MLflow backup manifest with checksums, versions, consistency point, age and available capacity, plus source/target revisions. Refuse active writers, another migrator, missing/corrupt/incompatible backup or failed preflight without invoking migration. Owner-or-no-owner alone is not a migration lock.",
+      "files": "Create caliber/src/caliber/db/upgrade_preflight.py, caliber/src/caliber/maintenance.py and caliber/tests/test_upgrade_preflight.py; integrate shared maintenance guard into run_launch admission, worker claims and server lifespan/API writer middleware. Any maintenance-state persistence uses a fresh unused migration. Reuse existing migrate.py and deployment backup interfaces.",
+      "tests": "caliber/tests/test_upgrade_preflight.py: two_migrators_one_lock, active_writer_refused, api_secondary_maintenance, corrupt_or_inconsistent_backup, stale_backup and lock_held_through_migration; PostgreSQL integration.",
+      "acceptance": "A concurrent migrator and any unquiesced writer prevent migration. Backup bytes/manifest are verified, not merely fresh filenames. Failure leaves schema unchanged and does not silently resume dispatch.",
       "documentation": "Affected docs/operate or docs/sdk page and its milestone acceptance evidence fragment; update architecture/config/API contracts changed by this task."
     },
     {
@@ -4771,10 +4772,10 @@
       "blocked_by": [
         808
       ],
-      "scope": "Migrate and record: when every check passes, call `caliber/src/caliber/db/migrate.py::main([\"upgrade\", target])` and write `<backup-dir>/upgrade-record-<timestamp>.json` with `from_revision`, `to_revision`, `backup_files` (names and SHA-256), `started_at`, `finished_at`, `operator`; `docs/operate/backup-and-recovery.md` gains the upgrade procedure.",
+      "scope": "Under the exclusive lock and maintenance window owned by #808, invoke caliber.db.migrate.main([target]) or the existing Alembic service equivalently; this CLI has no upgrade subcommand. Keep CALIBER_DATABASE_URL in protected environment, never command logs. Record prior/target/actual revision, candidate binary digest, coordinated backup hashes, start/end/operator and success/failure in a restricted upgrade report. Release lock only after schema verification; require explicit successful resume of admission/workers, and retain maintenance on failed migration. No live secret appears in report.",
       "files": "modify `caliber/src/caliber/db/upgrade_preflight.py`, `docs/operate/backup-and-recovery.md`",
-      "tests": "`caliber/tests/test_upgrade_preflight.py::test_upgrade_writes_record` (dialect-parametrized)",
-      "acceptance": "With fresh backups the command migrates to head and the record file exists with all six fields; on PostgreSQL (`DIALECTS`-parametrized) the same.",
+      "tests": "caliber/tests/test_upgrade_preflight.py and caliber/tests/test_migrate_command.py: real_cli_argument_contract, upgrade_writes_verified_record, failure_retains_maintenance, lock_held_until_verification and secret_redaction on SQLite/PostgreSQL.",
+      "acceptance": "The actual parser accepts main([target]); a sandbox database reaches the exact target while the exclusive lock remains held. Failure is recorded truthfully and leaves execution disabled until recovery.",
       "documentation": "Affected docs/operate or docs/sdk page and its milestone acceptance evidence fragment; update architecture/config/API contracts changed by this task."
     },
     {
@@ -5037,8 +5038,8 @@
       "blocked_by": [
         803
       ],
-      "scope": "Child-task contract: table `caliber_child_tasks` (`child_task_id String(64) PK`, `parent_run_id String(64)`, `parent_node_id String(128)`, `child_run_id String(64) NULL`, `goal Text`, `output_schema Text` JSON, `capability_grant_id String(64)`, `budget_reservation_id String(64)`, `idempotency_key String(128) UNIQUE`, `deadline_at DateTime`, `status String(16)` in `created|running|completed|failed|cancelled`); `caliber/src/caliber/workflows/child_tasks.py::create_child_task(session, *, parent_run, node, goal, output_schema, requested_scope, budget) -> ChildTask`; `caliber/src/caliber/workflows/runtime.py` subworkflow node (`IRSubworkflow`, `subworkflow_runner`) calls it before starting the child with `idempotency_key = f\"{parent_run_id}:{node_id}:{attempt_scope}\"`. Migration `caliber/src/caliber/db/migrations/versions/0125_child_tasks.py`.",
-      "files": "create `caliber/src/caliber/workflows/child_tasks.py`, `caliber/src/caliber/db/migrations/versions/0125_child_tasks.py`, `caliber/tests/test_child_tasks.py`; modify `caliber/src/caliber/workflows/runtime.py`, `caliber/src/caliber/db/models.py`, `caliber/tests/test_migrations.py`",
+      "scope": "Child-task contract: table `caliber_child_tasks` (`child_task_id String(64) PK`, `parent_run_id String(64)`, `parent_node_id String(128)`, `child_run_id String(64) NULL`, `goal Text`, `output_schema Text` JSON, `capability_grant_id String(64)`, `budget_reservation_id String(64)`, `idempotency_key String(128) UNIQUE`, `deadline_at DateTime`, `status String(16)` in `created|running|completed|failed|cancelled`); `caliber/src/caliber/workflows/child_tasks.py::create_child_task(session, *, parent_run, node, goal, output_schema, requested_scope, budget) -> ChildTask`; `caliber/src/caliber/workflows/runtime.py` subworkflow node (`IRSubworkflow`, `subworkflow_runner`) calls it before starting the child with `idempotency_key = f\"{parent_run_id}:{node_id}:{attempt_scope}\"`. Migration `caliber/src/caliber/db/migrations/versions/<next_unused_revision>_<task_specific_name>.py`.",
+      "files": "create `caliber/src/caliber/workflows/child_tasks.py`, `caliber/src/caliber/db/migrations/versions/<next_unused_revision>_<task_specific_name>.py`, `caliber/tests/test_child_tasks.py`; modify `caliber/src/caliber/workflows/runtime.py`, `caliber/src/caliber/db/models.py`, `caliber/tests/test_migrations.py`",
       "tests": "`caliber/tests/test_child_tasks.py` (create): `test_restart_resumes_same_child`",
       "acceptance": "Killing the worker mid-child and restarting resumes the same `child_run_id`; `SELECT count(*) FROM caliber_child_tasks WHERE parent_run_id = ?` stays 1.",
       "documentation": "Affected docs/operate or docs/sdk page and its milestone acceptance evidence fragment; update architecture/config/API contracts changed by this task."
@@ -5153,14 +5154,16 @@
       ],
       "priority": "P1",
       "lane": "P3",
-      "execution_order": 7020,
+      "execution_order": 7027,
       "blocked_by": [
-        769
+        769,
+        686,
+        812
       ],
-      "scope": "Suite package: `caliber/src/caliber/conformance/__init__.py` (`CONFORMANCE_VERSION = \"1.0\"`), `caliber/src/caliber/conformance/cases.py` with one function per case taking an `AdapterTarget` (`adapter: AgentRuntimeAdapter` from `caliber/src/caliber/contracts/agent_step.py` #526, `recorded_transport`): `case_agent_step_schema` (B08 disposition schema), `case_deny_before_dispatch` (V02), `case_timeout_unknown` (V07/V08), `case_receipt_verification` (B05), `case_replay_no_live_calls` (V12), `case_lease_use` (M01 #543), `case_no_provider_objects_in_durable_json` (walks every row the run wrote and asserts no value contains a provider class name or a `response` object); `caliber/src/caliber/conformance/plugin.py` is a pytest plugin (`pytest -p caliber.conformance`) that parametrizes the cases over `conformance_targets/*.py` modules exporting `TARGET: AdapterTarget`.",
+      "scope": "Build conformance suite against the actual AgentStepAdapter protocol from #720 and connector capability contract from #711. AdapterTarget supplies adapter plus deterministic recorded transport; cases cover typed schema, denial before dispatch, unknown timeout, verified receipt, historical replay without live calls and credential lease use from #686. Durable JSON must validate against registered schemas, not search strings for provider class names. Package pytest plugin via an importable caliber.conformance entry point and test installed-wheel discovery.",
       "files": "create `caliber/src/caliber/conformance/__init__.py`, `caliber/src/caliber/conformance/cases.py`, `caliber/src/caliber/conformance/plugin.py`, `caliber/tests/conformance_targets/__init__.py`, `caliber/tests/conformance_targets/fake_adapter.py`, `caliber/tests/conformance_targets/openai_agents_adapter.py`, `caliber/tests/test_conformance_suite.py`",
-      "tests": "`caliber/tests/test_conformance_suite.py` (create): `test_all_cases_pass_for_registered_targets`, `test_missing_case_fails`",
-      "acceptance": "`pytest -p caliber.conformance tests/conformance_targets -q` passes for `caliber/src/caliber/llm/fake.py` and for `caliber/src/caliber/llm/openai_agents.py` with a recorded transport; removing a case from a target fails the suite.",
+      "tests": "caliber/tests/test_conformance_suite.py: five_executor_contracts, installed_pytest_plugin_discovery, schema_rejects_provider_objects, lease_denial_zero_effect and deterministic_unknown_receipt_cases.",
+      "acceptance": "Installed plugin runs the same semantic suite on actual AgentStepAdapter targets. Lease test cannot start before #686; no nonexistent AgentRuntimeAdapter interface.",
       "documentation": "Affected docs/operate or docs/sdk page and its milestone acceptance evidence fragment; update architecture/config/API contracts changed by this task."
     },
     {
@@ -5177,7 +5180,7 @@
       ],
       "priority": "P1",
       "lane": "P3",
-      "execution_order": 7021,
+      "execution_order": 7028,
       "blocked_by": [
         777
       ],
@@ -5201,7 +5204,7 @@
       ],
       "priority": "P1",
       "lane": "P3",
-      "execution_order": 7022,
+      "execution_order": 7029,
       "blocked_by": [
         782
       ],
@@ -5561,10 +5564,10 @@
       "blocked_by": [
         731
       ],
-      "scope": "Set `triggered_by=<requesting user id>` at the four constructors: `caliber/src/caliber/routes/prompts.py` 537, `caliber/src/caliber/routes/skills.py` 1481, `caliber/src/caliber/routes/workflow_calibration.py` 302, `caliber/src/caliber/assistant/service.py` 4373 (the assistant passes the session's user). Add a test that reads those four files and asserts every `CaliberRefinementJob(` occurrence is followed within 12 lines by `triggered_by=`",
+      "scope": "Persist triggered_by from authenticated server identity at every CaliberRefinementJob creation path: prompts, skills, workflow calibration and assistant service. Never trust a client creator field or substitute assignee. Exercise all four real service/route paths and inspect the persisted creator; leave legacy unknown values explicit. Use constructor inventory only as supplementary coverage, not a source-text assertion as behavior proof.",
       "files": "the four files (modify); `caliber/tests/test_routes_jobs_apply.py` (modify)",
-      "tests": "`caliber/tests/test_routes_jobs_apply.py::test_every_job_constructor_sets_triggered_by`, `::test_created_job_records_triggered_by`",
-      "acceptance": "New jobs carry the creator; the grep test passes",
+      "tests": "caliber/tests/test_refinement_creator.py: prompt_creator, skill_creator, workflow_creator, assistant_creator, forged_body_creator_ignored and legacy_unknown_preserved.",
+      "acceptance": "Each public/service creation path stores the authenticated requesting user; source formatting changes cannot make the test pass without correct persisted identity.",
       "documentation": "docs/operate/reference-profile.md and the affected API/SDK/cookbook page; add exact refusal/recovery examples."
     },
     {
@@ -5820,10 +5823,10 @@
         740,
         746
       ],
-      "scope": "Change feature exposure only after Beta required gates prove the supported reference connector and release evaluation path. Use existing capability/stability schema values and add compatibility tests if extending it. Unsupported adapters remain explicitly unavailable; no blanket supported label.",
+      "scope": "Implement Beta capability exposure using the existing stability/capability schema, conditional on actual configured support and matching evaluated release evidence. The trusted reference connector and release evaluation path alone may be marked supported after their scenario tests; unsupported MCP/integrations stay unavailable or preview. This task supplies evidence to the later Beta gate, not a dependency on that gate completing itself.",
       "files": "modify `caliber/src/caliber/config.py`, `caliber/src/caliber/features.py`, `caliber/tests/test_feature_flags.py`, `caliber/caliber-ui/e2e/feature-flags.spec.ts`",
-      "tests": "`caliber/tests/test_feature_flags.py::test_promoted_flags_default_on`, `::test_off_switch_still_works`; the e2e spec",
-      "acceptance": "Change feature exposure only after Beta required gates prove the supported reference connector and release evaluation path. Use existing capability/stability schema values and add compatibility tests if extending it. Unsupported adapters remain explicitly unavailable; no blanket supported label.",
+      "tests": "caliber/tests/test_feature_flags.py and UI capability tests: supported_reference_visible, unsupported_mcp_not_promoted, unavailable_evaluator_disabled and compatibility_values.",
+      "acceptance": "Capability metadata distinguishes supported/preview/unavailable per adapter; no blanket integrations promotion and no circular dependency on D5 gate.",
       "documentation": "docs/operate/reference-profile.md and the affected API/SDK/cookbook page; add exact refusal/recovery examples."
     },
     {
@@ -5866,10 +5869,10 @@
       "blocked_by": [
         764
       ],
-      "scope": "UI: `caliber/caliber-ui/src/components/Sidebar.tsx` entries with `feature: \"integrations\"` (lines 264–265) and the release-candidates entry render by default; remove any \"preview\" label on them.",
+      "scope": "Render integration and release-candidate navigation from #755 capability metadata. Remove preview only for the configured supported reference path; preserve preview/disabled explanations for unsupported or unavailable adapters. UI visibility grants no backend authority. Existing alpha navigation remains compatible.",
       "files": "modify `caliber/caliber-ui/src/components/Sidebar.tsx`; create `caliber/caliber-ui/src/components/Sidebar.test.tsx`",
-      "tests": "`caliber/caliber-ui/src/components/Sidebar.test.tsx` (create; vitest); the e2e spec",
-      "acceptance": "Sidebar vitest asserts both links render with the default capabilities payload and no `Preview` text; e2e `caliber/caliber-ui/e2e/feature-flags.spec.ts` updated for the new defaults",
+      "tests": "caliber/caliber-ui/src/components/__tests__/Sidebar.test.tsx: supported_visible, preview_label_retained, unavailable_disabled and alpha_navigation_regression.",
+      "acceptance": "Supported reference capability is discoverable; unsupported MCP/general integrations never lose their preview/refusal label merely because Beta exists.",
       "documentation": "docs/operate/reference-profile.md and the affected API/SDK/cookbook page; add exact refusal/recovery examples."
     },
     {
@@ -6293,10 +6296,10 @@
       "blocked_by": [
         905
       ],
-      "scope": "Messages, callbacks, cancellation. Tables `caliber_a2a_messages(message_id PK, local_task_id FK, direction VARCHAR(8) in {out, in}, sequence INT, payload_hash VARCHAR(71), received_at)` with UNIQUE `(local_task_id, direction, sequence)`; `caliber_a2a_callback_subscriptions(subscription_id PK, local_task_id FK, callback_url, secret_ref, created_at)`; `caliber_a2a_peer_observations(observation_id PK, peer_id FK, kind VARCHAR(32) in {late, after_cancel, bad_artifact, rate_limited}, details JSON, observed_at)`. `caliber/src/caliber/a2a/callbacks.py::receive(session, local_task_id, body: bytes, signature: str, timestamp: str)` verifies with `caliber/src/caliber/events/webhooks.py::compute_signature`, rejects an out-of-order sequence with `CallbackOutOfOrder` (no state change), and rejects any message for a task in `canceled` with `CallbackAfterCancel` plus a PeerObservation. `caliber/src/caliber/a2a/gateway.py::cancel(session, local_task_id)` sets `canceled` and sends the peer a cancel.",
-      "files": "create `caliber/src/caliber/a2a/callbacks.py`, `caliber/tests/test_a2a_callbacks.py`; modify `caliber/src/caliber/db/models.py` (tables go in the task-1 migration file)",
-      "tests": "`caliber/tests/test_a2a_callbacks.py::test_out_of_order_is_rejected`, `::test_result_after_cancel_is_rejected`",
-      "acceptance": "Sequence 3 before 2 → `CallbackOutOfOrder` and the task state is unchanged; after `cancel`, a `completed` callback → `CallbackAfterCancel` and one `after_cancel` observation row.",
+      "scope": "Persist authenticated callback inbox keyed by peer/task/message ID with signed timestamp/body hash and unique sequence. Verify freshness, configured peer and exact task binding before storing. Same ID/same hash is idempotent; changed hash conflicts. Sequence3 before2 is buffered durably without advancing task state; when2 arrives, drain contiguous validated entries exactly once in one transaction. Bounded buffer/age raises an intervention rather than discarding unseen results. Local cancellation immediately blocks new local authority and records cancel_requested plus durable outbound cancellation; retain authenticated late terminal observations for reconciliation without adopting output or reviving canceled work. A lost cancel acknowledgment remains unknown. Allocate a fresh migration, not the prerequisite file.",
+      "files": "Create caliber/src/caliber/a2a/callbacks.py and caliber/tests/test_a2a_callbacks.py; modify gateway and db/models.py; allocate a fresh unused migration after current head.",
+      "tests": "caliber/tests/test_a2a_callbacks.py: sequence3_buffered_before2_then_drained, duplicate_idempotent, hash_conflict, expired_signature, crash_recovery, bounded_gap_intervention and late_after_cancel_preserved_not_adopted.",
+      "acceptance": "Out-of-order callbacks survive restart and apply once after predecessors; duplicate delivery changes no business state. Cancellation prevents adoption but never erases an ambiguous remote effect.",
       "documentation": "Affected docs/operate or docs/sdk page and its milestone acceptance evidence fragment; update architecture/config/API contracts changed by this task."
     },
     {
@@ -6748,10 +6751,10 @@
       "blocked_by": [
         919
       ],
-      "scope": "Two adapters and V33. Package `caliber/tests/fixtures/catalog/adapter_a/` (wraps `caliber/src/caliber/llm/openai_agents.py` through the plugin SDK) and `adapter_b/` (the external author's adapter, or the fallback above); `certify` both; `caliber/tests/egi_scenarios/test_v33_catalog.py` runs the same scenario list (V02 deny-before-dispatch, V08 timeout, V07 receipt) through each adapter, then attempts to admit an uncertified digest and a revoked entry.",
+      "scope": "Certify built-in adapter_a plus adapter_b authored independently of the Caliber implementation team, supplied through #608. No team-authored fallback can satisfy independent adapter acceptance. Record author/repository/pinned commit/license and signed conformance result tied to exact catalog digest. Run V02/V08/V07 through both via public extension entrypoints; uncertified/revoked digests are denied. Harness development may use a labeled local stub, but absence of the independent artifact keeps this task and D15 acceptance blocked.",
       "files": "create `caliber/tests/fixtures/catalog/adapter_a/` (pyproject, module, entry point), `caliber/tests/fixtures/catalog/adapter_b/`, `caliber/tests/egi_scenarios/test_v33_catalog.py`; modify `caliber/src/caliber/llm/openai_agents.py` (expose the adapter through the plugin entry point)",
-      "tests": "`caliber/tests/egi_scenarios/test_v33_catalog.py`",
-      "acceptance": "V33 passes on PostgreSQL: both adapters pass the three scenarios; the uncertified and revoked admissions are refused with their codes.",
+      "tests": "caliber/tests/egi_scenarios/test_v33_catalog.py: two_certified_digests, uncertified_denied, revoked_denied, missing_independent_provenance_blocks_gate; conformance report records external author evidence.",
+      "acceptance": "Release evidence includes an independently authored adapter and matching passing report. A stub or same-author fixture cannot produce passing independent certification.",
       "documentation": "Affected docs/operate or docs/sdk page and its milestone acceptance evidence fragment; update architecture/config/API contracts changed by this task."
     },
     {
@@ -6942,7 +6945,7 @@
         797
       ],
       "scope": "Extend M09 waiver service with governance reporting and explicit compensating-control metadata only where missing. Reuse control_type and preserve existing enum/data semantics. Reject waiver of non-waivable controls, expired scope or unauthorized actor; audit every use.",
-      "files": "modify `caliber/src/caliber/waivers.py` (from #551), `caliber/src/caliber/db/models.py` (columns go in the task-1 migration file); create `caliber/tests/test_exception_waivers.py`",
+      "files": "modify `caliber/src/caliber/waivers.py` (from #551), `caliber/src/caliber/db/models.py` (only missing fields, with a fresh unused migration); create `caliber/tests/test_exception_waivers.py`",
       "tests": "`caliber/tests/test_exception_waivers.py`",
       "acceptance": "Extend M09 waiver service with governance reporting and explicit compensating-control metadata only where missing. Reuse control_type and preserve existing enum/data semantics. Reject waiver of non-waivable controls, expired scope or unauthorized actor; audit every use.",
       "documentation": "Affected docs/operate or docs/sdk page and its milestone acceptance evidence fragment; update architecture/config/API contracts changed by this task."
@@ -7102,7 +7105,7 @@
         871
       ],
       "scope": "Skill Pack manifest and CompatibilityReport. `caliber/src/caliber/skill_packs.py::SkillPackManifest(pack_id, version, skill_digests: list[str], dependency_constraints: dict, runtime_capabilities: list[str], data_policy: dict, region_policy: dict, risk_ceiling: str, evaluation_gates: list[str], release_aliases: list[str], support_window: {from, to})` and `compatibility_report(session, manifest) -> CompatibilityReport(checks: list[{name, passed, detail}], passed: bool)` running the seven Ch. 9 checks in order: `skill_digests_resolve`, `dependency_constraints_satisfiable`, `tool_versions_compatible`, `runtime_capabilities_available`, `data_region_policy_consistent`, `risk_ceiling_not_exceeded`, `evaluation_gates_passed`. Stored in table `caliber_compatibility_reports(report_id PK, pack_id, version, checks JSON, passed BOOLEAN, created_at)`.",
-      "files": "create `caliber/src/caliber/skill_packs.py`, `caliber/tests/test_skill_pack_compatibility.py`; modify `caliber/src/caliber/skill_packages.py`, `caliber/src/caliber/skill_versions.py`, `caliber/src/caliber/db/models.py` (table in the task-1 migration file)",
+      "files": "create `caliber/src/caliber/skill_packs.py`, `caliber/tests/test_skill_pack_compatibility.py`; modify `caliber/src/caliber/skill_packages.py`, `caliber/src/caliber/skill_versions.py`, `caliber/src/caliber/db/models.py` (new tables use a fresh unused migration)",
       "tests": "`caliber/tests/test_skill_pack_compatibility.py`",
       "acceptance": "A pack whose two skills pin incompatible tool versions gets `tool_versions_compatible.passed == False` and `report.passed == False`; a consistent pack passes all seven.",
       "documentation": "Affected docs/operate or docs/sdk page and its milestone acceptance evidence fragment; update architecture/config/API contracts changed by this task."
@@ -7355,10 +7358,10 @@
         663,
         790
       ],
-      "scope": "Levels on the GovernanceRecord. `caliber/src/caliber/autonomy.py`: `LEVELS = (\"L0_manual\", \"L1_assisted\", \"L2_agent_editor\", \"L3_agent_review\", \"L4_bounded_agent_approval\", \"L5_governed_autonomy\")`; `ROLE_TABLE: dict[level, dict[role, Literal[\"human\", \"agent\", \"agent_bounded\"]]]` copied from ADR 0004; `CEILING = {\"L4_bounded_agent_approval\": {\"read\", \"reversible_write\"}}`; `max_level_for_tier(risk_tier) -> level` (T1→L5, T2→L4, T3→L3, T4→L2). GovernanceRecord (#605 task 1) gains `autonomy_level VARCHAR(32) NOT NULL DEFAULT 'L1_assisted'`, `max_autonomy_level VARCHAR(32)`, `demotion_thresholds JSON` (keys `acceptance_failures`, `rollbacks`, `incidents`, `trajectory_failures`; default `{1, 1, 1, 1}`); `set_level(session, use_case_id, level, actor)` raises `LevelAboveMaximum`; a `risk_tier` change recomputes `max_autonomy_level` and, if the current level is above it, lowers it in the same transaction with `audit.record(action=\"autonomy_demoted\")`.",
-      "files": "create `caliber/src/caliber/autonomy.py`, `caliber/tests/test_autonomy_levels.py`; modify `caliber/src/caliber/governance.py` (from #605), `caliber/src/caliber/db/models.py` (columns in the task-1 migration file)",
-      "tests": "`caliber/tests/test_autonomy_levels.py`",
-      "acceptance": "`set_level(..., \"L5_governed_autonomy\")` on a T3 use case raises `LevelAboveMaximum`; changing `risk_tier` T1→T4 on an L4 use case leaves it at L2 with one `autonomy_demoted` audit row.",
+      "scope": "Implement autonomy.py LEVELS/ROLE_TABLE from ADR0004 using the GovernanceRecord columns already created by #790; do not add a second level store or duplicate columns. Risk ceilings are T1->L5,T2->L4,T3->L3,T4->L2; L4 agent approval permits read/reversible_write only. set_level validates current authorized human owner and risk ceiling. Risk-tier change atomically clamps an excessive current level and writes audit.record with session, actor, action, entity_type, entity_id and decision details. Reuse recorded demotion thresholds, never overwrite configured values with defaults during upgrade.",
+      "files": "create `caliber/src/caliber/autonomy.py`, `caliber/tests/test_autonomy_levels.py`; reuse GovernanceRecord columns from #790; only missing constraints use a fresh unused migration",
+      "tests": "caliber/tests/test_autonomy_levels.py: every_level_role, risk_ceiling_boundaries, tier_change_atomic_clamp, existing_columns_reused, configured_thresholds_preserved and unauthorized_set_level.",
+      "acceptance": "All six ADR levels use one persisted GovernanceRecord authority. Tier tightening atomically lowers an excessive level, preserves configured thresholds and records the real actor; no duplicate-column migration.",
       "documentation": "Affected docs/operate or docs/sdk page and its milestone acceptance evidence fragment; update architecture/config/API contracts changed by this task."
     },
     {
@@ -7656,7 +7659,7 @@
       ],
       "priority": "P0",
       "lane": "P1",
-      "execution_order": 7023,
+      "execution_order": 7030,
       "blocked_by": [
         787
       ],
@@ -7681,7 +7684,7 @@
       ],
       "priority": "P0",
       "lane": "P1",
-      "execution_order": 3014,
+      "execution_order": 3015,
       "blocked_by": [
         720
       ],
@@ -7706,7 +7709,7 @@
       ],
       "priority": "P0",
       "lane": "P1",
-      "execution_order": 3014,
+      "execution_order": 3015,
       "blocked_by": [
         720
       ],
@@ -7731,7 +7734,7 @@
       ],
       "priority": "P0",
       "lane": "P1",
-      "execution_order": 3014,
+      "execution_order": 3015,
       "blocked_by": [
         720
       ],
@@ -7756,7 +7759,7 @@
       ],
       "priority": "P0",
       "lane": "P1",
-      "execution_order": 3014,
+      "execution_order": 3015,
       "blocked_by": [
         720
       ],
@@ -7947,5 +7950,10 @@
         607
       ]
     }
-  ]
+  ],
+  "contract_review": {
+    "baseline": "9687bc99e19f47c0f9ac19af0da238323cf4848e",
+    "record": "docs/planning/EXECUTION_CONTRACT_CORRECTIONS.md",
+    "scope": "Task contracts and sequencing only; no feature implementation or runtime certification."
+  }
 }
