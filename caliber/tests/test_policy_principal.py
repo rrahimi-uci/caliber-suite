@@ -11,7 +11,7 @@ from typing import Any
 import pytest
 
 from caliber import contracts
-from caliber.auth import CaliberIdentity
+from caliber.auth import ALL_SCOPES, SCOPE_OPERATOR, SCOPE_VIEWER, CaliberIdentity
 from caliber.policy import principal as principal_module
 from caliber.policy.principal import (
     AUTH_METHODS,
@@ -90,6 +90,7 @@ def test_the_workload_id_is_derived_from_the_full_digest() -> None:
         "g" * 64,
         "",
         " " + DIGEST[1:],
+        DIGEST + "\n",
         None,
         12,
     ],
@@ -133,8 +134,9 @@ def test_every_credential_kind_caliber_auth_records_is_a_valid_auth_method(metho
 
 def test_the_project_is_optional_but_never_blank() -> None:
     assert _subject(project_id=None).project_id is None
-    with pytest.raises(PrincipalError, match="project_id"):
-        _subject(project_id="")
+    for blank in ("", " proj", "proj ", 5, True):
+        with pytest.raises(PrincipalError, match="project_id"):
+            _subject(project_id=blank)  # type: ignore[arg-type]
 
 
 @pytest.mark.parametrize("name", ["", " triage", None, 3])
@@ -247,13 +249,13 @@ def test_the_error_names_extra_and_missing_fields() -> None:
 
 
 def test_a_resolved_subject_converts_to_exactly_the_identity_it_describes() -> None:
-    scopes = frozenset({"caliber:read", "caliber:write"})
-    identity = _subject(auth_method="pat").to_identity(scopes)
+    scopes = frozenset({SCOPE_VIEWER, SCOPE_OPERATOR})
+    identity = _subject().to_identity(scopes)
     assert identity == CaliberIdentity(
         user_id="alice",
         scopes=scopes,
         active_project_id="proj-1",
-        credential_kind="pat",
+        credential_kind="session",
         credential_id=None,
         credential_project_id=None,
     )
@@ -261,16 +263,129 @@ def test_a_resolved_subject_converts_to_exactly_the_identity_it_describes() -> N
     assert _subject().to_identity(frozenset()).scopes == frozenset(), "no scope is ever added"
 
 
-@pytest.mark.parametrize("scopes", [{"caliber:read"}, ["caliber:read"], "caliber:read", None])
+def test_a_pat_subject_carries_its_token_and_the_tokens_project_binding() -> None:
+    pat = _subject(auth_method="pat")
+    bound = pat.to_identity(
+        frozenset({SCOPE_VIEWER}), credential_id="pat-1", credential_project_id="proj-1"
+    )
+    assert (bound.credential_kind, bound.credential_id, bound.credential_project_id) == (
+        "pat",
+        "pat-1",
+        "proj-1",
+    )
+    unbound = pat.to_identity(frozenset(), credential_id="pat-2")
+    assert unbound.credential_project_id is None
+    with pytest.raises(PrincipalError, match="needs its credential_id"):
+        pat.to_identity(frozenset({SCOPE_VIEWER}))
+
+
+@pytest.mark.parametrize("method", ["session", "trusted_header"])
+def test_only_a_pat_subject_may_carry_a_credential(method: str) -> None:
+    with pytest.raises(PrincipalError, match="only a pat subject"):
+        _subject(auth_method=method).to_identity(frozenset(), credential_id="x")
+    with pytest.raises(PrincipalError, match="only a pat subject"):
+        _subject(auth_method=method).to_identity(frozenset(), credential_project_id="p")
+
+
+class _Frozenset(frozenset):  # type: ignore[type-arg]
+    pass
+
+
+@pytest.mark.parametrize(
+    "scopes", [{SCOPE_VIEWER}, [SCOPE_VIEWER], SCOPE_VIEWER, None, _Frozenset()]
+)
 def test_scopes_must_be_the_already_resolved_frozenset(scopes: Any) -> None:
     with pytest.raises(PrincipalError, match="frozenset"):
         _subject().to_identity(scopes)
 
 
-def test_the_conversion_never_carries_a_credential_binding() -> None:
-    identity = _subject().to_identity(frozenset({"s"}))
-    assert identity.credential_id is None
-    assert identity.credential_project_id is None, "only a real credential can bind a project"
+@pytest.mark.parametrize(
+    "scopes",
+    [
+        frozenset({"caliber.superroot"}),
+        frozenset({"caliber:read"}),
+        frozenset({SCOPE_VIEWER, 1}),
+        frozenset({None}),
+    ],
+)
+def test_scopes_must_be_defined_by_caliber_auth(scopes: frozenset[Any]) -> None:
+    with pytest.raises(PrincipalError, match="defined by caliber.auth"):
+        _subject().to_identity(scopes)
+
+
+def test_every_scope_caliber_auth_defines_is_accepted_and_nothing_else_is_added() -> None:
+    assert _subject().to_identity(ALL_SCOPES).scopes == ALL_SCOPES
+
+
+# ---------------------------------------------------------------- identifiers caliber.auth would never resolve
+
+
+@pytest.mark.parametrize(
+    "user_id",
+    [
+        "anonymous",
+        "ANONYMOUS",
+        "Anonymous",
+        "a,b",
+        ",",
+        "al\nice",
+        "alice\x00",
+        "al\tice",
+        "\u200balice",
+        "alice\u200b",
+        "\ufeffalice",
+        "al\u2028ice",
+    ],
+)
+def test_a_user_id_caliber_auth_would_treat_as_anonymous_or_that_hides_characters_is_refused(
+    user_id: str,
+) -> None:
+    with pytest.raises(PrincipalError):
+        _subject(user_id=user_id)
+
+
+@pytest.mark.parametrize("user_id", ["alice", "@alice", "alice@example.com", "Ünïcode Üser", "a b"])
+def test_ordinary_user_ids_are_accepted(user_id: str) -> None:
+    assert _subject(user_id=user_id).user_id == user_id
+
+
+@pytest.mark.parametrize("name", ["tri\nage", "tri\u200bage"])
+def test_a_workload_name_and_grant_id_refuse_hidden_characters_too(name: str) -> None:
+    with pytest.raises(PrincipalError, match="control, format"):
+        Workload.for_workflow(name, DIGEST)
+    with pytest.raises(PrincipalError, match="control, format"):
+        RunPrincipal(_subject(), _workload(), name)
+
+
+class _LyingStr(str):
+    def __ne__(self, other: object) -> bool:
+        return False
+
+    def __eq__(self, other: object) -> bool:
+        return True
+
+    __hash__ = str.__hash__
+
+
+def test_a_str_subclass_cannot_pass_a_comparison_it_controls() -> None:
+    with pytest.raises(PrincipalError):
+        Workload(workload_id=_LyingStr("wl_forged"), name="triage", workflow_version_digest=DIGEST)
+    with pytest.raises(PrincipalError):
+        _subject(user_id=_LyingStr("alice"))
+    with pytest.raises(PrincipalError):
+        workload_id_for(_LyingStr(DIGEST))
+
+
+def test_the_principal_classes_are_final_and_a_run_principal_takes_only_the_real_types() -> None:
+    class Evil(Workload):  # type: ignore[misc]
+        def __post_init__(self) -> None:
+            return None
+
+    evil = Evil(workload_id="wl_forged", name="triage", workflow_version_digest=DIGEST)
+    with pytest.raises(PrincipalError, match="workload must be a Workload"):
+        RunPrincipal(_subject(), evil, "g")
+    with pytest.raises(PrincipalError, match="subject must be a Subject"):
+        RunPrincipal(object.__new__(type("S", (Subject,), {})), _workload(), "g")
 
 
 # ---------------------------------------------------------------- purity: no database, worker or admission import
@@ -294,6 +409,7 @@ def test_the_module_imports_no_database_worker_manifest_or_grant_code() -> None:
     assert imported <= {
         "__future__",
         "re",
+        "unicodedata",
         "collections.abc",
         "dataclasses",
         "typing",

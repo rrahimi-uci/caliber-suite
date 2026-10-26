@@ -15,16 +15,21 @@ imports a table, a session or a worker, and ``tests/test_policy_principal.py`` p
   the fields the strict ``run_manifest`` subject schema accepts (``user_id``, ``auth_method``).
 * ``Subject.to_identity`` is a pure conversion of an already resolved subject (the caller supplies the scopes it
   already resolved); it never widens scopes or reads a request.
+* The types are deliberately *stricter* than the ``run_manifest`` v1 schema, which accepts any non-empty string:
+  a workload digest must be a full bare SHA-256 and an id must be a clean identifier. A workflow version with no
+  digest (``manifest_hash == ""``, a legacy version) therefore cannot form a ``Workload``; the legacy path in #684
+  must say so explicitly rather than invent one.
 """
 
 from __future__ import annotations
 
 import re
+import unicodedata
 from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Any, Final
+from typing import Any, Final, final
 
-from caliber.auth import CaliberIdentity
+from caliber.auth import ALL_SCOPES, ANONYMOUS, CaliberIdentity
 
 #: How a subject authenticated: the credential kinds ``caliber.auth`` records (``CaliberIdentity.credential_kind``).
 AUTH_METHODS: Final[frozenset[str]] = frozenset({"session", "pat", "trusted_header"})
@@ -44,8 +49,17 @@ class PrincipalError(ValueError):
 
 
 def _text(name: str, value: object) -> str:
-    if not isinstance(value, str) or not value or value != value.strip():
+    """A clean identifier: exactly ``str``, non-empty, no surrounding whitespace, and no control, format or
+    line-separator character (a zero-width character makes ``alice`` and ``alice`` differ)."""
+    if type(value) is not str or not value or value != value.strip():
         raise PrincipalError(f"{name} must be a non-empty string with no surrounding whitespace")
+    if any(
+        unicodedata.category(ch)[0] == "C" or unicodedata.category(ch) in {"Zl", "Zp"}
+        for ch in value
+    ):
+        raise PrincipalError(
+            f"{name} must not contain control, format or line-separator characters"
+        )
     return value
 
 
@@ -63,15 +77,14 @@ def _exact_fields(kind: str, data: object, expected: frozenset[str]) -> Mapping[
 
 def workload_id_for(workflow_version_digest: str) -> str:
     """The workload id for a workflow version: ``wl_`` plus the *full* 64-hex SHA-256 digest, never a prefix."""
-    if not isinstance(workflow_version_digest, str) or not _DIGEST.fullmatch(
-        workflow_version_digest
-    ):
+    if type(workflow_version_digest) is not str or not _DIGEST.fullmatch(workflow_version_digest):
         raise PrincipalError(
             "workflow_version_digest must be a full lowercase 64-hex SHA-256 digest"
         )
     return WORKLOAD_ID_PREFIX + workflow_version_digest
 
 
+@final
 @dataclass(frozen=True)
 class Subject:
     """Who started a run: an authenticated user, how they authenticated, and the project they acted in."""
@@ -82,7 +95,12 @@ class Subject:
 
     def __post_init__(self) -> None:
         _text("user_id", self.user_id)
-        if not isinstance(self.auth_method, str) or self.auth_method not in AUTH_METHODS:
+        if self.user_id.lower() == ANONYMOUS or "," in self.user_id:
+            # ``caliber.auth`` never resolves these to a user: it treats them as anonymous.
+            raise PrincipalError(
+                "user_id must be an authenticated user, not the anonymous sentinel or a list"
+            )
+        if type(self.auth_method) is not str or self.auth_method not in AUTH_METHODS:
             raise PrincipalError(
                 f"auth_method must be one of {sorted(AUTH_METHODS)}, got {self.auth_method!r}"
             )
@@ -101,20 +119,45 @@ class Subject:
             user_id=fields["user_id"], auth_method=fields["auth_method"], project_id=project_id
         )
 
-    def to_identity(self, scopes: frozenset[str]) -> CaliberIdentity:
-        """The request identity of this already resolved subject, carrying exactly the scopes given."""
-        if not isinstance(scopes, frozenset):
+    def to_identity(
+        self,
+        scopes: frozenset[str],
+        *,
+        credential_id: str | None = None,
+        credential_project_id: str | None = None,
+    ) -> CaliberIdentity:
+        """The request identity of this already resolved subject, carrying exactly the scopes given.
+
+        ``scopes`` must be a ``frozenset`` of the scopes ``caliber.auth`` defines (nothing is widened or
+        invented). A ``pat`` subject must say *which* token (``credential_id``) so a project-bound token's
+        binding (``credential_project_id``) is never silently dropped into what looks like an unbound one.
+        """
+        if type(scopes) is not frozenset:
             raise PrincipalError(
                 "scopes must be a frozenset of the scopes already resolved for the subject"
+            )
+        unknown = sorted(str(scope) for scope in scopes if scope not in ALL_SCOPES)
+        if unknown:
+            raise PrincipalError(f"scopes must be defined by caliber.auth, got {unknown}")
+        if self.auth_method == "pat" and credential_id is None:
+            raise PrincipalError("a pat subject needs its credential_id to become an identity")
+        if self.auth_method != "pat" and (
+            credential_id is not None or credential_project_id is not None
+        ):
+            raise PrincipalError(
+                "only a pat subject carries a credential_id or credential_project_id"
             )
         return CaliberIdentity(
             user_id=self.user_id,
             scopes=scopes,
             active_project_id=self.project_id,
             credential_kind=self.auth_method,
+            credential_id=credential_id,
+            credential_project_id=credential_project_id,
         )
 
 
+@final
 @dataclass(frozen=True)
 class Workload:
     """What runs: a named workflow pinned to one version digest. Its id is derived from that digest."""
@@ -125,7 +168,9 @@ class Workload:
 
     def __post_init__(self) -> None:
         _text("name", self.name)
-        if self.workload_id != workload_id_for(self.workflow_version_digest):
+        if type(self.workload_id) is not str or self.workload_id != workload_id_for(
+            self.workflow_version_digest
+        ):
             raise PrincipalError(
                 "workload_id must be the one derived from the full workflow_version_digest"
             )
@@ -157,6 +202,7 @@ class Workload:
         )
 
 
+@final
 @dataclass(frozen=True)
 class RunPrincipal:
     """The pair a run acts as, and the grant that authorizes it. Both principals stay distinct."""
@@ -166,9 +212,9 @@ class RunPrincipal:
     grant_id: str
 
     def __post_init__(self) -> None:
-        if not isinstance(self.subject, Subject):
+        if type(self.subject) is not Subject:
             raise PrincipalError("subject must be a Subject")
-        if not isinstance(self.workload, Workload):
+        if type(self.workload) is not Workload:
             raise PrincipalError("workload must be a Workload")
         _text("grant_id", self.grant_id)
 
