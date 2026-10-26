@@ -53,6 +53,7 @@ from caliber.eval.dataset_sync import (
     MLflowDatasetSyncClient,
 )
 from caliber.ids import new_eval_dataset_id, new_eval_example_id
+from caliber.observability.trace_access import is_visible
 from caliber.resource_access import require_project_access_if_scoped
 from caliber.routes._deps import (
     envelope_response,
@@ -61,6 +62,7 @@ from caliber.routes._deps import (
     parse_json_object,
     visibility_param,
 )
+from caliber.routes.observability import visible_experiments_for
 from caliber.schemas import (
     EvalDatasetCreateRequest,
     EvalDatasetSchema,
@@ -70,7 +72,7 @@ from caliber.schemas import (
     EvalExampleReviseRequest,
     EvalExampleSchema,
 )
-from caliber.trace_client import fetch_trace_detail
+from caliber.trace_client import TraceDetail, fetch_trace_detail
 
 logger = logging.getLogger(__name__)
 
@@ -451,6 +453,10 @@ async def create_example_from_trace(request: Request) -> JSONResponse:
     identity = resolve_identity(request)
 
     detail = fetch_trace_detail(payload.trace_id)
+    if not is_visible(detail.experiment_id, visible_experiments_for(request)):
+        # A trace the caller cannot see reads exactly like one that does not exist: nothing of it is
+        # copied, and an explicit input still works as it does for a missing trace.
+        detail = TraceDetail(trace_id=payload.trace_id)
     derived_input: dict[str, object] = (
         dict(payload.input)
         if payload.input is not None

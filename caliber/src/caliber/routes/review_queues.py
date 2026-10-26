@@ -41,6 +41,7 @@ from caliber.auth import (
 from caliber.db.models import CaliberReviewItem, CaliberReviewQueue
 from caliber.db.scoping import apply_visibility_filter, get_visible
 from caliber.ids import new_review_item_id, new_review_queue_id
+from caliber.observability.trace_access import require_readable_trace, visible_experiments
 from caliber.resource_access import require_project_access_if_scoped
 from caliber.review.writeback import (
     AnswerWriteBack,
@@ -62,7 +63,7 @@ from caliber.schemas import (
     ReviewQueueSchema,
     ReviewQueueUpdateRequest,
 )
-from caliber.trace_client import fetch_trace_detail
+from caliber.trace_client import TraceStoreUnavailableError, fetch_trace_detail
 
 logger = logging.getLogger(__name__)
 
@@ -295,9 +296,17 @@ def add_review_items_records(
     assigned_to: str | None,
     actor: str,
     identity: CaliberIdentity,
+    verify_traces: bool = False,
 ) -> list[CaliberReviewItem]:
     """Enqueue traces into a review queue (single definition; route + Aria +
     runtime reuse).
+
+    ``verify_traces=True`` is for trace ids a person supplied (the route and Aria): the trace must
+    exist and be filed under an experiment ``identity`` may see, else
+    :class:`~caliber.observability.trace_access.TraceNotReadableError` (a ``ValueError``, worded
+    like a missing trace). Without it a queue became a way to read, through ``alignment_examples``,
+    and to annotate, through ``submit_item``, any project's trace. The workflow runtime's own enqueue
+    passes its own run's traces and leaves it off: those need no check and may not be flushed yet.
 
     Idempotent — a trace is queued at most once per queue. Raises
     :class:`ValueError` if the queue is missing; flushes but does not commit.
@@ -323,10 +332,13 @@ def add_review_items_records(
         .scalars()
         .all()
     }
+    visible = visible_experiments(session, identity) if verify_traces else None
     created: list[CaliberReviewItem] = []
     for trace_id in trace_ids:
         if trace_id in existing_traces:
             continue
+        if verify_traces:
+            require_readable_trace(trace_id, visible)
         existing_traces.add(trace_id)
         item = CaliberReviewItem(
             item_id=new_review_item_id(),
@@ -370,7 +382,10 @@ async def add_items(request: Request) -> JSONResponse:
                 assigned_to=payload.assigned_to,
                 actor=actor,
                 identity=identity,
+                verify_traces=True,
             )
+        except TraceStoreUnavailableError as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
         except ValueError as exc:
             status_code = 409 if "is not active" in str(exc) else 404
             raise HTTPException(status_code=status_code, detail=str(exc)) from exc

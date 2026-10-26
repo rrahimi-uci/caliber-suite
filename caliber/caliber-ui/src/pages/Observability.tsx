@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { useSearchParams } from "react-router-dom";
 import {
   Activity,
@@ -22,7 +22,7 @@ import {
   X,
 } from "lucide-react";
 
-import { caliberApi } from "@/api/caliberApi";
+import { ApiError, caliberApi } from "@/api/caliberApi";
 import type { EvalDataset } from "@/api/types";
 import type {
   ObservabilityExperiment,
@@ -131,6 +131,18 @@ export function Observability(): JSX.Element {
     (signal) => caliberApi.listObservabilityExperiments(signal),
   );
   const experiments = experimentsQuery.data ?? [];
+  // A workspace switch can leave a filter naming an experiment the caller can no longer see; the
+  // server answers that with a 404, so drop it once the list has loaded without it.
+  const loadedExperiments = experimentsQuery.data;
+  useEffect(() => {
+    if (
+      experimentId &&
+      loadedExperiments &&
+      !loadedExperiments.some((exp) => exp.experiment_id === experimentId)
+    ) {
+      setExperimentId("");
+    }
+  }, [experimentId, loadedExperiments]);
 
   const tracesQuery = useApiQuery<ObservabilityTrace[]>(
     ["observability", "traces", experimentId, status, timeRange, sessionFilter],
@@ -545,6 +557,12 @@ export function Observability(): JSX.Element {
             ) : detailQuery.error ? (
               <div className="rounded-xl border border-red-200/70 bg-red-50 px-4 py-3 text-sm text-red-700">
                 {detailQuery.error.message}
+                {detailQuery.error instanceof ApiError && detailQuery.error.status === 404 ? (
+                  <p className="mt-1 text-xs text-red-600" data-testid="observability-trace-404-hint">
+                    The trace may not exist, or it may be filed under an experiment that no agent or
+                    workflow you can see is bound to. Only traces of those experiments are shown.
+                  </p>
+                ) : null}
               </div>
             ) : detail ? (
               <>

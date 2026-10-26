@@ -227,10 +227,17 @@ function useObservabilityHandlers(): void {
 }
 
 function renderPage(initialPath = "/observability"): ReturnType<typeof render> {
+  return renderPageWithClient(initialPath).result;
+}
+
+function renderPageWithClient(initialPath = "/observability"): {
+  result: ReturnType<typeof render>;
+  queryClient: QueryClient;
+} {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false, gcTime: 0 }, mutations: { retry: false } },
   });
-  return render(
+  const result = render(
     <QueryClientProvider client={queryClient}>
       <MemoryRouter
         future={{ v7_startTransition: true, v7_relativeSplatPath: true }}
@@ -242,6 +249,7 @@ function renderPage(initialPath = "/observability"): ReturnType<typeof render> {
       </MemoryRouter>
     </QueryClientProvider>,
   );
+  return { result, queryClient };
 }
 
 beforeAll(() => server.listen({ onUnhandledRequest: "error" }));
@@ -362,6 +370,57 @@ describe("Observability page", () => {
     renderPage("/observability?trace=tr-2");
 
     expect(await screen.findByText("REQ-2")).toBeInTheDocument();
+  });
+
+  it("explains a 404 on a deep-linked trace the caller cannot see", async () => {
+    useObservabilityHandlers();
+    server.use(
+      http.get(`${OBS}/traces/tr-foreign`, () =>
+        HttpResponse.json(
+          { detail: "trace 'tr-foreign' not found", status_code: 404 },
+          { status: 404 },
+        ),
+      ),
+    );
+    renderPage("/observability?trace=tr-foreign");
+
+    expect(await screen.findByText(/trace 'tr-foreign' not found/)).toBeInTheDocument();
+    expect(await screen.findByTestId("observability-trace-404-hint")).toHaveTextContent(
+      "no agent or workflow you can see",
+    );
+  });
+
+  it("does not blame visibility for a trace that failed to load for another reason", async () => {
+    useObservabilityHandlers();
+    server.use(
+      http.get(`${OBS}/traces/tr-broken`, () =>
+        HttpResponse.json({ detail: "trace store unavailable" }, { status: 503 }),
+      ),
+    );
+    renderPage("/observability?trace=tr-broken");
+
+    expect(await screen.findByText("trace store unavailable")).toBeInTheDocument();
+    expect(screen.queryByTestId("observability-trace-404-hint")).not.toBeInTheDocument();
+  });
+
+  it("drops an experiment filter that the refreshed experiment list no longer contains", async () => {
+    useObservabilityHandlers();
+    const { queryClient } = renderPageWithClient();
+
+    await screen.findAllByTestId("observability-trace-row");
+    const select = screen.getByTestId("observability-experiment-select") as HTMLSelectElement;
+    await userEvent.selectOptions(select, "1");
+    await waitFor(() => expect(screen.getAllByTestId("observability-trace-row")).toHaveLength(1));
+
+    server.use(
+      http.get(`${OBS}/experiments`, () =>
+        HttpResponse.json(envelope({ experiments: [{ experiment_id: "0", name: "Default" }] })),
+      ),
+    );
+    await queryClient.invalidateQueries({ queryKey: ["observability", "experiments"] });
+
+    await waitFor(() => expect(select.value).toBe(""));
+    await waitFor(() => expect(screen.getAllByTestId("observability-trace-row")).toHaveLength(2));
   });
 
   it("submits human feedback on a trace", async () => {
