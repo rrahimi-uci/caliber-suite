@@ -252,7 +252,28 @@ The trace and monitoring routes back the in-app viewer and dashboard:
 - `GET /observability/traces/{trace_id}`
 - `POST /observability/traces/{trace_id}/feedback`
 - `GET /observability/experiments`
+- `GET /observability/experiment-claim-conflicts` (admin only)
 - `GET /observability/metrics`
+
+### Experiment ownership and aliases
+
+A trace carries only the numeric id of its MLflow experiment, while an agent or workflow may name its
+experiment by id or by name. Ownership is therefore decided on the **canonical id** the tracking backend
+assigns (`caliber/src/caliber/observability/trace_access.py::resolve_experiment`, cached for a few seconds):
+
+- A claim (agent registration, workflow create or update, an Aria publish) is compared with every existing
+  claim after both are resolved, so an id, a name and a second name of one experiment are one claim.
+  Another project or user holding any alias refuses it with `409`.
+- When the backend cannot say what a reference means, the claim is refused with `503` and nothing is
+  stored: an ownership decision is never made on a guess. A reference that resolves to nothing (an
+  experiment nobody has created yet) is compared as written.
+- Reads resolve the same way. A claim that cannot be resolved matches only its own text, so a backend outage
+  can hide traces from their owner but never reveals them to anyone else.
+- An experiment already claimed by two scopes (data from before the check) is **quarantined**: hidden from
+  every non-admin, listed for an operator by `GET /observability/experiment-claim-conflicts`, and never
+  settled by a last-writer-wins rule. Removing the claim that should not exist releases it.
+- An experiment nobody has bound yet still goes to whoever binds it first; proving ownership needs CALIBER to
+  create the experiment (B11's owner registry).
 
 The report-serving routes expose the static Allure tree:
 

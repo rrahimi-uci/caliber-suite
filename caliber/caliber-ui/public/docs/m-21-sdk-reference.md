@@ -10313,6 +10313,23 @@ This callable takes no public parameters.
 - [`CaliberAPIError`](#caliberapierror)
 - [`CaliberTransportError`](#calibertransporterror)
 
+###### `experiment_claim_conflicts() -> list[dict[str, Any]]`
+
+Experiments claimed by more than one project or user (admin only).
+
+Such an experiment is hidden from every non-admin until an operator removes the claim that should not
+exist. Each item is ``{"experiment": <canonical id>, "claims": [{"claim", "scope", "agent_id",
+"workflow_id"}, ...]}``; nothing here picks a winner.
+
+This callable takes no public parameters.
+
+**Returns:** `list[dict[str, Any]]`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
 ###### `metrics(**params) -> Any`
 
 Operate on the observability traces and metrics surface with the supplied arguments and return the server response.

@@ -14,6 +14,7 @@ behind the routes that records what it was asked to search and what feedback it 
 from __future__ import annotations
 
 import sys
+import time
 from types import SimpleNamespace
 from typing import Any
 
@@ -36,10 +37,15 @@ from caliber.db.models import (
 )
 from caliber.observability.trace_access import (
     ExperimentClaimConflict,
+    ExperimentLookupError,
     TraceNotReadableError,
     assert_experiment_claim_allowed,
+    claim_keys,
+    clear_resolution_cache,
+    experiment_claim_conflicts,
     is_visible,
     require_readable_trace,
+    resolve_experiment,
     visible_experiment_ids,
     visible_experiments,
 )
@@ -288,6 +294,20 @@ class FakeMlflow:
                 else None
             ),
         )
+        ids = [*ALL_EXPERIMENTS, *self._by_name.values()]
+
+        def get_experiment(experiment_id: str) -> SimpleNamespace:
+            from mlflow.exceptions import MlflowException
+            from mlflow.protos.databricks_pb2 import RESOURCE_DOES_NOT_EXIST
+
+            if experiment_id not in ids:
+                raise MlflowException(
+                    f"No Experiment with id={experiment_id} exists",
+                    error_code=RESOURCE_DOES_NOT_EXIST,
+                )
+            return SimpleNamespace(experiment_id=experiment_id)
+
+        monkeypatch.setattr(mlflow, "get_experiment", get_experiment)
         monkeypatch.setattr(mlflow, "search_traces", self._search)
         monkeypatch.setattr(
             mlflow, "get_trace", lambda trace_id, silent=False: self.traces.get(trace_id)
@@ -858,3 +878,347 @@ def test_require_readable_trace(world: None, monkeypatch: pytest.MonkeyPatch) ->
         require_readable_trace("tr-B", {"exp-A"})
     with pytest.raises(TraceNotReadableError, match="'tr-nope' not found"):
         require_readable_trace("tr-nope", {"exp-A"})
+
+
+# ---------------------------------------------------------------- canonical identity: one experiment, any alias
+
+#: Project B's experiment is known to MLflow as id "7" and as the name "billing-exp"; project A never owned it.
+BILLING = "billing-exp"
+BILLING_ID = "7"
+SECOND_NAME = "billing-experiment-v2"
+BILLING_TRACE = {"tr-billing": _trace("tr-billing", BILLING_ID, text="SECRET-BILLING")}
+
+
+def _billing_world(monkeypatch: pytest.MonkeyPatch, **kwargs: Any) -> FakeMlflow:
+    return FakeMlflow(
+        monkeypatch,
+        extra_traces=BILLING_TRACE,
+        experiment_names={BILLING: BILLING_ID, SECOND_NAME: BILLING_ID},
+        **kwargs,
+    )
+
+
+def _bind_agent(
+    db_session: Session, ref: str, project: str, agent_id: str = "agent-billing"
+) -> None:
+    db_session.add(_agent(agent_id, ref, "@test", project, "project"))
+    db_session.commit()
+
+
+def test_resolve_experiment_maps_names_and_ids_to_one_canonical_id(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _billing_world(monkeypatch)
+    assert resolve_experiment(BILLING) == BILLING_ID
+    assert resolve_experiment(SECOND_NAME) == BILLING_ID
+    assert resolve_experiment(BILLING_ID) == BILLING_ID
+    assert resolve_experiment("not-an-experiment") is None
+    assert resolve_experiment("999") is None, "a numeric id MLflow does not know"
+    assert claim_keys(BILLING) == {BILLING, BILLING_ID}
+    assert claim_keys("not-an-experiment") == {"not-an-experiment"}
+
+
+@pytest.mark.parametrize(
+    ("held_by", "claimed_as"),
+    [
+        (BILLING, BILLING_ID),  # held by name, claimed by id
+        (BILLING_ID, BILLING),  # held by id, claimed by name
+        (BILLING, SECOND_NAME),  # held by one name, claimed by another name of the same experiment
+        (BILLING_ID, BILLING_ID),  # the same text, for completeness
+    ],
+)
+def test_an_alias_of_another_projects_experiment_cannot_be_claimed(
+    db_session: Session,
+    world: None,
+    monkeypatch: pytest.MonkeyPatch,
+    held_by: str,
+    claimed_as: str,
+) -> None:
+    _billing_world(monkeypatch)
+    _bind_agent(db_session, held_by, PROJECT_B)
+    with pytest.raises(ExperimentClaimConflict, match="already claimed"):
+        assert_experiment_claim_allowed(
+            db_session, claimed_as, visibility="project", project_id=PROJECT_A, owner="@test"
+        )
+
+
+def test_the_same_project_may_use_any_alias_of_its_own_experiment(
+    db_session: Session, world: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _billing_world(monkeypatch)
+    _bind_agent(db_session, BILLING, PROJECT_B)
+    for alias in (BILLING, BILLING_ID, SECOND_NAME):
+        assert_experiment_claim_allowed(
+            db_session, alias, visibility="project", project_id=PROJECT_B, owner="@test"
+        )
+
+
+def test_a_workflow_cannot_claim_the_id_of_an_experiment_named_by_another_project(
+    client: TestClient, world: None, db_session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The route-level proof, through create and update, as an ordinary editor of project A."""
+    _billing_world(monkeypatch)
+    _bind_agent(db_session, BILLING, PROJECT_B)
+    _grant_operator(client, ALICE)
+    grab = client.post(
+        WORKFLOWS,
+        json={"name": "grab", "default_experiment_id": BILLING_ID},
+        headers=_as(ALICE, PROJECT_A),
+    )
+    assert grab.status_code == 409, grab.text
+    created = client.post(WORKFLOWS, json={"name": "mine"}, headers=_as(ALICE, PROJECT_A))
+    workflow_id = created.json()["data"]["workflow_id"]
+    for alias in (BILLING_ID, SECOND_NAME):
+        update = client.patch(
+            f"{WORKFLOWS}/{workflow_id}",
+            json={"default_experiment_id": alias},
+            headers=_as(ALICE, PROJECT_A),
+        )
+        assert update.status_code == 409, update.text
+    assert client.get(f"{OBS}/traces/tr-billing", headers=_as(ALICE, PROJECT_A)).status_code == 404
+    assert "tr-billing" not in _ids(client.get(f"{OBS}/traces", headers=_as(ALICE, PROJECT_A)))
+
+
+def test_an_agent_cannot_register_an_alias_of_another_projects_experiment(
+    client: TestClient, world: None, db_session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _billing_world(monkeypatch)
+    _bind_agent(db_session, BILLING_ID, PROJECT_B)
+    _grant_operator(client, ALICE)
+    grab = client.post(
+        AGENTS,
+        json={"agent_id": "alice-grab", "experiment_id": BILLING, "name": "grab", "owner": ALICE},
+        headers=_as(ALICE, PROJECT_A),
+    )
+    assert grab.status_code == 409, grab.text
+
+
+def test_an_owner_sees_its_experiment_under_every_alias_and_nobody_else_does(
+    client: TestClient, world: None, db_session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _billing_world(monkeypatch)
+    _bind_agent(db_session, BILLING, PROJECT_B)
+    assert BILLING_ID in (visible_experiments(db_session, _identity(BOB, PROJECT_B)) or set())
+    assert BILLING_ID not in (visible_experiments(db_session, _identity(ALICE, PROJECT_A)) or set())
+    assert "tr-billing" in _ids(client.get(f"{OBS}/traces", headers=_as(BOB, PROJECT_B)))
+    assert "tr-billing" not in _ids(client.get(f"{OBS}/traces", headers=_as(ALICE, PROJECT_A)))
+    assert client.get(f"{OBS}/traces/tr-billing", headers=_as(BOB, PROJECT_B)).status_code == 200
+
+
+def test_a_lookup_failure_denies_the_claim_and_reveals_nothing(
+    client: TestClient, world: None, db_session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import mlflow
+
+    _billing_world(monkeypatch)
+
+    def backend_down(name: str) -> None:
+        raise ConnectionError("tracking server unreachable")
+
+    monkeypatch.setattr(mlflow, "get_experiment_by_name", backend_down)
+    with pytest.raises(ExperimentLookupError, match="could not resolve experiment 'billing-exp'"):
+        assert_experiment_claim_allowed(
+            db_session, BILLING, visibility="project", project_id=PROJECT_A, owner="@test"
+        )
+    _grant_operator(client, ALICE)
+    refused = client.post(
+        WORKFLOWS,
+        json={"name": "w", "default_experiment_id": BILLING},
+        headers=_as(ALICE, PROJECT_A),
+    )
+    assert refused.status_code == 503, refused.text
+    assert "was not claimed" in refused.json()["detail"]
+    refused_agent = client.post(
+        AGENTS,
+        json={"agent_id": "a-down", "experiment_id": BILLING, "name": "down", "owner": ALICE},
+        headers=_as(ALICE, PROJECT_A),
+    )
+    assert refused_agent.status_code == 503, refused_agent.text
+    # Reads: a claim the backend cannot resolve matches only its own text, so it hides, never reveals.
+    _bind_agent(db_session, BILLING, PROJECT_B)
+    assert BILLING_ID not in (visible_experiments(db_session, _identity(ALICE, PROJECT_A)) or set())
+
+
+@pytest.mark.parametrize("failure", ["import", "mlflow-error", "other"])
+def test_resolve_experiment_fails_closed(monkeypatch: pytest.MonkeyPatch, failure: str) -> None:
+    import mlflow
+    from mlflow.exceptions import MlflowException
+
+    if failure == "import":
+        monkeypatch.setitem(sys.modules, "mlflow", None)
+        with pytest.raises(ExperimentLookupError, match="not available"):
+            resolve_experiment("anything")
+        return
+
+    def broken(name: str) -> None:
+        if failure == "mlflow-error":
+            raise MlflowException("server error", error_code="INTERNAL_ERROR")
+        raise OSError("disk gone")
+
+    monkeypatch.setattr(mlflow, "get_experiment_by_name", broken)
+    with pytest.raises(ExperimentLookupError, match="could not resolve experiment 'x'"):
+        resolve_experiment("x")
+
+
+def test_a_resolution_is_cached_for_a_short_time(monkeypatch: pytest.MonkeyPatch) -> None:
+    import mlflow
+
+    calls: list[str] = []
+
+    def lookup(name: str) -> SimpleNamespace:
+        calls.append(name)
+        return SimpleNamespace(experiment_id="3")
+
+    monkeypatch.setattr(mlflow, "get_experiment_by_name", lookup)
+    assert resolve_experiment("cached") == "3"
+    assert resolve_experiment("cached") == "3"
+    assert calls == ["cached"], "the second answer came from the cache"
+    clear_resolution_cache()
+    assert resolve_experiment("cached") == "3"
+    assert calls == ["cached", "cached"]
+    now = time.monotonic()
+    monkeypatch.setattr(time, "monotonic", lambda: now + 3600)
+    assert resolve_experiment("cached") == "3"
+    assert len(calls) == 3, "an expired entry is looked up again"
+
+
+# ---------------------------------------------------------------- legacy conflicting claims are quarantined
+
+
+def _legacy_conflict(db_session: Session) -> None:
+    """Two projects already claim one experiment, one by name and one by id (data from before the check)."""
+    _bind_agent(db_session, BILLING, PROJECT_B, "agent-b-billing")
+    db_session.add(_agent("agent-a-billing", BILLING_ID, "@test", PROJECT_A, "project"))
+    db_session.commit()
+
+
+def test_legacy_conflicting_claims_hide_the_experiment_from_both_projects(
+    client: TestClient, world: None, db_session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _billing_world(monkeypatch)
+    _legacy_conflict(db_session)
+    for user, project in ((ALICE, PROJECT_A), (BOB, PROJECT_B)):
+        assert BILLING_ID not in (
+            visible_experiments(db_session, _identity(user, project)) or set()
+        )
+        assert "tr-billing" not in _ids(client.get(f"{OBS}/traces", headers=_as(user, project)))
+        assert client.get(f"{OBS}/traces/tr-billing", headers=_as(user, project)).status_code == 404
+    admin = {"X-CALIBER-User": "@test"}
+    assert "tr-billing" in _ids(client.get(f"{OBS}/traces", headers=admin)), (
+        "an admin still sees it"
+    )
+    # An unrelated, unconflicted experiment is unaffected.
+    assert "tr-A" in _ids(client.get(f"{OBS}/traces", headers=_as(ALICE, PROJECT_A)))
+
+
+def test_the_operator_lists_the_conflicts_and_no_winner_is_picked(
+    client: TestClient, world: None, db_session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _billing_world(monkeypatch)
+    _legacy_conflict(db_session)
+    listed = client.get(f"{OBS}/experiment-claim-conflicts", headers={"X-CALIBER-User": "@test"})
+    assert listed.status_code == 200, listed.text
+    conflicts = {c["experiment"]: c for c in listed.json()["data"]["conflicts"]}
+    assert set(conflicts) == {BILLING_ID}
+    claims = conflicts[BILLING_ID]["claims"]
+    assert {(c["claim"], c["scope"]["id"], c["agent_id"]) for c in claims} == {
+        (BILLING, PROJECT_B, "agent-b-billing"),
+        (BILLING_ID, PROJECT_A, "agent-a-billing"),
+    }
+    # Removing the claim that should not exist resolves it.
+    db_session.delete(db_session.get(CaliberAgentConfig, "agent-a-billing"))
+    db_session.commit()
+    assert (
+        client.get(f"{OBS}/experiment-claim-conflicts", headers={"X-CALIBER-User": "@test"}).json()[
+            "data"
+        ]["conflicts"]
+        == []
+    )
+    assert BILLING_ID in (visible_experiments(db_session, _identity(BOB, PROJECT_B)) or set())
+
+
+def test_only_an_admin_may_list_the_conflicts(client: TestClient, world: None) -> None:
+    assert (
+        client.get(f"{OBS}/experiment-claim-conflicts", headers=_as(ALICE, PROJECT_A)).status_code
+        == 403
+    )
+
+
+def test_the_conflict_listing_survives_an_unresolvable_claim(
+    db_session: Session, world: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import mlflow
+
+    _billing_world(monkeypatch)
+    _bind_agent(db_session, BILLING, PROJECT_B, "agent-b-billing")
+    db_session.add(  # an agent's experiment is unique, so the second claim on the same text is a workflow's
+        CaliberWorkflow(
+            workflow_id="wf-a-same-text",
+            name="w",
+            owner="@test",
+            project_id=PROJECT_A,
+            visibility="project",
+            default_experiment_id=BILLING,
+        )
+    )
+    db_session.commit()
+
+    def backend_down(name: str) -> None:
+        raise ConnectionError("down")
+
+    monkeypatch.setattr(mlflow, "get_experiment_by_name", backend_down)
+    conflicts = experiment_claim_conflicts(db_session)
+    assert [c["experiment"] for c in conflicts] == [BILLING], (
+        "compared as written when it cannot resolve"
+    )
+
+
+def test_an_experiment_named_only_by_an_empty_string_is_not_a_claim(
+    db_session: Session, world: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _billing_world(monkeypatch)
+    db_session.add(
+        CaliberWorkflow(
+            workflow_id="wf-empty",
+            name="empty",
+            owner="@test",
+            project_id=PROJECT_B,
+            visibility="project",
+            default_experiment_id="",
+        )
+    )
+    db_session.commit()
+    assert experiment_claim_conflicts(db_session) == []
+    assert_experiment_claim_allowed(
+        db_session, BILLING, visibility="project", project_id=PROJECT_A, owner="@test"
+    )
+
+
+def test_an_existing_claim_that_cannot_be_resolved_is_compared_as_written(
+    db_session: Session, world: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Another project's claim whose lookup fails still blocks the same text, and blocks nothing else."""
+    import mlflow
+
+    _billing_world(monkeypatch)
+    real = mlflow.get_experiment_by_name
+
+    def only_the_new_claim_resolves(name: str) -> SimpleNamespace | None:
+        if name == BILLING:
+            raise ConnectionError("down for this one")
+        return real(name)
+
+    _bind_agent(db_session, BILLING, PROJECT_B)
+    monkeypatch.setattr(mlflow, "get_experiment_by_name", only_the_new_claim_resolves)
+    clear_resolution_cache()
+    assert_experiment_claim_allowed(  # a different experiment: unaffected
+        db_session, "exp-A", visibility="project", project_id=PROJECT_A, owner="@test"
+    )
+    with pytest.raises(ExperimentLookupError):  # the new claim itself cannot resolve: fail closed
+        assert_experiment_claim_allowed(
+            db_session, BILLING, visibility="project", project_id=PROJECT_A, owner="@test"
+        )
+    # The new claim resolves by id; the existing claim (the name) does not, so it is compared as written.
+    assert_experiment_claim_allowed(
+        db_session, BILLING_ID, visibility="project", project_id=PROJECT_A, owner="@test"
+    )

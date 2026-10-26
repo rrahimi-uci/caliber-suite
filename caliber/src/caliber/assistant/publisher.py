@@ -10,6 +10,7 @@ from typing import Any, cast
 from caliber.auth import CaliberIdentity
 from caliber.observability.trace_access import (
     ExperimentClaimConflict,
+    ExperimentLookupError,
     assert_experiment_claim_allowed,
 )
 
@@ -418,6 +419,11 @@ class AssistantPublisher:
                 )
             except ExperimentClaimConflict as exc:
                 return {"success": False, "error": str(exc)}
+            except ExperimentLookupError as exc:
+                return {
+                    "success": False,
+                    "error": f"the experiment could not be resolved, so it was not claimed: {exc}",
+                }
             wf = CaliberWorkflow(
                 workflow_id=wf_id,
                 name=artifact.get("name", ""),
