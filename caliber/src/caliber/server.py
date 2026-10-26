@@ -32,7 +32,7 @@ from starlette.exceptions import HTTPException
 from caliber.artifact_store import ArtifactStore, build_store
 from caliber.assistant.plan_worker import AriaPlanWorker
 from caliber.audit import configure_redactor
-from caliber.config import CaliberConfig, resolve_assistant_engine
+from caliber.config import CaliberConfig, ConfigError, resolve_assistant_engine
 from caliber.csrf import CSRFMiddleware, build_token_manager
 from caliber.db.session import create_engine_from_config, sessionmaker_from_engine
 from caliber.db_url import shared_sqlite_store
@@ -58,6 +58,7 @@ from caliber.orchestrator.release_reconciler import ReleaseReconcilerTask
 from caliber.orchestrator.scheduler import WorkflowSchedulerTask
 from caliber.orchestrator.worker import RefinementWorker
 from caliber.orchestrator.workflow_run_worker import WorkflowRunWorker
+from caliber.profile import reference_profile_violations
 from caliber.promoter import Promoter, build_promoter
 from caliber.rate_limit import RateLimitMiddleware, build_limiter
 from caliber.redaction import build_redactor
@@ -162,6 +163,19 @@ def _warn_if_sqlite_store_is_shared(database_url: str) -> None:
         "PostgreSQL, for anything shared.",
         shared,
     )
+
+
+def _require_reference_profile(config: CaliberConfig) -> None:
+    """Refuse to start under ``CALIBER_PROFILE=reference`` while any setting violates the profile.
+
+    Every violation is listed, so an operator fixes them in one pass. Runs before the engine is
+    created and before the bootstrap admin account is written: a refused start must leave no trace.
+    """
+    if config.profile != "reference":
+        return
+    violations = reference_profile_violations(config)
+    if violations:
+        raise ConfigError("reference profile refused:\n" + "\n".join(v.message for v in violations))
 
 
 def _require_simulated_opt_in(config: CaliberConfig) -> None:
@@ -549,6 +563,7 @@ def create_app(config: CaliberConfig | None = None) -> ASGIApp:  # noqa: PLR0915
         return errors at request time.
     """
     resolved = config if config is not None else CaliberConfig.load()
+    _require_reference_profile(resolved)
 
     # Single-line JSON to stderr. Replaces stdlib's default handler so
     # the format is consistent across the plugin's own logs, third-party

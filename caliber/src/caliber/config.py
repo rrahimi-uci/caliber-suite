@@ -973,6 +973,16 @@ class CaliberConfig(BaseModel):
         ),
     )
 
+    profile: str = Field(
+        default="development",
+        pattern="^(development|reference)$",
+        description=(
+            "The deployment profile. 'development' (default) starts with whatever settings "
+            "are given, as before. 'reference' refuses to start when any setting violates the "
+            "reference deployment (see caliber.profile): every violation is listed with the "
+            "variable to change."
+        ),
+    )
     auth_mode: str = Field(
         default="session",
         pattern="^(session|trusted_header)$",
@@ -2119,6 +2129,7 @@ _ENV_VAR_TABLE: list[tuple[str, str, Any]] = [
     ("CALIBER_SHUTDOWN_GRACE_SECONDS", "shutdown_grace_seconds", float),
     ("CALIBER_BACKGROUND_TASKS_ENABLED", "background_tasks_enabled", _flag),
     ("CALIBER_DEV_USER", "dev_user", str),
+    ("CALIBER_PROFILE", "profile", str),
     ("CALIBER_AUTH_MODE", "auth_mode", str),
     ("CALIBER_SECRET_ENCRYPTION_KEY_SOURCE", "secret_encryption_key_source", str),
     (
