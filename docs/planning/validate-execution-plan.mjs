@@ -76,6 +76,12 @@ if (process.argv.includes("--live")) {
     cursor = connection.pageInfo.hasNextPage ? connection.pageInfo.endCursor : null;
   } while (cursor);
   const live = new Map(issues.map((item) => [item.number, item]));
+  const planned = new Set([...tasks.keys(), ...epics.keys(), ...controls.keys(), 608]);
+  for (const item of issues.filter((issue) => issue.state === "OPEN")) {
+    assert(planned.has(item.number), `unaccounted open issue #${item.number}`);
+    assert.equal(item.labels.nodes.filter((label) => label.name.startsWith("priority-")).length, 1,
+      `missing/conflicting priority #${item.number}`);
+  }
   for (const task of tasks.values()) {
     const item = live.get(task.number);
     assert(item, `missing GitHub task #${task.number}`);
@@ -93,6 +99,9 @@ if (process.argv.includes("--live")) {
   }
   for (const epic of epics.values()) {
     const item = live.get(epic.number);
+    const parent = ({ 589: 523, 592: 553, 594: 542, 595: 540 })[epic.number]
+      || 608 + Number(epic.milestone.slice(1));
+    assert.equal(item.parent?.number, parent, `epic parent #${epic.number}`);
     assert(!item.subIssues.pageInfo.hasNextPage, "sub-issue pagination required");
     // Nested reused epics are also valid children, in addition to direct implementation tasks.
     for (const child of epic.children) assert(item.subIssues.nodes.some((x) => x.number === child), `sub-issue #${child}`);
