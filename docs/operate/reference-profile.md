@@ -88,6 +88,22 @@ missing differs, and neither case is a profile refusal:
 
 The database must be migrated (`caliber-migrate`) before the first start.
 
+## Run principals: subject and workload
+
+A run acts as two distinct principals, defined as immutable values in `caliber/src/caliber/policy/principal.py`
+(B03.1, #657). The **subject** is who started it: `user_id`, `auth_method` (`session`, `pat` or `trusted_header`)
+and, as server-side context only, the project. The **workload** is what runs: a name and one workflow-version
+digest. The workload id is `wl_` plus the full 64-hex SHA-256 digest; it is derived, never chosen, and a manifest
+that carries any other id is refused. Only `user_id` and `auth_method` are written for the subject: a `project_id`
+in a manifest `subject` is refused. The types are pure; persisting them (#680) and resolving them for a run
+(#684) come later, so this page lists no setting for them.
+
+Refusals raise `PrincipalError`, for example:
+
+- `workload_id must be the one derived from the full workflow_version_digest`
+- `workflow_version_digest must be a full lowercase 64-hex SHA-256 digest`
+- `subject must have exactly ['auth_method', 'user_id']; extra ['project_id'], missing []`
+
 ## Not enforced yet
 
 ADR 0001 describes the whole reference shape; this table is what the *process* checks today. Not checked:

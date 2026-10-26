@@ -191,6 +191,7 @@ BACKEND_CORE_TESTS=(
   tests/test_adr_index.py
   tests/test_contracts_registry.py
   tests/test_approval_ux_contract.py
+  tests/test_policy_principal.py
 )
 
 job_backend_core() {
