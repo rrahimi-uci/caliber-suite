@@ -43,13 +43,14 @@ from starlette.routing import Route
 
 from caliber.audit import record as audit_record
 from caliber.auth import SCOPE_OPERATOR, require_scopes, require_user
+from caliber.observability.trace_access import is_visible
 from caliber.routes._deps import (
     envelope_response,
     envelope_response_dict,
     get_session_factory,
     parse_json_object,
 )
-from caliber.routes.observability import gateway_usage_payload
+from caliber.routes.observability import gateway_usage_payload, visible_experiments_for
 from caliber.schemas import (
     GatewayEndpointSchema,
     GatewayGuardrailAttachRequest,
@@ -739,10 +740,14 @@ async def get_gateway_usage(request: Request) -> JSONResponse:
             since_ms = int(raw_since)
         except ValueError:
             since_ms = None
+    visible = visible_experiments_for(request)
+    if experiment_filter and not is_visible(experiment_filter, visible):
+        raise HTTPException(status_code=404, detail=f"experiment {experiment_filter!r} not found")
     payload = gateway_usage_payload(
         experiment_filter=experiment_filter,
         configured=configured_experiment,
         since_ms=since_ms,
+        visible=visible,
     )
     return envelope_response_dict(payload)
 

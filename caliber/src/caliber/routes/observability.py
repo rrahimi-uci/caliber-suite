@@ -32,7 +32,8 @@ from starlette.responses import (
 from starlette.routing import Route
 
 from caliber.audit import record as audit_record
-from caliber.auth import require_user
+from caliber.auth import require_user, resolve_identity
+from caliber.observability.trace_access import is_visible, visible_experiment_ids
 from caliber.routes._deps import get_session_factory, parse_json_object
 from caliber.trace_client import (
     TraceNotFoundError,
@@ -89,6 +90,34 @@ def _state_str(info: Any) -> str:
     if state is None:
         return ""
     return str(getattr(state, "name", None) or getattr(state, "value", None) or state)
+
+
+def visible_experiments_for(request: Request) -> set[str] | None:
+    """The experiments the caller may see traces from; ``None`` is every experiment (an admin)."""
+    identity = resolve_identity(request)
+    with get_session_factory(request)() as session:
+        return visible_experiment_ids(session, identity)
+
+
+def _require_visible_filter(experiment_filter: str, visible: set[str] | None) -> None:
+    """404 when the caller names an experiment they may not see, as for one that does not exist.
+
+    Called before a route's ``try`` block: its ``except Exception`` would turn this into a 503.
+    """
+    if experiment_filter and not is_visible(experiment_filter, visible):
+        raise HTTPException(status_code=404, detail=f"experiment {experiment_filter!r} not found")
+
+
+def _require_visible_trace(trace_id: str, visible: set[str]) -> None:
+    """404 unless the trace exists and is filed under an experiment in ``visible``."""
+    try:
+        detail = fetch_trace_detail(trace_id, strict=True)
+    except TraceNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=f"trace {trace_id!r} not found") from exc
+    except TraceStoreUnavailableError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    if not is_visible(detail.experiment_id, visible):
+        raise HTTPException(status_code=404, detail=f"trace {trace_id!r} not found")
 
 
 def _experiment_ids(mlflow_mod: Any, configured: str) -> list[str]:
@@ -238,6 +267,8 @@ async def list_traces(request: Request) -> JSONResponse:
     session_filter = request.query_params.get("session", "").strip()
     experiment_filter = request.query_params.get("experiment_id", "").strip()
     since_ms = _int_param(request, "since_ms")
+    visible = visible_experiments_for(request)
+    _require_visible_filter(experiment_filter, visible)
     try:
         probe_trace_store()
     except TraceStoreUnavailableError as exc:
@@ -252,6 +283,7 @@ async def list_traces(request: Request) -> JSONResponse:
         experiment_ids = (
             [experiment_filter] if experiment_filter else _experiment_ids(mlflow, configured)
         )
+        experiment_ids = [e for e in experiment_ids if is_visible(e, visible)]
         if not experiment_ids:
             return JSONResponse({"data": {"traces": []}})
         traces = (
@@ -283,6 +315,10 @@ async def list_traces(request: Request) -> JSONResponse:
             continue
         if since_ms is not None and (summary["timestamp_ms"] or 0) < since_ms:
             continue
+        # The search was already limited to visible experiments; this keeps a trace the store returns
+        # from another location out of the answer.
+        if not is_visible(summary["experiment_id"], visible):
+            continue
         summaries.append(summary)
     return JSONResponse({"data": {"traces": summaries}})
 
@@ -290,6 +326,7 @@ async def list_traces(request: Request) -> JSONResponse:
 async def list_experiments(request: Request) -> JSONResponse:
     """List MLflow experiments (id + name) for the Observability experiment filter."""
     require_user(request)
+    visible = visible_experiments_for(request)
     try:
         import mlflow  # noqa: PLC0415
 
@@ -304,6 +341,7 @@ async def list_experiments(request: Request) -> JSONResponse:
         }
         for exp in experiments
         if getattr(exp, "experiment_id", None) is not None
+        and is_visible(str(exp.experiment_id), visible)
     ]
     return JSONResponse({"data": {"experiments": out}})
 
@@ -313,12 +351,16 @@ async def get_trace(request: Request) -> JSONResponse:
     token/cost rollup, and feedback assessments (the in-app MLflow mirror)."""
     require_user(request)
     trace_id = str(request.path_params["trace_id"])
+    visible = visible_experiments_for(request)
     try:
         detail = fetch_trace_detail(trace_id, strict=True)
     except TraceNotFoundError as exc:
         raise HTTPException(status_code=404, detail=f"trace {trace_id!r} not found") from exc
     except TraceStoreUnavailableError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
+    if not is_visible(detail.experiment_id, visible):
+        # The same answer as for an id that does not exist, so a foreign id is not confirmed.
+        raise HTTPException(status_code=404, detail=f"trace {trace_id!r} not found")
     return JSONResponse(
         {
             "data": {
@@ -363,6 +405,11 @@ async def post_feedback(request: Request) -> JSONResponse:
         raise HTTPException(status_code=400, detail="'value' is required (bool, number, or string)")
     rationale_raw = data.get("rationale")
     rationale = str(rationale_raw).strip() if rationale_raw else None
+    visible = visible_experiments_for(request)
+    if visible is not None:
+        # Only a non-admin needs the lookup, and it must come before the write: log_feedback changes
+        # the trace in MLflow, so a refusal afterwards would be too late.
+        _require_visible_trace(trace_id, visible)
     try:
         import mlflow  # noqa: PLC0415
         from mlflow.entities import AssessmentSource  # noqa: PLC0415
@@ -484,7 +531,11 @@ def _raw_span_str(span: Any, key: str) -> str | None:
 
 
 def gateway_usage_payload(
-    *, experiment_filter: str, configured: str, since_ms: int | None
+    *,
+    experiment_filter: str,
+    configured: str,
+    since_ms: int | None,
+    visible: set[str] | None = None,
 ) -> dict[str, Any]:
     """Trace-derived usage for the Gateway page's Usage tab.
 
@@ -493,6 +544,9 @@ def gateway_usage_payload(
     per-model token+cost rollup by walking span attributes (``caliber.model`` /
     ``caliber.tokens`` / ``caliber.cost_usd``). Degrades to empty on any error —
     this reads MLflow traces, independent of the gateway service's reachability.
+
+    ``visible`` limits the traces counted to those experiments (``None``: all of them); the caller
+    passes :func:`caliber.observability.trace_access.visible_experiment_ids` for the requesting user.
     """
     empty: dict[str, Any] = {**_bucketize([], since_ms), "by_model": []}
     try:
@@ -504,6 +558,7 @@ def gateway_usage_payload(
         experiment_ids = (
             [experiment_filter] if experiment_filter else _experiment_ids(mlflow, configured)
         )
+        experiment_ids = [e for e in experiment_ids if is_visible(e, visible)]
         if not experiment_ids:
             return empty
         traces = (
@@ -523,10 +578,13 @@ def gateway_usage_payload(
     by_model: dict[str, dict[str, float]] = {}
     for trace in traces:
         try:
-            summaries.append(_trace_summary(trace, names))
+            summary = _trace_summary(trace, names)
         except Exception:
             logger.debug("skipping malformed trace in gateway usage", exc_info=True)
             continue
+        if not is_visible(summary["experiment_id"], visible):
+            continue
+        summaries.append(summary)
         data = getattr(trace, "data", None)
         for span in list(getattr(data, "spans", None) or []):
             tokens = _raw_span_num(span, "caliber.tokens")
@@ -566,6 +624,8 @@ async def get_metrics(request: Request) -> JSONResponse:
     configured = str(getattr(config, "tracing_experiment", "") or "") if config else ""
     experiment_filter = request.query_params.get("experiment_id", "").strip()
     since_ms = _int_param(request, "since_ms")
+    visible = visible_experiments_for(request)
+    _require_visible_filter(experiment_filter, visible)
     try:
         import mlflow  # noqa: PLC0415
 
@@ -573,6 +633,7 @@ async def get_metrics(request: Request) -> JSONResponse:
         experiment_ids = (
             [experiment_filter] if experiment_filter else _experiment_ids(mlflow, configured)
         )
+        experiment_ids = [e for e in experiment_ids if is_visible(e, visible)]
         if not experiment_ids:
             return JSONResponse({"data": _bucketize([], since_ms)})
         traces = (
@@ -596,6 +657,8 @@ async def get_metrics(request: Request) -> JSONResponse:
             logger.debug("skipping malformed trace in metrics", exc_info=True)
             continue
         if since_ms is not None and (summary["timestamp_ms"] or 0) < since_ms:
+            continue
+        if not is_visible(summary["experiment_id"], visible):
             continue
         summaries.append(summary)
     return JSONResponse({"data": _bucketize(summaries, since_ms)})
