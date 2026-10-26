@@ -914,9 +914,16 @@ def create_app(config: CaliberConfig | None = None) -> ASGIApp:  # noqa: PLR0915
     # have an opinion about a request to something this deployment does not serve.
     app.add_middleware(FeatureGateMiddleware, config=resolved)
     # The reference profile bounds every request body (declared and streamed) before anything else reads it, so
-    # it is the outermost middleware. The default profile installs nothing.
+    # it is the outermost middleware (so it echoes its own trace id on a refusal). The default profile installs
+    # nothing.
     if resolved.profile == "reference":
-        app.add_middleware(BodySizeLimitMiddleware, max_bytes=resolved.reference_max_body_bytes)
+        app.add_middleware(
+            BodySizeLimitMiddleware,
+            max_bytes=resolved.reference_max_body_bytes,
+            multipart_max_bytes=resolved.reference_max_upload_bytes,
+            # The webhook route enforces its own, larger limit (github_webhook_max_body_bytes).
+            path_limits={GITHUB_WEBHOOK_PATH: resolved.github_webhook_max_body_bytes},
+        )
     app.state.config = resolved
     app.state.engine = engine
     app.state.session_factory = session_factory

@@ -64,6 +64,18 @@ streamed the body without one (or understated it). The check is the outermost la
 is refused before authentication, CSRF or routing reads it. A request at exactly the limit is accepted, and the
 development profile installs no limit.
 
+Two kinds of request have a limit of their own, because their routes accept more than 1 MiB. The larger limit
+applies; the default is never lower than a route's own:
+
+| request | limit | setting |
+| --- | --- | --- |
+| `multipart/form-data` (skill zips, attachments, workspace imports, storage objects) | 256 MiB | `CALIBER_REFERENCE_MAX_UPLOAD_BYTES`; raise it together with `CALIBER_WORKFLOW_STORAGE_MAX_UPLOAD_BYTES` (250 MiB), which each route still enforces, tighter, afterwards |
+| the GitHub webhook route | `CALIBER_GITHUB_WEBHOOK_MAX_BODY_BYTES` (2 MiB) | the route's own setting; the global 1 MiB never lowers it |
+
+A refusal carries `x-request-id` (the caller's, or one generated) and writes one warning log line naming the
+method, path and size. The body is refused, not drained, so a client that keeps sending a very large body may see
+a connection reset rather than the `413`.
+
 ## A configuration that passes
 
 ```ini
