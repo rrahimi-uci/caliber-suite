@@ -281,10 +281,15 @@ assigns (`caliber/src/caliber/observability/trace_access.py::resolve_experiment`
   claim after both are resolved, so an id, a name and a second name of one experiment are one claim.
   Another project or user holding any alias refuses it with `409`.
 - When the backend cannot say what a reference means, the claim is refused with `503` and nothing is
-  stored: an ownership decision is never made on a guess. A reference that resolves to nothing (an
-  experiment nobody has created yet) is compared as written.
-- Reads resolve the same way. A claim that cannot be resolved matches only its own text, so a backend outage
-  can hide traces from their owner but never reveals them to anyone else.
+  stored: an ownership decision is never made on a guess. That includes **another project's** claim that
+  cannot be resolved, since it could be the very experiment being claimed. A reference that resolves to
+  nothing (an experiment nobody has created yet) is compared as written.
+- Reads resolve the same way and fail the same way: while any claim cannot be resolved, trace, metric and
+  experiment reads answer `503` (closed, not empty and not "only its own text"), so a partial outage can
+  neither reveal traces nor lift a quarantine. The backend's own error (a host or URL) is logged, never sent
+  to the caller.
+- Resolutions are cached for about 15 seconds (jittered; a failure for 2), the cache is bounded, and many
+  uncached claims are resolved with one listing of every experiment instead of one call each.
 - An experiment already claimed by two scopes (data from before the check) is **quarantined**: hidden from
   every non-admin, listed for an operator by `GET /observability/experiment-claim-conflicts`, and never
   settled by a last-writer-wins rule. Removing the claim that should not exist releases it.

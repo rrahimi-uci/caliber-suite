@@ -16,6 +16,7 @@ no experiment id for a run, so a workflow's traces are visible to non-admins onl
 from __future__ import annotations
 
 import logging
+import random
 import threading
 import time
 from collections import defaultdict
@@ -27,7 +28,11 @@ from sqlalchemy.orm import Session
 from caliber.auth import SCOPE_ADMIN, CaliberIdentity
 from caliber.db.models import CaliberAgentConfig, CaliberWorkflow
 from caliber.db.scoping import apply_visibility_filter
-from caliber.trace_client import TraceNotFoundError, fetch_trace_detail
+from caliber.trace_client import (
+    TraceNotFoundError,
+    TraceStoreUnavailableError,
+    fetch_trace_detail,
+)
 
 logger = logging.getLogger("caliber.observability.trace_access")
 
@@ -56,18 +61,36 @@ def visible_experiment_ids(session: Session, identity: CaliberIdentity) -> set[s
     return {str(experiment_id) for experiment_id in found if experiment_id}
 
 
-class ExperimentLookupError(RuntimeError):
+class ExperimentLookupError(TraceStoreUnavailableError):
     """The tracking backend could not say whether an experiment reference exists, or which one it is.
 
-    Claims fail closed on it: an ownership decision is never made on a guess.
+    Claims, quarantine and visibility fail closed on it: an ownership decision is never made on a guess. It is a
+    :class:`~caliber.trace_client.TraceStoreUnavailableError`, so every route that already answers 503 for an
+    unreachable trace store answers it here. The message is deliberately generic: the backend's own error (a
+    host, a port, a URL with credentials) is logged, never sent to a caller.
     """
 
 
-#: How long a resolved reference is trusted. Resolution is one MLflow call per distinct reference and the
-#: conflict scan resolves every claim in the database, so a short cache keeps a trace list from becoming an
-#: N-call fan-out; it is also short enough that a renamed experiment is noticed within seconds.
+_LOOKUP_FAILED = (
+    "the tracking backend did not answer, so the experiment's identity could not be established"
+)
+
+#: How long a resolved reference is trusted, with up to +-20% jitter so a scan that filled the cache all at
+#: once does not expire it all at once. Resolution is one MLflow call per distinct reference (or one listing,
+#: below) and the conflict scan resolves every claim, so a short cache keeps a trace list from becoming an
+#: N-call fan-out; it is short enough that a renamed experiment is noticed within seconds.
 _RESOLUTION_TTL_SECONDS = 15.0
-_resolutions: dict[str, tuple[float, str | None]] = {}
+#: A failure is remembered briefly, so a backend that is down costs one probe per window, not one per request.
+_FAILURE_TTL_SECONDS = 2.0
+#: The cache is bounded: an editor can try arbitrary strings as claims.
+_CACHE_LIMIT = 5000
+#: At or above this many uncached references one listing of every experiment replaces one call per reference.
+_BULK_THRESHOLD = 20
+_LISTING_PAGE = 1000
+_JITTER = 0.2
+
+#: ``ref -> (expires_at, canonical id or None, failed)``
+_resolutions: dict[str, tuple[float, str | None, bool]] = {}
 _resolutions_lock = threading.Lock()
 
 
@@ -77,6 +100,18 @@ def clear_resolution_cache() -> None:
         _resolutions.clear()
 
 
+def _remember(ref: str, value: str | None, *, failed: bool = False) -> None:
+    ttl = (
+        _FAILURE_TTL_SECONDS
+        if failed
+        else _RESOLUTION_TTL_SECONDS * random.uniform(1 - _JITTER, 1 + _JITTER)  # noqa: S311
+    )
+    with _resolutions_lock:
+        if ref not in _resolutions and len(_resolutions) >= _CACHE_LIMIT:
+            _resolutions.pop(next(iter(_resolutions)))  # the oldest entry
+        _resolutions[ref] = (time.monotonic() + ttl, value, failed)
+
+
 def resolve_experiment(ref: str) -> str | None:
     """The canonical numeric experiment id of ``ref`` (a name or an id), or ``None`` when no such experiment.
 
@@ -84,15 +119,57 @@ def resolve_experiment(ref: str) -> str | None:
     ownership has to be decided on it, whichever alias an agent or workflow named. Raises
     :class:`ExperimentLookupError` when the backend cannot answer; "no such experiment" is an answer.
     """
-    now = time.monotonic()
     with _resolutions_lock:
         cached = _resolutions.get(ref)
-        if cached is not None and now - cached[0] < _RESOLUTION_TTL_SECONDS:
-            return cached[1]
-    resolved = _lookup_experiment(ref)
-    with _resolutions_lock:
-        _resolutions[ref] = (now, resolved)
+    if cached is not None and time.monotonic() < cached[0]:
+        if cached[2]:
+            raise ExperimentLookupError(_LOOKUP_FAILED)
+        return cached[1]
+    try:
+        resolved = _lookup_experiment(ref)
+    except ExperimentLookupError:
+        _remember(ref, None, failed=True)
+        raise
+    _remember(ref, resolved)
     return resolved
+
+
+def resolve_many(refs: set[str] | frozenset[str]) -> None:
+    """Warm the cache for ``refs``: one listing of every experiment when many are uncached, else nothing.
+
+    The conflict scan resolves every claim in the database; on a deployment with thousands, one call per claim
+    every time the cache expires is minutes of MLflow round trips. A complete listing answers all of them
+    exactly (an id or a name the listing lacks does not exist). Any failure is left for the per-reference path,
+    which reports it.
+    """
+    now = time.monotonic()
+    with _resolutions_lock:
+        missing = [r for r in refs if (_resolutions.get(r) or (0.0,))[0] <= now]
+    if len(missing) < _BULK_THRESHOLD:
+        return
+    try:
+        from mlflow import MlflowClient  # noqa: PLC0415
+        from mlflow.entities import ViewType  # noqa: PLC0415
+
+        client = MlflowClient()
+        ids: set[str] = set()
+        by_name: dict[str, str] = {}
+        token = None
+        while True:
+            page = client.search_experiments(
+                view_type=ViewType.ALL, max_results=_LISTING_PAGE, page_token=token
+            )
+            for experiment in page:
+                ids.add(str(experiment.experiment_id))
+                by_name[str(experiment.name)] = str(experiment.experiment_id)
+            token = getattr(page, "token", None)
+            if not token:
+                break
+    except Exception:
+        logger.warning("could not list experiments to resolve claims in bulk", exc_info=True)
+        return
+    for ref in missing:
+        _remember(ref, (ref if ref in ids else None) if ref.isdigit() else by_name.get(ref))
 
 
 def _lookup_experiment(ref: str) -> str | None:
@@ -100,7 +177,8 @@ def _lookup_experiment(ref: str) -> str | None:
         import mlflow  # noqa: PLC0415
         from mlflow.exceptions import MlflowException  # noqa: PLC0415
     except Exception as exc:
-        raise ExperimentLookupError("the tracking client is not available") from exc
+        logger.warning("the tracking client is not available", exc_info=True)
+        raise ExperimentLookupError(_LOOKUP_FAILED) from exc
     experiment: Any
     try:
         if ref.isdigit():
@@ -110,9 +188,11 @@ def _lookup_experiment(ref: str) -> str | None:
     except MlflowException as exc:
         if getattr(exc, "error_code", "") == "RESOURCE_DOES_NOT_EXIST":
             return None
-        raise ExperimentLookupError(f"could not resolve experiment {ref!r}: {exc}") from exc
+        logger.warning("could not resolve experiment %r: %s", ref, exc)
+        raise ExperimentLookupError(_LOOKUP_FAILED) from exc
     except Exception as exc:
-        raise ExperimentLookupError(f"could not resolve experiment {ref!r}: {exc}") from exc
+        logger.warning("could not resolve experiment %r: %s", ref, exc)
+        raise ExperimentLookupError(_LOOKUP_FAILED) from exc
     experiment_id = getattr(experiment, "experiment_id", None) if experiment else None
     return None if experiment_id is None else str(experiment_id)
 
@@ -159,13 +239,12 @@ def _claim_rows(session: Session) -> list[tuple[str, tuple[str, str], str | None
 def _contested_keys(session: Session) -> dict[str, set[tuple[str, str]]]:
     """``{key: scopes}`` for every key claimed by two or more scopes, under any alias."""
     scopes: dict[str, set[tuple[str, str]]] = defaultdict(set)
-    for ref, scope, _agent, _workflow in _claim_rows(session):
-        try:
-            keys = claim_keys(ref)
-        except ExperimentLookupError:
-            keys = frozenset({ref})
-            logger.warning("could not resolve experiment claim %r; comparing it as written", ref)
-        for key in keys:
+    rows = _claim_rows(session)
+    resolve_many({ref for ref, *_ in rows})
+    for ref, scope, _agent, _workflow in rows:
+        for key in claim_keys(
+            ref
+        ):  # raises ExperimentLookupError: an unresolvable claim could alias anything
             scopes[key].add(scope)
     return {key: claimed for key, claimed in scopes.items() if len(claimed) > 1}
 
@@ -180,11 +259,7 @@ def experiment_claim_conflicts(session: Session) -> list[dict[str, object]]:
     contested = _contested_keys(session)
     found: dict[str, list[dict[str, object]]] = defaultdict(list)
     for ref, scope, agent_id, workflow_id in rows:
-        try:
-            keys = claim_keys(ref)
-        except ExperimentLookupError:
-            keys = frozenset({ref})
-        for key in sorted(keys & contested.keys()):
+        for key in sorted(claim_keys(ref) & contested.keys()):
             found[key].append(
                 {
                     "claim": ref,
@@ -201,20 +276,17 @@ def visible_experiments(session: Session, identity: CaliberIdentity) -> set[str]
 
     The claims of :func:`visible_experiment_ids` (names or ids, as written) plus the canonical id of each, so a
     trace, which carries only the id, is found whichever alias its owner used. An experiment that two scopes
-    claim under any alias is quarantined and absent for everyone but an admin. A claim the backend cannot
-    resolve contributes only its own text: it can hide traces from its owner, never reveal them to others.
+    claim under any alias is quarantined and absent for everyone but an admin. If the backend cannot resolve a
+    claim, the answer is :class:`ExperimentLookupError` (a 503 on the routes): an unresolvable claim could alias
+    any experiment, so neither visibility nor quarantine can be decided.
     """
     claims = visible_experiment_ids(session, identity)
     if claims is None:
         return None
+    resolve_many(claims)
     expanded = set(claims)
     for ref in claims:
-        try:
-            expanded |= claim_keys(ref)
-        except ExperimentLookupError:
-            logger.warning(
-                "could not resolve experiment claim %r; it matches only its own text", ref
-            )
+        expanded |= claim_keys(ref)
     return expanded - _contested_keys(session).keys()
 
 
@@ -285,18 +357,18 @@ def assert_experiment_claim_allowed(
         return
     mine = _claim_scope(visibility, project_id, owner)
     wanted = claim_keys(experiment_id)  # raises ExperimentLookupError: fail closed
-    for ref, scope, existing_agent, existing_workflow in _claim_rows(session):
+    rows = _claim_rows(session)
+    resolve_many({ref for ref, *_ in rows})
+    for ref, scope, existing_agent, existing_workflow in rows:
         if (agent_id and existing_agent == agent_id) or (
             workflow_id and existing_workflow == workflow_id
         ):
             continue
         if scope == mine:
             continue
-        try:
-            keys = claim_keys(ref)
-        except ExperimentLookupError:
-            keys = frozenset({ref})
-        if wanted & keys:
+        # Raises ExperimentLookupError when another scope's claim cannot be resolved: it could be the very
+        # experiment being claimed, so the claim is refused rather than compared as written.
+        if wanted & claim_keys(ref):
             raise ExperimentClaimConflict(
                 f"experiment {experiment_id!r} is already claimed by another project or user"
             )

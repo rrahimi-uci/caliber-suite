@@ -34,6 +34,7 @@ from starlette.routing import Route
 from caliber.audit import record as audit_record
 from caliber.auth import SCOPE_ADMIN, require_scopes, require_user, resolve_identity
 from caliber.observability.trace_access import (
+    ExperimentLookupError,
     TraceNotReadableError,
     experiment_claim_conflicts,
     is_visible,
@@ -103,7 +104,11 @@ def visible_experiments_for(request: Request) -> set[str] | None:
     """The experiments the caller may see traces from; ``None`` is every experiment (an admin)."""
     identity = resolve_identity(request)
     with get_session_factory(request)() as session:
-        return visible_experiments(session, identity)
+        try:
+            return visible_experiments(session, identity)
+        except ExperimentLookupError as exc:
+            # Ownership cannot be decided while the tracking backend does not answer: closed, not empty.
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
 def _require_visible_filter(experiment_filter: str, visible: set[str] | None) -> None:
@@ -358,7 +363,10 @@ async def list_experiment_claim_conflicts(request: Request) -> JSONResponse:
     """
     require_scopes(request, [SCOPE_ADMIN])
     with get_session_factory(request)() as session:
-        conflicts = experiment_claim_conflicts(session)
+        try:
+            conflicts = experiment_claim_conflicts(session)
+        except ExperimentLookupError as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
     return JSONResponse({"data": {"conflicts": conflicts}})
 
 
