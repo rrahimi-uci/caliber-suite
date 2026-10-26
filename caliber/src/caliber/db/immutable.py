@@ -16,7 +16,7 @@ from __future__ import annotations
 from typing import Any
 
 from sqlalchemy import event
-from sqlalchemy.orm import ORMExecuteState, Session
+from sqlalchemy.orm import ORMExecuteState, Session, object_session
 from sqlalchemy.orm.mapper import Mapper
 
 
@@ -39,7 +39,10 @@ def guard_immutable(model: type) -> type:
     _IMMUTABLE_MODELS.add(model)
 
     @event.listens_for(model, "before_update")
-    def _no_update(_mapper: Mapper[Any], _connection: Any, _target: Any) -> None:
+    def _no_update(_mapper: Mapper[Any], _connection: Any, target: Any) -> None:
+        session = object_session(target)
+        if session is not None and not session.is_modified(target, include_collections=False):
+            return  # touched but unchanged: no UPDATE would be sent
         raise _refuse(model, "UPDATE")
 
     @event.listens_for(model, "before_delete")

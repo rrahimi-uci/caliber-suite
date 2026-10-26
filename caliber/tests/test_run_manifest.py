@@ -71,6 +71,7 @@ def _migrated(
 
 def _add_run(engine: Engine, run_id: str | None = None, **columns: Any) -> str:
     run_id = run_id or f"run-{uuid.uuid4().hex[:12]}"
+    columns.setdefault("manifest_legacy", False)  # an admitted run; legacy is the default otherwise
     with Session(engine) as session, session.begin():
         session.add(CaliberWorkflowRun(workflow_run_id=run_id, workflow_id="wf-1", **columns))
     return run_id
@@ -252,8 +253,8 @@ def test_an_orm_bulk_update_or_delete_raises_immutable_record_error(
 def test_bulk_sql_is_refused_by_the_database_itself(
     dialect: str, sql: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Core and raw SQL skip the ORM guard entirely; only the trigger is left, and it holds. A statement that
-    matches no row is refused too on PostgreSQL's row triggers only when a row matches, so seed one first."""
+    """Core and raw SQL skip the ORM guard entirely; only the trigger is left, and it holds. Row triggers fire
+    only for a matching row, so a manifest is seeded first."""
     with _migrated(dialect, tmp_path, monkeypatch) as (engine, _):
         run_id = _add_run(engine)
         _store(engine, run_id)
@@ -320,8 +321,10 @@ def test_postgresql_runtime_role_with_select_and_insert_cannot_update_delete_or_
             connection.execute(text(f'GRANT SELECT, INSERT ON caliber_run_manifests TO "{role}"'))
         try:
             raw = _manifest_bytes(run_id)
-            with engine.connect() as connection:
-                connection.execute(text(f'SET ROLE "{role}"'))
+            with engine.begin() as connection:
+                connection.execute(
+                    text(f'SET LOCAL ROLE "{role}"')
+                )  # reset at the end of the transaction
                 connection.execute(
                     text(
                         "INSERT INTO caliber_run_manifests (manifest_id, workflow_run_id, schema_version, "
@@ -329,25 +332,16 @@ def test_postgresql_runtime_role_with_select_and_insert_cannot_update_delete_or_
                     ),
                     {"run": run_id, "bytes": raw, "digest": hashlib.sha256(raw).hexdigest()},
                 )
-                connection.commit()
-                for sql in (
-                    "UPDATE caliber_run_manifests SET schema_version = 'v2'",
-                    "DELETE FROM caliber_run_manifests",
-                    "TRUNCATE caliber_run_manifests",
-                ):
-                    with pytest.raises(DBAPIError, match="permission denied"):
+            for sql in (
+                "UPDATE caliber_run_manifests SET schema_version = 'v2'",
+                "DELETE FROM caliber_run_manifests",
+                "TRUNCATE caliber_run_manifests",
+            ):
+                with pytest.raises(DBAPIError, match="permission denied"):
+                    with engine.begin() as connection:
+                        connection.execute(text(f'SET LOCAL ROLE "{role}"'))
                         connection.execute(text(sql))
-                    connection.rollback()
-                assert (
-                    connection.execute(
-                        text("SELECT COUNT(*) FROM caliber_run_manifests")
-                    ).scalar_one()
-                    == 1
-                )
-                connection.execute(
-                    text("RESET ROLE")
-                )  # the pooled connection must not stay the role
-                connection.commit()
+            assert session_count(engine) == 1
         finally:
             with engine.begin() as connection:
                 connection.execute(
@@ -407,7 +401,9 @@ def test_runs_that_predate_the_migration_are_marked_legacy_and_get_no_manifest(
                 assert session.get(CaliberWorkflowRun, new_run).manifest_legacy is False  # type: ignore[union-attr]
             _store(engine, new_run)  # a new run can have its manifest
 
-            with pytest.raises(IntegrityError, match="a legacy run cannot have a manifest"):
+            with pytest.raises(
+                IntegrityError, match="a manifest needs an existing, non-legacy run"
+            ):
                 with Session(engine) as session, session.begin():
                     session.add(_manifest("old-run"))
             assert session_count(engine) == 1
@@ -507,3 +503,130 @@ def test_the_migration_creates_the_table_and_column_and_rolls_back_cleanly(
         assert session_count(engine) == 0, (
             "re-applying starts with no manifests, and the run is legacy"
         )
+
+
+# ---------------------------------------------------------------- a run created outside admission is legacy
+
+
+@pytest.mark.parametrize("dialect", DIALECTS)
+def test_a_run_created_without_saying_otherwise_is_legacy_and_cannot_gain_a_manifest(
+    dialect: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    with _migrated(dialect, tmp_path, monkeypatch) as (engine, _):
+        via_orm = f"run-{uuid.uuid4().hex[:8]}"
+        with Session(engine) as session, session.begin():
+            session.add(CaliberWorkflowRun(workflow_run_id=via_orm, workflow_id="wf-1"))
+        via_sql = f"run-{uuid.uuid4().hex[:8]}"
+        with engine.begin() as connection:
+            connection.execute(
+                text(
+                    "INSERT INTO caliber_workflow_runs (workflow_run_id, workflow_id, tenant_id, status, "
+                    "source, priority, attempt_number) VALUES (:r, 'wf-1', 'local', 'completed', 'manual', 0, 1)"
+                ),
+                {"r": via_sql},
+            )
+        with Session(engine) as session:
+            assert session.get(CaliberWorkflowRun, via_orm).manifest_legacy is True  # type: ignore[union-attr]
+            assert session.get(CaliberWorkflowRun, via_sql).manifest_legacy is True  # type: ignore[union-attr]
+        for run_id in (via_orm, via_sql):
+            with pytest.raises(IntegrityError, match="non-legacy run"):
+                _store(engine, run_id)
+
+
+@pytest.mark.parametrize("dialect", DIALECTS)
+def test_a_manifest_for_a_run_that_does_not_exist_is_refused_on_every_dialect(
+    dialect: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    with _migrated(dialect, tmp_path, monkeypatch) as (engine, _):
+        with pytest.raises(IntegrityError, match="non-legacy run"):
+            _store(engine, "no-such-run")
+        assert session_count(engine) == 0
+
+
+@pytest.mark.skipif(not POSTGRES_TEST_URL, reason="search_path shadowing is PostgreSQL-only")
+def test_postgresql_a_temp_table_cannot_shadow_the_runs_table_to_fabricate_a_manifest(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Regression: the trigger function once resolved ``caliber_workflow_runs`` through ``search_path``, which
+    searches ``pg_temp`` first, so a role holding only INSERT on the manifests could attach one to a legacy run
+    by creating a temporary table of that name."""
+    with _migrated("postgresql", tmp_path, monkeypatch) as (engine, _):
+        legacy = _add_run(engine, manifest_legacy=True)
+        raw = _manifest_bytes(legacy)
+        with pytest.raises(IntegrityError, match="non-legacy run"):
+            with engine.begin() as connection:
+                connection.execute(
+                    text(
+                        "CREATE TEMP TABLE caliber_workflow_runs "
+                        "(workflow_run_id varchar(64), manifest_legacy boolean) ON COMMIT DROP"
+                    )
+                )
+                connection.execute(
+                    text("INSERT INTO pg_temp.caliber_workflow_runs VALUES (:r, false)"),
+                    {"r": legacy},
+                )
+                connection.execute(
+                    text(
+                        "INSERT INTO caliber_run_manifests (manifest_id, workflow_run_id, schema_version, "
+                        "manifest_bytes, manifest_digest) VALUES ('m-fab', :run, 'v1', :bytes, :digest)"
+                    ),
+                    {"run": legacy, "bytes": raw, "digest": hashlib.sha256(raw).hexdigest()},
+                )
+        assert session_count(engine) == 0
+
+
+# ---------------------------------------------------------------- runs that carry a manifest are retained
+
+
+@pytest.mark.parametrize("dialect", DIALECTS)
+def test_retention_pruning_skips_runs_that_have_a_manifest(
+    dialect: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from datetime import datetime, timedelta, timezone
+
+    from caliber.workflows.promoter import prune_workflow_runs
+
+    with _migrated(dialect, tmp_path, monkeypatch) as (engine, _):
+        pinned = _add_run(engine)
+        _store(engine, pinned)
+        plain = _add_run(engine)
+        legacy = _add_run(engine, manifest_legacy=True)
+        far_future = datetime.now(timezone.utc) + timedelta(days=30)
+        with Session(engine) as session, session.begin():
+            assert prune_workflow_runs(session, retention_days=1, now=far_future) == 2
+        with Session(engine) as session:
+            assert session.get(CaliberWorkflowRun, pinned) is not None, "a manifest's run is kept"
+            assert session.get(CaliberWorkflowRun, plain) is None
+            assert session.get(CaliberWorkflowRun, legacy) is None, "legacy runs are still prunable"
+        assert session_count(engine) == 1
+
+
+def test_deleting_a_workflow_whose_runs_have_manifests_is_a_409(
+    client: Any, db_session: Session
+) -> None:
+    from tests.workflow_helpers import PREFIX, create_workflow
+
+    kept = create_workflow(client, "Has Manifest")
+    plain = create_workflow(client, "No Manifest")
+    pinned_run = "run-pinned"
+    for workflow_id, run_id, legacy in ((kept, pinned_run, False), (plain, "run-legacy", True)):
+        db_session.add(
+            CaliberWorkflowRun(
+                workflow_run_id=run_id, workflow_id=workflow_id, manifest_legacy=legacy
+            )
+        )
+    db_session.commit()
+    db_session.add(_manifest(pinned_run))
+    db_session.commit()
+
+    refused = client.delete(f"{PREFIX}/workflows/{kept}")
+    assert refused.status_code == 409, refused.text
+    assert "immutable run manifests" in refused.text
+    assert db_session.get(
+        CaliberRunManifest, db_session.execute(select(CaliberRunManifest.manifest_id)).scalar_one()
+    )
+    assert client.get(f"{PREFIX}/workflows/{kept}").status_code == 200
+
+    allowed = client.delete(f"{PREFIX}/workflows/{plain}")
+    assert allowed.status_code in (200, 204), allowed.text
+    assert client.get(f"{PREFIX}/workflows/{plain}").status_code == 404

@@ -35,6 +35,7 @@ from caliber.db.models import (
     CaliberRefinementJob,
     CaliberRegressionRun,
     CaliberRollbackCheckpoint,
+    CaliberRunManifest,
     CaliberRuntimeApprovalRequest,
     CaliberSkill,
     CaliberVerificationItem,
@@ -1664,6 +1665,20 @@ async def delete_workflow(request: Request) -> JSONResponse:
         run_ids_stmt = select(CaliberWorkflowRun.workflow_run_id).where(
             CaliberWorkflowRun.workflow_id == workflow_id
         )
+        # Run manifests are immutable evidence that references the run: a workflow whose runs
+        # carry one cannot be deleted without destroying it.
+        if (
+            session.execute(
+                select(CaliberRunManifest.manifest_id)
+                .where(CaliberRunManifest.workflow_run_id.in_(run_ids_stmt))
+                .limit(1)
+            ).first()
+            is not None
+        ):
+            raise HTTPException(
+                status_code=409,
+                detail="cannot delete workflow: its runs have immutable run manifests",
+            )
         # Run-child rows reference run ids, not workflow ids, so delete them first.
         session.execute(
             delete(CaliberWorkflowRunEvent).where(

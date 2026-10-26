@@ -44,6 +44,7 @@ from caliber.db.models import (
     CaliberAgentConfig,
     CaliberEvalDataset,
     CaliberEvalDatasetExample,
+    CaliberRunManifest,
     CaliberSkill,
     CaliberToolRegistry,
     CaliberWorkflow,
@@ -1399,6 +1400,7 @@ def prune_workflow_runs(
     Returns the number of rows deleted. The janitor calls this each sweep so the
     ``caliber_workflow_runs`` index doesn't grow without bound (plan §26.3 sets
     a 7-day default for preview traces). ``retention_days <= 0`` disables pruning.
+    Runs that have an immutable manifest are never pruned.
     """
     if retention_days <= 0:
         return 0
@@ -1412,7 +1414,18 @@ def prune_workflow_runs(
         CaliberWorkflowRun.queued_at,
         CaliberWorkflowRun.completed_at,
     )
-    rows = session.execute(select(CaliberWorkflowRun).where(age_ts < cutoff)).scalars().all()
+    # A run with a manifest is retained evidence (its pins and subject are immutable and reference
+    # the run), so retention never removes it; pruning one would also violate the manifest's FK.
+    has_manifest = (
+        select(CaliberRunManifest.manifest_id)
+        .where(CaliberRunManifest.workflow_run_id == CaliberWorkflowRun.workflow_run_id)
+        .exists()
+    )
+    rows = (
+        session.execute(select(CaliberWorkflowRun).where(age_ts < cutoff, ~has_manifest))
+        .scalars()
+        .all()
+    )
     for row in rows:
         session.delete(row)
     if rows:

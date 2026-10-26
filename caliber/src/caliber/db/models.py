@@ -30,10 +30,10 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
     event,
-    false,
     func,
     select,
     text,
+    true,
 )
 from sqlalchemy.orm import Mapped, Session, mapped_column
 from sqlalchemy.orm.attributes import get_history
@@ -2148,12 +2148,13 @@ class CaliberWorkflowRun(Base):
     error_code: Mapped[str | None] = mapped_column(String(64), nullable=True)
     error_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
     summary: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
-    # True for a run admitted before manifests existed (migration 0114 sets it on every row that
-    # was already there). Such a run has no ``CaliberRunManifest`` and never gets one: its pins
-    # were never recorded, so none can be written later. Write-once, enforced by a database
-    # trigger; a run with the default False and no manifest has simply not been admitted yet.
+    # True unless admission recorded a manifest for the run: every run that existed before manifests
+    # (migration 0114's default marks them all) and any run created outside admission is legacy, has no
+    # ``CaliberRunManifest`` and never gets one, because its pins were never recorded. Admission (#680)
+    # creates a run with False in the same transaction as its manifest. Write-once, enforced by a
+    # database trigger.
     manifest_legacy: Mapped[bool] = mapped_column(
-        Boolean, default=False, server_default=false(), nullable=False
+        Boolean, default=True, server_default=true(), nullable=False
     )
 
 
