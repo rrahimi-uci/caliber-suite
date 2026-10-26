@@ -60,6 +60,23 @@ _UNMANAGED_COLUMNS: dict[str, set[str]] = {
 }
 
 
+def test_migrating_with_the_ini_file_does_not_disable_existing_loggers(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``fileConfig`` disables every existing logger by default; one test that migrated with the ini made
+    ``caplog`` see nothing in every later test of the same worker (``test_secrets`` and others failed in the
+    full run, never alone)."""
+    import logging
+
+    logger = logging.getLogger("caliber.migration_logging_probe")
+    assert not logger.disabled
+    with dialect_database_url("sqlite", tmp_path, "alembic_logging") as db_url:
+        monkeypatch.setenv("CALIBER_DATABASE_URL", db_url)
+        monkeypatch.chdir(PROJECT_ROOT)
+        command.upgrade(Config(str(ALEMBIC_INI)), "head")
+    assert not logger.disabled, "migrating with alembic.ini disabled an existing logger"
+
+
 @pytest.mark.slow
 @pytest.mark.parametrize("dialect", DIALECTS)
 def test_alembic_upgrade_head_matches_metadata(
