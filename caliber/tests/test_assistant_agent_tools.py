@@ -354,6 +354,60 @@ class TestReadHandlers:
         out = json.loads(ts.dispatch("get_workflow_run_trace", {"run_id": "WR-1"}))
         assert out["ok"] and out["data"]["span_count"] == 0
 
+    def test_get_workflow_run_trace_redacts_payloads_for_a_caller_who_may_not_read_them(
+        self, svc, session_factory, monkeypatch
+    ) -> None:
+        """B11.4b: in the reference profile the assistant's trace tool follows the same rule as the route."""
+        from types import SimpleNamespace
+
+        from caliber import trace_client
+        from caliber.config import CaliberConfig
+
+        spans = [
+            {
+                "span_id": "s1",
+                "name": "tool",
+                "inputs": "SECRET-IN",
+                "outputs": {"a": "SECRET-OUT"},
+                "attributes": {"caliber.run_id": "WR-mine", "mlflow.spanInputs": "SECRET-ATTR"},
+            }
+        ]
+        monkeypatch.setattr(
+            trace_client,
+            "fetch_trace_spans",
+            lambda trace_id: SimpleNamespace(trace_id=trace_id, mlflow_url=None, spans=spans),
+        )
+        with session_factory() as db:
+            db.add(
+                CaliberWorkflow(
+                    workflow_id="WF-1", name="One", owner=USER, status="active", visibility="user"
+                )
+            )
+            for run_id, creator in (("WR-mine", USER), ("WR-theirs", "@someone-else")):
+                db.add(
+                    CaliberWorkflowRun(
+                        workflow_run_id=run_id,
+                        workflow_id="WF-1",
+                        status="completed",
+                        trace_id="tr-1",
+                        created_by=creator,
+                    )
+                )
+            db.commit()
+        sid = _session(svc, session_factory)
+        svc._runtime_config = CaliberConfig.model_construct(profile="reference")
+        ts = _toolset(svc, session_factory, sid, mode="chat", approval="manual")
+        mine = json.loads(ts.dispatch("get_workflow_run_trace", {"run_id": "WR-mine"}))
+        assert "SECRET" in json.dumps(mine), "the user's own run is readable"
+        theirs = json.loads(ts.dispatch("get_workflow_run_trace", {"run_id": "WR-theirs"}))
+        assert "SECRET" not in json.dumps(theirs)
+        span = theirs["data"]["spans"][0]
+        assert (
+            span["inputs"] == "[redacted:inputs]"
+            and span["attributes"]["caliber.run_id"] == "WR-mine"
+        )
+        assert span["attributes"]["mlflow.spanInputs"] == "[redacted:attributes.mlflow.spanInputs]"
+
     def test_dynamic_openapi_read_tool_executes(self, svc, session_factory, monkeypatch) -> None:
         _openapi_tool(
             session_factory,

@@ -142,8 +142,12 @@ def _payload_gate(request: Request) -> Callable[[str | None], bool]:
     def allowed(experiment_id: str | None) -> bool:
         key = experiment_id or ""
         if key not in decisions:
-            with factory() as session:
-                decisions[key] = can_read_payloads(session, identity, key)
+            try:
+                with factory() as session:
+                    decisions[key] = can_read_payloads(session, identity, key)
+            except Exception:  # no session, no decision: the answer is "no"
+                logger.warning("payload permission denied: no database session", exc_info=True)
+                decisions[key] = False
         return decisions[key]
 
     return allowed

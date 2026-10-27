@@ -408,17 +408,25 @@ permission, `trace.payload.read`, held by the project roles **owner** and **edit
 see the trace but not read its payload returns the same shape with every governed field replaced by
 `[redacted:<field>]`: each span's `inputs` and `outputs` and its `attributes.tool_arguments`,
 `attributes.retrieved_documents` and `attributes.model_output` (the list is `profile.GOVERNED_TRACE_FIELDS`), plus the
-whole-trace `request` and `response`. Keys are never deleted or added, and everything else (span ids, names, times,
-status, `attributes.caliber.run_id`, tokens, cost) is identical to what an editor sees. `GET /observability/traces`
+whole-trace `request` and `response`. Real tracers also put the same payload in other attributes
+(`mlflow.spanInputs`, `mlflow.spanOutputs`, `mlflow.chat.messages`, `caliber.tool.input`, `caliber.tool.output`), so
+redaction is **fail-closed**: *every* span attribute that is not on the short list of known payload-free ones
+(`profile.SAFE_SPAN_ATTRIBUTES`: run, node and job ids, status, model name, token and cost counts, tool name and
+latency, span type) is redacted as `[redacted:attributes.<key>]`. Keys are never deleted or added, and everything
+else (span ids, names, times, status, `attributes.caliber.run_id`, tokens, cost) is identical to what an editor sees. `GET /observability/traces`
 redacts `request_preview` and `response_preview` the same way, and `GET /observability/metrics` is computed from the
-redacted summaries (the numbers are unchanged; no payload appears). A trace the caller may not see at all is still a
+redacted summaries (the numbers are unchanged; no payload appears). The run trace (`GET /workflow-runs/{id}/trace`)
+and the assistant's `get_workflow_run_trace` tool apply the same rule, decided by the run's project (owner or editor
+reads; a run outside any project belongs to the user who started it). A trace the caller may not see at all is still a
 `404`, never a redacted `200`. Outside the reference profile nothing is redacted, as before.
 
 *Recovery:* a viewer or reviewer who needs the contents asks a project owner or editor to read them, or is made an
 editor (`PATCH /projects/{id}/members/{user_id}`); an administrator who needs them must be a member of the project (admin
-is not an implicit project role). Not governed yet, tracked as follow-up: the review-queue item view and "create
-example from trace" in evaluation datasets also surface trace payloads and still follow experiment visibility only;
-MLflow's own API is unscoped (see above).
+is not an implicit project role). Not governed, said plainly: the review-queue item view and "create example from
+trace" in evaluation datasets also surface trace payloads and still follow experiment visibility only (tracked in
+#960); a trace's `tags` and feedback `assessments` (free text that can quote a payload) are returned as before; the
+permission is decided after the trace has been fetched into the server's memory (it is never returned), because the
+experiment is only known from the trace; and MLflow's own API is unscoped (see above).
 
 ## The execution-owner lease
 

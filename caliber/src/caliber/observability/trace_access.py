@@ -28,7 +28,7 @@ from sqlalchemy.orm import Session
 from caliber.auth import SCOPE_ADMIN, CaliberIdentity
 from caliber.db.models import CaliberAgentConfig, CaliberWorkflow
 from caliber.db.scoping import apply_visibility_filter
-from caliber.profile import GOVERNED_TRACE_FIELDS
+from caliber.profile import GOVERNED_TRACE_FIELDS, SAFE_SPAN_ATTRIBUTES
 from caliber.trace_client import (
     TraceNotFoundError,
     TraceStoreUnavailableError,
@@ -359,6 +359,20 @@ def can_read_payloads(session: Session, identity: CaliberIdentity, experiment_id
     return False
 
 
+def can_read_run_payloads(
+    session: Session, identity: CaliberIdentity, *, project_id: str | None, created_by: str | None
+) -> bool:
+    """Whether ``identity`` may read the payloads of the trace of a workflow run: the run's project decides (the same
+    rule as :func:`can_read_payloads` for a project-owned experiment), a run outside any project belongs to the
+    user who started it. Anything else, and any error, is refused."""
+    try:
+        owner = ("project", project_id) if project_id else ("user", created_by or "")
+        return bool(owner[1]) and _owner_allows_payloads(session, identity, owner)
+    except Exception:
+        logger.warning("run payload permission denied: it could not be decided", exc_info=True)
+        return False
+
+
 def _owner_allows_payloads(
     session: Session, identity: CaliberIdentity, owner: tuple[str, str]
 ) -> bool:
@@ -388,9 +402,21 @@ def redacted(field: str) -> str:
     return f"[redacted:{field}]"
 
 
-def _redact_governed(target: dict[str, Any]) -> dict[str, Any]:
+def _redact_attributes(attributes: Any) -> Any:
+    """Fail-closed: every attribute not known to be payload-free is replaced (the keys stay)."""
+    if not isinstance(attributes, dict):
+        return attributes
+    return {
+        key: value
+        if key in SAFE_SPAN_ATTRIBUTES and f"attributes.{key}" not in GOVERNED_TRACE_FIELDS
+        else redacted(f"attributes.{key}")
+        for key, value in attributes.items()
+    }
+
+
+def _redact_governed(target: dict[str, Any], *, span: bool = False) -> dict[str, Any]:
     """``target`` with every governed field that is *present* replaced by its placeholder (keys are never removed
-    or added, so the shape of the trace is unchanged)."""
+    or added, so the shape of the trace is unchanged). For a span, every attribute outside the safe list goes too."""
     out = dict(target)
     for path in GOVERNED_TRACE_FIELDS:
         head, _, leaf = path.rpartition(".")
@@ -401,6 +427,8 @@ def _redact_governed(target: dict[str, Any]) -> dict[str, Any]:
         container = out.get(head)
         if isinstance(container, dict) and leaf in container:
             out[head] = {**container, leaf: redacted(path)}
+    if span and "attributes" in out:
+        out["attributes"] = _redact_attributes(out["attributes"])
     return out
 
 
@@ -422,7 +450,7 @@ def redact_trace_detail(detail: dict[str, Any], allowed: bool) -> dict[str, Any]
     spans = out.get("spans")
     if isinstance(spans, list):
         out["spans"] = [
-            _redact_governed(span) if isinstance(span, dict) else span for span in spans
+            _redact_governed(span, span=True) if isinstance(span, dict) else span for span in spans
         ]
     return out
 
