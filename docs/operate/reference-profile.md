@@ -130,6 +130,77 @@ Running it found that `CALIBER_LOG_LEVEL=DEBUG` with the default S3 log sink rec
 records re-entered the handler, so each record caused a growing number of S3 writes. The handler now ignores records
 emitted while it delivers a batch.
 
+## Run manifests are written once
+
+Migration `0114` adds `caliber_run_manifests` (B02.1a, #656): one row per workflow run holding the canonical
+manifest bytes (`manifest_bytes`) and their SHA-256 (`manifest_digest`). The row is immutable:
+
+- a database trigger refuses `UPDATE` and `DELETE` on SQLite and PostgreSQL (PostgreSQL also refuses `TRUNCATE`),
+  so a bulk SQL statement fails as well as an ORM one: `caliber_run_manifests is immutable: UPDATE refused`;
+- the ORM raises `ImmutableRecordError` before any SQL for an instance update or delete and for an ORM
+  `update()`/`delete()` statement (`Session.bulk_*_mappings` and Core/raw SQL skip the ORM and are refused by the
+  trigger instead);
+- a second manifest for the same run violates `uq_run_manifest_run`, and a digest that is not the SHA-256 of the
+  bytes is refused (by the ORM everywhere, and by a CHECK on PostgreSQL).
+
+**Runtime role.** The migration revokes `UPDATE`, `DELETE` and `TRUNCATE` on the table from `PUBLIC`. That only
+protects a deployment that runs the application as a role other than the table's owner, and `caliber-migrate`,
+`scripts/install.sh` and the shipped compose files use one database URL for both, so by default the application
+*is* the owner and is held only by the triggers and the ORM guard. For the privilege layer, run `caliber-migrate`
+as the owner and the application as a role granted only what it needs:
+
+```sql
+GRANT SELECT, INSERT ON caliber_run_manifests TO caliber_runtime;
+GRANT SELECT ON caliber_workflow_runs TO caliber_runtime;  -- already held; the insert trigger reads it
+-- no UPDATE, DELETE or TRUNCATE on caliber_run_manifests; avoid ALTER DEFAULT PRIVILEGES ... GRANT ALL
+```
+
+A trigger can be disabled by the table's owner or by a session with `session_replication_role = replica`; only the
+missing privilege holds against the runtime role. The reference profile does **not** check which role the
+application connects as (listed under "Not enforced yet"). The trigger functions are pinned to the migration's
+schema with `pg_temp` last in `search_path`, so a temporary table cannot shadow `caliber_workflow_runs`.
+
+**Legacy runs.** `caliber_workflow_runs.manifest_legacy` is `true` by default, so every run that existed when `0114`
+ran, and every run created by a path other than admission, is legacy. Such a run has no manifest and can never get
+one (`a manifest needs an existing, non-legacy run`, also raised for a run that does not exist), and the flag
+cannot be changed afterwards (`caliber_workflow_runs.manifest_legacy is write-once`), so a historical pin cannot be
+fabricated. Admission (#676, #680) creates a run with `manifest_legacy = false` in the same transaction as its
+manifest. A client with `DELETE` on runs can still delete a legacy run and re-insert the same id as a non-legacy
+one; that needs write access to runs and is not guarded here.
+
+**Retention and deletion.** A run that has a manifest is retained evidence: retention pruning
+(`CALIBER_WORKFLOW_RUN_RETENTION_DAYS`) skips it, and `DELETE /workflows/{id}` answers `409`
+(`cannot delete workflow: its runs have immutable run manifests`) while any of its runs has one, because removing
+the run would either violate the manifest's foreign key (PostgreSQL) or orphan it (SQLite). Legacy and
+manifest-less runs are pruned and deleted as before. A rollback (`caliber-migrate downgrade 0113`) drops the table
+and therefore the manifests, never the runs; upgrading again starts with no manifests and marks every existing run
+legacy.
+
+## Run principals: subject and workload
+
+A run acts as two distinct principals, defined as immutable values in `caliber/src/caliber/policy/principal.py`
+(B03.1, #657). The **subject** is who started it: `user_id`, `auth_method` (`session`, `pat` or `trusted_header`)
+and, as server-side context only, the project. The **workload** is what runs: a name and one workflow-version
+digest. The workload id is `wl_` plus the full 64-hex SHA-256 digest; it is derived, never chosen, and a manifest
+that carries any other id is refused. Only `user_id` and `auth_method` are written for the subject: a `project_id`
+in a manifest `subject` is refused. The types are pure; persisting them (#680) and resolving them for a run
+(#684) come later, so this page lists no setting for them.
+
+The types are stricter than the manifest schema, which accepts any non-empty string: a workload digest must be a
+full bare SHA-256, and an id, name or grant id may not contain control, format or line-separator characters. A
+`user_id` that `caliber.auth` would treat as anonymous (`anonymous`, any case, or one containing a comma) is
+refused, and so is any scope `caliber.auth` does not define. A `pat` subject becomes an identity only with its
+`credential_id` (and the token's `credential_project_id` when it is bound), so a project binding is never dropped.
+
+Refusals raise `PrincipalError`; the recovery for each:
+
+| refusal | recovery |
+| --- | --- |
+| `workload_id must be the one derived from the full workflow_version_digest` | build it with `Workload.for_workflow(name, digest)`; never copy an id from elsewhere |
+| `workflow_version_digest must be a full lowercase 64-hex SHA-256 digest` | pass the workflow version's whole bare digest, not a prefix, uppercase or `sha256:` form; a version with no digest (a legacy version) cannot be a workload |
+| `subject must have exactly ['auth_method', 'user_id']; extra ['project_id'], missing []` | drop `project_id` from the manifest `subject` and pass it as `Subject.from_manifest(data, project_id=...)` |
+| `a pat subject needs its credential_id to become an identity` | pass `credential_id` (and `credential_project_id` when the token is bound) to `to_identity` |
+
 ## Not enforced yet
 
 ADR 0001 describes the whole reference shape; this table is what the *process* checks today. Not checked:
@@ -138,6 +209,7 @@ ADR 0001 describes the whole reference shape; this table is what the *process* c
 - **Origin rules** (#533). ADR 0001 names them, but #533 has no allowed-origins task yet; that rule is not scheduled.
 - **The trusted-connector set** (#534), **refusing code-execution paths and the full attack pack** (#535), **a single execution owner** (#536) and **the Apply separation-of-duties flag** (#589).
 - **Cookie flags:** `auth_session_cookie_secure` is not checked.
+- **The database role:** whether the application connects as a role without `UPDATE`, `DELETE` or `TRUNCATE` on `caliber_run_manifests` (see "Run manifests are written once").
 
 A configuration that passes this page is the minimum for the reference profile, not the whole of it.
 

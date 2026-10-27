@@ -193,6 +193,8 @@ BACKEND_CORE_TESTS=(
   tests/test_approval_ux_contract.py
   tests/test_secret_canary.py
   tests/test_observability_logging.py
+  tests/test_run_manifest.py
+  tests/test_policy_principal.py
   tests/test_worker_inventory.py
   tests/test_request_limits.py
 )
@@ -249,6 +251,7 @@ job_migration_parity_postgres() {
       "$VENV_PY" -m pytest tests/test_migrations.py \
         tests/test_workspace_revision_allocation_concurrency.py \
         tests/test_profile.py \
+        tests/test_run_manifest.py \
         -k postgresql --no-cov -q
     status=$?
   fi
