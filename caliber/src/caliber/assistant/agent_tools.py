@@ -1521,6 +1521,7 @@ class AssistantAgentToolset:
         from caliber.workflows.admission import (  # noqa: PLC0415
             AdmissionDenied,
             AdmissionSettings,
+            record_denial,
         )
         from caliber.workflows.run_launch import (  # noqa: PLC0415
             LineageRequiredError,
@@ -1562,6 +1563,7 @@ class AssistantAgentToolset:
                 )
             except AdmissionDenied as exc:
                 db.rollback()
+                record_denial(db, exc)
                 return _err(f"the run was not admitted: {exc}")
             except LineageRequiredError as exc:
                 db.rollback()
