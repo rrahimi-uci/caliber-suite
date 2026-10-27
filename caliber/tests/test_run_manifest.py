@@ -1297,3 +1297,12 @@ def test_an_unrepresentable_timestamp_is_a_refusal_not_an_overflow() -> None:
     _refused(
         "bad_field", created_at=datetime(9999, 12, 31, 23, tzinfo=timezone(timedelta(hours=-2)))
     )
+
+
+def test_a_route_list_that_is_not_a_list_and_a_bundle_that_is_not_a_bundle_are_refused() -> None:
+    for bad in ("scripted", 5, None):
+        with pytest.raises(ManifestError) as caught:
+            _pins(model_routes=bad)
+        assert caught.value.code in {"bad_pin", "unresolved_pin"}
+    with pytest.raises(ManifestError, match="verified RuleBundle"):
+        PinnedRuleBundle("/etc/caliber/rules.yaml", "bundle")  # type: ignore[arg-type]
