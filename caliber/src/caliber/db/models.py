@@ -2249,6 +2249,42 @@ guard_immutable(
 )
 
 
+class CaliberPolicyDecision(Base):
+    """One policy decision, immutable: what was asked, under which grant and policy, and the answer (B03.3, #671).
+
+    The persisted form of the ``policy_decision`` v1 contract (ADR 0003: ``decision_id``, ``grant_id``, ``action``,
+    ``resource``, ``result``, ``reason_codes``, ``policy_version``, ``input_hash``, ``evaluated_at``) plus the run it
+    was asked about and who and what asked (explicit linkage, kept out of the wire record). There are deliberately no
+    foreign keys: a decision about a grant that does not exist is still evidence. UPDATE and DELETE are refused by
+    triggers (migration 0117) and by ``ImmutableRecordError``; a decision never changes an admitted manifest.
+    """
+
+    __tablename__ = "caliber_policy_decisions"
+    __table_args__ = (
+        CheckConstraint("result IN ('allow', 'deny')", name="ck_policy_decision_result"),
+        CheckConstraint("length(input_hash) = 64", name="ck_policy_decision_input_hash"),
+        Index("ix_policy_decisions_run", "workflow_run_id", "evaluated_at"),
+        Index("ix_policy_decisions_grant", "grant_id"),
+    )
+
+    decision_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    workflow_run_id: Mapped[str] = mapped_column(String(64))
+    grant_id: Mapped[str] = mapped_column(String(64))
+    subject_user_id: Mapped[str] = mapped_column(String(256))
+    workload_id: Mapped[str] = mapped_column(String(80))
+    action: Mapped[str] = mapped_column(String(256))
+    resource: Mapped[str] = mapped_column(String(256))
+    purpose: Mapped[str] = mapped_column(String(256))
+    result: Mapped[str] = mapped_column(String(8))
+    reason_codes: Mapped[list[str]] = mapped_column(JSON)
+    policy_version: Mapped[str] = mapped_column(String(64))
+    input_hash: Mapped[str] = mapped_column(String(64))
+    evaluated_at: Mapped[datetime] = mapped_column(DateTime)
+
+
+guard_immutable(CaliberPolicyDecision)
+
+
 class CaliberExecutionOwner(Base):
     """The single-owner lease for a named execution role (B13.2, #668; ``caliber.ownership``).
 
