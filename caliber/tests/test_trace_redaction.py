@@ -1,4 +1,5 @@
-"""Who may read a trace's payload (B11.4a, #672): ``trace.payload.read`` and ``can_read_payloads``.
+"""Who may read a trace's payload (B11.4a #672, B11.4b #677): ``trace.payload.read``, ``can_read_payloads`` and the
+redaction of governed fields in the trace routes.
 
 Seeing that a trace exists is decided by the experiment's visibility (``visible_experiments``); reading what is in it
 is stricter, because span inputs, outputs and tool arguments can hold personal data. The experiment's owner scope is
@@ -8,6 +9,7 @@ resolved (registry first, then the agent and workflow claims) and a project owne
 
 from __future__ import annotations
 
+import json
 from dataclasses import replace
 from types import SimpleNamespace
 from typing import Any
@@ -17,6 +19,7 @@ import pytest
 from mlflow.exceptions import MlflowException
 from mlflow.protos.databricks_pb2 import RESOURCE_DOES_NOT_EXIST
 from sqlalchemy.orm import Session
+from starlette.testclient import TestClient
 
 from caliber.auth import SCOPE_ADMIN, SCOPE_APPROVER, SCOPE_OPERATOR, SCOPE_VIEWER, CaliberIdentity
 from caliber.db.models import (
@@ -27,7 +30,12 @@ from caliber.db.models import (
     CaliberWorkflow,
 )
 from caliber.observability.experiment_registry import tracking_backend
-from caliber.observability.trace_access import can_read_payloads, clear_resolution_cache
+from caliber.observability.trace_access import (
+    can_read_payloads,
+    clear_resolution_cache,
+    redact_trace_detail,
+)
+from caliber.profile import GOVERNED_TRACE_FIELDS, payload_governance_active
 from caliber.resource_access import (
     PROJECT_ACTIONS,
     ROLE_EDITOR,
@@ -37,6 +45,8 @@ from caliber.resource_access import (
     decide_project_access,
     permissions_for_role,
 )
+from tests.test_trace_project_scoping import ALICE, OBS, PROJECT_A, FakeMlflow, _as, _trace
+from tests.test_trace_project_scoping import world as scoping_world  # noqa: F401 - a fixture
 
 PROJECT = "P-payload"
 ROLES = {
@@ -418,3 +428,391 @@ def test_a_deactivated_member_and_an_archived_project(
     assert can_read_payloads(world, _identity("@editor"), "payload-exp") is True, (
         "as every read path"
     )
+
+
+# ---------------------------------------------------------------- redaction in the routes (B11.4b, #677)
+
+SECRET = "SECRET-PAYLOAD-4417"
+VIEWER, REVIEWER = "@viewer-trace", "@reviewer-trace"
+
+
+def _rich_span(
+    span_id: str, parent: str | None, name: str, secret: str = SECRET
+) -> SimpleNamespace:
+    return SimpleNamespace(
+        span_id=span_id,
+        parent_id=parent,
+        name=name,
+        span_type="TOOL",
+        start_time_ns=1_000_000,
+        end_time_ns=3_000_000,
+        status="OK",
+        inputs={"question": f"{secret} question"},
+        outputs={"answer": f"{secret} answer"},
+        attributes={
+            "caliber.run_id": "WR-1",
+            "caliber.tokens": 10,
+            "caliber.cost_usd": 0.5,
+            "tool_arguments": json.dumps({"ssn": secret}),
+            "retrieved_documents": json.dumps([f"{secret} doc"]),
+            "model_output": json.dumps(f"{secret} output"),
+            "caliber.model": "m",
+            # What real tracers write: the same payload under other attribute names.
+            "mlflow.spanInputs": json.dumps({"question": f"{secret} question"}),
+            "mlflow.spanOutputs": json.dumps({"answer": f"{secret} answer"}),
+            "mlflow.chat.messages": json.dumps([{"role": "user", "content": secret}]),
+            "caliber.tool.input": json.dumps({"q": secret}),
+            "caliber.tool.output": json.dumps({"r": secret}),
+            "mlflow.spanType": "TOOL",
+        },
+    )
+
+
+@pytest.fixture
+def traced(
+    client: TestClient,
+    scoping_world: None,  # noqa: F811 - the fixture, requested by name
+    db_session: Session,
+    monkeypatch: pytest.MonkeyPatch,
+) -> FakeMlflow:
+    """Alice (editor of project A) plus a viewer and a reviewer of A; one rich trace in A's experiment."""
+    for index, (user, role) in enumerate(((VIEWER, "viewer"), (REVIEWER, "reviewer"))):
+        db_session.add(
+            CaliberProjectMember(
+                member_id=f"M-red-{index}",
+                project_id=PROJECT_A,
+                user_id=user,
+                role=role,
+                created_by="@t",
+            )
+        )
+    db_session.commit()
+    fake = FakeMlflow(
+        monkeypatch,
+        experiment_names={
+            "exp-A": "exp-A"
+        },  # the experiment's name resolves to its id, as in MLflow
+        extra_traces={
+            "tr-rich": _trace(
+                "tr-rich",
+                "exp-A",
+                text=SECRET,
+                spans=[_rich_span("s1", None, "root"), _rich_span("s2", "s1", "tool")],
+            )
+        },
+    )
+    client.app.state.config = client.app.state.config.model_copy(update={"profile": "reference"})
+    return fake
+
+
+def _span_by_id(body: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    return {span["span_id"]: span for span in body["spans"]}
+
+
+def test_viewer_sees_redacted_detail(client: TestClient, traced: FakeMlflow) -> None:
+    editor = client.get(f"{OBS}/traces/tr-rich", headers=_as(ALICE, PROJECT_A))
+    assert editor.status_code == 200, editor.text
+    assert SECRET in editor.text, "an editor reads the payload"
+    for user in (VIEWER, REVIEWER):
+        viewer = client.get(f"{OBS}/traces/tr-rich", headers=_as(user, PROJECT_A))
+        assert viewer.status_code == 200, viewer.text
+        assert SECRET not in viewer.text, "no payload anywhere in a viewer's response"
+        seen, full = viewer.json()["data"], editor.json()["data"]
+        for span_id, span in _span_by_id(seen).items():
+            assert span["inputs"] == "[redacted:inputs]" and span["outputs"] == "[redacted:outputs]"
+            for leaf in ("tool_arguments", "retrieved_documents", "model_output"):
+                assert span["attributes"][leaf] == f"[redacted:attributes.{leaf}]"
+            reference = _span_by_id(full)[span_id]
+            for key in ("span_id", "name", "start_time_ms", "end_time_ms"):
+                assert span[key] == reference[key], key
+            assert (
+                span["attributes"]["caliber.run_id"]
+                == reference["attributes"]["caliber.run_id"]
+                == "WR-1"
+            )
+            assert set(span) == set(reference) and set(span["attributes"]) == set(
+                reference["attributes"]
+            ), "no key is deleted"
+        assert seen["request"] == "[redacted:request]" and seen["response"] == "[redacted:response]"
+        for key in ("trace_id", "name", "status", "experiment_id", "total_tokens", "cost_usd"):
+            assert seen[key] == full[key], key
+
+
+def test_the_payload_is_redacted_for_an_administrator_who_is_not_a_member(
+    client: TestClient, traced: FakeMlflow
+) -> None:
+    admin = client.get(f"{OBS}/traces/tr-rich")  # the suite's default user is an admin
+    assert admin.status_code == 200 and SECRET not in admin.text
+
+
+def test_summaries_and_metrics_redacted(client: TestClient, traced: FakeMlflow) -> None:
+    editor = client.get(f"{OBS}/traces", headers=_as(ALICE, PROJECT_A))
+    rich = next(t for t in editor.json()["data"]["traces"] if t["trace_id"] == "tr-rich")
+    assert SECRET in rich["request_preview"] and SECRET in rich["response_preview"]
+    viewer = client.get(f"{OBS}/traces", headers=_as(VIEWER, PROJECT_A))
+    assert viewer.status_code == 200 and SECRET not in viewer.text
+    seen = next(t for t in viewer.json()["data"]["traces"] if t["trace_id"] == "tr-rich")
+    assert seen["request_preview"] == "[redacted:request_preview]"
+    assert seen["response_preview"] == "[redacted:response_preview]"
+    assert {k: v for k, v in seen.items() if "preview" not in k} == {
+        k: v for k, v in rich.items() if "preview" not in k
+    }, "everything but the previews is the editor's"
+    metrics = client.get(f"{OBS}/metrics", headers=_as(VIEWER, PROJECT_A))
+    assert metrics.status_code == 200 and SECRET not in metrics.text
+    assert metrics.json() == client.get(f"{OBS}/metrics", headers=_as(ALICE, PROJECT_A)).json(), (
+        "the numbers are the same: only payloads are governed"
+    )
+
+
+def test_outside_the_reference_profile_nothing_is_redacted(
+    client: TestClient, traced: FakeMlflow
+) -> None:
+    client.app.state.config = client.app.state.config.model_copy(update={"profile": "development"})
+    viewer = client.get(f"{OBS}/traces/tr-rich", headers=_as(VIEWER, PROJECT_A))
+    assert viewer.status_code == 200 and SECRET in viewer.text
+    assert not payload_governance_active(client.app.state.config)
+
+
+def test_a_trace_the_caller_cannot_see_is_still_a_404_not_a_redacted_one(
+    client: TestClient, traced: FakeMlflow
+) -> None:
+    assert client.get(f"{OBS}/traces/tr-B", headers=_as(VIEWER, PROJECT_A)).status_code == 404
+
+
+def test_the_experiment_is_decided_once_per_request(
+    client: TestClient, traced: FakeMlflow, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from caliber.routes import observability as routes
+
+    calls: list[str] = []
+    real = routes.can_read_payloads
+
+    def counting(session: Any, identity: Any, experiment_id: str) -> bool:
+        calls.append(experiment_id)
+        return real(session, identity, experiment_id)
+
+    monkeypatch.setattr(routes, "can_read_payloads", counting)
+    response = client.get(f"{OBS}/traces", headers=_as(VIEWER, PROJECT_A))
+    assert response.status_code == 200
+    assert calls.count("exp-A") == 1, "two traces in one experiment, one decision"
+
+
+# ---------------------------------------------------------------- the pure function
+
+
+def test_redact_trace_detail_is_pure_and_never_deletes_keys() -> None:
+    detail = {
+        "trace_id": "t",
+        "request": "r",
+        "response": "x",
+        "spans": [
+            {
+                "span_id": "s",
+                "inputs": None,
+                "outputs": {"a": 1},
+                "attributes": {"tool_arguments": "x", "other": 1},
+            },
+            {"span_id": "bare"},
+            "not a span",
+        ],
+    }
+    before = json.dumps(detail, sort_keys=True)
+    out = redact_trace_detail(detail, False)
+    assert json.dumps(detail, sort_keys=True) == before, "the argument is not modified"
+    assert redact_trace_detail(detail, True) is detail
+    first = out["spans"][0]
+    assert first["inputs"] == "[redacted:inputs]", (
+        "a null input is redacted too (no presence signal)"
+    )
+    assert first["attributes"] == {
+        "tool_arguments": "[redacted:attributes.tool_arguments]",
+        "other": "[redacted:attributes.other]",
+    }, "an attribute that is not known to be safe is redacted too (fail closed)"
+    assert out["spans"][1] == {"span_id": "bare"}, "a governed field that is absent is not invented"
+    assert out["spans"][2] == "not a span"
+    assert out["request"] == "[redacted:request]" and out["trace_id"] == "t"
+    assert set(GOVERNED_TRACE_FIELDS) == {
+        "inputs",
+        "outputs",
+        "attributes.tool_arguments",
+        "attributes.retrieved_documents",
+        "attributes.model_output",
+    }
+    assert redact_trace_detail({"inputs": 1, "attributes": {"model_output": "m"}}, False) == {
+        "inputs": "[redacted:inputs]",
+        "attributes": {"model_output": "[redacted:attributes.model_output]"},
+    }
+    assert redact_trace_detail({"attributes": "not a dict"}, False) == {"attributes": "not a dict"}
+
+
+def test_every_attribute_outside_the_safe_list_is_redacted_for_real_shaped_spans(
+    client: TestClient, traced: FakeMlflow
+) -> None:
+    """MLflow and the MCP gateway put the payload in attributes the governed list does not name."""
+    editor = client.get(f"{OBS}/traces/tr-rich", headers=_as(ALICE, PROJECT_A)).json()["data"]
+    viewer = client.get(f"{OBS}/traces/tr-rich", headers=_as(VIEWER, PROJECT_A))
+    assert SECRET not in viewer.text
+    for span in viewer.json()["data"]["spans"]:
+        attributes = span["attributes"]
+        for key in (
+            "mlflow.spanInputs",
+            "mlflow.spanOutputs",
+            "mlflow.chat.messages",
+            "caliber.tool.input",
+            "caliber.tool.output",
+        ):
+            assert attributes[key] == f"[redacted:attributes.{key}]", key
+        reference = _span_by_id(editor)[span["span_id"]]["attributes"]
+        for key in (
+            "caliber.run_id",
+            "caliber.tokens",
+            "caliber.cost_usd",
+            "caliber.model",
+            "mlflow.spanType",
+        ):
+            assert attributes[key] == reference[key], f"{key} is not a payload"
+        assert set(attributes) == set(reference)
+
+
+def test_metrics_are_built_from_redacted_summaries(
+    client: TestClient, traced: FakeMlflow, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from caliber.routes import observability as routes
+
+    seen: list[list[dict[str, Any]]] = []
+    real = routes._bucketize
+
+    def capture(summaries: list[dict[str, Any]], since_ms: Any) -> Any:
+        seen.append(summaries)
+        return real(summaries, since_ms)
+
+    monkeypatch.setattr(routes, "_bucketize", capture)
+    assert client.get(f"{OBS}/metrics", headers=_as(VIEWER, PROJECT_A)).status_code == 200
+    rich = next(t for t in seen[-1] if t["trace_id"] == "tr-rich")
+    assert rich["request_preview"] == "[redacted:request_preview]"
+    assert client.get(f"{OBS}/metrics", headers=_as(ALICE, PROJECT_A)).status_code == 200
+    assert SECRET in next(t for t in seen[-1] if t["trace_id"] == "tr-rich")["request_preview"]
+
+
+def test_one_request_can_allow_one_experiment_and_refuse_another(
+    client: TestClient, traced: FakeMlflow, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Alice reads her project's payloads but not a public experiment's: the decision is per experiment."""
+    import mlflow as mlflow_module
+
+    secret_public = "SECRET-PUBLIC-9921"
+    traced.traces["tr-pub"] = _trace("tr-pub", "exp-public", text=secret_public)
+    names = {"exp-A": "exp-A", "exp-public": "exp-public"}
+    monkeypatch.setattr(
+        mlflow_module,
+        "get_experiment_by_name",
+        lambda name: SimpleNamespace(experiment_id=names[name]) if name in names else None,
+    )
+    clear_resolution_cache()
+    response = client.get(f"{OBS}/traces", headers=_as(ALICE, PROJECT_A))
+    by_id = {t["trace_id"]: t for t in response.json()["data"]["traces"]}
+    assert SECRET in by_id["tr-rich"]["request_preview"], "her project's experiment"
+    assert by_id["tr-pub"]["request_preview"] == "[redacted:request_preview]", "the public one"
+
+
+def test_a_trace_with_no_experiment_is_redacted_even_for_an_administrator(
+    client: TestClient, traced: FakeMlflow
+) -> None:
+    orphan = _trace("tr-none", "exp-A", text="SECRET-NONE-5531")
+    orphan.info.trace_location = SimpleNamespace(
+        mlflow_experiment=SimpleNamespace(experiment_id=None)
+    )
+    traced.traces["tr-none"] = orphan
+    traced._honours = (
+        False  # the fake store returns every trace, as a store that ignores locations would
+    )
+    listed = client.get(f"{OBS}/traces")  # the suite's default user is an administrator
+    by_id = {t["trace_id"]: t for t in listed.json()["data"]["traces"]}
+    assert by_id["tr-none"]["request_preview"] == "[redacted:request_preview]"
+    assert "SECRET-NONE-5531" not in listed.text
+
+
+def test_the_run_trace_route_redacts_for_a_viewer_and_not_for_an_editor(
+    client: TestClient, traced: FakeMlflow, db_session: Session
+) -> None:
+    from caliber.db.models import CaliberWorkflowRun
+
+    db_session.add(
+        CaliberWorkflowRun(
+            workflow_run_id="WR-red",
+            workflow_id="wf-a",
+            project_id=PROJECT_A,
+            status="completed",
+            trace_id="tr-rich",
+            created_by=ALICE,
+        )
+    )
+    db_session.commit()
+    path = "/ajax-api/2.0/mlflow/caliber/workflow-runs/WR-red/trace"
+    editor = client.get(path, headers=_as(ALICE, PROJECT_A))
+    assert editor.status_code == 200 and SECRET in editor.text
+    viewer = client.get(path, headers=_as(VIEWER, PROJECT_A))
+    assert viewer.status_code == 200, viewer.text
+    assert SECRET not in viewer.text
+    assert viewer.json()["data"]["spans"][0]["inputs"] == "[redacted:inputs]"
+    client.app.state.config = client.app.state.config.model_copy(update={"profile": "development"})
+    assert SECRET in client.get(path, headers=_as(VIEWER, PROJECT_A)).text
+
+
+def test_a_run_outside_any_project_belongs_to_the_user_who_started_it(
+    world: Session,
+) -> None:
+    from caliber.observability.trace_access import can_read_run_payloads
+
+    assert can_read_run_payloads(world, _identity("@owner"), project_id=None, created_by="@owner")
+    assert not can_read_run_payloads(
+        world, _identity("@owner"), project_id=None, created_by="@other"
+    )
+    assert not can_read_run_payloads(world, _identity("@owner"), project_id=None, created_by=None)
+    assert not can_read_run_payloads(
+        world, _identity("@viewer"), project_id=PROJECT, created_by="@x"
+    )
+    assert can_read_run_payloads(world, _identity("@editor"), project_id=PROJECT, created_by="@x")
+    assert not can_read_run_payloads(
+        world, _identity("@editor"), project_id="P-gone", created_by="@x"
+    )
+
+
+def test_a_missing_config_is_governed_and_a_database_failure_is_a_refusal(
+    client: TestClient, traced: FakeMlflow, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    assert payload_governance_active(None) is True
+    from caliber.routes import observability as routes
+
+    def no_session(_request: Any) -> Any:
+        def broken() -> Any:
+            raise RuntimeError("no database")
+
+        return broken
+
+    monkeypatch.setattr(routes, "get_session_factory", no_session)
+    monkeypatch.setattr(routes, "resolve_identity", lambda _request: _identity("@owner"))
+    gate = routes._payload_gate(SimpleNamespace(app=client.app))  # type: ignore[arg-type]
+    assert gate("exp-A") is False
+
+
+def test_a_run_whose_owner_cannot_be_decided_is_refused(
+    world: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from caliber.observability import trace_access
+    from caliber.observability.trace_access import can_read_run_payloads
+
+    def broken(*_args: Any, **_kwargs: Any) -> Any:
+        raise RuntimeError("database down")
+
+    monkeypatch.setattr(trace_access, "_owner_allows_payloads", broken)
+    assert (
+        can_read_run_payloads(world, _identity("@editor"), project_id=PROJECT, created_by="@x")
+        is False
+    )
+
+
+def test_a_span_whose_attributes_are_not_a_dict_is_left_alone() -> None:
+    assert redact_trace_detail({"spans": [{"span_id": "s", "attributes": ["x"]}]}, False) == {
+        "spans": [{"span_id": "s", "attributes": ["x"]}]
+    }

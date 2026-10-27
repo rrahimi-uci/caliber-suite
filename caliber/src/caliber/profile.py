@@ -12,10 +12,65 @@ new entry in :func:`reference_profile_violations` with a code the tests pin.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Final
 
 from caliber.config import CaliberConfig
 from caliber.testing.fault_barriers import ENV_VAR as FAULT_BARRIERS_ENV
 from caliber.testing.fault_barriers import armed_barriers
+
+#: The parts of a trace that can hold personal data: a span's ``inputs`` and ``outputs`` and the tool arguments,
+#: retrieved documents and model output recorded in its attributes (B11.4b, #677). In the reference profile a caller
+#: who may see that a trace exists but may not read its payloads (``trace.payload.read``) gets each of these as
+#: ``[redacted:<field>]``; the keys stay, so the shape of the trace is not a secret, the contents are.
+GOVERNED_TRACE_FIELDS: Final[tuple[str, ...]] = (
+    "inputs",
+    "outputs",
+    "attributes.tool_arguments",
+    "attributes.retrieved_documents",
+    "attributes.model_output",
+)
+
+
+#: The span attributes known to carry no payload. Real traces put the same inputs and outputs in other attributes
+#: too (MLflow's own ``mlflow.spanInputs``/``mlflow.spanOutputs``/``mlflow.chat.*``, CALIBER's ``caliber.tool.input``
+#: and ``caliber.tool.output``), so redaction is **fail-closed**: every span attribute that is not on this list is
+#: replaced by ``[redacted:attributes.<key>]`` for a caller without ``trace.payload.read``.
+SAFE_SPAN_ATTRIBUTES: Final[frozenset[str]] = frozenset(
+    {
+        "caliber.run_id",
+        "caliber.trace_id",
+        "caliber.node_id",
+        "caliber.job_id",
+        "caliber.approval_id",
+        "caliber.source",
+        "caliber.status",
+        "caliber.stage.status",
+        "caliber.model",
+        "caliber.tokens",
+        "caliber.prompt_tokens",
+        "caliber.completion_tokens",
+        "caliber.cost_usd",
+        "caliber.tool",
+        "caliber.tool.latency_ms",
+        "caliber.mcp.transport",
+        "caliber.mcp.server_id",
+        "caliber.assistant.session_id",
+        "caliber.assistant.intent_name",
+        "mlflow.spanType",
+        "mlflow.spanFunctionName",
+        "mlflow.spanLogLevel",
+        "mlflow.traceRequestId",
+    }
+)
+
+
+def payload_governance_active(config: object | None) -> bool:
+    """Whether trace payloads are governed (redacted unless the caller may read them): the reference profile.
+
+    A missing config is governed too: with nothing to say the profile is not the reference one, the answer is
+    the cautious one.
+    """
+    return config is None or getattr(config, "profile", "") == "reference"
 
 
 @dataclass(frozen=True)

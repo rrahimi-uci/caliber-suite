@@ -836,6 +836,11 @@ class AssistantAgentToolset:
     def _t_get_workflow_run_trace(self, a: dict[str, Any]) -> str:
         from caliber.db.models import CaliberWorkflow, CaliberWorkflowRun  # noqa: PLC0415
         from caliber.db.scoping import get_visible  # noqa: PLC0415
+        from caliber.observability.trace_access import (  # noqa: PLC0415
+            can_read_run_payloads,
+            redact_trace_detail,
+        )
+        from caliber.profile import payload_governance_active  # noqa: PLC0415
         from caliber.trace_client import fetch_trace_spans  # noqa: PLC0415
 
         run_id = str(a.get("run_id", ""))
@@ -851,8 +856,13 @@ class AssistantAgentToolset:
             ):
                 return _err(f"run {run_id!r} not found")
             trace_id = r.trace_id
+            payloads_allowed = not payload_governance_active(
+                self._deps.config
+            ) or can_read_run_payloads(
+                db, identity, project_id=r.project_id, created_by=r.created_by
+            )
         tree = fetch_trace_spans(trace_id)
-        spans = list(tree.spans or [])
+        spans = list(redact_trace_detail({"spans": tree.spans or []}, payloads_allowed)["spans"])
         return _ok(
             {
                 "trace_id": tree.trace_id,

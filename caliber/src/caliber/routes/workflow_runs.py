@@ -31,6 +31,8 @@ from caliber.db.models import (
 )
 from caliber.ids import new_workflow_run_id
 from caliber.mcp_policy import deployment_blockers
+from caliber.observability.trace_access import can_read_run_payloads, redact_trace_detail
+from caliber.profile import payload_governance_active
 from caliber.resource_access import ACTION_APPROVE, require_project_access_if_scoped
 from caliber.routes._deps import (
     envelope_response,
@@ -1188,17 +1190,30 @@ async def get_workflow_run_trace(request: Request) -> JSONResponse:
     with a 200, so the fake provider / tracing-off paths render a friendly empty
     state rather than a 404.
     """
+    from caliber.auth import resolve_identity  # noqa: PLC0415 - avoids an import cycle
+
     require_user(request)
     run_id = request.path_params["run_id"]
     factory = get_session_factory(request)
     with factory() as session:
         run = _get_run_or_404(session, run_id, request=request)
         trace_id = run.trace_id or None
+        # B11.4b: in the reference profile the span payloads are for those who may read them (the run's project
+        # owner or editor); everyone else who can see the run gets the same tree with the placeholders.
+        payloads_allowed = not payload_governance_active(
+            getattr(request.app.state, "config", None)
+        ) or can_read_run_payloads(
+            session,
+            resolve_identity(request),
+            project_id=run.project_id,
+            created_by=run.created_by,
+        )
     if not trace_id:
         return envelope_response(WorkflowRunTraceSchema(trace_id=None, spans=[]))
     tree = fetch_trace_spans(trace_id)
+    spans = redact_trace_detail({"spans": tree.spans}, payloads_allowed)["spans"]
     data = WorkflowRunTraceSchema.model_validate(
-        {"trace_id": tree.trace_id, "spans": tree.spans, "mlflow_url": tree.mlflow_url}
+        {"trace_id": tree.trace_id, "spans": spans, "mlflow_url": tree.mlflow_url}
     )
     return envelope_response(data)
 

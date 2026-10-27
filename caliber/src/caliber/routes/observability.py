@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import json
 import logging
+from collections.abc import Callable
 from http import HTTPStatus
 from pathlib import Path
 from typing import Any
@@ -43,12 +44,15 @@ from caliber.observability.experiment_registry import (
 from caliber.observability.trace_access import (
     ExperimentLookupError,
     TraceNotReadableError,
+    can_read_payloads,
     claim_keys,
     experiment_claim_conflicts,
     is_visible,
+    redact_trace_detail,
     require_readable_trace,
     visible_experiments,
 )
+from caliber.profile import payload_governance_active
 from caliber.routes._deps import get_session_factory, parse_json_object
 from caliber.trace_client import (
     TraceNotFoundError,
@@ -119,6 +123,34 @@ def visible_experiments_for(request: Request) -> set[str] | None:
         except ExperimentLookupError as exc:
             # Ownership cannot be decided while the tracking backend does not answer: closed, not empty.
             raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+def _payload_gate(request: Request) -> Callable[[str | None], bool]:
+    """``allowed(experiment_id)``: may the caller read the payloads of traces in that experiment?
+
+    Governed (B11.4b) only in the reference profile; elsewhere every payload is allowed, as before. The decision is
+    :func:`~caliber.observability.trace_access.can_read_payloads`, asked once per experiment per request, and it is
+    asked *before* any payload is put in a response.
+    """
+    config = getattr(request.app.state, "config", None)
+    if not payload_governance_active(config):
+        return lambda _experiment_id: True
+    identity = resolve_identity(request)
+    factory = get_session_factory(request)
+    decisions: dict[str, bool] = {}
+
+    def allowed(experiment_id: str | None) -> bool:
+        key = experiment_id or ""
+        if key not in decisions:
+            try:
+                with factory() as session:
+                    decisions[key] = can_read_payloads(session, identity, key)
+            except Exception:  # no session, no decision: the answer is "no"
+                logger.warning("payload permission denied: no database session", exc_info=True)
+                decisions[key] = False
+        return decisions[key]
+
+    return allowed
 
 
 def _require_visible_filter(experiment_filter: str, visible: set[str] | None) -> None:
@@ -288,6 +320,7 @@ async def list_traces(request: Request) -> JSONResponse:
     experiment_filter = request.query_params.get("experiment_id", "").strip()
     since_ms = _int_param(request, "since_ms")
     visible = visible_experiments_for(request)
+    gate = _payload_gate(request)
     _require_visible_filter(experiment_filter, visible)
     try:
         probe_trace_store()
@@ -339,7 +372,7 @@ async def list_traces(request: Request) -> JSONResponse:
         # from another location out of the answer.
         if not is_visible(summary["experiment_id"], visible):
             continue
-        summaries.append(summary)
+        summaries.append(redact_trace_detail(summary, gate(summary["experiment_id"])))
     return JSONResponse({"data": {"traces": summaries}})
 
 
@@ -474,6 +507,7 @@ async def get_trace(request: Request) -> JSONResponse:
     require_user(request)
     trace_id = str(request.path_params["trace_id"])
     visible = visible_experiments_for(request)
+    gate = _payload_gate(request)
     try:
         detail = fetch_trace_detail(trace_id, strict=True)
     except TraceNotFoundError as exc:
@@ -483,30 +517,27 @@ async def get_trace(request: Request) -> JSONResponse:
     if not is_visible(detail.experiment_id, visible):
         # The same answer as for an id that does not exist, so a foreign id is not confirmed.
         raise HTTPException(status_code=404, detail=f"trace {trace_id!r} not found")
-    return JSONResponse(
-        {
-            "data": {
-                "trace_id": detail.trace_id,
-                "name": detail.name,
-                "status": detail.status,
-                "experiment_id": detail.experiment_id,
-                "session_id": detail.session_id,
-                "user": detail.user,
-                "spans": detail.spans,
-                "mlflow_url": detail.mlflow_url,
-                "request": detail.request,
-                "response": detail.response,
-                "request_time_ms": detail.request_time_ms,
-                "execution_time_ms": detail.execution_time_ms,
-                "total_tokens": detail.total_tokens,
-                "prompt_tokens": detail.prompt_tokens,
-                "completion_tokens": detail.completion_tokens,
-                "cost_usd": detail.cost_usd,
-                "tags": detail.tags,
-                "assessments": detail.assessments,
-            }
-        }
-    )
+    data = {
+        "trace_id": detail.trace_id,
+        "name": detail.name,
+        "status": detail.status,
+        "experiment_id": detail.experiment_id,
+        "session_id": detail.session_id,
+        "user": detail.user,
+        "spans": detail.spans,
+        "mlflow_url": detail.mlflow_url,
+        "request": detail.request,
+        "response": detail.response,
+        "request_time_ms": detail.request_time_ms,
+        "execution_time_ms": detail.execution_time_ms,
+        "total_tokens": detail.total_tokens,
+        "prompt_tokens": detail.prompt_tokens,
+        "completion_tokens": detail.completion_tokens,
+        "cost_usd": detail.cost_usd,
+        "tags": detail.tags,
+        "assessments": detail.assessments,
+    }
+    return JSONResponse({"data": redact_trace_detail(data, gate(detail.experiment_id))})
 
 
 async def post_feedback(request: Request) -> JSONResponse:
@@ -747,6 +778,7 @@ async def get_metrics(request: Request) -> JSONResponse:
     experiment_filter = request.query_params.get("experiment_id", "").strip()
     since_ms = _int_param(request, "since_ms")
     visible = visible_experiments_for(request)
+    gate = _payload_gate(request)
     _require_visible_filter(experiment_filter, visible)
     try:
         import mlflow  # noqa: PLC0415
@@ -782,7 +814,7 @@ async def get_metrics(request: Request) -> JSONResponse:
             continue
         if not is_visible(summary["experiment_id"], visible):
             continue
-        summaries.append(summary)
+        summaries.append(redact_trace_detail(summary, gate(summary["experiment_id"])))
     return JSONResponse({"data": _bucketize(summaries, since_ms)})
 
 

@@ -20,7 +20,7 @@ import random
 import threading
 import time
 from collections import defaultdict
-from typing import Any
+from typing import Any, Final
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -28,6 +28,7 @@ from sqlalchemy.orm import Session
 from caliber.auth import SCOPE_ADMIN, CaliberIdentity
 from caliber.db.models import CaliberAgentConfig, CaliberWorkflow
 from caliber.db.scoping import apply_visibility_filter
+from caliber.profile import GOVERNED_TRACE_FIELDS, SAFE_SPAN_ATTRIBUTES
 from caliber.trace_client import (
     TraceNotFoundError,
     TraceStoreUnavailableError,
@@ -358,6 +359,20 @@ def can_read_payloads(session: Session, identity: CaliberIdentity, experiment_id
     return False
 
 
+def can_read_run_payloads(
+    session: Session, identity: CaliberIdentity, *, project_id: str | None, created_by: str | None
+) -> bool:
+    """Whether ``identity`` may read the payloads of the trace of a workflow run: the run's project decides (the same
+    rule as :func:`can_read_payloads` for a project-owned experiment), a run outside any project belongs to the
+    user who started it. Anything else, and any error, is refused."""
+    try:
+        owner = ("project", project_id) if project_id else ("user", created_by or "")
+        return bool(owner[1]) and _owner_allows_payloads(session, identity, owner)
+    except Exception:
+        logger.warning("run payload permission denied: it could not be decided", exc_info=True)
+        return False
+
+
 def _owner_allows_payloads(
     session: Session, identity: CaliberIdentity, owner: tuple[str, str]
 ) -> bool:
@@ -376,6 +391,68 @@ def _owner_allows_payloads(
         return False  # acting in another project, or on a credential bound to another one
     project = session.get(CaliberProject, scope_id)
     return decide_project_access(session, identity, project, "trace.payload.read").allowed
+
+
+#: Keys of a trace's detail or summary that carry a request or response as a whole (not span fields).
+_ROOT_PAYLOAD_KEYS: Final = ("request", "response", "request_preview", "response_preview")
+
+
+def redacted(field: str) -> str:
+    """The placeholder that stands for a governed field's value."""
+    return f"[redacted:{field}]"
+
+
+def _redact_attributes(attributes: Any) -> Any:
+    """Fail-closed: every attribute not known to be payload-free is replaced (the keys stay)."""
+    if not isinstance(attributes, dict):
+        return attributes
+    return {
+        key: value
+        if key in SAFE_SPAN_ATTRIBUTES and f"attributes.{key}" not in GOVERNED_TRACE_FIELDS
+        else redacted(f"attributes.{key}")
+        for key, value in attributes.items()
+    }
+
+
+def _redact_governed(target: dict[str, Any], *, span: bool = False) -> dict[str, Any]:
+    """``target`` with every governed field that is *present* replaced by its placeholder (keys are never removed
+    or added, so the shape of the trace is unchanged). For a span, every attribute outside the safe list goes too."""
+    out = dict(target)
+    for path in GOVERNED_TRACE_FIELDS:
+        head, _, leaf = path.rpartition(".")
+        if not head:
+            if path in out:
+                out[path] = redacted(path)
+            continue
+        container = out.get(head)
+        if isinstance(container, dict) and leaf in container:
+            out[head] = {**container, leaf: redacted(path)}
+    if span and "attributes" in out:
+        out["attributes"] = _redact_attributes(out["attributes"])
+    return out
+
+
+def redact_trace_detail(detail: dict[str, Any], allowed: bool) -> dict[str, Any]:
+    """The trace detail (or list summary) as ``allowed`` says it may be seen.
+
+    ``allowed`` is :func:`can_read_payloads` for the trace's experiment. When it is true the detail is returned
+    unchanged. When it is false every governed field (``profile.GOVERNED_TRACE_FIELDS``) of the detail and of each
+    of its spans, and the whole-trace ``request``/``response`` and their previews, become ``[redacted:<field>]``;
+    keys are never deleted, and everything else (ids, names, times, status, tokens, cost, run id) is untouched. A
+    new dict is returned: the argument is not modified.
+    """
+    if allowed:
+        return detail
+    out = _redact_governed(detail)
+    for key in _ROOT_PAYLOAD_KEYS:
+        if key in out:
+            out[key] = redacted(key)
+    spans = out.get("spans")
+    if isinstance(spans, list):
+        out["spans"] = [
+            _redact_governed(span, span=True) if isinstance(span, dict) else span for span in spans
+        ]
+    return out
 
 
 class TraceNotReadableError(ValueError):
