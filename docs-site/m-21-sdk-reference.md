@@ -5716,7 +5716,7 @@ version's current manifest, which may have changed since.
 
 The immutable manifest the run was *admitted* with: its pins, who started it and why, and
 the digest of its canonical bytes. Distinct from :meth:`manifest` (the workflow manifest the
-run executed). A legacy run has none: ``legacy`` is true and ``run_manifest`` is ``None``.
+run executed). A legacy run has none: ``legacy`` is true, ``run_manifest`` is ``None``.
 
 | Parameter | Kind | Type | Default |
 | --- | --- | --- | --- |
