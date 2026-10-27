@@ -293,7 +293,7 @@ This task stores and checks grants; it makes no policy decision and records none
 In the reference profile exactly one process holds the execution-owner lease and only the holder runs the background
 loops ([ADR 0002](../architecture/adr/0002-execution-ownership.md)). B13.2 (#668; `caliber/src/caliber/ownership.py`,
 migration `0116`, table `caliber_execution_owner`) is the lease and its fencing token; the lifespan wiring that makes
-the loops obey it (and the public-path scenario) is #673, so today nothing acquires it. What it guarantees:
+the loops obey it is B13.3 (#673, below). What the lease guarantees:
 
 - **Database time.** Expiry is decided by the database's clock (`clock_timestamp()`, so a long transaction does not
   see a lapsed lease as live) inside the statement that tests it; a process's own clock never extends a lease.
@@ -316,12 +316,47 @@ the loops obey it (and the public-path scenario) is #673, so today nothing acqui
   resurrects the lease; the process must acquire again and gets a new token.
 - **Bounds (`LeaseError`).** `ttl_seconds` from 1 to 3600; `owner_id` at most 128 characters; the lease name at most 64.
 
-Guidance for the loop wiring (#673): renew every `ttl / 3` at most; keep fenced transactions much shorter than `ttl`
+Guidance for the loop wiring: renew every `ttl / 3` at most; keep fenced transactions much shorter than `ttl`
 minus the renewal interval (a fenced transaction blocks the owner's own renewal and every other fenced transition);
 give fenced and acquiring transactions a `SET LOCAL lock_timeout`, since a stuck session holding the row would block
 failover (`idle_in_transaction_session_timeout` bounds it too).
 
 A rollback (`caliber-migrate downgrade 0115`) drops the table; the next acquirer starts at token 1.
+
+### Who runs the loops (B13.3, #673)
+
+In the reference profile the loops start **only while this process holds the lease** and stop when it is lost
+(`caliber/src/caliber/execution_role.py`, wired in `server.py::_build_lifespan`):
+
+- **Owner or secondary.** At startup a process makes one attempt to acquire, so its role is known before the first
+  request, then ticks every `CALIBER_EXECUTION_LEASE_SECONDS / 3` (default lease 30 s, minimum 3 s). The holder
+  renews the exact lease it captured; a process that does not hold it keeps trying to acquire. `/readiness` carries
+  `execution_role`: `owner` while this process runs the loops, `secondary` while it only serves requests (the
+  event bus and every HTTP route run in both; no loop, webhook dispatcher, scheduler or worker runs in a secondary).
+- **Losing the lease fails closed.** The owner keeps a local deadline of two thirds of the lease after the start of
+  its last successful renewal. A renewal that fails, finds the lease gone or does not answer by that deadline (a slow
+  or hung database included) stops the loops, and the role reads `secondary` from the moment the stop begins; the
+  process tries to acquire again on later ticks and a fresh acquisition has a higher token. The lease calls run on
+  their own thread, never the loops' threads, and on PostgreSQL carry a `lock_timeout` and `statement_timeout` of a
+  third of the lease. If the loops fail to start after an acquisition, the ones that did start are stopped, the lease
+  is released and the process stays `secondary` (the error is logged and the next tick tries again).
+- **Takeover.** When the owner dies its lease lapses by database time and a secondary becomes the owner within one
+  lease plus one tick plus the time to start the loops (the V14 scenario asserts 2 x the lease, SIGKILL included). A
+  clean shutdown stops the loops *while it keeps renewing the lease*, then releases it, so the successor starts
+  only after the loops have stopped and does not wait for expiry.
+- **Heartbeats.** `caliber_worker_heartbeats` therefore lists owner-only workers from one process only (the holder's).
+- **Outside the reference profile** there is no lease: the loops start as before when background tasks are enabled
+  (role `owner`), and a process with background tasks disabled reports `secondary`.
+- **Not yet fenced per transition.** The loops still claim rows themselves, and they stop concurrently (the webhook
+  dispatcher first). A loop mid-transition when the lease is lost finishes that transition, bounded by
+  `CALIBER_SHUTDOWN_GRACE_SECONDS`, so an old owner's last transition can overlap a new owner's first one by up to
+  that grace after a lease loss. Fencing each transition with `assert_fenced` arrives with the outbox (#685).
+- **Events raised on a secondary.** HTTP routes on a secondary publish webhooks and alerts (`job.applied`,
+  `agent.rolled_back`, SLO incidents) to the in-process event bus, and no dispatcher runs there: with the default
+  `CALIBER_WORKFLOW_RUN_EVENT_BACKEND=in_process` those events are not delivered by any process. Use a shared backend
+  (`database`, `nats` or `redis`) so the owner's dispatcher sees them until the durable outbox (#685) makes this
+  independent of the backend. Live run streams for a run that executes on the owner reach only the owner's
+  subscribers on the in-process backend.
 
 ## Policy decisions
 

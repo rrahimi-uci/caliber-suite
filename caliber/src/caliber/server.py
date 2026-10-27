@@ -17,10 +17,11 @@ background workers stop cleanly on shutdown and the engine disposes its pool.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 import sys
-from collections.abc import AsyncIterator, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from typing import TYPE_CHECKING, Any
 
@@ -42,6 +43,7 @@ from caliber.eval.provider import build_provider as build_eval_provider
 from caliber.events.bus import EventBus
 from caliber.events.nats_bus import build_event_bus
 from caliber.events.webhooks import WebhookDispatcher, build_dispatcher
+from caliber.execution_role import ExecutionRoleController
 from caliber.features import FeatureGateMiddleware
 from caliber.github_workspace_provider import GitHubWorkspaceSourceProvider
 from caliber.integrations.openapi.executor import (
@@ -302,19 +304,27 @@ def _build_lifespan(
     _promoter: Promoter,  # held similarly so routes always see a fresh ref
     _event_bus: EventBus,
     background_tasks_enabled: bool = True,
+    *,
+    session_factory: Any = None,
+    reference_profile: bool = False,
+    execution_lease_seconds: float = 30.0,
 ) -> Lifespan:
     """Create the Starlette lifespan callback that starts/stops background tasks.
 
     Startup order: refinement worker → workflow-run worker → Aria worker →
     knowledge-build worker → workspace-import worker → scheduler → janitor →
     release reconciler → calibration drain → webhooks.
-    Shutdown reverses the dependency edge: webhooks and scheduler stop first,
-    followed by the workspace-import, knowledge, Aria, workflow-run,
-    refinement, and calibration workers; the janitor, release reconciler, and
-    event bus stop before the database engine is disposed.
+    Shutdown stops the webhook dispatcher first, then every other loop at once (each drain waits for its own
+    in-flight work, so one after another they would keep claiming new work for the sum of the graces); the event
+    bus stops, and the database engine is disposed, only after all of them.
 
     This list is prose and drifts; ``paper/scripts/gen_stats.py`` derives the loop
     count from the ``await <task>.start()`` calls below rather than from here.
+
+    In the reference profile the loops are owner-only (ADR 0002): they start only while this process holds the
+    execution-owner lease and stop when it is lost, and a process that does not hold it serves HTTP only
+    (:class:`caliber.execution_role.ExecutionRoleController`, published as ``app.state.execution_role``). Elsewhere
+    they start unconditionally, as before.
 
     When ``background_tasks_enabled`` is False the loops are not started (the
     ``stop`` calls are no-ops on an unstarted task). This is used by unit/route
@@ -322,47 +332,72 @@ def _build_lifespan(
     end-to-end tests opt back in via a dedicated fixture.
     """
 
+    async def start_owner_loops() -> None:
+        await worker.start()
+        if workflow_run_worker is not None:
+            await workflow_run_worker.start()
+        if aria_plan_worker is not None:
+            await aria_plan_worker.start()
+        if knowledge_build_worker is not None:
+            await knowledge_build_worker.start()
+        if workspace_import_worker is not None:
+            await workspace_import_worker.start()
+        if scheduler is not None:
+            await scheduler.start()
+        await janitor.start()
+        await release_reconciler.start()
+        await calibration_drain_task.start()
+        await webhooks.start()
+
+    async def stop_owner_loops() -> None:
+        # Webhooks first, then every other loop at once: each drain waits for its own in-flight work, and one after
+        # another they would keep claiming new work (and the lease would be held) for the sum of the graces.
+        await webhooks.stop()
+        stops: list[Awaitable[None]] = []
+        if scheduler is not None:
+            stops.append(scheduler.stop())
+        if workspace_import_worker is not None:
+            stops.append(workspace_import_worker.stop(grace_seconds=grace_seconds))
+        if knowledge_build_worker is not None:
+            stops.append(knowledge_build_worker.stop(grace_seconds=grace_seconds))
+        if aria_plan_worker is not None:
+            stops.append(aria_plan_worker.stop(grace_seconds=grace_seconds))
+        if workflow_run_worker is not None:
+            stops.append(workflow_run_worker.stop(grace_seconds=grace_seconds))
+        stops += [
+            worker.stop(grace_seconds=grace_seconds),
+            calibration_drain_task.stop(grace_seconds=grace_seconds),
+            release_reconciler.stop(),
+            janitor.stop(),
+        ]
+        failures = [
+            r
+            for r in await asyncio.gather(*stops, return_exceptions=True)
+            if isinstance(r, BaseException)
+        ]
+        if failures:
+            raise failures[0]
+
+    role = ExecutionRoleController(
+        session_factory,
+        lease_seconds=execution_lease_seconds,
+        start_loops=start_owner_loops,
+        stop_loops=stop_owner_loops,
+        leased=reference_profile and session_factory is not None,
+        run_loops=background_tasks_enabled,
+    )
+
     @asynccontextmanager
-    async def lifespan(  # noqa: PLR0912 - one optional-worker start/stop branch per background task
-        _app: Starlette,
-    ) -> AsyncIterator[None]:
+    async def lifespan(_app: Starlette) -> AsyncIterator[None]:
         start_bus = getattr(_event_bus, "start", None)
         if callable(start_bus):
             await start_bus()
-        if background_tasks_enabled:
-            await worker.start()
-            if workflow_run_worker is not None:
-                await workflow_run_worker.start()
-            if aria_plan_worker is not None:
-                await aria_plan_worker.start()
-            if knowledge_build_worker is not None:
-                await knowledge_build_worker.start()
-            if workspace_import_worker is not None:
-                await workspace_import_worker.start()
-            if scheduler is not None:
-                await scheduler.start()
-            await janitor.start()
-            await release_reconciler.start()
-            await calibration_drain_task.start()
-            await webhooks.start()
+        await role.start()
+        _app.state.execution_role = role
         try:
             yield
         finally:
-            await webhooks.stop()
-            if scheduler is not None:
-                await scheduler.stop()
-            if workspace_import_worker is not None:
-                await workspace_import_worker.stop(grace_seconds=grace_seconds)
-            if knowledge_build_worker is not None:
-                await knowledge_build_worker.stop(grace_seconds=grace_seconds)
-            if aria_plan_worker is not None:
-                await aria_plan_worker.stop(grace_seconds=grace_seconds)
-            if workflow_run_worker is not None:
-                await workflow_run_worker.stop(grace_seconds=grace_seconds)
-            await worker.stop(grace_seconds=grace_seconds)
-            await calibration_drain_task.stop(grace_seconds=grace_seconds)
-            await release_reconciler.stop()
-            await janitor.stop()
+            await role.stop()
             stop_bus = getattr(_event_bus, "stop", None)
             if callable(stop_bus):
                 await stop_bus()
@@ -863,6 +898,9 @@ def create_app(config: CaliberConfig | None = None) -> ASGIApp:  # noqa: PLR0915
             promoter,
             event_bus,
             background_tasks_enabled=resolved.background_tasks_enabled,
+            session_factory=session_factory,
+            reference_profile=resolved.profile == "reference",
+            execution_lease_seconds=resolved.execution_lease_seconds,
         ),
         exception_handlers={
             HTTPException: http_exception_handler,

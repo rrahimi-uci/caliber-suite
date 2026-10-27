@@ -121,16 +121,18 @@ def _lifespan_loops(server: Path) -> list[str]:
     and the paper went on saying eight. A number describing the implementation
     has to be read off the implementation.
 
-    Matches ``await <name>.start()`` inside the lifespan callback. The event bus
-    is started through a ``getattr`` handle rather than an attribute call, so it
-    does not match -- which is correct, it is a transport and not a drain loop.
+    Matches ``await <name>.start()`` inside ``start_owner_loops``, the function the
+    lifespan (through the execution-role controller, ADR 0002) calls to start every
+    owner-only loop. The event bus is started through a ``getattr`` handle rather than
+    an attribute call, so it does not match -- which is correct, it is a transport and
+    not a drain loop.
     """
     if not server.exists():
         return []
     tree = ast.parse(server.read_text(encoding="utf-8", errors="replace"))
     names: list[str] = []
     for node in ast.walk(tree):
-        if not (isinstance(node, ast.AsyncFunctionDef) and node.name == "lifespan"):
+        if not (isinstance(node, ast.AsyncFunctionDef) and node.name == "start_owner_loops"):
             continue
         for inner in ast.walk(node):
             if not isinstance(inner, ast.Await):
