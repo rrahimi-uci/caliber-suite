@@ -1312,3 +1312,29 @@ def test_a_route_list_that_is_not_a_list_and_a_bundle_that_is_not_a_bundle_are_r
         assert caught.value.code in {"bad_pin", "unresolved_pin"}
     with pytest.raises(ManifestError, match="verified RuleBundle"):
         PinnedRuleBundle("/etc/caliber/rules.yaml", "bundle")  # type: ignore[arg-type]
+
+
+def test_a_request_digest_is_recorded_when_given_and_absent_otherwise() -> None:
+    digest = hashlib.sha256(b"the canonical admission intent").hexdigest()
+    assert "request_digest" not in read_manifest(_build().manifest_bytes), (
+        "optional, so older readers agree"
+    )
+    built = _build(request_digest=digest)
+    assert read_manifest(built.manifest_bytes, built.manifest_digest)["request_digest"] == digest
+    assert built.manifest_digest != _build().manifest_digest, "the digest is part of what is sealed"
+
+
+@pytest.mark.parametrize("bad", ["", "abc", "A" * 64, "g" * 64, "sha256:" + "a" * 64])
+def test_a_malformed_request_digest_is_refused(bad: str) -> None:
+    with pytest.raises(ManifestError) as caught:
+        _build(request_digest=bad)
+    assert caught.value.code in {"bad_pin", "unresolved_pin"}
+
+
+def test_the_schema_does_not_accept_a_request_digest_with_a_trailing_newline() -> None:
+    from caliber.contracts import ContractValidationError, validate_record
+
+    record = read_manifest(_build().manifest_bytes)
+    validate_record("run_manifest", {**record, "request_digest": "a" * 64})
+    with pytest.raises(ContractValidationError):
+        validate_record("run_manifest", {**record, "request_digest": "a" * 64 + "\n"})

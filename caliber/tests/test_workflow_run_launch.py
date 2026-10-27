@@ -3,18 +3,22 @@
 from __future__ import annotations
 
 import pytest
+from fastapi.testclient import TestClient
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from caliber.db.models import (
     CaliberProject,
+    CaliberRunManifest,
     CaliberWorkflow,
     CaliberWorkflowRun,
     CaliberWorkflowRunEvent,
     CaliberWorkflowVersion,
 )
+from caliber.run_manifest import read_manifest
 from caliber.workflows import run_launch
+from caliber.workflows.admission import AdmissionDenied, AdmissionSettings, request_digest_of
 from caliber.workflows.run_launch import _append_run_event, enqueue_workflow_run
 from caliber.workflows.run_state import RUN_STATUS_QUEUED
 
@@ -292,3 +296,52 @@ def test_enqueue_idempotency_conflict_uses_savepoint_preserving_prior_runs(
     db_session.flush()
     assert db_session.get(CaliberWorkflowRun, run1.workflow_run_id) is not None
     assert db_session.get(CaliberWorkflowRun, run2.workflow_run_id) is not None
+
+
+def test_changed_input_under_same_key_conflicts(client: TestClient, db_session: Session) -> None:
+    """B02.3 (#687): the key's scope is (workflow, source, key); the same request returns the original run and its one
+    manifest, a changed one is a 409, and the same key under another purpose is a different request with its own run."""
+    from tests.test_run_admission import _db_pair, _identity, _project_workflow
+
+    workflow_id, version_id = _project_workflow(client, db_session)
+    workflow, version = _db_pair(db_session, workflow_id, version_id)
+    settings = AdmissionSettings(enabled=True)
+
+    def enqueue(source: str, text: str) -> tuple[CaliberWorkflowRun, bool]:
+        return enqueue_workflow_run(
+            db_session,
+            workflow=workflow,
+            version=version,
+            alias="manual",
+            source=source,
+            actor="@test",
+            input_text=text,
+            idempotency_key="k-scoped",
+            identity=_identity(),
+            admission=settings,
+        )
+
+    first, created = enqueue("api", "hello")
+    db_session.commit()
+    assert created is True
+    again, created_again = enqueue("api", "hello")
+    assert created_again is False and again.workflow_run_id == first.workflow_run_id
+
+    with pytest.raises(AdmissionDenied) as conflict:
+        enqueue("api", "something else")
+    assert conflict.value.status == 409 and conflict.value.code == "intent_conflict"
+    db_session.rollback()
+
+    other, other_created = enqueue(
+        "event", "hello"
+    )  # another source is another scope: no collision
+    db_session.commit()
+    assert other_created is True and other.workflow_run_id != first.workflow_run_id
+
+    digests = {
+        row.workflow_run_id: read_manifest(bytes(row.manifest_bytes))["request_digest"]
+        for row in db_session.execute(select(CaliberRunManifest)).scalars()
+    }
+    assert set(digests) == {first.workflow_run_id, other.workflow_run_id}
+    assert digests[first.workflow_run_id] == request_digest_of(first.summary["admission_intent"])
+    assert digests[first.workflow_run_id] != digests[other.workflow_run_id], "the purpose differs"

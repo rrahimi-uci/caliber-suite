@@ -112,6 +112,10 @@ def enqueue_workflow_run(  # noqa: PLR0912, PLR0915 - one insert path: idempoten
     publish: Callable[[dict[str, Any]], None] | None = None,
     identity: CaliberIdentity | None = None,
     admission: AdmissionSettings | None = None,
+    requested_alias: str | None = None,
+    version_selector: str | None = None,
+    input_files: list[dict[str, Any]] | None = None,
+    input_json: str | None = None,
 ) -> tuple[CaliberWorkflowRun, bool]:
     """Insert a ``queued`` run for the worker to pick up.
 
@@ -125,21 +129,27 @@ def enqueue_workflow_run(  # noqa: PLR0912, PLR0915 - one insert path: idempoten
     immutable manifest are stored in this same transaction. ``identity`` is the authenticated caller (required). A
     refusal raises :class:`~caliber.workflows.admission.AdmissionDenied` and the caller must roll back: the run row
     has already been flushed. A retry that reuses an idempotency key returns the original run and manifest when it is
-    the same request and raises ``AdmissionDenied`` (409) when it is not.
+    the same request and raises ``AdmissionDenied`` (409) when it is not. ``requested_alias`` is the release selector
+    the caller *named* (``alias`` is what it resolved to; they differ when a trigger picks its own target), and is what
+    the request's identity is built from.
     """
     admitting = admission is not None and admission.enabled
     intent = intent_of(
         workflow_id=workflow.workflow_id,
-        alias=alias,
+        alias=alias if requested_alias is None else requested_alias,
         actor=actor,
         input_text=input_text or "",
         project_id=workflow.project_id,
+        input_files=input_files,
+        version_selector=version_selector,
+        input_json=input_json,
         workspace_release_id=workspace_release_id,
         environment_id=environment_id,
         model_id=model_id,
         config_sha256=config_sha256,
         priority=priority,
         session_id=session_id,
+        source=source,
     )
     existing = _find_idempotent(
         session,
@@ -149,7 +159,7 @@ def enqueue_workflow_run(  # noqa: PLR0912, PLR0915 - one insert path: idempoten
     )
     if existing is not None:
         if admitting:
-            check_retry_intent(existing, intent)
+            check_retry_intent(session, existing, intent)
         return existing, False
 
     tenant_id = "local"
@@ -174,6 +184,7 @@ def enqueue_workflow_run(  # noqa: PLR0912, PLR0915 - one insert path: idempoten
             source=source,
             now=now,
             run_tenant_id=tenant_id,
+            intent=intent,
         )
     manifest_snapshot = _clone_manifest(version.manifest)
     manifest_metadata = _saved_version_manifest_metadata(version)
@@ -234,7 +245,7 @@ def enqueue_workflow_run(  # noqa: PLR0912, PLR0915 - one insert path: idempoten
         )
         if duplicate is not None:
             if admitting:
-                check_retry_intent(duplicate, intent)
+                check_retry_intent(session, duplicate, intent)
             return duplicate, False
         raise
 

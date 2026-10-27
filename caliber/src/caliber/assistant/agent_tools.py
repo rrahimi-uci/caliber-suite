@@ -1545,6 +1545,7 @@ class AssistantAgentToolset:
                     workflow=workflow,
                     version=version,
                     alias="",
+                    version_selector=version.version_id,
                     source="assistant",
                     actor=self._user,
                     input_text=input_text,

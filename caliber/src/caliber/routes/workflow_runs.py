@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import json
 import logging
+from collections.abc import Callable
 from copy import deepcopy
 from datetime import datetime, timezone
 from typing import Any, Literal, cast
@@ -624,6 +626,77 @@ def _clone_manifest(manifest: dict[str, Any]) -> dict[str, Any]:
     return deepcopy(manifest)
 
 
+def _canonical_input(value: object) -> str | None:
+    """The canonical JSON of an input that is not text, or ``None`` (text, or no input): what makes two spellings of
+    one object the same request and an object different from the string that happens to print like it."""
+    if value is None or isinstance(value, str):
+        return None
+    return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False, default=str)
+
+
+def _replay_idempotent(
+    session: Session,
+    request: Request,
+    *,
+    workflow_id: str,
+    source: str,
+    idempotency_key: str | None,
+    admission: AdmissionSettings,
+    intent_for: Callable[[CaliberWorkflow], dict[str, Any]],
+) -> CaliberWorkflowRun | None:
+    """The run an idempotency key already names, answered *before* the target is resolved.
+
+    A retry of the same request returns the original run even when what it would resolve to has since changed (an
+    alias moved, was deactivated, now fails a preflight, or the workflow was paused): the original is what it asked
+    for. The caller is authorized first (the workflow must be visible to them and they must be allowed to run it), and
+    a different request under the key is a ``409``. ``None`` when nothing is named or the workflow is not visible, so
+    the normal path decides.
+    """
+    from caliber.auth import resolve_identity  # noqa: PLC0415 - avoids an import cycle
+
+    if not idempotency_key or not admission.enabled:
+        return None
+    workflow = _visible_workflow_for_run(session, request, workflow_id)
+    if workflow is None:
+        return None
+    require_project_access_if_scoped(
+        session, resolve_identity(request), workflow.project_id, "resource.execute"
+    )
+    existing = _find_idempotent(
+        session, workflow_id=workflow.workflow_id, source=source, idempotency_key=idempotency_key
+    )
+    if existing is None:
+        return None
+    try:
+        check_retry_intent(session, existing, intent_for(workflow))
+    except AdmissionDenied as exc:
+        raise _refuse_admission(session, exc) from exc
+    return existing
+
+
+def _create_intent(
+    payload: WorkflowRunCreateRequest, workflow: CaliberWorkflow, actor: str
+) -> dict[str, Any]:
+    """The canonical intent of a create-run request: the selectors the caller named, never what they resolved to."""
+    return intent_of(
+        workflow_id=workflow.workflow_id,
+        alias=payload.alias or "manual",
+        actor=actor,
+        input_text=_input_to_text(payload.input),
+        project_id=workflow.project_id,
+        input_files=[dict(item) for item in payload.input_files] if payload.input_files else None,
+        version_selector=payload.workflow_version_id,
+        workspace_release_id=payload.workspace_release_id,
+        environment_id=payload.environment_id,
+        model_id=payload.model_id,
+        config_sha256=payload.config_sha256,
+        priority=payload.priority,
+        session_id=payload.session_id,
+        source="api",  # the route's own word, never the client-chosen ``source`` field
+        input_json=_canonical_input(payload.input),
+    )
+
+
 async def create_workflow_run(request: Request) -> JSONResponse:  # noqa: PLR0912, PLR0915
     from caliber.auth import resolve_identity  # noqa: PLC0415 - avoids an import cycle
 
@@ -634,6 +707,24 @@ async def create_workflow_run(request: Request) -> JSONResponse:  # noqa: PLR091
     payload = WorkflowRunCreateRequest.model_validate(body)
     factory = get_session_factory(request)
     with factory() as session:
+        replayed_version = (
+            session.get(CaliberWorkflowVersion, payload.workflow_version_id)
+            if payload.workflow_version_id
+            else None
+        )
+        replayed = _replay_idempotent(
+            session,
+            request,
+            workflow_id=replayed_version.workflow_id
+            if replayed_version is not None
+            else payload.workflow_id or "",
+            source=payload.source,
+            idempotency_key=payload.idempotency_key,
+            admission=_admission_settings(request),
+            intent_for=lambda workflow: _create_intent(payload, workflow, actor),
+        )
+        if replayed is not None:
+            return envelope_response(WorkflowRunSchema.model_validate(replayed), status_code=202)
         workflow, version, alias = _workflow_and_version_for_run(session, payload, request=request)
         # `P1-D`: `resource.execute` -- a no-op when the workflow is unscoped
         # (`project_id is None`, a genuine personal/global workflow), a real
@@ -685,23 +776,7 @@ async def create_workflow_run(request: Request) -> JSONResponse:  # noqa: PLR091
         if workflow.status == "archived":
             raise HTTPException(status_code=409, detail="archived workflows cannot be run")
 
-        intent = intent_of(
-            workflow_id=workflow.workflow_id,
-            alias=alias,
-            actor=actor,
-            input_text=_input_to_text(payload.input),
-            project_id=workflow.project_id,
-            input_files=[dict(item) for item in payload.input_files]
-            if payload.input_files
-            else None,
-            version_selector=payload.workflow_version_id,
-            workspace_release_id=payload.workspace_release_id,
-            environment_id=payload.environment_id,
-            model_id=payload.model_id,
-            config_sha256=payload.config_sha256,
-            priority=payload.priority,
-            session_id=payload.session_id,
-        )
+        intent = _create_intent(payload, workflow, actor)
         existing = _find_idempotent(
             session,
             workflow_id=workflow.workflow_id,
@@ -711,7 +786,7 @@ async def create_workflow_run(request: Request) -> JSONResponse:  # noqa: PLR091
         if existing is not None:
             if admission.enabled:
                 try:
-                    check_retry_intent(existing, intent)
+                    check_retry_intent(session, existing, intent)
                 except AdmissionDenied as exc:
                     raise _refuse_admission(session, exc) from exc
             return envelope_response(WorkflowRunSchema.model_validate(existing), status_code=202)
@@ -734,6 +809,7 @@ async def create_workflow_run(request: Request) -> JSONResponse:  # noqa: PLR091
                     source="api",  # the route's own word, never the client-chosen ``source`` field
                     now=now,
                     run_tenant_id=tenant_id,
+                    intent=intent,
                 )
             except AdmissionDenied as exc:
                 raise _refuse_admission(session, exc) from exc
@@ -789,7 +865,7 @@ async def create_workflow_run(request: Request) -> JSONResponse:  # noqa: PLR091
             if duplicate is not None:
                 if admission.enabled:
                     try:
-                        check_retry_intent(duplicate, intent)
+                        check_retry_intent(session, duplicate, intent)
                     except AdmissionDenied as denied:
                         raise _refuse_admission(session, denied) from denied
                 return envelope_response(
@@ -1005,6 +1081,25 @@ async def trigger_workflow_event(request: Request) -> JSONResponse:
 
     factory = get_session_factory(request)
     with factory() as session:
+        replayed = _replay_idempotent(
+            session,
+            request,
+            workflow_id=workflow_id,
+            source="event",
+            idempotency_key=payload.idempotency_key,
+            admission=_admission_settings(request),
+            intent_for=lambda wf: intent_of(
+                workflow_id=wf.workflow_id,
+                alias=payload.alias or "",
+                actor=actor,
+                input_text=_input_to_text(payload.input),
+                project_id=wf.project_id,
+                source="event",
+                input_json=_canonical_input(payload.input),
+            ),
+        )
+        if replayed is not None:
+            return envelope_response(WorkflowRunSchema.model_validate(replayed), status_code=200)
         workflow, version, alias, trigger = _resolve_event_trigger_target(
             session,
             request=request,
@@ -1033,9 +1128,11 @@ async def trigger_workflow_event(request: Request) -> JSONResponse:
                 workflow=workflow,
                 version=version,
                 alias=alias,
+                requested_alias=payload.alias or "",
                 source="event",
                 actor=actor,
                 input_text=_input_to_text(payload.input),
+                input_json=_canonical_input(payload.input),
                 idempotency_key=payload.idempotency_key,
                 publish=lambda evt: _emit_queue_event(request, evt),
                 identity=resolve_identity(request),
@@ -1443,6 +1540,23 @@ async def retry_workflow_run(request: Request) -> JSONResponse:  # noqa: PLR0912
                     status_code=409,
                     detail="cannot retry run: its workflow or version no longer exists",
                 )
+            retry_intent = intent_of(
+                workflow_id=run.workflow_id,
+                alias=run.deployment_alias or "",
+                actor=actor,
+                input_text=retry_input_text,
+                project_id=run.project_id,
+                input_files=[
+                    dict(item)
+                    for item in (run.summary or {}).get("input_files") or []
+                    if isinstance(item, dict)
+                ]
+                or None,
+                version_selector=run.workflow_version_id,
+                priority=int(run.priority or 0),
+                session_id=run.session_id,
+                source="retry",
+            )
             try:
                 retry_prepared = prepare_admission(
                     settings=retry_admission,
@@ -1452,6 +1566,7 @@ async def retry_workflow_run(request: Request) -> JSONResponse:  # noqa: PLR0912
                     source="retry",
                     now=now,
                     run_tenant_id=run.tenant_id or "local",
+                    intent=retry_intent,
                 )
             except AdmissionDenied as exc:
                 raise _refuse_admission(session, exc) from exc
@@ -1472,6 +1587,7 @@ async def retry_workflow_run(request: Request) -> JSONResponse:  # noqa: PLR0912
             "input": retry_input_text[:1000],
             "retry_of": run.workflow_run_id,
             **retry_manifest_metadata,
+            **({"admission_intent": retry_intent} if retry_prepared is not None else {}),
         }
         original_input_files = (run.summary or {}).get("input_files")
         if isinstance(original_input_files, list):

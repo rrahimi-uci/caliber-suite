@@ -19,8 +19,10 @@ The path, for one run:
 
 Retries (:func:`check_retry_intent`): the caller has already authorized the request. An idempotency key that names an
 existing run returns that run, with its original manifest, even if a deployment alias has since moved, when the
-request is the same one (same workflow, release selector, input, files and project); a different request under the
-same key is a ``409``.
+request is the same one; a different request under the same key is a ``409``. "The same request" is the canonical
+*intent* (:func:`intent_of`: the workflow, the release and version selectors as named, the input, the purpose and the
+server-derived scope), and its SHA-256 (:func:`request_digest_of`) is stored in the immutable manifest, so the
+comparison does not depend on anything that can change after admission.
 
 Not admitted, deliberately and documented in ``docs/operate/reference-profile.md``: runs started by the cron
 scheduler and by a service token (no typed subject exists for either yet) stay legacy runs.
@@ -35,6 +37,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any, Final
 
+from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session
 
@@ -57,8 +60,11 @@ from caliber.run_manifest import (
     PinnedRuleBundle,
     ResolvedPins,
     build_run_manifest,
+    canonical_bytes,
+    digest_of,
     new_manifest_id,
     pin_rule_bundle,
+    read_manifest,
 )
 from caliber.workflows.deployment_bundle import verify_bundle
 from caliber.workflows.manifest import AgentNode, compute_manifest_hash, parse_manifest
@@ -313,8 +319,12 @@ def prepare_admission(
     source: str,
     now: datetime,
     run_tenant_id: str,
+    intent: dict[str, Any],
 ) -> PreparedAdmission:
-    """Resolve and validate everything, building the manifest; writes nothing. Raises :class:`AdmissionDenied`."""
+    """Resolve and validate everything, building the manifest; writes nothing. Raises :class:`AdmissionDenied`.
+
+    ``intent`` is the request's canonical intent (:func:`intent_of`); its digest is recorded in the manifest.
+    """
     if not workflow.project_id:
         raise AdmissionDenied(
             PROJECT_REQUIRED,
@@ -364,6 +374,7 @@ def prepare_admission(
             requested_tenant_id=run_tenant_id,
             rule_bundle=pinned,
             rule_bundles_enabled=bool(settings.rule_bundle_path),
+            request_digest=request_digest_of(intent),
         )
     except ManifestError as exc:
         raise AdmissionDenied(MANIFEST_REFUSED, f"{exc.code}: {exc}") from exc
@@ -476,15 +487,24 @@ def intent_of(
     config_sha256: str | None = None,
     priority: int = 0,
     session_id: str | None = None,
+    source: str = "api",
+    input_json: str | None = None,
 ) -> dict[str, Any]:
-    """The canonical intent of a request: what was *asked for* (selectors, input, who, where), never what the
-    selectors resolve to now. Stored on the run when it is admitted and compared on every retry of its key."""
+    """The canonical intent of a request: what was *asked for* (selectors, input, who, why, where), never what the
+    selectors resolve to now. ``source`` gives the purpose and the project the server-derived scope. Stored on the
+    run when it is admitted, its digest in the manifest, and compared on every retry of its key. ``input_json`` is the
+    canonical JSON of an input that was not text (so ``{"b": 2, "a": 1}`` and ``{"a": 1, "b": 2}`` are one request and
+    the string ``"{'a': 1}"`` is another)."""
+    scope = DeploymentScope.fixed(project_id or None)
     return {
         "workflow_id": workflow_id,
         "release_selector": alias or "",
         "version_selector": version_selector or None,
         "actor": actor,
-        "input": input_text or "",
+        "input": ""
+        if input_json
+        else input_text or "",  # an object's text is its repr, which is order-dependent
+        "input_json": input_json or None,
         "input_files": [dict(item) for item in input_files or []],
         "project_id": project_id or None,
         "workspace_release_id": workspace_release_id or None,
@@ -493,21 +513,89 @@ def intent_of(
         "config_sha256": config_sha256 or None,
         "priority": int(priority or 0),
         "session_id": session_id or None,
+        "purpose": purpose_for(source),
+        "scope": {
+            "tenant_id": scope.tenant_id,
+            "project_id": scope.project_id,
+            "region": scope.region,
+            "residency": scope.residency,
+        },
     }
 
 
-def check_retry_intent(existing: CaliberWorkflowRun, intent: dict[str, Any]) -> None:
+def request_digest_of(intent: dict[str, Any]) -> str:
+    """The SHA-256 of the canonical bytes of an intent: the manifest's ``request_digest``."""
+    return digest_of(canonical_bytes(intent))
+
+
+#: What an intent recorded before ``purpose``, ``scope`` and ``input_json`` existed carried; a stored intent that lacks
+#: any of these is not an intent this code wrote, and is refused rather than matched on whatever it has.
+_FIRST_INTENT_KEYS: Final = frozenset(
+    {
+        "workflow_id",
+        "release_selector",
+        "version_selector",
+        "actor",
+        "input",
+        "input_files",
+        "project_id",
+        "workspace_release_id",
+        "environment_id",
+        "model_id",
+        "config_sha256",
+        "priority",
+        "session_id",
+    }
+)
+
+
+def _manifest_request_digest(session: Session, run: CaliberWorkflowRun) -> str | None:
+    """The ``request_digest`` the run's manifest recorded, or ``None`` for a legacy run or a manifest written before the
+    field existed. An admitted run whose manifest is missing or unreadable is refused (never guessed around): admission
+    writes the two together."""
+    if run.manifest_legacy is not False:
+        return None
+    row = session.execute(
+        select(CaliberRunManifest).where(CaliberRunManifest.workflow_run_id == run.workflow_run_id)
+    ).scalar_one_or_none()
+    if row is None:
+        raise AdmissionDenied(
+            MANIFEST_REFUSED,
+            "an admitted run has no stored manifest, so the request cannot be compared with it",
+            status=500,
+        )
+    try:
+        record = read_manifest(bytes(row.manifest_bytes), row.manifest_digest)
+    except ManifestError as exc:
+        raise AdmissionDenied(
+            MANIFEST_REFUSED,
+            f"the run's stored manifest cannot be read ({exc.code}), so the request cannot be compared with it",
+            status=500,
+        ) from exc
+    digest = record.get("request_digest")
+    return digest if isinstance(digest, str) else None
+
+
+def check_retry_intent(
+    session: Session, existing: CaliberWorkflowRun, intent: dict[str, Any]
+) -> None:
     """A request that reuses an idempotency key must be the request that created the run, from the same caller
     (409 otherwise, with one message for every kind of difference, so it is no oracle).
 
     The caller has authorized the request already. The comparison is on the *selectors* the original request named,
     never on what an alias points at now, so a moved alias does not make a retry a different request and the
-    original run and manifest come back. A run admitted before the intent was recorded is compared on the fields
-    the run row itself keeps.
+    original run and manifest come back. The authority is the ``request_digest`` in the run's immutable manifest;
+    a run admitted before that field existed is compared on the intent stored in its summary (the fields it
+    recorded), and a legacy run on the fields the run row itself keeps.
     """
+    recorded = _manifest_request_digest(session, existing)
     stored = (existing.summary or {}).get("admission_intent")
-    if isinstance(stored, dict):
-        same = stored == intent
+    if recorded is not None:
+        same = recorded == request_digest_of(intent)
+    elif isinstance(stored, dict) and stored.keys() >= _FIRST_INTENT_KEYS:
+        same = all(intent.get(key) == value for key, value in stored.items())
+    elif existing.manifest_legacy is False:
+        same = False  # admitted, but neither a digest nor a complete intent to compare with
     else:
         same = (
             existing.workflow_id == intent["workflow_id"]
@@ -560,5 +648,6 @@ __all__ = [
     "persist_admission",
     "prepare_admission",
     "purpose_for",
+    "request_digest_of",
     "resolve_pins",
 ]
