@@ -86,6 +86,7 @@ from caliber.schemas import (
     WorkflowVersionUpdateRequest,
 )
 from caliber.storage import StorageError, WorkingDirectoryService, build_backend
+from caliber.workflows.admission import AdmissionSettings
 from caliber.workflows.compiler import CompileError, compile_workflow
 from caliber.workflows.deployment_bundle import verify_bundle
 from caliber.workflows.diff import compute_graph_diff
@@ -914,6 +915,16 @@ def _run_workflow_version_sync(  # noqa: PLR0912, PLR0915 - run orchestration + 
     actor: str,
     request: Request,
 ) -> dict[str, Any]:
+    if AdmissionSettings.from_config(config).enabled:
+        # A synchronous real run executes in this request and is never queued, so it cannot be admitted (pinned,
+        # granted, decided and recorded) before it starts. With admission on, runs go through the queue.
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "sync_run_not_admitted: synchronous real runs are not admitted; "
+                "submit the run to the queued /workflow-runs endpoint"
+            ),
+        )
     input_text = _input_to_text(payload.input)
     alias = payload.alias or "manual"
     started = datetime.now(timezone.utc)

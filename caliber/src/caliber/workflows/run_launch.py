@@ -18,6 +18,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from caliber.audit import record as audit_record
+from caliber.auth import CaliberIdentity
 from caliber.db.models import (
     CaliberProject,
     CaliberWorkflow,
@@ -25,7 +26,19 @@ from caliber.db.models import (
     CaliberWorkflowVersion,
     CaliberWorkspaceRelease,
 )
+from caliber.db.transactions import begin_sqlite_transaction
 from caliber.ids import new_workflow_run_id
+from caliber.workflows.admission import (
+    SUBJECT_INVALID,
+    AdmissionDenied,
+    AdmissionRecord,
+    AdmissionSettings,
+    admitted_manifest_metadata,
+    check_retry_intent,
+    intent_of,
+    persist_admission,
+    prepare_admission,
+)
 from caliber.workflows.run_events import append_run_event
 from caliber.workflows.run_state import RUN_STATUS_QUEUED
 from caliber.workspace_runtime_lineage import create_runtime_lineage
@@ -80,7 +93,7 @@ def _saved_version_manifest_metadata(version: CaliberWorkflowVersion) -> dict[st
     }
 
 
-def enqueue_workflow_run(
+def enqueue_workflow_run(  # noqa: PLR0912, PLR0915 - one insert path: idempotency, admission, lineage, events
     session: Session,
     *,
     workflow: CaliberWorkflow,
@@ -97,6 +110,8 @@ def enqueue_workflow_run(
     model_id: str | None = None,
     config_sha256: str | None = None,
     publish: Callable[[dict[str, Any]], None] | None = None,
+    identity: CaliberIdentity | None = None,
+    admission: AdmissionSettings | None = None,
 ) -> tuple[CaliberWorkflowRun, bool]:
     """Insert a ``queued`` run for the worker to pick up.
 
@@ -104,7 +119,28 @@ def enqueue_workflow_run(
     ``(workflow_id, source, idempotency_key)`` it is returned with
     ``created=False`` and no new row/events are written. The caller owns the
     transaction boundary (this flushes but does not commit).
+
+    With ``admission`` enabled (B02.2a) the run is *admitted*: its pins are resolved and its manifest built before the
+    row is written, the row is written with ``manifest_legacy = false``, and the grant, the policy decision and the
+    immutable manifest are stored in this same transaction. ``identity`` is the authenticated caller (required). A
+    refusal raises :class:`~caliber.workflows.admission.AdmissionDenied` and the caller must roll back: the run row
+    has already been flushed. A retry that reuses an idempotency key returns the original run and manifest when it is
+    the same request and raises ``AdmissionDenied`` (409) when it is not.
     """
+    admitting = admission is not None and admission.enabled
+    intent = intent_of(
+        workflow_id=workflow.workflow_id,
+        alias=alias,
+        actor=actor,
+        input_text=input_text or "",
+        project_id=workflow.project_id,
+        workspace_release_id=workspace_release_id,
+        environment_id=environment_id,
+        model_id=model_id,
+        config_sha256=config_sha256,
+        priority=priority,
+        session_id=session_id,
+    )
     existing = _find_idempotent(
         session,
         workflow_id=workflow.workflow_id,
@@ -112,6 +148,8 @@ def enqueue_workflow_run(
         idempotency_key=idempotency_key,
     )
     if existing is not None:
+        if admitting:
+            check_retry_intent(existing, intent)
         return existing, False
 
     tenant_id = "local"
@@ -121,7 +159,28 @@ def enqueue_workflow_run(
             tenant_id = project.tenant_id
 
     now = datetime.now(timezone.utc)
+    prepared = None
+    if admitting:
+        assert admission is not None
+        if identity is None:
+            raise AdmissionDenied(
+                SUBJECT_INVALID, "an admitted run needs the authenticated caller", status=401
+            )
+        prepared = prepare_admission(
+            settings=admission,
+            workflow=workflow,
+            version=version,
+            identity=identity,
+            source=source,
+            now=now,
+            run_tenant_id=tenant_id,
+        )
+    manifest_snapshot = _clone_manifest(version.manifest)
     manifest_metadata = _saved_version_manifest_metadata(version)
+    if prepared is not None:
+        # An admitted run executes exactly what its pins describe: the version's sealed, resolved manifest.
+        manifest_snapshot = _clone_manifest(prepared.execution_manifest)
+        manifest_metadata = admitted_manifest_metadata(version, manifest_snapshot)
     run_summary = {
         "preview": False,
         "status": RUN_STATUS_QUEUED,
@@ -130,9 +189,12 @@ def enqueue_workflow_run(
     }
     if workspace_release_id is not None:
         run_summary["strict_lineage"] = True
+    if prepared is not None:
+        run_summary["admission_intent"] = intent
 
     run = CaliberWorkflowRun(
-        workflow_run_id=new_workflow_run_id(),
+        workflow_run_id=prepared.run_id if prepared is not None else new_workflow_run_id(),
+        manifest_legacy=prepared is None,
         workflow_id=workflow.workflow_id,
         project_id=workflow.project_id,
         tenant_id=tenant_id,
@@ -148,7 +210,7 @@ def enqueue_workflow_run(
         attempt_number=1,
         idempotency_key=idempotency_key,
         input_payload=input_text or "",
-        manifest_snapshot=_clone_manifest(version.manifest),
+        manifest_snapshot=manifest_snapshot,
         summary=run_summary,
     )
     try:
@@ -157,6 +219,9 @@ def enqueue_workflow_run(
         # (the contract is "the caller owns the transaction boundary"), silently
         # discarding work already staged in the same session — e.g. sibling cron
         # runs enqueued earlier in the same scheduler tick.
+        begin_sqlite_transaction(
+            session
+        )  # a first-statement SAVEPOINT would autocommit on pysqlite
         with session.begin_nested():
             session.add(run)
             session.flush()
@@ -168,6 +233,8 @@ def enqueue_workflow_run(
             idempotency_key=idempotency_key,
         )
         if duplicate is not None:
+            if admitting:
+                check_retry_intent(duplicate, intent)
             return duplicate, False
         raise
 
@@ -187,6 +254,13 @@ def enqueue_workflow_run(
             created_by=actor,
         )
         run.runtime_lineage_id = lineage.lineage_id
+        session.flush()
+
+    record: AdmissionRecord | None = None
+    if prepared is not None:
+        assert admission is not None and identity is not None
+        record = persist_admission(session, prepared, run, identity=identity, settings=admission)
+        run.summary = {**(run.summary or {}), "admitted": True, "manifest_id": record.manifest_id}
         session.flush()
 
     _append_run_event(
@@ -216,6 +290,17 @@ def enqueue_workflow_run(
             "source": source,
             "manifest_mode": manifest_metadata["manifest_mode"],
             "manifest_hash": manifest_metadata["manifest_hash"],
+            **(
+                {
+                    "admitted": True,
+                    "grant_id": record.grant_id,
+                    "decision_id": record.decision_id,
+                    "manifest_id": record.manifest_id,
+                    "run_manifest_digest": record.manifest_digest,
+                }
+                if record is not None
+                else {}
+            ),
         },
     )
 

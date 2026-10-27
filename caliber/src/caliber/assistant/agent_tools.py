@@ -1518,6 +1518,10 @@ class AssistantAgentToolset:
     def _t_run_workflow(self, a: dict[str, Any]) -> str:
         from caliber.db.models import CaliberWorkflow, CaliberWorkflowVersion  # noqa: PLC0415
         from caliber.db.scoping import get_visible  # noqa: PLC0415
+        from caliber.workflows.admission import (  # noqa: PLC0415
+            AdmissionDenied,
+            AdmissionSettings,
+        )
         from caliber.workflows.run_launch import enqueue_workflow_run  # noqa: PLC0415
 
         version_id = str(a.get("version_id", ""))
@@ -1535,16 +1539,26 @@ class AssistantAgentToolset:
             )
             if workflow is None:
                 return _err("parent workflow not found")
-            run, created = enqueue_workflow_run(
-                db,
-                workflow=workflow,
-                version=version,
-                alias="",
-                source="assistant",
-                actor=self._user,
-                input_text=input_text,
-                session_id=self._session_id,
-            )
+            try:
+                run, created = enqueue_workflow_run(
+                    db,
+                    workflow=workflow,
+                    version=version,
+                    alias="",
+                    source="assistant",
+                    actor=self._user,
+                    input_text=input_text,
+                    session_id=self._session_id,
+                    identity=identity,
+                    admission=(
+                        AdmissionSettings.from_config(self._deps.config)
+                        if self._deps.config is not None
+                        else None
+                    ),
+                )
+            except AdmissionDenied as exc:
+                db.rollback()
+                return _err(f"the run was not admitted: {exc}")
             db.commit()
             run_id = run.workflow_run_id
             status = run.status

@@ -687,6 +687,34 @@ class CaliberConfig(BaseModel):
             "when the holder dies a secondary becomes the owner within about this long. At least 3 seconds."
         ),
     )
+    admission_enabled: bool = Field(
+        default=False,
+        description=(
+            "Admit every run created by a user (the create-run route, the event trigger and the assistant's "
+            "run tool) through the governed path: resolve and pin everything the run depends on, issue its "
+            "grant, decide it under the policy and store the immutable run manifest, all in the transaction "
+            "that creates the run (B02.2a). Always on in the reference profile; off elsewhere unless set, so "
+            "development runs stay legacy runs without a manifest."
+        ),
+    )
+    admission_grant_ttl_seconds: int = Field(
+        default=86400,
+        ge=60,
+        le=2_592_000,
+        description="How long the grant issued to an admitted run lasts (at least a minute, at most 30 days).",
+    )
+    rule_bundle_path: str = Field(
+        default="",
+        description=(
+            "Path of the rule bundle every admitted run is pinned to. Set together with "
+            "``rule_bundle_sha256``: admission verifies the file's bytes against that digest and records both in "
+            "the run manifest, and refuses to admit while the file is missing or changed."
+        ),
+    )
+    rule_bundle_sha256: str = Field(
+        default="",
+        description="Full lowercase SHA-256 of the configured rule bundle's exact bytes (see ``rule_bundle_path``).",
+    )
     workflow_run_lease_seconds: float = Field(
         default=60.0,
         gt=0,
@@ -2060,6 +2088,10 @@ _ENV_VAR_TABLE: list[tuple[str, str, Any]] = [
         float,
     ),
     ("CALIBER_EXECUTION_LEASE_SECONDS", "execution_lease_seconds", float),
+    ("CALIBER_ADMISSION_ENABLED", "admission_enabled", _flag),
+    ("CALIBER_ADMISSION_GRANT_TTL_SECONDS", "admission_grant_ttl_seconds", int),
+    ("CALIBER_RULE_BUNDLE_PATH", "rule_bundle_path", str),
+    ("CALIBER_RULE_BUNDLE_SHA256", "rule_bundle_sha256", str),
     ("CALIBER_WORKFLOW_RUN_LEASE_SECONDS", "workflow_run_lease_seconds", float),
     ("CALIBER_WORKFLOW_QUEUE_MAX_AGE_SECONDS", "workflow_queue_max_age_seconds", float),
     ("CALIBER_SLO_OBJECTIVES", "slo_objectives", str),

@@ -37,6 +37,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from caliber.db.models import CaliberExperimentOwner
+from caliber.db.transactions import begin_sqlite_transaction
 from caliber.observability.trace_access import (
     ExperimentClaimConflict,
     ExperimentLookupError,
@@ -99,21 +100,6 @@ def tracking_backend() -> str:
         host = f"{host}:{parts.port}"
     path = parts.path.rstrip("/")
     return urlunsplit((parts.scheme.lower(), host, path, "", ""))[:512] or _DEFAULT_BACKEND
-
-
-def _begin_sqlite_transaction(session: Session) -> None:
-    """Make SQLite's transaction start now, so a savepoint is not the first statement and cannot autocommit.
-
-    pysqlite (legacy transaction control) begins a transaction only at the first INSERT/UPDATE/DELETE; a SAVEPOINT
-    issued before that, and its RELEASE, would commit the claim on the spot and a rollback of the request would
-    leave the owner behind. Development only; PostgreSQL begins a transaction with the first statement.
-    """
-    bind = session.get_bind()
-    if bind.dialect.name != "sqlite":
-        return
-    raw = session.connection().connection.driver_connection
-    if raw is not None and not raw.in_transaction:
-        raw.execute("BEGIN")
 
 
 def _scope_of(visibility: str, project_id: str | None, owner: str) -> tuple[str, str]:
@@ -241,7 +227,7 @@ def claim_experiment(
             f"experiment {ref!r} already exists and nobody has registered it; ask CALIBER to create it by name, "
             "or ask an administrator to adopt it"
         )
-    _begin_sqlite_transaction(session)
+    begin_sqlite_transaction(session)
     try:
         with session.begin_nested():
             session.add(_row(backend, canonical, scope, provenance, claimant))
@@ -437,7 +423,7 @@ def migrate_legacy_claims(session: Session, *, actor: str) -> dict[str, Any]:
         "mismatched": [],
         "unresolved": sorted(set(unresolved)),
     }
-    _begin_sqlite_transaction(session)
+    begin_sqlite_transaction(session)
     for canonical in sorted(by_id):
         scopes = by_id[canonical]
         existing = session.get(CaliberExperimentOwner, (backend, canonical), populate_existing=True)
@@ -486,7 +472,7 @@ def resolve_quarantine(
     if kind not in SCOPE_KINDS or (kind == "public") != (scope_id == ""):
         raise ValueError("the owner must be a project or user id, or public (with no id)")
     backend = tracking_backend()
-    _begin_sqlite_transaction(session)
+    begin_sqlite_transaction(session)
     result = session.execute(
         update(CaliberExperimentOwner)
         .where(
