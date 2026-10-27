@@ -16,6 +16,7 @@ import pytest
 
 import caliber.orchestrator.workflow_run_worker as worker_module
 import caliber.workflows.promoter as promoter_module
+from caliber.context.sources import approve_source
 from caliber.db.models import (
     CaliberKnowledgeBase,
     CaliberKnowledgeBaseVersion,
@@ -230,13 +231,16 @@ def _seed(app: ReferenceApp, kind: str) -> None:
                         knowledge_base_version_id=f"KBV-{number}",
                         knowledge_base_id="KB-pins",
                         version_number=number,
-                        status="ready",
+                        status="completed",
                         chunking_strategy="fixed",
                         embedding_model="m",
                         output_bucket="b",
                         output_prefix="p",
                     )
                 )
+            session.flush()
+            # The reference profile admits only approved context sources (B07.1b).
+            approve_source(session, PROJECT_A, "KB-pins", "KBV-1", EDITOR_A)
             session.commit()
     elif kind == "tool":
         app.client.app.state.config = app.client.app.state.config.model_copy(  # type: ignore[attr-defined]

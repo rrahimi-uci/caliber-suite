@@ -197,6 +197,7 @@ def enqueue_workflow_run(  # noqa: PLR0912, PLR0915 - one insert path: idempoten
                 SUBJECT_INVALID, "an admitted run needs the authenticated caller", status=401
             )
         prepared = prepare_admission(
+            session=session,
             settings=admission,
             workflow=workflow,
             version=version,

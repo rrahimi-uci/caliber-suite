@@ -40,9 +40,12 @@ from typing import Any, Final
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session
+from starlette.exceptions import HTTPException
 
 from caliber.auth import CaliberIdentity
+from caliber.context.sources import SourceNotApproved, require_approved
 from caliber.db.models import (
+    CaliberKnowledgeBaseVersion,
     CaliberRunManifest,
     CaliberWorkflow,
     CaliberWorkflowRun,
@@ -101,6 +104,7 @@ POLICY_DENIED: Final = "policy_denied"
 OVERRIDE_NOT_ADMITTED: Final = "manifest_override_not_admitted"
 AUTHORITY_UNAVAILABLE: Final = "authority_unavailable"
 INTENT_CONFLICT: Final = "intent_conflict"
+SOURCE_NOT_APPROVED: Final = "source_not_approved"
 
 
 class AdmissionDenied(Exception):  # noqa: N818 - a refusal, named for what it says
@@ -138,6 +142,8 @@ class AdmissionSettings:
     default_model: str = ""
     #: A run must be started against a workspace release and environment (runtime lineage): the reference profile.
     lineage_required: bool = False
+    #: Every pinned knowledge-base version must be an approved context source of the project: the reference profile.
+    approved_sources_required: bool = False
 
     @classmethod
     def from_config(cls, config: Any) -> AdmissionSettings:
@@ -159,6 +165,7 @@ class AdmissionSettings:
             llm_provider=str(getattr(config, "llm_provider", "fake") or "fake"),
             default_model=str(getattr(config, "llm_diagnosis_model", "") or ""),
             lineage_required=getattr(config, "profile", "") == "reference",
+            approved_sources_required=getattr(config, "profile", "") == "reference",
         )
 
 
@@ -314,6 +321,122 @@ def _resolve(
         raise AdmissionDenied(MANIFEST_REFUSED, f"{exc.code}: {exc}") from exc
 
 
+_MAX_CHILD_DEPTH: Final = 8
+
+
+def _refuse_source(message: str) -> AdmissionDenied:
+    return AdmissionDenied(SOURCE_NOT_APPROVED, message, status=403, reasons=(SOURCE_NOT_APPROVED,))
+
+
+def _child_sources(
+    session: Session, snapshot: dict[str, Any], depth: int, seen: set[str]
+) -> set[tuple[str, str]]:
+    """The knowledge-base versions a pinned child workflow reads (its own sealed bundle, checked against the pin)."""
+    if depth >= _MAX_CHILD_DEPTH:
+        raise _refuse_source("child workflows are nested too deeply to check their context sources")
+    child = session.get(CaliberWorkflowVersion, str(snapshot.get("version_id") or ""))
+    if child is None:
+        raise _refuse_source(
+            "a child workflow cannot be read, so its context sources cannot be checked"
+        )
+    if _dependencies(child)[0] != snapshot.get("bundle_digest"):
+        raise _refuse_source(
+            "a child workflow is not the one this version was compiled against, so its context sources "
+            "cannot be checked"
+        )
+    return _knowledge_sources(session, child, depth=depth + 1, seen=seen)
+
+
+def _query_sources(session: Session, manifest: dict[str, Any]) -> set[tuple[str, str]]:
+    """The versions named on the resolved manifest's knowledge-query nodes; a node that takes them from an input
+    port cannot be pinned, so it is refused."""
+    raw_nodes = manifest.get("nodes")
+    nodes: dict[str, Any] = raw_nodes if isinstance(raw_nodes, dict) else {}
+    queries = {
+        str(node_id): node
+        for node_id, node in nodes.items()
+        if isinstance(node, dict) and node.get("type") == "knowledge_query"
+    }
+    for edge in manifest.get("edges", []) or []:
+        if not isinstance(edge, dict) or str(edge.get("to")) not in queries:
+            continue
+        raw_map = edge.get("map")
+        mapped: dict[str, Any] = raw_map if isinstance(raw_map, dict) else {}
+        if "version_ids" in mapped.values():
+            raise _refuse_source(
+                f"knowledge query {edge.get('to')!r} takes its versions from an input, so they cannot be "
+                "pinned or approved: name the versions on the node"
+            )
+    found: set[tuple[str, str]] = set()
+    for node in queries.values():
+        for version_id in node.get("version_ids") or []:
+            row = session.get(CaliberKnowledgeBaseVersion, str(version_id))
+            named = str(node.get("knowledge_base_id") or "unknown")
+            found.add((row.knowledge_base_id if row is not None else named, str(version_id)))
+    return found
+
+
+def _knowledge_sources(
+    session: Session,
+    version: CaliberWorkflowVersion,
+    *,
+    depth: int = 0,
+    seen: set[str] | None = None,
+) -> set[tuple[str, str]]:
+    """Every ``(knowledge_base_id, version_id)`` this version, *and the child workflows it runs inline*, can read.
+
+    The sealed bundle's dependency lock lists the knowledge bases the nodes name; a query node that names only
+    ``version_ids`` has no such entry, so the resolved manifest's nodes are read too (:func:`_query_sources`). A child
+    workflow is read from its own sealed bundle (it must be the one the parent pinned), recursively and
+    depth-bounded.
+    """
+    seen = seen if seen is not None else set()
+    if version.version_id in seen:
+        return set()
+    seen.add(version.version_id)
+    _digest, dependencies, manifest = _dependencies(version)
+    found = _query_sources(session, manifest)
+    for item in dependencies:
+        raw_snapshot = item.get("snapshot")
+        snapshot: dict[str, Any] = raw_snapshot if isinstance(raw_snapshot, dict) else {}
+        if item.get("kind") == "knowledge_base":
+            for entry in snapshot.get("versions", []) or []:
+                if isinstance(entry, dict) and entry.get("version_id"):
+                    found.add((str(snapshot.get("knowledge_base_id")), str(entry["version_id"])))
+        elif item.get("kind") == "subworkflow":
+            found |= _child_sources(session, snapshot, depth, seen)
+    return found
+
+
+def _require_approved_sources(
+    session: Session,
+    workflow: CaliberWorkflow,
+    identity: CaliberIdentity,
+    version: CaliberWorkflowVersion,
+    pins: ResolvedPins,
+) -> None:
+    """Reference profile: every knowledge-base version the run can read must be approved for the project.
+
+    Only a caller who may run the workflow at all learns what the project has approved (the role check comes
+    first), and the refusal names every offending ``knowledge_base_id@version_id``.
+    """
+    from caliber.resource_access import require_project_access_if_scoped  # noqa: PLC0415 - avoids an import cycle
+
+    try:
+        require_project_access_if_scoped(session, identity, workflow.project_id, "resource.execute")
+    except HTTPException as exc:
+        raise AdmissionDenied(
+            GRANT_REFUSED, "the caller may not run this workflow", status=403
+        ) from exc
+    sources = _knowledge_sources(session, version) | {
+        (pin.knowledge_base_id, pin.version_id) for pin in pins.knowledge_base_versions
+    }
+    try:
+        require_approved(session, str(workflow.project_id), sources)
+    except SourceNotApproved as exc:
+        raise _refuse_source(str(exc)) from exc
+
+
 def _model_routes(version: CaliberWorkflowVersion, settings: AdmissionSettings) -> tuple[str, ...]:
     """The provider and each agent's model on it: ``openai``, ``openai/gpt-4o``."""
     routes = {settings.llm_provider}
@@ -336,6 +459,7 @@ def _model_routes(version: CaliberWorkflowVersion, settings: AdmissionSettings) 
 
 def prepare_admission(
     *,
+    session: Session,
     settings: AdmissionSettings,
     workflow: CaliberWorkflow,
     version: CaliberWorkflowVersion,
@@ -378,6 +502,8 @@ def prepare_admission(
             f"this workflow version has no usable digest to pin the workload to: {exc}",
         ) from exc
     pins, execution_manifest = _resolve(version, settings)
+    if settings.approved_sources_required:
+        _require_approved_sources(session, workflow, identity, version, pins)
     pinned: PinnedRuleBundle | None = None
     if settings.rule_bundle_path:
         try:
@@ -684,6 +810,7 @@ __all__ = [
     "POLICY_DENIED",
     "PROJECT_REQUIRED",
     "RUN_ACTION",
+    "SOURCE_NOT_APPROVED",
     "SUBJECT_INVALID",
     "WORKLOAD_UNAVAILABLE",
     "AdmissionDenied",

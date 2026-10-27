@@ -361,6 +361,7 @@ synchronous real run (`POST /workflow-versions/{id}/run`) is never queued, so wi
 | `409` | `bundle_unavailable` | compile and publish the version again (its sealed bundle is missing, altered or unresolved) |
 | `409` | `manifest_refused` | a pin is floating or ambiguous, the rule bundle is missing or changed, or the project belongs to another organization; the message says which |
 | `409` | `intent_conflict` | the idempotency key belongs to a different request; use a new key |
+| `403` | `source_not_approved` | reference profile: a knowledge-base version the run can read (directly, through a child workflow, or on a query node) is not an approved context source of the project, or a query takes its versions from an input; approve the named versions, use the project's own knowledge bases, or name the versions on the node, then run again |
 | `409` | `manifest_override_not_admitted` | save the manifest as a version, publish it and run that |
 | `409` | `sync_run_not_admitted` | submit the run to the queued `/workflow-runs` endpoint |
 | `403` | `policy_denied` / `grant_refused` | the policy or the caller's role does not allow it; the reason codes are in the message |
@@ -704,8 +705,22 @@ A run's context may only come from sources its project has approved (B07, #692).
 version)`, unique. `approve_source(session, project_id, knowledge_base_id, version_id, actor)` records an approval,
 `revoke_source(...)` withdraws it (the row stays, with `revoked_at` and `revoked_by`, as evidence) and
 `is_approved(session, project_id, knowledge_base_id, version_id)` answers whether it is approved *now* (`False` once
-revoked, for anything never approved and for a source that no longer exists). The admission check (B07.1b) and the authorize-before-load step (B07.2) read it;
-nothing reads it yet, so this changes no behaviour today.
+revoked, for anything never approved and for a source that no longer exists). **Admission reads it (B07.1b, #696):** under
+`CALIBER_PROFILE=reference` every knowledge-base version a run can read must be approved for the run's project
+(`require_approved`, called by `prepare_admission`, so create-run, trigger, retry and the assistant tool all pass through
+it). That is the versions in the sealed bundle's dependency lock, the versions named on a knowledge-query node that
+names only `version_ids`, and the versions read by every **child workflow** the run calls (each child's own sealed
+bundle, which must be the one the parent was compiled against). A query whose `version_ids` arrive on an input port
+cannot be pinned, so it is refused outright. Otherwise the run is refused with `403`, `reason_code:
+source_not_approved` in the error body and every unapproved `knowledge_base_id@version_id` named in the message, and
+nothing is stored. The role check (`resource.execute` on the project) comes first, so only a caller who may run the
+workflow learns what the project has approved. Approval and revocation take effect at the **next admission**: an
+idempotent retry of a request that was already admitted still returns that run, and a run already admitted keeps
+running on what it was pinned to (the load-time check is B07.2, #699). **Not covered:** cron-scheduler and
+service-token runs, which are not admitted in the first place (#958). A knowledge base that belongs to another project
+or to no project can never be approved for this one (only a project's own knowledge bases can), so a workflow pinned
+to one is refused until it uses one of the project's own. Development does not require approval. The refusal is not
+audited (it carries no policy decision); the response is the record.
 
 - **A version, not a knowledge base.** Approving version 1 approves nothing else; a new build must be approved on its own.
 - **Only a project's own, real sources.** The knowledge base must belong to the project and the version to that

@@ -216,7 +216,7 @@ _REVIEWED_BARE_LOOKUPS: dict[str, str] = {
         "does not and should not auto-clear it -- recorded here by hand "
         "instead."
     ),
-    "caliber.routes.workflow_runs.retry_workflow_run:1644": (
+    "caliber.routes.workflow_runs.retry_workflow_run:1650": (
         "The workflow of a run being retried, read only to admit the retry "
         "(B02.2a): the run itself was resolved through `_get_run_or_404(..., "
         "request=request)` and the caller passed `require_project_access_if_"

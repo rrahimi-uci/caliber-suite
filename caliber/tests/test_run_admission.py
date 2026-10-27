@@ -836,6 +836,7 @@ def test_a_credential_or_active_project_that_is_not_the_workflows_is_refused(
     ):
         with pytest.raises(AdmissionDenied) as caught:
             admission.prepare_admission(
+                session=db_session,
                 settings=AdmissionSettings(enabled=True),
                 workflow=workflow,
                 version=version,
@@ -848,6 +849,7 @@ def test_a_credential_or_active_project_that_is_not_the_workflows_is_refused(
         assert caught.value.status == 403, identity
     bound = replace(_identity(kind="pat"), credential_project_id=PROJECT, credential_id="PAT-1")
     assert admission.prepare_admission(
+        session=db_session,
         settings=AdmissionSettings(enabled=True),
         workflow=workflow,
         version=version,
@@ -1276,6 +1278,7 @@ def test_a_version_with_no_digest_cannot_form_a_workload(
     version.manifest_hash = ""
     with pytest.raises(AdmissionDenied) as caught:
         admission.prepare_admission(
+            session=db_session,
             settings=AdmissionSettings(enabled=True),
             workflow=workflow,
             version=version,
@@ -1295,6 +1298,7 @@ def test_a_project_in_another_organization_is_refused(
     workflow, version = _db_pair(db_session, workflow_id, version_id)
     with pytest.raises(AdmissionDenied) as caught:
         admission.prepare_admission(
+            session=db_session,
             settings=AdmissionSettings(enabled=True),
             workflow=workflow,
             version=version,
@@ -1311,6 +1315,7 @@ def test_a_mismatched_run_is_not_persisted(client: TestClient, db_session: Sessi
     workflow_id, version_id = _project_workflow(client, db_session)
     workflow, version = _db_pair(db_session, workflow_id, version_id)
     prepared = admission.prepare_admission(
+        session=db_session,
         settings=AdmissionSettings(enabled=True),
         workflow=workflow,
         version=version,
@@ -1553,3 +1558,161 @@ def test_a_retried_run_keeps_its_lineage_and_a_run_without_one_cannot_be_retried
     db_session.commit()
     blocked = client.post(f"{PREFIX}/workflow-runs/{ids[0]}/retry")
     assert blocked.status_code == 409, blocked.text
+
+
+# ---------------------------------------------------------------- approved context sources at admission (B07.1b, #696)
+
+
+def _pin_a_knowledge_base(monkeypatch: pytest.MonkeyPatch, db: Session) -> None:
+    """Make every admission pin ``kb-1@V1`` (a real, completed version in the test project)."""
+    from dataclasses import replace
+
+    from caliber.db.models import CaliberKnowledgeBase, CaliberKnowledgeBaseVersion
+    from caliber.run_manifest import KnowledgeBasePin
+
+    db.add(
+        CaliberKnowledgeBase(
+            knowledge_base_id="kb-1",
+            name="kb",
+            owner="@test",
+            project_id=PROJECT,
+            visibility="project",
+            status="active",
+            source_bucket="b",
+        )
+    )
+    db.flush()
+    db.add(
+        CaliberKnowledgeBaseVersion(
+            knowledge_base_version_id="V1",
+            knowledge_base_id="kb-1",
+            version_number=1,
+            status="completed",
+            chunking_strategy="fixed",
+            embedding_model="m",
+            output_bucket="b",
+            output_prefix="p",
+        )
+    )
+    db.commit()
+    real = admission._resolve
+
+    def resolve(version: Any, settings: Any) -> Any:
+        pins, execution_manifest = real(version, settings)
+        return replace(
+            pins, knowledge_base_versions=(KnowledgeBasePin("kb-1", "V1"),)
+        ), execution_manifest
+
+    monkeypatch.setattr(admission, "_resolve", resolve)
+
+
+def test_an_unapproved_knowledge_base_version_refuses_admission_in_the_reference_profile(
+    client: TestClient, db_session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from dataclasses import replace
+
+    import caliber.routes.workflow_runs as routes
+    from caliber.context.sources import approve_source, revoke_source
+
+    _enable(client)
+    workflow_id, _ = _project_workflow(client, db_session)
+    _pin_a_knowledge_base(monkeypatch, db_session)
+    base = AdmissionSettings.from_config(client.app.state.config)
+
+    # development: not required, so the run is admitted unapproved
+    assert _run(client, workflow_id, idempotency_key="src-dev").status_code == 202
+    before = _counts(db_session)
+
+    monkeypatch.setattr(
+        routes,
+        "_admission_settings",
+        lambda request: replace(base, approved_sources_required=True, lineage_required=False),
+    )
+    refused = _run(client, workflow_id, idempotency_key="src-1")
+    assert refused.status_code == 403, refused.text
+    assert refused.json()["reason_code"] == "source_not_approved"
+    assert "kb-1@V1" in refused.json()["detail"]
+    assert _counts(db_session) == before, "a refused admission stores nothing"
+
+    approve_source(db_session, PROJECT, "kb-1", "V1", "@editor")
+    db_session.commit()
+    assert _run(client, workflow_id, idempotency_key="src-2").status_code == 202
+
+    revoke_source(db_session, PROJECT, "kb-1", "V1", "@owner")
+    db_session.commit()
+    again = _run(client, workflow_id, idempotency_key="src-3")
+    assert again.status_code == 403 and "kb-1@V1" in again.json()["detail"], (
+        "revocation applies at once"
+    )
+
+
+def test_settings_require_approved_sources_in_the_reference_profile_only() -> None:
+    from types import SimpleNamespace
+
+    assert AdmissionSettings.from_config(
+        SimpleNamespace(profile="reference")
+    ).approved_sources_required
+    assert not AdmissionSettings.from_config(
+        SimpleNamespace(profile="development")
+    ).approved_sources_required
+    assert not AdmissionSettings(enabled=True).approved_sources_required
+
+
+def test_the_source_check_runs_after_the_caller_is_known_to_be_allowed_to_run_the_workflow(
+    client: TestClient, db_session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A caller who may not run the workflow is refused for that, and never learns what its project has approved."""
+    from caliber.db.models import CaliberWorkflow
+    from caliber.workflows.admission import AdmissionSettings as Settings
+
+    _enable(client)
+    workflow_id, version_id = _project_workflow(client, db_session)
+    _pin_a_knowledge_base(monkeypatch, db_session)
+    workflow, version = _db_pair(db_session, workflow_id, version_id)
+    assert isinstance(workflow, CaliberWorkflow)
+    stranger = _identity("@stranger")
+    with pytest.raises(AdmissionDenied) as caught:
+        admission.prepare_admission(
+            session=db_session,
+            settings=Settings(enabled=True, approved_sources_required=True),
+            workflow=workflow,
+            version=version,
+            identity=stranger,
+            source="api",
+            now=datetime.now(timezone.utc),
+            run_tenant_id="local",
+            intent=_intent(workflow_id=workflow_id),
+        )
+    assert caught.value.code == "grant_refused" and "kb-1" not in str(caught.value)
+
+
+def test_child_workflow_source_checks_refuse_what_they_cannot_read(
+    client: TestClient, db_session: Session
+) -> None:
+    """A child that is too deep, missing, or not the compiled-against one is refused (403), never skipped; a version
+    already visited on the walk adds nothing (a cycle ends)."""
+    workflow_id, version_id = _project_workflow(client, db_session)
+    _, version = _db_pair(db_session, workflow_id, version_id)
+    digest = admission._dependencies(version)[0]
+    with pytest.raises(AdmissionDenied) as deep:
+        admission._child_sources(
+            db_session, {"version_id": version_id}, admission._MAX_CHILD_DEPTH, set()
+        )
+    assert deep.value.status == 403 and "too deeply" in str(deep.value)
+    with pytest.raises(AdmissionDenied) as missing:
+        admission._child_sources(db_session, {"version_id": "WFV-gone"}, 0, set())
+    assert missing.value.status == 403 and "cannot be read" in str(missing.value)
+    with pytest.raises(AdmissionDenied) as changed:
+        admission._child_sources(
+            db_session, {"version_id": version_id, "bundle_digest": "0" * 64}, 0, set()
+        )
+    assert changed.value.status == 403 and "compiled against" in str(changed.value)
+    assert (
+        admission._child_sources(
+            db_session, {"version_id": version_id, "bundle_digest": digest}, 0, set()
+        )
+        == set()
+    )
+    assert admission._knowledge_sources(db_session, version, seen={version_id}) == set(), (
+        "already visited"
+    )
