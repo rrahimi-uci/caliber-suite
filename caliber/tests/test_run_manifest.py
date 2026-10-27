@@ -1338,3 +1338,13 @@ def test_the_schema_does_not_accept_a_request_digest_with_a_trailing_newline() -
     validate_record("run_manifest", {**record, "request_digest": "a" * 64})
     with pytest.raises(ContractValidationError):
         validate_record("run_manifest", {**record, "request_digest": "a" * 64 + "\n"})
+
+
+def test_the_grant_id_is_recorded_when_given_and_validated() -> None:
+    assert "grant_id" not in read_manifest(_build().manifest_bytes)
+    built = _build(grant_id="gr-abc")
+    assert read_manifest(built.manifest_bytes, built.manifest_digest)["grant_id"] == "gr-abc"
+    for bad in ("", " ", "x" * 65, "gr\x00"):
+        with pytest.raises(ManifestError) as caught:
+            _build(grant_id=bad)
+        assert caught.value.code == "bad_field"

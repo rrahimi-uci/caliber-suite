@@ -72,9 +72,10 @@ RunManifest: what a workflow run was pinned to and who started it.
 | `rule_bundle_path` | string or null | no | written by #525 |
 | `rule_bundle_sha256` | string or null | no | written by #525 |
 | `request_digest` | string (64 lowercase hex) or null | no | SHA-256 of the canonical admission intent (workflow, release and version selectors as named, input, purpose, server-derived scope); absent on a manifest written before #687 |
+| `grant_id` | string or null | no | the id of the one grant admission issued to the run (#684); a worker names exactly this grant; absent on a manifest written before it existed |
 | `created_at` | string (RFC 3339 date-time) | yes | when the manifest was written |
 
-`project_id` (#676) and `request_digest` (#687) were added to `run_manifest` v1 in place. ADR 0003 requires readers to be upgraded before a writer
+`project_id` (#676), `request_digest` (#687) and `grant_id` (#684) were added to `run_manifest` v1 in place. ADR 0003 requires readers to be upgraded before a writer
 emits a new optional field, and this schema is strict (`additionalProperties: false`), so a build that predates the
 field would reject a manifest carrying it. The in-place change is acceptable because no
 tagged release (`caliber-v0.1.0a1` is the only one) contains `run_manifest`: the first writer (admission, #680) and its

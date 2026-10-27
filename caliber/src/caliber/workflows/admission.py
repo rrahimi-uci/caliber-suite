@@ -175,6 +175,11 @@ def new_run_id() -> str:
     return new_workflow_run_id()
 
 
+def run_resource(workflow_id: str) -> str:
+    """The resource a run's grant and its decisions name: the workflow it executes."""
+    return f"workflow:{workflow_id}"
+
+
 def purpose_for(source: str) -> str:
     """Why the run exists, derived from how it was started (the manifest and the decision both carry it)."""
     return f"workflow_run:{source}"
@@ -361,6 +366,9 @@ def prepare_admission(
         except ManifestError as exc:
             raise AdmissionDenied(MANIFEST_REFUSED, f"{exc.code}: {exc}") from exc
     run_id = new_run_id()
+    grant_id = (
+        f"gr-{uuid.uuid4().hex}"  # named in the manifest, so a worker finds exactly this grant
+    )
     try:
         built = build_run_manifest(
             manifest_id=new_manifest_id(),
@@ -375,17 +383,18 @@ def prepare_admission(
             rule_bundle=pinned,
             rule_bundles_enabled=bool(settings.rule_bundle_path),
             request_digest=request_digest_of(intent),
+            grant_id=grant_id,
         )
     except ManifestError as exc:
         raise AdmissionDenied(MANIFEST_REFUSED, f"{exc.code}: {exc}") from exc
     return PreparedAdmission(
         run_id=run_id,
-        grant_id=f"gr-{uuid.uuid4().hex}",
+        grant_id=grant_id,
         built=built,
         subject=subject,
         workload=workload,
         purpose=purpose_for(source),
-        resource=f"workflow:{workflow.workflow_id}",
+        resource=run_resource(workflow.workflow_id),
         now=now,
         execution_manifest=execution_manifest,
     )
@@ -650,4 +659,5 @@ __all__ = [
     "purpose_for",
     "request_digest_of",
     "resolve_pins",
+    "run_resource",
 ]

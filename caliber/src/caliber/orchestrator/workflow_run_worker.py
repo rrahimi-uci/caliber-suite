@@ -33,6 +33,7 @@ from caliber.mcp_policy import deployment_blockers
 from caliber.observability.trace import bind_trace_id
 from caliber.secrets import resolve_secret
 from caliber.storage import StorageError, WorkingDirectoryService, build_backend
+from caliber.workflows.admission import AdmissionSettings
 from caliber.workflows.compiler import CompileError
 from caliber.workflows.effect_ledger import SqlEffectLedger
 from caliber.workflows.file_tools import (
@@ -44,6 +45,7 @@ from caliber.workflows.manifest import WorkflowManifestError
 from caliber.workflows.memory_tools import bind_run_memory_tools
 from caliber.workflows.promoter import build_executor, build_plan, workflow_run_summary
 from caliber.workflows.run_events import append_run_event
+from caliber.workflows.run_identity import IdentityDenied, identity_for_run
 from caliber.workflows.run_pins import PinsError, verify_run_pins
 from caliber.workflows.run_state import (
     RUN_STATUS_CANCELLED,
@@ -1569,6 +1571,19 @@ class WorkflowRunWorker:
                     default_model=str(getattr(self._config, "llm_diagnosis_model", "") or ""),
                 )
             except PinsError as exc:
+                self._mark_failed(session, run, error_code=exc.code, error_summary=str(exc))
+                return
+
+            # ...and only while the subject it ran as may still run it (B03.4): the manifest's exact grant and
+            # principals are asked of the policy now, so a revoked grant, a removed member or an expired grant
+            # dispatches nothing. A resumed run is dispatched here too. Legacy runs have no identity.
+            try:
+                identity_for_run(
+                    session,
+                    run,
+                    policy=AdmissionSettings.from_config(self._config).policy,
+                )
+            except IdentityDenied as exc:
                 self._mark_failed(session, run, error_code=exc.code, error_summary=str(exc))
                 return
 
