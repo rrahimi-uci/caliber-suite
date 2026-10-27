@@ -286,7 +286,7 @@ def test_every_reviewed_finding_has_an_allowlist_entry() -> None:
 def test_bare_lookup_call_site_count_is_pinned() -> None:
     """Ratchet, matching `test_resource_inventory.py`'s `_EXPECTED_COUNTS`
     style: today's exact distribution across the five kinds, confirmed by
-    direct reading of every one of the 24 call sites while building this
+    direct reading of every one of the 25 call sites while building this
     checker (see `docs/workspace-plan.md`'s `P2-Q` row and this module's own
     `_REVIEWED_BARE_LOOKUPS` comments). The point isn't that this count is a
     law -- it's that a change gets *noticed and looked at*, not silently
@@ -317,9 +317,9 @@ def test_bare_lookup_call_site_count_is_pinned() -> None:
         "admin_only": 5,
         "existence_only": 3,
         "role_gated_own_project": 2,
-        "reviewed": 5,
+        "reviewed": 6,
     }
-    assert len(findings) == 24
+    assert len(findings) == 25
 
 
 def test_findings_only_cover_scoping_visibility_models() -> None:

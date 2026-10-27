@@ -216,7 +216,18 @@ _REVIEWED_BARE_LOOKUPS: dict[str, str] = {
         "does not and should not auto-clear it -- recorded here by hand "
         "instead."
     ),
-    "caliber.routes.workflow_versions._run_workflow_version_sync:923": (
+    "caliber.routes.workflow_runs.retry_workflow_run:1424": (
+        "The workflow of a run being retried, read only to admit the retry "
+        "(B02.2a): the run itself was resolved through `_get_run_or_404(..., "
+        "request=request)` and the caller passed `require_project_access_if_"
+        "scoped(... run.project_id, 'resource.execute')` before this line, and "
+        "`prepare_admission` then requires the caller's identity to be a "
+        "current member of the workflow's project before anything is stored. "
+        "The lookup is by the run's own `workflow_id`, never a caller-supplied "
+        "one, and the checker does not chase through `_get_run_or_404` into "
+        "its scoped lookup, so it is recorded by hand."
+    ),
+    "caliber.routes.workflow_versions._run_workflow_version_sync:934": (
         "The parent workflow was already authorized a few lines above via "
         "`_get_version_or_404(session, version_id, request=request)`, which "
         "calls `_deps.py::scoped_child_or_404` -- itself gated on this exact "
