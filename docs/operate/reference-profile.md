@@ -693,6 +693,35 @@ background publisher delivers the rows afterwards.
   publishes nothing to the bus or to webhooks (that would duplicate the notifications that exist). Webhook and
   alert events are not in the outbox. Consumers arrive with the features that need them.
 
+## Approved context sources
+
+A run's context may only come from sources its project has approved (B07, #692). The inventory is
+`caliber_approved_context_sources` (`caliber/src/caliber/context/sources.py`): one row per `(project, knowledge base,
+version)`, unique. `approve_source(session, project_id, knowledge_base_id, version_id, actor)` records an approval,
+`revoke_source(...)` withdraws it (the row stays, with `revoked_at` and `revoked_by`, as evidence) and
+`is_approved(session, project_id, knowledge_base_id, version_id)` answers whether it is approved *now* (`False` once
+revoked, for anything never approved and for a source that no longer exists). The admission check (B07.1b) and the authorize-before-load step (B07.2) read it;
+nothing reads it yet, so this changes no behaviour today.
+
+- **A version, not a knowledge base.** Approving version 1 approves nothing else; a new build must be approved on its own.
+- **Only a project's own, real sources.** The knowledge base must belong to the project and the version to that
+  knowledge base. Every miss (unknown id, another project's knowledge base, a version of a different knowledge base) is
+  one `source_not_found` refusal whose message names no identifier, so a foreign id cannot be probed.
+- **Idempotent and race-safe.** Approving an approved source returns the existing row; concurrent approvals create one
+  (the unique key decides). Approving a revoked source reactivates the row with the new approver and time. Revoking a
+  source that is not approved is `not_approved`. The row is read from the database and locked (`FOR UPDATE` on
+  PostgreSQL) before it changes, so concurrent revocations or reactivations change and audit it once, and never
+  overwrite who revoked it.
+- **Completed builds of live knowledge bases only.** The version must be `completed` (the rule that gates activating a
+  version) and the knowledge base not archived; otherwise it is `source_not_found`. An approval whose version or
+  knowledge base has since been deleted no longer counts (`is_approved` is false and `approved_sources` omits it); the
+  row stays as evidence.
+- **Audited.** Approval and revocation each write an audit row (`approve_context_source` / `revoke_context_source`,
+  entity `context_source`, ids only). The functions do not commit; they do not decide who may approve (the caller's
+  project-role check does).
+- **Not a foreign key to the knowledge base.** The inventory outlives a deleted knowledge base on purpose; the loader
+  must still check the version exists.
+
 ## Policy decisions
 
 `caliber.policy.decisions.decide(...)` (B03.3, #671; migration `0117`, table `caliber_policy_decisions`) answers "may

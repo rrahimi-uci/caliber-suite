@@ -3874,6 +3874,37 @@ class CaliberLiveEvent(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
 
+class CaliberApprovedContextSource(Base):
+    """A knowledge-base version a project has approved as a source of run context (B07.1a, #692).
+
+    Authorization before load: nothing becomes a run's context unless its ``(knowledge_base_id, version_id)`` is on
+    this inventory for the run's project and not revoked. One row per ``(project_id, knowledge_base_id, version_id)``
+    (``uq_approved_context_source``); revoking sets ``revoked_at`` (the row stays as evidence, and a later approval
+    reactivates it). ``version_id`` is the knowledge-base version's ``knowledge_base_version_id``. The knowledge-base
+    columns are plain identifiers, not foreign keys: the inventory outlives a deleted knowledge base on purpose, and
+    the loader must still check the version exists.
+    """
+
+    __tablename__ = "caliber_approved_context_sources"
+    __table_args__ = (
+        UniqueConstraint(
+            "project_id", "knowledge_base_id", "version_id", name="uq_approved_context_source"
+        ),
+        Index("ix_approved_context_sources_project", "project_id", "revoked_at"),
+    )
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    project_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("caliber_projects.project_id"), nullable=False
+    )
+    knowledge_base_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    version_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    approved_by: Mapped[str] = mapped_column(String(256), nullable=False)
+    approved_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    revoked_by: Mapped[str | None] = mapped_column(String(256), nullable=True)
+
+
 class CaliberEventOutbox(Base):
     """One business event, recorded in the transaction that made it happen (B13.4, #685).
 
