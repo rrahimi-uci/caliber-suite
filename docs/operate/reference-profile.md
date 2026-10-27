@@ -353,6 +353,27 @@ whose own sealed bundle is the pinned digest, checked down the whole tree), the 
 | `pins_mismatch` | the run's version, or the manifest it would execute, is not the pinned one |
 | `pins_changed` | the version, a tool, an MCP tool or a child workflow is not what was pinned (recompiled, edited in place, removed, archived or unpublished): submit a new run |
 | `model_route_changed` | the deployment's provider, or the default model an `inherit` agent would get, is not one the run was pinned to: restore it or submit a new run |
+| `authority_denied` | the run's grant, subject or workload no longer authorizes it (see "Who a run acts as"): the summary names the policy's reason codes. `grant_revoked` / `not_a_member`: submit a new run as someone who may; `grant_expired`: the run outlived its grant (below), submit a new run or raise `CALIBER_ADMISSION_GRANT_TTL_SECONDS` |
+| `authority_unavailable` | the authority store could not answer: the run is failed, not dispatched (nothing is assumed allowed; a failing statement's aborted transaction is rolled back first); resubmit once it is back |
+| `grant_unbound` / `identity_invalid` | the manifest names no grant (a run admitted by a build before B03.4, queued or parked across an upgrade, fails here: resubmit it), or its principals do not read back (corruption of immutable evidence) |
+
+**Who a run acts as (B03.4, #684).** After the pins check and before anything is built, the worker calls
+`workflows/run_identity.py::identity_for_run`. It takes the **exact** grant id the manifest names (`grant_id`, sealed at
+admission; there is no "newest grant" lookup and no ambient grant) and the subject and workload the manifest recorded,
+and asks the policy (`decide`) whether that subject, running that workload, may still `resource.execute` the workflow
+for the manifest's purpose *now*. It gates dispatch; it does not change which principal the run's tools act as (the
+MCP preflight still runs as the workflow owner). The grant must be the run's, the subject's and the workload's; not revoked or expired;
+the subject must still be a member of the project (or its owner) in a role that permits the action; and the policy's
+own checks (version, purpose, risk) must allow it. The decision is recorded, allow or deny, so a run's history shows
+every time it was cleared to run; nothing in the manifest, the grant or the earlier decisions is changed, and a denial
+revokes nothing. A resumed run is dispatched by the same worker, so a resume is checked exactly like a first run: a
+grant revoked or a member removed while a run waited for approval means the run fails at resume with
+`authority_denied`, having executed nothing more. **A grant has a lifetime** (`CALIBER_ADMISSION_GRANT_TTL_SECONDS`, default 24 hours from admission) and nothing renews
+it: a run that waits longer than that, for an approval, an event, a timer or a long queue, fails at its next dispatch
+with `grant_expired`. Size the TTL to the longest wait a workflow may have. The check's row locks (grant, membership,
+project) are released by a commit right after the decision, so they are not held while the plan is built. A legacy run has no identity and keeps its legacy behaviour; no grant
+is manufactured for it. A manifest written before it named a grant (admitted by a development build) is refused
+(`grant_unbound`) rather than guessed at.
 
 Admission refuses a version whose child workflow has no sealed bundle to pin (`409 bundle_unavailable`: publish the
 child, then compile the parent again).
@@ -363,8 +384,8 @@ the embedding and chat models of knowledge nodes, and the contents of files and 
 digest or version rather than embeds. A recompile of a version after a run is admitted fails that run (even one parked
 waiting for approval), by design.
 
-Not done by the worker yet: checking the run's *grant* and policy decision at each effect, and fencing each transition
-with the execution lease (#684, #685).
+Not done by the worker yet: checking the run's authority at each *effect* inside a run (it is checked once per
+dispatch, including resume) and fencing each transition with the execution lease.
 
 ## Run principals: subject and workload
 
