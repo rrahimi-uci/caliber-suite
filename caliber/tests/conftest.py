@@ -261,6 +261,17 @@ _PERMISSIVE_TEST_USERS = "@test,@admin,@reza,@sarah,@alex,@a,@b"
 
 
 @pytest.fixture(autouse=True)
+def _outbox_off_by_default() -> Iterator[None]:
+    """The transactional outbox (B13.4) is process-wide state bound when an app starts: every test begins with it off
+    and one that needs it switches it on (and the app it creates may switch it back)."""
+    from caliber.events.outbox import bind_outbox
+
+    bind_outbox(False)
+    yield
+    bind_outbox(False)
+
+
+@pytest.fixture(autouse=True)
 def _hermetic_experiment_resolution(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     """No test asks a real tracking backend what an experiment reference means.
 

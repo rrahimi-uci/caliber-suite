@@ -23,7 +23,7 @@ from caliber.observability.worker_inventory import (
 
 ADR_PATH = Path(__file__).resolve().parents[2] / "docs/architecture/adr/0002-execution-ownership.md"
 
-#: The 9 workers known to be started by server.py::_build_lifespan today,
+#: The 11 workers known to be started by server.py::_build_lifespan today,
 #: in startup order. A literal pin: the whole point of deriving rather than
 #: declaring is that a worker silently added to or removed from the
 #: lifespan changes this list without anyone updating a hand-maintained
@@ -34,6 +34,7 @@ _EXPECTED_WORKERS = [
     ("release_reconciler", "ReleaseReconcilerTask"),
     ("calibration_drain_task", "CalibrationDrain"),
     ("webhooks", "WebhookDispatcher"),
+    ("outbox_publisher", "OutboxPublisher"),
     ("workflow_run_worker", "WorkflowRunWorker"),
     ("aria_plan_worker", "AriaPlanWorker"),
     ("knowledge_build_worker", "KnowledgeBaseWorker"),
