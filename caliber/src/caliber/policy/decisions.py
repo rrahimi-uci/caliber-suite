@@ -17,6 +17,12 @@
   explicit denies are exact ``(action, resource)`` pairs. Nothing ranks actions by name.
 * **Replayable.** ``input_hash`` is the SHA-256 of the canonical JSON of every input plus the policy's own digest, so
   the same inputs under the same policy hash identically.
+* **Audited.** Each recorded decision writes one audit row through :func:`caliber.audit.record` in the decision's own
+  savepoint (action ``policy_allow`` / ``policy_deny``, severity ``standard``, or ``high`` for a denial that is not
+  ordinary lifecycle (a grant expired or revoked, a member who left), actor the subject, entity
+  the decision id; identifiers, reasons and the input hash only, never the run's input or any context), so the row
+  exists exactly when the decision does. When neither can be written the decision is returned as an unrecorded deny
+  and a structured error log line names the decision, run, grant and what was being decided.
 * **Transactions.** The decision is flushed, never committed: for initial admission the run, the grant and the
   decision live in one uncommitted transaction and the caller commits only after an allow. A decision never touches
   the run manifest. If recording an *allow* fails the answer is a deny (``authority_unavailable``) that was not
@@ -27,6 +33,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import unicodedata
 import uuid
 from collections.abc import Mapping
@@ -39,11 +46,15 @@ from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
+from caliber.audit import record as audit_record
 from caliber.contracts import validate_record
 from caliber.db.models import CaliberPolicyDecision
+from caliber.db.transactions import begin_sqlite_transaction
 from caliber.policy import grants
 from caliber.policy.grants import GrantDenied
 from caliber.policy.principal import Subject, Workload
+
+logger = logging.getLogger("caliber.policy.decisions")
 
 ALLOW: Final = "allow"
 DENY: Final = "deny"
@@ -372,9 +383,29 @@ def _record(session: Session, decision: PolicyDecision) -> PolicyDecision:
         evaluated_at=decision.evaluated_at.astimezone(timezone.utc).replace(tzinfo=None),
     )
     try:
+        begin_sqlite_transaction(
+            session
+        )  # a first-statement SAVEPOINT would autocommit on pysqlite
         with session.begin_nested():
             session.add(row)
-    except SQLAlchemyError:
+            audit_decision(session, decision)
+    except SQLAlchemyError as exc:
+        # The decision could not be recorded, so it is not an allow. The store being down is the likely reason, so
+        # the audit row cannot be written either: the structured log line is the record of the outage.
+        logger.error(
+            "policy decision could not be recorded",
+            extra={
+                "decision_id": decision.decision_id,
+                "run_id": decision.run_id,
+                "grant_id": decision.grant_id,
+                "action": decision.action,
+                "result": decision.result,
+                "reason_codes": list(decision.reason_codes),
+                "error": type(
+                    exc
+                ).__name__,  # the class only: a SQLAlchemy message carries the bound parameters
+            },
+        )
         return PolicyDecision(
             **{
                 **decision.__dict__,
@@ -384,6 +415,45 @@ def _record(session: Session, decision: PolicyDecision) -> PolicyDecision:
             }
         )
     return decision
+
+
+#: Denials that are ordinary lifecycle (a grant ran out, was revoked, or its subject left the project) are audited at
+#: ``standard`` severity; a denial that means something is wrong or forbidden is ``high``.
+_LIFECYCLE_DENIALS: Final = frozenset(
+    {grants.GRANT_EXPIRED, grants.GRANT_REVOKED, grants.NOT_A_MEMBER}
+)
+
+
+def audit_decision(session: Session, decision: PolicyDecision) -> None:
+    """One audit row per recorded decision, in the decision's own savepoint: it exists exactly when the decision does.
+
+    Identifiers, the reasons and the policy's input hash only: never the run's input, context or any secret (and the
+    audit log's redactor still runs over it).
+    """
+    audit_record(
+        session,
+        actor=decision.subject_user_id,
+        action=f"policy_{decision.result}",
+        entity_type="policy_decision",
+        entity_id=decision.decision_id,
+        severity="high" if _is_alarming(decision) else "standard",
+        details={
+            "run_id": decision.run_id,
+            "grant_id": decision.grant_id,
+            "workload_id": decision.workload_id,
+            "action": decision.action,
+            "resource": decision.resource,
+            "purpose": decision.purpose,
+            "result": decision.result,
+            "reason_codes": list(decision.reason_codes),
+            "policy_version": decision.policy_version,
+            "input_hash": decision.input_hash,
+        },
+    )
+
+
+def _is_alarming(decision: PolicyDecision) -> bool:
+    return decision.result != ALLOW and not set(decision.reason_codes) <= _LIFECYCLE_DENIALS
 
 
 def load_decision(session: Session, decision_id: str) -> PolicyDecision | None:
@@ -427,6 +497,7 @@ __all__ = [
     "DecisionInputError",
     "Policy",
     "PolicyDecision",
+    "audit_decision",
     "decide",
     "load_decision",
 ]

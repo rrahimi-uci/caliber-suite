@@ -50,7 +50,14 @@ from caliber.db.models import (
 )
 from caliber.ids import new_workflow_run_id
 from caliber.policy import grants
-from caliber.policy.decisions import REFERENCE_POLICY_V1, DecisionInputError, Policy, decide
+from caliber.policy.decisions import (
+    REFERENCE_POLICY_V1,
+    DecisionInputError,
+    Policy,
+    PolicyDecision,
+    audit_decision,
+    decide,
+)
 from caliber.policy.principal import AUTH_METHODS, PrincipalError, Subject, Workload
 from caliber.run_manifest import (
     BuiltManifest,
@@ -100,11 +107,20 @@ class AdmissionDenied(Exception):  # noqa: N818 - a refusal, named for what it s
     """Admission refused the run. ``status`` is the HTTP status to answer with; the caller rolls back its transaction."""
 
     def __init__(
-        self, code: str, message: str, *, status: int = 409, reasons: tuple[str, ...] = ()
+        self,
+        code: str,
+        message: str,
+        *,
+        status: int = 409,
+        reasons: tuple[str, ...] = (),
+        decision: PolicyDecision | None = None,
     ) -> None:
         self.code = code
         self.status = status
         self.reasons = reasons
+        #: The policy decision that refused the run, when one did: its row is rolled back with the run, so
+        #: :func:`record_denial` writes its audit row afterwards.
+        self.decision = decision
         super().__init__(message)
 
 
@@ -466,6 +482,7 @@ def persist_admission(
             f"the policy denied this run: {', '.join(reasons)}",
             status=status,
             reasons=reasons,
+            decision=decision,
         )
     try:
         session.add(CaliberRunManifest(**prepared.built.row_values()))
@@ -479,6 +496,26 @@ def persist_admission(
         manifest_id=prepared.built.manifest_id,
         manifest_digest=prepared.built.manifest_digest,
     )
+
+
+def record_denial(session: Session, exc: AdmissionDenied) -> None:
+    """Audit a refusal the policy made, *after* the caller rolled back (the run, grant and decision rows went with it).
+
+    Written in its own short transaction from the decision's identifiers and reasons; an unrecorded decision (the store
+    was down) has its own log line instead, and a failure here is logged, never raised: the caller is already refusing.
+    """
+    decision = exc.decision
+    if decision is None or not decision.persisted:
+        return
+    try:
+        audit_decision(session, decision)
+        session.commit()
+    except SQLAlchemyError:
+        session.rollback()
+        logger.error(
+            "admission denial could not be audited",
+            extra={"decision_id": decision.decision_id, "run_id": decision.run_id},
+        )
 
 
 def intent_of(
@@ -657,6 +694,7 @@ __all__ = [
     "persist_admission",
     "prepare_admission",
     "purpose_for",
+    "record_denial",
     "request_digest_of",
     "resolve_pins",
     "run_resource",

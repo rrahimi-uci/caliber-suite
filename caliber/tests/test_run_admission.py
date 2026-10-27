@@ -378,6 +378,74 @@ def test_policy_denial_rolls_back_all(
     assert response.status_code == 403, response.text
     assert "explicit_deny" in response.json()["detail"]
     _nothing(db_session)
+    # The decision's rows went with the rollback; its audit row is written afterwards, in its own transaction.
+    from caliber.db.models import CaliberAuditLog
+
+    db_session.expire_all()
+    (audited,) = db_session.execute(
+        select(CaliberAuditLog).where(CaliberAuditLog.entity_type == "policy_decision")
+    ).scalars()
+    assert (audited.action, audited.severity) == ("policy_deny", "high")
+    assert audited.details["reason_codes"] == ["explicit_deny"]
+    assert audited.details["resource"] == f"workflow:{workflow_id}"
+
+
+def test_an_admission_denial_that_cannot_be_audited_is_still_refused(
+    client: TestClient, db_session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from caliber.db.models import CaliberAuditLog
+    from caliber.policy.decisions import PolicyDecision
+
+    _enable(client)
+    workflow_id, _ = _project_workflow(client, db_session)
+    deny = Policy(
+        version="policy-deny",
+        action_risk=REFERENCE_POLICY_V1.action_risk,
+        risk_ceiling=4,
+        deny_rules=frozenset({("resource.execute", f"workflow:{workflow_id}")}),
+    )
+    real = AdmissionSettings.from_config
+    monkeypatch.setattr(
+        AdmissionSettings,
+        "from_config",
+        classmethod(lambda cls, config: _with_policy(real(config), deny)),
+    )
+
+    def down(*_a: Any, **_k: Any) -> Any:
+        from sqlalchemy.exc import OperationalError
+
+        raise OperationalError("INSERT", {}, Exception("audit store down"))
+
+    monkeypatch.setattr(admission, "audit_decision", down)
+    response = _run(client, workflow_id, idempotency_key="k-deny-down")
+    assert response.status_code == 403, "the refusal does not depend on the audit"
+    assert (
+        db_session.execute(
+            select(func.count())
+            .select_from(CaliberAuditLog)
+            .where(CaliberAuditLog.entity_type == "policy_decision")
+        ).scalar_one()
+        == 0
+    )
+    _nothing(db_session)
+
+    # an unrecorded decision (the store was down) is not audited here: it has its own log line
+    unrecorded = PolicyDecision(
+        decision_id="pd_x",
+        run_id="r",
+        grant_id="g",
+        action="a",
+        resource="r",
+        purpose="p",
+        result="deny",
+        reason_codes=("authority_unavailable",),
+        policy_version="v",
+        input_hash="h",
+        evaluated_at=datetime.now(timezone.utc),
+        persisted=False,
+    )
+    admission.record_denial(db_session, AdmissionDenied("policy_denied", "x", decision=unrecorded))
+    admission.record_denial(db_session, AdmissionDenied("manifest_refused", "no decision"))
 
 
 def _with_policy(settings: AdmissionSettings, policy: Policy) -> AdmissionSettings:

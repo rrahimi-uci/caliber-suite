@@ -1521,6 +1521,7 @@ class AssistantAgentToolset:
         from caliber.workflows.admission import (  # noqa: PLC0415
             AdmissionDenied,
             AdmissionSettings,
+            record_denial,
         )
         from caliber.workflows.run_launch import enqueue_workflow_run  # noqa: PLC0415
 
@@ -1559,6 +1560,7 @@ class AssistantAgentToolset:
                 )
             except AdmissionDenied as exc:
                 db.rollback()
+                record_denial(db, exc)
                 return _err(f"the run was not admitted: {exc}")
             db.commit()
             run_id = run.workflow_run_id
