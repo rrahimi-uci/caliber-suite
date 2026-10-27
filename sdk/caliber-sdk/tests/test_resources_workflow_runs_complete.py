@@ -174,3 +174,44 @@ def test_file_content_downloads_raw_bytes() -> None:
         data = caliber.workflows.runs.file_content("WFR-1", "WRF-1")
 
     assert data == b"raw file bytes"
+
+
+# --- the admission manifest (B02.5, #695) -------------------------------------
+
+
+def test_admission_manifest_hits_its_own_path_and_decodes_the_typed_record() -> None:
+    from caliber_sdk.models import AdmissionManifest
+
+    seen: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(_seen_path(request))
+        if request.url.path.endswith("WFR-legacy/admission-manifest"):
+            return envelope({"workflow_run_id": "WFR-legacy", "legacy": True})
+        return envelope(
+            {
+                "workflow_run_id": "WFR-1",
+                "legacy": False,
+                "schema_version": "v1",
+                "manifest_id": "mf-1",
+                "run_manifest": {"pins": {"workflow_version": "WFV-1"}},
+                "manifest_digest": "a" * 64,
+                "future_field": 1,
+            }
+        )
+
+    with client_with(handler) as caliber:
+        admitted = caliber.workflows.runs.admission_manifest("WFR-1")
+        legacy = caliber.workflows.runs.admission_manifest("WFR-legacy")
+        caliber.workflows.runs.manifest("WFR-1")
+
+    assert seen == [
+        "GET /workflow-runs/WFR-1/admission-manifest",
+        "GET /workflow-runs/WFR-legacy/admission-manifest",
+        "GET /workflow-runs/WFR-1/manifest",
+    ], "the workflow manifest endpoint is a different one"
+    assert isinstance(admitted, AdmissionManifest)
+    assert admitted.legacy is False and admitted.manifest_digest == "a" * 64
+    assert admitted.run_manifest == {"pins": {"workflow_version": "WFV-1"}}
+    assert admitted.extra == {"future_field": 1}
+    assert legacy.legacy is True and legacy.run_manifest is None and legacy.manifest_digest is None

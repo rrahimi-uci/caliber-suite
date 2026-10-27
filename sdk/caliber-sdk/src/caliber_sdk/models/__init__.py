@@ -79,6 +79,7 @@ from .quality import (
 from .workflows import (
     FAILED_RUN_STATES,
     TERMINAL_RUN_STATES,
+    AdmissionManifest,
     Workflow,
     WorkflowRun,
     WorkflowService,
@@ -126,6 +127,7 @@ __all__ = [
     "STABILITY_INTERNAL",
     "TERMINAL_RUN_STATES",
     "Account",
+    "AdmissionManifest",
     "Agent",
     "AriaInteraction",
     "AriaPlan",

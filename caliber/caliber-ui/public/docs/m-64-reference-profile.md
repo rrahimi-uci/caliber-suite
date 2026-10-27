@@ -193,6 +193,24 @@ manifest-less runs are pruned and deleted as before. A rollback (`caliber-migrat
 and therefore the manifests, never the runs; upgrading again starts with no manifests and marks every existing run
 legacy.
 
+### Reading a run's manifest (B02.5, #695)
+
+Two endpoints, two different manifests; neither changes the other.
+
+| endpoint | what it returns |
+| --- | --- |
+| `GET /workflow-runs/{run_id}/manifest` (unchanged) | the **workflow** manifest the run executed: `workflow_run_id`, `workflow_id`, `workflow_version_id`, `manifest_mode`, `manifest_hash`, `manifest`. Served for every run, legacy included. |
+| `GET /workflow-runs/{run_id}/admission-manifest` (new) | the run's immutable **admission** manifest: `workflow_run_id`, `schema_version`, `legacy`, `manifest_id`, `run_manifest` (the stored record verbatim: pins, subject, workload, purpose, scope, grant id, request digest) and `manifest_digest` (the SHA-256 of its canonical bytes, so a reader can check it). |
+
+The new endpoint needs the same access as reading the run (a run you cannot see is `404`, indistinguishable from a
+missing one) plus `read` on its project. A **legacy** run (admission was off, or a path that is not admitted) answers
+`200` with `legacy: true` and `schema_version`, `manifest_id`, `run_manifest` and `manifest_digest` all `null`: no
+history is fabricated. An admitted run whose stored manifest does not read back or is missing is `409`
+(`manifest_corrupt` / `manifest_missing`). The SDK has `client.workflows.runs.admission_manifest(run_id)` (sync) and
+`client.workflows.admission_manifest(run_id)` (async), returning an `AdmissionManifest`; the console API client has
+`getWorkflowRunAdmissionManifest`. `run_manifest` carries the configured rule-bundle path when one is pinned; treat
+the endpoint as project-member-visible evidence.
+
 ### Building a manifest (admission, #676)
 
 `caliber/src/caliber/run_manifest.py` turns *resolved* inputs into the manifest record and its canonical bytes. It is

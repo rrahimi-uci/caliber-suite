@@ -339,6 +339,30 @@ def test_many_runs_can_be_submitted_concurrently() -> None:
     assert len({item.workflow_run_id for item in runs}) == 10
 
 
+def test_the_async_client_reads_the_admission_manifest_from_its_own_path() -> None:
+    seen: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request.url.path.rsplit("/caliber", 1)[-1])
+        return envelope(
+            {
+                "workflow_run_id": "RUN-1",
+                "legacy": False,
+                "schema_version": "v1",
+                "run_manifest": {"purpose": "x"},
+                "manifest_digest": "b" * 64,
+            }
+        )
+
+    async def main() -> Any:
+        async with client_with(handler) as caliber:
+            return await caliber.workflows.admission_manifest("RUN-1")
+
+    admitted = run(main())
+    assert seen == ["/workflow-runs/RUN-1/admission-manifest"]
+    assert admitted.legacy is False and admitted.manifest_digest == "b" * 64
+
+
 # --- waiting --------------------------------------------------------------
 
 

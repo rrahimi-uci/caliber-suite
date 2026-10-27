@@ -414,6 +414,42 @@ describe("caliberApi", () => {
     );
   });
 
+  it("reads the admission manifest from its own endpoint and leaves the workflow manifest endpoint alone", async () => {
+    const admitted = {
+      workflow_run_id: "WR/1",
+      legacy: false,
+      schema_version: "v1",
+      manifest_id: "mf-1",
+      run_manifest: { purpose: "workflow_run:api" },
+      manifest_digest: "a".repeat(64),
+    };
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(ok(admitted))
+      .mockResolvedValueOnce(
+        ok({ workflow_run_id: "WR/1", legacy: true, schema_version: null, manifest_id: null, run_manifest: null, manifest_digest: null }),
+      )
+      .mockResolvedValueOnce(ok({ workflow_run_id: "WR/1", manifest: {} }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const api = await loadApi();
+
+    const record = await api.caliberApi.getWorkflowRunAdmissionManifest("WR/1");
+    const legacy = await api.caliberApi.getWorkflowRunAdmissionManifest("WR/1");
+    await api.caliberApi.getWorkflowRunManifest("WR/1");
+
+    const calls = fetchMock.mock.calls as [string, RequestInit][];
+    expect(calls.map(([url]) => String(url))).toEqual([
+      `${API_BASE}/workflow-runs/WR%2F1/admission-manifest`,
+      `${API_BASE}/workflow-runs/WR%2F1/admission-manifest`,
+      `${API_BASE}/workflow-runs/WR%2F1/manifest`,
+    ]);
+    expect(calls[0]?.[1]?.method ?? "GET").toBe("GET");
+    expect(record.manifest_digest).toBe("a".repeat(64));
+    expect(legacy.legacy).toBe(true);
+    expect(legacy.run_manifest).toBeNull();
+  });
+
   it("sends workflow-scoped external event payloads for wait-event recovery", async () => {
     const fetchMock = vi
       .fn()

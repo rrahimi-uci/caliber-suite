@@ -1817,6 +1817,25 @@ class WorkflowRunManifestSchema(BaseModel):
     manifest: dict[str, object]
 
 
+class AdmissionManifestSchema(BaseModel):
+    """The immutable run manifest of one admitted run (B02.5, #695): what the run was pinned to and who started it.
+
+    Distinct from :class:`WorkflowRunManifestSchema`, which is the *workflow* manifest the run executed. A legacy run
+    (admitted before manifests, or started by a path that is not admitted) has none: ``legacy`` is true and
+    ``run_manifest`` and ``manifest_digest`` are null. ``run_manifest`` is the stored record verbatim, so
+    ``manifest_digest`` is the SHA-256 of its canonical bytes and a reader can check it.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    workflow_run_id: str
+    schema_version: str | None = None
+    legacy: bool
+    manifest_id: str | None = None
+    run_manifest: dict[str, object] | None = None
+    manifest_digest: str | None = None
+
+
 class WorkflowRunTraceSpanSchema(BaseModel):
     """One span in a workflow run's MLflow trace (in-app trace viewer)."""
 

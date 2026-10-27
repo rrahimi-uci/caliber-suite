@@ -41,7 +41,7 @@ from ..errors import CaliberConfigError
 from ..models._decode import decode, decode_list
 from ..models.core import Capabilities, Identity, WorkflowRunCapabilities
 from ..models.operations import Job
-from ..models.workflows import FAILED_RUN_STATES, WorkflowRun
+from ..models.workflows import FAILED_RUN_STATES, AdmissionManifest, WorkflowRun
 from ..resources.system import CapabilitiesAPI
 from ..resources.workflows import WorkflowRunFailed
 from ._base import _AsyncResource
@@ -250,6 +250,15 @@ class AsyncWorkflowRunsAPI(_AsyncResource):
 
     async def get(self, run_id: str) -> WorkflowRun:
         return decode(WorkflowRun, await self._get(f"/workflow-runs/{run_id}"))
+
+    async def admission_manifest(self, run_id: str) -> AdmissionManifest:
+        """The immutable manifest the run was admitted with.
+
+        Same as the sync ``runs.admission_manifest``.
+        """
+        return decode(
+            AdmissionManifest, await self._get(f"/workflow-runs/{run_id}/admission-manifest")
+        )
 
     async def list(self, workflow_id: str, *, status: str | None = None) -> list[WorkflowRun]:
         """Runs of one workflow.
