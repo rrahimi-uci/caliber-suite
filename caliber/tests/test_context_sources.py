@@ -487,3 +487,42 @@ def test_an_integrity_error_that_is_not_the_unique_key_is_a_refusal_not_a_crash(
                 approve_source(session, "P-A", "KB-A", "KB-A-V1", "@editor")
             assert caught.value.code == SOURCE_NOT_FOUND
             session.rollback()
+
+
+def test_a_revocation_waits_for_one_in_flight_and_then_finds_it_revoked_on_postgresql(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Deterministic version of the race: A holds the row's revocation uncommitted; B must wait, then see A's result."""
+    if not os.environ.get("CALIBER_TEST_POSTGRES_URL"):
+        pytest.skip("CALIBER_TEST_POSTGRES_URL is not set")
+    with _database("postgresql", tmp_path, monkeypatch) as (_, factory):
+        _seed(factory)
+        with factory() as session:
+            approve_source(session, "P-A", "KB-A", "KB-A-V1", "@editor")
+            session.commit()
+        outcome: list[str] = []
+
+        def second() -> None:
+            with factory() as session:
+                try:
+                    revoke_source(session, "P-A", "KB-A", "KB-A-V1", "@second")
+                    session.commit()
+                    outcome.append("revoked")
+                except SourceError as exc:
+                    session.rollback()
+                    outcome.append(exc.code)
+
+        with factory() as first:
+            revoke_source(
+                first, "P-A", "KB-A", "KB-A-V1", "@first"
+            )  # uncommitted: the row is locked
+            thread = threading.Thread(target=second, daemon=True)
+            thread.start()
+            thread.join(1.0)
+            assert thread.is_alive(), "the second revocation waits for the first"
+            first.commit()
+        thread.join(15)
+        assert outcome == ["not_approved"]
+        with factory() as session:
+            row = session.execute(select(CaliberApprovedContextSource)).scalar_one()
+            assert row.revoked_by == "@first", "the first revoker's evidence is not overwritten"
