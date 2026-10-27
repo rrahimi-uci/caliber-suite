@@ -119,6 +119,7 @@ def test_requests_racing_on_one_key_admit_exactly_one_run(
     reference_app: ReferenceApp, two_workspaces: Workspaces
 ) -> None:
     workflow_id = _published_workflow(reference_app)
+    seed_release(reference_app, PROJECT_A)  # once, before the threads: the racing requests share it
     barrier = threading.Barrier(6)
     results: list[tuple[str, int, str]] = []
     lock = threading.Lock()
