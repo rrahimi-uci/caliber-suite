@@ -339,6 +339,7 @@ synchronous real run (`POST /workflow-versions/{id}/run`) is never queued, so wi
 | `409` | `bundle_unavailable` | compile and publish the version again (its sealed bundle is missing, altered or unresolved) |
 | `409` | `manifest_refused` | a pin is floating or ambiguous, the rule bundle is missing or changed, or the project belongs to another organization; the message says which |
 | `409` | `intent_conflict` | the idempotency key belongs to a different request; use a new key |
+| `409` | `source_not_approved` | reference profile: a knowledge-base version the workflow is pinned to is not an approved context source of the project; approve it (or pin another version) and run again |
 | `409` | `manifest_override_not_admitted` | save the manifest as a version, publish it and run that |
 | `409` | `sync_run_not_admitted` | submit the run to the queued `/workflow-runs` endpoint |
 | `403` | `policy_denied` / `grant_refused` | the policy or the caller's role does not allow it; the reason codes are in the message |
@@ -682,8 +683,14 @@ A run's context may only come from sources its project has approved (B07, #692).
 version)`, unique. `approve_source(session, project_id, knowledge_base_id, version_id, actor)` records an approval,
 `revoke_source(...)` withdraws it (the row stays, with `revoked_at` and `revoked_by`, as evidence) and
 `is_approved(session, project_id, knowledge_base_id, version_id)` answers whether it is approved *now* (`False` once
-revoked, for anything never approved and for a source that no longer exists). The admission check (B07.1b) and the authorize-before-load step (B07.2) read it;
-nothing reads it yet, so this changes no behaviour today.
+revoked, for anything never approved and for a source that no longer exists). **Admission reads it (B07.1b, #696):** under
+`CALIBER_PROFILE=reference` every knowledge-base version a run is pinned to must be approved for the run's project
+(`require_approved`, called by `prepare_admission`, so create-run, trigger, retry and the assistant tool all pass through
+it). Otherwise the run is refused with `409` and `source_not_approved`, naming *every* unapproved
+`knowledge_base_id@version_id` in one message (the caller is a member of the project that owns the workflow, and these
+are the workflow's own pins), and nothing is stored. Approval and revocation take effect at the next admission;
+a run already admitted keeps running on what it was pinned to. Development does not require approval. The
+authorize-before-load step at query time is B07.2.
 
 - **A version, not a knowledge base.** Approving version 1 approves nothing else; a new build must be approved on its own.
 - **Only a project's own, real sources.** The knowledge base must belong to the project and the version to that

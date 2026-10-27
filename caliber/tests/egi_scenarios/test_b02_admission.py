@@ -234,3 +234,100 @@ def test_a_run_without_lineage_is_refused_in_the_reference_profile_only(
             assert run is not None and run.runtime_lineage_id, "the run carries its lineage"
     else:
         assert bare.status_code == 202, "development profile: lineage is optional"
+
+
+def test_a_run_over_an_unapproved_knowledge_base_is_refused_until_the_source_is_approved(
+    reference_app: ReferenceApp, two_workspaces: Workspaces
+) -> None:
+    from caliber.context.sources import approve_source, revoke_source
+    from caliber.db.models import CaliberKnowledgeBase, CaliberKnowledgeBaseVersion
+
+    workflow_id = _published_workflow(reference_app)
+    with reference_app.session_factory() as session:
+        session.add(
+            CaliberKnowledgeBase(
+                knowledge_base_id="KB-b02",
+                name="b02",
+                owner=EDITOR_A,
+                project_id=PROJECT_A,
+                visibility="project",
+                status="active",
+                source_bucket="b",
+            )
+        )
+        session.flush()
+        session.add(
+            CaliberKnowledgeBaseVersion(
+                knowledge_base_version_id="KBV-b02",
+                knowledge_base_id="KB-b02",
+                version_number=1,
+                status="completed",
+                chunking_strategy="fixed",
+                embedding_model="m",
+                output_bucket="b",
+                output_prefix="p",
+            )
+        )
+        session.commit()
+    from dataclasses import replace
+
+    from caliber.run_manifest import KnowledgeBasePin
+    from caliber.workflows import admission
+
+    real = admission._resolve
+
+    def resolve(version: Any, settings: Any) -> Any:
+        pins, execution_manifest = real(version, settings)
+        return replace(
+            pins, knowledge_base_versions=(KnowledgeBasePin("KB-b02", "KBV-b02"),)
+        ), execution_manifest
+
+    import pytest as _pytest
+
+    with _pytest.MonkeyPatch.context() as patch:
+        patch.setattr(admission, "_resolve", resolve)
+        lineage = seed_release(reference_app, PROJECT_A)
+        body = {"workflow_id": workflow_id, "alias": "manual", **lineage}
+        refused = _call(
+            reference_app,
+            "POST",
+            EDITOR_A,
+            PROJECT_A,
+            "/workflow-runs",
+            {**body, "idempotency_key": "src-1"},
+        )
+        if reference_app.profile == "reference":
+            assert refused.status_code == 409, refused.text
+            assert "source_not_approved" in refused.text and "KB-b02@KBV-b02" in refused.text
+            with reference_app.session_factory() as session:
+                assert (
+                    session.execute(
+                        select(func.count()).select_from(CaliberWorkflowRun)
+                    ).scalar_one()
+                    == 0
+                )
+                approve_source(session, PROJECT_A, "KB-b02", "KBV-b02", EDITOR_A)
+                session.commit()
+            ok = _call(
+                reference_app,
+                "POST",
+                EDITOR_A,
+                PROJECT_A,
+                "/workflow-runs",
+                {**body, "idempotency_key": "src-2"},
+            )
+            assert ok.status_code == 202, ok.text
+            with reference_app.session_factory() as session:
+                revoke_source(session, PROJECT_A, "KB-b02", "KBV-b02", EDITOR_A)
+                session.commit()
+            again = _call(
+                reference_app,
+                "POST",
+                EDITOR_A,
+                PROJECT_A,
+                "/workflow-runs",
+                {**body, "idempotency_key": "src-3"},
+            )
+            assert again.status_code == 409, "a revoked source is refused at once"
+        else:
+            assert refused.status_code == 202, "development profile: sources need no approval"

@@ -25,6 +25,7 @@ B07.2; this module is the inventory they read). The rules:
 from __future__ import annotations
 
 import uuid
+from collections.abc import Iterable
 from datetime import datetime, timezone
 from typing import Any, Final
 
@@ -43,6 +44,7 @@ from caliber.db.transactions import begin_sqlite_transaction
 SOURCE_NOT_FOUND: Final = "source_not_found"
 NOT_APPROVED: Final = "not_approved"
 INVALID_ARGUMENT: Final = "invalid_argument"
+SOURCE_NOT_APPROVED: Final = "source_not_approved"
 
 _MAX = 64
 _MAX_ACTOR = 256
@@ -54,6 +56,18 @@ class SourceError(ValueError):
     def __init__(self, code: str, message: str) -> None:
         super().__init__(message)
         self.code = code
+
+
+class SourceNotApproved(SourceError):  # noqa: N818 - a refusal, named for what it says
+    """One or more knowledge-base versions are not approved for the project; ``sources`` lists them (sorted)."""
+
+    def __init__(self, sources: tuple[tuple[str, str], ...]) -> None:
+        listed = ", ".join(f"{kb}@{version}" for kb, version in sources)
+        super().__init__(
+            SOURCE_NOT_APPROVED,
+            f"{SOURCE_NOT_APPROVED}: not approved as a context source for this project: {listed}",
+        )
+        self.sources = sources
 
 
 def _clean(name: str, value: object, limit: int) -> str:
@@ -208,6 +222,22 @@ def is_approved(session: Session, project_id: str, knowledge_base_id: str, versi
     return found is not None
 
 
+def require_approved(session: Session, project_id: str, sources: Iterable[tuple[str, str]]) -> None:
+    """Raise :class:`SourceNotApproved` naming every ``(knowledge_base_id, version_id)`` that is not approved for the
+    project (all of them at once, sorted, so a caller fixes them in one pass). Nothing is raised for an empty list."""
+    missing = tuple(
+        sorted(
+            {
+                (kb, version)
+                for kb, version in sources
+                if not is_approved(session, project_id, kb, version)
+            }
+        )
+    )
+    if missing:
+        raise SourceNotApproved(missing)
+
+
 def approved_sources(session: Session, project_id: str) -> list[CaliberApprovedContextSource]:
     """The project's currently approved, still existing sources, oldest approval first."""
     return list(
@@ -241,10 +271,13 @@ def _audit(session: Session, actor: str, action: str, row: CaliberApprovedContex
 __all__ = [
     "INVALID_ARGUMENT",
     "NOT_APPROVED",
+    "SOURCE_NOT_APPROVED",
     "SOURCE_NOT_FOUND",
     "SourceError",
+    "SourceNotApproved",
     "approve_source",
     "approved_sources",
     "is_approved",
+    "require_approved",
     "revoke_source",
 ]

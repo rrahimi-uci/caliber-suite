@@ -526,3 +526,41 @@ def test_a_revocation_waits_for_one_in_flight_and_then_finds_it_revoked_on_postg
         with factory() as session:
             row = session.execute(select(CaliberApprovedContextSource)).scalar_one()
             assert row.revoked_by == "@first", "the first revoker's evidence is not overwritten"
+
+
+@pytest.mark.parametrize("dialect", DIALECTS)
+def test_unapproved_kb_version_refused(
+    dialect: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from caliber.context.sources import SOURCE_NOT_APPROVED, SourceNotApproved, require_approved
+
+    with _database(dialect, tmp_path, monkeypatch) as (_, factory):
+        _seed(factory)
+        with factory() as session:
+            require_approved(session, "P-A", [])  # nothing pinned: nothing to refuse
+            approve_source(session, "P-A", "KB-A", "KB-A-V1", "@editor")
+            session.commit()
+            require_approved(session, "P-A", [("KB-A", "KB-A-V1")])
+            with pytest.raises(SourceNotApproved) as refused:
+                require_approved(
+                    session,
+                    "P-A",
+                    [
+                        ("KB-A", "KB-A-V2"),
+                        ("KB-A", "KB-A-V1"),
+                        ("KB-B", "KB-B-V1"),
+                        ("KB-A", "KB-A-V2"),
+                    ],
+                )
+            assert refused.value.code == SOURCE_NOT_APPROVED
+            assert refused.value.sources == (("KB-A", "KB-A-V2"), ("KB-B", "KB-B-V1")), (
+                "all of them, sorted"
+            )
+            assert "KB-A@KB-A-V2" in str(refused.value) and "KB-A-V1" not in str(refused.value)
+            # another project's approval does not count, and neither does a revoked one
+            with pytest.raises(SourceNotApproved):
+                require_approved(session, "P-B", [("KB-A", "KB-A-V1")])
+            revoke_source(session, "P-A", "KB-A", "KB-A-V1", "@owner")
+            session.commit()
+            with pytest.raises(SourceNotApproved):
+                require_approved(session, "P-A", [("KB-A", "KB-A-V1")])

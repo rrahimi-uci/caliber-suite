@@ -42,6 +42,7 @@ from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from caliber.auth import CaliberIdentity
+from caliber.context.sources import SourceNotApproved, require_approved
 from caliber.db.models import (
     CaliberRunManifest,
     CaliberWorkflow,
@@ -101,6 +102,7 @@ POLICY_DENIED: Final = "policy_denied"
 OVERRIDE_NOT_ADMITTED: Final = "manifest_override_not_admitted"
 AUTHORITY_UNAVAILABLE: Final = "authority_unavailable"
 INTENT_CONFLICT: Final = "intent_conflict"
+SOURCE_NOT_APPROVED: Final = "source_not_approved"
 
 
 class AdmissionDenied(Exception):  # noqa: N818 - a refusal, named for what it says
@@ -138,6 +140,8 @@ class AdmissionSettings:
     default_model: str = ""
     #: A run must be started against a workspace release and environment (runtime lineage): the reference profile.
     lineage_required: bool = False
+    #: Every pinned knowledge-base version must be an approved context source of the project: the reference profile.
+    approved_sources_required: bool = False
 
     @classmethod
     def from_config(cls, config: Any) -> AdmissionSettings:
@@ -159,6 +163,7 @@ class AdmissionSettings:
             llm_provider=str(getattr(config, "llm_provider", "fake") or "fake"),
             default_model=str(getattr(config, "llm_diagnosis_model", "") or ""),
             lineage_required=getattr(config, "profile", "") == "reference",
+            approved_sources_required=getattr(config, "profile", "") == "reference",
         )
 
 
@@ -336,6 +341,7 @@ def _model_routes(version: CaliberWorkflowVersion, settings: AdmissionSettings) 
 
 def prepare_admission(
     *,
+    session: Session,
     settings: AdmissionSettings,
     workflow: CaliberWorkflow,
     version: CaliberWorkflowVersion,
@@ -378,6 +384,17 @@ def prepare_admission(
             f"this workflow version has no usable digest to pin the workload to: {exc}",
         ) from exc
     pins, execution_manifest = _resolve(version, settings)
+    if settings.approved_sources_required and pins.knowledge_base_versions:
+        try:
+            require_approved(
+                session,
+                workflow.project_id,
+                [(pin.knowledge_base_id, pin.version_id) for pin in pins.knowledge_base_versions],
+            )
+        except SourceNotApproved as exc:
+            raise AdmissionDenied(
+                SOURCE_NOT_APPROVED, str(exc), reasons=(SOURCE_NOT_APPROVED,)
+            ) from exc
     pinned: PinnedRuleBundle | None = None
     if settings.rule_bundle_path:
         try:
@@ -684,6 +701,7 @@ __all__ = [
     "POLICY_DENIED",
     "PROJECT_REQUIRED",
     "RUN_ACTION",
+    "SOURCE_NOT_APPROVED",
     "SUBJECT_INVALID",
     "WORKLOAD_UNAVAILABLE",
     "AdmissionDenied",

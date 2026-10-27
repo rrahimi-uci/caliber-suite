@@ -824,6 +824,7 @@ async def create_workflow_run(request: Request) -> JSONResponse:  # noqa: PLR091
         if admission.enabled:
             try:
                 prepared = prepare_admission(
+                    session=session,
                     settings=admission,
                     workflow=workflow,
                     version=version,
@@ -1619,6 +1620,7 @@ async def retry_workflow_run(request: Request) -> JSONResponse:  # noqa: PLR0912
             )
             try:
                 retry_prepared = prepare_admission(
+                    session=session,
                     settings=retry_admission,
                     workflow=retry_workflow,
                     version=retry_version,
