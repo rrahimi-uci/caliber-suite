@@ -7,11 +7,11 @@ import logging
 from datetime import datetime, timezone
 from typing import Any, cast
 
-from caliber.auth import CaliberIdentity
+from caliber.auth import SCOPE_ADMIN, CaliberIdentity
+from caliber.observability.experiment_registry import claim_for_writer
 from caliber.observability.trace_access import (
     ExperimentClaimConflict,
     ExperimentLookupError,
-    assert_experiment_claim_allowed,
 )
 
 logger = logging.getLogger(__name__)
@@ -45,6 +45,11 @@ class AssistantPublisher:
     publisher operates on *validated* ``AssistantDraft`` ORM rows only —
     never on raw model output.
     """
+
+    def __init__(self, *, reference_profile: bool = False) -> None:
+        #: Reference profile: a workflow's experiment claim must have trusted provenance (see
+        #: ``caliber.observability.experiment_registry``).
+        self._reference_profile = reference_profile
 
     def publish(
         self,
@@ -408,9 +413,11 @@ class AssistantPublisher:
             scope = _publisher_scope(identity, no_project_visibility="user")
             owner = identity.user_id if identity is not None else user
             try:
-                assert_experiment_claim_allowed(
+                claim_for_writer(
                     db,
                     artifact.get("default_experiment_id"),
+                    reference_profile=self._reference_profile,
+                    is_admin=identity is not None and identity.has_scope(SCOPE_ADMIN),
                     visibility=scope.get(
                         "visibility", "project"
                     ),  # the column default when no identity

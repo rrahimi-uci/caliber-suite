@@ -45,10 +45,10 @@ from caliber.db.models import (
     CaliberVerificationItem,
 )
 from caliber.db.scoping import apply_visibility_filter, get_visible
+from caliber.observability.experiment_registry import claim_for_writer
 from caliber.observability.trace_access import (
     ExperimentClaimConflict,
     ExperimentLookupError,
-    assert_experiment_claim_allowed,
 )
 from caliber.prompt_targets import is_hidden_prompt_target
 from caliber.resource_access import require_project_access_if_scoped
@@ -184,12 +184,14 @@ async def register_agent(request: Request) -> JSONResponse:
         # A workflow of another project may already claim this experiment as its default; the
         # agent table's own uniqueness cannot see that, and an experiment decides who sees traces.
         try:
-            assert_experiment_claim_allowed(
+            claim_for_writer(
                 session,
                 payload.experiment_id,
                 visibility="project" if identity.active_project_id else "user",
                 project_id=identity.active_project_id,
                 owner=actor,
+                reference_profile=request.app.state.config.profile == "reference",
+                is_admin=identity.has_scope(SCOPE_ADMIN),
             )
         except ExperimentClaimConflict as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc

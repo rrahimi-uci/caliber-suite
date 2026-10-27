@@ -675,6 +675,29 @@ class ObservabilityAPI(Resource):
         items = payload.get("conflicts") if isinstance(payload, dict) else payload
         return list(items or [])
 
+    def migrate_experiment_claims(self) -> dict[str, Any]:
+        """Register every experiment claim that predates the owner registry (admin only).
+
+        Returns ``{"registered", "quarantined", "skipped_existing", "unresolved"}`` lists. An
+        experiment claimed by two or more projects or users is quarantined with no owner; resolve it
+        with :meth:`resolve_experiment_conflict`.
+        """
+        payload = self._post("/observability/experiment-claims/migrate", json={})
+        return dict(payload) if isinstance(payload, dict) else {}
+
+    def resolve_experiment_conflict(
+        self, experiment: str, *, owner_kind: str, owner_id: str = ""
+    ) -> dict[str, Any]:
+        """Record who owns a quarantined experiment (admin only).
+
+        ``owner_kind`` is ``project``, ``user`` or ``public`` (``owner_id`` names the project or
+        user). The decision is attributed and audited."""
+        payload = self._post(
+            "/observability/experiment-claim-conflicts/resolve",
+            json={"experiment": experiment, "owner": {"kind": owner_kind, "id": owner_id}},
+        )
+        return dict(payload) if isinstance(payload, dict) else {}
+
     def metrics(self, **params: Any) -> Any:
         return self._get("/observability/metrics", params=params or None)
 

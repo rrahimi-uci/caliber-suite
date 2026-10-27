@@ -24,7 +24,7 @@ from starlette.responses import JSONResponse
 from starlette.routing import Route
 
 from caliber.audit import record as audit_record
-from caliber.auth import SCOPE_OPERATOR, require_scopes, require_user, resolve_identity
+from caliber.auth import SCOPE_ADMIN, SCOPE_OPERATOR, require_scopes, require_user, resolve_identity
 from caliber.db.models import (
     CaliberAgentConfig,
     CaliberApprovalRequest,
@@ -57,10 +57,10 @@ from caliber.ids import (
     new_workflow_id,
     new_workflow_version_id,
 )
+from caliber.observability.experiment_registry import claim_for_writer
 from caliber.observability.trace_access import (
     ExperimentClaimConflict,
     ExperimentLookupError,
-    assert_experiment_claim_allowed,
 )
 from caliber.resource_access import (
     ACTION_WRITE_EVIDENCE,
@@ -124,10 +124,19 @@ _BENCHMARK_REPORT_STATUS_VALUES = frozenset({"draft", "completed", "archived", "
 _UPDATABLE_FIELDS = ("name", "description", "owner", "status", "default_experiment_id")
 
 
-def _claim_experiment_or_409(session: Any, experiment_id: str | None, **scope: Any) -> None:
-    """409 when another project or user already claims the experiment (it decides who sees its traces)."""
+def _claim_experiment_or_409(
+    session: Any, experiment_id: str | None, request: Request, **scope: Any
+) -> None:
+    """409 when another project or user already claims the experiment (it decides who sees its traces); otherwise
+    the claim is registered (``experiment_registry``), creating the experiment server-side in the reference profile."""
     try:
-        assert_experiment_claim_allowed(session, experiment_id, **scope)
+        claim_for_writer(
+            session,
+            experiment_id,
+            reference_profile=request.app.state.config.profile == "reference",
+            is_admin=resolve_identity(request).has_scope(SCOPE_ADMIN),
+            **scope,
+        )
     except ExperimentClaimConflict as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     except ExperimentLookupError as exc:
@@ -699,6 +708,7 @@ async def create_workflow(request: Request) -> JSONResponse:
         _claim_experiment_or_409(
             session,
             payload.default_experiment_id,
+            request,
             visibility="project" if identity.active_project_id else "user",
             project_id=identity.active_project_id,
             owner=actor,
@@ -795,6 +805,7 @@ async def update_workflow(request: Request) -> JSONResponse:
             _claim_experiment_or_409(
                 session,
                 changes["default_experiment_id"],
+                request,
                 visibility=workflow.visibility,
                 project_id=workflow.project_id,
                 owner=workflow.owner,

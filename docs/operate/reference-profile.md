@@ -288,6 +288,28 @@ and an expiry that is not in the future.
 This task stores and checks grants; it makes no policy decision and records none (B03.3 and B03.5). A rollback
 (`caliber-migrate downgrade 0114`) drops the table and therefore the grants, never the runs.
 
+## Experiment ownership
+
+In the reference profile CALIBER, not the first editor, decides who owns an MLflow experiment
+(`caliber/src/caliber/observability/experiment_registry.py`; B11.registry, #665; migration `0118`, table
+`caliber_experiment_owners`, keyed by the tracking backend and the canonical experiment id). Registering an agent,
+creating or updating a workflow, or publishing from the assistant with an experiment reference:
+
+- creates the experiment server-side, tagged with its owner, when it does not exist (`provenance=created`);
+- refuses an experiment that already exists but nobody registered (`409`), unless an administrator is registering
+  it, who may adopt it (`provenance=adopted`); and refuses a numeric id that names no experiment;
+- refuses an experiment another project or user owns (`409`), whichever alias (name or id) is used, even when two
+  requests race (the primary key admits one row);
+- fails closed (`503`) when the tracking backend cannot answer, and registers nothing.
+
+The claim shares the request's transaction: if the agent or workflow is not saved, the owner is not recorded. For
+data from before the registry, an administrator runs `POST /observability/experiment-claims/migrate` once (single
+claims become registered owners, double claims are quarantined) and settles each quarantine with
+`POST /observability/experiment-claim-conflicts/resolve`; the SDK has `migrate_experiment_claims()` and
+`resolve_experiment_conflict()`. Details of aliases, quarantine and visibility are in the
+[observability architecture](../09-observability/architecture.md). Development keeps the earlier behaviour: an
+unregistered experiment goes to whoever binds it first, and a name that resolves to nothing stays a plain reference.
+
 ## The execution-owner lease
 
 In the reference profile exactly one process holds the execution-owner lease and only the holder runs the background

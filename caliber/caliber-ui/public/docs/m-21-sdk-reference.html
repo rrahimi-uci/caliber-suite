@@ -4077,6 +4077,20 @@
 <p><strong>Returns:</strong> <code>list[dict[str, Any]]</code></p>
 <p><strong>Raises:</strong></p>
 <ul><li><a href="#caliberapierror"><code>CaliberAPIError</code></a></li><li><a href="#calibertransporterror"><code>CaliberTransportError</code></a></li></ul>
+<h6 id="migrate_experiment_claims-dictstr-any"><code>migrate_experiment_claims() -&gt; dict[str, Any]</code><a class="anchor" href="#migrate_experiment_claims-dictstr-any" aria-hidden="true" tabindex="-1">#</a></h6>
+<p>Register every experiment claim that predates the owner registry (admin only).</p>
+<p>Returns `<code>{"registered", "quarantined", "skipped_existing", "unresolved"}</code><code> lists. An experiment claimed by two or more projects or users is quarantined with no owner; resolve it with :meth:</code>resolve_experiment_conflict`.</p>
+<p>This callable takes no public parameters.</p>
+<p><strong>Returns:</strong> <code>dict[str, Any]</code></p>
+<p><strong>Raises:</strong></p>
+<ul><li><a href="#caliberapierror"><code>CaliberAPIError</code></a></li><li><a href="#calibertransporterror"><code>CaliberTransportError</code></a></li></ul>
+<h6 id="resolve_experiment_conflictexperiment-str-owner_kind-str-owner_id-str-dictstr-any"><code>resolve_experiment_conflict(experiment: str, *, owner_kind: str, owner_id: str = '') -&gt; dict[str, Any]</code><a class="anchor" href="#resolve_experiment_conflictexperiment-str-owner_kind-str-owner_id-str-dictstr-any" aria-hidden="true" tabindex="-1">#</a></h6>
+<p>Record who owns a quarantined experiment (admin only).</p>
+<p>`<code>owner_kind</code><code> is </code><code>project</code><code>, </code><code>user</code><code> or </code><code>public</code><code> (</code><code>owner_id</code>` names the project or user). The decision is attributed and audited.</p>
+<div class="table-wrap"><table><thead><tr><th>Parameter</th><th>Kind</th><th>Type</th><th>Default</th></tr></thead><tbody><tr><td><code>experiment</code></td><td>positional-or-keyword</td><td><code>str</code></td><td><code>—</code></td></tr><tr><td><code>owner_kind</code></td><td>keyword-only</td><td><code>str</code></td><td><code>—</code></td></tr><tr><td><code>owner_id</code></td><td>keyword-only</td><td><code>str</code></td><td><code>''</code></td></tr></tbody></table></div>
+<p><strong>Returns:</strong> <code>dict[str, Any]</code></p>
+<p><strong>Raises:</strong></p>
+<ul><li><a href="#caliberapierror"><code>CaliberAPIError</code></a></li><li><a href="#calibertransporterror"><code>CaliberTransportError</code></a></li></ul>
 <h6 id="metricsparams-any"><code>metrics(**params) -&gt; Any</code><a class="anchor" href="#metricsparams-any" aria-hidden="true" tabindex="-1">#</a></h6>
 <p>Operate on the observability traces and metrics surface with the supplied arguments and return the server response.</p>
 <div class="table-wrap"><table><thead><tr><th>Parameter</th><th>Kind</th><th>Type</th><th>Default</th></tr></thead><tbody><tr><td><code>params</code></td><td>var-keyword</td><td><code>Any</code></td><td><code>—</code></td></tr></tbody></table></div>

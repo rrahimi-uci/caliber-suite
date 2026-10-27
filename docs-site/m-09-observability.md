@@ -253,6 +253,8 @@ The trace and monitoring routes back the in-app viewer and dashboard:
 - `POST /observability/traces/{trace_id}/feedback`
 - `GET /observability/experiments`
 - `GET /observability/experiment-claim-conflicts` (admin only)
+- `POST /observability/experiment-claim-conflicts/resolve` (admin only; audited)
+- `POST /observability/experiment-claims/migrate` (admin only; audited)
 - `GET /observability/metrics`
 
 ### Experiment ownership and aliases
@@ -277,8 +279,24 @@ assigns (`caliber/src/caliber/observability/trace_access.py::resolve_experiment`
 - An experiment already claimed by two scopes (data from before the check) is **quarantined**: hidden from
   every non-admin, listed for an operator by `GET /observability/experiment-claim-conflicts`, and never
   settled by a last-writer-wins rule. Removing the claim that should not exist releases it.
-- An experiment nobody has bound yet still goes to whoever binds it first; proving ownership needs CALIBER to
-  create the experiment (B11's owner registry).
+- **The registry decides.** Once registered, an experiment has exactly one owner in `caliber_experiment_owners`
+  (B11.registry, #665; migration `0118`; primary key `(tracking_backend, experiment_id)`, the canonical id the
+  backend assigned, so a name and an id can never be two owners). The first claim inserts the row in the claimer's
+  transaction; a second scope's claim loses on the primary key (PostgreSQL and SQLite alike) and is refused with
+  `409`. A repeat claim by the owner is idempotent. Visibility subtracts every id the registry gives to another
+  scope or has quarantined, so an alias the caller still holds in an old agent or workflow claim cannot show it.
+- **First-claim provenance.** Outside the reference profile an unregistered experiment goes to whoever binds it
+  first (`provenance=adopted`); a reference that names no experiment yet stays a plain, unregistered reference.
+  In the reference profile CALIBER creates a missing experiment itself, tagged with its owner (`provenance=created`);
+  an experiment that already exists but nobody registered is **not** the first editor's to take (`409`,
+  `ExperimentNotClaimable`) unless an administrator adopts it; a numeric id that names no experiment is refused.
+- **Pre-registry claims.** `POST /observability/experiment-claims/migrate` (admin) registers each experiment that
+  agent and workflow claims name for exactly one scope (`provenance=legacy`) and **quarantines** one claimed by two
+  or more, without choosing a winner (`status=quarantined`, no owner). It is idempotent, reports `registered`,
+  `quarantined`, `skipped_existing` and `unresolved` ids, and registers nothing if the backend cannot answer
+  (`503`). An administrator settles a quarantine with `POST /observability/experiment-claim-conflicts/resolve`
+  (`{"experiment", "owner": {"kind": "project"|"user"|"public", "id"}}`), recorded as `provenance=resolved` and audited;
+  the registry's quarantined rows are listed with the text-claim conflicts.
 
 The report-serving routes expose the static Allure tree:
 

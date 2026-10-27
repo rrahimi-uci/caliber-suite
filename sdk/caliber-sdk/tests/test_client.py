@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from concurrent.futures import ThreadPoolExecutor
 from threading import Barrier, Lock
 
@@ -239,3 +240,43 @@ def test_experiment_claim_conflicts_is_empty_when_there_are_none() -> None:
 
     with client_with(handler, token="calpat_x") as caliber:
         assert caliber.observability.experiment_claim_conflicts() == []
+
+
+def test_migrate_experiment_claims_posts_and_returns_the_report() -> None:
+    seen: dict[str, object] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["method"], seen["path"] = request.method, request.url.path
+        report = {
+            "registered": ["7"],
+            "quarantined": ["9"],
+            "skipped_existing": [],
+            "unresolved": [],
+        }
+        return httpx.Response(200, json={"data": report})
+
+    with client_with(handler, token="calpat_x") as caliber:
+        report = caliber.observability.migrate_experiment_claims()
+    assert seen["method"] == "POST" and str(seen["path"]).endswith(
+        "/observability/experiment-claims/migrate"
+    )
+    assert report["quarantined"] == ["9"] and report["registered"] == ["7"]
+
+
+def test_resolve_experiment_conflict_sends_the_owner_decision() -> None:
+    seen: dict[str, object] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["path"] = request.url.path
+        seen["body"] = json.loads(request.content)
+        return httpx.Response(
+            200, json={"data": {"experiment": "9", "owner": {"kind": "project", "id": "P-1"}}}
+        )
+
+    with client_with(handler, token="calpat_x") as caliber:
+        result = caliber.observability.resolve_experiment_conflict(
+            "9", owner_kind="project", owner_id="P-1"
+        )
+    assert str(seen["path"]).endswith("/observability/experiment-claim-conflicts/resolve")
+    assert seen["body"] == {"experiment": "9", "owner": {"kind": "project", "id": "P-1"}}
+    assert result["owner"] == {"kind": "project", "id": "P-1"}

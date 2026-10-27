@@ -280,6 +280,8 @@ def visible_experiments(session: Session, identity: CaliberIdentity) -> set[str]
     claim, the answer is :class:`ExperimentLookupError` (a 503 on the routes): an unresolvable claim could alias
     any experiment, so neither visibility nor quarantine can be decided.
     """
+    from caliber.observability.experiment_registry import registry_hidden_ids  # noqa: PLC0415 - import cycle
+
     claims = visible_experiment_ids(session, identity)
     if claims is None:
         return None
@@ -287,7 +289,9 @@ def visible_experiments(session: Session, identity: CaliberIdentity) -> set[str]
     expanded = set(claims)
     for ref in claims:
         expanded |= claim_keys(ref)
-    return expanded - _contested_keys(session).keys()
+    # The registry, where it has a row, is authoritative: a quarantined experiment, or one owned by another scope
+    # (even if one of the caller's own claims names it under another alias), is not the caller's to see.
+    return expanded - _contested_keys(session).keys() - registry_hidden_ids(session, identity)
 
 
 class TraceNotReadableError(ValueError):

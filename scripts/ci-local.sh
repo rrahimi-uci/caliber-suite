@@ -195,6 +195,7 @@ BACKEND_CORE_TESTS=(
   tests/test_rule_bundle.py
   tests/test_run_grants.py
   tests/test_policy_decisions.py
+  tests/test_trace_experiment_ownership.py
   tests/test_memory_reference_scope.py
   tests/test_routes_memory.py
   tests/test_secret_canary.py
@@ -261,6 +262,7 @@ job_migration_parity_postgres() {
         tests/test_run_grants.py \
         tests/test_policy_decisions.py \
         tests/test_execution_owner.py \
+        tests/test_trace_experiment_ownership.py \
         -k postgresql --no-cov -q
     status=$?
   fi
