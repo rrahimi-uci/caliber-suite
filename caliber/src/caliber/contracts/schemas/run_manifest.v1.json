@@ -28,6 +28,10 @@
       "minLength": 1,
       "default": "local"
     },
+    "project_id": {
+      "type": "string",
+      "minLength": 1
+    },
     "pins": {
       "type": "object",
       "properties": {

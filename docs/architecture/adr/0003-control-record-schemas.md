@@ -63,6 +63,7 @@ RunManifest: what a workflow run was pinned to and who started it.
 | `tenant_id` | string | yes | `local` in the reference profile (ADR 0001); maps to the existing column `caliber_workflow_runs.tenant_id` |
 | `region` | string | yes | `local` in the reference profile; the column is added by #517 |
 | `residency` | string | no | where data may be processed; `local` when absent |
+| `project_id` | string | no | the project the run was admitted in (server-derived, never the caller's choice); absent for a run outside any project and for records written before #676 |
 | `pins` | object | yes | `workflow_version`, `bundle_digest`, `prompt_versions`, `tool_versions`, `skill_versions`, `knowledge_base_versions` (array of `{knowledge_base_id, version_id}`), `model_routes` (list), `policy_version`; all required |
 | `subject` | object | yes | `user_id`, `auth_method` |
 | `workload` | object | yes | `workload_id`, `name`, `workflow_version_digest` |
@@ -71,6 +72,12 @@ RunManifest: what a workflow run was pinned to and who started it.
 | `rule_bundle_path` | string or null | no | written by #525 |
 | `rule_bundle_sha256` | string or null | no | written by #525 |
 | `created_at` | string (RFC 3339 date-time) | yes | when the manifest was written |
+
+`project_id` was added to `run_manifest` v1 in place by #676. ADR 0003 requires readers to be upgraded before a writer
+emits a new optional field, and this schema is strict (`additionalProperties: false`), so a build that predates the
+field would reject a manifest carrying it. That rule holds here because no manifest writer existed before admission
+(#680, #684): the first writer and the reader that understands the field (`caliber.run_manifest.read_manifest`) ship
+together, and a deployment must not run an older build against manifests a newer one wrote.
 
 ### proposal
 

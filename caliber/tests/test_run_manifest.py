@@ -7,11 +7,14 @@ thing under test rather than the ORM metadata alone.
 
 from __future__ import annotations
 
+import ast
+import dataclasses
 import hashlib
 import json
 import uuid
 from collections.abc import Iterator
 from contextlib import contextmanager
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -23,8 +26,26 @@ from sqlalchemy.engine import Engine
 from sqlalchemy.exc import DBAPIError, IntegrityError
 from sqlalchemy.orm import Session
 
+from caliber import run_manifest as run_manifest_module
+from caliber.contracts import ContractValidationError, validate_record
 from caliber.db.immutable import ImmutableRecordError, guard_immutable
 from caliber.db.models import CaliberRunManifest, CaliberWorkflowRun
+from caliber.policy.principal import Subject, Workload
+from caliber.run_manifest import (
+    CODES,
+    BuiltManifest,
+    DeploymentScope,
+    KnowledgeBasePin,
+    ManifestError,
+    PinnedRuleBundle,
+    ResolvedPins,
+    build_run_manifest,
+    canonical_bytes,
+    digest_of,
+    new_manifest_id,
+    pin_rule_bundle,
+    read_manifest,
+)
 from tests.dialect_helpers import DIALECTS, POSTGRES_TEST_URL, dialect_database_url
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -630,3 +651,658 @@ def test_deleting_a_workflow_whose_runs_have_manifests_is_a_409(
     allowed = client.delete(f"{PREFIX}/workflows/{plain}")
     assert allowed.status_code in (200, 204), allowed.text
     assert client.get(f"{PREFIX}/workflows/{plain}").status_code == 404
+
+
+# ---------------------------------------------------------------- the admission builder (B02.1b, #676)
+
+FIXTURES = PROJECT_ROOT / "tests" / "fixtures"
+RULE_BUNDLE = FIXTURES / "rule_bundles" / "support_rules.v1.yaml"
+RULE_BUNDLE_SHA = hashlib.sha256(RULE_BUNDLE.read_bytes()).hexdigest()
+WORKFLOW_DIGEST = hashlib.sha256(b"workflow-version-3").hexdigest()
+CREATED = datetime(2026, 10, 26, 9, 0, 0, tzinfo=timezone.utc)
+
+
+def _pins(**overrides: Any) -> ResolvedPins:
+    fields: dict[str, Any] = {
+        "workflow_version": "wfv-3",
+        "bundle_digest": hashlib.sha256(b"compiled-bundle").hexdigest(),
+        "prompt_versions": ["support@4", "greeting@2"],
+        "tool_versions": ["lookup_case@1"],
+        "skill_versions": [],
+        "knowledge_base_versions": [KnowledgeBasePin("kb-1", "v7")],
+        "model_routes": ["scripted"],
+        "policy_version": "pol-1",
+        **overrides,
+    }
+    return ResolvedPins(**fields)
+
+
+def _build(**overrides: Any) -> BuiltManifest:
+    arguments: dict[str, Any] = {
+        "manifest_id": "mf-1",
+        "workflow_run_id": "run-1",
+        "pins": _pins(),
+        "subject": Subject("alice", "session", "proj-1"),
+        "workload": Workload.for_workflow("document-request", WORKFLOW_DIGEST),
+        "purpose": "request a missing document",
+        "scope": DeploymentScope.fixed("proj-1"),
+        "created_at": CREATED,
+        **overrides,
+    }
+    return build_run_manifest(**arguments)
+
+
+def _refused(code: str, **overrides: Any) -> ManifestError:
+    with pytest.raises(ManifestError) as caught:
+        _build(**overrides)
+    assert caught.value.code == code, caught.value
+    return caught.value
+
+
+def test_build_validates_against_schema_and_carries_exactly_what_was_resolved() -> None:
+    built = _build()
+    record = built.record
+    validate_record("run_manifest", record)
+    assert record["schema_version"] == "v1" and record["legacy"] is False
+    assert (record["tenant_id"], record["region"], record["residency"], record["project_id"]) == (
+        "local",
+        "local",
+        "local",
+        "proj-1",
+    )
+    assert record["subject"] == {"user_id": "alice", "auth_method": "session"}, (
+        "no project in the subject"
+    )
+    assert record["workload"] == {
+        "workload_id": "wl_" + WORKFLOW_DIGEST,
+        "name": "document-request",
+        "workflow_version_digest": WORKFLOW_DIGEST,
+    }
+    assert record["pins"]["prompt_versions"] == ["greeting@2", "support@4"], "sorted"
+    assert record["pins"]["knowledge_base_versions"] == [
+        {"knowledge_base_id": "kb-1", "version_id": "v7"}
+    ]
+    assert (record["rule_bundle_path"], record["rule_bundle_sha256"]) == (None, None)
+    assert record["created_at"] == "2026-10-26T09:00:00.000000Z"
+    assert (built.manifest_id, built.workflow_run_id) == ("mf-1", "run-1")
+
+
+def test_the_digest_is_the_sha256_of_the_canonical_bytes_repeatable_and_excludes_itself() -> None:
+    first, second = _build(), _build()
+    assert first == second and first.manifest_bytes == second.manifest_bytes
+    assert first.manifest_digest == hashlib.sha256(first.manifest_bytes).hexdigest()
+    assert first.manifest_bytes == canonical_bytes(first.record)
+    assert b"digest" not in first.manifest_bytes.replace(b"bundle_digest", b"").replace(
+        b"workflow_version_digest", b""
+    ), "the manifest does not carry its own digest"
+    assert b" " not in first.manifest_bytes.replace(b"request a missing document", b"")
+    assert (
+        first.manifest_bytes
+        == json.dumps(
+            first.record, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+        ).encode()
+    )
+    first.record["purpose"] = (
+        "edited"  # a copy: the built bytes are not changed by editing what was read
+    )
+    assert first.record["purpose"] == "request a missing document"
+
+
+def test_the_order_pins_were_resolved_in_does_not_change_the_digest() -> None:
+    other = _pins(
+        prompt_versions=["support@4", "greeting@2"][::-1],
+        knowledge_base_versions=[KnowledgeBasePin("kb-1", "v7")],
+    )
+    assert _build(pins=other).manifest_digest == _build().manifest_digest
+
+
+@pytest.mark.parametrize(
+    "overrides",
+    [
+        {"manifest_id": "mf-2"},
+        {"workflow_run_id": "run-2"},
+        {"purpose": "another purpose"},
+        {"created_at": CREATED + timedelta(microseconds=1)},
+        {
+            "scope": DeploymentScope.fixed("proj-2"),
+            "subject": Subject("alice", "session", "proj-2"),
+        },
+        {"pins": _pins(policy_version="pol-2")},
+        {"pins": _pins(model_routes=["scripted", "other"])},
+        {"pins": _pins(knowledge_base_versions=[KnowledgeBasePin("kb-1", "v8")])},
+        {"subject": Subject("bob", "session", "proj-1")},
+        {
+            "workload": Workload.for_workflow(
+                "document-request", hashlib.sha256(b"other").hexdigest()
+            )
+        },
+    ],
+)
+def test_every_input_changes_the_digest(overrides: dict[str, Any]) -> None:
+    assert _build(**overrides).manifest_digest != _build().manifest_digest
+
+
+def test_timestamps_are_utc_and_must_carry_an_offset() -> None:
+    plus_two = datetime(2026, 10, 26, 11, 0, 0, tzinfo=timezone(timedelta(hours=2)))
+    assert _build(created_at=plus_two).manifest_digest == _build().manifest_digest
+    _refused("bad_field", created_at=datetime(2026, 10, 26, 9, 0, 0))
+    _refused("bad_field", created_at="2026-10-26T09:00:00Z")
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("workflow_version", ""),
+        ("workflow_version", None),
+        ("workflow_version", "latest"),
+        ("workflow_version", "LATEST"),
+        ("workflow_version", "wfv-*"),
+        ("policy_version", "current"),
+        ("policy_version", ""),
+        ("prompt_versions", ["support"]),
+        ("prompt_versions", ["support@latest"]),
+        ("prompt_versions", ["@4"]),
+        ("prompt_versions", ["support@"]),
+        ("prompt_versions", [""]),
+        ("tool_versions", ["lookup_case@HEAD"]),
+        ("skill_versions", ["triage@current"]),
+        ("model_routes", []),
+        ("model_routes", ["default"]),
+        ("model_routes", [None]),
+        ("bundle_digest", ""),
+        ("bundle_digest", None),
+    ],
+)
+def test_unresolved_reference_refused(field: str, value: Any) -> None:
+    with pytest.raises(ManifestError) as caught:
+        _pins(**{field: value})
+    assert caught.value.code == "unresolved_pin", caught.value
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("bundle_digest", "sha256:" + "a" * 64),
+        ("bundle_digest", "A" * 64),
+        ("bundle_digest", "a" * 63),
+        ("bundle_digest", 5),
+        ("workflow_version", " wfv-3"),
+        ("workflow_version", "wfv\u200b3"),
+        ("workflow_version", "x" * 513),
+        ("workflow_version", 3),
+        ("prompt_versions", "support@4"),
+        ("prompt_versions", 4),
+        ("tool_versions", "lookup_case@1"),
+    ],
+)
+def test_malformed_references_are_refused_not_coerced(field: str, value: Any) -> None:
+    with pytest.raises(ManifestError) as caught:
+        _pins(**{field: value})
+    assert caught.value.code == "bad_pin", caught.value
+
+
+def test_a_knowledge_base_pin_must_be_resolved_and_unique() -> None:
+    for kb_id, version in (("kb-1", ""), ("kb-1", "latest"), ("", "v1"), ("kb-1", None)):
+        with pytest.raises(ManifestError):
+            KnowledgeBasePin(kb_id, version)  # type: ignore[arg-type]
+    with pytest.raises(ManifestError) as caught:
+        _pins(
+            knowledge_base_versions=[KnowledgeBasePin("kb-1", "v7"), KnowledgeBasePin("kb-1", "v8")]
+        )
+    assert caught.value.code == "duplicate_pin"
+    for bad in ("kb-1", [("kb-1", "v7")], 5):
+        with pytest.raises(ManifestError) as typed:
+            _pins(knowledge_base_versions=bad)
+        assert typed.value.code == "bad_pin"
+    assert _pins(knowledge_base_versions=[]).knowledge_base_versions == ()
+
+
+def test_pinning_the_same_reference_twice_is_refused() -> None:
+    for field in ("prompt_versions", "tool_versions", "skill_versions", "model_routes"):
+        value = ["a@1", "a@1"] if field != "model_routes" else ["r", "r"]
+        with pytest.raises(ManifestError) as caught:
+            _pins(**{field: value})
+        assert caught.value.code == "duplicate_pin"
+
+
+def test_pins_are_immutable_and_normalised_to_tuples() -> None:
+    pins = _pins()
+    assert isinstance(pins.prompt_versions, tuple) and isinstance(
+        pins.knowledge_base_versions, tuple
+    )
+    with pytest.raises(dataclasses.FrozenInstanceError):
+        pins.policy_version = "pol-2"  # type: ignore[misc]
+
+
+def test_strict_subject_shape_only_typed_principals_are_accepted() -> None:
+    _refused("bad_field", subject={"user_id": "alice", "auth_method": "session"})
+    _refused(
+        "bad_field", workload={"workload_id": "wl_x", "name": "n", "workflow_version_digest": "d"}
+    )
+    _refused("bad_pin", pins={"workflow_version": "wfv-3"})
+    _refused("bad_scope", scope={"tenant_id": "local"})
+    _refused("bad_field", manifest_id="")
+    _refused("bad_field", workflow_run_id=" run-1")
+    _refused("bad_field", purpose="")
+    _refused("bad_field", purpose="why\nbecause")
+
+
+def test_the_scope_is_the_servers_and_a_caller_cannot_switch_organization_or_project() -> None:
+    assert _build(requested_tenant_id="local").manifest_digest == _build().manifest_digest
+    _refused("organization_switch", requested_tenant_id="other-org")
+    _refused("organization_switch", requested_tenant_id="")
+    _refused("project_mismatch", subject=Subject("alice", "session", "proj-2"))
+    _refused("project_mismatch", subject=Subject("alice", "session", None))
+    _refused("project_mismatch", scope=DeploymentScope.fixed(None))
+    outside = _build(
+        subject=Subject("alice", "session", None), scope=DeploymentScope.fixed(None)
+    ).record
+    assert "project_id" not in outside, "a run outside any project names none"
+    validate_record("run_manifest", outside)
+    for fields in (
+        ("", "proj-1", "local", "local"),
+        ("local", "", "local", "local"),
+        ("local", "proj-1", "", "local"),
+        ("local", "proj-1", "local", " local"),
+    ):
+        with pytest.raises(ManifestError) as caught:
+            DeploymentScope(*fields)
+        assert caught.value.code == "bad_scope"
+    assert DeploymentScope.fixed("p") == DeploymentScope("local", "p", "local", "local")
+
+
+def test_bundle_bytes_pinned_before_insert(tmp_path: Path) -> None:
+    path = tmp_path / "rules.yaml"
+    path.write_bytes(RULE_BUNDLE.read_bytes())
+    pinned = pin_rule_bundle(path, RULE_BUNDLE_SHA)
+    built = _build(rule_bundle=pinned, rule_bundles_enabled=True)
+    record = built.record
+    assert (record["rule_bundle_path"], record["rule_bundle_sha256"]) == (
+        str(path),
+        RULE_BUNDLE_SHA,
+    )
+    validate_record("run_manifest", record)
+    # The digest is of the bytes verified now: changing the file afterwards does not alter the manifest ...
+    path.write_bytes(b"changed: true\n")
+    assert (
+        _build(rule_bundle=pinned, rule_bundles_enabled=True).manifest_digest
+        == built.manifest_digest
+    )
+    # ... and the changed bytes can no longer be pinned at all.
+    with pytest.raises(ManifestError) as caught:
+        pin_rule_bundle(path, RULE_BUNDLE_SHA)
+    assert caught.value.code == "rule_bundle_refused" and "digest_mismatch" in str(caught.value)
+
+
+@pytest.mark.parametrize(
+    ("case", "expected"),
+    [
+        ("missing", "missing_bytes"),
+        ("wrong_digest", "digest_mismatch"),
+        ("bad_digest", "bad_expected_digest"),
+        ("directory", "missing_bytes"),
+    ],
+)
+def test_a_missing_or_changed_bundle_prevents_admission(
+    tmp_path: Path, case: str, expected: str
+) -> None:
+    path = tmp_path / "rules.yaml"
+    path.write_bytes(RULE_BUNDLE.read_bytes())
+    digest = RULE_BUNDLE_SHA
+    if case == "missing":
+        path = tmp_path / "absent.yaml"
+    elif case == "wrong_digest":
+        digest = "0" * 64
+    elif case == "bad_digest":
+        digest = "ABC"
+    elif case == "directory":
+        path = tmp_path
+    with pytest.raises(ManifestError) as caught:
+        pin_rule_bundle(path, digest)
+    assert caught.value.code == "rule_bundle_refused"
+    assert expected in str(caught.value)
+
+
+def test_an_enabled_bundle_is_required_and_a_disabled_one_is_not_silently_ignored(
+    tmp_path: Path,
+) -> None:
+    pinned = pin_rule_bundle(RULE_BUNDLE, RULE_BUNDLE_SHA)
+    _refused("rule_bundle_required", rule_bundles_enabled=True)
+    _refused("rule_bundle_unexpected", rule_bundle=pinned)
+    _refused("rule_bundle_required", rule_bundle="rules.yaml", rule_bundles_enabled=True)
+    with pytest.raises(ManifestError):
+        PinnedRuleBundle("", pinned.bundle)
+    with pytest.raises(ManifestError):
+        PinnedRuleBundle("rules.yaml", "bundle")  # type: ignore[arg-type]
+
+
+def test_old_fixture_readable_and_a_stricter_writer_does_not_orphan_older_records() -> None:
+    for name in ("valid_1.json", "valid_2.json"):
+        raw = (FIXTURES / "contracts" / "run_manifest" / name).read_bytes()
+        record = read_manifest(raw, hashlib.sha256(raw).hexdigest())
+        assert record == json.loads(raw)
+    legacy_shaped = json.loads(
+        (FIXTURES / "contracts" / "run_manifest" / "valid_1.json").read_bytes()
+    )
+    assert legacy_shaped["pins"]["bundle_digest"] == "sha256:aaaa", (
+        "not a bare digest: the builder would refuse it"
+    )
+    built = _build()
+    assert read_manifest(built.manifest_bytes, built.manifest_digest) == built.record
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        b"",
+        b"[]",
+        b"not json",
+        b'{"schema_version": "v1", "schema_version": "v1"}',
+        b'{"schema_version": "v1", "x": NaN}',
+        b'{"schema_version": "v1"}',
+        b'{"schema_version": "v9"}',
+        b"\xff\xfe",
+    ],
+)
+def test_reading_a_malformed_manifest_is_a_typed_refusal(raw: bytes) -> None:
+    with pytest.raises(ManifestError) as caught:
+        read_manifest(raw)
+    assert caught.value.code == "invalid_manifest"
+
+
+def test_reading_checks_the_digest_when_one_is_given() -> None:
+    built = _build()
+    with pytest.raises(ManifestError, match="do not match their digest"):
+        read_manifest(built.manifest_bytes, "0" * 64)
+    with pytest.raises(ManifestError):
+        read_manifest("text", None)  # type: ignore[arg-type]
+
+
+def test_the_v1_schema_accepts_a_project_id_and_refuses_an_empty_one() -> None:
+    record = _build().record
+    validate_record("run_manifest", record)
+    without = {k: v for k, v in record.items() if k != "project_id"}
+    validate_record("run_manifest", without)
+    with pytest.raises(ContractValidationError):
+        validate_record("run_manifest", {**record, "project_id": ""})
+    with pytest.raises(ContractValidationError):
+        validate_record("run_manifest", {**record, "tenant": "x"})
+
+
+def test_refusal_codes_are_a_closed_set() -> None:
+    with pytest.raises(ValueError, match="unknown manifest refusal code"):
+        ManifestError("typo_code", "x")
+    assert {"unresolved_pin", "organization_switch", "rule_bundle_refused"} <= CODES
+
+
+def test_the_builder_module_is_pure() -> None:
+    """No database, session, network, clock or randomness in the module's builder path (the id helper is separate)."""
+    source = Path(run_manifest_module.__file__).read_text()
+    tree = ast.parse(source)
+    imported: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            imported |= {alias.name.split(".")[0] for alias in node.names}
+        elif isinstance(node, ast.ImportFrom) and node.module:
+            imported.add(node.module)
+    forbidden = {
+        "sqlalchemy",
+        "httpx",
+        "requests",
+        "socket",
+        "subprocess",
+        "caliber.db",
+        "caliber.db.models",
+        "time",
+        "random",
+    }
+    assert not (imported & forbidden), imported & forbidden
+    builder = next(
+        n
+        for n in ast.walk(tree)
+        if isinstance(n, ast.FunctionDef) and n.name == "build_run_manifest"
+    )
+    called = {
+        n.func.attr if isinstance(n.func, ast.Attribute) else getattr(n.func, "id", "")
+        for n in ast.walk(builder)
+        if isinstance(n, ast.Call)
+    }
+    assert not (
+        {"now", "utcnow", "uuid4", "open", "execute", "load_rule_bundle", "new_manifest_id"}
+        & called
+    )
+    assert new_manifest_id() != new_manifest_id()
+
+
+@pytest.mark.parametrize("dialect", DIALECTS)
+def test_a_built_manifest_is_stored_and_read_back_byte_for_byte(
+    dialect: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    with _migrated(dialect, tmp_path, monkeypatch) as (engine, _):
+        run_id = _add_run(engine)
+        built = _build(workflow_run_id=run_id, manifest_id=new_manifest_id())
+        with Session(engine) as session, session.begin():
+            session.add(CaliberRunManifest(**built.row_values()))
+        stored = _stored(engine, run_id)
+        assert bytes(stored.manifest_bytes) == built.manifest_bytes
+        assert (
+            stored.manifest_digest
+            == built.manifest_digest
+            == digest_of(bytes(stored.manifest_bytes))
+        )
+        assert read_manifest(bytes(stored.manifest_bytes), stored.manifest_digest) == built.record
+
+
+def test_an_unexpected_read_error_is_a_refusal_not_a_crash(monkeypatch: pytest.MonkeyPatch) -> None:
+    def unreadable(path: object, expected: str) -> None:
+        raise PermissionError("denied")
+
+    monkeypatch.setattr(run_manifest_module, "load_rule_bundle", unreadable)
+    with pytest.raises(ManifestError) as caught:
+        pin_rule_bundle("rules.yaml", RULE_BUNDLE_SHA)
+    assert caught.value.code == "rule_bundle_refused" and "PermissionError" in str(caught.value)
+    assert "denied" not in str(caught.value), "the operating system's message is not echoed"
+
+
+# ---------------------------------------------------------------- findings of the independent review (#955)
+
+
+def test_a_generator_of_knowledge_base_pins_is_not_silently_lost() -> None:
+    pins = _pins(knowledge_base_versions=(KnowledgeBasePin(f"kb-{i}", "v1") for i in (3, 1, 2)))
+    assert [kb.knowledge_base_id for kb in pins.knowledge_base_versions] == ["kb-1", "kb-2", "kb-3"]
+    assert len(_build(pins=pins).record["pins"]["knowledge_base_versions"]) == 3
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "latest.",
+        "v-latest",
+        "wfv:latest",
+        "wfv/latest",
+        "wfv@latest!",
+        "wfv-?",
+        "1.x",
+        "^1.0",
+        ">=1",
+        "~1.2",
+        "main",
+        "nightly",
+        "HEAD~1",
+        "${LATEST}",
+        "alias:current",
+        "l\u0430test",  # not caught by folding (a Cyrillic a): the segment is not a floating word, see below
+        "\uff2c\uff21\uff34\uff25\uff33\uff34",  # fullwidth LATEST folds to latest
+        "\uff4c\uff41\uff54\uff45\uff53\uff54",
+    ],
+)
+def test_floating_selectors_are_recognised_after_unicode_folding(value: str) -> None:
+    if value == "l\u0430test":
+        _pins(
+            workflow_version=value
+        )  # a homoglyph is a different word: resolution is the caller's duty
+        return
+    with pytest.raises(ManifestError) as caught:
+        _pins(workflow_version=value)
+    assert caught.value.code == "unresolved_pin", value
+
+
+@pytest.mark.parametrize(
+    "version",
+    [
+        "v-latest",
+        "wfv:latest",
+        "latest.",
+        "1.x",
+        ">=1",
+        "\uff4c\uff41\uff54\uff45\uff53\uff54",
+        "main",
+    ],
+)
+def test_a_floating_version_of_a_named_prompt_is_refused_but_a_floating_looking_name_is_not(
+    version: str,
+) -> None:
+    with pytest.raises(ManifestError) as caught:
+        _pins(prompt_versions=[f"support@{version}"])
+    assert caught.value.code == "unresolved_pin"
+    assert _pins(prompt_versions=["production-support@4", "latest-news@2"]).prompt_versions == (
+        "latest-news@2",
+        "production-support@4",
+    )
+
+
+def test_a_pin_has_exactly_one_at_sign_and_model_routes_are_checked_too() -> None:
+    for bad in ("a@b@1", "a@@1", "@1", "a@"):
+        with pytest.raises(ManifestError):
+            _pins(tool_versions=[bad])
+    for route in ("gpt-4o-latest", "openai/latest", "default"):
+        with pytest.raises(ManifestError):
+            _pins(model_routes=[route])
+    assert _pins(model_routes=["openai/gpt-4o-2024-08-06"]).model_routes
+
+
+def test_text_must_be_nfc_and_free_of_line_separators_and_str_subclasses() -> None:
+    _refused("bad_field", purpose="cafe\u0301")  # NFD
+    _refused("bad_field", purpose="line\u2028separator")
+    _refused("bad_field", purpose="para\u2029graph")
+
+    class Loud(str):
+        pass
+
+    _refused("bad_field", purpose=Loud("why"))
+    assert (
+        _build(purpose="caf\u00e9 \u2713").manifest_bytes.decode("utf-8").count("caf\u00e9") == 1
+    ), "non-ASCII is written as UTF-8, not as an escape"
+
+
+def test_lists_and_ids_are_bounded() -> None:
+    with pytest.raises(ManifestError):
+        _pins(prompt_versions=[f"p{i}@1" for i in range(257)])
+    with pytest.raises(ManifestError):
+        _pins(model_routes=[f"r{i}" for i in range(257)])
+    with pytest.raises(ManifestError):
+        _pins(knowledge_base_versions=[KnowledgeBasePin(f"kb-{i}", "v1") for i in range(257)])
+    _refused("bad_field", manifest_id="m" * 65)
+    _refused("bad_field", workflow_run_id="r" * 65)
+    assert _build(manifest_id="m" * 64, workflow_run_id="r" * 64)
+
+
+def test_digests_must_match_in_full() -> None:
+    for bad in ("a" * 65, "a" * 64 + "\n", "a" * 63 + "G"):
+        with pytest.raises(ManifestError):
+            _pins(bundle_digest=bad)
+
+
+def test_the_scope_is_enforced_not_just_conventional() -> None:
+    for scope in (
+        DeploymentScope("evil-org", "proj-1", "local", "local"),
+        DeploymentScope("local", "proj-1", "mars", "local"),
+        DeploymentScope("local", "proj-1", "local", "mars"),
+    ):
+        _refused("bad_scope", scope=scope)
+
+
+def test_a_rule_bundle_snapshot_cannot_be_forged_or_relative(tmp_path: Path) -> None:
+    real = pin_rule_bundle(RULE_BUNDLE, RULE_BUNDLE_SHA)
+    assert Path(real.path).is_absolute()
+    with pytest.raises(ManifestError):
+        PinnedRuleBundle("rules.yaml", real.bundle)
+    forged = dataclasses.replace(real.bundle, sha256="zzzz")
+    with pytest.raises(ManifestError):
+        PinnedRuleBundle(real.path, forged)
+    link = tmp_path / "link.yaml"
+    link.symlink_to(RULE_BUNDLE)
+    assert pin_rule_bundle(link, RULE_BUNDLE_SHA).path == str(RULE_BUNDLE.resolve()), (
+        "symlinks are resolved"
+    )
+
+
+@pytest.mark.parametrize("path", ["a\x00b", 5, None, b"/x", ""])
+def test_a_rule_bundle_path_that_is_not_a_path_is_a_refusal(path: Any) -> None:
+    with pytest.raises(ManifestError) as caught:
+        pin_rule_bundle(path, RULE_BUNDLE_SHA)
+    assert caught.value.code == "rule_bundle_refused"
+
+
+def test_a_digest_that_is_not_a_string_is_a_refusal() -> None:
+    with pytest.raises(ManifestError) as caught:
+        pin_rule_bundle(RULE_BUNDLE, None)  # type: ignore[arg-type]
+    assert caught.value.code == "rule_bundle_refused"
+
+
+def test_reading_refuses_what_it_cannot_store_or_digest() -> None:
+    built = _build()
+    record = built.record
+    cases = {
+        "deep": b"[" * 100000 + b"]" * 100000,
+        "deep_object": b'{"a":' * 100000 + b"1" + b"}" * 100000,
+        "bom": b"\xef\xbb\xbf" + built.manifest_bytes,
+        "utf16": built.manifest_bytes.decode().encode("utf-16"),
+        "huge": b" " * ((1 << 20) + 1) + built.manifest_bytes,
+        "surrogate": json.dumps({**record, "purpose": "\ud800"}).encode(),
+        "duplicate": built.manifest_bytes.replace(
+            b'"legacy":false', b'"legacy":false,"legacy":false'
+        ),
+        "nan": built.manifest_bytes.replace(b'"legacy":false', b'"legacy":NaN'),
+    }
+    for name, raw in cases.items():
+        with pytest.raises(ManifestError) as caught:
+            read_manifest(raw)
+        assert caught.value.code == "invalid_manifest", name
+
+
+def test_a_manifest_that_disagrees_with_itself_cannot_be_constructed() -> None:
+    built = _build()
+    for args in (
+        (built.manifest_bytes, "0" * 64),
+        (built.manifest_bytes, 5),
+        ("text", built.manifest_digest),
+        (b"garbage", digest_of(b"garbage")),
+        (b"{}", digest_of(b"{}")),
+    ):
+        with pytest.raises(ManifestError):
+            BuiltManifest(*args)  # type: ignore[arg-type]
+    assert BuiltManifest(built.manifest_bytes, built.manifest_digest) == built
+
+
+def test_the_row_carries_the_records_own_creation_time() -> None:
+    built = _build(
+        created_at=datetime(2026, 10, 26, 11, 0, 0, 5, tzinfo=timezone(timedelta(hours=2)))
+    )
+    assert built.row_values()["created_at"] == datetime(2026, 10, 26, 9, 0, 0, 5)
+
+
+def test_an_unrepresentable_timestamp_is_a_refusal_not_an_overflow() -> None:
+    _refused("bad_field", created_at=datetime(1, 1, 1, tzinfo=timezone(timedelta(hours=2))))
+    _refused(
+        "bad_field", created_at=datetime(9999, 12, 31, 23, tzinfo=timezone(timedelta(hours=-2)))
+    )
+
+
+def test_a_route_list_that_is_not_a_list_and_a_bundle_that_is_not_a_bundle_are_refused() -> None:
+    for bad in ("scripted", 5, None):
+        with pytest.raises(ManifestError) as caught:
+            _pins(model_routes=bad)
+        assert caught.value.code in {"bad_pin", "unresolved_pin"}
+    with pytest.raises(ManifestError, match="verified RuleBundle"):
+        PinnedRuleBundle("/etc/caliber/rules.yaml", "bundle")  # type: ignore[arg-type]
