@@ -178,9 +178,8 @@ class ExecutionRoleController:
 
     async def _end_loops(self) -> None:
         if self._loops_running:
-            self._loops_running = (
-                False  # report secondary first: from here the loops are being stopped
-            )
+            # Report secondary first: from here on the loops are being stopped.
+            self._loops_running = False
             await self._stop_loops()
 
     # -- database (run off the event loop) -----------------------------------------------------
