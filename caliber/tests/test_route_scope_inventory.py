@@ -476,6 +476,9 @@ def test_the_live_vs_reserved_action_partition_is_pinned() -> None:
         "release.apply",
         "release.rollback",
         "release.reconcile",
+        # `B11.4a` (#672): declared by the payload-permission task; the redaction routes (B11.4b) are what call
+        # `trace_access.can_read_payloads`, so no route enforces it yet.
+        "trace.payload.read",
     }
 
 
