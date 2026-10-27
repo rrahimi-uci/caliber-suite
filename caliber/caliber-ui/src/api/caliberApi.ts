@@ -228,6 +228,7 @@ import type {
   WorkflowRunCheckpoint,
   WorkflowRunHistoryStats,
   WorkflowRunManifest,
+  AdmissionManifest,
   WorkflowSessionMemoryClearResult,
   WorkflowSessionMemoryEntry,
   WorkflowRuntimeApproval,
@@ -3136,6 +3137,17 @@ export const caliberApi = {
   ): Promise<WorkflowRunManifest> {
     return request<WorkflowRunManifest>(
       `/workflow-runs/${encodeURIComponent(runId)}/manifest`,
+      { signal },
+    );
+  },
+
+  /** GET /workflow-runs/{id}/admission-manifest */
+  getWorkflowRunAdmissionManifest(
+    runId: string,
+    signal?: AbortSignal,
+  ): Promise<AdmissionManifest> {
+    return request<AdmissionManifest>(
+      `/workflow-runs/${encodeURIComponent(runId)}/admission-manifest`,
       { signal },
     );
   },

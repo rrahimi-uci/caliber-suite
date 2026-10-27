@@ -193,6 +193,28 @@ manifest-less runs are pruned and deleted as before. A rollback (`caliber-migrat
 and therefore the manifests, never the runs; upgrading again starts with no manifests and marks every existing run
 legacy.
 
+### Reading a run's manifest (B02.5, #695)
+
+Two endpoints, two different manifests; neither changes the other.
+
+| endpoint | what it returns |
+| --- | --- |
+| `GET /workflow-runs/{run_id}/manifest` (unchanged) | the **workflow** manifest the run executed: `workflow_run_id`, `workflow_id`, `workflow_version_id`, `manifest_mode`, `manifest_hash`, `manifest`. Served for every run, legacy included. |
+| `GET /workflow-runs/{run_id}/admission-manifest` (new) | the run's immutable **admission** manifest: `workflow_run_id`, `schema_version`, `legacy`, `manifest_id`, `run_manifest` (the stored record verbatim: pins, subject, workload, purpose, scope, grant id, request digest) and `manifest_digest` (the SHA-256 of its canonical bytes, so a reader can check it). |
+
+The new endpoint needs the same access as reading the run (a run you cannot see is `404`, indistinguishable from a
+missing one) **plus** a role in the run's project (`read`): a caller who can see a run, for example through a public
+workflow, but has no role in its project also gets that same `404`, never the project's name. A run with no project is
+gated by the workflow's visibility alone. A **legacy** run (admission was off, or a path that is not admitted)
+answers `200` with `legacy: true` and `schema_version`, `manifest_id`, `run_manifest` and `manifest_digest` all `null`:
+no history is fabricated. An admitted run whose stored manifest does not read back, is missing or is not in
+canonical form (so its digest could not be checked) is `409` (`manifest_corrupt` / `manifest_missing`). The SDK has
+`client.workflows.runs.admission_manifest(run_id)` (sync) and `client.workflows.admission_manifest(run_id)` (async),
+returning an `AdmissionManifest` (`legacy` is `None`, never "admitted", when the server did not say); the console API
+client has `getWorkflowRunAdmissionManifest`. `run_manifest` is the stored record verbatim, so it carries the
+subject's user id, the grant id, the request digest and, when a rule bundle is pinned, **its absolute server path**:
+treat the endpoint as project-member-visible evidence.
+
 ### Building a manifest (admission, #676)
 
 `caliber/src/caliber/run_manifest.py` turns *resolved* inputs into the manifest record and its canonical bytes. It is
@@ -325,7 +347,7 @@ synchronous real run (`POST /workflow-versions/{id}/run`) is never queued, so wi
 | `409` | `bundle_unavailable` | compile and publish the version again (its sealed bundle is missing, altered or unresolved) |
 | `409` | `manifest_refused` | a pin is floating or ambiguous, the rule bundle is missing or changed, or the project belongs to another organization; the message says which |
 | `409` | `intent_conflict` | the idempotency key belongs to a different request; use a new key |
-| `409` | `source_not_approved` | reference profile: a knowledge-base version the workflow is pinned to is not an approved context source of the project; approve it (or pin another version) and run again |
+| `403` | `source_not_approved` | reference profile: a knowledge-base version the run can read (directly, through a child workflow, or on a query node) is not an approved context source of the project, or a query takes its versions from an input; approve the named versions, use the project's own knowledge bases, or name the versions on the node, then run again |
 | `409` | `manifest_override_not_admitted` | save the manifest as a version, publish it and run that |
 | `409` | `sync_run_not_admitted` | submit the run to the queued `/workflow-runs` endpoint |
 | `403` | `policy_denied` / `grant_refused` | the policy or the caller's role does not allow it; the reason codes are in the message |
@@ -670,13 +692,21 @@ version)`, unique. `approve_source(session, project_id, knowledge_base_id, versi
 `revoke_source(...)` withdraws it (the row stays, with `revoked_at` and `revoked_by`, as evidence) and
 `is_approved(session, project_id, knowledge_base_id, version_id)` answers whether it is approved *now* (`False` once
 revoked, for anything never approved and for a source that no longer exists). **Admission reads it (B07.1b, #696):** under
-`CALIBER_PROFILE=reference` every knowledge-base version a run is pinned to must be approved for the run's project
+`CALIBER_PROFILE=reference` every knowledge-base version a run can read must be approved for the run's project
 (`require_approved`, called by `prepare_admission`, so create-run, trigger, retry and the assistant tool all pass through
-it). Otherwise the run is refused with `409` and `source_not_approved`, naming *every* unapproved
-`knowledge_base_id@version_id` in one message (the caller is a member of the project that owns the workflow, and these
-are the workflow's own pins), and nothing is stored. Approval and revocation take effect at the next admission;
-a run already admitted keeps running on what it was pinned to. Development does not require approval. The
-authorize-before-load step at query time is B07.2.
+it). That is the versions in the sealed bundle's dependency lock, the versions named on a knowledge-query node that
+names only `version_ids`, and the versions read by every **child workflow** the run calls (each child's own sealed
+bundle, which must be the one the parent was compiled against). A query whose `version_ids` arrive on an input port
+cannot be pinned, so it is refused outright. Otherwise the run is refused with `403`, `reason_code:
+source_not_approved` in the error body and every unapproved `knowledge_base_id@version_id` named in the message, and
+nothing is stored. The role check (`resource.execute` on the project) comes first, so only a caller who may run the
+workflow learns what the project has approved. Approval and revocation take effect at the **next admission**: an
+idempotent retry of a request that was already admitted still returns that run, and a run already admitted keeps
+running on what it was pinned to (the load-time check is B07.2, #699). **Not covered:** cron-scheduler and
+service-token runs, which are not admitted in the first place (#958). A knowledge base that belongs to another project
+or to no project can never be approved for this one (only a project's own knowledge bases can), so a workflow pinned
+to one is refused until it uses one of the project's own. Development does not require approval. The refusal is not
+audited (it carries no policy decision); the response is the record.
 
 - **A version, not a knowledge base.** Approving version 1 approves nothing else; a new build must be approved on its own.
 - **Only a project's own, real sources.** The knowledge base must belong to the project and the version to that
