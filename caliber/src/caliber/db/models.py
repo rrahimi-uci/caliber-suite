@@ -2197,6 +2197,49 @@ def _manifest_digest_matches_bytes(_mapper: Any, _connection: Any, target: Any) 
         raise ValueError("manifest_digest must be the lowercase SHA-256 of manifest_bytes")
 
 
+class CaliberRunGrant(Base):
+    """What one workflow run may do, for whom, in which project, until when (B03.2, #664).
+
+    A grant is bound to an exact run and an exact grant id: nothing looks up "the newest grant" or falls back to
+    an ambient one. It names the subject and workload (``caliber.policy.principal``), the project, the explicit set
+    of allowed actions and resources, the policy version it was issued under and an expiry. It is immutable but for
+    revocation: ``revoked_at``/``revoked_by``/``revoke_reason`` are written once, and a revoked grant stays revoked.
+    Database triggers enforce this (migration 0115) and ``ImmutableRecordError`` refuses it in the ORM.
+    """
+
+    __tablename__ = "caliber_run_grants"
+    __table_args__ = (
+        Index("ix_run_grants_run", "workflow_run_id"),
+        Index("ix_run_grants_project", "project_id"),
+        CheckConstraint("length(workload_id) = 67", name="ck_run_grant_workload_id"),
+        CheckConstraint("length(workflow_version_digest) = 64", name="ck_run_grant_digest"),
+    )
+
+    grant_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    workflow_run_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("caliber_workflow_runs.workflow_run_id")
+    )
+    subject_user_id: Mapped[str] = mapped_column(String(256))
+    subject_auth_method: Mapped[str] = mapped_column(String(32))
+    workload_id: Mapped[str] = mapped_column(String(80))
+    workload_name: Mapped[str] = mapped_column(String(256))
+    workflow_version_digest: Mapped[str] = mapped_column(String(64))
+    project_id: Mapped[str] = mapped_column(String(64), ForeignKey("caliber_projects.project_id"))
+    allowed_actions: Mapped[list[str]] = mapped_column(JSON)
+    allowed_resources: Mapped[list[str]] = mapped_column(JSON)
+    policy_version: Mapped[str] = mapped_column(String(64))
+    expires_at: Mapped[datetime] = mapped_column(DateTime)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    revoked_by: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    revoke_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+guard_immutable(
+    CaliberRunGrant, mutable=frozenset({"revoked_at", "revoked_by", "revoke_reason"})
+)
+
+
 class CaliberWorkflowRunEvent(Base):
     """Durable, append-only timeline events for one workflow run."""
 
