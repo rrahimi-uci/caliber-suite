@@ -333,44 +333,56 @@ In the reference profile the loops start **only while this process holds the lea
 
 ## Rule bundles
 
-A rule bundle (RuleBundle v1; B02 rule-loader, #726; `caliber/src/caliber/context/rule_bundle.py`) is a YAML file of
-rules that an operator pins by SHA-256. `load_rule_bundle(path, expected_sha256)` verifies the **raw bytes** against
-the pin *before parsing*, so an altered byte is refused even when the YAML reads the same (a comment, whitespace, line
-endings, a different quote), and only then parses strictly: a closed set of keys, unique mapping keys, a string
-`version`, unique rule ids, no control or format characters. It is pure (no database, provider or run); admission
-(#676) pins the bytes before the run is created and the context code (#736) re-verifies them when the bundle is used;
-`parse_rule_bundle(data, expected_sha256)` does the same for bytes already in hand. The file is opened once, must be a
-regular file and is read at most 1 MiB. Quote `version`, ids and `applies_to` entries: an unquoted `yes`, `no`,
-`on`, `off`, date or number is not a string and is refused as `malformed`.
+## Policy decisions
 
-```yaml
-schema_version: v1
-bundle_id: support-rules
-version: "2026-10-01"
-rules:
-  - id: refund-window
-    text: "Refunds are allowed within 30 days of delivery."
-    source_ref: "policy/refunds#section-2"
-    applies_to: [refund, order-status]
-```
+`caliber.policy.decisions.decide(...)` (B03.3, #671; migration `0117`, table `caliber_policy_decisions`) answers "may
+this run do this action on this resource, for this purpose, right now?" with a typed `PolicyDecision` and records it,
+allow or deny, immutably (ADR 0003 `policy_decision` v1 plus the run, subject and workload it was asked about; there
+are no foreign keys, so a decision about a grant that does not exist is still evidence).
 
-Every refusal is a `RuleBundleError` with a `code` and a message that never quotes the file:
+- **Exact identity, no fallback.** The caller supplies `run_id`, `grant_id`, the `Subject` and the `Workload`. A
+  different run, an unknown grant, another subject (user, authentication method or project) and another workload each
+  deny, and nothing is looked up by recency.
+- **One reason, a fixed order:** `grant_not_found`, `subject_mismatch`, `workload_mismatch`, `grant_revoked`,
+  `grant_expired`, `not_a_member`, `action_not_allowed`, `role_not_allowed`, `resource_not_allowed` (the
+  [run grant](#run-grants) checks, including the current membership and role), then the policy's own:
+  `policy_version_mismatch` (the grant was issued under another policy version), `purpose_not_allowed`,
+  `explicit_deny`, `unknown_action_risk` and `risk_above_ceiling`. An unavailable store is `authority_unavailable`.
+  An allow carries no reason codes.
+- **Explicit maps, never ordering.** Each action has an explicit risk number in the policy (every action in
+  `resource_access.PROJECT_ACTIONS` must have one; a test fails otherwise), compared with the policy's ceiling.
+  `policy-v1` has a ceiling of 4 (risk equal to the ceiling is allowed). Risk 5 means "a person, never a run": project
+  administration (archive, restore, members, ownership transfer) and every approval or acceptance
+  (`resource.approve`, `release.approve`, `release.quality_signoff`, `change_request.accept`), so no grant can make a
+  run approve its own work (Beta keeps a human accountable owner and human protected-action approval, ADR 0004).
+  Explicit denies are exact `(action, resource)` pairs. A `Policy` is read-only and type-checked.
+- **Replayable.** `input_hash` is the SHA-256 of the canonical JSON of every input (run, grant, subject, workload,
+  action, resource, purpose and the live scopes) plus the policy's own digest; the clock is not an input. The same inputs under the same policy hash identically.
+- **Transactions.** A decision is flushed, never committed. For initial admission the run, its grant and the decision
+  share one uncommitted transaction and the caller commits only after an allow; a denial rolls all of it back. If an
+  decision cannot be recorded, the answer is a deny with `persisted = False` (an allow becomes
+  `authority_unavailable`; a deny keeps its reason and gains `authority_unavailable`), and
+  `PolicyDecision.allowed` is true only for a recorded allow. A decision never touches the run manifest. The record
+  is written in a savepoint, so a failed record never poisons the caller's transaction. **Consumers must know:** a
+  denied initial admission rolls its decision row back with the transaction, so evidence of a *denial* must be
+  written separately (the audit record of B03.5, or a decision made in its own transaction), and on SQLite
+  (development only) a savepoint that is the first write of a transaction commits it, so call `decide` after the
+  run and grant writes.
+- **Callers must not leak identity mismatches.** `decide` records the specific reason (`subject_mismatch` and
+  `workload_mismatch` reveal that a grant exists). It is server-internal: any layer that answers a client (HTTP, the
+  admission API) must collapse identity and grant-lookup failures into one uniform refusal. `purpose` is stored
+  verbatim: it names why, never context or payload.
+- **Malformed input is a bug, not a decision.** A blank, oversized or control-character id, action, resource or
+  purpose, a naive `now`, or a non-`Subject` raises `DecisionInputError` and records nothing.
+- **Immutable.** Triggers refuse `UPDATE` and `DELETE` (`TRUNCATE` too on PostgreSQL) and the ORM raises
+  `ImmutableRecordError`; as with run manifests, run the application as a role without those privileges.
 
-| code | cause | recovery |
-| --- | --- | --- |
-| `bad_expected_digest` | the pin is not a full lowercase 64-hex SHA-256 | pass the digest alone: the first field of `sha256sum <file>` (`shasum -a 256` on macOS), without a `sha256:` prefix |
-| `missing_bytes` | the file is absent, unreadable, empty, or not a regular file (a directory, a pipe, a device) | restore the file the pin was made from |
-| `too_large` | more than 1 MiB | split the bundle |
-| `digest_mismatch` | the bytes differ from the pin in any way | re-review the file, then pin its new digest deliberately |
-| `invalid_yaml` | not UTF-8 YAML, or a mapping key repeats | fix the syntax; a repeated key is never "last one wins" |
-| `unsupported_version` | `schema_version` is not `v1` | write `schema_version: v1` |
-| `unknown_field` | a key outside the closed set, at the top or in a rule | remove it; a new field ships to readers first |
-| `malformed` | a wrong type or shape (for example `version: 1.0`, an empty `applies_to`, an id with capitals) | correct the field named in the message |
-| `duplicate_rule_id` | two rules share an id | make the ids unique |
-| `unknown_rule` | `bundle.rule(id)` for an id the bundle does not hold | the bundle is closed; add the rule and re-pin |
-
-The bundle schema is enforced in code with closed key sets; it is not (yet) a registered contract in
-`caliber.contracts`, which #676 revisits if the run manifest gains a bundle reference.
+Recovery: `grant_*`, `not_a_member`, `role_not_allowed`, `action_not_allowed` and `resource_not_allowed` are as in the
+grant table above; `policy_version_mismatch` means the run must be admitted again under the current policy;
+`purpose_not_allowed` and `explicit_deny` are policy decisions to change deliberately, not retry; `risk_above_ceiling`
+means the action cannot be done by a run (use the human-approval path or a person); `unknown_action_risk` means the
+policy lacks a risk for the action and must be extended; `subject_mismatch` and `workload_mismatch` are always a bug
+or an attack: fix the caller.
 
 ## Not enforced yet
 

@@ -48,7 +48,10 @@ _EXPECTED_COUNTS = {
     # -- confirmed by direct look, not a drive-by bump.
     # +1 (`B13.2`): CaliberExecutionOwner is process-level lease state (one row
     # per lease name), not a project or user resource -- unscoped by design.
-    SCOPING_UNSCOPED: 51,
+    # +1 (`B03.3`): CaliberPolicyDecision is immutable evidence keyed by run/grant ids
+    # (no foreign keys: a decision about an unknown grant is still evidence) --
+    # unscoped by design; its access is through the run and grant it names.
+    SCOPING_UNSCOPED: 52,
     # -1 (`P1-E`): CaliberPersonalAccessToken gained project_id (optional
     # PAT project binding) and moves from owned_catalog to project_only --
     # see below.
