@@ -224,6 +224,8 @@ class ReadinessReport:
     #: The deployment profile this process runs (``development`` or ``reference``), so an operator reading
     #: readiness can see which rules the process was started under.
     profile: str = "development"
+    #: ``owner`` while this process runs the background loops, ``secondary`` while it only serves requests.
+    execution_role: str = "owner"
 
     @property
     def ready(self) -> bool:
@@ -237,6 +239,7 @@ class ReadinessReport:
         return {
             "ready": self.ready,
             "profile": self.profile,
+            "execution_role": self.execution_role,
             "checks": [check.to_dict() for check in self.checks],
             "blockers": self.blockers,
         }
@@ -552,6 +555,7 @@ async def collect_readiness(
     session_factory: Any | None,
     environ: dict[str, str] | None = None,
     queue_health: Any | None = None,
+    execution_role: str = "owner",
 ) -> ReadinessReport:
     """Probe every dependency this configuration depends on.
 
@@ -624,7 +628,11 @@ async def collect_readiness(
         "code_execution_allowlists": 6,
     }
     checks.sort(key=lambda check: order.get(check.name, 99))
-    return ReadinessReport(checks=checks, profile=str(getattr(config, "profile", "development")))
+    return ReadinessReport(
+        checks=checks,
+        profile=str(getattr(config, "profile", "development")),
+        execution_role=execution_role,
+    )
 
 
 __all__ = [

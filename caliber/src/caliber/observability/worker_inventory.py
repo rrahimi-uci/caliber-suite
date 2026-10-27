@@ -13,7 +13,7 @@ already does: *"This list is prose and drifts;
 
 That script's `_lifespan_loops()` already solves the "which loops does the
 lifespan start" half of this problem with a proven `ast` walk over
-`_build_lifespan`'s nested `lifespan()` function -- this module ports the
+`_build_lifespan`'s nested `start_owner_loops()` function -- this module ports the
 same technique (rather than importing across the `paper`/`caliber`
 package boundary, which is unrelated coupling for four lines of logic) and
 extends it: `_build_lifespan`'s own typed parameters
@@ -48,7 +48,7 @@ from types import ModuleType
 from typing import Literal, get_args
 
 _LIFESPAN_BUILDER = "_build_lifespan"
-_LIFESPAN_CALLBACK = "lifespan"
+_LIFESPAN_CALLBACK = "start_owner_loops"
 
 
 #: Who may run a background loop once the execution-owner lease exists
@@ -196,8 +196,9 @@ def _annotation_name(annotation: ast.expr | None) -> str | None:
 
 def discover_lifespan_workers() -> list[tuple[str, str]]:
     """``(param_name, class_name)`` for every ``await <name>.start()`` inside
-    ``server.py::_build_lifespan``'s nested ``lifespan()`` function, in
-    startup order.
+    ``server.py::_build_lifespan``'s nested ``start_owner_loops()`` function
+    (what the lifespan calls, through the execution-role controller, to start the
+    owner-only loops), in startup order.
 
     Ports `paper/scripts/gen_stats.py::_lifespan_loops`'s exact AST-walk
     technique (matching ``await <name>.start()``, deliberately not matching
