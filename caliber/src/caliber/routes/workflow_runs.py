@@ -69,6 +69,7 @@ from caliber.workflows.admission import (
     intent_of,
     persist_admission,
     prepare_admission,
+    record_denial,
 )
 from caliber.workflows.approval_policy import (
     ApprovalPolicy,
@@ -288,6 +289,9 @@ def _admission_settings(request: Request) -> AdmissionSettings:
 def _refuse_admission(session: Session, exc: AdmissionDenied) -> HTTPException:
     """Roll the whole transaction back (the run, its grant and its decision are one unit) and answer the refusal."""
     session.rollback()
+    record_denial(
+        session, exc
+    )  # the decision's own rows went with the rollback; its audit row is written now
     return HTTPException(status_code=exc.status, detail=str(exc))
 
 

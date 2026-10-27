@@ -358,6 +358,7 @@ def test_an_unavailable_store_is_a_deny_and_an_unrecorded_allow_authorizes_nothi
                 purpose=PURPOSE,
                 now=NOW,
             )
+            session.commit()  # the decision is the caller's to commit (it used to land only by SQLite's autocommit)
         assert not down.allowed and down.reason_codes == (AUTHORITY_UNAVAILABLE,)
 
         # An allow whose record cannot be written is returned as a deny that was not recorded.
@@ -1118,3 +1119,59 @@ def test_a_decision_that_cannot_be_audited_is_a_denial_logged_with_its_ids(
             "what was being decided"
         )
         assert PURPOSE not in str(record), "identifiers and reasons only"
+
+
+def test_a_decision_and_its_audit_row_roll_back_with_the_caller_even_on_sqlite(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """On SQLite a savepoint that is the first statement would commit the rows on the spot; they must not."""
+    with _migrated("sqlite", tmp_path, monkeypatch) as (engine, _):
+        run_id = _seed(engine)
+        grant_id = _issue(engine, run_id)
+        with Session(engine) as session:
+            assert decide(
+                session,
+                run_id=run_id,
+                grant_id=grant_id,
+                subject=_subject(),
+                workload=_workload(),
+                action=ACTION,
+                resource=RESOURCE,
+                purpose=PURPOSE,
+                now=NOW,
+            ).allowed
+            session.rollback()
+        assert _decisions(engine) == [] and _audit_rows(engine) == []
+
+
+@pytest.mark.parametrize(
+    ("reasons", "severity"),
+    [
+        (("grant_expired",), "standard"),
+        (("grant_revoked",), "standard"),
+        (("not_a_member",), "standard"),
+        (("action_not_allowed",), "high"),
+        (("subject_mismatch",), "high"),
+        (("explicit_deny",), "high"),
+        (("grant_revoked", "explicit_deny"), "high"),
+    ],
+)
+def test_ordinary_lifecycle_denials_are_standard_and_anything_else_is_high(
+    reasons: tuple[str, ...], severity: str
+) -> None:
+    from caliber.policy.decisions import PolicyDecision
+
+    decision = PolicyDecision(
+        decision_id="pd_x",
+        run_id="r",
+        grant_id="g",
+        action="a",
+        resource="r",
+        purpose="p",
+        result="deny",
+        reason_codes=reasons,
+        policy_version="v",
+        input_hash="h",
+        evaluated_at=NOW,
+    )
+    assert ("high" if decisions._is_alarming(decision) else "standard") == severity
