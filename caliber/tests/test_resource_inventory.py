@@ -118,7 +118,9 @@ _EXPECTED_COUNTS = {
     # +1 (`B13.4`): CaliberEventInbox is a consumer's deduplication table keyed
     # by (consumer, event_id) with no project column -- unscoped, confirmed by
     # direct look; it is written and read only by the consumer that owns it.
-    SCOPING_PROJECT_ONLY: 28,
+    # +1 (`B07.1a`): CaliberApprovedContextSource has a required project_id and no visibility tier -- project_only,
+    # confirmed by direct look; it is read and written only by `caliber.context.sources`, never listed through a route.
+    SCOPING_PROJECT_ONLY: 29,
 }
 
 
