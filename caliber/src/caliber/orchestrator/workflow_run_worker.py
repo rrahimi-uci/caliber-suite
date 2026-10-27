@@ -18,6 +18,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from caliber.audit import record as audit_record
 from caliber.config import CaliberConfig
+from caliber.context.assembly import context_recorder_for
 from caliber.context.authorize import source_guard_for
 from caliber.db.models import (
     CaliberProject,
@@ -1600,6 +1601,7 @@ class WorkflowRunWorker:
             # this deployment requires approved sources: it follows the run's admission, not only the worker's
             # configuration. Legacy runs have none.
             source_guard = None
+            context_recorder = None
             if admitted_identity is not None and pinned is not None:
                 try:
                     grant = load_grant(
@@ -1623,6 +1625,11 @@ class WorkflowRunWorker:
                         pinned.record,
                         admitted_identity.grant_id,
                         policy=admission_settings.policy,
+                    )
+                    # ...and every agent step's context is recorded as a validated, authorized manifest before the
+                    # provider sees any of it (B07.3b).
+                    context_recorder = context_recorder_for(
+                        self._session_factory, pinned.record, source_guard
                     )
 
             # Execute over the full input (input_payload); fall back to the summary
@@ -1682,6 +1689,7 @@ class WorkflowRunWorker:
                     config=self._config,
                     session_factory=self._session_factory,
                     source_guard=source_guard,
+                    context_recorder=context_recorder,
                 )
             except (WorkflowManifestError, ValidationError) as exc:
                 self._mark_failed(
@@ -2037,7 +2045,7 @@ class WorkflowRunWorker:
                 result=result,
                 # a refused context source keeps its own code (the reasons are in the summary)
                 error_code="context_denied"
-                if "ContextDenied" in (result.error or "")
+                if (result.error or "").startswith("ContextDenied: ")
                 else "runtime_error",
                 error_summary=result.error or "workflow runtime failed",
             )

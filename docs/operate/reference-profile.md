@@ -816,8 +816,33 @@ Reading a manifest back (`read_context_manifest`) re-checks the digest, the sche
 `unknown_version`, never read as the nearest) and every rule above, so a reordered or relabelled record is caught twice,
 by its digest and by its positions. Refusals carry a stable code: `invalid_manifest`, `unknown_version`, `tier_violation`,
 `unauthorized_payload`, `ordering`, `tokens`, `authorization_rejected`, `duplicate_revision`, `revision_gap`. Nothing here
-talks to a provider and nothing creates manifests during a run yet: wiring creation into the runtime's context assembly
-is B07.3b (#710), and B08 consumes the record.
+talks to a provider.
+
+**Recorded for every agent step (B07.3b, #710).** For an admitted run in the reference profile the worker hands the runtime a
+recorder (`caliber.context.assembly.context_recorder_for`, built together with the source guard), and the runtime calls it
+with each agent step's *initial* context (the step's instructions as resolved when it is assembled, its skills, its history
+and the one input the provider is sent, with the node whose edge delivered it) **before any of it reaches the provider**, for
+every agent, every handoff target (a native Agents SDK handoff runs inside the provider call, so every agent the step may
+reach is recorded first) and in child workflows too. The recorder labels the assembly: the agent's own instructions are the
+only `instruction` tier; the history is one `history` data segment; text a knowledge query delivered straight to the agent is
+`retrieved_text` (one segment per version it read, citing the `context.read` decision the guard recorded when it authorized
+that version); the run's own input is `user_input`; any other text is `tool_output` of the node that delivered it, or of
+unknown origin (an item a `for_each`, `loop` or `error_boundary` hands an inline agent, text a knowledge query's output
+reached only through another node), which is still data and is never labelled the run's own input. It builds, validates and
+stores the manifest (its own short transaction, committed) as revision 1 of a fresh step request. If it cannot (an unknown or
+unauthorized source, a refused manifest, a database failure) the step **does not run**: the node fails (a `for_each` item or
+an `error_boundary` does not absorb the refusal), the run ends `context_denied` and the provider was never called. A document
+that says "ignore all previous instructions" is therefore recorded as data and reaches the agent as input, never as part of
+its instructions (scenario V03).
+
+What this does not cover, so it is not claimed: the tool specifications, the structured-output suffix and the results of tool
+calls made *during* a step are not in the manifest; a registry prompt is loaded when the step is assembled and again by the
+provider adapter, so an alias moved in between is not detected; session memory loaded for the step is recorded as `history`
+without a `memory` authorization (follow-up); a resumed run that replays a recorded knowledge-query output has no guard
+decision for it and is refused; a manifest is not linked to the `NodeStep` it describes, so a retried step adds a further
+revision-1 manifest; other model calls (a knowledge query's own answer synthesis, guardrail judges) are not agent steps and are
+not recorded. Token counts are an accounting estimate (four characters a token, and the recorded budget is the larger of the
+configured one and the total); enforcing a budget on a provider call is B08. Legacy runs and development have no recorder.
 
 ## Policy decisions
 

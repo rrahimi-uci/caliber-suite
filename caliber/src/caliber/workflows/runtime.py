@@ -46,6 +46,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from caliber.auth import CaliberIdentity
 from caliber.config import provider_request_timeout
+from caliber.context.authorize import ContextDenied
 from caliber.integrations.openapi.executor import bind_openapi_http_tool
 from caliber.llm.models import (
     DEFAULT_OPENAI_REASONING_EFFORT,
@@ -66,6 +67,7 @@ from caliber.workflows.ir import (
     IRAgent,
     IRApiRequest,
     IRDataTransform,
+    IREdge,
     IRErrorBoundary,
     IRExternalApp,
     IRFileInput,
@@ -96,6 +98,7 @@ from caliber.workflows.ir import (
     IRWebhook,
     IRWorkflow,
     NodeType,
+    PromptRef,
 )
 from caliber.workflows.sandbox import TokenBudget, make_preview_callable
 from caliber.workflows.session_memory import HistoryMessage, WorkflowSessionMemoryStore
@@ -2190,6 +2193,36 @@ DEFAULT_PARALLEL_BRANCH_MAX_WORKERS = 8
 _NODE_DEADLINE_GRACE_SECONDS = 0.25
 
 
+@dataclass(frozen=True)
+class AgentContextInput:
+    """One input an agent step is given, with where it came from (B07.3b, #710).
+
+    ``origin_node_type`` is the type of the node whose output edge delivered the text (``start`` when it is the run's own
+    input); ``None`` means the origin is unknown (an item a ``for_each`` / ``loop`` / ``error_boundary`` handed to an
+    inline agent, a resumed value), which is recorded as data of unknown origin, never as the run's own input. For a
+    knowledge query ``origin_result`` is the query's result, which names the versions it read.
+    """
+
+    port: str
+    text: str
+    origin_node_id: str | None = None
+    origin_node_type: str | None = None
+    origin_result: dict[str, Any] | None = None
+
+
+@dataclass(frozen=True)
+class AgentContextAssembly:
+    """Everything an agent step is about to be given, in order, before any of it reaches the provider."""
+
+    node_id: str
+    instructions: PromptRef | None
+    #: The instruction text as resolved when this was assembled (a registry prompt is loaded, not just named).
+    instruction_text: str
+    skill_instructions: tuple[str, ...]
+    history: tuple[HistoryMessage, ...]
+    inputs: tuple[AgentContextInput, ...]
+
+
 @dataclass
 class RuntimePlan:
     """Everything the interpreter needs to execute a workflow version."""
@@ -2206,6 +2239,8 @@ class RuntimePlan:
     ) = None
     knowledge_query_runner: Callable[[dict[str, Any]], dict[str, Any]] | None = None
     knowledge_build_runner: Callable[[dict[str, Any]], dict[str, Any]] | None = None
+    #: Called with each agent step's context before the provider sees any of it (B07.3b); raising refuses the step.
+    context_recorder: Callable[[AgentContextAssembly], None] | None = None
     review_queue_enqueuer: Callable[[dict[str, Any]], dict[str, Any]] | None = None
     # Outbound HTTP sender for Webhook nodes. ``None`` -> the httpx-backed default
     # (``_default_webhook_sender``); tests inject a fake to avoid real network I/O.
@@ -4121,12 +4156,78 @@ def _trim_message_history(
     return [dict(item) for item in trimmed]
 
 
+def _is_inline_target(ir: IRWorkflow, node_id: str) -> bool:
+    """Whether a ``for_each`` / ``loop`` / ``error_boundary`` runs this node inline (its input is an item, not an edge)."""
+    return any(
+        node_id in (getattr(node, "target_node_id", None), getattr(node, "compensate_with", None))
+        for node in ir.nodes.values()
+    )
+
+
+def _delivering_edge(
+    ir: IRWorkflow,
+    node_id: str,
+    port: str,
+    value: Any,
+    port_values: dict[tuple[str, str], Any],
+) -> IREdge | None:
+    """The edge that delivered ``value`` to the port (the same value the node was given), or ``None``.
+
+    Several edges may target one port (a fan-in); the value the node got is the one a delivered edge carried, so the
+    edge is found by the value, not by being first in the graph.
+    """
+    candidates = [
+        edge
+        for edge in ir.edges
+        if edge.to_node == node_id
+        and edge.to_input == port
+        and (edge.from_node, edge.from_output) in port_values
+    ]
+    for same in (lambda carried: carried is value, lambda carried: carried == value):
+        hits = [e for e in candidates if same(port_values[(e.from_node, e.from_output)])]
+        if hits:
+            return hits[-1]
+    return None
+
+
+def _agent_context_inputs(
+    ir: IRWorkflow,
+    node: IRAgent,
+    inputs: dict[str, Any],
+    port_values: dict[tuple[str, str], Any],
+    agent_input: str,
+) -> tuple[AgentContextInput, ...]:
+    """The one input the provider is given (``agent_input``) and where it came from.
+
+    The provider is sent a single input (:func:`_select_input`), so that is the one recorded; the history is recorded
+    separately and no other port reaches it.
+    """
+    port = _selected_input_port(inputs)
+    if port is None:
+        # Nothing was wired: a graph node is handed the run's own input, an inline target the item it is run on.
+        origin_type = None if _is_inline_target(ir, node.node_id) else "start"
+        return (AgentContextInput(port="input", text=agent_input, origin_node_type=origin_type),)
+    edge = _delivering_edge(ir, node.node_id, port, inputs[port], port_values)
+    origin = ir.nodes.get(edge.from_node) if edge is not None else None
+    result = port_values.get((edge.from_node, "result")) if edge is not None else None
+    return (
+        AgentContextInput(
+            port=port,
+            text=agent_input,
+            origin_node_id=edge.from_node if edge is not None else None,
+            origin_node_type=origin.node_type.value if origin is not None else None,
+            origin_result=result if isinstance(result, dict) else None,
+        ),
+    )
+
+
 def _run_agent_with_history(
     plan: RuntimePlan,
     executor: WorkflowExecutor,
     agent: IRAgent,
     input_text: str,
     *,
+    context_inputs: tuple[AgentContextInput, ...] | None = None,
     explicit_history: list[HistoryMessage] | None = None,
     handoff_agents: ResolvedHandoffAgents | None = None,
     tool_callables: dict[str, Callable[..., Any]],
@@ -4142,6 +4243,26 @@ def _run_agent_with_history(
             session_id=key[2],
         )
     history = _merge_message_history(stored, explicit)
+    if plan.context_recorder is not None:
+        # The context is recorded, authorized and validated before the provider sees any of it: a refusal raises here.
+        # A native (Agents SDK) handoff runs the target inside the provider call, where the runtime cannot see it, so
+        # every agent the step may hand off to is recorded first with the same input and history.
+        recipients = [agent] + [
+            target
+            for node_id, (target, _) in (handoff_agents or {}).items()
+            if node_id != agent.node_id
+        ]
+        for recipient in recipients:
+            plan.context_recorder(
+                AgentContextAssembly(
+                    node_id=recipient.node_id,
+                    instructions=recipient.instructions,
+                    instruction_text=_base_instruction_text(recipient),
+                    skill_instructions=tuple(recipient.skill_instructions),
+                    history=tuple(history),
+                    inputs=context_inputs or (AgentContextInput(port="input", text=input_text),),
+                )
+            )
     result = _run_agent_traced(
         executor,
         agent,
@@ -5500,6 +5621,8 @@ def _run_node(  # noqa: PLR0911, PLR0912, PLR0915 - per-node-type dispatch
                     if child_artifacts:
                         record["artifacts"] = sorted(child_artifacts)
                     return toks, record, namespaced_artifacts
+                except ContextDenied:
+                    raise  # a refused context fails the node: it is not an item's own error to isolate
                 except Exception as exc:  # per-item isolation for fan-out
                     logger.warning("for_each agent item failed: %s", exc, exc_info=True)
                     return (
@@ -5580,6 +5703,8 @@ def _run_node(  # noqa: PLR0911, PLR0912, PLR0915 - per-node-type dispatch
                             for name, content in child_artifacts.items()
                         }
                     )
+                except ContextDenied:
+                    raise
                 except Exception as exc:
                     logger.warning("for_each target item failed: %s", exc, exc_info=True)
                     results.append(
@@ -5776,6 +5901,8 @@ def _run_node(  # noqa: PLR0911, PLR0912, PLR0915 - per-node-type dispatch
                     tool_calls=target_step.tool_calls,
                     detail=target_step.detail,
                 )
+            except ContextDenied:
+                raise  # a refused context is not an error a boundary may absorb
             except Exception as exc:
                 compensation_tokens = 0
                 compensation_tool_calls: list[dict[str, Any]] = []
@@ -5798,6 +5925,8 @@ def _run_node(  # noqa: PLR0911, PLR0912, PLR0915 - per-node-type dispatch
                                 extra_tools=extra_tools,
                             )
                         )
+                    except ContextDenied:
+                        raise
                     except Exception as compensation_exc:
                         raise ToolExecutionError(
                             f"error_boundary node {nid!r} compensation target "
@@ -6561,6 +6690,11 @@ def _run_node(  # noqa: PLR0911, PLR0912, PLR0915 - per-node-type dispatch
             executor,
             node,
             agent_input,
+            context_inputs=(
+                _agent_context_inputs(ir, node, inputs, port_values, agent_input)
+                if plan.context_recorder is not None
+                else None
+            ),
             explicit_history=explicit_history,
             handoff_agents=handoff_agents,
             tool_callables=callables,
@@ -6659,6 +6793,18 @@ def _run_node(  # noqa: PLR0911, PLR0912, PLR0915 - per-node-type dispatch
                 executor,
                 target,
                 target_input,
+                context_inputs=(
+                    (
+                        AgentContextInput(
+                            port="input",
+                            text=target_input,
+                            origin_node_id=current_agent.node_id,
+                            origin_node_type="agent",
+                        ),
+                    )
+                    if plan.context_recorder is not None
+                    else None
+                ),
                 explicit_history=target_explicit_history,
                 handoff_agents=t_handoff_agents,
                 tool_callables=t_callables,
@@ -7108,13 +7254,15 @@ def _retry_blocked_guardrail(
     return extra_tokens, step if step is not None else steps[-1]
 
 
-def _select_input(inputs: dict[str, Any], run_input: str) -> str:
+def _selected_input_port(inputs: dict[str, Any]) -> str | None:
     if "input" in inputs:
-        return str(inputs["input"])
-    for value in inputs.values():
-        if isinstance(value, str):
-            return value
-    return run_input
+        return "input"
+    return next((port for port, value in inputs.items() if isinstance(value, str)), None)
+
+
+def _select_input(inputs: dict[str, Any], run_input: str) -> str:
+    port = _selected_input_port(inputs)
+    return run_input if port is None else str(inputs[port])
 
 
 def confine_to_file_root(path: Path, *, what: str) -> Path:
