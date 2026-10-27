@@ -123,6 +123,9 @@ PROJECT_ACTIONS: Final[dict[str, frozenset[str]]] = {
     # global one has no workspace to check a role against, so the check is
     # skipped rather than 404ing every unscoped run).
     "resource.execute": frozenset({ROLE_OWNER, ROLE_EDITOR, ROLE_REVIEWER}),
+    # `B07.2`: a run reading an approved context source (a knowledge-base version): decided per source, by the run's
+    # own grant, before the source's bytes are loaded (`caliber.context.authorize`). The same roles as running it.
+    "context.read": frozenset({ROLE_OWNER, ROLE_EDITOR, ROLE_REVIEWER}),
     # `P1-D`: new, and now wired -- `routes/review_queues.py::submit_item`
     # (the route section 2.4's own prose names: "there is no existing action
     # for it to ride on ... submitting review-queue feedback today calls

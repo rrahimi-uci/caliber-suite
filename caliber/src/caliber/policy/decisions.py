@@ -151,6 +151,7 @@ _ACTION_RISK: Final[dict[str, int]] = {
     "resource.write.evidence": 2,
     "resource.write.runtime": 2,
     "resource.execute": 2,
+    "context.read": 2,
     "rework.update": 2,
     "trace.payload.read": 2,
     "revision.import": 2,

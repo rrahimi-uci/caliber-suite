@@ -207,6 +207,7 @@ BACKEND_CORE_TESTS=(
   tests/test_run_admission.py
   tests/test_event_outbox.py
   tests/test_context_sources.py
+  tests/test_context_authorize.py
   tests/test_run_pins.py
   tests/test_run_identity.py
   tests/test_policy_principal.py

@@ -741,6 +741,28 @@ audited (it carries no policy decision); the response is the record.
 - **Not a foreign key to the knowledge base.** The inventory outlives a deleted knowledge base on purpose; the loader
   must still check the version exists.
 
+### Authorizing a source before it is loaded (B07.2, #699)
+
+In the reference profile the run's own grant lists the context sources it may read: admission adds the action
+`context.read` and one resource per source, `knowledge_base:<knowledge_base_id>@<version_id>`, for exactly the sources
+it approved (the bundle's, its query nodes' and its child workflows'). When the worker builds an admitted run's plan it
+hands the knowledge-query runner a guard (`caliber.context.authorize.source_guard_for`), and the runner calls it with
+each version it is about to query, **before the retrieval service is touched**. The guard runs
+`authorize_source(session, identity, run_manifest, grant_id, knowledge_base_id, version_id)`:
+
+1. the run's subject (from `identity_for_run`) must equal the subject its manifest recorded (`identity_mismatch`);
+2. the source must still be approved for the project (`source_not_approved`; a withdrawal after admission lands here
+   and writes an audit row `context_read_denied` with ids only; no policy question is asked for a withdrawn source);
+3. `decide(...)` is asked with the manifest's run id, the **exact grant id the manifest names**, the manifest's typed
+   subject and workload, `context.read`, the exact source resource and the manifest's purpose: a grant that does not
+   list the source is `resource_not_allowed`, another run's grant `grant_not_found`, a member who left `not_a_member`, a
+   revoked or expired grant is refused, and the decision (allow or deny) is recorded and audited like any other.
+
+Every refusal is a `ContextDenied` with one fixed message that names no source; the node fails, the run fails, and
+nothing was loaded. An authority store that cannot answer is a refusal (`authority_unavailable`). `context.read` is a
+project action (owner, editor, reviewer) with policy risk 2. Legacy runs, and deployments that do not require approved
+sources (development), have no guard. The guard is also passed to child workflows the run calls.
+
 ## Policy decisions
 
 `caliber.policy.decisions.decide(...)` (B03.3, #671; migration `0117`, table `caliber_policy_decisions`) answers "may

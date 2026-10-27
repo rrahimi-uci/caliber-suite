@@ -43,7 +43,7 @@ from sqlalchemy.orm import Session
 from starlette.exceptions import HTTPException
 
 from caliber.auth import CaliberIdentity
-from caliber.context.sources import SourceNotApproved, require_approved
+from caliber.context.sources import SourceNotApproved, require_approved, source_resource
 from caliber.db.models import (
     CaliberKnowledgeBaseVersion,
     CaliberRunManifest,
@@ -92,6 +92,8 @@ INHERITED_MODEL: Final = frozenset({"inherit", ""})
 
 #: The action a run's grant authorizes (``resource_access.PROJECT_ACTIONS``) and the resource it names.
 RUN_ACTION: Final = "resource.execute"
+#: The action a run's grant carries for each context source it may read (B07.2).
+CONTEXT_READ_ACTION: Final = "context.read"
 
 # Refusal codes of :class:`AdmissionDenied` (policy denials carry the decision's own reason codes).
 PROJECT_REQUIRED: Final = "project_required"
@@ -183,6 +185,9 @@ class PreparedAdmission:
     now: datetime
     #: The sealed, resolved manifest the run executes: what the pins describe (stored as the run's snapshot).
     execution_manifest: dict[str, Any]
+    #: The context sources (``(knowledge_base_id, version_id)``) the run may read, each granted ``context.read`` on its
+    #: own resource: set only when approved sources are required (the reference profile), empty otherwise.
+    sources: frozenset[tuple[str, str]] = frozenset()
 
 
 @dataclass(frozen=True)
@@ -414,8 +419,9 @@ def _require_approved_sources(
     identity: CaliberIdentity,
     version: CaliberWorkflowVersion,
     pins: ResolvedPins,
-) -> None:
-    """Reference profile: every knowledge-base version the run can read must be approved for the project.
+) -> frozenset[tuple[str, str]]:
+    """Reference profile: every knowledge-base version the run can read must be approved for the project; returns
+    them (each becomes a ``context.read`` grant).
 
     Only a caller who may run the workflow at all learns what the project has approved (the role check comes
     first), and the refusal names every offending ``knowledge_base_id@version_id``.
@@ -435,6 +441,7 @@ def _require_approved_sources(
         require_approved(session, str(workflow.project_id), sources)
     except SourceNotApproved as exc:
         raise _refuse_source(str(exc)) from exc
+    return frozenset(sources)
 
 
 def _model_routes(version: CaliberWorkflowVersion, settings: AdmissionSettings) -> tuple[str, ...]:
@@ -502,8 +509,9 @@ def prepare_admission(
             f"this workflow version has no usable digest to pin the workload to: {exc}",
         ) from exc
     pins, execution_manifest = _resolve(version, settings)
+    sources: frozenset[tuple[str, str]] = frozenset()
     if settings.approved_sources_required:
-        _require_approved_sources(session, workflow, identity, version, pins)
+        sources = _require_approved_sources(session, workflow, identity, version, pins)
     pinned: PinnedRuleBundle | None = None
     if settings.rule_bundle_path:
         try:
@@ -542,6 +550,7 @@ def prepare_admission(
         resource=run_resource(workflow.workflow_id),
         now=now,
         execution_manifest=execution_manifest,
+        sources=sources,
     )
 
 
@@ -573,8 +582,11 @@ def persist_admission(
             subject=prepared.subject,
             workload=prepared.workload,
             project_id=str(run.project_id),
-            allowed_actions=[RUN_ACTION],
-            allowed_resources=[prepared.resource],
+            allowed_actions=[RUN_ACTION, *([CONTEXT_READ_ACTION] if prepared.sources else [])],
+            allowed_resources=[
+                prepared.resource,
+                *(source_resource(kb, version) for kb, version in sorted(prepared.sources)),
+            ],
             policy_version=settings.policy.version,
             expires_at=prepared.now + timedelta(seconds=settings.grant_ttl_seconds),
             now=prepared.now,
@@ -803,6 +815,7 @@ def admitted_manifest_metadata(
 __all__ = [
     "AUTHORITY_UNAVAILABLE",
     "BUNDLE_UNAVAILABLE",
+    "CONTEXT_READ_ACTION",
     "GRANT_REFUSED",
     "INTENT_CONFLICT",
     "MANIFEST_REFUSED",
