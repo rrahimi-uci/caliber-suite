@@ -12,6 +12,7 @@ read APIs need. Additional tables land alongside the features that use them.
 
 from __future__ import annotations
 
+import hashlib
 from datetime import datetime
 from typing import Any, cast
 
@@ -32,11 +33,13 @@ from sqlalchemy import (
     func,
     select,
     text,
+    true,
 )
 from sqlalchemy.orm import Mapped, Session, mapped_column
 from sqlalchemy.orm.attributes import get_history
 
 from caliber.db.base import Base
+from caliber.db.immutable import guard_immutable
 
 
 class WorkspaceRevisionImmutableError(RuntimeError):
@@ -2145,6 +2148,53 @@ class CaliberWorkflowRun(Base):
     error_code: Mapped[str | None] = mapped_column(String(64), nullable=True)
     error_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
     summary: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+    # True unless admission recorded a manifest for the run: every run that existed before manifests
+    # (migration 0114's default marks them all) and any run created outside admission is legacy, has no
+    # ``CaliberRunManifest`` and never gets one, because its pins were never recorded. Admission (#680)
+    # creates a run with False in the same transaction as its manifest. Write-once, enforced by a
+    # database trigger.
+    manifest_legacy: Mapped[bool] = mapped_column(
+        Boolean, default=True, server_default=true(), nullable=False
+    )
+
+
+class CaliberRunManifest(Base):
+    """What one workflow run was pinned to and who started it, as immutable canonical bytes.
+
+    One row per run (``uq_run_manifest_run``). ``manifest_bytes`` is the canonical JSON of the
+    ``run_manifest`` v1 record (ADR 0003) and ``manifest_digest`` its lowercase SHA-256, checked on
+    insert by the ORM and, on PostgreSQL, by a CHECK constraint. UPDATE and DELETE are refused by
+    database triggers (SQLite and PostgreSQL), by ``ImmutableRecordError`` in the ORM, and, in a
+    deployment that follows ``docs/operate/reference-profile.md``, by the runtime role holding no
+    such privilege. A run marked ``manifest_legacy`` cannot gain a manifest.
+    """
+
+    __tablename__ = "caliber_run_manifests"
+    __table_args__ = (
+        UniqueConstraint("workflow_run_id", name="uq_run_manifest_run"),
+        CheckConstraint("length(manifest_digest) = 64", name="ck_run_manifest_digest_length"),
+        CheckConstraint("length(manifest_bytes) > 0", name="ck_run_manifest_bytes_present"),
+    )
+
+    manifest_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    workflow_run_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("caliber_workflow_runs.workflow_run_id")
+    )
+    schema_version: Mapped[str] = mapped_column(String(16), default="v1")
+    manifest_bytes: Mapped[bytes] = mapped_column(LargeBinary)
+    manifest_digest: Mapped[str] = mapped_column(String(64))
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+
+guard_immutable(CaliberRunManifest)
+
+
+@event.listens_for(CaliberRunManifest, "before_insert")
+def _manifest_digest_matches_bytes(_mapper: Any, _connection: Any, target: Any) -> None:
+    """Refuse a manifest whose digest is not the SHA-256 of its own bytes, on every dialect."""
+    actual = hashlib.sha256(target.manifest_bytes or b"").hexdigest()
+    if target.manifest_digest != actual:
+        raise ValueError("manifest_digest must be the lowercase SHA-256 of manifest_bytes")
 
 
 class CaliberWorkflowRunEvent(Base):

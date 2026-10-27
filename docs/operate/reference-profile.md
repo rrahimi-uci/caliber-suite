@@ -109,6 +109,52 @@ missing differs, and neither case is a profile refusal:
 
 The database must be migrated (`caliber-migrate`) before the first start.
 
+## Run manifests are written once
+
+Migration `0114` adds `caliber_run_manifests` (B02.1a, #656): one row per workflow run holding the canonical
+manifest bytes (`manifest_bytes`) and their SHA-256 (`manifest_digest`). The row is immutable:
+
+- a database trigger refuses `UPDATE` and `DELETE` on SQLite and PostgreSQL (PostgreSQL also refuses `TRUNCATE`),
+  so a bulk SQL statement fails as well as an ORM one: `caliber_run_manifests is immutable: UPDATE refused`;
+- the ORM raises `ImmutableRecordError` before any SQL for an instance update or delete and for an ORM
+  `update()`/`delete()` statement (`Session.bulk_*_mappings` and Core/raw SQL skip the ORM and are refused by the
+  trigger instead);
+- a second manifest for the same run violates `uq_run_manifest_run`, and a digest that is not the SHA-256 of the
+  bytes is refused (by the ORM everywhere, and by a CHECK on PostgreSQL).
+
+**Runtime role.** The migration revokes `UPDATE`, `DELETE` and `TRUNCATE` on the table from `PUBLIC`. That only
+protects a deployment that runs the application as a role other than the table's owner, and `caliber-migrate`,
+`scripts/install.sh` and the shipped compose files use one database URL for both, so by default the application
+*is* the owner and is held only by the triggers and the ORM guard. For the privilege layer, run `caliber-migrate`
+as the owner and the application as a role granted only what it needs:
+
+```sql
+GRANT SELECT, INSERT ON caliber_run_manifests TO caliber_runtime;
+GRANT SELECT ON caliber_workflow_runs TO caliber_runtime;  -- already held; the insert trigger reads it
+-- no UPDATE, DELETE or TRUNCATE on caliber_run_manifests; avoid ALTER DEFAULT PRIVILEGES ... GRANT ALL
+```
+
+A trigger can be disabled by the table's owner or by a session with `session_replication_role = replica`; only the
+missing privilege holds against the runtime role. The reference profile does **not** check which role the
+application connects as (listed under "Not enforced yet"). The trigger functions are pinned to the migration's
+schema with `pg_temp` last in `search_path`, so a temporary table cannot shadow `caliber_workflow_runs`.
+
+**Legacy runs.** `caliber_workflow_runs.manifest_legacy` is `true` by default, so every run that existed when `0114`
+ran, and every run created by a path other than admission, is legacy. Such a run has no manifest and can never get
+one (`a manifest needs an existing, non-legacy run`, also raised for a run that does not exist), and the flag
+cannot be changed afterwards (`caliber_workflow_runs.manifest_legacy is write-once`), so a historical pin cannot be
+fabricated. Admission (#676, #680) creates a run with `manifest_legacy = false` in the same transaction as its
+manifest. A client with `DELETE` on runs can still delete a legacy run and re-insert the same id as a non-legacy
+one; that needs write access to runs and is not guarded here.
+
+**Retention and deletion.** A run that has a manifest is retained evidence: retention pruning
+(`CALIBER_WORKFLOW_RUN_RETENTION_DAYS`) skips it, and `DELETE /workflows/{id}` answers `409`
+(`cannot delete workflow: its runs have immutable run manifests`) while any of its runs has one, because removing
+the run would either violate the manifest's foreign key (PostgreSQL) or orphan it (SQLite). Legacy and
+manifest-less runs are pruned and deleted as before. A rollback (`caliber-migrate downgrade 0113`) drops the table
+and therefore the manifests, never the runs; upgrading again starts with no manifests and marks every existing run
+legacy.
+
 ## Run principals: subject and workload
 
 A run acts as two distinct principals, defined as immutable values in `caliber/src/caliber/policy/principal.py`
@@ -142,6 +188,7 @@ ADR 0001 describes the whole reference shape; this table is what the *process* c
 - **Request bounds and the secret canary** (#533). ADR 0001 also names origin rules for #533, but #533 has no allowed-origins task yet; that rule is not scheduled.
 - **The trusted-connector set** (#534), **refusing code-execution paths and the full attack pack** (#535), **a single execution owner** (#536) and **the Apply separation-of-duties flag** (#589).
 - **Cookie flags:** `auth_session_cookie_secure` is not checked.
+- **The database role:** whether the application connects as a role without `UPDATE`, `DELETE` or `TRUNCATE` on `caliber_run_manifests` (see "Run manifests are written once").
 
 A configuration that passes this page is the minimum for the reference profile, not the whole of it.
 
