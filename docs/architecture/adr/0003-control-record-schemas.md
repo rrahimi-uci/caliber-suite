@@ -63,6 +63,7 @@ RunManifest: what a workflow run was pinned to and who started it.
 | `tenant_id` | string | yes | `local` in the reference profile (ADR 0001); maps to the existing column `caliber_workflow_runs.tenant_id` |
 | `region` | string | yes | `local` in the reference profile; the column is added by #517 |
 | `residency` | string | no | where data may be processed; `local` when absent |
+| `project_id` | string | no | the project the run was admitted in (server-derived, never the caller's choice); absent for a run outside any project and for records written before #676 |
 | `pins` | object | yes | `workflow_version`, `bundle_digest`, `prompt_versions`, `tool_versions`, `skill_versions`, `knowledge_base_versions` (array of `{knowledge_base_id, version_id}`), `model_routes` (list), `policy_version`; all required |
 | `subject` | object | yes | `user_id`, `auth_method` |
 | `workload` | object | yes | `workload_id`, `name`, `workflow_version_digest` |

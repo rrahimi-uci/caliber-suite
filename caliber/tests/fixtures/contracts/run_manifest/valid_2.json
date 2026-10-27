@@ -1,0 +1,44 @@
+{
+  "schema_version": "v1",
+  "manifest_id": "mf-0002",
+  "workflow_run_id": "run-0002",
+  "tenant_id": "local",
+  "region": "local",
+  "residency": "local",
+  "pins": {
+    "workflow_version": "wfv-3",
+    "bundle_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "prompt_versions": [
+      "support@4"
+    ],
+    "tool_versions": [
+      "lookup_case@1"
+    ],
+    "skill_versions": [],
+    "knowledge_base_versions": [
+      {
+        "knowledge_base_id": "kb-1",
+        "version_id": "v7"
+      }
+    ],
+    "model_routes": [
+      "scripted"
+    ],
+    "policy_version": "pol-1"
+  },
+  "subject": {
+    "user_id": "editor_a",
+    "auth_method": "session"
+  },
+  "workload": {
+    "workload_id": "wl_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "name": "document-request",
+    "workflow_version_digest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+  },
+  "purpose": "request a missing document",
+  "legacy": false,
+  "rule_bundle_path": "/etc/caliber/rules.yaml",
+  "rule_bundle_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+  "created_at": "2026-10-26T09:00:00Z",
+  "project_id": "proj-1"
+}

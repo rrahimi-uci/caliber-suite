@@ -207,6 +207,54 @@ manifest-less runs are pruned and deleted as before. A rollback (`caliber-migrat
 and therefore the manifests, never the runs; upgrading again starts with no manifests and marks every existing run
 legacy.
 
+### Building a manifest (admission, #676)
+
+`caliber/src/caliber/run_manifest.py` turns *resolved* inputs into the manifest record and its canonical bytes. It is
+a pure function: no SQL, clock, randomness or provider call, so the same input always gives the same bytes and digest.
+It does not choose or persist the manifest (admission, #680 and #684, does); the caller stores
+`BuiltManifest.row_values()` with `CaliberRunManifest`.
+
+```python
+pinned = pin_rule_bundle(path, expected_sha256)          # only when rule bundles are enabled; reads the file once
+built = build_run_manifest(
+    manifest_id=new_manifest_id(), workflow_run_id=run_id, pins=ResolvedPins(...),
+    subject=Subject(...), workload=Workload.for_workflow(name, digest), purpose="...",
+    scope=DeploymentScope.fixed(project_id), created_at=now_utc,
+    rule_bundle=pinned, rule_bundles_enabled=True,
+)
+```
+
+- **Resolved, never named.** Every pin is the concrete value the run will use. A floating selector (`latest`,
+  `current`, `head`, `default`, `*`, or `name@latest`) is `unresolved_pin`; a prompt, tool or skill pin is
+  `<name>@<version>`; `bundle_digest` is a full lowercase SHA-256. Lists are sorted and may not repeat
+  (`duplicate_pin`), so the order of resolution never changes the digest. A manifest is never filled in later.
+- **Fixed scope.** `DeploymentScope` carries organization (`tenant_id`), project, region and residency, all
+  server-derived (`local` in the reference profile, ADR 0001). A caller that names another organization is
+  `organization_switch`; a subject acting in another project than the run's scope is `project_mismatch`. The
+  manifest records `project_id` (optional in the v1 schema, absent for a run outside any project).
+- **Rule bundle.** When rule bundles are enabled the bundle is loaded and verified first (`pin_rule_bundle`, #726): a
+  missing, oversized, changed or malformed file is `rule_bundle_refused` and no manifest is built; a verified bundle's
+  path and SHA-256 are recorded. Enabled without one is `rule_bundle_required`; one given while disabled is
+  `rule_bundle_unexpected`. The digest in the manifest is the digest of the bytes that were verified, so editing the
+  file afterwards changes nothing about this run (the context code re-verifies the bytes when it uses them, #736).
+- **The digest excludes itself.** `manifest_digest` is the SHA-256 of the canonical bytes (sorted keys, no
+  whitespace, UTF-8, no `NaN`); the record carries no digest field.
+- **Strict writer, tolerant reader.** The builder is stricter than the v1 schema (which takes any non-empty string),
+  so records written before it still validate and `read_manifest(bytes, digest)` still reads them.
+
+| code | meaning | recovery |
+| --- | --- | --- |
+| `unresolved_pin` | a pin is empty, missing or a floating selector | resolve it to a version or digest, then retry |
+| `bad_pin` | a pin has the wrong type or shape (for example a digest that is not 64 lowercase hex) | fix the resolver |
+| `duplicate_pin` | the same reference twice, or one knowledge base at two versions | resolve to exactly one |
+| `bad_scope` | a scope field is empty or not a clean identifier | fix the deployment configuration |
+| `organization_switch` | the caller asked for another organization | none: this deployment serves one organization |
+| `project_mismatch` | the subject's project is not the run's project | admit the run in the subject's project |
+| `bad_field` | manifest id, run id, purpose or timestamp is malformed (a naive datetime) | supply clean values and an aware time |
+| `rule_bundle_refused` | the configured bundle's bytes are missing, changed or invalid | restore the bundle or update the pinned digest deliberately |
+| `rule_bundle_required` / `rule_bundle_unexpected` | enabled without a verified bundle / a bundle while disabled | align the configuration and the call |
+| `invalid_manifest` | stored bytes are not a valid manifest, or do not match their digest (`read_manifest`) | treat as corruption: the row is immutable evidence |
+
 ## Run principals: subject and workload
 
 A run acts as two distinct principals, defined as immutable values in `caliber/src/caliber/policy/principal.py`
