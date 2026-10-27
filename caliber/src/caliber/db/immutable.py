@@ -58,7 +58,7 @@ def guard_immutable(
             for attr in state.mapper.column_attrs
             if state.attrs[attr.key].history.has_changes()
         }
-        if mutable and changed <= mutable and not _committed(state, once):
+        if mutable and changed <= mutable and not (once is not None and _committed(state, once)):
             return
         raise _refuse(model, "UPDATE")
 
@@ -69,12 +69,14 @@ def guard_immutable(
     return model
 
 
-def _committed(state: Any, column: str | None) -> bool:
+def _committed(state: Any, column: str) -> bool:
     """Whether ``column`` held a non-null value in the database before this flush."""
-    if column is None:
-        return False
     history = state.attrs[column].load_history()
-    before = history.deleted[0] if history.deleted else (history.unchanged[0] if history.unchanged else None)
+    before = (
+        history.deleted[0]
+        if history.deleted
+        else (history.unchanged[0] if history.unchanged else None)
+    )
     return before is not None
 
 

@@ -1096,3 +1096,16 @@ def test_the_project_owner_counts_as_owner_only_with_live_owner_scopes(
             _check(
                 engine, run_id, grant_id, "release.rollback", scopes=frozenset({"caliber.operator"})
             )
+
+
+@pytest.mark.parametrize("dialect", DIALECTS)
+def test_assigning_a_frozen_column_its_own_value_is_not_an_update(
+    dialect: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    with _migrated(dialect, tmp_path, monkeypatch) as (engine, _):
+        run_id = _seed(engine)
+        grant_id = _issue(engine, run_id)
+        with Session(engine) as session, session.begin():
+            row = session.get(CaliberRunGrant, grant_id)
+            row.policy_version = row.policy_version  # type: ignore[union-attr]
+        assert _check(engine, run_id, grant_id)
