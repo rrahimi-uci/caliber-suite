@@ -7,6 +7,10 @@ from __future__ import annotations
 
 import ast
 import hashlib
+import os
+import stat
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
@@ -29,6 +33,7 @@ from caliber.context.rule_bundle import (
     Rule,
     RuleBundleError,
     load_rule_bundle,
+    parse_rule_bundle,
     sha256_of,
 )
 
@@ -55,8 +60,12 @@ def _write(tmp_path: Path, text: str | bytes, name: str = "bundle.yaml") -> tupl
     return path, hashlib.sha256(data).hexdigest()
 
 
-def _refused(code: str) -> Any:
-    return pytest.raises(RuleBundleError, check=lambda e: e.code == code)
+@contextmanager
+def _refused(code: str) -> Iterator[Any]:
+    """Expect a ``RuleBundleError`` with exactly this ``code`` (and nothing else escaping)."""
+    with pytest.raises(RuleBundleError) as raised:
+        yield raised
+    assert raised.value.code == code, raised.value
 
 
 # ---------------------------------------------------------------- the valid fixture
@@ -170,23 +179,96 @@ def test_a_missing_unreadable_or_empty_file_is_missing_bytes(tmp_path: Path) -> 
         load_rule_bundle(empty, hashlib.sha256(b"").hexdigest())
 
 
-def test_an_oversize_bundle_is_refused_before_it_is_read(tmp_path: Path) -> None:
-    big = tmp_path / "big.yaml"
-    big.write_bytes(b"#" * (MAX_BUNDLE_BYTES + 1))
+def test_the_documented_size_cap_is_one_mebibyte_and_the_boundary_is_exact(tmp_path: Path) -> None:
+    assert MAX_BUNDLE_BYTES == 1_048_576
+    exactly = tmp_path / "exact.yaml"
+    exactly.write_bytes(b"#" * MAX_BUNDLE_BYTES)
+    with _refused(DIGEST_MISMATCH):  # within the cap, so it reaches the digest check
+        load_rule_bundle(exactly, "0" * 64)
+    over = tmp_path / "big.yaml"
+    over.write_bytes(b"#" * (MAX_BUNDLE_BYTES + 1))
     with _refused(TOO_LARGE):
-        load_rule_bundle(big, "0" * 64)
+        load_rule_bundle(over, "0" * 64)
 
 
-def test_a_file_that_grows_between_the_size_check_and_the_read_is_still_bounded(
+def test_only_a_regular_file_is_read_and_a_special_file_is_never_read_unbounded(
+    tmp_path: Path,
+) -> None:
+    fifo = tmp_path / "pipe"
+    os.mkfifo(fifo)
+    with _refused(
+        MISSING_BYTES
+    ):  # would block forever if it were opened for a read of unknown size
+        load_rule_bundle(fifo, "0" * 64)
+    with _refused(MISSING_BYTES):
+        load_rule_bundle(tmp_path, "0" * 64)  # a directory
+    if Path("/dev/zero").exists():
+        with _refused(MISSING_BYTES):  # a character device would read forever
+            load_rule_bundle("/dev/zero", "0" * 64)
+        link = tmp_path / "zero.yaml"
+        link.symlink_to("/dev/zero")
+        assert not stat.S_ISREG(link.stat().st_mode)
+        with _refused(MISSING_BYTES):
+            load_rule_bundle(link, "0" * 64)
+    real = tmp_path / "real.yaml"
+    real.write_bytes(GOOD.encode())
+    link = tmp_path / "link.yaml"
+    link.symlink_to(real)
+    assert load_rule_bundle(link, sha256_of(GOOD.encode())).bundle_id == "b1", (
+        "a symlink to a regular file is fine"
+    )
+
+
+def test_a_file_that_is_larger_than_the_cap_is_never_read_past_it(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The read itself is bounded to the cap plus one byte, so a growing file cannot exhaust memory."""
+    path, _ = _write(tmp_path, GOOD)
+    reads: list[int] = []
+
+    class Handle:
+        def __enter__(self) -> Handle:
+            return self
+
+        def __exit__(self, *exc: Any) -> None:
+            return None
+
+        def read(self, size: int = -1) -> bytes:
+            reads.append(size)
+            return b"#" * (MAX_BUNDLE_BYTES + 1)
+
+    monkeypatch.setattr(rule_bundle.os, "fdopen", lambda *a, **k: Handle())
+    with _refused(TOO_LARGE):
+        load_rule_bundle(path, "0" * 64)
+    assert reads == [MAX_BUNDLE_BYTES + 1]
+
+
+def test_a_read_error_after_the_open_is_missing_bytes(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     path, _ = _write(tmp_path, GOOD)
-    real_read = Path.read_bytes
-    monkeypatch.setattr(
-        Path, "read_bytes", lambda self: real_read(self) + b"#" * (MAX_BUNDLE_BYTES + 1)
-    )
-    with _refused(TOO_LARGE):
+
+    def failing(*_a: Any, **_k: Any) -> Any:
+        raise OSError("input/output error")
+
+    monkeypatch.setattr(rule_bundle.os, "fdopen", failing)
+    with _refused(MISSING_BYTES):
         load_rule_bundle(path, "0" * 64)
+
+
+def test_bytes_can_be_verified_and_parsed_without_a_file() -> None:
+    data = GOOD.encode()
+    bundle = parse_rule_bundle(data, sha256_of(data))
+    assert bundle.bundle_id == "b1" and bundle.sha256 == sha256_of(data)
+    with _refused(DIGEST_MISMATCH):
+        parse_rule_bundle(data + b" ", sha256_of(data))
+    for bad in (b"", "text", None, bytearray(data)):
+        with _refused(MISSING_BYTES):
+            parse_rule_bundle(bad, sha256_of(data))  # type: ignore[arg-type]
+    with _refused(TOO_LARGE):
+        parse_rule_bundle(b"#" * (MAX_BUNDLE_BYTES + 1), "0" * 64)
+    with _refused(BAD_EXPECTED_DIGEST):
+        parse_rule_bundle(data, "nope")
 
 
 # ---------------------------------------------------------------- strict parsing (bytes verified, content bad)
@@ -211,6 +293,36 @@ def _load_text(tmp_path: Path, text: str | bytes) -> Any:
 def test_invalid_yaml_or_encoding_is_refused(tmp_path: Path, text: str | bytes) -> None:
     with _refused(INVALID_YAML):
         _load_text(tmp_path, text)
+
+
+@pytest.mark.parametrize(
+    "document",
+    [
+        "x: " + "[" * 500 + "]" * 500,  # RecursionError
+        GOOD.replace('version: "1"', "version: 2026-02-30"),  # an impossible date
+        GOOD.replace('version: "1"', "version: 2026-01-01T25:61:61Z"),
+        GOOD.replace('version: "1"', "version: " + "9" * 5000),  # an integer over the digit limit
+        GOOD.replace('version: "1"', "version: !!int foo"),
+        GOOD.replace('version: "1"', "version: !!float foo"),
+        GOOD.replace('version: "1"', "version: !!timestamp foo"),
+        GOOD.replace('version: "1"', "version: !!map foo"),
+        GOOD + "? !!bool maybe\n: 1\n",
+        GOOD + "? !!set {a}\n: 1\n",
+        GOOD.replace("[greeting]", "[" + "9" * 5000 + "]"),
+        GOOD.replace("[greeting]", "[!!timestamp foo]"),
+        GOOD.replace('version: "1"', "version: !!python/object:os.system x"),
+        GOOD.replace("rules:", "rules: &a\n<<: *a\nx:"),
+    ],
+)
+def test_hostile_or_odd_yaml_is_always_invalid_yaml_never_another_exception(
+    tmp_path: Path, document: str
+) -> None:
+    """PyYAML raises ValueError, TypeError, KeyError, AttributeError and RecursionError for some input; the loader's
+    contract is that only ``RuleBundleError`` ever leaves it."""
+    with pytest.raises(RuleBundleError) as raised:
+        _load_text(tmp_path, document)
+    assert raised.value.code in {INVALID_YAML, MALFORMED, UNKNOWN_FIELD}
+    assert raised.value.code == INVALID_YAML or "x" in document or "<<" in document
 
 
 def test_a_duplicate_mapping_key_is_refused_not_last_wins(tmp_path: Path) -> None:
@@ -263,6 +375,13 @@ def test_unknown_fields_are_refused_at_both_levels_not_ignored(tmp_path: Path) -
         ("bundle_id: b1", "bundle_id: ''"),
         ("bundle_id: b1", "bundle_id: 5"),
         ("bundle_id: b1", "bundle_id: " + "a" * 129),
+        ('version: "1"', 'version: "' + "v" * 513 + '"'),
+        ('version: "1"', 'version: "a\\nb"'),
+        ('    source_ref: "src#1"', '    source_ref: "a\\tb"'),
+        ("    applies_to: [greeting]", '    applies_to: ["a\\nb"]'),
+        ('    text: "Say hello."', '    text: "lone \\ud800 surrogate"'),
+        ('    text: "Say hello."', '    text: "unassigned \\U0010ffff"'),
+        ('    text: "Say hello."', '    text: "line\\u2028separator"'),
         ('version: "1"', "version: 1.0"),
         ('version: "1"', 'version: ""'),
         ('version: "1"', 'version: " 1"'),
@@ -328,9 +447,39 @@ def test_a_bundle_may_hold_at_most_the_documented_number_of_rules(tmp_path: Path
         _load_text(tmp_path, ok + rule.format(n="extra"))
 
 
+def test_the_documented_length_boundaries_are_exact(tmp_path: Path) -> None:
+    longest_id = "a" * 128
+    longest_text = "t" * 8000
+    longest_field = "f" * 512
+    text = (
+        "schema_version: v1\n"
+        f'bundle_id: {longest_id}\nversion: "{longest_field}"\n'
+        f'rules:\n  - id: {longest_id}\n    text: "{longest_text}"\n'
+        f'    source_ref: "{longest_field}"\n    applies_to: ["{longest_field}"]\n'
+    )
+    bundle = _load_text(tmp_path, text)
+    assert len(bundle.bundle_id) == 128 and len(bundle.rules[0].text) == 8000
+
+
 def test_multiline_text_keeps_its_newlines_and_unicode_text_is_allowed(tmp_path: Path) -> None:
     text = GOOD.replace('"Say hello."', '"Line one.\\nLine two. Café — ok."')
     assert _load_text(tmp_path, text).rules[0].text == "Line one.\nLine two. Café — ok."
+
+
+def test_an_unknown_field_message_never_quotes_the_key_names_from_the_file(tmp_path: Path) -> None:
+    secret = "api_key_SECRET123"
+    with pytest.raises(RuleBundleError) as raised:
+        _load_text(tmp_path, GOOD + f"{secret}: x\n")
+    assert raised.value.code == UNKNOWN_FIELD and secret not in str(raised.value)
+    assert "1 unknown field(s)" in str(raised.value)
+    with pytest.raises(RuleBundleError) as nested:
+        _load_text(
+            tmp_path,
+            GOOD.replace(
+                "    applies_to: [greeting]", f"    applies_to: [greeting]\n    {secret}: 1"
+            ),
+        )
+    assert secret not in str(nested.value)
 
 
 def test_error_messages_never_quote_the_file(tmp_path: Path) -> None:
@@ -376,7 +525,9 @@ def test_the_loader_imports_no_database_provider_run_or_context_manifest_code() 
         "__future__",
         "hashlib",
         "hmac",
+        "os",
         "re",
+        "stat",
         "unicodedata",
         "dataclasses",
         "pathlib",

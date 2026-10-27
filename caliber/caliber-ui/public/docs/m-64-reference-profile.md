@@ -225,7 +225,10 @@ rules that an operator pins by SHA-256. `load_rule_bundle(path, expected_sha256)
 the pin *before parsing*, so an altered byte is refused even when the YAML reads the same (a comment, whitespace, line
 endings, a different quote), and only then parses strictly: a closed set of keys, unique mapping keys, a string
 `version`, unique rule ids, no control or format characters. It is pure (no database, provider or run); admission
-(#676) pins the bytes before the run is created and the context code (#736) re-verifies them when the bundle is used.
+(#676) pins the bytes before the run is created and the context code (#736) re-verifies them when the bundle is used;
+`parse_rule_bundle(data, expected_sha256)` does the same for bytes already in hand. The file is opened once, must be a
+regular file and is read at most 1 MiB. Quote `version`, ids and `applies_to` entries: an unquoted `yes`, `no`,
+`on`, `off`, date or number is not a string and is refused as `malformed`.
 
 ```yaml
 schema_version: v1
@@ -242,8 +245,8 @@ Every refusal is a `RuleBundleError` with a `code` and a message that never quot
 
 | code | cause | recovery |
 | --- | --- | --- |
-| `bad_expected_digest` | the pin is not a full lowercase 64-hex SHA-256 | pass `sha256sum <file>` output, without a `sha256:` prefix |
-| `missing_bytes` | the file is absent, unreadable, a directory or empty | restore the file the pin was made from |
+| `bad_expected_digest` | the pin is not a full lowercase 64-hex SHA-256 | pass the digest alone: the first field of `sha256sum <file>` (`shasum -a 256` on macOS), without a `sha256:` prefix |
+| `missing_bytes` | the file is absent, unreadable, empty, or not a regular file (a directory, a pipe, a device) | restore the file the pin was made from |
 | `too_large` | more than 1 MiB | split the bundle |
 | `digest_mismatch` | the bytes differ from the pin in any way | re-review the file, then pin its new digest deliberately |
 | `invalid_yaml` | not UTF-8 YAML, or a mapping key repeats | fix the syntax; a repeated key is never "last one wins" |

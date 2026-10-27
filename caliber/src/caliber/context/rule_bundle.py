@@ -28,7 +28,9 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import os
 import re
+import stat
 import unicodedata
 from dataclasses import dataclass
 from pathlib import Path
@@ -145,33 +147,52 @@ _StrictLoader.add_constructor(
 
 
 def load_rule_bundle(path: str | Path, expected_sha256: str) -> RuleBundle:
-    """Read ``path``, verify its bytes against ``expected_sha256``, then parse and validate it.
+    """Read ``path`` (a regular file, read once and bounded), then :func:`parse_rule_bundle` its bytes."""
+    return parse_rule_bundle(_read(Path(path)), expected_sha256)
+
+
+def parse_rule_bundle(data: bytes, expected_sha256: str) -> RuleBundle:
+    """Verify ``data`` against ``expected_sha256`` and only then parse and validate it.
 
     Order matters: the digest is checked on the raw bytes first, so nothing is parsed from bytes the operator did not
-    pin. Raises :class:`RuleBundleError` (``bad_expected_digest``, ``missing_bytes``, ``too_large``,
-    ``digest_mismatch``, ``invalid_yaml``, ``unsupported_version``, ``unknown_field``, ``malformed``,
-    ``duplicate_rule_id``); returns a :class:`RuleBundle` otherwise.
+    pin. This is the entry point for a caller that already holds the pinned bytes (the admission record, #676; the
+    context code re-verifying them, #736). Raises :class:`RuleBundleError` (``bad_expected_digest``,
+    ``missing_bytes``, ``too_large``, ``digest_mismatch``, ``invalid_yaml``, ``unsupported_version``,
+    ``unknown_field``, ``malformed``, ``duplicate_rule_id``) and nothing else; returns a :class:`RuleBundle`.
     """
     if type(expected_sha256) is not str or not _DIGEST.fullmatch(expected_sha256):
         raise RuleBundleError(
             BAD_EXPECTED_DIGEST, "expected_sha256 must be a full lowercase 64-hex SHA-256 digest"
         )
-    data = _read(Path(path))
+    if type(data) is not bytes or not data:
+        raise RuleBundleError(MISSING_BYTES, "there are no bytes to verify")
+    if len(data) > MAX_BUNDLE_BYTES:
+        raise RuleBundleError(TOO_LARGE, f"the bundle is larger than {MAX_BUNDLE_BYTES} bytes")
     if not hmac.compare_digest(sha256_of(data), expected_sha256):
         raise RuleBundleError(DIGEST_MISMATCH, "the bundle's bytes do not match the pinned digest")
     return _parse(data, expected_sha256)
 
 
 def _read(path: Path) -> bytes:
+    """The file's bytes, read once from one open file: a regular file only, never more than the cap plus one byte.
+
+    A FIFO, a device (``/dev/zero``) or a directory is refused before any read, and the read itself is bounded, so a
+    growing or endless file cannot exhaust memory and there is no gap between a size check and the read.
+    """
     try:
-        size = path.stat().st_size
-        if size > MAX_BUNDLE_BYTES:
-            raise RuleBundleError(TOO_LARGE, f"the bundle is larger than {MAX_BUNDLE_BYTES} bytes")
-        data = path.read_bytes()
-    except RuleBundleError:
-        raise
+        # ``O_NONBLOCK`` so that opening a FIFO with no writer returns at once instead of blocking forever.
+        descriptor = os.open(path, os.O_RDONLY | getattr(os, "O_NONBLOCK", 0))
     except OSError:
         raise RuleBundleError(MISSING_BYTES, "the bundle file cannot be read") from None
+    try:
+        if not stat.S_ISREG(os.fstat(descriptor).st_mode):
+            raise RuleBundleError(MISSING_BYTES, "the bundle path is not a regular file")
+        with os.fdopen(descriptor, "rb", closefd=False) as handle:
+            data = handle.read(MAX_BUNDLE_BYTES + 1)
+    except OSError:
+        raise RuleBundleError(MISSING_BYTES, "the bundle file cannot be read") from None
+    finally:
+        os.close(descriptor)
     if not data:
         raise RuleBundleError(MISSING_BYTES, "the bundle file is empty")
     if len(data) > MAX_BUNDLE_BYTES:
@@ -182,7 +203,17 @@ def _read(path: Path) -> bytes:
 def _parse(data: bytes, digest: str) -> RuleBundle:
     try:
         document = yaml.load(data.decode("utf-8"), Loader=_StrictLoader)  # noqa: S506 - a SafeLoader subclass
-    except (UnicodeDecodeError, yaml.YAMLError):
+    except (
+        UnicodeDecodeError,
+        yaml.YAMLError,
+        ValueError,
+        TypeError,
+        KeyError,
+        AttributeError,
+        RecursionError,
+    ):
+        # PyYAML raises more than YAMLError for hostile or merely odd input (an impossible date, a huge integer, a
+        # bad explicit tag, deep nesting); every one of them is "not a valid bundle", never a crash.
         raise RuleBundleError(
             INVALID_YAML, "the bundle is not valid UTF-8 YAML with unique keys"
         ) from None
@@ -231,7 +262,7 @@ def _rule(raw: object, index: int) -> Rule:
         raise RuleBundleError(MALFORMED, f"{where}: applies_to repeats an entry")
     return Rule(
         id=_identifier(raw["id"], f"{where}: id"),
-        text=_text(raw["text"], f"{where}: text", MAX_RULE_TEXT),
+        text=_text(raw["text"], f"{where}: text", MAX_RULE_TEXT, multiline=True),
         source_ref=_text(raw["source_ref"], f"{where}: source_ref", MAX_FIELD),
         applies_to=tuple(topics),
     )
@@ -240,9 +271,12 @@ def _rule(raw: object, index: int) -> Rule:
 def _closed(mapping: dict[Any, Any], allowed: frozenset[str], where: str) -> None:
     if any(type(key) is not str for key in mapping):
         raise RuleBundleError(MALFORMED, f"{where} has a key that is not a string")
-    unknown = sorted(set(mapping) - allowed)
+    unknown = set(mapping) - allowed
     if unknown:
-        raise RuleBundleError(UNKNOWN_FIELD, f"{where} has unknown fields {unknown}")
+        raise RuleBundleError(
+            UNKNOWN_FIELD,
+            f"{where} has {len(unknown)} unknown field(s); the allowed fields are {sorted(allowed)}",
+        )
 
 
 def _identifier(value: object, name: str) -> str:
@@ -251,16 +285,21 @@ def _identifier(value: object, name: str) -> str:
     return value
 
 
-def _text(value: object, name: str, limit: int) -> str:
+def _text(value: object, name: str, limit: int, *, multiline: bool = False) -> str:
     if type(value) is not str or not value.strip() or value != value.strip() or len(value) > limit:
         raise RuleBundleError(
             MALFORMED,
             f"{name} must be a non-empty string with no surrounding whitespace, up to {limit} characters",
         )
+    allowed = "\n\t" if multiline else ""
     if any(
-        unicodedata.category(ch) in {"Cc", "Cf", "Zl", "Zp"} and ch not in "\n\t" for ch in value
+        unicodedata.category(ch) in {"Cc", "Cf", "Cs", "Cn", "Zl", "Zp"} and ch not in allowed
+        for ch in value
     ):
-        raise RuleBundleError(MALFORMED, f"{name} must not contain control or format characters")
+        raise RuleBundleError(
+            MALFORMED,
+            f"{name} must not contain control, format, surrogate or unassigned characters",
+        )
     return value
 
 
@@ -282,5 +321,6 @@ __all__ = [
     "RuleBundle",
     "RuleBundleError",
     "load_rule_bundle",
+    "parse_rule_bundle",
     "sha256_of",
 ]
