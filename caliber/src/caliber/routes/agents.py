@@ -181,6 +181,16 @@ async def register_agent(request: Request) -> JSONResponse:
                 ),
             )
 
+        # `resource.write.runtime`, composed with the `SCOPE_OPERATOR`
+        # global-scope floor above -- the same project-role check every other
+        # runtime family's create route already uses (P2 isolation closure),
+        # now extended to Agent. A no-op when no project is active (an
+        # org-wide/personal agent, see the ``visibility`` comment below).
+        require_project_access_if_scoped(
+            session, identity, identity.active_project_id, "resource.write.runtime"
+        )
+
+        # After the project check: a caller who may not write here must not cause an experiment to be created.
         # A workflow of another project may already claim this experiment as its default; the
         # agent table's own uniqueness cannot see that, and an experiment decides who sees traces.
         try:
@@ -200,15 +210,6 @@ async def register_agent(request: Request) -> JSONResponse:
                 status_code=503,
                 detail=f"the experiment could not be resolved, so it was not claimed: {exc}",
             ) from exc
-
-        # `resource.write.runtime`, composed with the `SCOPE_OPERATOR`
-        # global-scope floor above -- the same project-role check every other
-        # runtime family's create route already uses (P2 isolation closure),
-        # now extended to Agent. A no-op when no project is active (an
-        # org-wide/personal agent, see the ``visibility`` comment below).
-        require_project_access_if_scoped(
-            session, identity, identity.active_project_id, "resource.write.runtime"
-        )
 
         agent = CaliberAgentConfig(
             agent_id=payload.agent_id,

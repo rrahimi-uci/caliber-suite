@@ -4079,7 +4079,7 @@
 <ul><li><a href="#caliberapierror"><code>CaliberAPIError</code></a></li><li><a href="#calibertransporterror"><code>CaliberTransportError</code></a></li></ul>
 <h6 id="migrate_experiment_claims-dictstr-any"><code>migrate_experiment_claims() -&gt; dict[str, Any]</code><a class="anchor" href="#migrate_experiment_claims-dictstr-any" aria-hidden="true" tabindex="-1">#</a></h6>
 <p>Register every experiment claim that predates the owner registry (admin only).</p>
-<p>Returns `<code>{"registered", "quarantined", "skipped_existing", "unresolved"}</code><code> lists. An experiment claimed by two or more projects or users is quarantined with no owner; resolve it with :meth:</code>resolve_experiment_conflict`.</p>
+<p>Returns `<code>{"registered", "quarantined", "skipped_existing", "mismatched", "unresolved"}</code><code> lists. An experiment claimed by two or more projects or users is quarantined with no owner; resolve it with :meth:</code>resolve_experiment_conflict`.</p>
 <p>This callable takes no public parameters.</p>
 <p><strong>Returns:</strong> <code>dict[str, Any]</code></p>
 <p><strong>Raises:</strong></p>

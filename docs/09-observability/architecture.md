@@ -309,7 +309,7 @@ assigns (`caliber/src/caliber/observability/trace_access.py::resolve_experiment`
 - **Pre-registry claims.** `POST /observability/experiment-claims/migrate` (admin) registers each experiment that
   agent and workflow claims name for exactly one scope (`provenance=legacy`) and **quarantines** one claimed by two
   or more, without choosing a winner (`status=quarantined`, no owner). It is idempotent, reports `registered`,
-  `quarantined`, `skipped_existing` and `unresolved` ids, and registers nothing if the backend cannot answer
+  `quarantined`, `skipped_existing`, `mismatched` and `unresolved` ids, and registers nothing if the backend cannot answer
   (`503`). An administrator settles a quarantine with `POST /observability/experiment-claim-conflicts/resolve`
   (`{"experiment", "owner": {"kind": "project"|"user"|"public", "id"}}`), recorded as `provenance=resolved` and audited;
   the registry's quarantined rows are listed with the text-claim conflicts.

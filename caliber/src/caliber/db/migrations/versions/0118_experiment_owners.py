@@ -49,7 +49,8 @@ def upgrade() -> None:
             name="ck_experiment_owner_provenance",
         ),
         sa.CheckConstraint(
-            "(status = 'active' AND scope_kind IN ('project', 'user', 'public')) OR "
+            "(status = 'active' AND ((scope_kind IN ('project', 'user') AND scope_id <> '') OR "
+            "(scope_kind = 'public' AND scope_id = ''))) OR "
             "(status = 'quarantined' AND scope_kind = '' AND scope_id = '')",
             name="ck_experiment_owner_scope",
         ),

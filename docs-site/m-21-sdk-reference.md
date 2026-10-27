@@ -10334,7 +10334,8 @@ This callable takes no public parameters.
 
 Register every experiment claim that predates the owner registry (admin only).
 
-Returns ``{"registered", "quarantined", "skipped_existing", "unresolved"}`` lists. An
+Returns ``{"registered", "quarantined", "skipped_existing", "mismatched", "unresolved"}``
+lists. An
 experiment claimed by two or more projects or users is quarantined with no owner; resolve it
 with :meth:`resolve_experiment_conflict`.
 

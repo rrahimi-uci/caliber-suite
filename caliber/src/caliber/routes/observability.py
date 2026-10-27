@@ -33,14 +33,17 @@ from starlette.routing import Route
 
 from caliber.audit import record as audit_record
 from caliber.auth import SCOPE_ADMIN, require_scopes, require_user, resolve_identity
+from caliber.db.models import CaliberProject
 from caliber.observability.experiment_registry import (
     migrate_legacy_claims,
+    registry_active_ids,
     registry_quarantined,
     resolve_quarantine,
 )
 from caliber.observability.trace_access import (
     ExperimentLookupError,
     TraceNotReadableError,
+    claim_keys,
     experiment_claim_conflicts,
     is_visible,
     require_readable_trace,
@@ -374,6 +377,18 @@ async def list_experiment_claim_conflicts(request: Request) -> JSONResponse:
             conflicts = experiment_claim_conflicts(session)
         except ExperimentLookupError as exc:
             raise HTTPException(status_code=503, detail=str(exc)) from exc
+        # An experiment the registry has decided (an administrator resolved it) is no longer in conflict, whatever
+        # the old text claims of the losing scope still say.
+        decided = registry_active_ids(session)
+        conflicts = [
+            item
+            for item in conflicts
+            if str(item["experiment"]) not in decided
+            and not any(
+                claim_keys(str(claim["claim"])) & decided
+                for claim in item["claims"]  # type: ignore[attr-defined]
+            )
+        ]
         listed = {str(item["experiment"]) for item in conflicts}
         # Registry rows the legacy migration quarantined (claimed by two or more scopes, no owner chosen).
         for row in registry_quarantined(session):
@@ -425,6 +440,8 @@ async def resolve_experiment_conflict(request: Request) -> JSONResponse:
     if not isinstance(kind, str) or not isinstance(owner_id, str):
         raise HTTPException(status_code=400, detail="'owner' needs a string 'kind' and 'id'")
     with get_session_factory(request)() as session:
+        if kind == "project" and session.get(CaliberProject, owner_id) is None:
+            raise HTTPException(status_code=400, detail=f"project {owner_id!r} does not exist")
         try:
             claim = resolve_quarantine(session, experiment, scope=(kind, owner_id), actor=actor)
         except ValueError as exc:

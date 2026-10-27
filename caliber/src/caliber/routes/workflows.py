@@ -801,7 +801,9 @@ async def update_workflow(request: Request) -> JSONResponse:
                     detail="cannot archive workflow with active production deployments",
                 )
 
-        if changes.get("default_experiment_id"):
+        if changes.get("default_experiment_id") and (
+            changes["default_experiment_id"] != workflow.default_experiment_id
+        ):
             _claim_experiment_or_409(
                 session,
                 changes["default_experiment_id"],

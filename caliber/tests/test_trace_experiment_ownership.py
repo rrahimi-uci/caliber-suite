@@ -69,17 +69,22 @@ class FakeTracking:
         self.down = False
         self._next = 100
         self.race_on_create: str | None = None
+        self.tags: dict[str, dict[str, str]] = {}
 
     def get_by_name(self, name: str) -> Any:
         self._check()
         found = self.by_name.get(name)
-        return SimpleNamespace(experiment_id=found, name=name) if found else None
+        return (
+            SimpleNamespace(experiment_id=found, name=name, tags=self.tags.get(name, {}))
+            if found
+            else None
+        )
 
     def get(self, experiment_id: str) -> Any:
         self._check()
         for name, found in self.by_name.items():
             if found == experiment_id:
-                return SimpleNamespace(experiment_id=found, name=name)
+                return SimpleNamespace(experiment_id=found, name=name, tags=self.tags.get(name, {}))
         raise MlflowException(
             f"No Experiment with id={experiment_id} exists", error_code=RESOURCE_DOES_NOT_EXIST
         )
@@ -92,6 +97,7 @@ class FakeTracking:
         self._next += 1
         self.by_name[name] = str(self._next)
         self.created.append((name, dict(tags or {})))
+        self.tags[name] = dict(tags or {})
         return str(self._next)
 
     def _check(self) -> None:
@@ -129,7 +135,7 @@ def test_the_first_claim_registers_the_canonical_id_and_a_repeat_by_the_owner_is
 ) -> None:
     first = _claim(db_session, "billing-exp", PROJECT_A)
     assert (first.experiment_id, first.provenance, first.created) == ("5", "adopted", True)
-    assert first.tracking_backend == "http://mlflow.example.invalid:5000/"
+    assert first.tracking_backend == "http://mlflow.example.invalid:5000"
     again = _claim(db_session, "billing-exp", PROJECT_A)
     assert again.created is False and again.scope == PROJECT_A
     assert db_session.query(CaliberExperimentOwner).count() == 1
@@ -178,18 +184,16 @@ def test_an_unreachable_backend_fails_closed_and_registers_nothing(
 def test_the_registry_row_lives_or_dies_with_the_callers_transaction(
     db_session: Session, tracking: FakeTracking
 ) -> None:
-    # pysqlite starts its transaction at the first DML, so write first, as a real request always has.
-    _agent(db_session, "ag-pre", "other-exp", "P-own-A")
-    db_session.add(
-        CaliberAuditLog(actor="@x", action="probe", entity_type="agent", entity_id="ag-pre")
-    )
-    db_session.flush()
+    """With no write before the claim (a route claims first), on SQLite as on PostgreSQL."""
     _claim(db_session, "billing-exp", PROJECT_A)
     assert db_session.query(CaliberExperimentOwner).count() == 1
     db_session.rollback()
     assert db_session.query(CaliberExperimentOwner).count() == 0, (
         "a rolled-back claim leaves no owner behind"
     )
+    _claim(db_session, "billing-exp", PROJECT_A)
+    db_session.commit()
+    assert db_session.query(CaliberExperimentOwner).count() == 1
 
 
 def test_the_tracking_backend_identity_drops_credentials_and_query(
@@ -210,7 +214,13 @@ def test_the_tracking_backend_identity_drops_credentials_and_query(
         raise RuntimeError("no client")
 
     monkeypatch.setattr(mlflow, "get_tracking_uri", broken)
-    assert tracking_backend() == "mlflow"
+    with pytest.raises(
+        ExperimentLookupError
+    ):  # no identity, no registry to consult: never "no rows"
+        tracking_backend()
+    for spelling in ("HTTP://MLflow.Example.invalid:5000/", "http://mlflow.example.invalid:5000"):
+        monkeypatch.setattr(mlflow, "get_tracking_uri", lambda spelling=spelling: spelling)
+        assert tracking_backend() == "http://mlflow.example.invalid:5000"
 
 
 # ---------------------------------------------------------------- trusted first-claim provenance (reference profile)
@@ -446,7 +456,10 @@ def test_an_experiment_the_registry_gives_to_another_scope_is_hidden_even_under_
     )
     _claim(db_session, "5", PROJECT_B)
     db_session.commit()
-    assert "5" not in (visible_experiments(db_session, alice) or set())
+    seen = visible_experiments(db_session, alice) or set()
+    assert "5" not in seen and "billing-exp" not in seen, (
+        "neither the id nor the alias the caller wrote"
+    )
     assert visible_experiments(db_session, _identity("@root", None, SCOPE_ADMIN)) is None
     # And once the stale text claim is gone, the registered owner sees its experiment.
     db_session.delete(db_session.get(CaliberAgentConfig, "ag-a"))
@@ -521,6 +534,7 @@ def test_legacy_claims_register_unambiguous_ones_and_quarantine_conflicts_withou
         "registered": ["5"],
         "quarantined": ["7"],
         "skipped_existing": [],
+        "mismatched": [],
         "unresolved": ["not-created-yet"],
     }
     rows = {r.experiment_id: r for r in db_session.query(CaliberExperimentOwner)}
@@ -553,6 +567,7 @@ def test_the_migration_is_idempotent_and_leaves_existing_rows_alone(
         "registered": [],
         "quarantined": [],
         "skipped_existing": ["5"],
+        "mismatched": [],
         "unresolved": [],
     }
     assert db_session.query(CaliberExperimentOwner).one().claimed_by == "@root"
@@ -596,7 +611,7 @@ def test_an_administrators_decision_resolves_a_quarantine_and_only_that(
         resolve_quarantine(db_session, "7", scope=PROJECT_A, actor="@root")  # no longer quarantined
     with pytest.raises(LookupError):
         resolve_quarantine(db_session, "404", scope=PROJECT_A, actor="@root")
-    for bad in (("organization", "x"), ("project", ""), ("user", "")):
+    for bad in (("organization", "x"), ("project", ""), ("user", ""), ("public", "junk")):
         with pytest.raises(ValueError):
             resolve_quarantine(db_session, "7", scope=bad, actor="@root")
     assert resolve_quarantine.__name__ == "resolve_quarantine"
@@ -623,6 +638,8 @@ def test_the_database_refuses_an_unknown_status_provenance_or_scope_shape(
         {"scope_kind": "organization"},
         {"status": "quarantined"},  # a quarantined row has no owner
         {"scope_kind": "", "scope_id": ""},  # an active row has one
+        {"scope_kind": "public", "scope_id": "junk"},  # public has no id
+        {"scope_kind": "project", "scope_id": ""},  # a project or user has one
     ):
         with pytest.raises(IntegrityError):
             db_session.add(CaliberExperimentOwner(**{**good, **bad}))
@@ -713,6 +730,9 @@ def test_development_keeps_free_claims_of_unknown_references(
 def test_the_migration_and_resolution_routes_are_admin_only_audited_and_validate_input(
     client: TestClient, tracking: FakeTracking, db_session: Session
 ) -> None:
+    for project in ("P-own-A", "P-own-B"):
+        db_session.add(CaliberProject(project_id=project, name=project, owner="@test"))
+    db_session.commit()
     _agent(db_session, "ag-1", "billing-exp", "P-own-A")
     _agent(db_session, "ag-2", "shared-exp", "P-own-A")
     _wf(db_session, "WF-2", "7", "P-own-B")
@@ -747,9 +767,16 @@ def test_the_migration_and_resolution_routes_are_admin_only_audited_and_validate
         json={"experiment": "7", "owner": {"kind": "project", "id": ""}},
     )
     assert bad.status_code == 400
+    for body in (
+        {"experiment": "7", "owner": {"kind": "project", "id": "P-no-such-project"}},
+        {"experiment": "7", "owner": {"kind": "public", "id": "junk"}},
+        {"experiment": "7", "owner": {"kind": "organization", "id": "x"}},
+    ):
+        refused = client.post(f"{OBS}/experiment-claim-conflicts/resolve", json=body)
+        assert refused.status_code == 400, (body, refused.text)
     missing = client.post(
         f"{OBS}/experiment-claim-conflicts/resolve",
-        json={"experiment": "404", "owner": {"kind": "project", "id": "P"}},
+        json={"experiment": "404", "owner": {"kind": "project", "id": "P-own-B"}},
     )
     assert missing.status_code == 404
     ok = client.post(
@@ -757,7 +784,8 @@ def test_the_migration_and_resolution_routes_are_admin_only_audited_and_validate
         json={"experiment": "7", "owner": {"kind": "project", "id": "P-own-B"}},
     )
     assert ok.status_code == 200 and ok.json()["data"]["provenance"] == "resolved"
-    assert client.get(f"{OBS}/experiment-claim-conflicts").json()["data"]["conflicts"] == [] or True
+    # Decided: no longer listed, though both agents' old text claims still exist.
+    assert client.get(f"{OBS}/experiment-claim-conflicts").json()["data"]["conflicts"] == []
 
     actions = [a.action for a in db_session.query(CaliberAuditLog).order_by(CaliberAuditLog.log_id)]
     assert "migrate_experiment_claims" in actions and "resolve_experiment_conflict" in actions
@@ -777,6 +805,220 @@ def test_a_registry_quarantine_is_listed_even_after_its_text_claims_are_gone(
     db_session.commit()
     listed = client.get(f"{OBS}/experiment-claim-conflicts").json()["data"]["conflicts"]
     assert listed == [{"experiment": "7", "claims": [], "quarantined": True}]
+
+
+# ---------------------------------------------------------------- findings of the independent review
+
+
+def _members(db: Session) -> None:
+    for project, member, user in (("P-own-A", "M-a", ALICE), ("P-own-B", "M-b", "@bob")):
+        db.add(CaliberProject(project_id=project, name=project, owner="@test"))
+        db.flush()
+        db.add(
+            CaliberProjectMember(
+                member_id=member,
+                project_id=project,
+                user_id=user,
+                role="editor",
+                created_by="@test",
+            )
+        )
+    db.commit()
+
+
+def test_a_caller_who_may_not_write_in_the_project_creates_no_experiment(
+    reference_client: TestClient, tracking: FakeTracking, db_session: Session
+) -> None:
+    """The authorization comes before the claim: a denied request must not leave an experiment in MLflow."""
+    db_session.add(CaliberProject(project_id="P-own-A", name="A", owner="@test"))
+    db_session.commit()
+    outsider = {"X-CALIBER-User": "@outsider", "X-CALIBER-Project": "P-own-A"}
+    denied = reference_client.post(
+        f"{PREFIX}/agents", json=_agent_body("ag-squat", "squat-name"), headers=outsider
+    )
+    assert denied.status_code in (403, 404), denied.text
+    assert tracking.created == [] and "squat-name" not in tracking.by_name
+    assert db_session.query(CaliberExperimentOwner).count() == 0
+
+
+def test_an_experiment_created_for_a_scope_by_a_request_that_never_committed_is_that_scopes_to_register(
+    db_session: Session, tracking: FakeTracking
+) -> None:
+    """The experiment is outside the database's transaction: a retry by the same scope must not be locked out."""
+    first = _claim(db_session, "orphan-exp", PROJECT_A, create_if_missing=True, may_adopt=False)
+    assert first.provenance == "created"
+    db_session.rollback()  # the agent/workflow was never saved; the experiment is still there, tagged
+    assert db_session.query(CaliberExperimentOwner).count() == 0
+    clear_resolution_cache()
+    retry = _claim(db_session, "orphan-exp", PROJECT_A, create_if_missing=True, may_adopt=False)
+    assert retry.provenance == "created" and len(tracking.created) == 1, (
+        "registered, not created again"
+    )
+    db_session.rollback()
+    clear_resolution_cache()
+    for other in (PROJECT_B, ("user", ALICE)):  # the tags name project A: nobody else may take it
+        with pytest.raises(ExperimentNotClaimable):
+            _claim(db_session, "orphan-exp", other, create_if_missing=True, may_adopt=False)
+    tracking.tags["orphan-exp"] = {}  # an experiment without the server's tags is not anybody's
+    with pytest.raises(ExperimentNotClaimable):
+        _claim(db_session, "orphan-exp", PROJECT_A, create_if_missing=True, may_adopt=False)
+
+
+def test_an_unreadable_experiment_is_not_adoptable_by_tags(
+    db_session: Session, tracking: FakeTracking, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _claim(db_session, "orphan2", PROJECT_A, create_if_missing=True, may_adopt=False)
+    db_session.rollback()
+    clear_resolution_cache()
+    original = tracking.get
+
+    def flaky(experiment_id: str) -> Any:
+        if tracking.by_name.get("orphan2") == experiment_id and getattr(flaky, "armed", False):
+            raise MlflowException("down", error_code=1)
+        return original(experiment_id)
+
+    flaky.armed = False  # type: ignore[attr-defined]
+    monkeypatch.setattr(mlflow, "get_experiment", flaky)
+    resolve_calls = tracking.by_name["orphan2"]
+    assert resolve_calls
+    from caliber.observability import trace_access
+
+    trace_access.resolve_experiment("orphan2")  # warm the cache while the backend answers
+    flaky.armed = True  # type: ignore[attr-defined]
+    with pytest.raises(ExperimentNotClaimable):
+        _claim(db_session, "orphan2", PROJECT_A, create_if_missing=True, may_adopt=False)
+
+
+def test_an_administrators_decision_gives_the_owner_access_and_ends_the_conflict(
+    db_session: Session, tracking: FakeTracking
+) -> None:
+    _members(db_session)
+    _agent(db_session, "ag-2", "shared-exp", "P-own-A")
+    _wf(db_session, "WF-2", "shared-exp", "P-own-B")  # the same name, so the keys collide
+    alice, bob = _identity(ALICE, "P-own-A"), _identity("@bob", "P-own-B")
+    assert migrate_legacy_claims(db_session, actor="@root")["quarantined"] == ["7"]
+    db_session.commit()
+    assert not (visible_experiments(db_session, alice) or set()) and not (
+        visible_experiments(db_session, bob) or set()
+    ), "quarantined: nobody sees it"
+    resolve_quarantine(db_session, "7", scope=PROJECT_B, actor="@root")
+    db_session.commit()
+    assert {"7", "shared-exp"} <= (visible_experiments(db_session, bob) or set()), (
+        "the decided owner sees it under the alias it wrote too"
+    )
+    seen = visible_experiments(db_session, alice) or set()
+    assert not ({"7", "shared-exp"} & seen), "the loser's stale text claim no longer shows it"
+
+
+def test_the_registered_owner_sees_its_experiment_without_any_text_claim(
+    db_session: Session, tracking: FakeTracking
+) -> None:
+    _members(db_session)
+    _agent(
+        db_session, "ag-x", "billing-exp", "P-own-A"
+    )  # a claim, so the caller has something to resolve
+    _claim(db_session, "shared-exp", PROJECT_A)
+    db_session.commit()
+    assert {"5", "7"} <= (visible_experiments(db_session, _identity(ALICE, "P-own-A")) or set())
+    assert "7" not in (visible_experiments(db_session, _identity("@bob", "P-own-B")) or set())
+
+
+def test_a_registry_only_quarantine_hides_the_experiment_from_a_lone_claimant(
+    db_session: Session, tracking: FakeTracking
+) -> None:
+    _members(db_session)
+    _agent(db_session, "ag-2", "shared-exp", "P-own-A")
+    _wf(db_session, "WF-2", "7", "P-own-B")
+    migrate_legacy_claims(db_session, actor="@root")
+    db_session.delete(
+        db_session.get(CaliberWorkflow, "WF-2")
+    )  # the text conflict is gone; the quarantine stays
+    db_session.commit()
+    seen = visible_experiments(db_session, _identity(ALICE, "P-own-A")) or set()
+    assert not ({"7", "shared-exp"} & seen)
+
+
+def test_the_migration_reports_a_claim_by_another_scope_than_the_registered_owner(
+    db_session: Session, tracking: FakeTracking
+) -> None:
+    _claim(db_session, "billing-exp", PROJECT_A)
+    _wf(db_session, "WF-b", "5", "P-own-B")
+    report = migrate_legacy_claims(db_session, actor="@root")
+    assert report["skipped_existing"] == ["5"] and report["mismatched"] == ["5"]
+    assert db_session.query(CaliberExperimentOwner).one().scope_id == "P-own-A", (
+        "nothing is overwritten"
+    )
+
+
+def test_a_registration_that_loses_a_race_during_the_migration_is_skipped_not_a_500(
+    db_session: Session, tracking: FakeTracking, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _agent(db_session, "ag-1", "billing-exp", "P-own-A")
+    _claim(db_session, "billing-exp", PROJECT_A)  # the other writer's row is already there ...
+    real_get = db_session.get
+    calls: list[int] = []
+
+    def blind_once(entity: Any, ident: Any, **kw: Any) -> Any:
+        if entity is CaliberExperimentOwner and not calls:
+            calls.append(1)
+            return None  # ... but our first look missed it
+        return real_get(entity, ident, **kw)
+
+    monkeypatch.setattr(db_session, "get", blind_once)
+    report = migrate_legacy_claims(db_session, actor="@root")
+    assert report["skipped_existing"] == ["5"] and report["registered"] == []
+
+
+def test_a_denied_request_leaves_no_owner_even_where_the_claim_is_the_first_statement(
+    reference_client: TestClient, tracking: FakeTracking, db_session: Session
+) -> None:
+    """The rollback must undo the claim on SQLite too (pysqlite autocommits a savepoint taken before any DML)."""
+    from caliber.observability import experiment_registry as registry_module
+
+    original = registry_module.claim_experiment
+    seen: list[Any] = []
+
+    def claim_then_fail(*args: Any, **kwargs: Any) -> Any:
+        result = original(*args, **kwargs)
+        seen.append(result)
+        raise RuntimeError("the request fails after the claim")
+
+    mp = pytest.MonkeyPatch()
+    mp.setattr(registry_module, "claim_experiment", claim_then_fail)
+    try:
+        with pytest.raises(RuntimeError):
+            reference_client.post(f"{PREFIX}/agents", json=_agent_body("ag-boom", "billing-exp"))
+    finally:
+        mp.undo()
+    assert seen, "the claim ran"
+    assert db_session.query(CaliberExperimentOwner).count() == 0
+
+
+def test_an_unchanged_workflow_experiment_is_not_claimed_again(
+    client: TestClient, tracking: FakeTracking, db_session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from caliber.routes import workflows as workflows_module
+
+    db_session.add(CaliberProject(project_id="P-own-A", name="A", owner="@test"))
+    db_session.commit()
+    _wf(db_session, "WF-L", "billing-exp", "P-own-A")
+    calls: list[str] = []
+    original = workflows_module._claim_experiment_or_409
+
+    def spy(session: Any, experiment_id: Any, request: Any, **scope: Any) -> None:
+        calls.append(str(experiment_id))
+        original(session, experiment_id, request, **scope)
+
+    monkeypatch.setattr(workflows_module, "_claim_experiment_or_409", spy)
+    same = client.patch(
+        f"{PREFIX}/workflows/WF-L",
+        json={"description": "x", "default_experiment_id": "billing-exp"},
+    )
+    assert same.status_code == 200, same.text
+    assert calls == [], "the value did not change, so there is nothing to claim"
+    changed = client.patch(f"{PREFIX}/workflows/WF-L", json={"default_experiment_id": "shared-exp"})
+    assert changed.status_code == 200, changed.text
+    assert calls == ["shared-exp"]
 
 
 # ---------------------------------------------------------------- PostgreSQL: two projects race
@@ -893,3 +1135,54 @@ def test_the_registry_module_reexports_what_the_writers_need() -> None:
         "ExperimentNotClaimable",
     ):
         assert name in registry.__all__
+
+
+@pytest.mark.skipif(not POSTGRES_TEST_URL, reason="the race needs PostgreSQL")
+def test_postgresql_two_administrators_resolving_one_quarantine_exactly_one_wins(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, tracking: FakeTracking
+) -> None:
+    with _postgres(tmp_path, monkeypatch) as factory:
+        with factory() as session:
+            session.add(
+                CaliberExperimentOwner(
+                    tracking_backend=tracking_backend(),
+                    experiment_id="7",
+                    scope_kind="",
+                    scope_id="",
+                    status="quarantined",
+                    provenance="legacy",
+                    claimed_by="@m",
+                )
+            )
+            session.commit()
+        barrier = threading.Barrier(4)
+        outcomes: list[str] = []
+        lock = threading.Lock()
+
+        def decide(index: int) -> None:
+            barrier.wait(10)
+            with factory() as session:
+                try:
+                    resolve_quarantine(
+                        session, "7", scope=("project", f"P-{index % 2}"), actor=f"@admin{index}"
+                    )
+                    session.commit()
+                    result = f"won:{index}"
+                except LookupError:
+                    session.rollback()
+                    result = "lost"
+            with lock:
+                outcomes.append(result)
+
+        threads = [threading.Thread(target=decide, args=(i,), daemon=True) for i in range(4)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join(30)
+        assert sorted(o.split(":")[0] for o in outcomes) == ["lost", "lost", "lost", "won"], (
+            outcomes
+        )
+        winner = next(o for o in outcomes if o.startswith("won")).split(":")[1]
+        with factory() as session:
+            row = session.query(CaliberExperimentOwner).one()
+            assert row.resolved_by == f"@admin{winner}" and row.status == "active"

@@ -46,7 +46,7 @@ class AssistantPublisher:
     never on raw model output.
     """
 
-    def __init__(self, *, reference_profile: bool = False) -> None:
+    def __init__(self, *, reference_profile: bool) -> None:
         #: Reference profile: a workflow's experiment claim must have trusted provenance (see
         #: ``caliber.observability.experiment_registry``).
         self._reference_profile = reference_profile
