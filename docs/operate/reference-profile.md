@@ -816,8 +816,21 @@ Reading a manifest back (`read_context_manifest`) re-checks the digest, the sche
 `unknown_version`, never read as the nearest) and every rule above, so a reordered or relabelled record is caught twice,
 by its digest and by its positions. Refusals carry a stable code: `invalid_manifest`, `unknown_version`, `tier_violation`,
 `unauthorized_payload`, `ordering`, `tokens`, `authorization_rejected`, `duplicate_revision`, `revision_gap`. Nothing here
-talks to a provider and nothing creates manifests during a run yet: wiring creation into the runtime's context assembly
-is B07.3b (#710), and B08 consumes the record.
+talks to a provider.
+
+**Recorded for every agent step (B07.3b, #710).** For an admitted run in the reference profile the worker hands the runtime a
+recorder (`caliber.context.assembly.context_recorder_for`, built together with the source guard), and the runtime calls it with
+every agent step's context (the step's instructions and skills, its history, each input with the node that produced it)
+**before any of it reaches the provider**, for every agent and every handoff target, in child workflows too. The recorder
+labels the assembly: the agent's own instructions are the only `instruction` tier; the history is `history` data; text a
+knowledge query delivered is `retrieved_text` (one segment per version it read, citing the `context.read` decision the guard
+recorded when it authorized that version); the run's own input is `user_input`; anything else is `tool_output` of the node that
+produced it. It builds, validates and stores the manifest (its own short transaction, committed) as revision 1 of a fresh
+step request. If it cannot (an unknown or unauthorized source, a refused manifest) the step **does not run**: the node fails,
+the run ends `context_denied` and the provider was never called. A document that says "ignore all previous instructions" is
+therefore recorded as data and reaches the agent as input, never as part of its instructions (scenario V03). Token counts
+are an accounting estimate (four characters a token); enforcing a budget on a provider call is B08. Legacy runs and
+development have no recorder.
 
 ## Policy decisions
 

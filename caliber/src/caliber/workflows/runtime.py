@@ -96,6 +96,7 @@ from caliber.workflows.ir import (
     IRWebhook,
     IRWorkflow,
     NodeType,
+    PromptRef,
 )
 from caliber.workflows.sandbox import TokenBudget, make_preview_callable
 from caliber.workflows.session_memory import HistoryMessage, WorkflowSessionMemoryStore
@@ -2190,6 +2191,32 @@ DEFAULT_PARALLEL_BRANCH_MAX_WORKERS = 8
 _NODE_DEADLINE_GRACE_SECONDS = 0.25
 
 
+@dataclass(frozen=True)
+class AgentContextInput:
+    """One input an agent step is given, with where it came from (B07.3b, #710).
+
+    ``origin_node_type`` is the producing node's type (``start`` when the text is the run's own input); for a knowledge
+    query ``origin_result`` is the query's result, which names the versions it read.
+    """
+
+    port: str
+    text: str
+    origin_node_id: str | None = None
+    origin_node_type: str | None = None
+    origin_result: dict[str, Any] | None = None
+
+
+@dataclass(frozen=True)
+class AgentContextAssembly:
+    """Everything an agent step is about to be given, in order, before any of it reaches the provider."""
+
+    node_id: str
+    instructions: PromptRef | None
+    skill_instructions: tuple[str, ...]
+    history: tuple[HistoryMessage, ...]
+    inputs: tuple[AgentContextInput, ...]
+
+
 @dataclass
 class RuntimePlan:
     """Everything the interpreter needs to execute a workflow version."""
@@ -2206,6 +2233,8 @@ class RuntimePlan:
     ) = None
     knowledge_query_runner: Callable[[dict[str, Any]], dict[str, Any]] | None = None
     knowledge_build_runner: Callable[[dict[str, Any]], dict[str, Any]] | None = None
+    #: Called with each agent step's context before the provider sees any of it (B07.3b); raising refuses the step.
+    context_recorder: Callable[[AgentContextAssembly], None] | None = None
     review_queue_enqueuer: Callable[[dict[str, Any]], dict[str, Any]] | None = None
     # Outbound HTTP sender for Webhook nodes. ``None`` -> the httpx-backed default
     # (``_default_webhook_sender``); tests inject a fake to avoid real network I/O.
@@ -4121,12 +4150,46 @@ def _trim_message_history(
     return [dict(item) for item in trimmed]
 
 
+def _agent_context_inputs(
+    ir: IRWorkflow,
+    node: IRAgent,
+    inputs: dict[str, Any],
+    port_values: dict[tuple[str, str], Any],
+    run_input: str,
+) -> tuple[AgentContextInput, ...]:
+    """The agent's inputs with their origin (the edge that delivered each, or the run's own input)."""
+
+    def text_of(value: Any) -> str:
+        return value if isinstance(value, str) else json.dumps(value, default=str, sort_keys=True)
+
+    found: list[AgentContextInput] = []
+    for port, value in inputs.items():
+        if port == "history":
+            continue  # the history is recorded as history, not as an input
+        edge = next((e for e in ir.edges if e.to_node == node.node_id and e.to_input == port), None)
+        origin = ir.nodes.get(edge.from_node) if edge is not None else None
+        result = port_values.get((edge.from_node, "result")) if edge is not None else None
+        found.append(
+            AgentContextInput(
+                port=port,
+                text=text_of(value),
+                origin_node_id=edge.from_node if edge is not None else None,
+                origin_node_type=origin.node_type.value if origin is not None else None,
+                origin_result=result if isinstance(result, dict) else None,
+            )
+        )
+    if not found:
+        found.append(AgentContextInput(port="input", text=run_input, origin_node_type="start"))
+    return tuple(found)
+
+
 def _run_agent_with_history(
     plan: RuntimePlan,
     executor: WorkflowExecutor,
     agent: IRAgent,
     input_text: str,
     *,
+    context_inputs: tuple[AgentContextInput, ...] | None = None,
     explicit_history: list[HistoryMessage] | None = None,
     handoff_agents: ResolvedHandoffAgents | None = None,
     tool_callables: dict[str, Callable[..., Any]],
@@ -4142,6 +4205,18 @@ def _run_agent_with_history(
             session_id=key[2],
         )
     history = _merge_message_history(stored, explicit)
+    if plan.context_recorder is not None:
+        # The context is recorded, authorized and validated before the provider sees any of it: a refusal raises here.
+        plan.context_recorder(
+            AgentContextAssembly(
+                node_id=agent.node_id,
+                instructions=agent.instructions,
+                skill_instructions=tuple(agent.skill_instructions),
+                history=tuple(history),
+                inputs=context_inputs
+                or (AgentContextInput(port="input", text=input_text, origin_node_type="start"),),
+            )
+        )
     result = _run_agent_traced(
         executor,
         agent,
@@ -6561,6 +6636,11 @@ def _run_node(  # noqa: PLR0911, PLR0912, PLR0915 - per-node-type dispatch
             executor,
             node,
             agent_input,
+            context_inputs=(
+                _agent_context_inputs(ir, node, inputs, port_values, run_input)
+                if plan.context_recorder is not None
+                else None
+            ),
             explicit_history=explicit_history,
             handoff_agents=handoff_agents,
             tool_callables=callables,
@@ -6659,6 +6739,18 @@ def _run_node(  # noqa: PLR0911, PLR0912, PLR0915 - per-node-type dispatch
                 executor,
                 target,
                 target_input,
+                context_inputs=(
+                    (
+                        AgentContextInput(
+                            port="input",
+                            text=target_input,
+                            origin_node_id=current_agent.node_id,
+                            origin_node_type="agent",
+                        ),
+                    )
+                    if plan.context_recorder is not None
+                    else None
+                ),
                 explicit_history=target_explicit_history,
                 handoff_agents=t_handoff_agents,
                 tool_callables=t_callables,

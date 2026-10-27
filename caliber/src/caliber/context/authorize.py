@@ -153,33 +153,46 @@ def _commit_quietly(session: Session) -> None:
         session.rollback()
 
 
-def source_guard_for(
-    session_factory: Callable[[], Session],
-    identity: Subject,
-    run_manifest: Mapping[str, Any],
-    grant_id: str,
-    *,
-    policy: Policy = REFERENCE_POLICY_V1,
-) -> Callable[[str], None]:
-    """A guard for ``promoter.build_plan(source_guard=...)``: called with a knowledge-base ``version_id`` before it is
-    read, it authorizes that exact source for this run in its own short transaction (committed whether it allows or
-    denies, so the decision is on record) and raises :class:`ContextDenied` to refuse. A version that does not exist
-    has no knowledge base to name and is refused like any source the grant does not list."""
+class SourceGuard:
+    """The callable ``promoter.build_plan(source_guard=...)`` takes, remembering the decision that allowed each version.
 
-    def guard(version_id: str) -> None:
+    Called with a knowledge-base ``version_id`` before it is read, it authorizes that exact source for this run in its
+    own short transaction (committed whether it allows or denies, so the decision is on record) and raises
+    :class:`ContextDenied` to refuse. A version that does not exist has no knowledge base to name and is refused like
+    any source the grant does not list. ``decisions`` maps each allowed version to its decision id: the context
+    manifest cites them (B07.3b).
+    """
+
+    def __init__(
+        self,
+        session_factory: Callable[[], Session],
+        identity: Subject,
+        run_manifest: Mapping[str, Any],
+        grant_id: str,
+        *,
+        policy: Policy = REFERENCE_POLICY_V1,
+    ) -> None:
+        self._session_factory = session_factory
+        self._identity = identity
+        self._run_manifest = run_manifest
+        self._grant_id = grant_id
+        self._policy = policy
+        self.decisions: dict[str, str] = {}
+
+    def __call__(self, version_id: str) -> None:
         try:
-            with session_factory() as session:
+            with self._session_factory() as session:
                 try:
                     row = session.get(CaliberKnowledgeBaseVersion, version_id)
                     knowledge_base_id = row.knowledge_base_id if row is not None else ""
-                    authorize_source(
+                    authorization = authorize_source(
                         session,
-                        identity,
-                        run_manifest,
-                        grant_id,
+                        self._identity,
+                        self._run_manifest,
+                        self._grant_id,
                         knowledge_base_id,
                         version_id,
-                        policy=policy,
+                        policy=self._policy,
                     )
                 except ContextDenied:
                     _commit_quietly(
@@ -193,8 +206,19 @@ def source_guard_for(
                 session.commit()
         except SQLAlchemyError:
             raise ContextDenied(AUTHORITY_UNAVAILABLE) from None
+        self.decisions[version_id] = authorization.decision.decision_id
 
-    return guard
+
+def source_guard_for(
+    session_factory: Callable[[], Session],
+    identity: Subject,
+    run_manifest: Mapping[str, Any],
+    grant_id: str,
+    *,
+    policy: Policy = REFERENCE_POLICY_V1,
+) -> SourceGuard:
+    """A :class:`SourceGuard` for one admitted run."""
+    return SourceGuard(session_factory, identity, run_manifest, grant_id, policy=policy)
 
 
 __all__ = [
@@ -205,6 +229,7 @@ __all__ = [
     "SOURCE_NOT_APPROVED",
     "ContextAuthorization",
     "ContextDenied",
+    "SourceGuard",
     "authorize_source",
     "source_guard_for",
 ]

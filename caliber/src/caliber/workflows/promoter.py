@@ -91,6 +91,7 @@ from caliber.workflows.manifest import (
 )
 from caliber.workflows.runtime import (
     DEFAULT_PARALLEL_BRANCH_MAX_WORKERS,
+    AgentContextAssembly,
     AnthropicChatWorkflowExecutor,
     FakeWorkflowExecutor,
     NodeStep,
@@ -841,6 +842,7 @@ def build_plan(  # noqa: PLR0915 - central workflow plan assembler
     session_factory: sessionmaker[Session] | None = None,
     pinned_bundle: dict[str, Any] | None = None,
     source_guard: Callable[[str], None] | None = None,
+    context_recorder: Callable[[AgentContextAssembly], None] | None = None,
 ) -> RuntimePlan:
     """Compile and wrap a version into an executable :class:`RuntimePlan`.
 
@@ -851,6 +853,9 @@ def build_plan(  # noqa: PLR0915 - central workflow plan assembler
     ``source_guard`` (B07.2) is called with each knowledge-base ``version_id`` a knowledge query is about to read,
     *before* the retrieval service is touched, and raises to refuse (the node then fails and nothing was loaded). It is
     passed down to child workflows. The worker supplies it for admitted runs in the reference profile.
+
+    ``context_recorder`` (B07.3b) is called with each agent step's context before the provider sees any of it and
+    raises to refuse the step; it is passed down to child workflows. The worker supplies it with ``source_guard``.
 
     ``manifest_override`` compiles an in-memory manifest *instead of* the stored
     ``version.manifest`` — used by preview-run to execute an unsaved canvas edit
@@ -1047,6 +1052,7 @@ def build_plan(  # noqa: PLR0915 - central workflow plan assembler
             config=config,
             session_factory=runtime_session_factory,
             source_guard=source_guard,
+            context_recorder=context_recorder,
         )
         run_ctx = current_run_context()
         execution_result = execute(
@@ -1268,6 +1274,7 @@ def build_plan(  # noqa: PLR0915 - central workflow plan assembler
         subworkflow_runner=_run_subworkflow,
         knowledge_query_runner=_run_knowledge_query,
         knowledge_build_runner=_run_knowledge_build,
+        context_recorder=context_recorder,
         review_queue_enqueuer=_enqueue_review,
         session_memory_store=session_memory_store,
         subworkflow_depth=subworkflow_depth,
