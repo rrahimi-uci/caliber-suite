@@ -12,10 +12,28 @@ new entry in :func:`reference_profile_violations` with a code the tests pin.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Final
 
 from caliber.config import CaliberConfig
 from caliber.testing.fault_barriers import ENV_VAR as FAULT_BARRIERS_ENV
 from caliber.testing.fault_barriers import armed_barriers
+
+#: The parts of a trace that can hold personal data: a span's ``inputs`` and ``outputs`` and the tool arguments,
+#: retrieved documents and model output recorded in its attributes (B11.4b, #677). In the reference profile a caller
+#: who may see that a trace exists but may not read its payloads (``trace.payload.read``) gets each of these as
+#: ``[redacted:<field>]``; the keys stay, so the shape of the trace is not a secret, the contents are.
+GOVERNED_TRACE_FIELDS: Final[tuple[str, ...]] = (
+    "inputs",
+    "outputs",
+    "attributes.tool_arguments",
+    "attributes.retrieved_documents",
+    "attributes.model_output",
+)
+
+
+def payload_governance_active(config: object) -> bool:
+    """Whether trace payloads are governed (redacted unless the caller may read them): the reference profile."""
+    return getattr(config, "profile", "") == "reference"
 
 
 @dataclass(frozen=True)
