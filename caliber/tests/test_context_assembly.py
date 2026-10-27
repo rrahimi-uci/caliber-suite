@@ -239,7 +239,7 @@ def test_retrieved_text_from_an_unknown_source_is_refused(
     recorder = assembly_module.context_recorder_for(
         client.app.state.session_factory,
         {"workflow_run_id": world.run_id, "project_id": PROJECT},
-        object(),  # type: ignore[arg-type]
+        type("G", (), {"decisions": {}})(),  # type: ignore[arg-type]
     )
     for result in (None, {"resolved_version_ids": ["KBV-nope"]}):
         with pytest.raises(ContextDenied) as caught:
@@ -247,6 +247,7 @@ def test_retrieved_text_from_an_unknown_source_is_refused(
                 AgentContextAssembly(
                     node_id="agent",
                     instructions=None,
+                    instruction_text="",
                     skill_instructions=(),
                     history=(),
                     inputs=(
@@ -275,6 +276,7 @@ def test_the_other_origins_are_labelled_by_what_produced_them(
         AgentContextAssembly(
             node_id="handoff",
             instructions=PromptRef(kind="mlflow_prompt", registry_name="support", version=3),
+            instruction_text="the prompt as resolved",
             skill_instructions=("skill text",),
             history=({"role": "user", "content": "earlier"},),
             inputs=(
@@ -297,29 +299,36 @@ def test_the_other_origins_are_labelled_by_what_produced_them(
         ("history", "data", "history"),
         ("user_input", "data", "input"),
         ("tool_output", "data", "tool_node"),
-        ("tool_output", "data", "unknown"),
+        ("tool_output", "data", "inline:handoff"),
     ]
 
 
-def test_inputs_keep_their_origin_structured_values_are_canonical_and_history_is_not_an_input() -> (
-    None
-):
+def test_the_provider_input_keeps_its_origin_and_nothing_else_is_recorded_as_input() -> None:
     from types import SimpleNamespace
 
+    edges = [
+        SimpleNamespace(to_node="agent", to_input="input", from_node="code", from_output="out"),
+        SimpleNamespace(to_node="agent", to_input="input", from_node="other", from_output="out"),
+    ]
     ir = SimpleNamespace(
-        edges=[SimpleNamespace(to_node="agent", to_input="data", from_node="code")],
-        nodes={"code": SimpleNamespace(node_type=SimpleNamespace(value="python_code"))},
+        edges=edges,
+        nodes={
+            "code": SimpleNamespace(node_type=SimpleNamespace(value="python_code")),
+            "other": SimpleNamespace(node_type=SimpleNamespace(value="agent")),
+        },
     )
     node = SimpleNamespace(node_id="agent")
+    value = {"b": 2, "a": 1}
+    # both edges target the port; only the second carried a value, and that is the one the agent was given
     found = runtime_module._agent_context_inputs(  # type: ignore[arg-type]
         ir,
         node,
-        {"data": {"b": 2, "a": 1}, "history": [{"role": "user", "content": "x"}]},
-        {},
-        "run input",
+        {"input": value, "history": [{"role": "user", "content": "x"}]},
+        {("other", "out"): value},
+        "sent",
     )
     assert [(i.port, i.text, i.origin_node_id, i.origin_node_type) for i in found] == [
-        ("data", '{"a": 1, "b": 2}', "code", "python_code")
+        ("input", "sent", "other", "agent")
     ]
     only_history = runtime_module._agent_context_inputs(  # type: ignore[arg-type]
         ir, node, {"history": []}, {}, "the run's own input"
@@ -327,3 +336,140 @@ def test_inputs_keep_their_origin_structured_values_are_canonical_and_history_is
     assert [(i.text, i.origin_node_type) for i in only_history] == [
         ("the run's own input", "start")
     ]
+
+
+def test_an_item_an_inline_agent_runs_on_is_not_the_runs_own_input() -> None:
+    from types import SimpleNamespace
+
+    ir = SimpleNamespace(
+        edges=[],
+        nodes={
+            "each": SimpleNamespace(
+                target_node_id="agent", node_type=SimpleNamespace(value="for_each")
+            ),
+            "agent": SimpleNamespace(node_type=SimpleNamespace(value="agent")),
+        },
+    )
+    node = SimpleNamespace(node_id="agent")
+    (wired,) = runtime_module._agent_context_inputs(ir, node, {"input": "an item"}, {}, "an item")  # type: ignore[arg-type]
+    (bare,) = runtime_module._agent_context_inputs(ir, node, {}, {}, "an item")  # type: ignore[arg-type]
+    assert (wired.origin_node_type, bare.origin_node_type) == (None, None)
+    assert runtime_module._is_inline_target(ir, "agent") and not runtime_module._is_inline_target(
+        ir, "each"
+    )  # type: ignore[arg-type]
+
+
+def _recorded_decision(world: AgentWorld) -> str:
+    (row,) = world.manifests()
+    record = load_context_manifest(world.db, world.run_id, row.step_request_id).record  # type: ignore[union-attr]
+    (retrieved,) = [s for s in record["segments"] if s["kind"] == "retrieved_text"]
+    return retrieved["authorization_decision_id"]
+
+
+def test_a_query_that_publishes_no_result_cites_the_versions_the_run_authorized(
+    client: TestClient, db_session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from caliber.workflows.runtime import AgentContextAssembly, AgentContextInput
+
+    world = _make_world(client, db_session, monkeypatch)
+    world.tick()
+    decision = _recorded_decision(world)
+    recorder = assembly_module.context_recorder_for(
+        client.app.state.session_factory,
+        {"workflow_run_id": world.run_id, "project_id": PROJECT},
+        type("G", (), {"decisions": {VERSION: decision}})(),  # type: ignore[arg-type]
+    )
+    recorder(
+        AgentContextAssembly(
+            node_id="agent",
+            instructions=None,
+            instruction_text="",
+            skill_instructions=(),
+            history=(),
+            inputs=(AgentContextInput("input", "an answer", "knowledge", "knowledge_query", None),),
+        )
+    )
+    record = load_context_manifest(
+        db_session, world.run_id, world.manifests()[-1].step_request_id
+    ).record  # type: ignore[union-attr]
+    (retrieved,) = [s for s in record["segments"] if s["kind"] == "retrieved_text"]
+    assert retrieved["source"]["version_id"] == VERSION
+    assert retrieved["authorization_decision_id"] == decision
+
+
+def test_a_long_history_is_one_segment_and_a_long_node_id_keeps_its_step_id_unique(
+    client: TestClient, db_session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from caliber.workflows.runtime import AgentContextAssembly, AgentContextInput
+
+    world = _make_world(client, db_session, monkeypatch)
+    recorder = assembly_module.context_recorder_for(
+        client.app.state.session_factory,
+        {"workflow_run_id": world.run_id, "project_id": PROJECT},
+        type("G", (), {"decisions": {}})(),  # type: ignore[arg-type]
+    )
+    node_id = "n" * 128
+    assembly = AgentContextAssembly(
+        node_id=node_id,
+        instructions=None,
+        instruction_text="",
+        skill_instructions=(),
+        history=tuple({"role": "user", "content": f"turn {i}"} for i in range(700)),
+        inputs=(AgentContextInput("input", "hello", None, "start"),),
+    )
+    recorder(assembly)
+    recorder(assembly)  # the same node again, concurrently or after a retry
+    first, second = world.manifests()
+    assert first.step_request_id != second.step_request_id and len(first.step_request_id) <= 128
+    segments = load_context_manifest(db_session, world.run_id, first.step_request_id).record[
+        "segments"
+    ]  # type: ignore[union-attr]
+    assert [s["kind"] for s in segments] == ["history", "user_input"]
+
+
+def test_a_database_failure_while_recording_is_a_typed_refusal_without_the_sql(
+    client: TestClient, db_session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from sqlalchemy.exc import OperationalError
+
+    from caliber.context.authorize import ContextDenied
+    from caliber.workflows.runtime import AgentContextAssembly, AgentContextInput
+
+    world = _make_world(client, db_session, monkeypatch)
+
+    def locked(*_a: Any, **_k: Any) -> Any:
+        raise OperationalError("SELECT secret FROM t WHERE x = :p", {"p": "v"}, Exception("locked"))
+
+    monkeypatch.setattr(assembly_module, "next_revision", locked)
+    recorder = assembly_module.context_recorder_for(
+        client.app.state.session_factory,
+        {"workflow_run_id": world.run_id, "project_id": PROJECT},
+        type("G", (), {"decisions": {}})(),  # type: ignore[arg-type]
+    )
+    with pytest.raises(ContextDenied) as caught:
+        recorder(
+            AgentContextAssembly(
+                node_id="agent",
+                instructions=None,
+                instruction_text="",
+                skill_instructions=(),
+                history=(),
+                inputs=(AgentContextInput("input", "hello", None, "start"),),
+            )
+        )
+    assert caught.value.code == "authority_unavailable"
+    assert "SELECT" not in str(caught.value) and caught.value.__cause__ is None
+
+
+def test_only_a_context_denied_error_gets_the_context_denied_code(
+    client: TestClient, db_session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    world = _make_world(client, db_session, monkeypatch)
+
+    def other_failure(*_a: Any, **_k: Any) -> Any:
+        raise RuntimeError("the word ContextDenied: appears in an unrelated failure")
+
+    monkeypatch.setattr(assembly_module, "store_context_manifest", other_failure)
+    world.tick()
+    run = world.run()
+    assert (run.status, run.error_code) == ("failed", "runtime_error")

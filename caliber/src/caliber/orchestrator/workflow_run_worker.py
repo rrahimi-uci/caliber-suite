@@ -2045,7 +2045,7 @@ class WorkflowRunWorker:
                 result=result,
                 # a refused context source keeps its own code (the reasons are in the summary)
                 error_code="context_denied"
-                if "ContextDenied" in (result.error or "")
+                if (result.error or "").startswith("ContextDenied: ")
                 else "runtime_error",
                 error_summary=result.error or "workflow runtime failed",
             )
