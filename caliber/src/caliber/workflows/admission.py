@@ -112,6 +112,8 @@ class AdmissionSettings:
     rule_bundle_path: str = ""
     rule_bundle_sha256: str = ""
     llm_provider: str = "fake"
+    #: The model an agent that says ``inherit`` gets (``llm_diagnosis_model``); pinned as ``provider/model``.
+    default_model: str = ""
 
     @classmethod
     def from_config(cls, config: Any) -> AdmissionSettings:
@@ -131,6 +133,7 @@ class AdmissionSettings:
             rule_bundle_path=path,
             rule_bundle_sha256=digest,
             llm_provider=str(getattr(config, "llm_provider", "fake") or "fake"),
+            default_model=str(getattr(config, "llm_diagnosis_model", "") or ""),
         )
 
 
@@ -213,6 +216,18 @@ def _dependencies(
             BUNDLE_UNAVAILABLE,
             f"the version has unresolved dependencies and cannot be pinned: {unresolved[:5]}",
         )
+    unsealed_children = sorted(
+        str(item.get("reference"))
+        for item in dependencies
+        if item.get("kind") == "subworkflow"
+        and not (isinstance(item.get("snapshot"), dict) and item["snapshot"].get("bundle_digest"))
+    )
+    if unsealed_children:
+        raise AdmissionDenied(
+            BUNDLE_UNAVAILABLE,
+            "a child workflow has no sealed bundle to pin (publish it, then compile this version again): "
+            f"{unsealed_children[:5]}",
+        )
     resolved = bundle["resolved_manifest"]  # verify_bundle guarantees an object
     return verification.digest, dependencies, deepcopy(resolved)
 
@@ -276,11 +291,16 @@ def _model_routes(version: CaliberWorkflowVersion, settings: AdmissionSettings) 
         manifest = parse_manifest(version.manifest)
     except Exception as exc:  # a stored version whose manifest no longer parses cannot be pinned
         raise AdmissionDenied(BUNDLE_UNAVAILABLE, "the version's manifest cannot be read") from exc
+    agents = [node for node in manifest.nodes.values() if isinstance(node, AgentNode)]
     routes |= {
         f"{settings.llm_provider}/{node.model}"
-        for node in manifest.nodes.values()
-        if isinstance(node, AgentNode) and node.model not in INHERITED_MODEL
+        for node in agents
+        if node.model not in INHERITED_MODEL
     }
+    if settings.default_model and any(node.model in INHERITED_MODEL for node in agents):
+        # An agent that says ``inherit`` runs on the deployment's default model: pin it, so changing it later is
+        # a change the worker refuses (``model_route_changed``) rather than one the run silently follows.
+        routes.add(f"{settings.llm_provider}/{settings.default_model}")
     return tuple(sorted(routes))
 
 

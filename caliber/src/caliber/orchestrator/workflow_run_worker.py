@@ -1566,6 +1566,7 @@ class WorkflowRunWorker:
                     version_row,
                     manifest_snapshot,
                     llm_provider=str(getattr(self._config, "llm_provider", "") or "fake"),
+                    default_model=str(getattr(self._config, "llm_diagnosis_model", "") or ""),
                 )
             except PinsError as exc:
                 self._mark_failed(session, run, error_code=exc.code, error_summary=str(exc))

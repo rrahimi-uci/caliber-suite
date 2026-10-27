@@ -15,6 +15,7 @@ from typing import Any
 import pytest
 
 import caliber.orchestrator.workflow_run_worker as worker_module
+import caliber.workflows.promoter as promoter_module
 from caliber.db.models import (
     CaliberKnowledgeBase,
     CaliberKnowledgeBaseVersion,
@@ -46,9 +47,20 @@ def _call(
     )
 
 
-def _manifest(workflow_id: str, kind: str) -> dict[str, Any]:
+def _manifest(workflow_id: str, kind: str, child: tuple[str, str] | None = None) -> dict[str, Any]:
     manifest = make_manifest(workflow_id)
     agent = manifest["nodes"]["agent"]
+    if kind == "child":
+        assert child is not None
+        manifest["nodes"]["agent"] = {
+            "id": "agent",
+            "type": "subworkflow",
+            "workflow_id": child[0],
+            "alias": "manual",
+            "version_id": child[1],
+            "inputs": {"input": {"type": "string"}},
+            "outputs": {"final_output": {"type": "string"}},
+        }
     if kind == "prompt":
         manifest["artifacts"] = {
             "prompts": {"main": {"registry_name": "pins-prompt", "alias": "prod"}}
@@ -91,7 +103,7 @@ class Captured:
 @pytest.fixture
 def captured(monkeypatch: pytest.MonkeyPatch) -> Captured:
     seen = Captured()
-    real = worker_module.build_plan
+    real = promoter_module.build_plan
 
     def capture(*args: Any, **kwargs: Any) -> Any:
         plan = real(*args, **kwargs)
@@ -99,6 +111,9 @@ def captured(monkeypatch: pytest.MonkeyPatch) -> Captured:
         return plan
 
     monkeypatch.setattr(worker_module, "build_plan", capture)
+    monkeypatch.setattr(
+        promoter_module, "build_plan", capture
+    )  # a child workflow's plan is built there
     return seen
 
 
@@ -111,6 +126,21 @@ def _admit(app: ReferenceApp, kind: str, prompts: dict[str, str]) -> tuple[str, 
     app.client.app.state.config = app.client.app.state.config.model_copy(  # type: ignore[attr-defined]
         update={"workflow_run_queue_enabled": True, "admission_enabled": True}
     )
+    child: tuple[str, str] | None = None
+    if kind == "child":
+        # The child is its own published workflow: an agent that uses the skill.
+        child_workflow = _call(
+            app, "POST", "/workflows", {"name": "V10 the child workflow"}
+        ).json()["data"]["workflow_id"]
+        child_manifest = make_manifest(child_workflow)
+        child_manifest["nodes"]["agent"]["skills"] = [SKILL]
+        draft = _call(
+            app, "POST", f"/workflows/{child_workflow}/versions", {"manifest": child_manifest}
+        )
+        assert draft.status_code == 201, draft.text
+        child_version = draft.json()["data"]["version_id"]
+        assert _call(app, "POST", f"/workflow-versions/{child_version}/publish").status_code == 200
+        child = (child_workflow, child_version)
     created = _call(app, "POST", "/workflows", {"name": f"V10 {kind}"})
     assert created.status_code == 201, created.text
     workflow_id = created.json()["data"]["workflow_id"]
@@ -118,7 +148,7 @@ def _admit(app: ReferenceApp, kind: str, prompts: dict[str, str]) -> tuple[str, 
         app,
         "POST",
         f"/workflows/{workflow_id}/versions",
-        {"manifest": _manifest(workflow_id, kind)},
+        {"manifest": _manifest(workflow_id, kind, child)},
     )
     assert draft.status_code == 201, draft.text
     version_id = draft.json()["data"]["version_id"]
@@ -157,7 +187,7 @@ def _run(app: ReferenceApp, run_id: str) -> CaliberWorkflowRun:
 
 def _seed(app: ReferenceApp, kind: str) -> None:
     """What must exist before admission for the kind of pin under test."""
-    if kind == "skill":
+    if kind in {"skill", "child"}:
         with app.session_factory() as session:
             session.add(
                 CaliberSkill(
@@ -213,7 +243,7 @@ def _move_the_world(app: ReferenceApp, kind: str, prompt: dict[str, Any]) -> Non
     """Change what the pin names, after admission."""
     if kind == "prompt":
         prompt.update(text=PROMPT_V2, version=2)
-    elif kind == "skill":
+    elif kind in {"skill", "child"}:
         with app.session_factory() as session:
             skill = session.get(CaliberSkill, "SK-pins")
             assert skill is not None
@@ -244,14 +274,14 @@ def _assert_unchanged(kind: str, plan: Any) -> None:
     agent = _agent(plan)
     if kind == "prompt":
         assert agent.instructions is not None and agent.instructions.inline_text == PROMPT_V1
-    elif kind == "skill":
+    elif kind in {"skill", "child"}:
         assert agent.skill_instructions and all(SKILL_V1 in t for t in agent.skill_instructions)
         assert not any(SKILL_V2 in t for t in agent.skill_instructions)
     else:
         assert [t.version_constraint for t in agent.tools] == ["==1.0"], "the pinned tool version"
 
 
-@pytest.mark.parametrize("kind", ["prompt", "skill", "kb", "tool", "model_route"])
+@pytest.mark.parametrize("kind", ["prompt", "skill", "child", "kb", "tool", "model_route"])
 def test_alias_change_after_admission_is_ignored(
     kind: str,
     reference_app: ReferenceApp,

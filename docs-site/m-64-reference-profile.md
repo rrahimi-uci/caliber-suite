@@ -310,18 +310,31 @@ as such, never gain a manifest, and keep today's execution path.
 
 **Executing an admitted run (B02.2b, #683).** The worker reads the run's manifest back
 (`workflows/run_pins.py::load_run_manifest`: digest, schema and run id checked) and executes only what it pinned. It
-builds the plan from the version's *sealed* bundle, never from a live lookup, so a moved deployment alias, a prompt
-alias pointing at new text, a skill with new content, a newer tool version or a different active knowledge-base
-version changes nothing about a run that was admitted before it (scenario V10). Anything that cannot be ignored
-fails the run closed with a named code instead of running on something else:
+builds the plan from the version's *sealed* bundle (its resolved manifest and embedded skill snapshots), so a moved
+deployment alias, a prompt alias pointing at new text, a skill with new content or a different active knowledge-base
+version changes nothing about a run that was admitted before it (scenario V10). What the bundle only *names* is
+verified against the registry before anything is built, and a mismatch fails the run closed with a named code
+instead of running on something else: each registered tool's definition (module, callable, backend, side-effect level,
+approval flag, named secrets), each MCP tool's discovered schema and policy, each child workflow (a published version
+whose own sealed bundle is the pinned digest, checked down the whole tree), the provider and the default model an
+`inherit` agent gets.
 
 | error code | meaning and recovery |
 | --- | --- |
 | `manifest_missing` | an admitted run has no manifest (never produced by admission, which stores both or neither): the run is not dispatched |
 | `manifest_corrupt` | the stored manifest does not read back or names another run: treat as corruption of immutable evidence |
 | `pins_mismatch` | the run's version, or the manifest it would execute, is not the pinned one |
-| `pins_changed` | the version no longer exists or was recompiled after admission (its sealed bundle is not the pinned digest): submit a new run |
-| `model_route_changed` | the deployment's model provider is no longer one the run was pinned to: restore the provider or submit a new run |
+| `pins_changed` | the version, a tool, an MCP tool or a child workflow is not what was pinned (recompiled, edited in place, removed, archived or unpublished): submit a new run |
+| `model_route_changed` | the deployment's provider, or the default model an `inherit` agent would get, is not one the run was pinned to: restore it or submit a new run |
+
+Admission refuses a version whose child workflow has no sealed bundle to pin (`409 bundle_unavailable`: publish the
+child, then compile the parent again).
+
+**Still live at run time, said plainly:** the deployment's other model settings (reasoning effort, base URL, API
+choice, parallel tool calls, prompt cache), MCP server addresses and credentials, the values behind named secrets,
+the embedding and chat models of knowledge nodes, and the contents of files and datasets that the bundle identifies by
+digest or version rather than embeds. A recompile of a version after a run is admitted fails that run (even one parked
+waiting for approval), by design.
 
 Not done by the worker yet: checking the run's *grant* and policy decision at each effect, and fencing each transition
 with the execution lease (#684, #685).

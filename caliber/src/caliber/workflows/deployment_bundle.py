@@ -259,6 +259,12 @@ def _dataset_snapshot(
     }
 
 
+def _child_bundle_digest(target: CaliberWorkflowVersion) -> str | None:
+    compiled = target.compiled_bundle if isinstance(target.compiled_bundle, dict) else {}
+    sealed = compiled.get("deployment_bundle")
+    return sealed_digest(sealed) if isinstance(sealed, dict) else None
+
+
 def _resolution_identity(session: Session, version: CaliberWorkflowVersion) -> CaliberIdentity:
     """`db.scoping.synthetic_identity`, keyed off the workflow a version
     belongs to -- there is no live requester identity at compile/promote
@@ -267,6 +273,31 @@ def _resolution_identity(session: Session, version: CaliberWorkflowVersion) -> C
     owner = workflow.owner if workflow is not None else ""
     project_id = workflow.project_id if workflow is not None else None
     return synthetic_identity(owner, project_id)
+
+
+def tool_snapshot(entry: Any) -> dict[str, Any]:
+    """The part of a registered tool a bundle pins: what runs, how it is allowed to, and which secrets it names.
+
+    Shared by the bundle (at compile) and the worker's pin check (at run), so the two cannot drift apart.
+    """
+    return {
+        "name": entry.name,
+        "version": entry.version,
+        "module_path": entry.module_path,
+        "callable_name": entry.callable_name,
+        "execution_backend": entry.execution_backend,
+        "input_schema": entry.input_schema,
+        "output_schema": entry.output_schema,
+        "side_effect_level": entry.side_effect_level,
+        "requires_approval": entry.requires_approval,
+        "secret_refs": sorted(entry.secret_refs),
+    }
+
+
+def sealed_digest(bundle: Any) -> str | None:
+    """The digest of a version's sealed deployment bundle when it verifies, else ``None``."""
+    verification = verify_bundle(bundle)
+    return verification.digest if verification.valid else None
 
 
 def build_deployment_bundle(  # noqa: PLR0912, PLR0915 - dependency inventory
@@ -392,18 +423,7 @@ def build_deployment_bundle(  # noqa: PLR0912, PLR0915 - dependency inventory
                 )
             else:
                 resolved_manifest["tools"][local_name]["version_constraint"] = f"=={entry.version}"
-                snapshot = {
-                    "name": entry.name,
-                    "version": entry.version,
-                    "module_path": entry.module_path,
-                    "callable_name": entry.callable_name,
-                    "execution_backend": entry.execution_backend,
-                    "input_schema": entry.input_schema,
-                    "output_schema": entry.output_schema,
-                    "side_effect_level": entry.side_effect_level,
-                    "requires_approval": entry.requires_approval,
-                    "secret_refs": sorted(entry.secret_refs),
-                }
+                snapshot = tool_snapshot(entry)
                 dependencies.append(
                     _dependency(
                         kind="tool",
@@ -655,6 +675,10 @@ def build_deployment_bundle(  # noqa: PLR0912, PLR0915 - dependency inventory
                     "version_id": target.version_id,
                     "version_number": target.version_number,
                     "manifest_hash": target.manifest_hash,
+                    # What the child itself was pinned to when this bundle was sealed: the worker verifies
+                    # it before running the parent (B02.2b), so the child's own prompts, tools and skills
+                    # cannot move under an admitted run.
+                    "bundle_digest": _child_bundle_digest(target),
                 }
                 if target is not None
                 else None
