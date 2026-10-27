@@ -279,7 +279,7 @@ This task stores and checks grants; it makes no policy decision and records none
 In the reference profile exactly one process holds the execution-owner lease and only the holder runs the background
 loops ([ADR 0002](https://github.com/rrahimi-uci/caliber-suite/blob/main/docs/architecture/adr/0002-execution-ownership.md)). B13.2 (#668; `caliber/src/caliber/ownership.py`,
 migration `0116`, table `caliber_execution_owner`) is the lease and its fencing token; the lifespan wiring that makes
-the loops obey it (and the public-path scenario) is #673, so today nothing acquires it. What it guarantees:
+the loops obey it is B13.3 (#673, below). What the lease guarantees:
 
 - **Database time.** Expiry is decided by the database's clock (`clock_timestamp()`, so a long transaction does not
   see a lapsed lease as live) inside the statement that tests it; a process's own clock never extends a lease.
@@ -302,12 +302,34 @@ the loops obey it (and the public-path scenario) is #673, so today nothing acqui
   resurrects the lease; the process must acquire again and gets a new token.
 - **Bounds (`LeaseError`).** `ttl_seconds` from 1 to 3600; `owner_id` at most 128 characters; the lease name at most 64.
 
-Guidance for the loop wiring (#673): renew every `ttl / 3` at most; keep fenced transactions much shorter than `ttl`
+Guidance for the loop wiring: renew every `ttl / 3` at most; keep fenced transactions much shorter than `ttl`
 minus the renewal interval (a fenced transaction blocks the owner's own renewal and every other fenced transition);
 give fenced and acquiring transactions a `SET LOCAL lock_timeout`, since a stuck session holding the row would block
 failover (`idle_in_transaction_session_timeout` bounds it too).
 
 A rollback (`caliber-migrate downgrade 0115`) drops the table; the next acquirer starts at token 1.
+
+### Who runs the loops (B13.3, #673)
+
+In the reference profile the loops start **only while this process holds the lease** and stop when it is lost
+(`caliber/src/caliber/execution_role.py`, wired in `server.py::_build_lifespan`):
+
+- **Owner or secondary.** At startup a process makes one attempt to acquire, so its role is known before the first
+  request, then ticks every `CALIBER_EXECUTION_LEASE_SECONDS / 3` (default lease 30 s, minimum 3 s). The holder
+  renews the exact lease it captured; a process that does not hold it keeps trying to acquire. `/readiness` carries
+  `execution_role`: `owner` while this process runs the loops, `secondary` while it only serves requests (the
+  event bus and every HTTP route run in both; no loop, webhook dispatcher, scheduler or worker runs in a secondary).
+- **Losing the lease fails closed.** A renewal that fails for any reason, an unreachable database included, stops
+  the loops first and only then reports `secondary`; the process tries to acquire again on later ticks and a fresh
+  acquisition has a higher token.
+- **Takeover.** When the owner dies its lease lapses by database time and a secondary becomes the owner within about
+  one lease; a clean shutdown stops the loops and releases the lease, so a rolling restart hands over at once.
+- **Heartbeats.** `caliber_worker_heartbeats` therefore lists owner-only workers from one process only (the holder's).
+- **Outside the reference profile** there is no lease: the loops start as before when background tasks are enabled
+  (role `owner`), and a process with background tasks disabled reports `secondary`.
+- **Not yet fenced per transition.** The loops still claim rows themselves; a loop mid-transition when the lease is
+  lost finishes that transition (bounded by `CALIBER_SHUTDOWN_GRACE_SECONDS`) before it stops. Fencing each
+  transition with `assert_fenced` arrives with the outbox (#685).
 
 ## Rule bundles
 

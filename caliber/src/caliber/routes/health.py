@@ -105,11 +105,14 @@ async def readiness(request: Request) -> JSONResponse:
         except Exception:
             queue_health = None
 
+    controller = getattr(request.app.state, "execution_role", None)
     report = await collect_readiness(
         config=config,
         session_factory=factory,
         environ=dict(os.environ),
         queue_health=queue_health,
+        # No controller means the lifespan has not run: no loop is running either.
+        execution_role=controller.role if controller is not None else "secondary",
     )
     return JSONResponse(
         {

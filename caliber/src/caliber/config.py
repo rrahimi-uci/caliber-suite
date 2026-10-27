@@ -677,6 +677,16 @@ class CaliberConfig(BaseModel):
         gt=0,
         description="Polling interval for the workflow cron scheduler (minute granularity).",
     )
+    execution_lease_seconds: float = Field(
+        default=30.0,
+        ge=3.0,
+        le=3600.0,
+        description=(
+            "Reference profile: how long the execution-owner lease lasts. The process holding it runs the "
+            "background loops and renews it every third of this; a process that cannot renew stops the loops, and "
+            "when the holder dies a secondary becomes the owner within about this long. At least 3 seconds."
+        ),
+    )
     workflow_run_lease_seconds: float = Field(
         default=60.0,
         gt=0,
@@ -2049,6 +2059,7 @@ _ENV_VAR_TABLE: list[tuple[str, str, Any]] = [
         "workflow_scheduler_interval_seconds",
         float,
     ),
+    ("CALIBER_EXECUTION_LEASE_SECONDS", "execution_lease_seconds", float),
     ("CALIBER_WORKFLOW_RUN_LEASE_SECONDS", "workflow_run_lease_seconds", float),
     ("CALIBER_WORKFLOW_QUEUE_MAX_AGE_SECONDS", "workflow_queue_max_age_seconds", float),
     ("CALIBER_SLO_OBJECTIVES", "slo_objectives", str),

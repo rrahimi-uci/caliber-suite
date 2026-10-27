@@ -39,9 +39,10 @@ Started in `caliber/src/caliber/server.py::create_app`'s lifespan. The ten worke
 `caliber/src/caliber/observability/worker_inventory.py`; the event bus (`start_bus()`) is started in the same
 lifespan but is invisible to that inventory, so it has its own row. **The decision:** in the reference profile
 exactly one process holds the execution-owner lease at a time and only the holder runs the workers; the others
-serve requests. The lease does not exist in code yet: today each worker claims individual jobs with their own
-lease (`workflow_run_lease_seconds`, `knowledge_build_lease_seconds`, `workspace_import_lease_seconds`). #536
-builds the process-level lease and the fencing token, and this record fixes who owns what once it does.
+serve requests. The lease is `caliber/src/caliber/ownership.py` (#668) and the lifespan obeys it
+(`caliber/src/caliber/execution_role.py`, #673); each worker still also claims individual jobs with its own lease
+(`workflow_run_lease_seconds`, `knowledge_build_lease_seconds`, `workspace_import_lease_seconds`), and fencing every
+transition with the token arrives with the outbox (#685). This record fixes who owns what.
 
 | background loop | owner | what it does |
 | --- | --- | --- |
