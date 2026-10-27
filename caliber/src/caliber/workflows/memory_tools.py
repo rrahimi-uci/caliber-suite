@@ -179,7 +179,7 @@ def bind_run_memory_tools(
     strict = config.profile == "reference"
     if strict and not user_id:
         return {}
-    owner: dict[str, str] = {"user_id": user_id} if strict and user_id else {}
+    owner: dict[str, Any] = {"user_id": user_id} if strict and user_id else {}
 
     holder: list[MemoryService] = []
 

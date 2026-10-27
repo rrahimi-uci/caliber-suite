@@ -225,9 +225,7 @@ def test_the_bare_user_namespace_is_qualified_by_the_active_project(
     from caliber.db.models import CaliberProject, CaliberProjectMember
 
     for project in ("P-a", "P-b"):
-        db_session.add(
-            CaliberProject(project_id=project, name=f"Project {project}", owner="@test")
-        )
+        db_session.add(CaliberProject(project_id=project, name=f"Project {project}", owner="@test"))
         db_session.add(
             CaliberProjectMember(
                 member_id=f"M-{project}",
