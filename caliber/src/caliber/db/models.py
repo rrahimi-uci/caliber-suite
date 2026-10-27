@@ -2235,9 +2235,7 @@ class CaliberRunGrant(Base):
     revoke_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
 
 
-guard_immutable(
-    CaliberRunGrant, mutable=frozenset({"revoked_at", "revoked_by", "revoke_reason"})
-)
+guard_immutable(CaliberRunGrant, mutable=frozenset({"revoked_at", "revoked_by", "revoke_reason"}))
 
 
 class CaliberWorkflowRunEvent(Base):

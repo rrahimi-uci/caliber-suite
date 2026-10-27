@@ -51,7 +51,9 @@ def guard_immutable(model: type, *, mutable: frozenset[str] = frozenset()) -> ty
             return  # touched but unchanged: no UPDATE would be sent
         state = sa_inspect(target)
         changed = {
-            attr.key for attr in state.mapper.column_attrs if state.attrs[attr.key].history.has_changes()
+            attr.key
+            for attr in state.mapper.column_attrs
+            if state.attrs[attr.key].history.has_changes()
         }
         if mutable and changed <= mutable:
             return

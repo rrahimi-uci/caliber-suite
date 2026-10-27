@@ -101,7 +101,10 @@ _EXPECTED_COUNTS = {
     # same project_only shape as its sibling CaliberReleaseOperation,
     # confirmed by direct look. It carries only a bare project_id derived
     # from its own agent_id's target, no visibility/owner column.
-    SCOPING_PROJECT_ONLY: 26,
+    # +1 (`B03.2`): CaliberRunGrant has a required project_id (the project the
+    # run acted in) and no visibility tier -- project_only, confirmed by direct
+    # look; its access is the exact run/grant id plus current project membership.
+    SCOPING_PROJECT_ONLY: 27,
 }
 
 

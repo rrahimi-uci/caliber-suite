@@ -166,6 +166,35 @@ Refusals raise `PrincipalError`; the recovery for each:
 | `subject must have exactly ['auth_method', 'user_id']; extra ['project_id'], missing []` | drop `project_id` from the manifest `subject` and pass it as `Subject.from_manifest(data, project_id=...)` |
 | `a pat subject needs its credential_id to become an identity` | pass `credential_id` (and `credential_project_id` when the token is bound) to `to_identity` |
 
+## Run grants
+
+A run acts under a grant (B03.2, #664; `caliber/src/caliber/policy/grants.py`, migration `0115`, table
+`caliber_run_grants`). It is bound to an exact run and an exact grant id, to the run's subject and workload
+([run principals](#run-principals-subject-and-workload)), to a project, to explicit sets of allowed actions and
+resources, to the policy version it was issued under and to an expiry. Issuing one is part of admission (#680); this
+page lists what the store and the check guarantee:
+
+- **Exact identifiers, no fallback.** Every check names the run id *and* the grant id. There is no "newest grant"
+  and no ambient one; a different run, an unknown grant and a mismatch are all `grant_not_found`, so ids cannot be
+  probed.
+- **Explicit sets.** Actions and resources match exactly: no wildcard, no prefix, no case folding, no ordering by
+  name or risk (`action_not_allowed`, `resource_not_allowed`).
+- **Rechecked every time, in this order:** `grant_revoked`, `grant_expired` (the expiry instant itself is expired),
+  `not_a_member` (the subject's *current* active membership of the grant's project; a removed, suspended or
+  deactivated member loses authority at once), then action and resource. A database failure while reading any of it
+  is `authority_unavailable`: a denial, never an allow.
+- **Revocation cannot be raced.** A check takes a row lock on the grant in the caller's transaction (`SELECT ... FOR
+  UPDATE` on PostgreSQL) and a revocation takes the same lock, so a revocation waits for a check in flight and a check
+  that starts after it sees it. Run the transition a check guards in the same transaction as the check.
+- **Immutable but for revocation, in the database.** Triggers refuse changing any column but the three revocation
+  fields (`caliber_run_grants is immutable except for revocation`), refuse any change once revoked (`a revoked grant
+  stays revoked`) and refuse `DELETE` (`TRUNCATE` too on PostgreSQL; `PUBLIC` is revoked `DELETE` and `TRUNCATE`).
+  The ORM refuses the same with `ImmutableRecordError`. As with run manifests, run the application as a role
+  without `DELETE` or `TRUNCATE` on the table; the profile does not check which role it uses.
+
+This task stores and checks grants; it makes no policy decision and records none (B03.3 and B03.5). A rollback
+(`caliber-migrate downgrade 0114`) drops the table and therefore the grants, never the runs.
+
 ## Not enforced yet
 
 ADR 0001 describes the whole reference shape; this table is what the *process* checks today. Not checked:
