@@ -95,6 +95,27 @@ missing differs, and neither case is a profile refusal:
 
 The database must be migrated (`caliber-migrate`) before the first start.
 
+## A stored secret never leaves the platform
+
+`caliber/tests/test_secret_canary.py` (B12.5b, #666) stores `EGI_CANARY_<uuid4>` as `egi-canary` through the
+encrypted secret store, points `llm_api_key_env` at `secret://egi-canary`, and runs the core journey over HTTP with
+logging at DEBUG: sign in (the trusted proxy header), create a project, register an agent, publish, promote and run
+a workflow, run a **calibration run** to a candidate and **apply** it, read the LLM provider status (which resolves
+the secret inside the request; the test fails if nothing in the journey did), and export the audit log, plus refused
+requests. It fails if the value appears in any response (status, headers, cookies, body; the helper calls too), any
+log record (message, arguments, `extra` fields as the JSON formatter renders them, traceback), any
+`caliber_workflow_run_events` row or any audit row. The failure paths of resolution (a revoked secret, corrupted
+ciphertext, a provider built from a revoked secret) are scanned the same way, and a control test plants the value in
+every scanned surface to prove the scan can fail. It runs in the Backend core job and the full backend suite.
+
+Not covered: the prompt *registry* routes and MLflow traces need a live MLflow registry, which ordinary CI does
+not have; the journey's prompts are the agent prompts in the workflow manifest, which the calibration run rewrites.
+Sign-in by session login is covered by `test_auth_sessions`, not by this journey.
+
+Running it found that `CALIBER_LOG_LEVEL=DEBUG` with the default S3 log sink recursed: the S3 client's own DEBUG
+records re-entered the handler, so each record caused a growing number of S3 writes. The handler now ignores records
+emitted while it delivers a batch.
+
 ## Run manifests are written once
 
 Migration `0114` adds `caliber_run_manifests` (B02.1a, #656): one row per workflow run holding the canonical
@@ -171,7 +192,7 @@ Refusals raise `PrincipalError`; the recovery for each:
 ADR 0001 describes the whole reference shape; this table is what the *process* checks today. Not checked:
 
 - **The shape itself:** one tenant and region, MLflow addressed by `MLFLOW_TRACKING_URI`, an S3-compatible object store, at least two projects, and one real model provider next to the scripted adapter. Readiness reporting for MLflow and the object store is #535. The PostgreSQL version and the `pgvector` extension are checked by the migrations (migration `0060`) and the migration-parity CI job, not by the profile.
-- **Request bounds and the secret canary** (#533). ADR 0001 also names origin rules for #533, but #533 has no allowed-origins task yet; that rule is not scheduled.
+- **Origin rules** (#533). ADR 0001 names them, but #533 has no allowed-origins task yet; that rule is not scheduled.
 - **The trusted-connector set** (#534), **refusing code-execution paths and the full attack pack** (#535), **a single execution owner** (#536) and **the Apply separation-of-duties flag** (#589).
 - **Cookie flags:** `auth_session_cookie_secure` is not checked.
 - **The database role:** whether the application connects as a role without `UPDATE`, `DELETE` or `TRUNCATE` on `caliber_run_manifests` (see "Run manifests are written once").
