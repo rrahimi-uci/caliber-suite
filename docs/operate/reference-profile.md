@@ -155,6 +155,31 @@ manifest-less runs are pruned and deleted as before. A rollback (`caliber-migrat
 and therefore the manifests, never the runs; upgrading again starts with no manifests and marks every existing run
 legacy.
 
+## Run principals: subject and workload
+
+A run acts as two distinct principals, defined as immutable values in `caliber/src/caliber/policy/principal.py`
+(B03.1, #657). The **subject** is who started it: `user_id`, `auth_method` (`session`, `pat` or `trusted_header`)
+and, as server-side context only, the project. The **workload** is what runs: a name and one workflow-version
+digest. The workload id is `wl_` plus the full 64-hex SHA-256 digest; it is derived, never chosen, and a manifest
+that carries any other id is refused. Only `user_id` and `auth_method` are written for the subject: a `project_id`
+in a manifest `subject` is refused. The types are pure; persisting them (#680) and resolving them for a run
+(#684) come later, so this page lists no setting for them.
+
+The types are stricter than the manifest schema, which accepts any non-empty string: a workload digest must be a
+full bare SHA-256, and an id, name or grant id may not contain control, format or line-separator characters. A
+`user_id` that `caliber.auth` would treat as anonymous (`anonymous`, any case, or one containing a comma) is
+refused, and so is any scope `caliber.auth` does not define. A `pat` subject becomes an identity only with its
+`credential_id` (and the token's `credential_project_id` when it is bound), so a project binding is never dropped.
+
+Refusals raise `PrincipalError`; the recovery for each:
+
+| refusal | recovery |
+| --- | --- |
+| `workload_id must be the one derived from the full workflow_version_digest` | build it with `Workload.for_workflow(name, digest)`; never copy an id from elsewhere |
+| `workflow_version_digest must be a full lowercase 64-hex SHA-256 digest` | pass the workflow version's whole bare digest, not a prefix, uppercase or `sha256:` form; a version with no digest (a legacy version) cannot be a workload |
+| `subject must have exactly ['auth_method', 'user_id']; extra ['project_id'], missing []` | drop `project_id` from the manifest `subject` and pass it as `Subject.from_manifest(data, project_id=...)` |
+| `a pat subject needs its credential_id to become an identity` | pass `credential_id` (and `credential_project_id` when the token is bound) to `to_identity` |
+
 ## Not enforced yet
 
 ADR 0001 describes the whole reference shape; this table is what the *process* checks today. Not checked:
