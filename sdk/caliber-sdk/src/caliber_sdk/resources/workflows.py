@@ -315,7 +315,7 @@ class WorkflowRunsAPI(Resource):
     def admission_manifest(self, run_id: str) -> AdmissionManifest:
         """The immutable manifest the run was *admitted* with: its pins, who started it and why, and
         the digest of its canonical bytes. Distinct from :meth:`manifest` (the workflow manifest the
-        run executed). A legacy run has none: ``legacy`` is true and ``run_manifest`` is ``None``."""
+        run executed). A legacy run has none: ``legacy`` is true, ``run_manifest`` is ``None``."""
         return decode(AdmissionManifest, self._get(f"/workflow-runs/{run_id}/admission-manifest"))
 
     def checkpoints(self, run_id: str, **params: Any) -> Any:
