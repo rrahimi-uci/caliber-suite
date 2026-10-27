@@ -1553,3 +1553,70 @@ def test_a_corrupt_or_missing_admission_manifest_is_a_409(
         response = client.get(f"{ADMISSION_PREFIX}/workflow-runs/{admitted_id}/admission-manifest")
         assert response.status_code == 409 and "manifest_missing" in response.json()["detail"]
     assert db_session.get(CaliberWorkflowRun, admitted_id) is not None
+
+
+def test_a_caller_who_can_see_the_run_but_has_no_project_role_cannot_read_its_admission_manifest(
+    client: Any, db_session: Any
+) -> None:
+    """Visibility is not membership: a public workflow's runs are visible to anyone, the admission evidence is not."""
+    from caliber.db.models import CaliberProjectMember, CaliberWorkflow, CaliberWorkflowRun
+
+    admitted_id, legacy_id = _admitted_and_legacy(client, db_session)
+    run = db_session.get(CaliberWorkflowRun, admitted_id)
+    assert run is not None
+    workflow = db_session.get(CaliberWorkflow, run.workflow_id)
+    assert workflow is not None
+    workflow.visibility = "public"
+    db_session.commit()
+    outsider = {"X-CALIBER-User": "@mallory"}
+    for run_id in (admitted_id, legacy_id):
+        seen = client.get(f"{ADMISSION_PREFIX}/workflow-runs/{run_id}", headers=outsider)
+        assert seen.status_code == 200, "the run itself is visible"
+        denied = client.get(
+            f"{ADMISSION_PREFIX}/workflow-runs/{run_id}/admission-manifest", headers=outsider
+        )
+        assert denied.status_code == 404, denied.text
+        assert denied.json()["detail"] == f"workflow run {run_id!r} not found", (
+            "no project is named"
+        )
+
+    # a viewer in the project may read it
+    db_session.add(
+        CaliberProjectMember(
+            member_id="M-viewer",
+            project_id=run.project_id,
+            user_id="@viewer",
+            role="viewer",
+            created_by="@test",
+        )
+    )
+    db_session.commit()
+    allowed = client.get(
+        f"{ADMISSION_PREFIX}/workflow-runs/{admitted_id}/admission-manifest",
+        headers={"X-CALIBER-User": "@viewer"},
+    )
+    assert allowed.status_code == 200, allowed.text
+    assert allowed.json()["data"]["legacy"] is False
+
+
+def test_a_stored_manifest_that_is_not_canonical_cannot_be_checked_and_is_a_409(
+    client: Any, db_session: Any, monkeypatch: Any
+) -> None:
+    import caliber.routes.workflow_runs as routes
+    from caliber.workflows.run_pins import RunPins
+
+    admitted_id, _ = _admitted_and_legacy(client, db_session)
+    real = routes.load_run_manifest
+
+    def different_digest(session: Any, run_id: str) -> Any:
+        loaded = real(session, run_id)
+        return RunPins(
+            manifest_id=loaded.manifest_id,
+            digest="0" * 64,
+            record=loaded.record,
+            pins=loaded.pins,
+        )
+
+    monkeypatch.setattr(routes, "load_run_manifest", different_digest)
+    response = client.get(f"{ADMISSION_PREFIX}/workflow-runs/{admitted_id}/admission-manifest")
+    assert response.status_code == 409 and "manifest_corrupt" in response.json()["detail"]

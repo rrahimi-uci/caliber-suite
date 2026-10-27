@@ -215,3 +215,15 @@ def test_admission_manifest_hits_its_own_path_and_decodes_the_typed_record() -> 
     assert admitted.run_manifest == {"pins": {"workflow_version": "WFV-1"}}
     assert admitted.extra == {"future_field": 1}
     assert legacy.legacy is True and legacy.run_manifest is None and legacy.manifest_digest is None
+
+
+def test_an_admission_manifest_that_does_not_say_whether_it_is_legacy_is_not_read_as_admitted() -> (
+    None
+):
+    def handler(request: httpx.Request) -> httpx.Response:
+        return envelope({"workflow_run_id": "WFR-1"})
+
+    with client_with(handler) as caliber:
+        unknown = caliber.workflows.runs.admission_manifest("WFR-1")
+
+    assert unknown.legacy is None and unknown.run_manifest is None

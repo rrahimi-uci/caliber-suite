@@ -203,13 +203,17 @@ Two endpoints, two different manifests; neither changes the other.
 | `GET /workflow-runs/{run_id}/admission-manifest` (new) | the run's immutable **admission** manifest: `workflow_run_id`, `schema_version`, `legacy`, `manifest_id`, `run_manifest` (the stored record verbatim: pins, subject, workload, purpose, scope, grant id, request digest) and `manifest_digest` (the SHA-256 of its canonical bytes, so a reader can check it). |
 
 The new endpoint needs the same access as reading the run (a run you cannot see is `404`, indistinguishable from a
-missing one) plus `read` on its project. A **legacy** run (admission was off, or a path that is not admitted) answers
-`200` with `legacy: true` and `schema_version`, `manifest_id`, `run_manifest` and `manifest_digest` all `null`: no
-history is fabricated. An admitted run whose stored manifest does not read back or is missing is `409`
-(`manifest_corrupt` / `manifest_missing`). The SDK has `client.workflows.runs.admission_manifest(run_id)` (sync) and
-`client.workflows.admission_manifest(run_id)` (async), returning an `AdmissionManifest`; the console API client has
-`getWorkflowRunAdmissionManifest`. `run_manifest` carries the configured rule-bundle path when one is pinned; treat
-the endpoint as project-member-visible evidence.
+missing one) **plus** a role in the run's project (`read`): a caller who can see a run, for example through a public
+workflow, but has no role in its project also gets that same `404`, never the project's name. A run with no project is
+gated by the workflow's visibility alone. A **legacy** run (admission was off, or a path that is not admitted)
+answers `200` with `legacy: true` and `schema_version`, `manifest_id`, `run_manifest` and `manifest_digest` all `null`:
+no history is fabricated. An admitted run whose stored manifest does not read back, is missing or is not in
+canonical form (so its digest could not be checked) is `409` (`manifest_corrupt` / `manifest_missing`). The SDK has
+`client.workflows.runs.admission_manifest(run_id)` (sync) and `client.workflows.admission_manifest(run_id)` (async),
+returning an `AdmissionManifest` (`legacy` is `None`, never "admitted", when the server did not say); the console API
+client has `getWorkflowRunAdmissionManifest`. `run_manifest` is the stored record verbatim, so it carries the
+subject's user id, the grant id, the request digest and, when a rule bundle is pinned, **its absolute server path**:
+treat the endpoint as project-member-visible evidence.
 
 ### Building a manifest (admission, #676)
 

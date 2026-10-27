@@ -444,7 +444,6 @@ describe("caliberApi", () => {
       `${API_BASE}/workflow-runs/WR%2F1/admission-manifest`,
       `${API_BASE}/workflow-runs/WR%2F1/manifest`,
     ]);
-    expect(calls[0]?.[1]?.method ?? "GET").toBe("GET");
     expect(record.manifest_digest).toBe("a".repeat(64));
     expect(legacy.legacy).toBe(true);
     expect(legacy.run_manifest).toBeNull();

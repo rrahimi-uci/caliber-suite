@@ -43,6 +43,7 @@ from caliber.routes._deps import (
     parse_json_object,
     scoped_child_or_404,
 )
+from caliber.run_manifest import canonical_bytes, digest_of
 from caliber.schemas import (
     AdmissionManifestSchema,
     RuntimeApprovalAckSchema,
@@ -1231,7 +1232,17 @@ async def get_workflow_run_admission_manifest(request: Request) -> JSONResponse:
     factory = get_session_factory(request)
     with factory() as session:
         run = _get_run_or_404(session, run_id, request=request)
-        require_project_access_if_scoped(session, resolve_identity(request), run.project_id, "read")
+        try:
+            require_project_access_if_scoped(
+                session, resolve_identity(request), run.project_id, "read"
+            )
+        except HTTPException as exc:
+            if exc.status_code != 404:  # noqa: PLR2004 - HTTP not found
+                raise
+            # A run you can see but whose project you have no role in is, for this evidence, a run that is not there.
+            raise HTTPException(
+                status_code=404, detail=f"workflow run {run_id!r} not found"
+            ) from exc
         if run.manifest_legacy:
             data = AdmissionManifestSchema(workflow_run_id=run.workflow_run_id, legacy=True)
         else:
@@ -1243,6 +1254,12 @@ async def get_workflow_run_admission_manifest(request: Request) -> JSONResponse:
                 raise HTTPException(
                     status_code=409,
                     detail="manifest_missing: this admitted run has no stored manifest",
+                )
+            if digest_of(canonical_bytes(loaded.record)) != loaded.digest:
+                raise HTTPException(
+                    status_code=409,
+                    detail="manifest_corrupt: the stored manifest is not in canonical form, so its digest "
+                    "cannot be checked against the record",
                 )
             data = AdmissionManifestSchema(
                 workflow_run_id=run.workflow_run_id,
