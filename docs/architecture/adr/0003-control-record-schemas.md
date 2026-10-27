@@ -71,9 +71,10 @@ RunManifest: what a workflow run was pinned to and who started it.
 | `legacy` | boolean | no | false when absent; true for a run that predates manifests |
 | `rule_bundle_path` | string or null | no | written by #525 |
 | `rule_bundle_sha256` | string or null | no | written by #525 |
+| `request_digest` | string (64 lowercase hex) or null | no | SHA-256 of the canonical admission intent (workflow, release and version selectors as named, input, purpose, server-derived scope); absent on a manifest written before #687 |
 | `created_at` | string (RFC 3339 date-time) | yes | when the manifest was written |
 
-`project_id` was added to `run_manifest` v1 in place by #676. ADR 0003 requires readers to be upgraded before a writer
+`project_id` (#676) and `request_digest` (#687) were added to `run_manifest` v1 in place. ADR 0003 requires readers to be upgraded before a writer
 emits a new optional field, and this schema is strict (`additionalProperties: false`), so a build that predates the
 field would reject a manifest carrying it. That rule holds here because no manifest writer existed before admission
 (#680, #684): the first writer and the reader that understands the field (`caliber.run_manifest.read_manifest`) ship

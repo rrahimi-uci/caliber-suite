@@ -258,6 +258,90 @@ def test_alias_move_preserves_pins(client: TestClient, db_session: Session) -> N
     assert sorted(pins) == sorted([first_version, second_version])
 
 
+def test_the_manifest_records_the_request_digest_and_it_is_the_authority_on_retry(
+    client: TestClient, db_session: Session
+) -> None:
+    _enable(client)
+    workflow_id, _ = _project_workflow(client, db_session)
+    first = _run(client, workflow_id, input="hello", idempotency_key="k-digest")
+    assert first.status_code == 202, first.text
+    run = db_session.get(CaliberWorkflowRun, first.json()["data"]["workflow_run_id"])
+    assert run is not None
+    stored = dict((run.summary or {})["admission_intent"])
+    assert stored["purpose"] == "workflow_run:api"
+    assert stored["scope"] == {
+        "tenant_id": "local",
+        "project_id": PROJECT,
+        "region": "local",
+        "residency": "local",
+    }
+    record = read_manifest(
+        bytes(db_session.execute(select(CaliberRunManifest)).scalar_one().manifest_bytes)
+    )
+    assert record["request_digest"] == admission.request_digest_of(stored)
+
+    # The run summary is mutable and the manifest is not: rewriting the summary's intent to another request's
+    # neither makes the other request match nor makes the original one a conflict.
+    other = _intent(
+        workflow_id=workflow_id, alias="manual", actor="@test", input_text="bye", source="api"
+    )
+    run.summary = {**(run.summary or {}), "admission_intent": other}
+    db_session.commit()
+    assert _run(client, workflow_id, input="hello", idempotency_key="k-digest").status_code == 202
+    assert _run(client, workflow_id, input="bye", idempotency_key="k-digest").status_code == 409
+    assert _counts(db_session)[CaliberRunManifest.__tablename__] == 1
+
+
+def test_the_request_digest_covers_the_purpose_and_the_scope() -> None:
+    base = _intent()
+    digest = admission.request_digest_of(base)
+    assert digest == admission.request_digest_of(dict(reversed(list(base.items())))), "key order"
+    assert len(digest) == 64 and digest == digest.lower()
+    assert admission.request_digest_of(_intent(source="retry")) != digest, "another purpose"
+    assert admission.request_digest_of(_intent(project_id="P-other")) != digest, "another scope"
+    assert admission.request_digest_of(_intent(input_text="other")) != digest
+    assert admission.request_digest_of(_intent(alias="manual")) != digest
+
+
+def test_a_retry_falls_back_when_the_manifest_has_no_digest_and_refuses_an_unreadable_one(
+    client: TestClient, db_session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # A run that claims a manifest but has none stored (or one written before the field) is compared on its summary.
+    run = _existing(
+        manifest_legacy=False, summary={"admission_intent": _intent()}, created_by="@test"
+    )
+    check_retry_intent(db_session, run, _intent())
+    with pytest.raises(AdmissionDenied):
+        check_retry_intent(db_session, run, _intent(input_text="other"))
+
+    _enable(client)
+    workflow_id, _ = _project_workflow(client, db_session)
+    assert _run(client, workflow_id, idempotency_key="k-unreadable").status_code == 202
+    original = db_session.execute(select(CaliberRunManifest)).scalar_one()
+    admitted = db_session.get(CaliberWorkflowRun, original.workflow_run_id)
+    assert admitted is not None
+
+    def unreadable(*args: Any, **kwargs: Any) -> Any:
+        raise admission.ManifestError("invalid_manifest", "the digest does not match")
+
+    monkeypatch.setattr(admission, "read_manifest", unreadable)
+    with pytest.raises(AdmissionDenied) as caught:
+        check_retry_intent(db_session, admitted, _intent(workflow_id=workflow_id))
+    assert caught.value.status == 500 and caught.value.code == "manifest_refused"
+    monkeypatch.undo()
+    old = {
+        k: v
+        for k, v in read_manifest(bytes(original.manifest_bytes)).items()
+        if k != "request_digest"
+    }
+    monkeypatch.setattr(admission, "read_manifest", lambda *a, **k: old)
+    admitted.summary = {
+        **(admitted.summary or {}),
+        "admission_intent": {"workflow_id": workflow_id},
+    }
+    check_retry_intent(db_session, admitted, _intent(workflow_id=workflow_id)), "an older manifest"
+
+
 def test_policy_denial_rolls_back_all(
     client: TestClient, db_session: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -607,6 +691,7 @@ def test_a_credential_or_active_project_that_is_not_the_workflows_is_refused(
                 source="api",
                 now=datetime.now(timezone.utc),
                 run_tenant_id="local",
+                intent=_intent(workflow_id=workflow_id),
             )
         assert caught.value.status == 403, identity
     bound = replace(_identity(kind="pat"), credential_project_id=PROJECT, credential_id="PAT-1")
@@ -618,6 +703,7 @@ def test_a_credential_or_active_project_that_is_not_the_workflows_is_refused(
         source="api",
         now=datetime.now(timezone.utc),
         run_tenant_id="local",
+        intent=_intent(workflow_id=workflow_id),
     )
 
 
@@ -1045,6 +1131,7 @@ def test_a_version_with_no_digest_cannot_form_a_workload(
             source="api",
             now=datetime.now(timezone.utc),
             run_tenant_id="local",
+            intent=_intent(workflow_id=workflow_id),
         )
     assert caught.value.code == "workload_unavailable"
 
@@ -1063,6 +1150,7 @@ def test_a_project_in_another_organization_is_refused(
             source="api",
             now=datetime.now(timezone.utc),
             run_tenant_id="other-org",
+            intent=_intent(workflow_id=workflow_id),
         )
     assert caught.value.code == "manifest_refused" and "organization_switch" in str(caught.value)
 
@@ -1078,6 +1166,7 @@ def test_a_mismatched_run_is_not_persisted(client: TestClient, db_session: Sessi
         source="api",
         now=datetime.now(timezone.utc),
         run_tenant_id="local",
+        intent=_intent(workflow_id=workflow_id),
     )
     legacy = CaliberWorkflowRun(
         workflow_run_id=prepared.run_id,
@@ -1122,9 +1211,9 @@ def _intent(**changes: Any) -> dict[str, Any]:
     return intent_of(**{**base, **changes})
 
 
-def test_a_retry_must_be_the_request_that_created_the_run() -> None:
+def test_a_retry_must_be_the_request_that_created_the_run(db_session: Session) -> None:
     admitted = _existing(summary={"admission_intent": _intent()}, created_by="@test")
-    check_retry_intent(admitted, _intent())
+    check_retry_intent(db_session, admitted, _intent())
     for change in (
         {"workflow_id": "WF-2"},
         {"alias": "manual"},
@@ -1141,12 +1230,12 @@ def test_a_retry_must_be_the_request_that_created_the_run() -> None:
         {"session_id": "S-1"},
     ):
         with pytest.raises(AdmissionDenied) as caught:
-            check_retry_intent(admitted, _intent(**change))
+            check_retry_intent(db_session, admitted, _intent(**change))
         assert caught.value.status == 409 and caught.value.code == "intent_conflict", change
 
     # A run admitted without a recorded intent is compared on the fields its own row keeps.
     legacy = _existing(created_by="@test")
-    check_retry_intent(legacy, _intent())
+    check_retry_intent(db_session, legacy, _intent())
     for change in (
         {"workflow_id": "WF-2"},
         {"alias": "manual"},
@@ -1156,11 +1245,11 @@ def test_a_retry_must_be_the_request_that_created_the_run() -> None:
         {"actor": "@bob"},
     ):
         with pytest.raises(AdmissionDenied):
-            check_retry_intent(legacy, _intent(**change))
+            check_retry_intent(db_session, legacy, _intent(**change))
     with_files = _existing(summary={"input_files": [{"file_id": "f1"}]}, created_by="@test")
-    check_retry_intent(with_files, _intent(input_files=[{"file_id": "f1"}]))
+    check_retry_intent(db_session, with_files, _intent(input_files=[{"file_id": "f1"}]))
     with pytest.raises(AdmissionDenied):
-        check_retry_intent(with_files, _intent())
+        check_retry_intent(db_session, with_files, _intent())
 
 
 def test_the_policy_and_grant_ttl_come_from_the_settings(

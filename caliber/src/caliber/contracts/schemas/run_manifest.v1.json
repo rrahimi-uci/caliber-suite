@@ -176,6 +176,14 @@
       "type": "string",
       "format": "date-time",
       "pattern": "^\\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\\d|3[01])T([01]\\d|2[0-3]):[0-5]\\d:([0-5]\\d|60)(\\.\\d+)?(Z|[+-]([01]\\d|2[0-3]):[0-5]\\d)\\Z"
+    },
+    "request_digest": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^[0-9a-f]{64}$",
+      "description": "SHA-256 of the canonical admission intent: the workflow, the release and version selectors the caller named (never what they resolved to), the input, the purpose, and the server-derived scope. Absent on manifests written before it existed; a retry of the run's idempotency key is compared with it."
     }
   },
   "required": [

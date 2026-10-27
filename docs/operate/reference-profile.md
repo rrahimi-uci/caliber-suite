@@ -242,6 +242,9 @@ built = build_run_manifest(
   absolute path and SHA-256 are recorded (make one `PinnedRuleBundle` per admission: it is a snapshot, not a handle on the file). Enabled without one is `rule_bundle_required`; one given while disabled is
   `rule_bundle_unexpected`. The digest in the manifest is the digest of the bytes that were verified, so editing the
   file afterwards changes nothing about this run (the context code re-verifies the bytes when it uses them, #736).
+- **The request digest.** `request_digest` (optional, 64 lowercase hex) is the SHA-256 of the canonical admission
+  intent (see "Admitting a run"). A malformed one is `bad_pin`. It is part of the sealed bytes, so it cannot change
+  after admission.
 - **The digest excludes itself.** `manifest_digest` is the SHA-256 of the canonical bytes (sorted keys, no
   whitespace, UTF-8, no `NaN`); the record carries no digest field.
 - **Self-consistent result.** `BuiltManifest` re-reads its own bytes on construction (digest, schema, UTF-8, no
@@ -295,7 +298,13 @@ synchronous real run (`POST /workflow-versions/{id}/run`) is never queued, so wi
    manifest when it is the same request from the same caller (same workflow, release selector, explicit version
    selector, input, files, project, release/environment/model, priority and session) even if the alias has since
    moved; any difference, including another caller, is a `409` (`intent_conflict`, one message for every
-   difference, so it is not an oracle). The intent is stored on the run. A key that names a run created while
+   difference, so it is not an oracle). "The same request" is the canonical *intent*: the workflow, the selectors as
+   named (never what they resolved to), the input, the purpose and the server-derived scope. Its SHA-256 is stored in
+   the immutable manifest as `request_digest` and the retry is compared with that, not with anything on the mutable
+   run row (the intent itself is also kept in the run's summary for diagnosis; a run admitted before the digest
+   existed is compared on that intent, a legacy run on the fields its own row keeps). A manifest that cannot be
+   read fails the retry closed (`500`, `manifest_refused`). The key's scope is (workflow, source, key), so the same
+   key from another source or in another project's workflow is a different request. A key that names a run created while
    admission was off returns that legacy run (it has no manifest). Two requests racing on one key admit exactly one
    run, and the loser gets the same answer a later retry would (PostgreSQL scenario).
 4. **Who and what.** The subject is the authenticated caller (`session`, `pat` or `trusted_header`), the workload is

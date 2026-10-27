@@ -140,6 +140,7 @@ def enqueue_workflow_run(  # noqa: PLR0912, PLR0915 - one insert path: idempoten
         config_sha256=config_sha256,
         priority=priority,
         session_id=session_id,
+        source=source,
     )
     existing = _find_idempotent(
         session,
@@ -149,7 +150,7 @@ def enqueue_workflow_run(  # noqa: PLR0912, PLR0915 - one insert path: idempoten
     )
     if existing is not None:
         if admitting:
-            check_retry_intent(existing, intent)
+            check_retry_intent(session, existing, intent)
         return existing, False
 
     tenant_id = "local"
@@ -174,6 +175,7 @@ def enqueue_workflow_run(  # noqa: PLR0912, PLR0915 - one insert path: idempoten
             source=source,
             now=now,
             run_tenant_id=tenant_id,
+            intent=intent,
         )
     manifest_snapshot = _clone_manifest(version.manifest)
     manifest_metadata = _saved_version_manifest_metadata(version)
@@ -234,7 +236,7 @@ def enqueue_workflow_run(  # noqa: PLR0912, PLR0915 - one insert path: idempoten
         )
         if duplicate is not None:
             if admitting:
-                check_retry_intent(duplicate, intent)
+                check_retry_intent(session, duplicate, intent)
             return duplicate, False
         raise
 

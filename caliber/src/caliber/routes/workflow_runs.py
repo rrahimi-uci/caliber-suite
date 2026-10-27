@@ -701,6 +701,7 @@ async def create_workflow_run(request: Request) -> JSONResponse:  # noqa: PLR091
             config_sha256=payload.config_sha256,
             priority=payload.priority,
             session_id=payload.session_id,
+            source="api",  # the route's own word, never the client-chosen ``source`` field
         )
         existing = _find_idempotent(
             session,
@@ -711,7 +712,7 @@ async def create_workflow_run(request: Request) -> JSONResponse:  # noqa: PLR091
         if existing is not None:
             if admission.enabled:
                 try:
-                    check_retry_intent(existing, intent)
+                    check_retry_intent(session, existing, intent)
                 except AdmissionDenied as exc:
                     raise _refuse_admission(session, exc) from exc
             return envelope_response(WorkflowRunSchema.model_validate(existing), status_code=202)
@@ -734,6 +735,7 @@ async def create_workflow_run(request: Request) -> JSONResponse:  # noqa: PLR091
                     source="api",  # the route's own word, never the client-chosen ``source`` field
                     now=now,
                     run_tenant_id=tenant_id,
+                    intent=intent,
                 )
             except AdmissionDenied as exc:
                 raise _refuse_admission(session, exc) from exc
@@ -789,7 +791,7 @@ async def create_workflow_run(request: Request) -> JSONResponse:  # noqa: PLR091
             if duplicate is not None:
                 if admission.enabled:
                     try:
-                        check_retry_intent(duplicate, intent)
+                        check_retry_intent(session, duplicate, intent)
                     except AdmissionDenied as denied:
                         raise _refuse_admission(session, denied) from denied
                 return envelope_response(
@@ -1452,6 +1454,16 @@ async def retry_workflow_run(request: Request) -> JSONResponse:  # noqa: PLR0912
                     source="retry",
                     now=now,
                     run_tenant_id=run.tenant_id or "local",
+                    intent=intent_of(
+                        workflow_id=run.workflow_id,
+                        alias=run.deployment_alias or "",
+                        actor=actor,
+                        input_text=retry_input_text,
+                        project_id=run.project_id,
+                        priority=int(run.priority or 0),
+                        session_id=run.session_id,
+                        source="retry",
+                    ),
                 )
             except AdmissionDenied as exc:
                 raise _refuse_admission(session, exc) from exc

@@ -437,13 +437,16 @@ def build_run_manifest(
     requested_tenant_id: str | None = None,
     rule_bundle: PinnedRuleBundle | None = None,
     rule_bundles_enabled: bool = False,
+    request_digest: str | None = None,
 ) -> BuiltManifest:
     """Build and validate the manifest of one run. Pure: raises :class:`ManifestError`, otherwise returns bytes.
 
     ``scope`` is the server's; ``requested_tenant_id`` is what the caller asked for, if anything, and must equal it
     (no organization switching). ``subject.project_id`` must equal ``scope.project_id``. When rule bundles are
     ``enabled`` a verified :class:`PinnedRuleBundle` is required and its digest and path are recorded; when they are
-    not, passing one is refused rather than silently ignored.
+    not, passing one is refused rather than silently ignored. ``request_digest``, when given, is the SHA-256 of the
+    canonical admission intent (:func:`caliber.workflows.admission.request_digest_of`); it is recorded so a retry of
+    the run's idempotency key is compared with something the run cannot lose or change.
     """
     if not isinstance(pins, ResolvedPins):
         raise ManifestError(BAD_PIN, "pins must be ResolvedPins")
@@ -498,6 +501,8 @@ def build_run_manifest(
     }
     if scope.project_id is not None:
         record["project_id"] = scope.project_id
+    if request_digest is not None:
+        record["request_digest"] = _digest("request_digest", request_digest)
     return _finish(record)
 
 
