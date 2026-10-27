@@ -1033,3 +1033,88 @@ def test_postgresql_a_revocation_racing_a_decision_waits_for_it(
         assert "error" not in outcome, outcome.get("error")
         assert outcome["committed_at"] > decided_at
         assert _decide(engine, run_id, grant_id).reason_codes == (GRANT_REVOKED,)
+
+
+# ---------------------------------------------------------------- the audit row of a decision (B03.5, #688)
+
+
+def _audit_rows(engine: Any) -> list[Any]:
+    from caliber.db.models import CaliberAuditLog
+
+    with Session(engine) as session:
+        return list(
+            session.query(CaliberAuditLog)
+            .filter(CaliberAuditLog.entity_type == "policy_decision")
+            .order_by(CaliberAuditLog.log_id)
+        )
+
+
+@pytest.mark.parametrize("dialect", DIALECTS)
+def test_every_recorded_decision_has_one_structured_audit_row(
+    dialect: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    with _migrated(dialect, tmp_path, monkeypatch) as (engine, _):
+        run_id = _seed(engine)
+        grant_id = _issue(engine, run_id)
+        allowed = _decide(engine, run_id, grant_id)
+        denied = _decide(engine, run_id, grant_id, action="release.approve")
+        allow_row, deny_row = _audit_rows(engine)
+        assert (allow_row.action, allow_row.severity, allow_row.entity_id) == (
+            "policy_allow",
+            "standard",
+            allowed.decision_id,
+        )
+        assert (deny_row.action, deny_row.severity, deny_row.entity_id) == (
+            "policy_deny",
+            "high",
+            denied.decision_id,
+        )
+        assert allow_row.actor == deny_row.actor == "alice"
+        assert deny_row.details == {
+            "run_id": run_id,
+            "grant_id": grant_id,
+            "workload_id": _workload().workload_id,
+            "action": "release.approve",
+            "resource": RESOURCE,
+            "purpose": PURPOSE,
+            "result": "deny",
+            "reason_codes": list(denied.reason_codes),
+            "policy_version": "policy-v1",
+            "input_hash": denied.input_hash,
+        }
+
+
+@pytest.mark.parametrize("dialect", DIALECTS)
+def test_a_decision_that_cannot_be_audited_is_a_denial_logged_with_its_ids(
+    dialect: str,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The policy outage case: the decision and its audit row are written together or not at all; when they cannot be,
+    nothing is allowed, neither row exists, and a structured log line names the decision and run."""
+    from sqlalchemy.exc import OperationalError
+
+    with _migrated(dialect, tmp_path, monkeypatch) as (engine, _):
+        run_id = _seed(engine)
+        grant_id = _issue(engine, run_id)
+
+        def down(*_a: Any, **_k: Any) -> Any:
+            raise OperationalError("INSERT", {}, Exception("audit store down"))
+
+        logged: list[dict[str, Any]] = []
+        monkeypatch.setattr(decisions, "audit_record", down)
+        monkeypatch.setattr(
+            decisions.logger,
+            "error",
+            lambda message, *, extra: logged.append({"message": message, **extra}),
+        )
+        outcome = _decide(engine, run_id, grant_id)
+        assert not outcome.allowed and outcome.persisted is False
+        assert outcome.reason_codes == (AUTHORITY_UNAVAILABLE,)
+        assert _decisions(engine) == [] and _audit_rows(engine) == []
+        (record,) = logged
+        assert record["decision_id"] == outcome.decision_id and record["run_id"] == run_id
+        assert record["grant_id"] == grant_id and record["result"] == "allow", (
+            "what was being decided"
+        )
+        assert PURPOSE not in str(record), "identifiers and reasons only"

@@ -704,6 +704,14 @@ are no foreign keys, so a decision about a grant that does not exist is still ev
   purpose, a naive `now`, or a non-`Subject` raises `DecisionInputError` and records nothing.
 - **Immutable.** Triggers refuse `UPDATE` and `DELETE` (`TRUNCATE` too on PostgreSQL) and the ORM raises
   `ImmutableRecordError`; as with run manifests, run the application as a role without those privileges.
+- **Audited (B03.5, #688).** Every recorded decision also writes one audit-log row through `audit.record`, in the
+  decision's own savepoint, so the two exist together: `action` is `policy_allow` (severity `standard`) or
+  `policy_deny` (severity `high`), `actor` the subject, `entity_type` `policy_decision`, `entity_id` the decision id,
+  and `details` the run, grant and workload ids, the action, resource and purpose, the result, the reason codes, the
+  policy version and the input hash. The run's input, context and any secret are never in it (and the audit log's
+  redactor runs over it anyway). If the decision and its audit row cannot be written (the store is down) the answer
+  is an unrecorded deny (`authority_unavailable`) and one structured error log line carries the decision, run, grant,
+  action and result; nothing is allowed that is not on record.
 
 Recovery: `grant_*`, `not_a_member`, `role_not_allowed`, `action_not_allowed` and `resource_not_allowed` are as in the
 grant table above; `policy_version_mismatch` means the run must be admitted again under the current policy;
