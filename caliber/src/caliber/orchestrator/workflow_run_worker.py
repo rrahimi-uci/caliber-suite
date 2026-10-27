@@ -1578,14 +1578,23 @@ class WorkflowRunWorker:
             # principals are asked of the policy now, so a revoked grant, a removed member or an expired grant
             # dispatches nothing. A resumed run is dispatched here too. Legacy runs have no identity.
             try:
-                identity_for_run(
+                admitted_identity = identity_for_run(
                     session,
                     run,
                     policy=AdmissionSettings.from_config(self._config).policy,
                 )
             except IdentityDenied as exc:
+                if exc.code == "authority_unavailable":
+                    # The failing statement may have aborted the transaction; start from the stored run.
+                    session.rollback()
+                    session.refresh(run)
                 self._mark_failed(session, run, error_code=exc.code, error_summary=str(exc))
                 return
+            if admitted_identity is not None:
+                # The check is a point-in-time answer, recorded. Commit it now so the grant, membership and project
+                # row locks it took are not held through plan building and file reads (a member removal or a project
+                # edit would otherwise wait for every pre-flight in progress).
+                session.commit()
 
             # Execute over the full input (input_payload); fall back to the summary
             # preview for legacy rows. Keep the summary's copy bounded so polling

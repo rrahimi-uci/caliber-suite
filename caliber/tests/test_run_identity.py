@@ -300,3 +300,64 @@ def test_an_admitted_run_executes_when_its_authority_stands(
     _worker(client)._tick()
     done = _run(db_session, run.workflow_run_id)
     assert done.status == "completed", (done.error_code, done.error_summary)
+
+
+def test_a_grant_that_expired_while_the_run_waited_fails_the_run_at_dispatch(
+    client: TestClient, db_session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from caliber.orchestrator import workflow_run_worker as worker_module
+
+    _, run = _admitted(client, db_session)
+    real = worker_module.identity_for_run
+    later = datetime.now(timezone.utc) + timedelta(days=30)
+    monkeypatch.setattr(
+        worker_module,
+        "identity_for_run",
+        lambda session, row, *, policy: real(session, row, policy=policy, now=later),
+    )
+    _worker(client)._tick()
+    failed = _run(db_session, run.workflow_run_id)
+    assert (failed.status, failed.error_code) == ("failed", "authority_denied")
+    assert "grant_expired" in (failed.error_summary or "")
+
+
+def test_a_run_resumed_after_its_grant_was_revoked_is_failed_not_continued(
+    client: TestClient, db_session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The run is parked waiting for approval; the approval is given and the run resumed through the public routes;
+    the worker then refuses to continue it because the grant it was admitted under is gone."""
+    from caliber.orchestrator import workflow_run_worker as worker_module
+    from tests.test_routes_workflow_runs_async import (
+        PREFIX as ASYNC_PREFIX,
+    )
+    from tests.test_routes_workflow_runs_async import (
+        _enable_runtime_approvals,
+        _seed_waiting_approval,
+    )
+
+    built: list[Any] = []
+    monkeypatch.setattr(worker_module, "build_plan", lambda *a, **k: built.append(1))
+    _, run = _admitted(client, db_session)
+    _enable_runtime_approvals(client)
+    _seed_waiting_approval(client, run.workflow_run_id, checkpoint_input_by_port={"input": "hi"})
+    approved = client.post(
+        f"{ASYNC_PREFIX}/workflow-runs/{run.workflow_run_id}/approval/approve",
+        json={"reason": "ok"},
+    )
+    assert approved.status_code == 200, approved.text
+    grant = db_session.execute(select(CaliberRunGrant)).scalar_one()
+    grants.revoke_grant(
+        db_session,
+        run_id=run.workflow_run_id,
+        grant_id=grant.grant_id,
+        by="@owner",
+        reason="left the project",
+    )
+    db_session.commit()
+    resumed = client.post(f"{ASYNC_PREFIX}/workflow-runs/{run.workflow_run_id}/resume")
+    assert resumed.status_code == 202, resumed.text
+    _worker(client)._tick()
+    failed = _run(db_session, run.workflow_run_id)
+    assert (failed.status, failed.error_code) == ("failed", "authority_denied")
+    assert "grant_revoked" in (failed.error_summary or "")
+    assert built == [], "no node ran after the resume"

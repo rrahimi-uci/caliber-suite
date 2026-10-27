@@ -153,3 +153,66 @@ def test_a_removed_member_or_a_revoked_grant_dispatches_nothing(
             ).scalars()
         }
     assert denials == {removed: ["not_a_member"], revoked: ["grant_revoked"]}
+
+
+def test_an_authority_store_error_fails_the_run_and_does_not_strand_it(
+    reference_app: ReferenceApp,
+    two_workspaces: Workspaces,
+    built: list[Any],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """On PostgreSQL a failing statement aborts the transaction; the worker rolls back and still records the failure."""
+    from sqlalchemy import text
+    from sqlalchemy.exc import OperationalError
+
+    from caliber.workflows import run_identity
+
+    def broken(session: Any, **_kwargs: Any) -> Any:
+        if reference_app.dialect == "postgresql":
+            session.execute(text("SELECT 1/0"))  # DataError: the transaction is now aborted
+        raise OperationalError("select", {}, Exception("the authority store is down"))
+
+    run_id = _start(reference_app, _published_workflow(reference_app), "b03-down")
+    monkeypatch.setattr(run_identity, "decide", broken)
+    _work(reference_app)
+    status, code, _summary = _run(reference_app, run_id)
+    assert (status, code) == ("failed", "authority_unavailable")
+    assert built == []
+
+
+def test_the_check_does_not_hold_its_row_locks_through_pre_flight(
+    reference_app: ReferenceApp,
+    two_workspaces: Workspaces,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """While the plan is built the grant and membership rows can be changed by someone else at once (a lock held
+    there would time out the change)."""
+    from sqlalchemy import text
+
+    run_id = _start(reference_app, _published_workflow(reference_app), "b03-locks")
+    outcome: dict[str, Any] = {}
+    real = worker_module.build_plan
+
+    def build_while_someone_revokes(*args: Any, **kwargs: Any) -> Any:
+        with reference_app.session_factory() as other:
+            if reference_app.dialect == "postgresql":
+                other.execute(text("SET LOCAL lock_timeout = '500ms'"))
+            grant = other.execute(
+                select(CaliberRunGrant).where(CaliberRunGrant.workflow_run_id == run_id)
+            ).scalar_one()
+            grants.revoke_grant(
+                other, run_id=run_id, grant_id=grant.grant_id, by="@egi", reason="mid-flight"
+            )
+            member = other.execute(
+                select(CaliberProjectMember).where(CaliberProjectMember.user_id == EDITOR_A)
+            ).scalar_one()
+            member.role = "viewer"
+            other.commit()
+            outcome["changed"] = True
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(worker_module, "build_plan", build_while_someone_revokes)
+    _work(reference_app)
+    assert outcome == {"changed": True}, (
+        "the revocation and the demotion were not blocked by the check"
+    )
