@@ -299,3 +299,31 @@ def test_the_other_origins_are_labelled_by_what_produced_them(
         ("tool_output", "data", "tool_node"),
         ("tool_output", "data", "unknown"),
     ]
+
+
+def test_inputs_keep_their_origin_structured_values_are_canonical_and_history_is_not_an_input() -> (
+    None
+):
+    from types import SimpleNamespace
+
+    ir = SimpleNamespace(
+        edges=[SimpleNamespace(to_node="agent", to_input="data", from_node="code")],
+        nodes={"code": SimpleNamespace(node_type=SimpleNamespace(value="python_code"))},
+    )
+    node = SimpleNamespace(node_id="agent")
+    found = runtime_module._agent_context_inputs(  # type: ignore[arg-type]
+        ir,
+        node,
+        {"data": {"b": 2, "a": 1}, "history": [{"role": "user", "content": "x"}]},
+        {},
+        "run input",
+    )
+    assert [(i.port, i.text, i.origin_node_id, i.origin_node_type) for i in found] == [
+        ("data", '{"a": 1, "b": 2}', "code", "python_code")
+    ]
+    only_history = runtime_module._agent_context_inputs(  # type: ignore[arg-type]
+        ir, node, {"history": []}, {}, "the run's own input"
+    )
+    assert [(i.text, i.origin_node_type) for i in only_history] == [
+        ("the run's own input", "start")
+    ]
