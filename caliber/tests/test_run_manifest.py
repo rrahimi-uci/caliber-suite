@@ -1436,3 +1436,15 @@ def test_development_profile_allows_no_lineage(client: Any, db_session: Any) -> 
         actor="@sched",
     )
     assert run2.runtime_lineage_id is None
+
+
+def test_a_trigger_names_both_halves_of_its_lineage_or_neither() -> None:
+    from pydantic import ValidationError
+
+    from caliber.schemas import WorkflowTriggerRequest
+
+    WorkflowTriggerRequest(workspace_release_id="WSR-1", environment_id="WSE-1")
+    WorkflowTriggerRequest()
+    for half in ({"workspace_release_id": "WSR-1"}, {"environment_id": "WSE-1"}):
+        with pytest.raises(ValidationError, match="provided together"):
+            WorkflowTriggerRequest(**half)
