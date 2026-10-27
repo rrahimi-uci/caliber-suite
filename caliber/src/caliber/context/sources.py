@@ -63,6 +63,11 @@ def source_resource(knowledge_base_id: str, version_id: str) -> str:
     return f"knowledge_base:{knowledge_base_id}@{version_id}"
 
 
+def memory_resource(reference: str) -> str:
+    """The resource a grant and its decisions name for one memory a run reads."""
+    return f"memory:{reference}"
+
+
 class SourceNotApproved(SourceError):  # noqa: N818 - a refusal, named for what it says
     """One or more knowledge-base versions are not approved for the project; ``sources`` lists them (sorted)."""
 
@@ -283,6 +288,7 @@ __all__ = [
     "approve_source",
     "approved_sources",
     "is_approved",
+    "memory_resource",
     "require_approved",
     "revoke_source",
     "source_resource",

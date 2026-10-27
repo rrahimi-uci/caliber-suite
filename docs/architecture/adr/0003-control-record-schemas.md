@@ -105,12 +105,17 @@ before the provider sees any of it; stored as canonical bytes with their SHA-256
 | `token_allocation` | object | yes | `budget`, `used`, `instruction`, `data` |
 | `created_at` | string (RFC 3339 date-time) | yes | when the manifest was written |
 
-Rules beyond field shapes (the schema enforces the first three, `caliber.context.manifest` all of them): an `instruction`
-segment comes only from a system or workflow instruction, and every system or workflow instruction is `instruction`
-tier; retrieved text is `data` tier, comes from a knowledge base version, and carries the `authorization_decision_id` of
-the recorded `context.read` allow that let it be loaded; `position` equals the segment's index (reordering a stored
-record is detectable twice, by the digest and by the positions); `used` is the sum of the segments' tokens and equals
-`instruction` plus `data`.
+Rules beyond field shapes. The schema enforces these: an `instruction` segment comes only from a system or workflow
+instruction and every one is `instruction` tier; **a segment's `kind` must match its `source.kind`** (instructions from a
+`prompt`, `user_input` from `input`, `tool_output` from `tool`, `history` from `history`, `memory` from `memory`,
+`retrieved_text` from a `knowledge_base`), so text cannot be promoted to an instruction by labelling it; retrieved text is
+`data` tier; a knowledge-base source names `knowledge_base_id` and `version_id`, a prompt or memory source a `reference`;
+and anything loaded from a knowledge base or memory carries the `authorization_decision_id` of the recorded `context.read`
+allow that let it be loaded. `caliber.context.manifest` also enforces: `position` equals the segment's index (reordering a
+stored record is detectable twice, by the digest and by the positions); `used` is the sum of the segments' tokens and
+equals `instruction` plus `data`, within `budget`; a segment is redacted once; and an `omitted` source refused as
+`unauthorized` is recorded by `kind` only, never by identifier. Stored records are canonical JSON (one record, one byte
+form, one digest) with integer counts.
 
 ### proposal
 

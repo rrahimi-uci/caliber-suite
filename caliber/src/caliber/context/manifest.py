@@ -35,9 +35,9 @@ from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from caliber.context.sources import source_resource
+from caliber.context.sources import memory_resource, source_resource
 from caliber.contracts import ContractValidationError, UnsupportedSchemaVersion, validate_record
-from caliber.db.models import CaliberContextManifest, CaliberPolicyDecision
+from caliber.db.models import CaliberContextManifest, CaliberPolicyDecision, CaliberWorkflowRun
 from caliber.db.transactions import begin_sqlite_transaction
 from caliber.run_manifest import (
     FIXED_REGION,
@@ -55,6 +55,8 @@ DATA: Final = "data"
 INSTRUCTION_KINDS: Final = frozenset({"system_instruction", "workflow_instruction"})
 #: Sources whose payload is loaded from a store and so needs an authorization decision.
 AUTHORIZED_SOURCES: Final = frozenset({"knowledge_base", "memory"})
+#: Segment kinds that always carry an authorization decision, whatever source they name.
+AUTHORIZED_KINDS: Final = frozenset({"retrieved_text", "memory"})
 CONTEXT_READ: Final = "context.read"
 
 INVALID: Final = "invalid_manifest"
@@ -109,8 +111,8 @@ class ContextSegment:
 
 
 def _check_rules(record: Mapping[str, Any]) -> None:
-    """The rules the schema cannot state: contiguous positions, authorization of every loaded source, token arithmetic.
-    (The tier rule is the schema's own: an instruction is only a system or workflow instruction.)"""
+    """The rules the schema cannot state: contiguous positions, redactions, refused sources, token arithmetic.
+    (The tier, kind-to-source and authorization rules are the schema's own.)"""
     segments: Sequence[Mapping[str, Any]] = record["segments"]
     for index, segment in enumerate(segments):
         if segment["position"] != index:
@@ -118,17 +120,22 @@ def _check_rules(record: Mapping[str, Any]) -> None:
                 ORDERING,
                 f"segment {index} has position {segment['position']}: the order was changed",
             )
-        if segment["source"]["kind"] in AUTHORIZED_SOURCES and not segment.get(
-            "authorization_decision_id"
-        ):
-            raise ContextManifestError(
-                UNAUTHORIZED_PAYLOAD,
-                f"segment {index} was loaded from a {segment['source']['kind']} with no authorization decision",
-            )
     positions = len(segments)
+    redacted_at: set[int] = set()
     for item in record.get("redacted", []):
         if item["position"] >= positions:
             raise ContextManifestError(INVALID, "a redaction names a segment that does not exist")
+        if item["position"] in redacted_at:
+            raise ContextManifestError(
+                INVALID, "a segment is redacted twice: list its fields together"
+            )
+        redacted_at.add(item["position"])
+    for item in record.get("omitted", []):
+        if item["reason"] == "unauthorized" and set(item["source"]) - {"kind"}:
+            raise ContextManifestError(
+                INVALID,
+                "a source the run was refused is recorded by kind only, never by identifier",
+            )
     allocation = record["token_allocation"]
     total = sum(int(segment["tokens"]) for segment in segments)
     by_tier = {
@@ -162,7 +169,7 @@ def _classify(record: Mapping[str, Any]) -> ContextManifestError | None:
             )
         needs = (
             segment["source"].get("kind") in AUTHORIZED_SOURCES
-            or segment.get("kind") == "retrieved_text"
+            or segment.get("kind") in AUTHORIZED_KINDS
         )
         if needs and not segment.get("authorization_decision_id"):
             return ContextManifestError(
@@ -192,7 +199,13 @@ class BuiltContextManifest:
     manifest_digest: str
 
     def __post_init__(self) -> None:
-        read_context_manifest(self.manifest_bytes, self.manifest_digest)
+        record = read_context_manifest(self.manifest_bytes, self.manifest_digest)
+        _strict_integers(record)
+        if _canonical(record) != self.manifest_bytes:
+            raise ContextManifestError(
+                INVALID,
+                "a manifest is stored as canonical JSON: one record, one byte form, one digest",
+            )
 
     @property
     def record(self) -> dict[str, Any]:
@@ -229,6 +242,46 @@ class BuiltContextManifest:
         }
 
 
+def _check_types(
+    revision: object,
+    token_budget: object,
+    segments: Sequence[ContextSegment],
+    omitted: Sequence[Mapping[str, Any]],
+    redacted: Sequence[Mapping[str, Any]],
+) -> None:
+    """Counts are integers, not 1.0 (the schema accepts it, but its canonical bytes would differ) and sources are objects."""
+    for name, value in (("revision", revision), ("token_budget", token_budget)):
+        if type(value) is not int:
+            raise ContextManifestError(INVALID, f"{name} must be an integer")
+    for segment in segments:
+        if type(segment.tokens) is not int or not isinstance(segment.source, Mapping):
+            raise ContextManifestError(
+                INVALID, "a segment's tokens must be an integer and its source an object"
+            )
+    for item in (*omitted, *redacted):
+        for key in ("tokens", "position"):
+            if key in item and type(item[key]) is not int:
+                raise ContextManifestError(INVALID, f"{key} must be an integer")
+
+
+def _strict_integers(record: Mapping[str, Any]) -> None:
+    """A stored record's counts are integers (``1.0`` passes the schema but is a second form of ``1``)."""
+    counts: list[object] = [record["revision"], *record["token_allocation"].values()]
+    for segment in record["segments"]:
+        counts += [segment["position"], segment["tokens"]]
+    for item in (*record.get("omitted", []), *record.get("redacted", [])):
+        counts += [item[key] for key in ("tokens", "position") if key in item]
+    if any(type(value) is not int for value in counts):
+        raise ContextManifestError(INVALID, "a stored manifest's counts are integers")
+
+
+def _timestamp(moment: datetime) -> str:
+    try:
+        return moment.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
+    except (OverflowError, ValueError) as exc:
+        raise ContextManifestError(INVALID, "created_at is out of range") from exc
+
+
 def build_context_manifest(
     *,
     context_manifest_id: str,
@@ -255,7 +308,11 @@ def build_context_manifest(
         )
     if created_at.tzinfo is None:
         raise ContextManifestError(INVALID, "created_at must be timezone-aware")
-    records = [segment.to_record(position) for position, segment in enumerate(segments)]
+    _check_types(revision, token_budget, segments, omitted, redacted)
+    try:
+        records = [segment.to_record(position) for position, segment in enumerate(segments)]
+    except (UnicodeEncodeError, ValueError) as exc:
+        raise ContextManifestError(INVALID, "a segment's content is not valid text") from exc
     by_tier = {
         tier: sum(r["tokens"] for r in records if r["tier"] == tier) for tier in (INSTRUCTION, DATA)
     }
@@ -275,7 +332,7 @@ def build_context_manifest(
             "instruction": by_tier[INSTRUCTION],
             "data": by_tier[DATA],
         },
-        "created_at": created_at.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%fZ"),
+        "created_at": _timestamp(created_at),
     }
     if scope.project_id is not None:
         record["project_id"] = scope.project_id
@@ -284,7 +341,7 @@ def build_context_manifest(
     if redacted:
         record["redacted"] = [dict(item) for item in redacted]
     _validate(record)
-    data = canonical_bytes(record)
+    data = _canonical(record)
     return BuiltContextManifest(manifest_bytes=data, manifest_digest=digest_of(data))
 
 
@@ -309,8 +366,20 @@ def read_context_manifest(
     if not isinstance(record, dict):
         raise ContextManifestError(INVALID, "the manifest must be an object")
     _validate(record)
-    canonical_bytes(record)  # a lone surrogate parses but can be neither stored nor digested
+    _canonical(record)  # a lone surrogate parses but can be neither stored nor digested
     return record
+
+
+def _canonical(record: Mapping[str, Any]) -> bytes:
+    try:
+        return canonical_bytes(record)
+    except (
+        UnicodeEncodeError,
+        ValueError,
+    ) as exc:  # a lone surrogate can be neither stored nor digested
+        raise ContextManifestError(
+            INVALID, "the manifest holds text that cannot be encoded"
+        ) from exc
 
 
 def _no_duplicates(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
@@ -339,23 +408,30 @@ def next_revision(session: Session, workflow_run_id: str, step_request_id: str) 
 
 
 def _verify_authorizations(session: Session, record: Mapping[str, Any]) -> None:
-    """Every authorization id must be a recorded ``context.read`` allow, for this run, of that exact source."""
+    """Every authorization id must be a recorded ``context.read`` allow, for this run, of that exact source, decided
+    no later than the manifest. (A decision may be cited by any step of its run: it authorizes the read, not a step.)"""
+    created = datetime.fromisoformat(str(record["created_at"]).replace("Z", "+00:00"))
     for index, segment in enumerate(record["segments"]):
         decision_id = segment.get("authorization_decision_id")
         if decision_id is None:
             continue
-        row = session.get(CaliberPolicyDecision, decision_id)
         source = segment["source"]
+        expected = (
+            source_resource(source["knowledge_base_id"], source["version_id"])
+            if source["kind"] == "knowledge_base"
+            else memory_resource(source["reference"])
+            if source["kind"] == "memory"
+            else None
+        )
+        row = session.get(CaliberPolicyDecision, decision_id)
         if (
             row is None
+            or expected is None
             or row.result != "allow"
             or row.workflow_run_id != record["workflow_run_id"]
             or row.action != CONTEXT_READ
-            or (
-                source["kind"] == "knowledge_base"
-                and row.resource
-                != source_resource(source["knowledge_base_id"], source["version_id"])
-            )
+            or row.resource != expected
+            or row.evaluated_at.replace(tzinfo=timezone.utc) > created
         ):
             raise ContextManifestError(
                 AUTHORIZATION_REJECTED,
@@ -363,13 +439,31 @@ def _verify_authorizations(session: Session, record: Mapping[str, Any]) -> None:
             )
 
 
+def _verify_run(session: Session, record: Mapping[str, Any]) -> None:
+    """The run exists, and the record's scope and project are the deployment's and the run's."""
+    run = session.get(CaliberWorkflowRun, record["workflow_run_id"])
+    if run is None:
+        raise ContextManifestError(INVALID, "the manifest names a run that does not exist")
+    fixed = DeploymentScope.fixed(run.project_id)
+    if (
+        record["tenant_id"] != fixed.tenant_id
+        or record["region"] != fixed.region
+        or record.get("residency", fixed.residency) != fixed.residency
+        or record.get("project_id") != run.project_id
+    ):
+        raise ContextManifestError(INVALID, "the manifest's scope is not the run's")
+
+
 def store_context_manifest(session: Session, built: BuiltContextManifest) -> CaliberContextManifest:
     """Insert the manifest once. Flushes, never commits.
 
-    Checks every segment's authorization decision against the recorded decisions, and that the revision follows the
-    step's latest (a gap or a repeat is refused). A concurrent insert of the same revision is :data:`DUPLICATE`.
+    Checks the run, the scope and project, and every segment's authorization decision against the recorded decisions,
+    and that the revision follows the step's latest (a gap or a repeat is refused). A concurrent insert of the same
+    revision is :data:`DUPLICATE`.
     """
-    _verify_authorizations(session, built.record)
+    record = built.record
+    _verify_run(session, record)
+    _verify_authorizations(session, record)
     expected = next_revision(session, built.workflow_run_id, built.step_request_id)
     if built.revision != expected:
         code = DUPLICATE if built.revision < expected else REVISION_GAP
@@ -382,7 +476,18 @@ def store_context_manifest(session: Session, built: BuiltContextManifest) -> Cal
         with session.begin_nested():
             session.add(row)
     except IntegrityError as exc:
-        raise ContextManifestError(DUPLICATE, "this step revision already has a manifest") from exc
+        taken = session.execute(
+            select(CaliberContextManifest.context_manifest_id).where(
+                CaliberContextManifest.workflow_run_id == built.workflow_run_id,
+                CaliberContextManifest.step_request_id == built.step_request_id,
+                CaliberContextManifest.revision == built.revision,
+            )
+        ).first()
+        if taken is not None:
+            raise ContextManifestError(
+                DUPLICATE, "this step revision already has a manifest"
+            ) from exc
+        raise ContextManifestError(INVALID, "the manifest could not be stored") from exc
     return row
 
 
@@ -407,6 +512,7 @@ def load_context_manifest(
 
 __all__ = [
     "AUTHORIZATION_REJECTED",
+    "AUTHORIZED_KINDS",
     "AUTHORIZED_SOURCES",
     "DATA",
     "DUPLICATE",

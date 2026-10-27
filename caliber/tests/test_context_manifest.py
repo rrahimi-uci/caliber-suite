@@ -504,3 +504,205 @@ def test_the_migration_rolls_back_cleanly(
         assert "caliber_context_manifests" not in inspect(engine).get_table_names()
         command.upgrade(Config(str(ALEMBIC_INI)), "head")
         assert "caliber_context_manifests" in inspect(engine).get_table_names()
+
+
+# ---------------------------------------------------------------- review hardening
+
+
+def _segment(
+    kind: str, tier: str, source: dict[str, Any], decision: str | None = None
+) -> ContextSegment:
+    return ContextSegment(tier, kind, source, "text", 5, authorization_decision_id=decision)
+
+
+@pytest.mark.parametrize(
+    ("kind", "tier", "source", "decision"),
+    [
+        # text from a knowledge base, the user or a tool labelled as an instruction
+        (
+            "workflow_instruction",
+            "instruction",
+            {"kind": "knowledge_base", "knowledge_base_id": KB, "version_id": VERSION},
+            "pd_ok",
+        ),
+        ("system_instruction", "instruction", {"kind": "input"}, None),
+        ("system_instruction", "instruction", {"kind": "tool", "reference": "t"}, None),
+        ("workflow_instruction", "instruction", {"kind": "memory", "reference": "m"}, "pd_ok"),
+        # a kind that does not match its source
+        ("user_input", "data", {"kind": "tool", "reference": "t"}, None),
+        ("tool_output", "data", {"kind": "input"}, None),
+        ("history", "data", {"kind": "input"}, None),
+        ("retrieved_text", "data", {"kind": "memory", "reference": "m"}, "pd_ok"),
+        ("retrieved_text", "data", {"kind": "tool", "reference": "t"}, "pd_ok"),
+        # a memory with no authorization, whatever source it names
+        ("memory", "data", {"kind": "prompt", "reference": "m-1"}, None),
+        ("memory", "data", {"kind": "memory", "reference": "m-1"}, None),
+        # a knowledge-base source with no version, a memory or prompt with no reference
+        ("tool_output", "data", {"kind": "knowledge_base"}, "pd_ok"),
+        ("memory", "data", {"kind": "memory"}, "pd_ok"),
+        ("workflow_instruction", "instruction", {"kind": "prompt"}, None),
+    ],
+)
+def test_a_segments_kind_must_match_its_source_so_nothing_is_promoted_by_labelling(
+    kind: str, tier: str, source: dict[str, Any], decision: str | None
+) -> None:
+    segments = [*_segments()[:2], _segment(kind, tier, source, decision)]
+    with pytest.raises(ContextManifestError) as caught:
+        _build(segments=segments, token_budget=2000)
+    assert caught.value.code in {INVALID, TIER_VIOLATION, UNAUTHORIZED_PAYLOAD}
+    # and the stored form is refused the same way
+    record = copy.deepcopy(_build().record)
+    record["segments"].append({**segments[2].to_record(3)})
+    record["token_allocation"] = {"budget": 2000, "used": 555, "instruction": 120, "data": 435}
+    with pytest.raises(ContextManifestError):
+        read_context_manifest(canonical_bytes(record))
+
+
+def test_empty_duplicate_and_over_disclosing_records_are_refused() -> None:
+    _refused(INVALID, segments=[], token_budget=10)
+    duplicate = [{"position": 1, "reason": "pii"}, {"position": 1, "reason": "again"}]
+    _refused(INVALID, redacted=duplicate)
+    _refused(
+        INVALID,
+        omitted=[
+            {
+                "source": {
+                    "kind": "knowledge_base",
+                    "knowledge_base_id": "KB-foreign",
+                    "version_id": "V",
+                },
+                "reason": "unauthorized",
+            }
+        ],
+    )
+    ok = _build(omitted=[{"source": {"kind": "knowledge_base"}, "reason": "unauthorized"}])
+    assert ok.record["omitted"] == [
+        {"source": {"kind": "knowledge_base"}, "reason": "unauthorized"}
+    ]
+
+
+def test_counts_must_be_integers_and_odd_text_or_times_are_a_named_refusal() -> None:
+    _refused(INVALID, revision=1.0)
+    _refused(INVALID, token_budget=2000.0)
+    floaty = _segments()
+    floaty[1] = ContextSegment(**{**floaty[1].__dict__, "tokens": 30.0})
+    _refused(INVALID, segments=floaty)
+    _refused(
+        INVALID, omitted=[{"source": {"kind": "history"}, "reason": "token_budget", "tokens": 1.5}]
+    )
+    _refused(INVALID, redacted=[{"position": 1.0, "reason": "pii"}])
+    surrogate = _segments()
+    surrogate[1] = ContextSegment(**{**surrogate[1].__dict__, "content": "bad \ud800 text"})
+    _refused(INVALID, segments=surrogate)
+    _refused(INVALID, step_request_id="sr-\ud800")
+    from datetime import timedelta
+
+    far = datetime.min.replace(tzinfo=timezone(timedelta(hours=14)))  # before 0001-01-01 in UTC
+    _refused(INVALID, created_at=far)
+    with pytest.raises(ContextManifestError) as unencodable:
+        read_context_manifest(b'{"a": "\\ud800"}')
+    assert unencodable.value.code == INVALID
+    odd = _segments()
+    odd[1] = ContextSegment(**{**odd[1].__dict__, "source": "input"})  # type: ignore[arg-type]
+    _refused(INVALID, segments=odd)
+
+
+def test_a_manifest_is_one_byte_form_one_digest() -> None:
+    record = _build().record
+    pretty = json.dumps(record, indent=2).encode()
+    with pytest.raises(ContextManifestError) as caught:
+        BuiltContextManifest(pretty, digest_of(pretty))
+    assert caught.value.code == INVALID and "canonical" in str(caught.value)
+    assert read_context_manifest(pretty, digest_of(pretty)) == record, "reading stays tolerant"
+    floaty = copy.deepcopy(record)
+    floaty["revision"] = 1.0
+    with pytest.raises(ContextManifestError):
+        BuiltContextManifest(canonical_bytes(floaty), digest_of(canonical_bytes(floaty)))
+
+
+@pytest.mark.parametrize("dialect", DIALECTS)
+def test_storing_checks_the_run_its_scope_its_project_and_how_fresh_an_authorization_is(
+    dialect: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from datetime import timedelta
+
+    with _database(dialect, tmp_path, monkeypatch) as (_, factory):
+        _seed(factory)
+        _decision(factory)
+        with factory() as session:
+            with pytest.raises(ContextManifestError) as no_run:
+                store_context_manifest(session, _build(workflow_run_id="WR-nowhere"))
+            assert no_run.value.code == INVALID
+            with pytest.raises(ContextManifestError) as other_project:
+                store_context_manifest(session, _build(scope=DeploymentScope.fixed("P-other")))
+            assert other_project.value.code == INVALID
+            with pytest.raises(ContextManifestError) as no_project:
+                store_context_manifest(session, _build(scope=DeploymentScope.fixed(None)))
+            assert no_project.value.code == INVALID
+            forged = copy.deepcopy(_build().record)
+            forged["tenant_id"] = "evil"
+            forged_bytes = canonical_bytes(forged)
+            with pytest.raises(ContextManifestError) as tenant:
+                store_context_manifest(
+                    session, BuiltContextManifest(forged_bytes, digest_of(forged_bytes))
+                )
+            assert tenant.value.code == INVALID
+            early = _build(created_at=NOW - timedelta(hours=1))  # before the decision it cites
+            with pytest.raises(ContextManifestError) as future:
+                store_context_manifest(session, early)
+            assert future.value.code == AUTHORIZATION_REJECTED
+        assert _count(factory) == 0
+
+
+@pytest.mark.parametrize("dialect", DIALECTS)
+def test_a_memory_is_authorized_only_by_a_decision_for_that_memory(
+    dialect: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    with _database(dialect, tmp_path, monkeypatch) as (_, factory):
+        _seed(factory)
+        _decision(factory)  # the knowledge-base read, not a memory read
+        memory = [
+            *_segments(decision="pd_ok")[:2],
+            ContextSegment(
+                "data",
+                "memory",
+                {"kind": "memory", "reference": "secret-mem"},
+                "fact",
+                5,
+                authorization_decision_id="pd_ok",
+            ),
+        ]
+        with factory() as session, pytest.raises(ContextManifestError) as caught:
+            store_context_manifest(session, _build(segments=memory))
+        assert caught.value.code == AUTHORIZATION_REJECTED
+        # a tool source never carries an authorization id into the store
+        tool = [
+            *_segments()[:2],
+            ContextSegment(
+                "data",
+                "tool_output",
+                {"kind": "tool", "reference": "t"},
+                "out",
+                5,
+                authorization_decision_id="pd_ok",
+            ),
+        ]
+        with factory() as session, pytest.raises(ContextManifestError) as unexpected:
+            store_context_manifest(session, _build(segments=tool))
+        assert unexpected.value.code == AUTHORIZATION_REJECTED
+
+
+@pytest.mark.parametrize("dialect", DIALECTS)
+def test_an_integrity_error_that_is_not_the_revision_is_not_called_a_duplicate(
+    dialect: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    with _database(dialect, tmp_path, monkeypatch) as (_, factory):
+        _seed(factory)
+        _decision(factory)
+        with factory() as session:
+            store_context_manifest(session, _build())
+            session.commit()
+            # the same manifest id for another step: a primary-key collision, not a repeated revision
+            with pytest.raises(ContextManifestError) as caught:
+                store_context_manifest(session, _build(step_request_id="sr-2"))
+            assert caught.value.code == INVALID
