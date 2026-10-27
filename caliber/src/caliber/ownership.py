@@ -11,13 +11,28 @@ A :class:`Lease` is what a process captured when it acquired: ``(name, owner_id,
 * **Compare-and-set on the exact owner and token.** Renewal, release and every fenced transition require *both* the
   owner id and the token the caller captured, and an unexpired lease. They never compare ``token < latest`` or read a
   fresh "current token" to compare against: a stale owner holds a token that is simply no longer the row's.
-* **Renewal keeps the token; a new acquisition raises it.** Renewing (including :func:`acquire` by the current,
-  unexpired owner) leaves ``fencing_token`` alone. Acquiring after the lease expired, from anyone including the
-  previous holder, adds one, so anything a lapsed holder started is distinguishable from the new holder's work.
+* **Renewal keeps the token; a new acquisition raises it.** :func:`renew` (and only it) leaves ``fencing_token``
+  alone and requires the exact lease the caller captured. :func:`acquire` never renews: while a lease is held and
+  unexpired it returns ``None`` *even to the same ``owner_id``*, so a restarted process that reuses a stable id cannot
+  adopt the token of a predecessor that may still be alive. Acquiring after the lease expired, from anyone including
+  the previous holder, adds one, so anything a lapsed holder started is distinguishable from the new holder's work.
 * **Fencing.** :func:`assert_fenced` runs in the *caller's* transaction, checks the exact lease and an unexpired
   expiry, and on PostgreSQL holds a row lock until the transaction ends. A takeover must update that row, so it
   waits for the fenced transition to finish: the work is either done under a valid lease or refused with
-  :class:`LeaseLost`, never done after losing it. SQLite has no row locks; its single writer orders the same way.
+  :class:`LeaseLost`, never done after losing it (the check happens under a valid lease and the transition is
+  serialized before any takeover; the commit itself may land after the database-time expiry). **SQLite gives no such
+  guarantee** (the driver begins no transaction before the first write, so the check holds nothing); it is for
+  development and the reference profile refuses it.
+* **Isolation.** The statements are written for READ COMMITTED (PostgreSQL's default): a contended :func:`acquire`
+  blocks and then returns ``None``. Under REPEATABLE READ or SERIALIZABLE a contended :func:`acquire`, or a fence that
+  races a heartbeat committed after the snapshot, raises :class:`LeaseLost` (a serialization failure): it fails
+  closed, but "returns ``None``" is a READ COMMITTED promise.
+* **Liveness (for the loop wiring, #673).** ``assert_fenced`` serializes every fenced transition on one row, and a
+  renewal waits for a fenced transaction in flight, so keep fenced transactions much shorter than ``ttl`` minus the
+  renewal interval, renew every ``ttl / 3`` at most, and give fenced and acquiring transactions a
+  ``SET LOCAL lock_timeout`` so a stuck session cannot block failover indefinitely
+  (``idle_in_transaction_session_timeout`` bounds it too). Log the ``__cause__`` of a :class:`LeaseLost`: every
+  database error is reported as "the lease store is unavailable", programming errors included.
 """
 
 from __future__ import annotations
@@ -36,6 +51,10 @@ from caliber.db.models import CaliberExecutionOwner
 DEFAULT_LEASE: Final = "execution-owner"
 #: The longest lease a caller may ask for; a longer one is a mistake (a stuck process would hold it for hours).
 MAX_TTL_SECONDS: Final = 3600.0
+#: The shortest lease: below a second the database clock's resolution and a heartbeat's own latency decide it.
+MIN_TTL_SECONDS: Final = 1.0
+MAX_OWNER_ID: Final = 128
+MAX_LEASE_NAME: Final = 64
 
 
 class LeaseError(ValueError):
@@ -74,10 +93,11 @@ def _later(session: Session, seconds: float) -> ColumnElement[datetime]:
     """The database's current UTC time plus ``seconds``."""
     if session.get_bind().dialect.name == "postgresql":
         return literal_column(
-            f"timezone('utc', clock_timestamp()) + interval '{float(seconds)} seconds'", DateTime()
+            f"timezone('utc', clock_timestamp()) + interval '{float(seconds):.3f} seconds'",
+            DateTime(),
         )
     return literal_column(
-        f"strftime('%Y-%m-%d %H:%M:%f', 'now', '+{float(seconds)} seconds')", DateTime()
+        f"strftime('%Y-%m-%d %H:%M:%f', 'now', '+{float(seconds):.3f} seconds')", DateTime()
     )
 
 
@@ -88,12 +108,32 @@ def database_now(session: Session) -> datetime:
 
 
 def _check(owner_id: str, ttl_seconds: float, name: str) -> None:
-    if type(owner_id) is not str or not owner_id.strip() or owner_id != owner_id.strip():
-        raise LeaseError("owner_id must be a non-empty string with no surrounding whitespace")
-    if type(name) is not str or not name.strip():
-        raise LeaseError("the lease name must be a non-empty string")
-    if isinstance(ttl_seconds, bool) or not 0 < ttl_seconds <= MAX_TTL_SECONDS:
-        raise LeaseError(f"ttl_seconds must be greater than 0 and at most {MAX_TTL_SECONDS:g}")
+    if (
+        type(owner_id) is not str
+        or not owner_id.strip()
+        or owner_id != owner_id.strip()
+        or len(owner_id) > MAX_OWNER_ID
+    ):
+        raise LeaseError(
+            "owner_id must be a non-empty string of at most 128 characters, with no surrounding whitespace"
+        )
+    if (
+        type(name) is not str
+        or not name.strip()
+        or name != name.strip()
+        or len(name) > MAX_LEASE_NAME
+    ):
+        raise LeaseError(
+            "the lease name must be a non-empty string of at most 64 characters, unpadded"
+        )
+    if (
+        isinstance(ttl_seconds, bool)
+        or not isinstance(ttl_seconds, int | float)
+        or not MIN_TTL_SECONDS <= ttl_seconds <= MAX_TTL_SECONDS
+    ):
+        raise LeaseError(
+            f"ttl_seconds must be a number from {MIN_TTL_SECONDS:g} to {MAX_TTL_SECONDS:g}"
+        )
 
 
 # ------------------------------------------------------------------ acquire, renew, release
@@ -104,30 +144,18 @@ def acquire(
 ) -> Lease | None:
     """Try to become (or stay) the owner. Returns the lease, or ``None`` when another owner holds an unexpired one.
 
-    * The current, unexpired owner calling again is a *renewal*: same token, later expiry.
     * Anyone calling when the lease has expired (or has never existed) makes a *new acquisition*: the token is
       increased by one (a first-ever acquisition is token 1).
+    * While a lease is held and unexpired the answer is ``None``, for every caller including the current holder's
+      own ``owner_id``: the holder renews with :func:`renew`.
 
     Each branch is one atomic statement, so concurrent callers resolve at the row: exactly one wins an expired
-    lease. Flushes and does not commit; the lease is not held by anyone else until the caller's transaction commits.
+    lease (under READ COMMITTED; see the module docstring for stricter isolation levels). Flushes and does not
+    commit; nobody else sees the lease until the caller's transaction commits.
     """
     _check(owner_id, ttl_seconds, name)
     now, until = _now(session), _later(session, ttl_seconds)
     try:
-        renewed = session.execute(
-            update(CaliberExecutionOwner)
-            .where(
-                CaliberExecutionOwner.lease_name == name,
-                CaliberExecutionOwner.owner_id == owner_id,
-                CaliberExecutionOwner.expires_at > now,
-            )
-            .values(expires_at=until, renewed_at=now)
-            .returning(CaliberExecutionOwner.fencing_token, CaliberExecutionOwner.expires_at)
-            .execution_options(synchronize_session=False)
-        ).first()
-        if renewed is not None:
-            return Lease(name, owner_id, int(renewed[0]), _as_datetime(renewed[1]))
-
         taken = session.execute(
             update(CaliberExecutionOwner)
             .where(
@@ -264,6 +292,7 @@ def current_lease(session: Session, name: str = DEFAULT_LEASE) -> Lease | None:
 __all__ = [
     "DEFAULT_LEASE",
     "MAX_TTL_SECONDS",
+    "MIN_TTL_SECONDS",
     "Lease",
     "LeaseError",
     "LeaseLost",

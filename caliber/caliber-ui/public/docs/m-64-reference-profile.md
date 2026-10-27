@@ -279,22 +279,33 @@ This task stores and checks grants; it makes no policy decision and records none
 In the reference profile exactly one process holds the execution-owner lease and only the holder runs the background
 loops ([ADR 0002](https://github.com/rrahimi-uci/caliber-suite/blob/main/docs/architecture/adr/0002-execution-ownership.md)). B13.2 (#668; `caliber/src/caliber/ownership.py`,
 migration `0116`, table `caliber_execution_owner`) is the lease and its fencing token; the lifespan wiring that makes
-the loops obey it is #673, so today nothing acquires it. What it guarantees:
+the loops obey it (and the public-path scenario) is #673, so today nothing acquires it. What it guarantees:
 
-- **Database time.** Expiry is decided by the database's clock inside the statement that tests it; a process's own
-  clock never extends a lease.
-- **One owner.** `acquire` returns the lease or `None`. The current, unexpired owner asking again renews (same token,
-  later expiry); anyone asking after expiry, including the previous holder, makes a *new acquisition* and the token
-  grows by exactly one. Concurrent callers resolve at the row: exactly one wins.
+- **Database time.** Expiry is decided by the database's clock (`clock_timestamp()`, so a long transaction does not
+  see a lapsed lease as live) inside the statement that tests it; a process's own clock never extends a lease.
+- **One owner.** `acquire` returns the lease or `None`. It is a *new acquisition* only: when the lease has expired (or
+  never existed) the token grows by exactly one (the first is 1); while a lease is held and unexpired the answer is
+  `None` for everyone, **including the holder's own `owner_id`**, so a restart that reuses a stable id cannot adopt
+  a paused predecessor's token. The holder extends its lease with `renew(lease)`, which keeps the token.
 - **Exact fencing.** `renew`, `release` and `assert_fenced` compare the owner id *and* the captured token for
   equality, and an unexpired lease; there is no "token is older than the latest" test and no fresh read of a current
   token. A stale or future token, another owner's, or another lease name's, is refused (`LeaseLost`).
 - **Fenced transitions.** `assert_fenced` runs in the caller's transaction before an owner-only transition and, on
   PostgreSQL, holds a row lock until that transaction ends, so a takeover waits for the transition rather than
-  overtaking it. Without a lease the work is refused, never done.
-- **Fails closed.** An unavailable lease store is `LeaseLost`, not a lease. A heartbeat that arrives after expiry
-  extends nothing and never resurrects the lease; the process must acquire again (and gets a new token).
-- A lease longer than one hour is refused (`LeaseError`): a stuck process would hold it for that long.
+  overtaking it (the check happens under a valid lease and the transition is serialized before any takeover; the
+  commit itself may land after the database-time expiry). **SQLite gives no such guarantee**; it is development only.
+- **Isolation.** Written for READ COMMITTED (PostgreSQL's default): a contended `acquire` blocks and then returns
+  `None`. Under REPEATABLE READ or SERIALIZABLE a contended `acquire`, or a fence racing a heartbeat committed after
+  the snapshot, raises `LeaseLost` (fails closed).
+- **Fails closed.** An unavailable lease store is `LeaseLost` (every database error is reported that way, programming
+  errors included: log its `__cause__`), not a lease. A heartbeat that arrives after expiry extends nothing and never
+  resurrects the lease; the process must acquire again and gets a new token.
+- **Bounds (`LeaseError`).** `ttl_seconds` from 1 to 3600; `owner_id` at most 128 characters; the lease name at most 64.
+
+Guidance for the loop wiring (#673): renew every `ttl / 3` at most; keep fenced transactions much shorter than `ttl`
+minus the renewal interval (a fenced transaction blocks the owner's own renewal and every other fenced transition);
+give fenced and acquiring transactions a `SET LOCAL lock_timeout`, since a stuck session holding the row would block
+failover (`idle_in_transaction_session_timeout` bounds it too).
 
 A rollback (`caliber-migrate downgrade 0115`) drops the table; the next acquirer starts at token 1.
 

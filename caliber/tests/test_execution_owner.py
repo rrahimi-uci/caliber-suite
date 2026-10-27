@@ -26,7 +26,10 @@ from sqlalchemy.orm import Session
 
 from caliber.ownership import (
     DEFAULT_LEASE,
+    MAX_LEASE_NAME,
+    MAX_OWNER_ID,
     MAX_TTL_SECONDS,
+    MIN_TTL_SECONDS,
     Lease,
     LeaseError,
     LeaseLost,
@@ -121,16 +124,11 @@ def test_single_owner_and_fencing(
         assert _acquire(engine, "node-b") is None, "one owner at a time"
         _fenced(engine, a)
 
-        renewed = _acquire(
-            engine, "node-a"
-        )  # the owner asking again is a renewal: same token, later expiry
-        assert (
-            renewed is not None
-            and renewed.fencing_token == 1
-            and renewed.expires_at >= a.expires_at
+        assert _acquire(engine, "node-a") is None, (
+            "acquire never renews, not even for the holder's own id"
         )
-        same = _renew(engine, a)
-        assert same.fencing_token == 1 and same.expires_at >= renewed.expires_at
+        same = _renew(engine, a)  # renewal is renew(lease): same token, later expiry
+        assert same.fencing_token == 1 and same.expires_at >= a.expires_at
 
         _expire(engine)
         _lost(
@@ -299,6 +297,15 @@ def test_a_lease_that_has_not_expired_by_database_time_is_not_taken(
         ("node ", TTL, DEFAULT_LEASE),
         (None, TTL, DEFAULT_LEASE),
         ("node", 0, DEFAULT_LEASE),
+        ("node", 0.5, DEFAULT_LEASE),
+        ("node", 1e-05, DEFAULT_LEASE),
+        ("node", "30", DEFAULT_LEASE),
+        ("node", None, DEFAULT_LEASE),
+        ("node", float("nan"), DEFAULT_LEASE),
+        ("node", float("inf"), DEFAULT_LEASE),
+        ("x" * 129, TTL, DEFAULT_LEASE),
+        ("node", TTL, "n" * 65),
+        ("node", TTL, " padded"),
         ("node", -1.0, DEFAULT_LEASE),
         ("node", MAX_TTL_SECONDS + 1, DEFAULT_LEASE),
         ("node", True, DEFAULT_LEASE),
@@ -317,11 +324,49 @@ def test_a_malformed_request_is_refused_and_touches_nothing(
         assert _stored(engine) is None
 
 
-def test_the_largest_allowed_ttl_is_accepted(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+@pytest.mark.parametrize("dialect", DIALECTS)
+def test_the_documented_bounds_are_accepted_exactly(
+    dialect: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    with _migrated("sqlite", tmp_path, monkeypatch) as (engine, _):
-        assert _acquire(engine, "node-a", MAX_TTL_SECONDS) is not None
+    with _migrated(dialect, tmp_path, monkeypatch) as (engine, _):
+        assert (
+            _acquire(engine, "o" * MAX_OWNER_ID, MAX_TTL_SECONDS, "n" * MAX_LEASE_NAME) is not None
+        )
+        assert _acquire(engine, "node-a", MIN_TTL_SECONDS, "short") is not None
+        assert (MIN_TTL_SECONDS, MAX_TTL_SECONDS, MAX_OWNER_ID, MAX_LEASE_NAME) == (
+            1.0,
+            3600.0,
+            128,
+            64,
+        )
+
+
+@pytest.mark.parametrize("dialect", DIALECTS)
+def test_two_processes_sharing_an_owner_id_cannot_both_hold_the_lease(
+    dialect: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A restart that reuses a stable id (a hostname, a pod name) must not adopt a predecessor's token while the
+    predecessor may still be alive and paused: acquire never renews, so the second one gets nothing."""
+    with _migrated(dialect, tmp_path, monkeypatch) as (engine, _):
+        first = _acquire(engine, "host-1")
+        assert first is not None and _acquire(engine, "host-1") is None
+        _fenced(engine, first)
+        _expire(engine)
+        second = _acquire(engine, "host-1")  # only after the lease has lapsed, and with a new token
+        assert second is not None and second.fencing_token == 2
+        _lost(lambda: _fenced(engine, first))
+
+
+@pytest.mark.parametrize("dialect", DIALECTS)
+def test_releasing_a_lapsed_lease_is_not_a_release(
+    dialect: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    with _migrated(dialect, tmp_path, monkeypatch) as (engine, _):
+        lease = _acquire(engine, "node-a")
+        assert lease is not None
+        _expire(engine)
+        assert _release(engine, lease) is False
+        assert _release(engine, lease) is False
 
 
 def test_an_unavailable_lease_store_is_a_loss_never_a_grant(
@@ -421,6 +466,36 @@ def test_postgresql_exactly_one_of_many_concurrent_takeovers_of_an_expired_lease
             )
 
 
+def _wait_blocked(engine: Engine, timeout: float = 15.0) -> None:
+    """Return once some backend is waiting on a lock (polled): proof the second transaction really blocked."""
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        with engine.connect() as connection:
+            waiting = connection.execute(
+                text(
+                    "SELECT count(*) FROM pg_stat_activity "
+                    "WHERE datname = current_database() AND wait_event_type = 'Lock'"
+                )
+            ).scalar_one()
+        if waiting:
+            return
+        time.sleep(0.05)
+    raise AssertionError("no transaction ever blocked on a lock")
+
+
+def _wait_until_database_time_passes(
+    engine: Engine, moment: datetime, timeout: float = 15.0
+) -> None:
+    """Poll the database clock (not the process clock) until it is past ``moment``."""
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        with Session(engine) as session:
+            if database_now(session) > moment:
+                return
+        time.sleep(0.05)
+    raise AssertionError("the database clock never passed the lease's expiry")
+
+
 @pytest.mark.skipif(not POSTGRES_TEST_URL, reason="row locks are PostgreSQL-only")
 def test_postgresql_a_takeover_waits_for_the_fenced_transition_it_would_overtake(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -428,35 +503,66 @@ def test_postgresql_a_takeover_waits_for_the_fenced_transition_it_would_overtake
     """The lease expires *during* the owner's transaction, after ``assert_fenced`` passed. The takeover must wait for
     that transaction, so the transition completes under the lease it checked, and only then does the token change."""
     with _migrated("postgresql", tmp_path, monkeypatch) as (engine, _):
-        owner = _acquire(engine, "node-a", ttl=1.5)
+        owner = _acquire(engine, "node-a", ttl=MIN_TTL_SECONDS)
         assert owner is not None
-        events: list[str] = []
         taken: list[Lease | None] = []
-        done = threading.Event()
+        outcome: dict[str, Any] = {}
 
         def taker() -> None:
-            with Session(engine) as session, session.begin():
-                session.execute(text("SET LOCAL lock_timeout = '20s'"))
-                taken.append(acquire(session, "node-b", ttl_seconds=TTL))
-                events.append("takeover")
-            done.set()
+            try:
+                with Session(engine) as session, session.begin():
+                    session.execute(text("SET LOCAL lock_timeout = '30s'"))
+                    taken.append(acquire(session, "node-b", ttl_seconds=TTL))
+                outcome["committed_at"] = time.monotonic()
+            except BaseException as exc:
+                outcome["error"] = exc
 
         session = Session(engine)
         session.begin()
-        assert_fenced(session, owner)  # passes and locks the row
-        time.sleep(2.0)  # the lease is now expired by the database clock
-        thread = threading.Thread(target=taker, daemon=True)
-        thread.start()
-        time.sleep(1.0)
-        assert not done.is_set(), "the takeover must wait for the fenced transaction"
-        events.append("transition")
-        session.commit()
-        session.close()
-        assert done.wait(20)
-        thread.join(5)
-        assert events == ["transition", "takeover"]
+        try:
+            assert_fenced(session, owner)  # passes and locks the row
+            _wait_until_database_time_passes(
+                engine, owner.expires_at
+            )  # the lease lapses during the transaction
+            thread = threading.Thread(target=taker, daemon=True)
+            thread.start()
+            _wait_blocked(engine)
+            assert thread.is_alive(), "the takeover must wait for the fenced transaction"
+            transitioned_at = (
+                time.monotonic()
+            )  # the guarded transition, still under the lease it checked
+            session.commit()
+        finally:
+            session.rollback()
+            session.close()
+        thread.join(30)
+        assert "error" not in outcome, outcome.get("error")
+        assert outcome["committed_at"] > transitioned_at
         assert taken[0] is not None and taken[0].fencing_token == 2
         _lost(lambda: _fenced(engine, owner))
+
+
+@pytest.mark.skipif(not POSTGRES_TEST_URL, reason="the database clock is PostgreSQL-specific")
+def test_postgresql_expiry_is_judged_at_statement_time_not_at_transaction_start(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``now()`` is frozen at the start of a transaction, so a long transaction would still see a lapsed lease as
+    live. The lease uses ``clock_timestamp()``: inside one open transaction, renew and the fence turn into a loss as
+    soon as the lease lapses."""
+    with _migrated("postgresql", tmp_path, monkeypatch) as (engine, _):
+        lease = _acquire(engine, "node-a", ttl=MIN_TTL_SECONDS)
+        assert lease is not None
+        with Session(engine) as session, session.begin():
+            session.execute(
+                text("SELECT 1")
+            )  # the transaction (and its now()) starts here, lease still live
+            assert_fenced(session, lease)
+            _wait_until_database_time_passes(engine, lease.expires_at)
+            with pytest.raises(LeaseLost):
+                assert_fenced(session, lease)
+            with pytest.raises(LeaseLost):
+                renew(session, lease, ttl_seconds=TTL)
+            assert release(session, lease) is False
 
 
 @pytest.mark.skipif(not POSTGRES_TEST_URL, reason="row locks are PostgreSQL-only")
