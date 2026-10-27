@@ -4,8 +4,10 @@ The database is the authority: a trigger on each immutable table refuses UPDATE 
 TRUNCATE), and the runtime role is granted no UPDATE/DELETE/TRUNCATE on it. This module is the *application*
 layer on top, so a mistake fails early with a name instead of as a driver error at flush time:
 
-* :func:`guard_immutable` refuses an ORM-flushed update or delete of an instance of a registered model;
-* the ``Session`` ``do_orm_execute`` hook refuses an ORM-enabled bulk ``update(Model)`` / ``delete(Model)``.
+* :func:`guard_immutable` refuses an ORM-flushed update or delete of an instance of a registered model. A model
+  may name ``mutable`` columns (a grant's revocation fields): changing only those is allowed, anything else is not;
+* the ``Session`` ``do_orm_execute`` hook refuses an ORM-enabled bulk ``update(Model)`` / ``delete(Model)`` (a
+  partially mutable model changes through its instances, never in bulk).
 
 Both raise :class:`ImmutableRecordError`. A Core statement against the table (``update(Model.__table__)``, raw
 SQL) bypasses the ORM and is refused by the database trigger instead.
@@ -16,6 +18,7 @@ from __future__ import annotations
 from typing import Any
 
 from sqlalchemy import event
+from sqlalchemy import inspect as sa_inspect
 from sqlalchemy.orm import ORMExecuteState, Session, object_session
 from sqlalchemy.orm.mapper import Mapper
 
@@ -32,8 +35,14 @@ def _refuse(model: type, operation: str) -> ImmutableRecordError:
     return ImmutableRecordError(f"{model.__tablename__} is immutable: {operation} refused")  # type: ignore[attr-defined]
 
 
-def guard_immutable(model: type) -> type:
-    """Register ``model`` as write-once; returns it so it can be used as a decorator."""
+def guard_immutable(
+    model: type, *, mutable: frozenset[str] = frozenset(), once: str | None = None
+) -> type:
+    """Register ``model`` as write-once (but for ``mutable`` columns); returns it so it can be a decorator.
+
+    ``once`` names a column that, once it holds a value in the database, freezes the ``mutable`` columns too: a
+    revocation is written once and never edited afterwards.
+    """
     if model in _IMMUTABLE_MODELS:
         return model
     _IMMUTABLE_MODELS.add(model)
@@ -43,6 +52,14 @@ def guard_immutable(model: type) -> type:
         session = object_session(target)
         if session is not None and not session.is_modified(target, include_collections=False):
             return  # touched but unchanged: no UPDATE would be sent
+        state = sa_inspect(target)
+        changed = {
+            attr.key
+            for attr in state.mapper.column_attrs
+            if state.attrs[attr.key].history.has_changes()
+        }
+        if mutable and changed <= mutable and not (once is not None and _committed(state, once)):
+            return
         raise _refuse(model, "UPDATE")
 
     @event.listens_for(model, "before_delete")
@@ -50,6 +67,17 @@ def guard_immutable(model: type) -> type:
         raise _refuse(model, "DELETE")
 
     return model
+
+
+def _committed(state: Any, column: str) -> bool:
+    """Whether ``column`` held a non-null value in the database before this flush."""
+    history = state.attrs[column].load_history()
+    before = (
+        history.deleted[0]
+        if history.deleted
+        else (history.unchanged[0] if history.unchanged else None)
+    )
+    return before is not None
 
 
 @event.listens_for(Session, "do_orm_execute")

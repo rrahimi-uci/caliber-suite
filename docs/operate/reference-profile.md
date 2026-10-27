@@ -232,6 +232,62 @@ Refusals raise `PrincipalError`; the recovery for each:
 | `subject must have exactly ['auth_method', 'user_id']; extra ['project_id'], missing []` | drop `project_id` from the manifest `subject` and pass it as `Subject.from_manifest(data, project_id=...)` |
 | `a pat subject needs its credential_id to become an identity` | pass `credential_id` (and `credential_project_id` when the token is bound) to `to_identity` |
 
+## Run grants
+
+A run acts under a grant (B03.2, #664; `caliber/src/caliber/policy/grants.py`, migration `0115`, table
+`caliber_run_grants`). It is bound to an exact run and an exact grant id, to the run's subject and workload
+([run principals](#run-principals-subject-and-workload)), to a project, to explicit sets of allowed actions and
+resources, to the policy version it was issued under and to an expiry. Issuing one is part of admission (#680). This
+page lists what the store and the check guarantee:
+
+- **Exact identifiers, no fallback.** Every check names the run id *and* the grant id. There is no "newest grant"
+  and no ambient one; a different run, an unknown grant and a mismatch are all `grant_not_found`, so ids cannot be
+  probed.
+- **Closed vocabulary, explicit sets.** Actions are the names in `caliber.resource_access.PROJECT_ACTIONS` (an unknown
+  action cannot be granted; `release.break_glass_apply` is deliberately not in it). Actions and resources match
+  exactly: no wildcard, prefix, case folding or ordering by name or risk.
+- **A grant never exceeds the subject's role.** Issuing refuses an action the subject's *current* role is not in the
+  set for (`PROJECT_ACTIONS[action]`), and every use rechecks the current role (`role_not_allowed`), so a demotion
+  narrows a standing grant at once. The project owner counts as `owner` only when the caller supplies live scopes that
+  still include the owner-role scopes; without them `owner` is treated as `editor`.
+- **Rechecked every time, in this order:** `grant_revoked`, `grant_expired` (the expiry instant itself is expired),
+  `not_a_member` (the subject's *current* active membership, or ownership, of the grant's project), `action_not_allowed`
+  (not in the grant), `role_not_allowed`, `resource_not_allowed`. A database failure while reading any of it is
+  `authority_unavailable`: a denial, never an allow. Datetimes must be timezone-aware (UTC is stored).
+- **Revocation and membership changes cannot be raced (PostgreSQL).** A check takes a row lock on the grant and a
+  shared lock on the membership and project rows it relied on, in the caller's transaction; a revocation, a member's
+  removal and a demotion each wait for a check in flight, and a check that starts after one sees it. Under REPEATABLE
+  READ or SERIALIZABLE a change committed after the transaction's snapshot is `authority_unavailable`. Run the
+  transition a check guards in the same transaction as the check. **SQLite gives no such guarantee** (the driver does
+  not even begin a transaction before the first write); it is development only and the reference profile refuses it.
+  SQLite's `INSERT OR REPLACE` also bypasses the triggers below (a development-only gap).
+- **Immutable but for a whole revocation, in the database.** Triggers refuse changing any column but the three
+  revocation fields (`caliber_run_grants is immutable except for revocation`), refuse any change once revoked (`a
+  revoked grant stays revoked`) and refuse `DELETE` (`TRUNCATE` too on PostgreSQL). A CHECK makes a revocation whole:
+  `revoked_at`, `revoked_by` and `revoke_reason` are all null or all set. The ORM refuses the same
+  (`ImmutableRecordError`), including editing a committed revocation. As with run manifests, run the application as a
+  role without `DELETE` or `TRUNCATE` on the table; the profile does not check which role it uses.
+
+Refusals and what to do:
+
+| code | meaning | recovery |
+| --- | --- | --- |
+| `grant_not_found` | no grant with that exact run id and grant id | use the ids admission returned for this run; never look one up by recency |
+| `grant_revoked` | the grant was revoked | request a new run or a new grant through admission |
+| `grant_expired` | `expires_at` has passed | the run must be re-admitted; a grant is never extended |
+| `not_a_member` | the subject is no longer an active member (or owner) of the project | restore the membership, or stop the run |
+| `action_not_allowed` | the action is not in this grant | request a grant that names it (it must be in the vocabulary) |
+| `role_not_allowed` | the subject's current role is not allowed to perform the action | change the role deliberately, or use a different action |
+| `resource_not_allowed` | the resource is not in this grant | request a grant that names the exact resource |
+| `authority_unavailable` | the store could not answer | retry after the database recovers; nothing was authorized |
+
+Issuing refuses (`GrantError`): an empty or oversized set, an action outside the vocabulary or beyond the subject's
+role, a subject who is not a current member, a run that does not exist or belongs to another project, a naive datetime,
+and an expiry that is not in the future.
+
+This task stores and checks grants; it makes no policy decision and records none (B03.3 and B03.5). A rollback
+(`caliber-migrate downgrade 0114`) drops the table and therefore the grants, never the runs.
+
 ## Not enforced yet
 
 ADR 0001 describes the whole reference shape; this table is what the *process* checks today. Not checked:
