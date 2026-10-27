@@ -420,6 +420,10 @@ disallow_incomplete_defs = false
 [tool.pytest.ini_options]
 minversion = "8.0"
 testpaths = ["tests"]
+# pytest-asyncio 1.4.1 warns when this is unset and ``filterwarnings = error`` turned the warning into an internal
+# error that stopped every CI run before the first test (an unpinned dependency moved, as with pydantic-settings
+# below). "function" is the value its next major release makes the default, so it only states today's choice.
+asyncio_default_fixture_loop_scope = "function"
 addopts = [
     "-ra",
     "--strict-markers",
