@@ -44,6 +44,7 @@ from caliber.workflows.manifest import WorkflowManifestError
 from caliber.workflows.memory_tools import bind_run_memory_tools
 from caliber.workflows.promoter import build_executor, build_plan, workflow_run_summary
 from caliber.workflows.run_events import append_run_event
+from caliber.workflows.run_pins import PinsError, verify_run_pins
 from caliber.workflows.run_state import (
     RUN_STATUS_CANCELLED,
     RUN_STATUS_COMPLETED,
@@ -129,6 +130,10 @@ def _manifest_summary_metadata(summary: dict[str, Any] | None) -> dict[str, Any]
     workflow_version_number = summary.get("workflow_version_number")
     if isinstance(workflow_version_number, int):
         copied["workflow_version_number"] = workflow_version_number
+    # What admission recorded on the run (B02.2a): kept through every summary rebuild.
+    for key in ("admitted", "manifest_id", "admission_intent", "authoring_manifest_hash"):
+        if key in summary:
+            copied[key] = summary[key]
     return copied
 
 
@@ -1551,6 +1556,21 @@ class WorkflowRunWorker:
                     created_by=workflow.owner or "",
                 )
 
+            # An admitted run executes only what its manifest pinned (B02.2b): anything that changed since
+            # admission fails the run closed, by name. Legacy runs have no manifest and are untouched.
+            pinned = None
+            try:
+                pinned = verify_run_pins(
+                    session,
+                    run,
+                    version_row,
+                    manifest_snapshot,
+                    llm_provider=str(getattr(self._config, "llm_provider", "") or "fake"),
+                )
+            except PinsError as exc:
+                self._mark_failed(session, run, error_code=exc.code, error_summary=str(exc))
+                return
+
             # Execute over the full input (input_payload); fall back to the summary
             # preview for legacy rows. Keep the summary's copy bounded so polling
             # responses don't carry a whole-document payload.
@@ -1601,7 +1621,10 @@ class WorkflowRunWorker:
                     session,
                     version_for_plan,
                     alias=run.deployment_alias,
-                    manifest_override=manifest_snapshot,
+                    # An admitted run executes its pinned sealed bundle (resolved manifest and embedded skills),
+                    # never a live lookup; a legacy run keeps its snapshot as before.
+                    manifest_override=None if pinned is not None else manifest_snapshot,
+                    pinned_bundle=pinned.bundle if pinned is not None else None,
                     config=self._config,
                     session_factory=self._session_factory,
                 )

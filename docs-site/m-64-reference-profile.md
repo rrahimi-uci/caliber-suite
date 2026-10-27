@@ -305,10 +305,26 @@ synchronous real run (`POST /workflow-versions/{id}/run`) is never queued, so wi
 
 **Not admitted yet (stay legacy runs):** runs started by the cron scheduler and by a service token
 (`routes/services.py`), because neither has a typed subject (a user who authenticated) to put in a grant; they
-need a service-principal model first. Preview and index rows are not executable runs. Legacy
-runs are marked as such and never gain a manifest. **Executing** an admitted run under its grant, and fencing each
-transition, are the worker tasks that follow (#684, #685); until then admission records and authorizes but the worker
-does not yet check the grant.
+need a service-principal model first (#958). Preview and index rows are not executable runs. Legacy runs are marked
+as such, never gain a manifest, and keep today's execution path.
+
+**Executing an admitted run (B02.2b, #683).** The worker reads the run's manifest back
+(`workflows/run_pins.py::load_run_manifest`: digest, schema and run id checked) and executes only what it pinned. It
+builds the plan from the version's *sealed* bundle, never from a live lookup, so a moved deployment alias, a prompt
+alias pointing at new text, a skill with new content, a newer tool version or a different active knowledge-base
+version changes nothing about a run that was admitted before it (scenario V10). Anything that cannot be ignored
+fails the run closed with a named code instead of running on something else:
+
+| error code | meaning and recovery |
+| --- | --- |
+| `manifest_missing` | an admitted run has no manifest (never produced by admission, which stores both or neither): the run is not dispatched |
+| `manifest_corrupt` | the stored manifest does not read back or names another run: treat as corruption of immutable evidence |
+| `pins_mismatch` | the run's version, or the manifest it would execute, is not the pinned one |
+| `pins_changed` | the version no longer exists or was recompiled after admission (its sealed bundle is not the pinned digest): submit a new run |
+| `model_route_changed` | the deployment's model provider is no longer one the run was pinned to: restore the provider or submit a new run |
+
+Not done by the worker yet: checking the run's *grant* and policy decision at each effect, and fencing each transition
+with the execution lease (#684, #685).
 
 ## Run principals: subject and workload
 
