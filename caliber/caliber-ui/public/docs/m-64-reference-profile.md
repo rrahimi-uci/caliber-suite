@@ -166,6 +166,44 @@ Refusals raise `PrincipalError`; the recovery for each:
 | `subject must have exactly ['auth_method', 'user_id']; extra ['project_id'], missing []` | drop `project_id` from the manifest `subject` and pass it as `Subject.from_manifest(data, project_id=...)` |
 | `a pat subject needs its credential_id to become an identity` | pass `credential_id` (and `credential_project_id` when the token is bound) to `to_identity` |
 
+## Rule bundles
+
+A rule bundle (RuleBundle v1; B02 rule-loader, #726; `caliber/src/caliber/context/rule_bundle.py`) is a YAML file of
+rules that an operator pins by SHA-256. `load_rule_bundle(path, expected_sha256)` verifies the **raw bytes** against
+the pin *before parsing*, so an altered byte is refused even when the YAML reads the same (a comment, whitespace, line
+endings, a different quote), and only then parses strictly: a closed set of keys, unique mapping keys, a string
+`version`, unique rule ids, no control or format characters. It is pure (no database, provider or run); admission
+(#676) pins the bytes before the run is created and the context code (#736) re-verifies them when the bundle is used.
+
+```yaml
+schema_version: v1
+bundle_id: support-rules
+version: "2026-10-01"
+rules:
+  - id: refund-window
+    text: "Refunds are allowed within 30 days of delivery."
+    source_ref: "policy/refunds#section-2"
+    applies_to: [refund, order-status]
+```
+
+Every refusal is a `RuleBundleError` with a `code` and a message that never quotes the file:
+
+| code | cause | recovery |
+| --- | --- | --- |
+| `bad_expected_digest` | the pin is not a full lowercase 64-hex SHA-256 | pass `sha256sum <file>` output, without a `sha256:` prefix |
+| `missing_bytes` | the file is absent, unreadable, a directory or empty | restore the file the pin was made from |
+| `too_large` | more than 1 MiB | split the bundle |
+| `digest_mismatch` | the bytes differ from the pin in any way | re-review the file, then pin its new digest deliberately |
+| `invalid_yaml` | not UTF-8 YAML, or a mapping key repeats | fix the syntax; a repeated key is never "last one wins" |
+| `unsupported_version` | `schema_version` is not `v1` | write `schema_version: v1` |
+| `unknown_field` | a key outside the closed set, at the top or in a rule | remove it; a new field ships to readers first |
+| `malformed` | a wrong type or shape (for example `version: 1.0`, an empty `applies_to`, an id with capitals) | correct the field named in the message |
+| `duplicate_rule_id` | two rules share an id | make the ids unique |
+| `unknown_rule` | `bundle.rule(id)` for an id the bundle does not hold | the bundle is closed; add the rule and re-pin |
+
+The bundle schema is enforced in code with closed key sets; it is not (yet) a registered contract in
+`caliber.contracts`, which #676 revisits if the run manifest gains a bundle reference.
+
 ## Not enforced yet
 
 ADR 0001 describes the whole reference shape; this table is what the *process* checks today. Not checked:

@@ -1,0 +1,18 @@
+# SCRIPTED TEST FIXTURE. Invented for caliber/tests/test_rule_bundle.py; it is not domain content and says
+# nothing about any real policy. Licensed under the repository's licence.
+schema_version: v1
+bundle_id: scripted-support-rules
+version: "2026-10-01"
+rules:
+  - id: refund-window
+    text: "Refunds are allowed within 30 days of delivery."
+    source_ref: "scripted/policy#refunds"
+    applies_to: [refund, order-status]
+  - id: escalate-fraud
+    text: "Anything that looks like fraud is escalated to a human; the agent does not decide."
+    source_ref: "scripted/policy#fraud"
+    applies_to: [fraud]
+  - id: tone
+    text: "Answer politely and briefly."
+    source_ref: "scripted/style#tone"
+    applies_to: [refund, fraud, order-status]
