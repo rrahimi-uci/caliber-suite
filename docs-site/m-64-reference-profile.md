@@ -274,6 +274,30 @@ and an expiry that is not in the future.
 This task stores and checks grants; it makes no policy decision and records none (B03.3 and B03.5). A rollback
 (`caliber-migrate downgrade 0114`) drops the table and therefore the grants, never the runs.
 
+## The execution-owner lease
+
+In the reference profile exactly one process holds the execution-owner lease and only the holder runs the background
+loops ([ADR 0002](https://github.com/rrahimi-uci/caliber-suite/blob/main/docs/architecture/adr/0002-execution-ownership.md)). B13.2 (#668; `caliber/src/caliber/ownership.py`,
+migration `0116`, table `caliber_execution_owner`) is the lease and its fencing token; the lifespan wiring that makes
+the loops obey it is #673, so today nothing acquires it. What it guarantees:
+
+- **Database time.** Expiry is decided by the database's clock inside the statement that tests it; a process's own
+  clock never extends a lease.
+- **One owner.** `acquire` returns the lease or `None`. The current, unexpired owner asking again renews (same token,
+  later expiry); anyone asking after expiry, including the previous holder, makes a *new acquisition* and the token
+  grows by exactly one. Concurrent callers resolve at the row: exactly one wins.
+- **Exact fencing.** `renew`, `release` and `assert_fenced` compare the owner id *and* the captured token for
+  equality, and an unexpired lease; there is no "token is older than the latest" test and no fresh read of a current
+  token. A stale or future token, another owner's, or another lease name's, is refused (`LeaseLost`).
+- **Fenced transitions.** `assert_fenced` runs in the caller's transaction before an owner-only transition and, on
+  PostgreSQL, holds a row lock until that transaction ends, so a takeover waits for the transition rather than
+  overtaking it. Without a lease the work is refused, never done.
+- **Fails closed.** An unavailable lease store is `LeaseLost`, not a lease. A heartbeat that arrives after expiry
+  extends nothing and never resurrects the lease; the process must acquire again (and gets a new token).
+- A lease longer than one hour is refused (`LeaseError`): a stuck process would hold it for that long.
+
+A rollback (`caliber-migrate downgrade 0115`) drops the table; the next acquirer starts at token 1.
+
 ## Not enforced yet
 
 ADR 0001 describes the whole reference shape; this table is what the *process* checks today. Not checked:
