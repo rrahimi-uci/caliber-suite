@@ -171,7 +171,7 @@ def test_two_requests_racing_on_one_key_admit_exactly_one_run(
         thread.join(60)
     assert len(results) == 4, results
     statuses = {status for status, _ in results}
-    assert statuses <= {202, 409, 500}, results
+    assert statuses == {202}, results
     admitted = {run_id for status, run_id in results if status == 202}
     assert len(admitted) == 1, results
     with reference_app.session_factory() as session:

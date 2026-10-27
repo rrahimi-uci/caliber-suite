@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import logging
 import uuid
+from copy import deepcopy
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any, Final
@@ -60,7 +61,7 @@ from caliber.run_manifest import (
     pin_rule_bundle,
 )
 from caliber.workflows.deployment_bundle import verify_bundle
-from caliber.workflows.manifest import AgentNode, parse_manifest
+from caliber.workflows.manifest import AgentNode, compute_manifest_hash, parse_manifest
 
 logger = logging.getLogger("caliber.workflows.admission")
 
@@ -145,6 +146,8 @@ class PreparedAdmission:
     purpose: str
     resource: str
     now: datetime
+    #: The sealed, resolved manifest the run executes: what the pins describe (stored as the run's snapshot).
+    execution_manifest: dict[str, Any]
 
 
 @dataclass(frozen=True)
@@ -182,8 +185,11 @@ def _subject(identity: CaliberIdentity, project_id: str) -> Subject:
         ) from exc
 
 
-def _dependencies(version: CaliberWorkflowVersion) -> tuple[str, list[dict[str, Any]]]:
-    """The sealed bundle's digest and dependency lock; anything unsealed, altered or unresolved is refused."""
+def _dependencies(
+    version: CaliberWorkflowVersion,
+) -> tuple[str, list[dict[str, Any]], dict[str, Any]]:
+    """The sealed bundle's digest, dependency lock and resolved manifest; anything unsealed, altered or unresolved is
+    refused."""
     compiled = version.compiled_bundle if isinstance(version.compiled_bundle, dict) else {}
     bundle = compiled.get("deployment_bundle")
     if not isinstance(bundle, dict):
@@ -207,27 +213,35 @@ def _dependencies(version: CaliberWorkflowVersion) -> tuple[str, list[dict[str, 
             BUNDLE_UNAVAILABLE,
             f"the version has unresolved dependencies and cannot be pinned: {unresolved[:5]}",
         )
-    return verification.digest, dependencies
+    resolved = bundle["resolved_manifest"]  # verify_bundle guarantees an object
+    return verification.digest, dependencies, deepcopy(resolved)
 
 
 def resolve_pins(version: CaliberWorkflowVersion, settings: AdmissionSettings) -> ResolvedPins:
     """The run's pins, from the version's sealed bundle; never from a mutable alias at run time."""
-    digest, dependencies = _dependencies(version)
-    prompts: list[str] = []
-    tools: list[str] = []
-    skills: list[str] = []
+    return _resolve(version, settings)[0]
+
+
+def _resolve(
+    version: CaliberWorkflowVersion, settings: AdmissionSettings
+) -> tuple[ResolvedPins, dict[str, Any]]:
+    """The pins and the sealed resolved manifest the run will execute (what the pins describe)."""
+    digest, dependencies, execution_manifest = _dependencies(version)
+    prompts: set[str] = set()
+    tools: set[str] = set()
+    skills: set[str] = set()
     knowledge: set[tuple[str, str]] = set()
     for item in dependencies:
         kind, reference = item.get("kind"), str(item.get("reference") or "")
         raw_version = item.get("version")
         if kind == "prompt":
-            prompts.append(f"{reference.rsplit('@', 1)[0]}@{raw_version}")
+            prompts.add(f"{reference.rsplit('@', 1)[0]}@{raw_version}")
         elif kind == "tool":
-            tools.append(f"{reference}@{raw_version}")
+            tools.add(f"{reference}@{raw_version}")
         elif kind == "mcp_tool":
-            tools.append(f"{reference}@{raw_version or item.get('digest') or ''}")
+            tools.add(f"{reference}@{raw_version or item.get('digest') or ''}")
         elif kind == "skill":
-            skills.append(f"{reference}@{raw_version}")
+            skills.add(f"{reference}@{raw_version}")
         elif kind == "knowledge_base":
             raw_snapshot = item.get("snapshot")
             snapshot: dict[str, Any] = raw_snapshot if isinstance(raw_snapshot, dict) else {}
@@ -238,18 +252,19 @@ def resolve_pins(version: CaliberWorkflowVersion, settings: AdmissionSettings) -
                     )
         # eval datasets, child workflows and managed files are covered by the bundle digest.
     try:
-        return ResolvedPins(
+        pins = ResolvedPins(
             workflow_version=version.version_id,
             bundle_digest=digest,
-            prompt_versions=tuple(prompts),
-            tool_versions=tuple(tools),
-            skill_versions=tuple(skills),
+            prompt_versions=tuple(sorted(prompts)),
+            tool_versions=tuple(sorted(tools)),
+            skill_versions=tuple(sorted(skills)),
             knowledge_base_versions=tuple(
                 KnowledgeBasePin(kb, ver) for kb, ver in sorted(knowledge)
             ),
             model_routes=_model_routes(version, settings),
             policy_version=settings.policy.version,
         )
+        return pins, execution_manifest
     except ManifestError as exc:
         raise AdmissionDenied(MANIFEST_REFUSED, f"{exc.code}: {exc}") from exc
 
@@ -285,6 +300,21 @@ def prepare_admission(
             PROJECT_REQUIRED,
             "an admitted run needs a project-scoped workflow; this workflow has no project",
         )
+    if (
+        identity.credential_project_id is not None
+        and identity.credential_project_id != workflow.project_id
+    ):
+        raise AdmissionDenied(
+            GRANT_REFUSED,
+            "the credential is bound to a different project than this workflow's",
+            status=403,
+        )
+    if identity.active_project_id is not None and identity.active_project_id != workflow.project_id:
+        raise AdmissionDenied(
+            GRANT_REFUSED,
+            "the caller is acting in a different project than this workflow's",
+            status=403,
+        )
     subject = _subject(identity, workflow.project_id)
     try:
         workload = Workload.for_workflow(workflow.name, version.manifest_hash)
@@ -293,7 +323,7 @@ def prepare_admission(
             WORKLOAD_UNAVAILABLE,
             f"this workflow version has no usable digest to pin the workload to: {exc}",
         ) from exc
-    pins = resolve_pins(version, settings)
+    pins, execution_manifest = _resolve(version, settings)
     pinned: PinnedRuleBundle | None = None
     if settings.rule_bundle_path:
         try:
@@ -326,6 +356,7 @@ def prepare_admission(
         purpose=purpose_for(source),
         resource=f"workflow:{workflow.workflow_id}",
         now=now,
+        execution_manifest=execution_manifest,
     )
 
 
@@ -410,34 +441,80 @@ def persist_admission(
     )
 
 
-def check_retry_intent(
-    existing: CaliberWorkflowRun,
+def intent_of(
     *,
     workflow_id: str,
     alias: str,
+    actor: str,
     input_text: str,
-    input_files: list[dict[str, Any]] | None,
     project_id: str | None,
-) -> None:
-    """A request that reuses an idempotency key must be the request that created the run (409 otherwise).
+    input_files: list[dict[str, Any]] | None = None,
+    version_selector: str | None = None,
+    workspace_release_id: str | None = None,
+    environment_id: str | None = None,
+    model_id: str | None = None,
+    config_sha256: str | None = None,
+    priority: int = 0,
+    session_id: str | None = None,
+) -> dict[str, Any]:
+    """The canonical intent of a request: what was *asked for* (selectors, input, who, where), never what the
+    selectors resolve to now. Stored on the run when it is admitted and compared on every retry of its key."""
+    return {
+        "workflow_id": workflow_id,
+        "release_selector": alias or "",
+        "version_selector": version_selector or None,
+        "actor": actor,
+        "input": input_text or "",
+        "input_files": [dict(item) for item in input_files or []],
+        "project_id": project_id or None,
+        "workspace_release_id": workspace_release_id or None,
+        "environment_id": environment_id or None,
+        "model_id": model_id or None,
+        "config_sha256": config_sha256 or None,
+        "priority": int(priority or 0),
+        "session_id": session_id or None,
+    }
 
-    The caller has authorized the request already. The comparison is on the *selector* the original request named
-    (``deployment_alias``), never on what the alias points at now, so a moved alias does not make a retry a
-    different request and the original run and manifest come back.
+
+def check_retry_intent(existing: CaliberWorkflowRun, intent: dict[str, Any]) -> None:
+    """A request that reuses an idempotency key must be the request that created the run, from the same caller
+    (409 otherwise, with one message for every kind of difference, so it is no oracle).
+
+    The caller has authorized the request already. The comparison is on the *selectors* the original request named,
+    never on what an alias points at now, so a moved alias does not make a retry a different request and the
+    original run and manifest come back. A run admitted before the intent was recorded is compared on the fields
+    the run row itself keeps.
     """
-    original_files = (existing.summary or {}).get("input_files") or []
-    same = (
-        existing.workflow_id == workflow_id
-        and (existing.deployment_alias or "") == (alias or "")
-        and (existing.input_payload or "") == (input_text or "")
-        and (existing.project_id or None) == (project_id or None)
-        and list(original_files) == list(input_files or [])
-    )
+    stored = (existing.summary or {}).get("admission_intent")
+    if isinstance(stored, dict):
+        same = stored == intent
+    else:
+        same = (
+            existing.workflow_id == intent["workflow_id"]
+            and (existing.deployment_alias or "") == intent["release_selector"]
+            and (existing.input_payload or "") == intent["input"]
+            and (existing.project_id or None) == intent["project_id"]
+            and list((existing.summary or {}).get("input_files") or []) == intent["input_files"]
+            and (existing.created_by or "") == intent["actor"]
+        )
     if not same:
         raise AdmissionDenied(
             INTENT_CONFLICT,
             "this idempotency key was already used for a different request; use a new key for a new request",
         )
+
+
+def admitted_manifest_metadata(
+    version: CaliberWorkflowVersion, snapshot: dict[str, Any]
+) -> dict[str, Any]:
+    """The run summary's manifest fields for an admitted run: it executes the sealed resolved manifest, so that is the
+    snapshot (``manifest_mode: snapshot``) and its hash; the authoring version's hash stays alongside."""
+    return {
+        "manifest_mode": "snapshot",
+        "manifest_hash": compute_manifest_hash(snapshot),
+        "workflow_version_number": version.version_number,
+        "authoring_manifest_hash": version.manifest_hash,
+    }
 
 
 __all__ = [
@@ -456,7 +533,9 @@ __all__ = [
     "AdmissionRecord",
     "AdmissionSettings",
     "PreparedAdmission",
+    "admitted_manifest_metadata",
     "check_retry_intent",
+    "intent_of",
     "new_run_id",
     "persist_admission",
     "prepare_admission",

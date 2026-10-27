@@ -40,9 +40,11 @@ from caliber.workflows.admission import (
     AdmissionDenied,
     AdmissionSettings,
     check_retry_intent,
+    intent_of,
     resolve_pins,
 )
 from caliber.workflows.deployment_bundle import seal_bundle
+from caliber.workflows.manifest import compute_manifest_hash
 from caliber.workflows.run_launch import enqueue_workflow_run
 from tests.workflow_helpers import (
     PREFIX,
@@ -168,7 +170,7 @@ def test_admission_persists_pins(client: TestClient, db_session: Session) -> Non
     assert record["subject"] == {"user_id": "@test", "auth_method": "trusted_header"}
     assert record["workload"]["name"] == "Admit WF"
     assert record["workload"]["workflow_version_digest"] == version.manifest_hash
-    assert record["purpose"] == "workflow_run:manual"
+    assert record["purpose"] == "workflow_run:api"
     assert record["legacy"] is False and record["rule_bundle_sha256"] is None
 
     # The grant and the decision are those the manifest names, for exactly this run.
@@ -466,6 +468,276 @@ def test_a_store_failure_or_a_lost_decision_stores_nothing_and_says_why(
     assert set(_counts(db_session).values()) == {0}
 
 
+# ---------------------------------------------------------------- findings of the independent review (#957)
+
+
+def test_an_admitted_run_executes_exactly_the_sealed_manifest_its_pins_describe(
+    client: TestClient, db_session: Session
+) -> None:
+    _enable(client)
+    workflow_id, version_id = _project_workflow(client, db_session)
+    response = _run(client, workflow_id)
+    assert response.status_code == 202, response.text
+    run = db_session.get(CaliberWorkflowRun, response.json()["data"]["workflow_run_id"])
+    version = db_session.get(CaliberWorkflowVersion, version_id)
+    assert run is not None and version is not None
+    sealed = version.compiled_bundle["deployment_bundle"]
+    assert run.manifest_snapshot == sealed["resolved_manifest"], (
+        "the worker runs the resolved manifest"
+    )
+    summary = run.summary or {}
+    assert summary["manifest_mode"] == "snapshot"
+    assert summary["authoring_manifest_hash"] == version.manifest_hash
+    assert summary["manifest_hash"] == compute_manifest_hash(run.manifest_snapshot)
+
+
+def test_another_user_cannot_reuse_a_key_and_get_the_first_users_run(
+    client: TestClient, db_session: Session
+) -> None:
+    _enable(client)
+    workflow_id, _ = _project_workflow(client, db_session)
+    _project(db_session, user="@bob", role="editor")
+    body = {
+        "workflow_id": workflow_id,
+        "alias": "manual",
+        "input": "x",
+        "idempotency_key": "shared-key",
+    }
+    first = client.post(f"{PREFIX}/workflow-runs", json=body)
+    assert first.status_code == 202, first.text
+    headers = {"X-CALIBER-User": "@bob", "X-CALIBER-Project": PROJECT}
+    second = client.post(f"{PREFIX}/workflow-runs", json=body, headers=headers)
+    assert second.status_code in (403, 409), second.text
+    assert second.status_code != 202, "another caller does not get the first caller's run"
+    assert _counts(db_session)[CaliberRunManifest.__tablename__] == 1
+
+
+def test_an_explicit_version_selector_is_part_of_the_intent(
+    client: TestClient, db_session: Session
+) -> None:
+    _enable(client)
+    workflow_id, first_version = _project_workflow(client, db_session)
+    body = {"workflow_version_id": first_version, "input": "x", "idempotency_key": "k-version"}
+    assert client.post(f"{PREFIX}/workflow-runs", json=body).status_code == 202
+    second_version, _ = create_draft(client, workflow_id, _manifest(workflow_id, "second"))
+    assert client.post(f"{PREFIX}/workflow-versions/{second_version}/publish").status_code == 200
+    other = client.post(
+        f"{PREFIX}/workflow-runs", json={**body, "workflow_version_id": second_version}
+    )
+    assert other.status_code == 409, other.text
+    priority = client.post(f"{PREFIX}/workflow-runs", json={**body, "priority": 9})
+    assert priority.status_code == 409, "a different priority is a different request"
+    assert _counts(db_session)[CaliberRunManifest.__tablename__] == 1
+
+
+def test_losing_the_duplicate_key_race_with_a_different_request_is_a_conflict(
+    client: TestClient, db_session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from caliber.routes import workflow_runs as routes
+    from caliber.workflows import run_launch
+
+    _enable(client)
+    workflow_id, version_id = _project_workflow(client, db_session)
+    body = {
+        "workflow_id": workflow_id,
+        "alias": "manual",
+        "input": "first",
+        "idempotency_key": "k-race",
+    }
+    assert client.post(f"{PREFIX}/workflow-runs", json=body).status_code == 202
+
+    for module in (routes, run_launch):
+        real = module._find_idempotent
+        calls: list[int] = []
+
+        def blind_once(
+            *args: Any, _real: Any = real, _calls: list[int] = calls, **kwargs: Any
+        ) -> Any:
+            if not _calls:
+                _calls.append(1)
+                return (
+                    None  # the first look misses the winner, as in a race; the insert then collides
+                )
+            return _real(*args, **kwargs)
+
+        monkeypatch.setattr(module, "_find_idempotent", blind_once)
+
+    lost = client.post(f"{PREFIX}/workflow-runs", json={**body, "input": "DIFFERENT"})
+    assert lost.status_code == 409, lost.text
+
+    workflow, version = _db_pair(db_session, workflow_id, version_id)
+    with pytest.raises(AdmissionDenied) as conflict:
+        enqueue_workflow_run(
+            db_session,
+            workflow=workflow,
+            version=version,
+            alias="manual",
+            source="manual",
+            actor="@test",
+            input_text="DIFFERENT",
+            idempotency_key="k-race",
+            identity=_identity(),
+            admission=AdmissionSettings(enabled=True),
+        )
+    assert conflict.value.code == "intent_conflict"
+    db_session.rollback()
+    assert _counts(db_session)[CaliberRunManifest.__tablename__] == 1
+
+
+def test_a_credential_or_active_project_that_is_not_the_workflows_is_refused(
+    client: TestClient, db_session: Session
+) -> None:
+    from dataclasses import replace
+
+    workflow_id, version_id = _project_workflow(client, db_session)
+    workflow, version = _db_pair(db_session, workflow_id, version_id)
+    for identity in (
+        replace(_identity(kind="pat"), credential_project_id="P-other", credential_id="PAT-1"),
+        replace(_identity(), active_project_id="P-other"),
+    ):
+        with pytest.raises(AdmissionDenied) as caught:
+            admission.prepare_admission(
+                settings=AdmissionSettings(enabled=True),
+                workflow=workflow,
+                version=version,
+                identity=identity,
+                source="api",
+                now=datetime.now(timezone.utc),
+                run_tenant_id="local",
+            )
+        assert caught.value.status == 403, identity
+    bound = replace(_identity(kind="pat"), credential_project_id=PROJECT, credential_id="PAT-1")
+    assert admission.prepare_admission(
+        settings=AdmissionSettings(enabled=True),
+        workflow=workflow,
+        version=version,
+        identity=bound,
+        source="api",
+        now=datetime.now(timezone.utc),
+        run_tenant_id="local",
+    )
+
+
+def test_a_retry_of_a_failed_run_is_a_new_admitted_run(
+    client: TestClient, db_session: Session
+) -> None:
+    _enable(client)
+    workflow_id, version_id = _project_workflow(client, db_session)
+    first = _run(client, workflow_id, input="again", idempotency_key="k-retry")
+    run_id = first.json()["data"]["workflow_run_id"]
+    original = db_session.get(CaliberWorkflowRun, run_id)
+    assert original is not None
+    original.status = "failed"
+    db_session.commit()
+
+    retried = client.post(f"{PREFIX}/workflow-runs/{run_id}/retry", json={"reason": "again"})
+    assert retried.status_code == 202, retried.text
+    new_id = retried.json()["data"]["workflow_run_id"]
+    assert new_id != run_id
+    db_session.expire_all()
+    counts = _counts(db_session)
+    assert counts[CaliberRunManifest.__tablename__] == 2 == counts[CaliberRunGrant.__tablename__]
+    assert counts[CaliberPolicyDecision.__tablename__] == 2
+    new_run = db_session.get(CaliberWorkflowRun, new_id)
+    assert new_run is not None and new_run.manifest_legacy is False
+    assert new_run.parent_run_id == run_id and (new_run.summary or {})["admitted"] is True
+    manifest = db_session.execute(
+        select(CaliberRunManifest).where(CaliberRunManifest.workflow_run_id == new_id)
+    ).scalar_one()
+    assert read_manifest(bytes(manifest.manifest_bytes))["purpose"] == "workflow_run:retry"
+    assert (
+        new_run.manifest_snapshot == (db_session.get(CaliberWorkflowRun, run_id)).manifest_snapshot
+    )
+
+    # A refused retry stores nothing: fail the new run too, then break the bundle configuration.
+    new_run.status = "failed"
+    db_session.commit()
+    _enable(client, rule_bundle_path="/nonexistent/rules.yaml", rule_bundle_sha256=RULES_SHA)
+    before = _counts(db_session)
+    refused = client.post(f"{PREFIX}/workflow-runs/{new_id}/retry", json={})
+    assert refused.status_code == 409, refused.text
+    assert _counts(db_session) == before
+
+
+def test_a_retry_the_policy_denies_stores_nothing(
+    client: TestClient, db_session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _enable(client)
+    workflow_id, _ = _project_workflow(client, db_session)
+    run_id = _run(client, workflow_id).json()["data"]["workflow_run_id"]
+    run = db_session.get(CaliberWorkflowRun, run_id)
+    assert run is not None
+    run.status = "failed"
+    db_session.commit()
+    before = _counts(db_session)
+    deny = Policy(
+        version="policy-deny",
+        action_risk=REFERENCE_POLICY_V1.action_risk,
+        risk_ceiling=4,
+        deny_rules=frozenset({("resource.execute", f"workflow:{workflow_id}")}),
+    )
+    real = AdmissionSettings.from_config
+    monkeypatch.setattr(
+        AdmissionSettings,
+        "from_config",
+        classmethod(lambda cls, config: _with_policy(real(config), deny)),
+    )
+    refused = client.post(f"{PREFIX}/workflow-runs/{run_id}/retry", json={})
+    assert refused.status_code == 403, refused.text
+    assert _counts(db_session) == before
+
+
+def test_a_retry_whose_workflow_is_gone_cannot_be_admitted(
+    client: TestClient, db_session: Session
+) -> None:
+    _enable(client)
+    workflow_id, _ = _project_workflow(client, db_session)
+    run_id = _run(client, workflow_id).json()["data"]["workflow_run_id"]
+    run = db_session.get(CaliberWorkflowRun, run_id)
+    assert run is not None
+    run.status = "failed"
+    run.workflow_version_id = "WFV-gone"
+    db_session.commit()
+    gone = client.post(f"{PREFIX}/workflow-runs/{run_id}/retry", json={})
+    assert gone.status_code == 409 and "no longer exists" in gone.text
+
+
+def test_a_synchronous_real_run_is_not_admitted_so_it_is_refused(
+    client: TestClient, db_session: Session
+) -> None:
+    _enable(client)
+    _, version_id = _project_workflow(client, db_session)
+    refused = client.post(f"{PREFIX}/workflow-versions/{version_id}/run", json={"input": "x"})
+    assert refused.status_code == 409 and "sync_run_not_admitted" in refused.text
+    _nothing(db_session)
+    _enable(client, admission_enabled=False)
+    assert (
+        client.post(f"{PREFIX}/workflow-versions/{version_id}/run", json={"input": "x"}).status_code
+        != 409
+    )
+
+
+def test_a_tool_bound_twice_or_resolving_to_the_same_version_is_one_pin(
+    real_bundle: dict[str, Any],
+) -> None:
+    version = _version(
+        real_bundle,
+        [
+            _dep("tool", "tool.lookup.v1", "1.0.0", path="tools.a"),
+            _dep("tool", "tool.lookup.v1", "1.0.0", path="tools.b"),
+            _dep("mcp_tool", "srv/fetch", None, digest="e" * 64),
+            _dep("mcp_tool", "srv/fetch", None, digest="e" * 64),
+            _dep("prompt", "support@prod", "3"),
+            _dep("prompt", "support@staging", "3"),
+            _dep("skill", "triage", "2"),
+            _dep("skill", "triage", "2"),
+        ],
+    )
+    pins = resolve_pins(version, AdmissionSettings(enabled=True))
+    assert pins.tool_versions == ("srv/fetch@" + "e" * 64, "tool.lookup.v1@1.0.0")
+    assert pins.prompt_versions == ("support@3",) and pins.skill_versions == ("triage@2",)
+
+
 # ---------------------------------------------------------------- the shared enqueue service (event trigger, tools)
 
 
@@ -736,9 +1008,11 @@ def test_a_floating_or_ambiguous_dependency_is_refused_as_a_manifest_error(
             ),
         ],
     )
-    with pytest.raises(AdmissionDenied) as twice:
-        resolve_pins(same, AdmissionSettings(enabled=True))
-    assert "two versions" in str(twice.value)
+    both = resolve_pins(same, AdmissionSettings(enabled=True))
+    assert [(kb.knowledge_base_id, kb.version_id) for kb in both.knowledge_base_versions] == [
+        ("kb-1", "V1"),
+        ("kb-1", "V2"),
+    ], "a knowledge base read at two versions is pinned at both"
 
 
 def test_a_manifest_that_no_longer_parses_cannot_be_pinned(real_bundle: dict[str, Any]) -> None:
@@ -829,29 +1103,56 @@ def _existing(**fields: Any) -> CaliberWorkflowRun:
     return CaliberWorkflowRun(**{**base, **fields})
 
 
-def test_a_retry_must_be_the_request_that_created_the_run() -> None:
-    check = {
+def _intent(**changes: Any) -> dict[str, Any]:
+    base: dict[str, Any] = {
         "workflow_id": "WF-1",
         "alias": "prod",
+        "actor": "@test",
         "input_text": "hi",
-        "input_files": None,
         "project_id": PROJECT,
     }
-    check_retry_intent(_existing(), **check)
+    return intent_of(**{**base, **changes})
+
+
+def test_a_retry_must_be_the_request_that_created_the_run() -> None:
+    admitted = _existing(summary={"admission_intent": _intent()}, created_by="@test")
+    check_retry_intent(admitted, _intent())
     for change in (
         {"workflow_id": "WF-2"},
         {"alias": "manual"},
         {"input_text": "bye"},
         {"project_id": "P-other"},
         {"input_files": [{"file_id": "f1"}]},
+        {"actor": "@bob"},
+        {"version_selector": "WFV-2"},
+        {"workspace_release_id": "WSR-1"},
+        {"environment_id": "env-1"},
+        {"model_id": "m-1"},
+        {"config_sha256": "c" * 64},
+        {"priority": 5},
+        {"session_id": "S-1"},
     ):
         with pytest.raises(AdmissionDenied) as caught:
-            check_retry_intent(_existing(), **{**check, **change})
-        assert caught.value.status == 409
-    with_files = _existing(summary={"input_files": [{"file_id": "f1"}]})
-    check_retry_intent(with_files, **{**check, "input_files": [{"file_id": "f1"}]})
+            check_retry_intent(admitted, _intent(**change))
+        assert caught.value.status == 409 and caught.value.code == "intent_conflict", change
+
+    # A run admitted without a recorded intent is compared on the fields its own row keeps.
+    legacy = _existing(created_by="@test")
+    check_retry_intent(legacy, _intent())
+    for change in (
+        {"workflow_id": "WF-2"},
+        {"alias": "manual"},
+        {"input_text": "bye"},
+        {"project_id": "P-other"},
+        {"input_files": [{"file_id": "f1"}]},
+        {"actor": "@bob"},
+    ):
+        with pytest.raises(AdmissionDenied):
+            check_retry_intent(legacy, _intent(**change))
+    with_files = _existing(summary={"input_files": [{"file_id": "f1"}]}, created_by="@test")
+    check_retry_intent(with_files, _intent(input_files=[{"file_id": "f1"}]))
     with pytest.raises(AdmissionDenied):
-        check_retry_intent(with_files, **check)
+        check_retry_intent(with_files, _intent())
 
 
 def test_the_policy_and_grant_ttl_come_from_the_settings(

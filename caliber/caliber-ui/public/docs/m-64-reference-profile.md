@@ -239,7 +239,7 @@ built = build_run_manifest(
 | --- | --- | --- |
 | `unresolved_pin` | a pin is empty, missing or a floating selector | resolve it to a version or digest, then retry |
 | `bad_pin` | a pin has the wrong type or shape (for example a digest that is not 64 lowercase hex) | fix the resolver |
-| `duplicate_pin` | the same reference twice, or one knowledge base at two versions | resolve to exactly one |
+| `duplicate_pin` | the same reference twice (a knowledge base may be pinned at several versions, each once) | name each once |
 | `bad_scope` | a scope field is empty or not a clean identifier | fix the deployment configuration |
 | `organization_switch` | the caller asked for another organization | none: this deployment serves one organization |
 | `project_mismatch` | the subject's project is not the run's project | admit the run in the subject's project |
@@ -251,10 +251,14 @@ built = build_run_manifest(
 ### Admitting a run (B02.2a, #680)
 
 With admission on (always under `CALIBER_PROFILE=reference`, otherwise `CALIBER_ADMISSION_ENABLED=true`), every run a
-user starts is *admitted*: the run, its grant, its policy decision and its immutable manifest are created in one
-transaction, or none of them are. The paths covered are the create-run route (`POST /workflow-runs`), the event
-trigger (`POST /workflows/{id}/trigger`) and the assistant's `run_workflow` tool; each authenticates and authorizes the
-caller (`resource.execute` in the workflow's project) *before* admission.
+user *queues* is admitted: the run, its grant, its policy decision and its immutable manifest are created in one
+transaction, or none of them are. The paths covered are the create-run route (`POST /workflow-runs`), a retry of a
+failed run (`POST /workflow-runs/{id}/retry`, a new run admitted afresh), the event trigger
+(`POST /workflows/{id}/trigger`) and the assistant's `run_workflow` tool. The first three authenticate and check
+`resource.execute` in the workflow's project *before* admission; the assistant path checks the workflow's visibility
+first and the caller's role when the grant is issued (inside the same transaction, with the same outcome). A
+synchronous real run (`POST /workflow-versions/{id}/run`) is never queued, so with admission on it is refused
+(`409`, `sync_run_not_admitted`): use the queue.
 
 1. **Pins first.** Before any row is written, everything the run depends on is taken from the version's *sealed
    deployment bundle* (prompts, tools, MCP tools, skills, knowledge-base versions, the models its agents name, the
@@ -262,19 +266,29 @@ caller (`resource.execute` in the workflow's project) *before* admission.
    (`CALIBER_RULE_BUNDLE_PATH`/`_SHA256`). The manifest is built by [the builder](#building-a-manifest-admission-676).
    A version that was never compiled, whose bundle fails its integrity check, or that has an unresolved runtime
    dependency, is refused (`409`, `bundle_unavailable`); so is a rule bundle that is missing or changed
-   (`manifest_refused: rule_bundle_refused`). An unresolved evaluation dataset does not stop a run.
+   (`manifest_refused: rule_bundle_refused`). An unresolved evaluation dataset does not stop a run. **The worker
+   executes exactly what the pins describe:** an admitted run's manifest snapshot is the bundle's sealed *resolved*
+   manifest (prompts inline, tool versions exact, knowledge-base versions and child workflows resolved), not the
+   authoring manifest, so moving a prompt alias after admission changes nothing about the run. (Skills are
+   embedded in the bundle's snapshots; embedding and chat models of knowledge nodes are not part of the model
+   pins yet.)
 2. **One transaction.** The run is inserted with `manifest_legacy = false`, then the grant is issued (never beyond the
    caller's *current* role), the decision is recorded under the policy (`policy-v1`: risk ceiling 4), and only on an
    allow the manifest is stored. A denial (`403`, with the decision's reason codes) or any later failure rolls the
    transaction back: no run, grant, decision, manifest or event remains, and no partial admitted run can be
    dispatched.
 3. **Retries.** A request that reuses an idempotency key is authorized first, then returns the *original* run and
-   manifest when it is the same request (same workflow, release selector, input, files and project) even if the
-   alias has since moved; a different request under the same key is a `409` (`intent_conflict`). Two requests racing
-   on one key admit exactly one run (PostgreSQL scenario).
+   manifest when it is the same request from the same caller (same workflow, release selector, explicit version
+   selector, input, files, project, release/environment/model, priority and session) even if the alias has since
+   moved; any difference, including another caller, is a `409` (`intent_conflict`, one message for every
+   difference, so it is not an oracle). The intent is stored on the run. A key that names a run created while
+   admission was off returns that legacy run (it has no manifest). Two requests racing on one key admit exactly one
+   run, and the loser gets the same answer a later retry would (PostgreSQL scenario).
 4. **Who and what.** The subject is the authenticated caller (`session`, `pat` or `trusted_header`), the workload is
-   the workflow pinned to its version digest, the purpose is `workflow_run:<source>`, and the scope is the fixed
-   deployment (`local` organization, region and residency) plus the workflow's project. A workflow outside any
+   the workflow pinned to its version digest, the purpose is `workflow_run:<path>` with the route's own word (`api`, `event`, `retry`, `assistant`), never the
+   client-chosen `source` field, and the scope is the fixed
+   deployment (`local` organization, region and residency) plus the workflow's project. The caller must be acting in
+   the workflow's project, and a credential bound to another project is refused (`403`). A workflow outside any
    project cannot be admitted (`409`, `project_required`); a manifest override on a manual run cannot be pinned, so
    it is not admitted (`409`, `manifest_override_not_admitted`).
 
@@ -285,11 +299,13 @@ caller (`resource.execute` in the workflow's project) *before* admission.
 | `409` | `manifest_refused` | a pin is floating or ambiguous, the rule bundle is missing or changed, or the project belongs to another organization; the message says which |
 | `409` | `intent_conflict` | the idempotency key belongs to a different request; use a new key |
 | `409` | `manifest_override_not_admitted` | save the manifest as a version, publish it and run that |
+| `409` | `sync_run_not_admitted` | submit the run to the queued `/workflow-runs` endpoint |
 | `403` | `policy_denied` / `grant_refused` | the policy or the caller's role does not allow it; the reason codes are in the message |
 | `503` | `authority_unavailable` | the grant or decision store could not answer; nothing was stored, retry |
 
-**Not admitted yet (stay legacy runs):** runs started by the cron scheduler and by a service token, because neither
-has a typed subject (a user who authenticated) to put in a grant; they need a service-principal model first. Legacy
+**Not admitted yet (stay legacy runs):** runs started by the cron scheduler and by a service token
+(`routes/services.py`), because neither has a typed subject (a user who authenticated) to put in a grant; they
+need a service-principal model first. Preview and index rows are not executable runs. Legacy
 runs are marked as such and never gain a manifest. **Executing** an admitted run under its grant, and fencing each
 transition, are the worker tasks that follow (#684, #685); until then admission records and authorizes but the worker
 does not yet check the grant.

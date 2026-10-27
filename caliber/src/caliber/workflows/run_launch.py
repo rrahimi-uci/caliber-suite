@@ -33,7 +33,9 @@ from caliber.workflows.admission import (
     AdmissionDenied,
     AdmissionRecord,
     AdmissionSettings,
+    admitted_manifest_metadata,
     check_retry_intent,
+    intent_of,
     persist_admission,
     prepare_admission,
 )
@@ -91,7 +93,7 @@ def _saved_version_manifest_metadata(version: CaliberWorkflowVersion) -> dict[st
     }
 
 
-def enqueue_workflow_run(
+def enqueue_workflow_run(  # noqa: PLR0912, PLR0915 - one insert path: idempotency, admission, lineage, events
     session: Session,
     *,
     workflow: CaliberWorkflow,
@@ -126,6 +128,19 @@ def enqueue_workflow_run(
     the same request and raises ``AdmissionDenied`` (409) when it is not.
     """
     admitting = admission is not None and admission.enabled
+    intent = intent_of(
+        workflow_id=workflow.workflow_id,
+        alias=alias,
+        actor=actor,
+        input_text=input_text or "",
+        project_id=workflow.project_id,
+        workspace_release_id=workspace_release_id,
+        environment_id=environment_id,
+        model_id=model_id,
+        config_sha256=config_sha256,
+        priority=priority,
+        session_id=session_id,
+    )
     existing = _find_idempotent(
         session,
         workflow_id=workflow.workflow_id,
@@ -134,14 +149,7 @@ def enqueue_workflow_run(
     )
     if existing is not None:
         if admitting:
-            check_retry_intent(
-                existing,
-                workflow_id=workflow.workflow_id,
-                alias=alias,
-                input_text=input_text or "",
-                input_files=None,
-                project_id=workflow.project_id,
-            )
+            check_retry_intent(existing, intent)
         return existing, False
 
     tenant_id = "local"
@@ -167,7 +175,12 @@ def enqueue_workflow_run(
             now=now,
             run_tenant_id=tenant_id,
         )
+    manifest_snapshot = _clone_manifest(version.manifest)
     manifest_metadata = _saved_version_manifest_metadata(version)
+    if prepared is not None:
+        # An admitted run executes exactly what its pins describe: the version's sealed, resolved manifest.
+        manifest_snapshot = _clone_manifest(prepared.execution_manifest)
+        manifest_metadata = admitted_manifest_metadata(version, manifest_snapshot)
     run_summary = {
         "preview": False,
         "status": RUN_STATUS_QUEUED,
@@ -176,6 +189,8 @@ def enqueue_workflow_run(
     }
     if workspace_release_id is not None:
         run_summary["strict_lineage"] = True
+    if prepared is not None:
+        run_summary["admission_intent"] = intent
 
     run = CaliberWorkflowRun(
         workflow_run_id=prepared.run_id if prepared is not None else new_workflow_run_id(),
@@ -195,7 +210,7 @@ def enqueue_workflow_run(
         attempt_number=1,
         idempotency_key=idempotency_key,
         input_payload=input_text or "",
-        manifest_snapshot=_clone_manifest(version.manifest),
+        manifest_snapshot=manifest_snapshot,
         summary=run_summary,
     )
     try:
@@ -218,6 +233,8 @@ def enqueue_workflow_run(
             idempotency_key=idempotency_key,
         )
         if duplicate is not None:
+            if admitting:
+                check_retry_intent(duplicate, intent)
             return duplicate, False
         raise
 

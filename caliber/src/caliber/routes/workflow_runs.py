@@ -60,7 +60,9 @@ from caliber.workflows.admission import (
     OVERRIDE_NOT_ADMITTED,
     AdmissionDenied,
     AdmissionSettings,
+    admitted_manifest_metadata,
     check_retry_intent,
+    intent_of,
     persist_admission,
     prepare_admission,
 )
@@ -681,6 +683,23 @@ async def create_workflow_run(request: Request) -> JSONResponse:  # noqa: PLR091
         if workflow.status == "archived":
             raise HTTPException(status_code=409, detail="archived workflows cannot be run")
 
+        intent = intent_of(
+            workflow_id=workflow.workflow_id,
+            alias=alias,
+            actor=actor,
+            input_text=_input_to_text(payload.input),
+            project_id=workflow.project_id,
+            input_files=[dict(item) for item in payload.input_files]
+            if payload.input_files
+            else None,
+            version_selector=payload.workflow_version_id,
+            workspace_release_id=payload.workspace_release_id,
+            environment_id=payload.environment_id,
+            model_id=payload.model_id,
+            config_sha256=payload.config_sha256,
+            priority=payload.priority,
+            session_id=payload.session_id,
+        )
         existing = _find_idempotent(
             session,
             workflow_id=workflow.workflow_id,
@@ -690,16 +709,7 @@ async def create_workflow_run(request: Request) -> JSONResponse:  # noqa: PLR091
         if existing is not None:
             if admission.enabled:
                 try:
-                    check_retry_intent(
-                        existing,
-                        workflow_id=workflow.workflow_id,
-                        alias=alias,
-                        input_text=_input_to_text(payload.input),
-                        input_files=[dict(item) for item in payload.input_files]
-                        if payload.input_files
-                        else None,
-                        project_id=workflow.project_id,
-                    )
+                    check_retry_intent(existing, intent)
                 except AdmissionDenied as exc:
                     raise _refuse_admission(session, exc) from exc
             return envelope_response(WorkflowRunSchema.model_validate(existing), status_code=202)
@@ -719,12 +729,15 @@ async def create_workflow_run(request: Request) -> JSONResponse:  # noqa: PLR091
                     workflow=workflow,
                     version=version,
                     identity=identity,
-                    source=payload.source,
+                    source="api",  # the route's own word, never the client-chosen ``source`` field
                     now=now,
                     run_tenant_id=tenant_id,
                 )
             except AdmissionDenied as exc:
                 raise _refuse_admission(session, exc) from exc
+            # An admitted run executes exactly what its pins describe: the version's sealed, resolved manifest.
+            manifest_snapshot = _clone_manifest(prepared.execution_manifest)
+            manifest_metadata = admitted_manifest_metadata(version, manifest_snapshot)
         run = CaliberWorkflowRun(
             workflow_run_id=prepared.run_id if prepared is not None else new_workflow_run_id(),
             manifest_legacy=prepared is None,
@@ -757,6 +770,7 @@ async def create_workflow_run(request: Request) -> JSONResponse:  # noqa: PLR091
                 ),
                 **manifest_metadata,
                 "strict_lineage": payload.workspace_release_id is not None,
+                **({"admission_intent": intent} if prepared is not None else {}),
             },
         )
         session.add(run)
@@ -771,6 +785,11 @@ async def create_workflow_run(request: Request) -> JSONResponse:  # noqa: PLR091
                 idempotency_key=payload.idempotency_key,
             )
             if duplicate is not None:
+                if admission.enabled:
+                    try:
+                        check_retry_intent(duplicate, intent)
+                    except AdmissionDenied as denied:
+                        raise _refuse_admission(session, denied) from denied
                 return envelope_response(
                     WorkflowRunSchema.model_validate(duplicate), status_code=202
                 )
@@ -1331,7 +1350,7 @@ async def cancel_workflow_run(request: Request) -> JSONResponse:  # noqa: PLR091
     return envelope_response(data)
 
 
-async def retry_workflow_run(request: Request) -> JSONResponse:  # noqa: PLR0915
+async def retry_workflow_run(request: Request) -> JSONResponse:  # noqa: PLR0912, PLR0915
     from caliber.auth import resolve_identity  # noqa: PLC0415 - avoids an import cycle
 
     actor = require_scopes(request, [SCOPE_OPERATOR])
@@ -1398,6 +1417,33 @@ async def retry_workflow_run(request: Request) -> JSONResponse:  # noqa: PLR0915
                 **_manifest_summary_metadata(version, None),
                 **retry_manifest_metadata,
             }
+        retry_admission = _admission_settings(request)
+        retry_prepared = None
+        if retry_admission.enabled:
+            # A retry is a new run, so it is admitted like one: pinned afresh, granted, decided and recorded.
+            retry_workflow = session.get(CaliberWorkflow, run.workflow_id)
+            retry_version = session.get(CaliberWorkflowVersion, run.workflow_version_id)
+            if retry_workflow is None or retry_version is None:
+                raise HTTPException(
+                    status_code=409,
+                    detail="cannot retry run: its workflow or version no longer exists",
+                )
+            try:
+                retry_prepared = prepare_admission(
+                    settings=retry_admission,
+                    workflow=retry_workflow,
+                    version=retry_version,
+                    identity=resolve_identity(request),
+                    source="retry",
+                    now=now,
+                    run_tenant_id=run.tenant_id or "local",
+                )
+            except AdmissionDenied as exc:
+                raise _refuse_admission(session, exc) from exc
+            retry_manifest_snapshot = _clone_manifest(retry_prepared.execution_manifest)
+            retry_manifest_metadata = admitted_manifest_metadata(
+                retry_version, retry_manifest_snapshot
+            )
         if retry_checkpoint is not None:
             checkpoint_error = _retry_checkpoint_manifest_error(
                 retry_checkpoint,
@@ -1420,7 +1466,10 @@ async def retry_workflow_run(request: Request) -> JSONResponse:  # noqa: PLR0915
             retry_summary["resume_checkpoint_run_id"] = retry_checkpoint.workflow_run_id
             retry_summary["retry_mode"] = "checkpoint"
         retried = CaliberWorkflowRun(
-            workflow_run_id=new_workflow_run_id(),
+            workflow_run_id=retry_prepared.run_id
+            if retry_prepared is not None
+            else new_workflow_run_id(),
+            manifest_legacy=retry_prepared is None,
             workflow_id=run.workflow_id,
             project_id=run.project_id,
             tenant_id=run.tenant_id or "local",
@@ -1444,6 +1493,23 @@ async def retry_workflow_run(request: Request) -> JSONResponse:  # noqa: PLR0915
         )
         session.add(retried)
         session.flush()
+        if retry_prepared is not None:
+            try:
+                retry_record = persist_admission(
+                    session,
+                    retry_prepared,
+                    retried,
+                    identity=resolve_identity(request),
+                    settings=retry_admission,
+                )
+            except AdmissionDenied as exc:
+                raise _refuse_admission(session, exc) from exc
+            retried.summary = {
+                **(retried.summary or {}),
+                "admitted": True,
+                "manifest_id": retry_record.manifest_id,
+            }
+            session.flush()
         queued_manifest_mode = retry_manifest_metadata.get("manifest_mode")
         if queued_manifest_mode not in {"saved_version", "snapshot"}:
             queued_manifest_mode = None
