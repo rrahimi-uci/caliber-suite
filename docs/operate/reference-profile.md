@@ -328,6 +328,24 @@ skill-target agents that CALIBER names itself are not registered until an admini
 no release or transfer path: deleting the agent or workflow does not free the experiment (an administrator cannot
 reassign an *active* owner yet).
 
+### Who may read a trace's payload (B11.4a, #672)
+
+Seeing that a trace exists (it is listed, counted, its metadata shown) follows the experiment's visibility. *Reading
+what is in it* (span inputs, outputs and tool arguments, which can hold personal data) is a separate, stricter
+permission, `trace.payload.read`, held by the project roles **owner** and **editor**; a reviewer or viewer is refused.
+`caliber.observability.trace_access.can_read_payloads(session, identity, experiment)` decides it:
+
+- the experiment's owner is the registry's active row (a quarantined row means no owner) or, before the legacy
+  migration, the single scope all agent and workflow claims name (none, or two scopes, means no owner);
+- a **project** owner: the caller's current membership role must allow the action
+  (`decide_project_access(..., "trace.payload.read")`); demotion or removal takes effect on the next call, and
+  `caliber.admin` is not an implicit project role, so an administrator who is not a member is refused;
+- a **user** owner: only that user. **Public**, no owner, a project that no longer exists, an empty reference and a
+  tracking backend that cannot answer are all refused: the function returns `False`, never raises, never guesses.
+
+The permission is declared (and reserved in the route-scope inventory) by this task; the redaction routes (B11.4b)
+are the callers that enforce it, so no existing route changes behaviour yet.
+
 ## The execution-owner lease
 
 In the reference profile exactly one process holds the execution-owner lease and only the holder runs the background

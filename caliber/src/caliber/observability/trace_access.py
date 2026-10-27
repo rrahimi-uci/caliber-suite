@@ -302,6 +302,62 @@ def visible_experiments(session: Session, identity: CaliberIdentity) -> set[str]
     return visible
 
 
+def _owner_scope(session: Session, experiment_id: str) -> tuple[str, str] | None:
+    """The single scope that owns ``experiment_id`` (a name or an id), or ``None`` when none can be established.
+
+    The registry decides where it has a row (a quarantined one means no owner); before the legacy migration the
+    agent and workflow claims decide, but only when they all name one scope. No claim, or a claim by two scopes, is
+    "no owner". Raises :class:`ExperimentLookupError` when the backend cannot say what the reference means.
+    """
+    from caliber.observability.experiment_registry import registry_row  # noqa: PLC0415 - import cycle
+
+    canonical = resolve_experiment(experiment_id)
+    if canonical is not None:
+        row = registry_row(session, canonical)
+        if row is not None:
+            return (row.scope_kind, row.scope_id) if row.status == "active" else None
+    keys = claim_keys(experiment_id)
+    scopes = {
+        scope for ref, scope, _agent, _workflow in _claim_rows(session) if claim_keys(ref) & keys
+    }
+    return next(iter(scopes)) if len(scopes) == 1 else None
+
+
+def can_read_payloads(session: Session, identity: CaliberIdentity, experiment_id: str) -> bool:
+    """Whether ``identity`` may read the *payloads* (span inputs, outputs, arguments) of traces in ``experiment_id``.
+
+    Seeing that a trace exists is :func:`visible_experiments`; reading what is in it is stricter, because payloads
+    can hold personal data. The experiment's owner scope is resolved (:func:`_owner_scope`) and then:
+
+    * a project: the caller's *current* membership role must allow ``trace.payload.read`` (owner or editor),
+      through :func:`caliber.resource_access.decide_project_access`; a reviewer or viewer is refused, and
+      ``caliber.admin`` is not an implicit project role (the P1-B rule), so an administrator who is not a member is
+      refused too;
+    * a user: only that user;
+    * public, no owner, a quarantined or contested experiment, a project that no longer exists, or a tracking backend
+      that cannot answer: refused. Never an exception, and never a guess.
+    """
+    from caliber.db.models import CaliberProject  # noqa: PLC0415
+    from caliber.resource_access import decide_project_access  # noqa: PLC0415
+
+    if not experiment_id:
+        return False
+    try:
+        owner = _owner_scope(session, experiment_id)
+    except ExperimentLookupError:
+        logger.warning("payload permission denied: the experiment could not be resolved")
+        return False
+    if owner is None:
+        return False
+    kind, scope_id = owner
+    if kind == "user":
+        return bool(scope_id) and identity.user_id == scope_id
+    if kind == "project":
+        project = session.get(CaliberProject, scope_id) if scope_id else None
+        return decide_project_access(session, identity, project, "trace.payload.read").allowed
+    return False
+
+
 class TraceNotReadableError(ValueError):
     """The trace does not exist or is filed under an experiment the caller may not see.
 
