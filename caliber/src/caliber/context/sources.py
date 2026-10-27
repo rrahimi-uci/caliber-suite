@@ -58,6 +58,11 @@ class SourceError(ValueError):
         self.code = code
 
 
+def source_resource(knowledge_base_id: str, version_id: str) -> str:
+    """The resource a grant and its decisions name for one context source: the exact knowledge-base version."""
+    return f"knowledge_base:{knowledge_base_id}@{version_id}"
+
+
 class SourceNotApproved(SourceError):  # noqa: N818 - a refusal, named for what it says
     """One or more knowledge-base versions are not approved for the project; ``sources`` lists them (sorted)."""
 
@@ -280,4 +285,5 @@ __all__ = [
     "is_approved",
     "require_approved",
     "revoke_source",
+    "source_resource",
 ]

@@ -479,6 +479,9 @@ def test_the_live_vs_reserved_action_partition_is_pinned() -> None:
         # `B11.4a` (#672): declared by the payload-permission task; the redaction routes (B11.4b) are what call
         # `trace_access.can_read_payloads`, so no route enforces it yet.
         "trace.payload.read",
+        # `B07.2` (#699): decided per source by the run's grant inside the worker
+        # (`caliber.context.authorize`), never by an HTTP route.
+        "context.read",
     }
 
 

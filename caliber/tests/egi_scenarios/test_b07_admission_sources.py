@@ -248,3 +248,150 @@ def test_a_parent_workflow_inherits_the_sources_its_child_reads(
         approve_source(session, PROJECT_A, KB, "KBV-b07-1", EDITOR_A)
         session.commit()
     assert _start(reference_app, parent_workflow, "parent-2").status_code == 202
+
+
+def test_an_admitted_run_reads_its_approved_source_once_and_never_a_withdrawn_one(
+    reference_app: ReferenceApp, two_workspaces: Workspaces, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from caliber.knowledge.service import KnowledgeBaseService
+    from caliber.orchestrator.workflow_run_worker import WorkflowRunWorker
+
+    queries: list[Any] = []
+
+    class Answer:
+        def model_dump(self, mode: str = "python") -> dict[str, Any]:
+            return {
+                "answer": "ok",
+                "text": "ok",
+                "result": {},
+                "citations": [],
+                "chunks": [],
+                "graph_context": {},
+            }
+
+    def query(self: Any, request: Any, **kwargs: Any) -> Answer:
+        queries.append(list(request.version_ids))
+        return Answer()
+
+    monkeypatch.setattr(KnowledgeBaseService, "query", query)
+    _seed_knowledge(reference_app)
+    with reference_app.session_factory() as session:
+        approve_source(session, PROJECT_A, KB, "KBV-b07-1", EDITOR_A)
+        session.commit()
+    workflow_id, _ = _publish(
+        reference_app,
+        "reads",
+        lambda wf: _query_manifest(wf, {"knowledge_base_id": KB, "retrieval_modes": ["dense"]}),
+    )
+
+    def work() -> None:
+        WorkflowRunWorker(
+            session_factory=reference_app.session_factory,
+            config=reference_app.client.app.state.config,  # type: ignore[attr-defined]
+            event_bus=getattr(reference_app.client.app.state, "event_bus", None),
+        )._tick()
+
+    def status(run_id: str) -> str:
+        with reference_app.session_factory() as session:
+            run = session.get(CaliberWorkflowRun, run_id)
+            assert run is not None
+            return str(run.status)
+
+    first = _start(reference_app, workflow_id, "reads-1")
+    assert first.status_code == 202, first.text
+    work()
+    first_id = first.json()["data"]["workflow_run_id"]
+    assert status(first_id) == "completed" and queries == [["KBV-b07-1"]], (
+        "read once, the pinned source"
+    )
+
+    if reference_app.profile != "reference":
+        return  # development does not authorize sources
+    second = _start(reference_app, workflow_id, "reads-2")
+    assert second.status_code == 202, second.text
+    with reference_app.session_factory() as session:
+        revoke_source(session, PROJECT_A, KB, "KBV-b07-1", EDITOR_A)  # withdrawn after admission
+        session.commit()
+    work()
+    assert status(second.json()["data"]["workflow_run_id"]) == "failed"
+    assert queries == [["KBV-b07-1"]], "no retrieval for the withdrawn source"
+
+
+def test_the_guard_reaches_a_child_workflow_the_run_calls(
+    reference_app: ReferenceApp, two_workspaces: Workspaces, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from caliber.knowledge.service import KnowledgeBaseService
+    from caliber.orchestrator.workflow_run_worker import WorkflowRunWorker
+
+    if reference_app.profile != "reference":
+        pytest.skip("sources are authorized in the reference profile")
+    queries: list[Any] = []
+
+    class Answer:
+        def model_dump(self, mode: str = "python") -> dict[str, Any]:
+            return {
+                "answer": "ok",
+                "text": "ok",
+                "result": {},
+                "citations": [],
+                "chunks": [],
+                "graph_context": {},
+            }
+
+    def query(self: Any, request: Any, **kwargs: Any) -> Answer:
+        queries.append(list(request.version_ids))
+        return Answer()
+
+    monkeypatch.setattr(KnowledgeBaseService, "query", query)
+    _seed_knowledge(reference_app)
+    with reference_app.session_factory() as session:
+        approve_source(session, PROJECT_A, KB, "KBV-b07-1", EDITOR_A)
+        session.commit()
+    child_workflow, child_version = _publish(
+        reference_app,
+        "child-runs",
+        lambda wf: _query_manifest(wf, {"knowledge_base_id": KB, "retrieval_modes": ["dense"]}),
+    )
+
+    def parent(workflow_id: str) -> dict[str, Any]:
+        manifest = make_manifest(workflow_id)
+        manifest["nodes"]["agent"] = {
+            "id": "agent",
+            "type": "subworkflow",
+            "workflow_id": child_workflow,
+            "alias": "manual",
+            "version_id": child_version,
+            "inputs": {"input": {"type": "string"}},
+            "outputs": {"final_output": {"type": "string"}},
+        }
+        return manifest
+
+    parent_workflow, _ = _publish(reference_app, "parent-runs", parent)
+
+    def work() -> None:
+        WorkflowRunWorker(
+            session_factory=reference_app.session_factory,
+            config=reference_app.client.app.state.config,  # type: ignore[attr-defined]
+            event_bus=getattr(reference_app.client.app.state, "event_bus", None),
+        )._tick()
+
+    def outcome(run_id: str) -> tuple[str, str | None]:
+        with reference_app.session_factory() as session:
+            run = session.get(CaliberWorkflowRun, run_id)
+            assert run is not None
+            return str(run.status), run.error_code
+
+    first = _start(reference_app, parent_workflow, "child-1")
+    assert first.status_code == 202, first.text
+    work()
+    assert outcome(first.json()["data"]["workflow_run_id"])[0] == "completed"
+    assert queries == [["KBV-b07-1"]], "the child read its approved source through the guard"
+
+    second = _start(reference_app, parent_workflow, "child-2")
+    assert second.status_code == 202, second.text
+    with reference_app.session_factory() as session:
+        revoke_source(session, PROJECT_A, KB, "KBV-b07-1", EDITOR_A)
+        session.commit()
+    work()
+    assert outcome(second.json()["data"]["workflow_run_id"])[0] == "failed"
+    assert queries == [["KBV-b07-1"]], "the child's read was refused: no retrieval"

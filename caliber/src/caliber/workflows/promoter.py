@@ -840,12 +840,17 @@ def build_plan(  # noqa: PLR0915 - central workflow plan assembler
     config: CaliberConfig | None = None,
     session_factory: sessionmaker[Session] | None = None,
     pinned_bundle: dict[str, Any] | None = None,
+    source_guard: Callable[[str], None] | None = None,
 ) -> RuntimePlan:
     """Compile and wrap a version into an executable :class:`RuntimePlan`.
 
     ``pinned_bundle`` executes exactly that sealed deployment bundle (its resolved manifest and its embedded skill
     snapshots) whatever the version's current state: it is what an admitted run was pinned to (B02.2b), already
     verified by the caller against the run manifest's bundle digest.
+
+    ``source_guard`` (B07.2) is called with each knowledge-base ``version_id`` a knowledge query is about to read,
+    *before* the retrieval service is touched, and raises to refuse (the node then fails and nothing was loaded). It is
+    passed down to child workflows. The worker supplies it for admitted runs in the reference profile.
 
     ``manifest_override`` compiles an in-memory manifest *instead of* the stored
     ``version.manifest`` — used by preview-run to execute an unsaved canvas edit
@@ -1041,6 +1046,7 @@ def build_plan(  # noqa: PLR0915 - central workflow plan assembler
             subworkflow_depth=depth,
             config=config,
             session_factory=runtime_session_factory,
+            source_guard=source_guard,
         )
         run_ctx = current_run_context()
         execution_result = execute(
@@ -1080,6 +1086,11 @@ def build_plan(  # noqa: PLR0915 - central workflow plan assembler
             raise PublishError(
                 "knowledge_query node requires at least one version_id or knowledge_base_id"
             )
+        if source_guard is not None:
+            for version_id in dict.fromkeys(
+                version_ids
+            ):  # each version once; all are checked before any is read
+                source_guard(version_id)
         raw_retrieval_modes = _normalize_retrieval_modes(raw.get("retrieval_modes"))
         retrieval_modes = (
             _resolve_default_retrieval_modes(resolved_version_ids=version_ids)

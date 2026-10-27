@@ -727,6 +727,47 @@ audited (it carries no policy decision); the response is the record.
 - **Not a foreign key to the knowledge base.** The inventory outlives a deleted knowledge base on purpose; the loader
   must still check the version exists.
 
+### Authorizing a source before it is loaded (B07.2, #699)
+
+In the reference profile the run's own grant lists the context sources it may read: admission adds the action
+`context.read` and one resource per source, `knowledge_base:<knowledge_base_id>@<version_id>`, for exactly the sources
+it approved (the bundle's, its query nodes' and its child workflows'). When the worker builds an admitted run's plan it
+hands the knowledge-query runner a guard (`caliber.context.authorize.source_guard_for`), and the runner calls it with
+each version it is about to query, **before the retrieval service is touched**. The guard runs
+`authorize_source(session, identity, run_manifest, grant_id, knowledge_base_id, version_id)`:
+
+1. the run's subject (derived from its stored manifest by `identity_for_run`) must equal the subject the manifest being checked recorded (`identity_mismatch`; a guard against mixing manifests, not a second authentication);
+2. the source must still be approved for the project (`source_not_approved`; a withdrawal after admission lands here
+   and writes an audit row `context_read_denied` with ids only; no policy question is asked for a withdrawn source);
+3. `decide(...)` is asked with the manifest's run id, the **exact grant id the manifest names**, the manifest's typed
+   subject and workload, `context.read`, the exact source resource and the manifest's purpose: a grant that does not
+   list the source is `resource_not_allowed`, another run's grant `grant_not_found`, a member who left `not_a_member`, a
+   revoked or expired grant is refused, and the decision (allow or deny) is recorded and audited like any other.
+
+Every refusal is a `ContextDenied` with one fixed message that names no source (`<code> (<reasons>): this run may not
+read that context source`); the node fails and the run fails with the stable run error code **`context_denied`** (the
+code and the policy's reasons are in the summary), and nothing was loaded. An authority store that cannot answer is a
+refusal (`authority_unavailable`), and a database message is never put in the node's error text. `context.read` is a
+project action (owner, editor, reviewer) with policy risk 2. The guard is passed to child workflows the run calls.
+
+| run error | meaning and recovery |
+| --- | --- |
+| `context_denied` with `source_not_approved` | the source was approved at admission and withdrawn since: approve it again, or resubmit the run on an approved version |
+| `context_denied` with `authority_denied (not_a_member)` / `grant_revoked` / `grant_expired` | the run's subject left the project, or its grant was revoked or ran out: resubmit as someone who may |
+| `context_denied` with `authority_denied (action_not_allowed)` or `(resource_not_allowed)` | the run's grant does not list that source (a run admitted before sources were authorized, or a query that reads a version the run was not admitted for): resubmit the run |
+| `context_denied` with `authority_unavailable` | the authority store could not answer: nothing was loaded; resubmit when it is back |
+
+**What it does not do.** The guard follows how the run was *admitted*: it is built when the run's grant carries
+`context.read` (or this deployment requires approved sources), so a run admitted with sources stays guarded under any
+worker configuration. A run admitted before sources were authorized has no `context.read` and fails where sources are
+required (resubmit it). A grant holds at most 256 resources, so a run with 256 or more sources is refused at admission
+(`grant_refused`). The check is point-in-time: a withdrawal landing between the guard and the query does not stop that
+one read. Outputs a run already produced (replayed on a resume from a checkpoint) are not re-authorized. Each version
+queried costs one decision and one audit row (a query naming several versions authorizes each before any is read).
+Legacy runs have no guard. **Not covered, tracked in #973:** preview runs, evaluations, deploy gates, refinement and
+calibration, the assistant's knowledge tools, runtime export and `knowledge_build` nodes still read knowledge-base
+bytes without this check, and cron and service-token runs are not admitted (#958).
+
 ## Policy decisions
 
 `caliber.policy.decisions.decide(...)` (B03.3, #671; migration `0117`, table `caliber_policy_decisions`) answers "may

@@ -18,6 +18,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from caliber.audit import record as audit_record
 from caliber.config import CaliberConfig
+from caliber.context.authorize import source_guard_for
 from caliber.db.models import (
     CaliberProject,
     CaliberRuntimeApprovalRequest,
@@ -31,9 +32,10 @@ from caliber.events.bus import EventBus
 from caliber.ids import new_runtime_approval_id, new_workflow_run_checkpoint_id
 from caliber.mcp_policy import deployment_blockers
 from caliber.observability.trace import bind_trace_id
+from caliber.policy.grants import GrantDenied, load_grant
 from caliber.secrets import resolve_secret
 from caliber.storage import StorageError, WorkingDirectoryService, build_backend
-from caliber.workflows.admission import AdmissionSettings
+from caliber.workflows.admission import CONTEXT_READ_ACTION, AdmissionSettings
 from caliber.workflows.compiler import CompileError
 from caliber.workflows.effect_ledger import SqlEffectLedger
 from caliber.workflows.file_tools import (
@@ -1578,11 +1580,8 @@ class WorkflowRunWorker:
             # principals are asked of the policy now, so a revoked grant, a removed member or an expired grant
             # dispatches nothing. A resumed run is dispatched here too. Legacy runs have no identity.
             try:
-                admitted_identity = identity_for_run(
-                    session,
-                    run,
-                    policy=AdmissionSettings.from_config(self._config).policy,
-                )
+                admission_settings = AdmissionSettings.from_config(self._config)
+                admitted_identity = identity_for_run(session, run, policy=admission_settings.policy)
             except IdentityDenied as exc:
                 if exc.code == "authority_unavailable":
                     # The failing statement may have aborted the transaction; start from the stored run.
@@ -1595,6 +1594,36 @@ class WorkflowRunWorker:
                 # row locks it took are not held through plan building and file reads (a member removal or a project
                 # edit would otherwise wait for every pre-flight in progress).
                 session.commit()
+
+            # Every context source the run reads is authorized, by the run's own grant, before its bytes are loaded
+            # (B07.2). The guard is built when the run was admitted with sources (its grant carries ``context.read``) or
+            # this deployment requires approved sources: it follows the run's admission, not only the worker's
+            # configuration. Legacy runs have none.
+            source_guard = None
+            if admitted_identity is not None and pinned is not None:
+                try:
+                    grant = load_grant(
+                        session, run_id=run.workflow_run_id, grant_id=admitted_identity.grant_id
+                    )
+                except GrantDenied as exc:
+                    self._mark_failed(
+                        session,
+                        run,
+                        error_code=exc.code,
+                        error_summary="the run's grant cannot be read",
+                    )
+                    return
+                if (
+                    admission_settings.approved_sources_required
+                    or CONTEXT_READ_ACTION in grant.allowed_actions
+                ):
+                    source_guard = source_guard_for(
+                        self._session_factory,
+                        admitted_identity.subject,
+                        pinned.record,
+                        admitted_identity.grant_id,
+                        policy=admission_settings.policy,
+                    )
 
             # Execute over the full input (input_payload); fall back to the summary
             # preview for legacy rows. Keep the summary's copy bounded so polling
@@ -1652,6 +1681,7 @@ class WorkflowRunWorker:
                     pinned_bundle=pinned.bundle if pinned is not None else None,
                     config=self._config,
                     session_factory=self._session_factory,
+                    source_guard=source_guard,
                 )
             except (WorkflowManifestError, ValidationError) as exc:
                 self._mark_failed(
@@ -2005,7 +2035,10 @@ class WorkflowRunWorker:
                 session,
                 row,
                 result=result,
-                error_code="runtime_error",
+                # a refused context source keeps its own code (the reasons are in the summary)
+                error_code="context_denied"
+                if "ContextDenied" in (result.error or "")
+                else "runtime_error",
                 error_summary=result.error or "workflow runtime failed",
             )
 
