@@ -697,6 +697,32 @@ class CaliberConfig(BaseModel):
             "development runs stay legacy runs without a manifest."
         ),
     )
+    event_outbox_enabled: bool = Field(
+        default=False,
+        description=(
+            "Record every workflow-run event in a transactional outbox row, in the transaction of the transition that "
+            "caused it, and deliver those rows (at least once, with retry, to each consumer's inbox) from an "
+            "owner-only publisher loop (B13.4). Always on in the reference profile; off elsewhere."
+        ),
+    )
+    event_outbox_poll_seconds: float = Field(
+        default=1.0,
+        ge=0.05,
+        le=60.0,
+        description="How often an idle outbox publisher looks for due events.",
+    )
+    event_outbox_max_attempts: int = Field(
+        default=20,
+        ge=1,
+        le=1000,
+        description="Attempts before an undeliverable outbox event is marked dead (kept for an operator).",
+    )
+    event_outbox_retention_days: float = Field(
+        default=7.0,
+        ge=0.0,
+        le=3650.0,
+        description="How long delivered outbox rows are kept before they are pruned.",
+    )
     admission_grant_ttl_seconds: int = Field(
         default=86400,
         ge=60,
@@ -2088,6 +2114,10 @@ _ENV_VAR_TABLE: list[tuple[str, str, Any]] = [
         float,
     ),
     ("CALIBER_EXECUTION_LEASE_SECONDS", "execution_lease_seconds", float),
+    ("CALIBER_EVENT_OUTBOX_ENABLED", "event_outbox_enabled", _flag),
+    ("CALIBER_EVENT_OUTBOX_POLL_SECONDS", "event_outbox_poll_seconds", float),
+    ("CALIBER_EVENT_OUTBOX_MAX_ATTEMPTS", "event_outbox_max_attempts", int),
+    ("CALIBER_EVENT_OUTBOX_RETENTION_DAYS", "event_outbox_retention_days", float),
     ("CALIBER_ADMISSION_ENABLED", "admission_enabled", _flag),
     ("CALIBER_ADMISSION_GRANT_TTL_SECONDS", "admission_grant_ttl_seconds", int),
     ("CALIBER_RULE_BUNDLE_PATH", "rule_bundle_path", str),

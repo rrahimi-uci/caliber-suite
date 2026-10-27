@@ -3874,6 +3874,64 @@ class CaliberLiveEvent(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
 
+class CaliberEventOutbox(Base):
+    """One business event, recorded in the transaction that made it happen (B13.4, #685).
+
+    The row is written with the business transition (a workflow run event) or not at all, so no committed transition
+    lacks its event and no event exists for a rolled-back one. ``event_id`` is stable (derived from the transition,
+    so a retry of the same transition cannot mint a second one) and is the deduplication key every consumer uses.
+    ``envelope`` is the ADR 0003 ``event_envelope`` v1 record (CloudEvents 1.0; the payload is referenced by
+    ``dataref`` and ``datahash``, kept in ``payload``). The publisher (``caliber.events.outbox``) hands each row to
+    its consumers' inboxes and marks it ``delivered`` only after every handoff was acknowledged; a crash anywhere
+    in between redelivers (at-least-once). ``dead`` marks a row that exhausted its attempts, kept for an operator.
+    """
+
+    __tablename__ = "caliber_event_outbox"
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('pending', 'delivered', 'dead')", name="ck_event_outbox_status"
+        ),
+        Index("ix_event_outbox_due", "status", "next_attempt_at"),
+        Index("ix_event_outbox_aggregate", "aggregate_type", "aggregate_id", "created_at"),
+    )
+
+    event_id: Mapped[str] = mapped_column(String(160), primary_key=True)
+    event_type: Mapped[str] = mapped_column(String(128))
+    aggregate_type: Mapped[str] = mapped_column(String(64))
+    aggregate_id: Mapped[str] = mapped_column(String(128))
+    project_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    envelope: Mapped[dict[str, Any]] = mapped_column(JSON)
+    payload: Mapped[dict[str, Any]] = mapped_column(JSON)
+    status: Mapped[str] = mapped_column(String(16), default="pending")
+    attempts: Mapped[int] = mapped_column(Integer, default=0)
+    next_attempt_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    claimed_by: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    lease_expires_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    delivered_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+
+class CaliberEventInbox(Base):
+    """What one consumer has received: the durable, acknowledged end of an outbox handoff (B13.4, #685).
+
+    ``(consumer, event_id)`` is the primary key, so redelivery of an event the consumer already has is a no-op: that
+    is where deduplication lives, and it is the consumer's (each names itself). ``processed_at`` is set by the
+    consumer when it has acted on the event.
+    """
+
+    __tablename__ = "caliber_event_inbox"
+    __table_args__ = (Index("ix_event_inbox_pending", "consumer", "processed_at", "received_at"),)
+
+    consumer: Mapped[str] = mapped_column(String(64), primary_key=True)
+    event_id: Mapped[str] = mapped_column(String(160), primary_key=True)
+    event_type: Mapped[str] = mapped_column(String(128))
+    envelope: Mapped[dict[str, Any]] = mapped_column(JSON)
+    payload: Mapped[dict[str, Any]] = mapped_column(JSON)
+    received_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    processed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+
 class CaliberKnowledgeBase(Base):
     """Versioned document corpus prepared for chunking, embeddings, and RAG."""
 

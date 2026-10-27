@@ -576,13 +576,51 @@ In the reference profile the loops start **only while this process holds the lea
 - **Not yet fenced per transition.** The loops still claim rows themselves, and they stop concurrently (the webhook
   dispatcher first). A loop mid-transition when the lease is lost finishes that transition, bounded by
   `CALIBER_SHUTDOWN_GRACE_SECONDS`, so an old owner's last transition can overlap a new owner's first one by up to
-  that grace after a lease loss. Fencing each transition with `assert_fenced` arrives with the outbox (#685).
+  that grace after a lease loss. Fencing each transition with `assert_fenced` is #684.
 - **Events raised on a secondary.** HTTP routes on a secondary publish webhooks and alerts (`job.applied`,
   `agent.rolled_back`, SLO incidents) to the in-process event bus, and no dispatcher runs there: with the default
   `CALIBER_WORKFLOW_RUN_EVENT_BACKEND=in_process` those events are not delivered by any process. Use a shared backend
-  (`database`, `nats` or `redis`) so the owner's dispatcher sees them until the durable outbox (#685) makes this
-  independent of the backend. Live run streams for a run that executes on the owner reach only the owner's
+  (`database`, `nats` or `redis`) so the owner's dispatcher sees them. The outbox below makes *run events* durable
+  independent of the backend; it does not yet carry webhooks and alerts. Live run streams for a run that executes on the owner reach only the owner's
   subscribers on the in-process backend.
+
+## Events: the outbox
+
+A business transition and the event that announces it commit together or not at all (B13.4, #685;
+`caliber/src/caliber/events/outbox.py`). Publishing to a queue after the commit loses the event when the process dies
+between the two; publishing before it announces something that never happened. So there is no queue in the
+transaction: `append_run_event` writes the run event **and** a `caliber_event_outbox` row inside one savepoint, and a
+background publisher delivers the rows afterwards.
+
+- **On in the reference profile**, or anywhere with `CALIBER_EVENT_OUTBOX_ENABLED=true`. Off, nothing changes.
+- **The row is the event.** `event_id` is `run-event:<run id>:<sequence>`, so recording it twice is the same row; the
+  same id with different content is refused (`OutboxConflict`). The row holds an ADR 0003 `event_envelope` (the
+  payload is referenced by `dataref` and `datahash`, never inlined) and the payload itself.
+- **Delivery is at least once.** `OutboxPublisher` (an owner-only loop; it appears in the worker inventory) claims due
+  rows one by one with a conditional update (exclusive on SQLite too; `FOR UPDATE SKIP LOCKED` on PostgreSQL) and a
+  lease, hands each to every registered consumer (one that is down does not keep the others from the event), and
+  marks the row `delivered`. A consumer that fails is retried with exponential backoff
+  (`CALIBER_EVENT_OUTBOX_MAX_ATTEMPTS`, default 20); a row that exhausts its attempts is `dead` and kept for an
+  operator. The attempt is counted when the row is claimed, so an event whose handoff kills the process or hangs
+  still runs out of attempts. A publisher that dies holding a claim is covered by the lease: the row is due again
+  when it expires, and a second publisher redelivers it; a publisher that outlives its lease can no longer settle the
+  row. Lease times come from the publishers' clocks (one publisher runs at a time, the execution owner).
+- **Stopping.** Losing the lease or shutting down finishes the handoff in flight (bounded by
+  `CALIBER_SHUTDOWN_GRACE_SECONDS`), releases the rest of the batch without counting an attempt, and claims nothing
+  more.
+- **No payload in errors.** `last_error` and the log carry the consumer's name and the exception class, never its
+  message (a database error's text can include the statement's parameters, which are the payload).
+- **Consumers deduplicate.** `SqlInboxConsumer` acknowledges by committing a row in `caliber_event_inbox` whose key is
+  `(consumer, event_id)`, so a redelivery after a crash is ignored; `claim_unprocessed` (a plain read: no lock, no lease) and
+  `mark_processed` (idempotent) let a single consumer track its own work.
+- **A full notification queue loses nothing.** The in-process bus and SSE stay notifications: a slow subscriber's
+  bounded queue drops its copy. The outbox row was committed with the transition and is delivered regardless.
+- **Retention.** Delivered rows are pruned after `CALIBER_EVENT_OUTBOX_RETENTION_DAYS` (default 7); dead rows are
+  kept, and so are inbox rows (a consumer's own retention). Deleting a workflow deletes its runs' outbox and inbox
+  rows with them.
+- **What it does not do yet.** The default registers no consumer, so rows are delivered at once and pruned; it
+  publishes nothing to the bus or to webhooks (that would duplicate the notifications that exist). Webhook and
+  alert events are not in the outbox. Consumers arrive with the features that need them.
 
 ## Policy decisions
 

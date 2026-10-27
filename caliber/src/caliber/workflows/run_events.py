@@ -44,6 +44,9 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from caliber.db.models import CaliberWorkflowRun, CaliberWorkflowRunEvent
+from caliber.db.transactions import begin_sqlite_transaction
+from caliber.events.outbox import enqueue as outbox_enqueue
+from caliber.events.outbox import outbox_enabled
 
 logger = logging.getLogger("caliber.workflows.run_events")
 
@@ -106,6 +109,9 @@ def append_run_event(
     """
     last_error: IntegrityError | None = None
     for attempt in range(_MAX_ATTEMPTS):
+        begin_sqlite_transaction(
+            session
+        )  # a first-statement SAVEPOINT would autocommit on pysqlite
         savepoint = session.begin_nested()
         try:
             _lock_run(session, workflow_run_id)
@@ -120,7 +126,31 @@ def append_run_event(
             )
             session.add(event)
             session.flush()
-        except IntegrityError as exc:
+            if outbox_enabled():
+                # B13.4: the event that announces this transition is recorded in the same transaction, so it
+                # exists exactly when the transition does (see ``caliber.events.outbox``).
+                outbox_enqueue(
+                    session,
+                    event_id=f"run-event:{workflow_run_id}:{event.sequence}",
+                    event_type=f"caliber.{event_type}",
+                    aggregate_type="workflow_run",
+                    aggregate_id=workflow_run_id,
+                    project_id=project_id,
+                    payload={
+                        "workflow_run_id": workflow_run_id,
+                        "project_id": project_id,
+                        "sequence": event.sequence,
+                        "event_type": event_type,
+                        "node_id": node_id,
+                        "payload": payload,
+                    },
+                )
+        except Exception as exc:
+            if not isinstance(exc, IntegrityError):
+                # Not a sequence conflict (an outbox conflict, a refused envelope): the run event is flushed but its
+                # announcement is not, and a caller that handles the error and commits must not persist half.
+                savepoint.rollback()
+                raise
             # Roll back only this allocation, not the caller's work. Without the
             # savepoint a retry would run inside a session the failed flush had
             # already invalidated.

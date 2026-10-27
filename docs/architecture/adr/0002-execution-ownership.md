@@ -55,6 +55,7 @@ transition with the token arrives with the outbox (#685). This record fixes who 
 | `ReleaseReconcilerTask` | execution-owner lease (B13, #536) | Settles incomplete prompt-alias release operations after missed webhooks. |
 | `CalibrationDrain` | execution-owner lease (B13, #536) | Drains queued tool-calibration jobs against the live registry. |
 | `WebhookDispatcher` | execution-owner lease (B13, #536) | Delivers accepted outbound webhook events; retries into the dead-letter queue. |
+| `OutboxPublisher` | execution-owner lease (B13, #536) | Hands recorded business events (the transactional outbox) to each consumer's inbox, with retry and backoff; delivery is at-least-once and consumers deduplicate on the event id. |
 | `WorkspaceImportWorker` | execution-owner lease (B13, #536) | Claims queued push-mode Workspace import jobs and materializes each into an immutable WorkspaceRevision. |
 | `EventBus` (database, Redis or NATS) | every process (fans events out; takes no effect) | publisher and poll tasks (database bus) or consumer tasks (Redis, NATS) deliver platform events to subscribers; publishing becomes idempotent through the outbox (#536) |
 
@@ -229,6 +230,7 @@ but does not fence a stale process whose lease expired mid-transition, and two l
 | `ReleaseReconcilerTask` | `owner_only` | none: settles incomplete release operations by scan |
 | `CalibrationDrain` | `owner_only` | conditional `UPDATE ... WHERE status = 'queued'` claim |
 | `WebhookDispatcher` | `owner_only` | accept lease (at least 60 s, covering the retry window) plus an in-process in-flight claim |
+| `OutboxPublisher` | `owner_only` | per-row lease (`claimed_by`, `lease_expires_at`): a conditional UPDATE claims each row (exclusive on SQLite too; `FOR UPDATE SKIP LOCKED` on PostgreSQL avoids the contention) and only the claimer can settle it; redelivery is deduplicated by the consumer's inbox key `(consumer, event_id)` |
 | `WorkspaceImportWorker` | `owner_only` | per-job lease (`workspace_import_lease_seconds`) |
 
 The event bus is not in the worker inventory and is classified by its own row in the table above.

@@ -29,6 +29,8 @@ from caliber.db.models import (
     CaliberAgentConfig,
     CaliberApprovalRequest,
     CaliberEvalDataset,
+    CaliberEventInbox,
+    CaliberEventOutbox,
     CaliberKnowledgeBase,
     CaliberKnowledgeBaseVersion,
     CaliberMcpServer,
@@ -1700,6 +1702,19 @@ async def delete_workflow(request: Request) -> JSONResponse:
         session.execute(
             delete(CaliberWorkflowRunEvent).where(
                 CaliberWorkflowRunEvent.workflow_run_id.in_(run_ids_stmt)
+            )
+        )
+        # The events' announcements (B13.4) carry the same payloads: they go with the runs, in the outbox and in
+        # every consumer's inbox, so a deleted run is not kept alive there (or collided with by a reused id).
+        outbox_ids = select(CaliberEventOutbox.event_id).where(
+            CaliberEventOutbox.aggregate_type == "workflow_run",
+            CaliberEventOutbox.aggregate_id.in_(run_ids_stmt),
+        )
+        session.execute(delete(CaliberEventInbox).where(CaliberEventInbox.event_id.in_(outbox_ids)))
+        session.execute(
+            delete(CaliberEventOutbox).where(
+                CaliberEventOutbox.aggregate_type == "workflow_run",
+                CaliberEventOutbox.aggregate_id.in_(run_ids_stmt),
             )
         )
         session.execute(
