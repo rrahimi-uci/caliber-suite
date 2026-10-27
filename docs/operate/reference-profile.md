@@ -311,13 +311,19 @@ synchronous real run (`POST /workflow-versions/{id}/run`) is never queued, so wi
    key from another source or in another project's workflow is a different request. A key that names a run created while
    admission was off returns that legacy run (it has no manifest). Two requests racing on one key admit exactly one
    run, and the loser gets the same answer a later retry would (PostgreSQL scenario).
-4. **Lineage (B02.4, #691).** Under `CALIBER_PROFILE=reference` every run names the workspace release and environment it
-   runs against (`workspace_release_id` and `environment_id`, accepted by the create-run route and the event trigger):
-   a run without them is `422` with `{"error": "lineage_required"}` before anything is written
-   (`run_launch.require_lineage`, `LineageRequiredError`), and the run is created with its immutable runtime lineage.
-   Development leaves lineage optional. The assistant's run tool has no release to name, so it is refused in the
-   reference profile with the same code; the cron scheduler and service-token paths, which are not admitted, are
-   unchanged (#958).
+4. **Lineage (B02.4, #691).** Under `CALIBER_PROFILE=reference` every run started through the create-run route or the
+   event trigger names the workspace release and environment it runs against (`workspace_release_id` and
+   `environment_id`, together; optionally `model_id` and `config_sha256`): a run without them is `422` with
+   `{"error": "lineage_required"}` before anything is read or written (`run_launch.require_lineage`,
+   `LineageRequiredError`), and the run is created with its immutable runtime lineage. A lineage that is not valid for
+   the project (unknown or foreign release or environment, a config digest that is not the release's, a release that is
+   not eligible) is `409`; a malformed one (empty ids, a digest that is not 64 lowercase hex) is `400`. A **retry**
+   keeps the lineage of the run it retries (a fresh lineage record for the new run, refused with `409` if the release is
+   no longer eligible) and a run that never had one cannot be retried in the reference profile (`422`). Development
+   leaves lineage optional. **Not covered, tracked:** the assistant's run tool (a chat has no release to name) is
+   refused with the same code; the cron scheduler and service-token runs, which are not admitted either, still start
+   with no lineage (#958 and #967); and the console's Run and Trigger actions do not yet offer a release and
+   environment, so in the reference profile they are refused until they do (#968).
 5. **Who and what.** The subject is the authenticated caller (`session`, `pat` or `trusted_header`), the workload is
    the workflow pinned to its version digest, the purpose is `workflow_run:<path>` with the route's own word (`api`, `event`, `retry`, `assistant`), never the
    client-chosen `source` field, and the scope is the fixed

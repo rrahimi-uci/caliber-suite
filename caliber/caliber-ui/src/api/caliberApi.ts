@@ -3078,6 +3078,11 @@ export const caliberApi = {
     priority?: number;
     idempotency_key?: string;
     manifest?: WorkflowManifest;
+    /** Runtime lineage; required together in the reference profile (422 lineage_required otherwise). */
+    workspace_release_id?: string;
+    environment_id?: string;
+    model_id?: string;
+    config_sha256?: string;
   }): Promise<WorkflowRun> {
     return request<WorkflowRun>("/workflow-runs", {
       method: "POST",
@@ -3093,6 +3098,11 @@ export const caliberApi = {
       event_name?: string;
       input?: unknown;
       idempotency_key?: string;
+      /** Runtime lineage; required together in the reference profile (422 lineage_required otherwise). */
+      workspace_release_id?: string;
+      environment_id?: string;
+      model_id?: string;
+      config_sha256?: string;
     } = {},
   ): Promise<WorkflowRun> {
     return request<WorkflowRun>(
