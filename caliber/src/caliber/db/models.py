@@ -18,6 +18,7 @@ from typing import Any, cast
 
 from sqlalchemy import (
     JSON,
+    BigInteger,
     Boolean,
     CheckConstraint,
     DateTime,
@@ -2246,6 +2247,26 @@ guard_immutable(
     mutable=frozenset({"revoked_at", "revoked_by", "revoke_reason"}),
     once="revoked_at",
 )
+
+
+class CaliberExecutionOwner(Base):
+    """The single-owner lease for a named execution role (B13.2, #668; ``caliber.ownership``).
+
+    One row per lease name. ``owner_id`` holds it until ``expires_at`` (database time); ``fencing_token`` only
+    ever grows, by one on every *new* acquisition (a takeover, or a reacquisition after expiry) and never on a
+    renewal. Every transition the owner makes compares its exact ``(owner_id, fencing_token)`` and an unexpired
+    lease inside its own transaction, so a stale owner cannot act once another has acquired.
+    """
+
+    __tablename__ = "caliber_execution_owner"
+    __table_args__ = (CheckConstraint("fencing_token >= 1", name="ck_execution_owner_token"),)
+
+    lease_name: Mapped[str] = mapped_column(String(64), primary_key=True)
+    owner_id: Mapped[str] = mapped_column(String(128))
+    fencing_token: Mapped[int] = mapped_column(BigInteger)
+    expires_at: Mapped[datetime] = mapped_column(DateTime)
+    acquired_at: Mapped[datetime] = mapped_column(DateTime)
+    renewed_at: Mapped[datetime] = mapped_column(DateTime)
 
 
 class CaliberWorkflowRunEvent(Base):

@@ -46,7 +46,9 @@ _EXPECTED_COUNTS = {
     # workflow_run_id (unique); its project is the run's, reached through
     # that key, so it deliberately carries no project/owner column of its own
     # -- confirmed by direct look, not a drive-by bump.
-    SCOPING_UNSCOPED: 50,
+    # +1 (`B13.2`): CaliberExecutionOwner is process-level lease state (one row
+    # per lease name), not a project or user resource -- unscoped by design.
+    SCOPING_UNSCOPED: 51,
     # -1 (`P1-E`): CaliberPersonalAccessToken gained project_id (optional
     # PAT project binding) and moves from owned_catalog to project_only --
     # see below.
