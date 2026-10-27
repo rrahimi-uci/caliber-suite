@@ -135,6 +135,11 @@ PROJECT_ACTIONS: Final[dict[str, frozenset[str]]] = {
     # mutations here. Global task routes retain their legacy platform-scope
     # policy because those rows predate workspace binding.
     "rework.update": frozenset({ROLE_OWNER, ROLE_EDITOR}),
+    # `B11.4a` (#672): who may read a trace's *payload* (the inputs, outputs and tool arguments of its spans, which
+    # can hold personal data) as opposed to its metadata. Owner and editor only: a reviewer or viewer can see that a
+    # trace exists but not what it contains. Decided per experiment by
+    # `observability/trace_access.py::can_read_payloads`; reserved until the redaction routes (B11.4b) call it.
+    "trace.payload.read": frozenset({ROLE_OWNER, ROLE_EDITOR}),
     # The remaining actions are reserved for later route families (version
     # tags, releases/operations) or deliberately deferred resource-isolation
     # work. Closing the registry over the full target vocabulary means each

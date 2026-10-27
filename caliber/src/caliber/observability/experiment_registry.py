@@ -363,6 +363,13 @@ def registry_owned_ids(session: Session, identity: Any) -> set[str]:
     }
 
 
+def registry_row(session: Session, experiment_id: str) -> CaliberExperimentOwner | None:
+    """The registry row of the canonical ``experiment_id`` on the configured backend, of any status."""
+    return session.get(
+        CaliberExperimentOwner, (tracking_backend(), experiment_id), populate_existing=True
+    )
+
+
 def registry_active_ids(session: Session) -> set[str]:
     """Canonical ids that have an active registry owner: the registry has decided them, whatever the text claims."""
     return {str(row.experiment_id) for row in _rows(session) if row.status == ACTIVE}
@@ -522,6 +529,7 @@ __all__ = [
     "registry_hidden_ids",
     "registry_owned_ids",
     "registry_quarantined",
+    "registry_row",
     "registry_view",
     "resolve_quarantine",
     "tracking_backend",
