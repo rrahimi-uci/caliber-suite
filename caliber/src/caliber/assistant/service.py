@@ -626,7 +626,9 @@ class AssistantService:
         reviewer: DraftReviewer | None = None,
     ) -> None:
         self._engine = engine
-        self._publisher = publisher or AssistantPublisher()
+        self._publisher = publisher or AssistantPublisher(
+            reference_profile=getattr(runtime_config, "profile", "") == "reference"
+        )
         self._settings = settings or AssistantRuntimeSettings()
         self._tracer = tracer or AssistantTracer()
         self._context_builder = AssistantContextBuilder()

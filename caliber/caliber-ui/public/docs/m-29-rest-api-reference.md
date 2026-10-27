@@ -145,7 +145,7 @@ Use the typed SDK where it exists. When a family is marked `Raw only`, the curre
 | Verification Queue (`verification-queue`) | `beta` | `7` | Typed SDK | `client.verification_queue` | Stage ① Verify for a manually-flagged concern: list/get/create/verify/dismiss/mark_duplicate/batch. Verifying does not create a refinement job. |
 | Jobs (`jobs`) | `beta` | `7` | Typed SDK | `client.jobs`, `client.quality_reviews` | Durable background jobs, targets, apply, wait semantics, and request-changes (send a candidate_ready job back for another pass). `client.quality_reviews` covers the nested quality-review sub-resource: a human go/no-go on a job's candidate, distinct from the machine eval gate. |
 | Rework Tasks (`rework-tasks`) | `beta` | `5` | Typed SDK | `client.rework_tasks` | Owned, recoverable work auto-created when a refinement job is terminally rejected: list/get/claim/resolve/reassign. |
-| Observability (`observability`) | `beta` | `8` | Typed SDK | `client.observability` | Trace listing/detail, experiments, and metrics reads. |
+| Observability (`observability`) | `beta` | `10` | Typed SDK | `client.observability` | Trace listing/detail, experiments, and metrics reads. |
 | Events (`events`) | `beta` | `1` | Typed SDK | `client.events` | Server-sent events stream access. |
 | Gateway (`gateway`) | `beta` | `9` | Typed SDK | `client.gateway` | Gateway endpoint discovery, guardrails, and trace-derived usage. |
 | Cookbooks (`cookbooks`) | `beta` | `2` | Typed SDK | `client.cookbooks` | Cookbook catalog and related operational metadata. |
@@ -178,8 +178,8 @@ The served contract is route-table grounded and body-complete: paths and methods
 
 | Field | Value |
 | --- | --- |
-| Route paths | `387` |
-| Operations | `473` |
+| Route paths | `389` |
+| Operations | `475` |
 | Path coverage | `complete` |
 | Request bodies | `complete` |
 | GA families | `23` |
@@ -238,7 +238,7 @@ Use these quick jumps when you already know the CALIBER subsystem and want the d
 | [Verification Queue (`verification-queue`)](#verification-queue-verification-queue) | `7` | `6` |
 | [Jobs (`jobs`)](#jobs-jobs) | `7` | `6` |
 | [Rework Tasks (`rework-tasks`)](#rework-tasks-rework-tasks) | `5` | `5` |
-| [Observability (`observability`)](#observability-observability) | `8` | `8` |
+| [Observability (`observability`)](#observability-observability) | `10` | `10` |
 | [Events (`events`)](#events-events) | `1` | `1` |
 | [Gateway (`gateway`)](#gateway-gateway) | `9` | `7` |
 | [Cookbooks (`cookbooks`)](#cookbooks-cookbooks) | `2` | `2` |
@@ -854,13 +854,15 @@ Supported but still moving route groups. Expect capability growth and narrower c
 
 #### Observability (`observability`)
 
-8 operation(s) across 8 route path(s).
+10 operation(s) across 10 route path(s).
 
 | Method | Path | Required scope | Parameters | Responses | Details |
 | --- | --- | --- | --- | --- | --- |
 | `GET` | `/ajax-api/2.0/mlflow/caliber/observability/allure-report` | any authenticated user | — | `400`, `401`, `403`, `404` | `operationId`: `get_observability_allure_report` |
 | `GET` | `/ajax-api/2.0/mlflow/caliber/observability/allure-report/{path}` | any authenticated user | `path` | `400`, `401`, `403`, `404` | `operationId`: `get_observability_allure_report_path` |
 | `GET` | `/ajax-api/2.0/mlflow/caliber/observability/experiment-claim-conflicts` | `caliber.admin` | — | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_observability_experiment_claim_conflicts` |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/observability/experiment-claim-conflicts/resolve` | `caliber.admin` | — | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_observability_experiment_claim_conflicts_resolve`; request body documented in OpenAPI |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/observability/experiment-claims/migrate` | `caliber.admin` | — | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_observability_experiment_claims_migrate` |
 | `GET` | `/ajax-api/2.0/mlflow/caliber/observability/experiments` | any authenticated user | — | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_observability_experiments` |
 | `GET` | `/ajax-api/2.0/mlflow/caliber/observability/metrics` | any authenticated user | — | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_observability_metrics` |
 | `GET` | `/ajax-api/2.0/mlflow/caliber/observability/traces` | any authenticated user | — | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_observability_traces` |

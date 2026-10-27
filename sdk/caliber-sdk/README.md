@@ -138,7 +138,9 @@ and deprecation-window policy, and the server/SDK compatibility statement.
 
 ```python
 caliber.raw.get("/prompts")
-caliber.raw.post("/cookbooks/01/install", json={"name": "My install"})  # needs CALIBER_FEATURE_COOKBOOKS=true
+caliber.raw.post(
+    "/cookbooks/01/install", json={"name": "My install"}
+)  # needs CALIBER_FEATURE_COOKBOOKS=true
 for item in caliber.raw.paginate("/workflows", limit=50):
     ...
 ```

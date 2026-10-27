@@ -33,9 +33,17 @@ from starlette.routing import Route
 
 from caliber.audit import record as audit_record
 from caliber.auth import SCOPE_ADMIN, require_scopes, require_user, resolve_identity
+from caliber.db.models import CaliberProject
+from caliber.observability.experiment_registry import (
+    migrate_legacy_claims,
+    registry_active_ids,
+    registry_quarantined,
+    resolve_quarantine,
+)
 from caliber.observability.trace_access import (
     ExperimentLookupError,
     TraceNotReadableError,
+    claim_keys,
     experiment_claim_conflicts,
     is_visible,
     require_readable_trace,
@@ -62,6 +70,8 @@ TRACE_DETAIL_PATH = PREFIX + "/observability/traces/{trace_id}"
 FEEDBACK_PATH = PREFIX + "/observability/traces/{trace_id}/feedback"
 EXPERIMENTS_PATH = PREFIX + "/observability/experiments"
 CLAIM_CONFLICTS_PATH = PREFIX + "/observability/experiment-claim-conflicts"
+CLAIM_CONFLICT_RESOLVE_PATH = CLAIM_CONFLICTS_PATH + "/resolve"
+CLAIMS_MIGRATE_PATH = PREFIX + "/observability/experiment-claims/migrate"
 METRICS_PATH = PREFIX + "/observability/metrics"
 ALLURE_REPORT_PATH = PREFIX + "/observability/allure-report"
 ALLURE_REPORT_FILE_PATH = PREFIX + "/observability/allure-report/{path:path}"
@@ -367,7 +377,95 @@ async def list_experiment_claim_conflicts(request: Request) -> JSONResponse:
             conflicts = experiment_claim_conflicts(session)
         except ExperimentLookupError as exc:
             raise HTTPException(status_code=503, detail=str(exc)) from exc
+        # An experiment the registry has decided (an administrator resolved it) is no longer in conflict, whatever
+        # the old text claims of the losing scope still say.
+        decided = registry_active_ids(session)
+        conflicts = [
+            item
+            for item in conflicts
+            if str(item["experiment"]) not in decided
+            and not any(
+                claim_keys(str(claim["claim"])) & decided
+                for claim in item["claims"]  # type: ignore[attr-defined]
+            )
+        ]
+        listed = {str(item["experiment"]) for item in conflicts}
+        # Registry rows the legacy migration quarantined (claimed by two or more scopes, no owner chosen).
+        for row in registry_quarantined(session):
+            if row["experiment"] not in listed:
+                conflicts.append(
+                    {"experiment": row["experiment"], "claims": [], "quarantined": True}
+                )
     return JSONResponse({"data": {"conflicts": conflicts}})
+
+
+async def migrate_experiment_claims(request: Request) -> JSONResponse:
+    """Register every agent and workflow experiment claim that predates the owner registry (admin only).
+
+    An experiment claimed by one project or user becomes a ``legacy`` registry row; one claimed by two or more is
+    **quarantined** with no owner, never decided here. Idempotent. A tracking backend that cannot answer is a 503
+    and nothing is registered.
+    """
+    actor = require_scopes(request, [SCOPE_ADMIN])
+    with get_session_factory(request)() as session:
+        try:
+            report = migrate_legacy_claims(session, actor=actor)
+        except ExperimentLookupError as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+        audit_record(
+            session,
+            actor=actor,
+            action="migrate_experiment_claims",
+            entity_type="experiment_registry",
+            entity_id="all",
+            details={key: len(value) for key, value in report.items()},
+        )
+        session.commit()
+    return JSONResponse({"data": report})
+
+
+async def resolve_experiment_conflict(request: Request) -> JSONResponse:
+    """Record an administrator's decision for a quarantined experiment: who owns it (admin only).
+
+    Body: ``{"experiment": "<canonical id>", "owner": {"kind": "project"|"user"|"public", "id": "..."}}``. The
+    decision is attributed and audited; the registry never picks an owner itself.
+    """
+    actor = require_scopes(request, [SCOPE_ADMIN])
+    body = await parse_json_object(request)
+    experiment = body.get("experiment")
+    owner = body.get("owner")
+    if not isinstance(experiment, str) or not experiment or not isinstance(owner, dict):
+        raise HTTPException(status_code=400, detail="'experiment' and 'owner' are required")
+    kind, owner_id = owner.get("kind"), owner.get("id", "")
+    if not isinstance(kind, str) or not isinstance(owner_id, str):
+        raise HTTPException(status_code=400, detail="'owner' needs a string 'kind' and 'id'")
+    with get_session_factory(request)() as session:
+        if kind == "project" and session.get(CaliberProject, owner_id) is None:
+            raise HTTPException(status_code=400, detail=f"project {owner_id!r} does not exist")
+        try:
+            claim = resolve_quarantine(session, experiment, scope=(kind, owner_id), actor=actor)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except LookupError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        audit_record(
+            session,
+            actor=actor,
+            action="resolve_experiment_conflict",
+            entity_type="experiment_registry",
+            entity_id=experiment,
+            details={"owner_kind": kind, "owner_id": owner_id},
+        )
+        session.commit()
+    return JSONResponse(
+        {
+            "data": {
+                "experiment": experiment,
+                "owner": {"kind": kind, "id": owner_id},
+                "provenance": claim.provenance,
+            }
+        }
+    )
 
 
 async def get_trace(request: Request) -> JSONResponse:
@@ -790,6 +888,10 @@ async def redirect_allure_report(request: Request) -> RedirectResponse:
 def register(app: Starlette) -> None:
     app.routes.append(Route(EXPERIMENTS_PATH, list_experiments, methods=["GET"]))
     app.routes.append(Route(CLAIM_CONFLICTS_PATH, list_experiment_claim_conflicts, methods=["GET"]))
+    app.routes.append(Route(CLAIMS_MIGRATE_PATH, migrate_experiment_claims, methods=["POST"]))
+    app.routes.append(
+        Route(CLAIM_CONFLICT_RESOLVE_PATH, resolve_experiment_conflict, methods=["POST"])
+    )
     app.routes.append(Route(METRICS_PATH, get_metrics, methods=["GET"]))
     app.routes.append(Route(ALLURE_REPORT_PATH, redirect_allure_report, methods=["GET"]))
     app.routes.append(Route(ALLURE_REPORT_FILE_PATH, serve_allure_report, methods=["GET"]))
