@@ -297,7 +297,20 @@ synchronous real run (`POST /workflow-versions/{id}/run`) is never queued, so wi
    key from another source or in another project's workflow is a different request. A key that names a run created while
    admission was off returns that legacy run (it has no manifest). Two requests racing on one key admit exactly one
    run, and the loser gets the same answer a later retry would (PostgreSQL scenario).
-4. **Who and what.** The subject is the authenticated caller (`session`, `pat` or `trusted_header`), the workload is
+4. **Lineage (B02.4, #691).** Under `CALIBER_PROFILE=reference` every run started through the create-run route or the
+   event trigger names the workspace release and environment it runs against (`workspace_release_id` and
+   `environment_id`, together; optionally `model_id` and `config_sha256`): a run without them is `422` with
+   `{"error": "lineage_required"}` before anything is read or written (`run_launch.require_lineage`,
+   `LineageRequiredError`), and the run is created with its immutable runtime lineage. A lineage that is not valid for
+   the project (unknown or foreign release or environment, a config digest that is not the release's, a release that is
+   not eligible) is `409`; a malformed one (empty ids, a digest that is not 64 lowercase hex) is `400`. A **retry**
+   keeps the lineage of the run it retries (a fresh lineage record for the new run, refused with `409` if the release is
+   no longer eligible) and a run that never had one cannot be retried in the reference profile (`422`). Development
+   leaves lineage optional. **Not covered, tracked:** the assistant's run tool (a chat has no release to name) is
+   refused with the same code; the cron scheduler and service-token runs, which are not admitted either, still start
+   with no lineage (#958 and #967); and the console's Run and Trigger actions do not yet offer a release and
+   environment, so in the reference profile they are refused until they do (#968).
+5. **Who and what.** The subject is the authenticated caller (`session`, `pat` or `trusted_header`), the workload is
    the workflow pinned to its version digest, the purpose is `workflow_run:<path>` with the route's own word (`api`, `event`, `retry`, `assistant`), never the
    client-chosen `source` field, and the scope is the fixed
    deployment (`local` organization, region and residency) plus the workflow's project. The caller must be acting in
@@ -307,6 +320,7 @@ synchronous real run (`POST /workflow-versions/{id}/run`) is never queued, so wi
 
 | response | code | meaning and recovery |
 | --- | --- | --- |
+| `422` | `lineage_required` | the reference profile starts no run without runtime lineage: name a `workspace_release_id` and an `environment_id` together (the body is `{"error": "lineage_required", ...}`); nothing was stored |
 | `409` | `project_required` | the workflow has no project; move it into one |
 | `409` | `bundle_unavailable` | compile and publish the version again (its sealed bundle is missing, altered or unresolved) |
 | `409` | `manifest_refused` | a pin is floating or ambiguous, the rule bundle is missing or changed, or the project belongs to another organization; the message says which |

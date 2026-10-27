@@ -20,7 +20,13 @@ from caliber.db.models import CaliberEventInbox, CaliberEventOutbox, CaliberWork
 from caliber.events.bus import EventBus
 from caliber.events.outbox import DELIVERED, PENDING, OutboxPublisher, SqlInboxConsumer, bind_outbox
 from caliber.workflows.run_events import append_run_event
-from tests.egi_scenarios.conftest import EDITOR_A, PROJECT_A, ReferenceApp, Workspaces
+from tests.egi_scenarios.conftest import (
+    EDITOR_A,
+    PROJECT_A,
+    ReferenceApp,
+    Workspaces,
+    seed_release,
+)
 from tests.egi_scenarios.test_b02_admission import _call, _published_workflow
 
 SATURATING_EVENTS = 400  # far over the bus's per-subscriber queue bound
@@ -34,7 +40,13 @@ def _admit_a_run(app: ReferenceApp, key: str) -> str:
         EDITOR_A,
         PROJECT_A,
         "/workflow-runs",
-        {"workflow_id": workflow_id, "alias": "manual", "input": "refund?", "idempotency_key": key},
+        {
+            "workflow_id": workflow_id,
+            "alias": "manual",
+            "input": "refund?",
+            "idempotency_key": key,
+            **seed_release(app, PROJECT_A),
+        },
     )
     assert response.status_code == 202, response.text
     return str(response.json()["data"]["workflow_run_id"])

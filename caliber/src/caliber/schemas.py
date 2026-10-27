@@ -1564,10 +1564,10 @@ class WorkflowRunRequest(BaseModel):
     # upload (``{"file_id": ...}``) or a read-only dataset file
     # (``{"file_ref": ...}``). Runtime binds them into the run ``input/``.
     input_files: list[dict[str, str]] | None = Field(default=None)
-    workspace_release_id: str | None = Field(default=None, max_length=64)
-    environment_id: str | None = Field(default=None, max_length=64)
+    workspace_release_id: str | None = Field(default=None, min_length=1, max_length=64)
+    environment_id: str | None = Field(default=None, min_length=1, max_length=64)
     model_id: str | None = Field(default=None, max_length=256)
-    config_sha256: str | None = Field(default=None, min_length=64, max_length=64)
+    config_sha256: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
 
     @model_validator(mode="after")
     def _validate_lineage_coordinates(self) -> WorkflowRunRequest:
@@ -1591,10 +1591,10 @@ class WorkflowRunCreateRequest(BaseModel):
     idempotency_key: str | None = Field(default=None, min_length=1, max_length=128)
     manifest: dict[str, object] | None = None
     input_files: list[dict[str, str]] | None = Field(default=None)
-    workspace_release_id: str | None = Field(default=None, max_length=64)
-    environment_id: str | None = Field(default=None, max_length=64)
+    workspace_release_id: str | None = Field(default=None, min_length=1, max_length=64)
+    environment_id: str | None = Field(default=None, min_length=1, max_length=64)
     model_id: str | None = Field(default=None, max_length=256)
-    config_sha256: str | None = Field(default=None, min_length=64, max_length=64)
+    config_sha256: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
 
     @model_validator(mode="after")
     def _validate_target(self) -> WorkflowRunCreateRequest:
@@ -1616,6 +1616,16 @@ class WorkflowTriggerRequest(BaseModel):
     event_name: str | None = Field(default=None, max_length=128)
     input: object = None
     idempotency_key: str | None = Field(default=None, min_length=1, max_length=128)
+    workspace_release_id: str | None = Field(default=None, min_length=1, max_length=64)
+    environment_id: str | None = Field(default=None, min_length=1, max_length=64)
+    model_id: str | None = Field(default=None, max_length=256)
+    config_sha256: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
+
+    @model_validator(mode="after")
+    def _validate_lineage_pair(self) -> WorkflowTriggerRequest:
+        if bool(self.workspace_release_id) != bool(self.environment_id):
+            raise ValueError("workspace_release_id and environment_id must be provided together")
+        return self
 
 
 class WorkflowRunCancelRequest(BaseModel):
@@ -4729,9 +4739,9 @@ class EvalRunCreateRequest(BaseModel):
     # The artifact under test for non-``llm`` targets (prompt ref / skill id /
     # workflow version id).
     subject_ref: str | None = Field(default=None, max_length=256)
-    workspace_release_id: str | None = Field(default=None, max_length=64)
-    environment_id: str | None = Field(default=None, max_length=64)
-    config_sha256: str | None = Field(default=None, min_length=64, max_length=64)
+    workspace_release_id: str | None = Field(default=None, min_length=1, max_length=64)
+    environment_id: str | None = Field(default=None, min_length=1, max_length=64)
+    config_sha256: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
 
     @model_validator(mode="after")
     def _subject_required_for_artifact_targets(self) -> EvalRunCreateRequest:

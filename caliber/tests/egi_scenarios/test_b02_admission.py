@@ -23,7 +23,14 @@ from caliber.db.models import (
     CaliberWorkflowRunEvent,
 )
 from caliber.run_manifest import read_manifest
-from tests.egi_scenarios.conftest import EDITOR_A, EDITOR_B, PROJECT_A, ReferenceApp, Workspaces
+from tests.egi_scenarios.conftest import (
+    EDITOR_A,
+    EDITOR_B,
+    PROJECT_A,
+    ReferenceApp,
+    Workspaces,
+    seed_release,
+)
 from tests.workflow_helpers import make_manifest
 
 PREFIX = "/ajax-api/2.0/mlflow/caliber"
@@ -83,6 +90,7 @@ def test_a_run_is_admitted_whole_or_not_at_all(
         "alias": "manual",
         "input": "refund?",
         "idempotency_key": "egi-1",
+        **seed_release(reference_app, PROJECT_A),
     }
 
     admitted = _call(reference_app, "POST", EDITOR_A, PROJECT_A, "/workflow-runs", body)
@@ -134,7 +142,12 @@ def test_a_refused_admission_leaves_no_trace(
         EDITOR_A,
         PROJECT_A,
         "/workflow-runs",
-        {"workflow_id": workflow_id, "alias": "manual", "idempotency_key": "egi-refused"},
+        {
+            "workflow_id": workflow_id,
+            "alias": "manual",
+            "idempotency_key": "egi-refused",
+            **seed_release(reference_app, PROJECT_A),
+        },
     )
     assert refused.status_code == 409, refused.text
     with reference_app.session_factory() as session:
@@ -150,6 +163,7 @@ def test_two_requests_racing_on_one_key_admit_exactly_one_run(
         "alias": "manual",
         "input": "race",
         "idempotency_key": "egi-race",
+        **seed_release(reference_app, PROJECT_A),
     }
     barrier = threading.Barrier(4)
     results: list[tuple[int, str]] = []
@@ -181,3 +195,42 @@ def test_two_requests_racing_on_one_key_admit_exactly_one_run(
             counts[CaliberRunManifest.__tablename__] == 1 == counts[CaliberRunGrant.__tablename__]
         )
         assert counts[CaliberPolicyDecision.__tablename__] == 1, "a loser leaves no decision behind"
+
+
+def test_a_run_without_lineage_is_refused_in_the_reference_profile_only(
+    reference_app: ReferenceApp, two_workspaces: Workspaces
+) -> None:
+    workflow_id = _published_workflow(reference_app)
+    body = {
+        "workflow_id": workflow_id,
+        "alias": "manual",
+        "input": "hi",
+        "idempotency_key": "egi-lineage",
+    }
+    bare = _call(reference_app, "POST", EDITOR_A, PROJECT_A, "/workflow-runs", body)
+    trigger = _call(
+        reference_app,
+        "POST",
+        EDITOR_A,
+        PROJECT_A,
+        f"/workflows/{workflow_id}/trigger",
+        {"input": "hi"},
+    )
+    with reference_app.session_factory() as session:
+        runs = session.execute(select(func.count()).select_from(CaliberWorkflowRun)).scalar_one()
+    if reference_app.profile == "reference":
+        assert bare.status_code == 422 and bare.json()["error"] == "lineage_required", bare.text
+        assert trigger.status_code == 422 and trigger.json()["error"] == "lineage_required", (
+            trigger.text
+        )
+        assert runs == 0, "refused before anything was stored"
+        lineage = seed_release(reference_app, PROJECT_A)
+        ok = _call(
+            reference_app, "POST", EDITOR_A, PROJECT_A, "/workflow-runs", {**body, **lineage}
+        )
+        assert ok.status_code == 202, ok.text
+        with reference_app.session_factory() as session:
+            run = session.get(CaliberWorkflowRun, ok.json()["data"]["workflow_run_id"])
+            assert run is not None and run.runtime_lineage_id, "the run carries its lineage"
+    else:
+        assert bare.status_code == 202, "development profile: lineage is optional"
