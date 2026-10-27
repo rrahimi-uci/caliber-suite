@@ -10,7 +10,7 @@ import hashlib
 import threading
 import time
 import uuid
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -41,6 +41,7 @@ from caliber.policy.grants import (
     GRANT_REVOKED,
     NOT_A_MEMBER,
     RESOURCE_NOT_ALLOWED,
+    ROLE_NOT_ALLOWED,
     GrantDenied,
     GrantError,
     authorize,
@@ -57,7 +58,7 @@ pytestmark = pytest.mark.slow
 
 NOW = datetime(2026, 10, 26, 12, 0, 0, tzinfo=timezone.utc)
 DIGEST = hashlib.sha256(b"workflow-version").hexdigest()
-ACTIONS = ["workflow.run", "release.promote"]
+ACTIONS = ["resource.execute", "release.apply"]
 RESOURCES = ["workflow:wf-1", "prompt:support"]
 
 
@@ -87,7 +88,9 @@ def _workload() -> Workload:
     return Workload.for_workflow("triage", DIGEST)
 
 
-def _seed(engine: Engine, *, member: str | None = "alice", status: str = "active") -> str:
+def _seed(
+    engine: Engine, *, member: str | None = "alice", status: str = "active", role: str = "editor"
+) -> str:
     """A project, an optional member and a run; returns the run id."""
     run_id = f"run-{uuid.uuid4().hex[:10]}"
     with Session(engine) as session, session.begin():
@@ -105,7 +108,7 @@ def _seed(engine: Engine, *, member: str | None = "alice", status: str = "active
                     member_id=f"m-{member}",
                     project_id="proj-1",
                     user_id=member,
-                    role="editor",
+                    role=role,
                     status=status,
                     created_by="@owner",
                 )
@@ -147,7 +150,7 @@ def _check(
     engine: Engine,
     run_id: str,
     grant_id: str,
-    action: str = "workflow.run",
+    action: str = "resource.execute",
     resource: str = "workflow:wf-1",
     **kw: Any,
 ) -> Any:
@@ -176,17 +179,23 @@ def test_a_grant_round_trips_as_typed_principals_and_exact_sets(
 ) -> None:
     with _migrated(dialect, tmp_path, monkeypatch) as (engine, _):
         run_id = _seed(engine)
-        grant_id = _issue(engine, run_id, allowed_actions=["b.act", "a.act", "a.act"])
+        grant_id = _issue(
+            engine,
+            run_id,
+            allowed_actions=["resource.execute", "release.apply", "resource.execute"],
+        )
         with Session(engine) as session:
             grant = load_grant(session, run_id=run_id, grant_id=grant_id)
         assert grant.grant_id == grant_id and grant.run_id == run_id
         assert grant.subject == _subject() and grant.workload == _workload()
         assert grant.project_id == "proj-1" and grant.policy_version == "policy-v1"
-        assert grant.allowed_actions == frozenset({"a.act", "b.act"})
+        assert grant.allowed_actions == frozenset({"resource.execute", "release.apply"})
         assert grant.allowed_resources == frozenset(RESOURCES)
         assert grant.expires_at == (NOW + timedelta(hours=1)).replace(tzinfo=None)
         assert grant.revoked_at is None
-        assert grant.allows("a.act", "workflow:wf-1") and not grant.allows("c.act", "workflow:wf-1")
+        assert grant.allows("release.apply", "workflow:wf-1") and not grant.allows(
+            "resource.read", "workflow:wf-1"
+        )
 
 
 @pytest.mark.parametrize(
@@ -272,19 +281,22 @@ def test_there_is_no_newest_grant_or_ambient_fallback(
     with _migrated(dialect, tmp_path, monkeypatch) as (engine, _):
         run_id = _seed(engine)
         narrow = _issue(
-            engine, run_id, allowed_actions=["workflow.run"], allowed_resources=["workflow:wf-1"]
+            engine,
+            run_id,
+            allowed_actions=["resource.execute"],
+            allowed_resources=["workflow:wf-1"],
         )
         broad = _issue(
             engine,
             run_id,
-            allowed_actions=["workflow.run", "release.promote"],
+            allowed_actions=["resource.execute", "release.apply"],
             allowed_resources=RESOURCES,
         )
-        assert _check(engine, run_id, broad, "release.promote", "prompt:support")
+        assert _check(engine, run_id, broad, "release.apply", "prompt:support")
         with _denied(ACTION_NOT_ALLOWED):
-            _check(engine, run_id, narrow, "release.promote", "workflow:wf-1")
+            _check(engine, run_id, narrow, "release.apply", "workflow:wf-1")
         with _denied(RESOURCE_NOT_ALLOWED):
-            _check(engine, run_id, narrow, "workflow.run", "prompt:support")
+            _check(engine, run_id, narrow, "resource.execute", "prompt:support")
 
 
 # ---------------------------------------------------------------- explicit sets: exact, no ordering
@@ -294,15 +306,15 @@ def test_there_is_no_newest_grant_or_ambient_fallback(
 @pytest.mark.parametrize(
     ("action", "resource", "code"),
     [
-        ("workflow.run", "workflow:wf-1", None),
-        ("workflow.RUN", "workflow:wf-1", ACTION_NOT_ALLOWED),
-        ("workflow", "workflow:wf-1", ACTION_NOT_ALLOWED),
+        ("resource.execute", "workflow:wf-1", None),
+        ("resource.EXECUTE", "workflow:wf-1", ACTION_NOT_ALLOWED),
+        ("resource", "workflow:wf-1", ACTION_NOT_ALLOWED),
         ("workflow.run.extra", "workflow:wf-1", ACTION_NOT_ALLOWED),
         ("*", "workflow:wf-1", ACTION_NOT_ALLOWED),
-        ("workflow.run", "workflow:*", RESOURCE_NOT_ALLOWED),
-        ("workflow.run", "workflow:wf-10", RESOURCE_NOT_ALLOWED),
-        ("workflow.run", "workflow:", RESOURCE_NOT_ALLOWED),
-        ("workflow.run", "", RESOURCE_NOT_ALLOWED),
+        ("resource.execute", "workflow:*", RESOURCE_NOT_ALLOWED),
+        ("resource.execute", "workflow:wf-10", RESOURCE_NOT_ALLOWED),
+        ("resource.execute", "workflow:", RESOURCE_NOT_ALLOWED),
+        ("resource.execute", "", RESOURCE_NOT_ALLOWED),
         ("", "workflow:wf-1", ACTION_NOT_ALLOWED),
     ],
 )
@@ -340,14 +352,15 @@ def test_expiry_is_exclusive_at_the_boundary(
             _check(engine, run_id, grant_id, now=expires)
         with _denied(GRANT_EXPIRED):
             _check(engine, run_id, grant_id, now=expires + timedelta(days=30))
-        # A naive clock is read as UTC, an aware one in another zone is converted.
+        # An aware clock in another zone is converted; a naive one is refused (its zone is unknowable).
         zone = timezone(timedelta(hours=5))
         assert _check(
             engine, run_id, grant_id, now=(expires - timedelta(seconds=1)).astimezone(zone)
         )
-        assert _check(
-            engine, run_id, grant_id, now=(expires - timedelta(seconds=1)).replace(tzinfo=None)
-        )
+        with pytest.raises(GrantError, match="timezone-aware"):
+            _check(
+                engine, run_id, grant_id, now=(expires - timedelta(seconds=1)).replace(tzinfo=None)
+            )
 
 
 @pytest.mark.parametrize("dialect", DIALECTS)
@@ -426,22 +439,29 @@ def test_current_membership_is_rechecked_on_every_use(
 
 
 @pytest.mark.parametrize("dialect", DIALECTS)
-def test_a_user_who_was_never_a_member_gets_no_authority(
+def test_a_grant_cannot_be_issued_to_someone_who_is_not_a_current_member(
     dialect: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     with _migrated(dialect, tmp_path, monkeypatch) as (engine, _):
         run_id = _seed(engine, member="someone-else")
-        grant_id = _issue(engine, run_id)
-        with _denied(NOT_A_MEMBER):
-            _check(engine, run_id, grant_id)
+        with pytest.raises(GrantError, match="not a current member"):
+            _issue(engine, run_id)
+        with Session(engine) as session:
+            assert session.query(CaliberRunGrant).count() == 0
 
 
-def test_the_denial_order_is_revoked_then_expired_then_membership_then_action_then_resource(
+def _remove_member(engine: Engine) -> None:
+    with Session(engine) as session, session.begin():
+        session.delete(session.query(CaliberProjectMember).filter_by(user_id="alice").one())
+
+
+def test_the_denial_order_is_revoked_then_expired_then_membership_then_action_then_role_then_resource(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     with _migrated("sqlite", tmp_path, monkeypatch) as (engine, _):
-        run_id = _seed(engine, member="someone-else")
+        run_id = _seed(engine)
         grant_id = _issue(engine, run_id)
+        _remove_member(engine)
         late = NOW + timedelta(days=2)
         with _denied(GRANT_EXPIRED):
             _check(engine, run_id, grant_id, "nope", "nope", now=late)
@@ -453,6 +473,20 @@ def test_the_denial_order_is_revoked_then_expired_then_membership_then_action_th
             _check(engine, run_id, grant_id, "nope", "nope", now=late)
 
 
+def test_action_then_role_then_resource_are_checked_in_that_order(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    with _migrated("sqlite", tmp_path, monkeypatch) as (engine, _):
+        run_id = _seed(engine)
+        grant_id = _issue(engine, run_id, allowed_actions=["resource.execute", "release.apply"])
+        with _denied(ACTION_NOT_ALLOWED):
+            _check(engine, run_id, grant_id, "release.rollback", "nope")
+        with Session(engine) as session, session.begin():  # demoted: editor -> viewer
+            session.query(CaliberProjectMember).filter_by(user_id="alice").one().role = "viewer"
+        with _denied(ROLE_NOT_ALLOWED):
+            _check(engine, run_id, grant_id, "release.apply", "nope")
+
+
 def test_every_denial_code_is_documented_and_distinct() -> None:
     assert {
         "grant_not_found",
@@ -460,6 +494,7 @@ def test_every_denial_code_is_documented_and_distinct() -> None:
         "grant_expired",
         "not_a_member",
         "action_not_allowed",
+        "role_not_allowed",
         "resource_not_allowed",
         "authority_unavailable",
     } == DENIAL_CODES
@@ -486,7 +521,7 @@ def test_a_database_failure_while_checking_is_a_denial_never_an_allow(
                     session,
                     run_id=run_id,
                     grant_id=grant_id,
-                    action="workflow.run",
+                    action="resource.execute",
                     resource="workflow:wf-1",
                 )
             with _denied(AUTHORITY_UNAVAILABLE):
@@ -505,13 +540,13 @@ def test_a_membership_lookup_failure_is_a_denial(
         def broken(*_a: Any, **_k: Any) -> Any:
             raise OperationalError("SELECT", {}, Exception("membership table unavailable"))
 
-        monkeypatch.setattr(grants, "_is_active_member", broken)
+        monkeypatch.setattr(grants, "_current_role", broken)
         with _denied(AUTHORITY_UNAVAILABLE), Session(engine) as session:
             authorize(
                 session,
                 run_id=run_id,
                 grant_id=grant_id,
-                action="workflow.run",
+                action="resource.execute",
                 resource="workflow:wf-1",
                 now=NOW,
             )
@@ -615,30 +650,79 @@ def test_a_grant_cannot_be_deleted_by_the_orm_in_bulk_or_by_sql(
             assert session.query(CaliberRunGrant).count() == 1
 
 
-@pytest.mark.skipif(not POSTGRES_TEST_URL, reason="TRUNCATE and privileges are PostgreSQL-only")
-def test_postgresql_refuses_truncate_and_public_holds_no_delete_or_truncate(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+@pytest.mark.skipif(not POSTGRES_TEST_URL, reason="TRUNCATE triggers are PostgreSQL-only")
+def test_postgresql_refuses_truncate(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     with _migrated("postgresql", tmp_path, monkeypatch) as (engine, _):
-        run_id = _seed(engine)
-        _issue(engine, run_id)
+        _issue(engine, _seed(engine))
         with pytest.raises(IntegrityError, match="TRUNCATE refused"):
             with engine.begin() as connection:
                 connection.execute(text("TRUNCATE caliber_run_grants"))
+        with Session(engine) as session:
+            assert session.query(CaliberRunGrant).count() == 1
+
+
+# ---------------------------------------------------------------- concurrency (PostgreSQL)
+
+
+@contextmanager
+def _held(engine: Engine) -> Iterator[Session]:
+    """A transaction held open by the test, always rolled back so a failed assertion cannot leave a lock behind."""
+    session = Session(engine)
+    session.begin()
+    try:
+        yield session
+    finally:
+        session.rollback()
+        session.close()
+
+
+def _wait_blocked(engine: Engine, timeout: float = 15.0) -> None:
+    """Return once some backend is waiting on a lock (polled, not slept): proof the second transaction blocked."""
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
         with engine.connect() as connection:
-            granted = {
-                row[0]
-                for row in connection.execute(
-                    text(
-                        "SELECT privilege_type FROM information_schema.role_table_grants "
-                        "WHERE table_name = 'caliber_run_grants' AND grantee = 'PUBLIC'"
-                    )
+            waiting = connection.execute(
+                text(
+                    "SELECT count(*) FROM pg_stat_activity "
+                    "WHERE datname = current_database() AND wait_event_type = 'Lock'"
                 )
-            }
-        assert not granted & {"DELETE", "TRUNCATE"}
+            ).scalar_one()
+        if waiting:
+            return
+        time.sleep(0.05)
+    raise AssertionError("no transaction ever blocked on a lock")
 
 
-# ---------------------------------------------------------------- concurrent revocation (PostgreSQL)
+def _in_thread(
+    engine: Engine, work: Callable[[Session], Any]
+) -> tuple[threading.Thread, dict[str, Any]]:
+    """Run ``work`` in its own transaction on a thread; its outcome lands in the returned dict."""
+    outcome: dict[str, Any] = {}
+
+    def run() -> None:
+        try:
+            with Session(engine) as session, session.begin():
+                session.execute(text("SET LOCAL lock_timeout = '30s'"))
+                outcome["result"] = work(session)
+            outcome["committed_at"] = time.monotonic()
+        except BaseException as exc:
+            outcome["error"] = exc
+
+    thread = threading.Thread(target=run, daemon=True)
+    thread.start()
+    return thread, outcome
+
+
+def _authorize_now(session: Session, run_id: str, grant_id: str, **kw: Any) -> Any:
+    return authorize(
+        session,
+        run_id=run_id,
+        grant_id=grant_id,
+        action="resource.execute",
+        resource="workflow:wf-1",
+        now=NOW,
+        **kw,
+    )
 
 
 @pytest.mark.skipif(not POSTGRES_TEST_URL, reason="row locks are PostgreSQL-only")
@@ -650,43 +734,24 @@ def test_postgresql_a_revocation_waits_for_the_transition_it_would_race(
     with _migrated("postgresql", tmp_path, monkeypatch) as (engine, _):
         run_id = _seed(engine)
         grant_id = _issue(engine, run_id)
-        finished = threading.Event()
         order: list[str] = []
-        errors: list[BaseException] = []
-
-        def revoker() -> None:
-            try:
-                with Session(engine) as session, session.begin():
-                    session.execute(text("SET LOCAL lock_timeout = '20s'"))
+        with _held(engine) as t1:
+            _authorize_now(t1, run_id, grant_id)
+            thread, outcome = _in_thread(
+                engine,
+                lambda s: (
                     revoke_grant(
-                        session, run_id=run_id, grant_id=grant_id, by="@o", reason="race", now=NOW
-                    )
-                    order.append("revoked")
-            except BaseException as exc:  # pragma: no cover - surfaced below
-                errors.append(exc)
-            finally:
-                finished.set()
-
-        t1 = Session(engine)
-        t1.begin()
-        authorize(
-            t1,
-            run_id=run_id,
-            grant_id=grant_id,
-            action="workflow.run",
-            resource="workflow:wf-1",
-            now=NOW,
-        )
-        thread = threading.Thread(target=revoker, daemon=True)
-        thread.start()
-        time.sleep(1.0)
-        assert not finished.is_set(), "the revocation must wait for the checking transaction"
-        order.append("transition")  # the guarded transition, still authorized
-        t1.commit()
-        t1.close()
-        assert finished.wait(20), "the revocation proceeds once the checker commits"
-        thread.join(5)
-        assert not errors, errors
+                        s, run_id=run_id, grant_id=grant_id, by="@o", reason="race", now=NOW
+                    ),
+                    order.append("revoked"),
+                ),
+            )
+            _wait_blocked(engine)
+            assert thread.is_alive(), "the revocation must wait for the checking transaction"
+            order.append("transition")  # the guarded transition, still authorized
+            t1.commit()
+        thread.join(30)
+        assert "error" not in outcome, outcome.get("error")
         assert order == ["transition", "revoked"]
         with _denied(GRANT_REVOKED):
             _check(engine, run_id, grant_id)
@@ -699,41 +764,85 @@ def test_postgresql_a_check_that_starts_after_a_pending_revocation_waits_and_the
     with _migrated("postgresql", tmp_path, monkeypatch) as (engine, _):
         run_id = _seed(engine)
         grant_id = _issue(engine, run_id)
-        outcome: list[str] = []
-        finished = threading.Event()
+        with _held(engine) as revoker:
+            revoke_grant(revoker, run_id=run_id, grant_id=grant_id, by="@o", reason="r", now=NOW)
+            thread, outcome = _in_thread(engine, lambda s: _authorize_now(s, run_id, grant_id))
+            _wait_blocked(engine)
+            assert thread.is_alive(), "the check waits for the pending revocation"
+            revoker.commit()
+        thread.join(30)
+        error = outcome.get("error")
+        assert isinstance(error, GrantDenied) and error.code == GRANT_REVOKED, outcome
 
-        def checker() -> None:
-            try:
-                with Session(engine) as session, session.begin():
-                    session.execute(text("SET LOCAL lock_timeout = '20s'"))
-                    authorize(
-                        session,
-                        run_id=run_id,
-                        grant_id=grant_id,
-                        action="workflow.run",
-                        resource="workflow:wf-1",
-                        now=NOW,
-                    )
-                    outcome.append("allowed")
-            except GrantDenied as exc:
-                outcome.append(exc.code)
-            finally:
-                finished.set()
 
-        revoker = Session(engine)
-        revoker.begin()
-        revoke_grant(revoker, run_id=run_id, grant_id=grant_id, by="@o", reason="r", now=NOW)
-        thread = threading.Thread(target=checker, daemon=True)
-        thread.start()
-        time.sleep(1.0)
-        assert not finished.is_set(), "the check waits for the pending revocation"
-        revoker.commit()
-        revoker.close()
-        assert finished.wait(20)
-        thread.join(5)
-        assert outcome == [GRANT_REVOKED], (
-            "a check never sees the grant as live once a revocation commits"
-        )
+@pytest.mark.skipif(not POSTGRES_TEST_URL, reason="row locks are PostgreSQL-only")
+@pytest.mark.parametrize("change", ["remove", "suspend", "demote"])
+def test_postgresql_removing_or_demoting_a_member_waits_for_a_check_in_flight(
+    change: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The check share-locks the membership it relied on, so the change cannot land between the check and the
+    transition it guards; once it commits, the next check denies."""
+    with _migrated("postgresql", tmp_path, monkeypatch) as (engine, _):
+        run_id = _seed(engine)
+        grant_id = _issue(engine, run_id)
+
+        def change_member(session: Session) -> None:
+            member = session.query(CaliberProjectMember).filter_by(user_id="alice").one()
+            if change == "remove":
+                session.delete(member)
+            elif change == "suspend":
+                member.status = "suspended"
+            else:
+                member.role = "viewer"
+
+        with _held(engine) as t1:
+            _authorize_now(t1, run_id, grant_id)
+            thread, outcome = _in_thread(engine, change_member)
+            _wait_blocked(engine)
+            assert thread.is_alive(), "the membership change must wait for the check's transaction"
+            transitioned_at = time.monotonic()  # the guarded transition, still authorized
+            t1.commit()
+        thread.join(30)
+        assert "error" not in outcome, outcome.get("error")
+        assert outcome["committed_at"] > transitioned_at
+        code = ROLE_NOT_ALLOWED if change == "demote" else NOT_A_MEMBER
+        with _denied(code):
+            _check(engine, run_id, grant_id)
+
+
+@pytest.mark.skipif(not POSTGRES_TEST_URL, reason="isolation levels are PostgreSQL-only")
+@pytest.mark.parametrize("level", ["REPEATABLE READ", "SERIALIZABLE"])
+def test_postgresql_a_change_committed_after_the_snapshot_is_a_denial_not_an_allow(
+    level: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    with _migrated("postgresql", tmp_path, monkeypatch) as (engine, _):
+        run_id = _seed(engine)
+        grant_id = _issue(engine, run_id)
+        with Session(engine.execution_options(isolation_level=level)) as checker:
+            checker.begin()
+            checker.execute(text("SELECT 1"))  # the snapshot starts here
+            with Session(engine) as other, other.begin():
+                other.query(CaliberProjectMember).filter_by(user_id="alice").delete()
+            with pytest.raises(GrantDenied) as raised:
+                _authorize_now(checker, run_id, grant_id)
+            assert raised.value.code in {AUTHORITY_UNAVAILABLE, NOT_A_MEMBER}
+
+
+@pytest.mark.parametrize("dialect", DIALECTS)
+def test_authorize_sees_a_revocation_committed_after_the_grant_was_loaded_into_the_session(
+    dialect: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Regression: without ``populate_existing`` the identity map answered with the stale, unrevoked grant."""
+    with _migrated(dialect, tmp_path, monkeypatch) as (engine, _):
+        run_id = _seed(engine)
+        grant_id = _issue(engine, run_id)
+        with Session(engine) as stale:
+            stale.begin()
+            assert stale.get(CaliberRunGrant, grant_id).revoked_at is None  # type: ignore[union-attr]
+            with Session(engine) as other, other.begin():
+                revoke_grant(other, run_id=run_id, grant_id=grant_id, by="@o", reason="r", now=NOW)
+            with _denied(GRANT_REVOKED):
+                _authorize_now(stale, run_id, grant_id)
 
 
 # ---------------------------------------------------------------- migration
@@ -772,3 +881,218 @@ def test_the_migration_creates_the_table_and_rolls_back_cleanly(
         assert "caliber_run_grants" in inspect(engine).get_table_names()
         with Session(engine) as session:
             assert session.query(CaliberRunGrant).count() == 0
+
+
+# ---------------------------------------------------------------- closed vocabulary, roles, hygiene
+
+
+@pytest.mark.parametrize("dialect", DIALECTS)
+def test_an_action_outside_the_closed_vocabulary_cannot_be_granted(
+    dialect: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    with _migrated(dialect, tmp_path, monkeypatch) as (engine, _):
+        run_id = _seed(engine)
+        for action in (
+            "workflow.run",
+            "release.break_glass_apply",
+            "*",
+            "resource.execute ",
+            "RESOURCE.EXECUTE",
+        ):
+            with pytest.raises(GrantError, match="closed vocabulary|surrounding whitespace"):
+                _issue(engine, run_id, allowed_actions=["resource.execute", action])
+        with Session(engine) as session:
+            assert session.query(CaliberRunGrant).count() == 0
+
+
+@pytest.mark.parametrize("dialect", DIALECTS)
+def test_the_run_must_exist_and_belong_to_the_grants_project(
+    dialect: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    with _migrated(dialect, tmp_path, monkeypatch) as (engine, _):
+        with pytest.raises(GrantError, match="run does not exist"):
+            _issue(engine, "run-nowhere")
+        other = _seed(engine)
+        with Session(engine) as session, session.begin():
+            session.get(CaliberWorkflowRun, other).project_id = "proj-other"  # type: ignore[union-attr]
+        with pytest.raises(GrantError, match="different project"):
+            _issue(engine, other)
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("grant_id", "g" * 65),
+        ("policy_version", "p" * 65),
+        ("grant_id", "bad\nid"),
+        ("policy_version", "zero\u200bwidth"),
+        ("allowed_resources", ["x" * 257]),
+        ("allowed_resources", ["fine", "bad\x00nul"]),
+        ("allowed_resources", [f"r{n}" for n in range(257)]),
+    ],
+)
+def test_sizes_and_characters_are_bounded_before_anything_is_stored(
+    field: str, value: Any, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    with _migrated("sqlite", tmp_path, monkeypatch) as (engine, _):
+        run_id = _seed(engine)
+        with pytest.raises(GrantError):
+            _issue(engine, run_id, **{field: value})
+
+
+def test_naive_datetimes_are_refused_because_their_zone_is_unknowable(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    with _migrated("sqlite", tmp_path, monkeypatch) as (engine, _):
+        run_id = _seed(engine)
+        with pytest.raises(GrantError, match="timezone-aware"):
+            _issue(engine, run_id, expires=datetime(2030, 1, 1))
+        with pytest.raises(GrantError, match="timezone-aware"):
+            _issue(engine, run_id, now=datetime(2026, 1, 1))
+
+
+@pytest.mark.parametrize("dialect", DIALECTS)
+def test_revoking_with_bad_input_changes_nothing_even_if_the_caller_commits(
+    dialect: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Regression: the row used to be marked revoked before the reason was validated."""
+    with _migrated(dialect, tmp_path, monkeypatch) as (engine, _):
+        run_id = _seed(engine)
+        grant_id = _issue(engine, run_id)
+        for by, reason in (("@o", " "), (" ", "r"), ("", "r"), ("@o", "x" * 1001)):
+            with Session(engine) as session, session.begin():
+                with pytest.raises(GrantError):
+                    revoke_grant(
+                        session, run_id=run_id, grant_id=grant_id, by=by, reason=reason, now=NOW
+                    )
+            with Session(engine) as session:
+                row = session.get(CaliberRunGrant, grant_id)
+                assert (row.revoked_at, row.revoked_by, row.revoke_reason) == (None, None, None)  # type: ignore[union-attr]
+        assert _check(engine, run_id, grant_id)
+
+
+@pytest.mark.parametrize("dialect", DIALECTS)
+@pytest.mark.parametrize(
+    "values",
+    [
+        {"revoked_by": "@o"},
+        {"revoke_reason": "why"},
+        {"revoked_at": datetime(2026, 1, 1)},
+        {"revoked_at": datetime(2026, 1, 1), "revoked_by": "@o"},
+    ],
+)
+def test_a_revocation_is_written_whole_or_not_at_all(
+    dialect: str, values: dict[str, Any], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    with _migrated(dialect, tmp_path, monkeypatch) as (engine, _):
+        run_id = _seed(engine)
+        grant_id = _issue(engine, run_id)
+        with pytest.raises(IntegrityError):
+            with engine.begin() as connection:
+                connection.execute(
+                    update(CaliberRunGrant.__table__)
+                    .where(CaliberRunGrant.grant_id == grant_id)
+                    .values(**values)
+                )
+        with pytest.raises(
+            IntegrityError
+        ):  # and through the ORM, where the whole-revocation CHECK is the backstop
+            with Session(engine) as session, session.begin():
+                row = session.get(CaliberRunGrant, grant_id)
+                for key, value in values.items():
+                    setattr(row, key, value)
+        assert _check(engine, run_id, grant_id)
+
+
+@pytest.mark.parametrize("dialect", DIALECTS)
+def test_every_frozen_column_is_refused_by_the_database(
+    dialect: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    changes: dict[str, Any] = {
+        "grant_id": "g-other",
+        "workflow_run_id": "run-other",
+        "subject_user_id": "mallory",
+        "subject_auth_method": "pat",
+        "workload_id": "wl_" + "0" * 64,
+        "workload_name": "other",
+        "workflow_version_digest": "1" * 64,
+        "project_id": "proj-other",
+        "allowed_actions": ["release.apply"],
+        "allowed_resources": ["x"],
+        "policy_version": "policy-v2",
+        "expires_at": datetime(2099, 1, 1),
+        "created_at": datetime(2001, 1, 1),
+    }
+    with _migrated(dialect, tmp_path, monkeypatch) as (engine, _):
+        run_id = _seed(engine)
+        grant_id = _issue(engine, run_id)
+        assert set(changes) == set(CaliberRunGrant.__table__.columns.keys()) - {
+            "revoked_at",
+            "revoked_by",
+            "revoke_reason",
+        }, "a new column must be classified as frozen or revocable"
+        for column, value in changes.items():
+            with pytest.raises(
+                IntegrityError, match="immutable except for revocation|foreign key|check"
+            ):
+                with engine.begin() as connection:
+                    connection.execute(
+                        update(CaliberRunGrant.__table__)
+                        .where(CaliberRunGrant.grant_id == grant_id)
+                        .values({column: value})
+                    )
+        with Session(engine) as session:
+            assert session.query(CaliberRunGrant).count() == 1
+
+
+@pytest.mark.parametrize("dialect", DIALECTS)
+def test_the_orm_refuses_to_edit_a_revocation_after_it_was_committed(
+    dialect: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    with _migrated(dialect, tmp_path, monkeypatch) as (engine, _):
+        run_id = _seed(engine)
+        grant_id = _issue(engine, run_id)
+        with Session(engine) as session, session.begin():
+            revoke_grant(session, run_id=run_id, grant_id=grant_id, by="@o", reason="r", now=NOW)
+        with Session(engine) as session, session.begin():
+            row = session.get(CaliberRunGrant, grant_id)
+            with pytest.raises(ImmutableRecordError):
+                row.revoke_reason = "rewritten"  # type: ignore[union-attr]
+                session.flush()
+            session.rollback()
+
+
+# ---------------------------------------------------------------- the owner role needs live owner scopes
+
+
+@pytest.mark.parametrize("dialect", DIALECTS)
+def test_the_project_owner_counts_as_owner_only_with_live_owner_scopes(
+    dialect: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from caliber.resource_access import OWNER_ROLE_REQUIRED_SCOPES
+
+    with _migrated(dialect, tmp_path, monkeypatch) as (engine, _):
+        run_id = _seed(engine, member=None)
+        with Session(engine) as session, session.begin():
+            session.get(CaliberProject, "proj-1").owner = "alice"  # type: ignore[union-attr]
+        owner_only = ["release.rollback"]  # {owner} alone in resource_access.PROJECT_ACTIONS
+        with pytest.raises(GrantError, match="never exceeds the role"):
+            _issue(
+                engine, run_id, allowed_actions=owner_only
+            )  # no scopes: the owner narrows to editor
+        with pytest.raises(GrantError, match="never exceeds the role"):
+            _issue(
+                engine, run_id, allowed_actions=owner_only, scopes=frozenset({"caliber.operator"})
+            )
+        grant_id = _issue(
+            engine, run_id, allowed_actions=owner_only, scopes=OWNER_ROLE_REQUIRED_SCOPES
+        )
+        assert _check(
+            engine, run_id, grant_id, "release.rollback", scopes=OWNER_ROLE_REQUIRED_SCOPES
+        )
+        with _denied(ROLE_NOT_ALLOWED):
+            _check(engine, run_id, grant_id, "release.rollback")  # the owner's scopes lapsed
+        with _denied(ROLE_NOT_ALLOWED):
+            _check(
+                engine, run_id, grant_id, "release.rollback", scopes=frozenset({"caliber.operator"})
+            )

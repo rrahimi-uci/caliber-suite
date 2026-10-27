@@ -29,20 +29,23 @@ class ImmutableRecordError(RuntimeError):
 
 #: Classes registered by :func:`guard_immutable`.
 _IMMUTABLE_MODELS: set[type] = set()
-#: Columns a registered model may still change (empty for a write-once model).
-_MUTABLE_COLUMNS: dict[type, frozenset[str]] = {}
 
 
 def _refuse(model: type, operation: str) -> ImmutableRecordError:
     return ImmutableRecordError(f"{model.__tablename__} is immutable: {operation} refused")  # type: ignore[attr-defined]
 
 
-def guard_immutable(model: type, *, mutable: frozenset[str] = frozenset()) -> type:
-    """Register ``model`` as write-once (but for ``mutable`` columns); returns it so it can be a decorator."""
+def guard_immutable(
+    model: type, *, mutable: frozenset[str] = frozenset(), once: str | None = None
+) -> type:
+    """Register ``model`` as write-once (but for ``mutable`` columns); returns it so it can be a decorator.
+
+    ``once`` names a column that, once it holds a value in the database, freezes the ``mutable`` columns too: a
+    revocation is written once and never edited afterwards.
+    """
     if model in _IMMUTABLE_MODELS:
         return model
     _IMMUTABLE_MODELS.add(model)
-    _MUTABLE_COLUMNS[model] = mutable
 
     @event.listens_for(model, "before_update")
     def _no_update(_mapper: Mapper[Any], _connection: Any, target: Any) -> None:
@@ -55,7 +58,7 @@ def guard_immutable(model: type, *, mutable: frozenset[str] = frozenset()) -> ty
             for attr in state.mapper.column_attrs
             if state.attrs[attr.key].history.has_changes()
         }
-        if mutable and changed <= mutable:
+        if mutable and changed <= mutable and not _committed(state, once):
             return
         raise _refuse(model, "UPDATE")
 
@@ -64,6 +67,15 @@ def guard_immutable(model: type, *, mutable: frozenset[str] = frozenset()) -> ty
         raise _refuse(model, "DELETE")
 
     return model
+
+
+def _committed(state: Any, column: str | None) -> bool:
+    """Whether ``column`` held a non-null value in the database before this flush."""
+    if column is None:
+        return False
+    history = state.attrs[column].load_history()
+    before = history.deleted[0] if history.deleted else (history.unchanged[0] if history.unchanged else None)
+    return before is not None
 
 
 @event.listens_for(Session, "do_orm_execute")

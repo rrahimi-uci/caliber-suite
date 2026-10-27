@@ -192,6 +192,7 @@ BACKEND_CORE_TESTS=(
   tests/test_contracts_registry.py
   tests/test_approval_ux_contract.py
   tests/test_run_grants.py
+  tests/test_policy_decisions.py
   tests/test_run_manifest.py
   tests/test_policy_principal.py
   tests/test_worker_inventory.py
@@ -252,6 +253,7 @@ job_migration_parity_postgres() {
         tests/test_profile.py \
         tests/test_run_manifest.py \
         tests/test_run_grants.py \
+        tests/test_policy_decisions.py \
         -k postgresql --no-cov -q
     status=$?
   fi

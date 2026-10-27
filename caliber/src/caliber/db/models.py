@@ -2213,6 +2213,12 @@ class CaliberRunGrant(Base):
         Index("ix_run_grants_project", "project_id"),
         CheckConstraint("length(workload_id) = 67", name="ck_run_grant_workload_id"),
         CheckConstraint("length(workflow_version_digest) = 64", name="ck_run_grant_digest"),
+        # A revocation is all three fields together or none: never a half-written one.
+        CheckConstraint(
+            "(revoked_at IS NULL AND revoked_by IS NULL AND revoke_reason IS NULL) OR "
+            "(revoked_at IS NOT NULL AND revoked_by IS NOT NULL AND revoke_reason IS NOT NULL)",
+            name="ck_run_grant_revocation_whole",
+        ),
     )
 
     grant_id: Mapped[str] = mapped_column(String(64), primary_key=True)
@@ -2235,7 +2241,11 @@ class CaliberRunGrant(Base):
     revoke_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
 
 
-guard_immutable(CaliberRunGrant, mutable=frozenset({"revoked_at", "revoked_by", "revoke_reason"}))
+guard_immutable(
+    CaliberRunGrant,
+    mutable=frozenset({"revoked_at", "revoked_by", "revoke_reason"}),
+    once="revoked_at",
+)
 
 
 class CaliberWorkflowRunEvent(Base):

@@ -8,7 +8,8 @@ expiry. This migration adds only the storage and its guards; issuing and checkin
 * ``caliber_run_grants``: no fallback key (a run may have several grants; the caller names one).
 * **Immutable but for revocation, in the database.** A BEFORE UPDATE trigger refuses any change except to
   ``revoked_at``/``revoked_by``/``revoke_reason``, and refuses every change once ``revoked_at`` is set, so a grant
-  can be revoked once and never un-revoked or edited afterwards. A BEFORE DELETE trigger refuses deletion
+  can be revoked once and never un-revoked or edited afterwards. A CHECK makes a revocation whole: ``revoked_at``,
+  ``revoked_by`` and ``revoke_reason`` are all null or all set. A BEFORE DELETE trigger refuses deletion
   (PostgreSQL adds a BEFORE TRUNCATE trigger and revokes ``DELETE`` and ``TRUNCATE`` from ``PUBLIC``). The trigger
   functions are pinned to the migration's schema with ``pg_temp`` last in ``search_path``.
 
@@ -136,6 +137,11 @@ def upgrade() -> None:
         sa.Column("revoke_reason", sa.Text(), nullable=True),
         sa.CheckConstraint("length(workload_id) = 67", name="ck_run_grant_workload_id"),
         sa.CheckConstraint("length(workflow_version_digest) = 64", name="ck_run_grant_digest"),
+        sa.CheckConstraint(
+            "(revoked_at IS NULL AND revoked_by IS NULL AND revoke_reason IS NULL) OR "
+            "(revoked_at IS NOT NULL AND revoked_by IS NOT NULL AND revoke_reason IS NOT NULL)",
+            name="ck_run_grant_revocation_whole",
+        ),
     )
     op.create_index("ix_run_grants_run", _TABLE, ["workflow_run_id"])
     op.create_index("ix_run_grants_project", _TABLE, ["project_id"])
