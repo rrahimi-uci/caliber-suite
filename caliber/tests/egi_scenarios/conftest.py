@@ -28,8 +28,14 @@ from starlette.testclient import TestClient
 
 from caliber.config import CaliberConfig
 from caliber.db.migrate import build_config
-from caliber.db.models import CaliberProject, CaliberProjectMember
+from caliber.db.models import (
+    CaliberProject,
+    CaliberProjectMember,
+    CaliberWorkspaceEnvironment,
+    CaliberWorkspaceRevision,
+)
 from caliber.server import create_app
+from caliber.workspace_release_service import create_workspace_release
 from tests.dialect_helpers import DIALECTS, dialect_database_url
 from tests.egi_scenarios.harness.process import free_port
 
@@ -297,6 +303,66 @@ def two_workspaces(reference_app: ReferenceApp) -> Workspaces:
             )
         session.commit()
     return Workspaces(PROJECT_A, PROJECT_B, EDITOR_A, APPROVER_A, EDITOR_B)
+
+
+def seed_release(app: ReferenceApp, project_id: str, name: str = "egi") -> dict[str, str]:
+    """An approved, current workspace release and its environment in ``project_id``: the runtime lineage coordinates
+    a run names in the reference profile. Returns the two request fields (``workspace_release_id``, ``environment_id``)."""
+    digest = "a" * 64
+    environment_id = f"WSE-{name}-{project_id}"[:64]
+    revision_id = f"WSR-{name}-{project_id}"[:64]
+    with app.session_factory() as session:
+        existing = session.get(CaliberWorkspaceEnvironment, environment_id)
+        if existing is not None:  # seeded already by this test
+            return {
+                "workspace_release_id": str(existing.current_release_id),
+                "environment_id": environment_id,
+            }
+        environment = CaliberWorkspaceEnvironment(
+            environment_id=environment_id,
+            project_id=project_id,
+            name=f"{name}-dev",
+            environment_class="development",
+            promotion_order=10,
+            status="active",
+            created_by="@egi",
+        )
+        session.add_all(
+            [
+                environment,
+                CaliberWorkspaceRevision(
+                    revision_id=revision_id,
+                    project_id=project_id,
+                    revision_number=1,
+                    source_id=None,
+                    source_commit_sha=None,
+                    manifest={"apiVersion": "caliber/v1alpha1"},
+                    manifest_sha256=digest,
+                    source_bundle_sha256=digest,
+                    source_snapshot_file_id=None,
+                    source_attestation="caller_attested",
+                    revision_sha256=digest,
+                    status="ready",
+                    created_by="@egi",
+                ),
+            ]
+        )
+        session.flush()
+        release = create_workspace_release(
+            session,
+            project_id=project_id,
+            revision_id=revision_id,
+            environment_id=environment_id,
+            environment_config_sha256=digest,
+            runtime_dependencies_sha256=digest,
+            policy_sha256=digest,
+            request_idempotency_key=f"release-{name}-{project_id}",
+            requested_by="@egi",
+        )
+        release.status = "approved"
+        environment.current_release_id = release.release_id
+        session.commit()
+        return {"workspace_release_id": release.release_id, "environment_id": environment_id}
 
 
 # ------------------------------------------------------------------------------ scripted model

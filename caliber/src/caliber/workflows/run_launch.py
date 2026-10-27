@@ -93,6 +93,23 @@ def _saved_version_manifest_metadata(version: CaliberWorkflowVersion) -> dict[st
     }
 
 
+class LineageRequiredError(ValueError):
+    """The deployment requires every run to name a workspace release and an environment (runtime lineage), and this one
+    does not. Raised before anything is written."""
+
+
+LINEAGE_REQUIRED_MESSAGE = (
+    "lineage_required: this deployment requires every run to name a workspace_release_id and an environment_id "
+    "(runtime lineage); a run without them is not started"
+)
+
+
+def require_lineage(workspace_release_id: str | None, environment_id: str | None) -> None:
+    """Raise :class:`LineageRequiredError` unless both halves of the lineage coordinates are present."""
+    if not workspace_release_id or not environment_id:
+        raise LineageRequiredError(LINEAGE_REQUIRED_MESSAGE)
+
+
 def enqueue_workflow_run(  # noqa: PLR0912, PLR0915 - one insert path: idempotency, admission, lineage, events
     session: Session,
     *,
@@ -131,8 +148,11 @@ def enqueue_workflow_run(  # noqa: PLR0912, PLR0915 - one insert path: idempoten
     has already been flushed. A retry that reuses an idempotency key returns the original run and manifest when it is
     the same request and raises ``AdmissionDenied`` (409) when it is not. ``requested_alias`` is the release selector
     the caller *named* (``alias`` is what it resolved to; they differ when a trigger picks its own target), and is what
-    the request's identity is built from.
+    the request's identity is built from. With ``admission.lineage_required`` (the reference profile) a run that does not
+    name a workspace release and an environment raises :class:`LineageRequiredError` before anything is written.
     """
+    if admission is not None and admission.lineage_required:
+        require_lineage(workspace_release_id, environment_id)
     admitting = admission is not None and admission.enabled
     intent = intent_of(
         workflow_id=workflow.workflow_id,

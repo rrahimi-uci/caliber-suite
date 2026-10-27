@@ -120,6 +120,8 @@ class AdmissionSettings:
     llm_provider: str = "fake"
     #: The model an agent that says ``inherit`` gets (``llm_diagnosis_model``); pinned as ``provider/model``.
     default_model: str = ""
+    #: A run must be started against a workspace release and environment (runtime lineage): the reference profile.
+    lineage_required: bool = False
 
     @classmethod
     def from_config(cls, config: Any) -> AdmissionSettings:
@@ -140,6 +142,7 @@ class AdmissionSettings:
             rule_bundle_sha256=digest,
             llm_provider=str(getattr(config, "llm_provider", "fake") or "fake"),
             default_model=str(getattr(config, "llm_diagnosis_model", "") or ""),
+            lineage_required=getattr(config, "profile", "") == "reference",
         )
 
 

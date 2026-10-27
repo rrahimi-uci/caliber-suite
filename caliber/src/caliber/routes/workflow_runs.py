@@ -83,7 +83,11 @@ from caliber.workflows.manifest import (
     parse_manifest,
 )
 from caliber.workflows.run_events import append_run_event
-from caliber.workflows.run_launch import enqueue_workflow_run
+from caliber.workflows.run_launch import (
+    LineageRequiredError,
+    enqueue_workflow_run,
+    require_lineage,
+)
 from caliber.workflows.run_state import (
     RUN_STATUS_CANCELLED,
     RUN_STATUS_COMPLETED,
@@ -289,6 +293,13 @@ def _refuse_admission(session: Session, exc: AdmissionDenied) -> HTTPException:
     """Roll the whole transaction back (the run, its grant and its decision are one unit) and answer the refusal."""
     session.rollback()
     return HTTPException(status_code=exc.status, detail=str(exc))
+
+
+def _lineage_required_response(exc: LineageRequiredError) -> JSONResponse:
+    """``422 {"error": "lineage_required"}``: the reference profile starts no run without runtime lineage."""
+    return JSONResponse(
+        {"error": "lineage_required", "detail": str(exc), "status_code": 422}, status_code=422
+    )
 
 
 def _ensure_queue_enabled(request: Request) -> None:
@@ -705,6 +716,11 @@ async def create_workflow_run(request: Request) -> JSONResponse:  # noqa: PLR091
     identity = resolve_identity(request)
     body = await parse_json_object(request)
     payload = WorkflowRunCreateRequest.model_validate(body)
+    if _admission_settings(request).lineage_required:
+        try:
+            require_lineage(payload.workspace_release_id, payload.environment_id)
+        except LineageRequiredError as exc:
+            return _lineage_required_response(exc)
     factory = get_session_factory(request)
     with factory() as session:
         replayed_version = (
@@ -1078,6 +1094,11 @@ async def trigger_workflow_event(request: Request) -> JSONResponse:
     _ensure_queue_enabled(request)
     body = await parse_json_object(request, allow_empty=True)
     payload = WorkflowTriggerRequest.model_validate(body)
+    if _admission_settings(request).lineage_required:
+        try:
+            require_lineage(payload.workspace_release_id, payload.environment_id)
+        except LineageRequiredError as exc:
+            return _lineage_required_response(exc)
 
     factory = get_session_factory(request)
     with factory() as session:
@@ -1134,6 +1155,10 @@ async def trigger_workflow_event(request: Request) -> JSONResponse:
                 input_text=_input_to_text(payload.input),
                 input_json=_canonical_input(payload.input),
                 idempotency_key=payload.idempotency_key,
+                workspace_release_id=payload.workspace_release_id,
+                environment_id=payload.environment_id,
+                model_id=payload.model_id,
+                config_sha256=payload.config_sha256,
                 publish=lambda evt: _emit_queue_event(request, evt),
                 identity=resolve_identity(request),
                 admission=_admission_settings(request),

@@ -1616,6 +1616,16 @@ class WorkflowTriggerRequest(BaseModel):
     event_name: str | None = Field(default=None, max_length=128)
     input: object = None
     idempotency_key: str | None = Field(default=None, min_length=1, max_length=128)
+    workspace_release_id: str | None = Field(default=None, max_length=64)
+    environment_id: str | None = Field(default=None, max_length=64)
+    model_id: str | None = Field(default=None, max_length=256)
+    config_sha256: str | None = Field(default=None, min_length=64, max_length=64)
+
+    @model_validator(mode="after")
+    def _validate_lineage_pair(self) -> WorkflowTriggerRequest:
+        if bool(self.workspace_release_id) != bool(self.environment_id):
+            raise ValueError("workspace_release_id and environment_id must be provided together")
+        return self
 
 
 class WorkflowRunCancelRequest(BaseModel):

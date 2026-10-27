@@ -24,7 +24,13 @@ from caliber.db.models import (
 from caliber.orchestrator import workflow_run_worker as worker_module
 from caliber.orchestrator.workflow_run_worker import WorkflowRunWorker
 from caliber.policy import grants
-from tests.egi_scenarios.conftest import EDITOR_A, PROJECT_A, ReferenceApp, Workspaces
+from tests.egi_scenarios.conftest import (
+    EDITOR_A,
+    PROJECT_A,
+    ReferenceApp,
+    Workspaces,
+    seed_release,
+)
 from tests.egi_scenarios.test_b02_admission import _call, _published_workflow
 
 
@@ -35,7 +41,13 @@ def _start(app: ReferenceApp, workflow_id: str, key: str) -> str:
         EDITOR_A,
         PROJECT_A,
         "/workflow-runs",
-        {"workflow_id": workflow_id, "alias": "manual", "input": "hi", "idempotency_key": key},
+        {
+            "workflow_id": workflow_id,
+            "alias": "manual",
+            "input": "hi",
+            "idempotency_key": key,
+            **seed_release(app, PROJECT_A),
+        },
     )
     assert response.status_code == 202, response.text
     return str(response.json()["data"]["workflow_run_id"])

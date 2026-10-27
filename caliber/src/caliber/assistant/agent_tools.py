@@ -1522,7 +1522,10 @@ class AssistantAgentToolset:
             AdmissionDenied,
             AdmissionSettings,
         )
-        from caliber.workflows.run_launch import enqueue_workflow_run  # noqa: PLC0415
+        from caliber.workflows.run_launch import (  # noqa: PLC0415
+            LineageRequiredError,
+            enqueue_workflow_run,
+        )
 
         version_id = str(a.get("version_id", ""))
         input_text = str(a.get("input_text", ""))
@@ -1560,6 +1563,9 @@ class AssistantAgentToolset:
             except AdmissionDenied as exc:
                 db.rollback()
                 return _err(f"the run was not admitted: {exc}")
+            except LineageRequiredError as exc:
+                db.rollback()
+                return _err(f"the run was not started: {exc}")
             db.commit()
             run_id = run.workflow_run_id
             status = run.status
