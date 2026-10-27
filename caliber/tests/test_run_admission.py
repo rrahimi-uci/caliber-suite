@@ -160,7 +160,10 @@ def test_admission_persists_pins(client: TestClient, db_session: Session) -> Non
     assert record["pins"]["tool_versions"] and all(
         "@" in pin for pin in record["pins"]["tool_versions"]
     )
-    assert record["pins"]["model_routes"] == ["fake"]
+    assert record["pins"]["model_routes"] == [
+        "fake",
+        f"fake/{client.app.state.config.llm_diagnosis_model}",
+    ], "the provider and the default model an inheriting agent gets"
     assert (record["tenant_id"], record["region"], record["residency"]) == (
         "local",
         "local",
@@ -936,7 +939,12 @@ def test_pins_are_taken_from_the_bundles_dependency_lock(real_bundle: dict[str, 
             _dep(
                 "eval_dataset", "ds", None, status="unresolved"
             ),  # evaluation only: does not stop a run
-            _dep("subworkflow", "WF-child@prod", "WFV-child"),
+            _dep(
+                "subworkflow",
+                "WF-child@prod",
+                "WFV-child",
+                snapshot={"version_id": "WFV-child", "bundle_digest": "c" * 64},
+            ),
         ],
         models=("gpt-4o",),
     )

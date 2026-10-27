@@ -839,8 +839,13 @@ def build_plan(  # noqa: PLR0915 - central workflow plan assembler
     manifest_override: dict[str, Any] | None = None,
     config: CaliberConfig | None = None,
     session_factory: sessionmaker[Session] | None = None,
+    pinned_bundle: dict[str, Any] | None = None,
 ) -> RuntimePlan:
     """Compile and wrap a version into an executable :class:`RuntimePlan`.
+
+    ``pinned_bundle`` executes exactly that sealed deployment bundle (its resolved manifest and its embedded skill
+    snapshots) whatever the version's current state: it is what an admitted run was pinned to (B02.2b), already
+    verified by the caller against the run manifest's bundle digest.
 
     ``manifest_override`` compiles an in-memory manifest *instead of* the stored
     ``version.manifest`` — used by preview-run to execute an unsaved canvas edit
@@ -852,9 +857,11 @@ def build_plan(  # noqa: PLR0915 - central workflow plan assembler
     )
     compiled_bundle = getattr(version, "compiled_bundle", None)
     bundle = compiled_bundle if isinstance(compiled_bundle, dict) else {}
-    deployment_bundle = bundle.get("deployment_bundle")
+    deployment_bundle = (
+        pinned_bundle if pinned_bundle is not None else bundle.get("deployment_bundle")
+    )
     deployment_bundle_dict = deployment_bundle if isinstance(deployment_bundle, dict) else {}
-    use_sealed_bundle = (
+    use_sealed_bundle = pinned_bundle is not None or (
         manifest_override is None
         and getattr(version, "status", None) == "published"
         and isinstance(deployment_bundle, dict)
