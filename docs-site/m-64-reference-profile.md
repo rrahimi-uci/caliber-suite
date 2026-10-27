@@ -36,6 +36,7 @@ An unknown profile name is a configuration error. `GET /ajax-api/2.0/mlflow/cali
 | `egress_policy_disabled` | `egress_policy_enabled` | `CALIBER_EGRESS_POLICY_ENABLED` | true | The egress policy is what stops a tool or webhook from reaching internal addresses. |
 | `mcp_insecure_http` | `mcp_allow_insecure_http` | `CALIBER_MCP_ALLOW_INSECURE_HTTP` | false | Plain-HTTP MCP servers send tool calls and results in the clear. |
 | `self_approval_allowed` | `approval_allow_self_approval` | `CALIBER_APPROVAL_ALLOW_SELF_APPROVAL` | false | The account that started a run could approve its own protected action. |
+| `memory_inference_enabled` | `memory_infer` | `CALIBER_MEMORY_INFER` | false while CALIBER_MEMORY_ENABLED is true | LLM-inferred memory writes create durable, free-form facts nobody owns; the owned memory lifecycle does not exist yet. |
 | `fault_barriers_enabled` | `fault_barriers` | `CALIBER_FAULT_BARRIERS` | unset | An armed fault barrier makes the process exit on purpose; it exists only for scenario tests. |
 
 The messages in the refusal name the setting and the variable to change. The table is checked by
@@ -61,6 +62,25 @@ applies; the default is never lower than a route's own:
 A refusal carries `x-request-id` (the caller's, or one generated) and writes one warning log line naming the
 method, path and size. The body is refused, not drained, so a client that keeps sending a very large body may see
 a connection reset rather than the `413`.
+
+## Memory is owned, derived and read-mostly
+
+Until the owned memory lifecycle (M20: retention, legal hold, deletion) exists, the reference profile does not offer
+free-form durable memory (B12 memory, #667). The `/memory` API and the in-run memory tools behave as follows:
+
+- **No free-form partition.** `agent_id` must name an agent or workflow, and `run_id` a workflow run, that the caller
+  can see; `user_id` must be the caller's own identity, admins included. A request that names no partition acts
+  on the caller's own (`user_id` derived from the authenticated identity). A run id alone is refused (`403`).
+- **One refusal, no disclosure.** A partition that does not exist, one that belongs to another project or user, and a
+  label that names nothing all answer `404 memory partition not found`; no id is echoed.
+- **Writes are verbatim.** `POST /memory` requires `infer=false` (`403` otherwise), because LLM-inferred writes create
+  durable facts nobody owns; and startup refuses `CALIBER_MEMORY_INFER=true` while memory is enabled (table above).
+- **No bulk deletion.** `DELETE /memory` answers `403`: deleting memory needs the lifecycle's retention and legal-hold
+  rules.
+- **No bypass.** The service layer enforces the same rules (`MemoryLifecycleUnavailableError`), so a caller that does
+  not go through the route (the in-run tools build the service directly) cannot do what the route refuses.
+
+The development profile keeps the previous behaviour.
 
 ## A configuration that passes
 

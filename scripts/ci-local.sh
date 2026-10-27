@@ -191,6 +191,8 @@ BACKEND_CORE_TESTS=(
   tests/test_adr_index.py
   tests/test_contracts_registry.py
   tests/test_approval_ux_contract.py
+  tests/test_memory_reference_scope.py
+  tests/test_routes_memory.py
   tests/test_worker_inventory.py
   tests/test_request_limits.py
 )

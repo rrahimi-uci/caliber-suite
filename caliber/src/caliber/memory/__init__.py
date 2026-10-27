@@ -8,6 +8,7 @@ extra is installed.
 from caliber.memory.service import (
     MemoryDependencyError,
     MemoryDisabledError,
+    MemoryLifecycleUnavailableError,
     MemoryService,
     build_mem0_config,
 )
@@ -15,6 +16,7 @@ from caliber.memory.service import (
 __all__ = [
     "MemoryDependencyError",
     "MemoryDisabledError",
+    "MemoryLifecycleUnavailableError",
     "MemoryService",
     "build_mem0_config",
 ]
