@@ -224,21 +224,28 @@ built = build_run_manifest(
 )
 ```
 
-- **Resolved, never named.** Every pin is the concrete value the run will use. A floating selector (`latest`,
-  `current`, `head`, `default`, `*`, or `name@latest`) is `unresolved_pin`; a prompt, tool or skill pin is
-  `<name>@<version>`; `bundle_digest` is a full lowercase SHA-256. Lists are sorted and may not repeat
+- **Resolved, never named.** Every pin must be the concrete value the run will use, and resolving it is the
+  caller's duty: the builder cannot see the database, so it rejects what it can *recognise* as a moving target. After
+  Unicode (NFKC) folding, a segment that is a floating word (`latest`, `current`, `head`, `default`, `stable`, `main`,
+  `master`, `nightly`, ... as in `v-latest` or `gpt-4o-latest`), a wildcard version segment (`1.x`) or a range or
+  wildcard character (`*`, `^`, `>=`, `${...}`) is `unresolved_pin`; a prompt, tool or skill pin is exactly
+  `<name>@<version>` and only the version is checked; `bundle_digest` is a full lowercase SHA-256. Strings must be
+  NFC, at most 512 characters (64 for the manifest and run ids), and lists at most 256 entries. Lists are sorted and may not repeat
   (`duplicate_pin`), so the order of resolution never changes the digest. A manifest is never filled in later.
 - **Fixed scope.** `DeploymentScope` carries organization (`tenant_id`), project, region and residency, all
-  server-derived (`local` in the reference profile, ADR 0001). A caller that names another organization is
+  server-derived and **enforced**: the builder refuses (`bad_scope`) a scope whose organization, region or residency
+  is not the deployment's (`local` in the reference profile, ADR 0001). A caller that names another organization is
   `organization_switch`; a subject acting in another project than the run's scope is `project_mismatch`. The
   manifest records `project_id` (optional in the v1 schema, absent for a run outside any project).
 - **Rule bundle.** When rule bundles are enabled the bundle is loaded and verified first (`pin_rule_bundle`, #726): a
   missing, oversized, changed or malformed file is `rule_bundle_refused` and no manifest is built; a verified bundle's
-  path and SHA-256 are recorded. Enabled without one is `rule_bundle_required`; one given while disabled is
+  absolute path and SHA-256 are recorded (make one `PinnedRuleBundle` per admission: it is a snapshot, not a handle on the file). Enabled without one is `rule_bundle_required`; one given while disabled is
   `rule_bundle_unexpected`. The digest in the manifest is the digest of the bytes that were verified, so editing the
   file afterwards changes nothing about this run (the context code re-verifies the bytes when it uses them, #736).
 - **The digest excludes itself.** `manifest_digest` is the SHA-256 of the canonical bytes (sorted keys, no
   whitespace, UTF-8, no `NaN`); the record carries no digest field.
+- **Self-consistent result.** `BuiltManifest` re-reads its own bytes on construction (digest, schema, UTF-8, no
+  duplicate key or lone surrogate), so bytes and digest cannot disagree; `row_values()` includes `created_at`.
 - **Strict writer, tolerant reader.** The builder is stricter than the v1 schema (which takes any non-empty string),
   so records written before it still validate and `read_manifest(bytes, digest)` still reads them.
 

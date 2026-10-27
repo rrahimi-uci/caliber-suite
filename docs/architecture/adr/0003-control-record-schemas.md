@@ -73,6 +73,12 @@ RunManifest: what a workflow run was pinned to and who started it.
 | `rule_bundle_sha256` | string or null | no | written by #525 |
 | `created_at` | string (RFC 3339 date-time) | yes | when the manifest was written |
 
+`project_id` was added to `run_manifest` v1 in place by #676. ADR 0003 requires readers to be upgraded before a writer
+emits a new optional field, and this schema is strict (`additionalProperties: false`), so a build that predates the
+field would reject a manifest carrying it. That rule holds here because no manifest writer existed before admission
+(#680, #684): the first writer and the reader that understands the field (`caliber.run_manifest.read_manifest`) ship
+together, and a deployment must not run an older build against manifests a newer one wrote.
+
 ### proposal
 
 Proposal: one effect a run asks to perform, before it is performed.

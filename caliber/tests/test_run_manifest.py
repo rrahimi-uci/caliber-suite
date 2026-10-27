@@ -764,8 +764,8 @@ def test_the_order_pins_were_resolved_in_does_not_change_the_digest() -> None:
         {"purpose": "another purpose"},
         {"created_at": CREATED + timedelta(microseconds=1)},
         {
-            "scope": DeploymentScope("local", "proj-1", "eu-west", "local"),
-            "subject": Subject("alice", "session", "proj-1"),
+            "scope": DeploymentScope.fixed("proj-2"),
+            "subject": Subject("alice", "session", "proj-2"),
         },
         {"pins": _pins(policy_version="pol-2")},
         {"pins": _pins(model_routes=["scripted", "other"])},
@@ -1102,3 +1102,198 @@ def test_an_unexpected_read_error_is_a_refusal_not_a_crash(monkeypatch: pytest.M
         pin_rule_bundle("rules.yaml", RULE_BUNDLE_SHA)
     assert caught.value.code == "rule_bundle_refused" and "PermissionError" in str(caught.value)
     assert "denied" not in str(caught.value), "the operating system's message is not echoed"
+
+
+# ---------------------------------------------------------------- findings of the independent review (#955)
+
+
+def test_a_generator_of_knowledge_base_pins_is_not_silently_lost() -> None:
+    pins = _pins(knowledge_base_versions=(KnowledgeBasePin(f"kb-{i}", "v1") for i in (3, 1, 2)))
+    assert [kb.knowledge_base_id for kb in pins.knowledge_base_versions] == ["kb-1", "kb-2", "kb-3"]
+    assert len(_build(pins=pins).record["pins"]["knowledge_base_versions"]) == 3
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "latest.",
+        "v-latest",
+        "wfv:latest",
+        "wfv/latest",
+        "wfv@latest!",
+        "wfv-?",
+        "1.x",
+        "^1.0",
+        ">=1",
+        "~1.2",
+        "main",
+        "nightly",
+        "HEAD~1",
+        "${LATEST}",
+        "alias:current",
+        "l\u0430test",  # not caught by folding (a Cyrillic a): the segment is not a floating word, see below
+        "\uff2c\uff21\uff34\uff25\uff33\uff34",  # fullwidth LATEST folds to latest
+        "\uff4c\uff41\uff54\uff45\uff53\uff54",
+    ],
+)
+def test_floating_selectors_are_recognised_after_unicode_folding(value: str) -> None:
+    if value == "l\u0430test":
+        _pins(
+            workflow_version=value
+        )  # a homoglyph is a different word: resolution is the caller's duty
+        return
+    with pytest.raises(ManifestError) as caught:
+        _pins(workflow_version=value)
+    assert caught.value.code == "unresolved_pin", value
+
+
+@pytest.mark.parametrize(
+    "version",
+    [
+        "v-latest",
+        "wfv:latest",
+        "latest.",
+        "1.x",
+        ">=1",
+        "\uff4c\uff41\uff54\uff45\uff53\uff54",
+        "main",
+    ],
+)
+def test_a_floating_version_of_a_named_prompt_is_refused_but_a_floating_looking_name_is_not(
+    version: str,
+) -> None:
+    with pytest.raises(ManifestError) as caught:
+        _pins(prompt_versions=[f"support@{version}"])
+    assert caught.value.code == "unresolved_pin"
+    assert _pins(prompt_versions=["production-support@4", "latest-news@2"]).prompt_versions == (
+        "latest-news@2",
+        "production-support@4",
+    )
+
+
+def test_a_pin_has_exactly_one_at_sign_and_model_routes_are_checked_too() -> None:
+    for bad in ("a@b@1", "a@@1", "@1", "a@"):
+        with pytest.raises(ManifestError):
+            _pins(tool_versions=[bad])
+    for route in ("gpt-4o-latest", "openai/latest", "default"):
+        with pytest.raises(ManifestError):
+            _pins(model_routes=[route])
+    assert _pins(model_routes=["openai/gpt-4o-2024-08-06"]).model_routes
+
+
+def test_text_must_be_nfc_and_free_of_line_separators_and_str_subclasses() -> None:
+    _refused("bad_field", purpose="cafe\u0301")  # NFD
+    _refused("bad_field", purpose="line\u2028separator")
+    _refused("bad_field", purpose="para\u2029graph")
+
+    class Loud(str):
+        pass
+
+    _refused("bad_field", purpose=Loud("why"))
+    assert (
+        _build(purpose="caf\u00e9 \u2713").manifest_bytes.decode("utf-8").count("caf\u00e9") == 1
+    ), "non-ASCII is written as UTF-8, not as an escape"
+
+
+def test_lists_and_ids_are_bounded() -> None:
+    with pytest.raises(ManifestError):
+        _pins(prompt_versions=[f"p{i}@1" for i in range(257)])
+    with pytest.raises(ManifestError):
+        _pins(model_routes=[f"r{i}" for i in range(257)])
+    with pytest.raises(ManifestError):
+        _pins(knowledge_base_versions=[KnowledgeBasePin(f"kb-{i}", "v1") for i in range(257)])
+    _refused("bad_field", manifest_id="m" * 65)
+    _refused("bad_field", workflow_run_id="r" * 65)
+    assert _build(manifest_id="m" * 64, workflow_run_id="r" * 64)
+
+
+def test_digests_must_match_in_full() -> None:
+    for bad in ("a" * 65, "a" * 64 + "\n", "a" * 63 + "G"):
+        with pytest.raises(ManifestError):
+            _pins(bundle_digest=bad)
+
+
+def test_the_scope_is_enforced_not_just_conventional() -> None:
+    for scope in (
+        DeploymentScope("evil-org", "proj-1", "local", "local"),
+        DeploymentScope("local", "proj-1", "mars", "local"),
+        DeploymentScope("local", "proj-1", "local", "mars"),
+    ):
+        _refused("bad_scope", scope=scope)
+
+
+def test_a_rule_bundle_snapshot_cannot_be_forged_or_relative(tmp_path: Path) -> None:
+    real = pin_rule_bundle(RULE_BUNDLE, RULE_BUNDLE_SHA)
+    assert Path(real.path).is_absolute()
+    with pytest.raises(ManifestError):
+        PinnedRuleBundle("rules.yaml", real.bundle)
+    forged = dataclasses.replace(real.bundle, sha256="zzzz")
+    with pytest.raises(ManifestError):
+        PinnedRuleBundle(real.path, forged)
+    link = tmp_path / "link.yaml"
+    link.symlink_to(RULE_BUNDLE)
+    assert pin_rule_bundle(link, RULE_BUNDLE_SHA).path == str(RULE_BUNDLE.resolve()), (
+        "symlinks are resolved"
+    )
+
+
+@pytest.mark.parametrize("path", ["a\x00b", 5, None, b"/x", ""])
+def test_a_rule_bundle_path_that_is_not_a_path_is_a_refusal(path: Any) -> None:
+    with pytest.raises(ManifestError) as caught:
+        pin_rule_bundle(path, RULE_BUNDLE_SHA)
+    assert caught.value.code == "rule_bundle_refused"
+
+
+def test_a_digest_that_is_not_a_string_is_a_refusal() -> None:
+    with pytest.raises(ManifestError) as caught:
+        pin_rule_bundle(RULE_BUNDLE, None)  # type: ignore[arg-type]
+    assert caught.value.code == "rule_bundle_refused"
+
+
+def test_reading_refuses_what_it_cannot_store_or_digest() -> None:
+    built = _build()
+    record = built.record
+    cases = {
+        "deep": b"[" * 100000 + b"]" * 100000,
+        "deep_object": b'{"a":' * 100000 + b"1" + b"}" * 100000,
+        "bom": b"\xef\xbb\xbf" + built.manifest_bytes,
+        "utf16": built.manifest_bytes.decode().encode("utf-16"),
+        "huge": b" " * ((1 << 20) + 1) + built.manifest_bytes,
+        "surrogate": json.dumps({**record, "purpose": "\ud800"}).encode(),
+        "duplicate": built.manifest_bytes.replace(
+            b'"legacy":false', b'"legacy":false,"legacy":false'
+        ),
+        "nan": built.manifest_bytes.replace(b'"legacy":false', b'"legacy":NaN'),
+    }
+    for name, raw in cases.items():
+        with pytest.raises(ManifestError) as caught:
+            read_manifest(raw)
+        assert caught.value.code == "invalid_manifest", name
+
+
+def test_a_manifest_that_disagrees_with_itself_cannot_be_constructed() -> None:
+    built = _build()
+    for args in (
+        (built.manifest_bytes, "0" * 64),
+        (built.manifest_bytes, 5),
+        ("text", built.manifest_digest),
+        (b"garbage", digest_of(b"garbage")),
+        (b"{}", digest_of(b"{}")),
+    ):
+        with pytest.raises(ManifestError):
+            BuiltManifest(*args)  # type: ignore[arg-type]
+    assert BuiltManifest(built.manifest_bytes, built.manifest_digest) == built
+
+
+def test_the_row_carries_the_records_own_creation_time() -> None:
+    built = _build(
+        created_at=datetime(2026, 10, 26, 11, 0, 0, 5, tzinfo=timezone(timedelta(hours=2)))
+    )
+    assert built.row_values()["created_at"] == datetime(2026, 10, 26, 9, 0, 0, 5)
+
+
+def test_an_unrepresentable_timestamp_is_a_refusal_not_an_overflow() -> None:
+    _refused("bad_field", created_at=datetime(1, 1, 1, tzinfo=timezone(timedelta(hours=2))))
+    _refused(
+        "bad_field", created_at=datetime(9999, 12, 31, 23, tzinfo=timezone(timedelta(hours=-2)))
+    )

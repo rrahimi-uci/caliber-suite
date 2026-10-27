@@ -38,7 +38,7 @@ import uuid
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from pathlib import Path
+from pathlib import Path, PurePath
 from typing import Any, Final
 
 from caliber.context.rule_bundle import RuleBundle, RuleBundleError, load_rule_bundle
@@ -81,12 +81,35 @@ FIXED_TENANT_ID: Final = "local"
 FIXED_REGION: Final = "local"
 FIXED_RESIDENCY: Final = "local"
 
-#: Values that name a moving target rather than a version. ``name@<one of these>`` is refused too.
+#: Words that name a moving target rather than a version. A pin (or the version part of ``name@version``) is refused
+#: when any alphanumeric segment of it, after Unicode folding, is one of these: ``latest``, ``v-latest``,
+#: ``wfv:latest``, ``gpt-4o-latest``. The list is what the builder can *recognise*; that a value really is a resolved
+#: version is the caller's duty (the builder never sees the database).
 FLOATING: Final = frozenset(
-    {"latest", "current", "head", "default", "stable", "newest", "newer", "any", "auto", "none"}
+    {
+        "latest",
+        "current",
+        "head",
+        "default",
+        "stable",
+        "newest",
+        "newer",
+        "any",
+        "auto",
+        "none",
+        "main",
+        "master",
+        "trunk",
+        "nightly",
+    }
 )
 _DIGEST = re.compile(r"[0-9a-f]{64}")
+_SEGMENTS = re.compile(r"[^a-z0-9]+")
+_RANGE_CHARS = frozenset("*?^~<>=|!$`{}[]")
 _MAX_TEXT = 512
+_MAX_ID = 64  # the width of the manifest and run id columns
+_MAX_ITEMS = 256  # per list: a run pins a handful of prompts and tools, not thousands
+_MAX_MANIFEST_BYTES = 1 << 20
 
 
 class ManifestError(ValueError):
@@ -101,14 +124,16 @@ class ManifestError(ValueError):
         super().__init__(message)
 
 
-def _text(code: str, name: str, value: object) -> str:
-    """A clean identifier: exactly ``str``, non-empty, bounded, no surrounding whitespace, no control/format char."""
+def _text(code: str, name: str, value: object, *, limit: int = _MAX_TEXT) -> str:
+    """A clean identifier: exactly ``str``, non-empty, bounded, NFC, no surrounding whitespace, no control char."""
     if type(value) is not str or not value:
         raise ManifestError(code, f"{name} must be a non-empty string")
-    if value != value.strip() or len(value) > _MAX_TEXT:
+    if value != value.strip() or len(value) > limit:
         raise ManifestError(
-            code, f"{name} must have no surrounding whitespace and at most {_MAX_TEXT} characters"
+            code, f"{name} must have no surrounding whitespace and at most {limit} characters"
         )
+    if unicodedata.normalize("NFC", value) != value:
+        raise ManifestError(code, f"{name} must be in Unicode normal form NFC")
     if any(
         unicodedata.category(ch)[0] == "C" or unicodedata.category(ch) in {"Zl", "Zp"}
         for ch in value
@@ -120,12 +145,13 @@ def _text(code: str, name: str, value: object) -> str:
 
 
 def _floating(value: str) -> bool:
-    lowered = value.lower()
-    return (
-        lowered in FLOATING
-        or "*" in value
-        or any(lowered.endswith(f"@{token}") for token in FLOATING)
-    )
+    """Whether ``value`` names a moving target: a floating word as a segment (after NFKC folding, so fullwidth
+    and compatibility forms count), a range or wildcard character, or a wildcard version segment such as ``1.x``."""
+    folded = unicodedata.normalize("NFKC", value).casefold()
+    if any(ch in _RANGE_CHARS for ch in folded):
+        return True
+    segments = [seg for seg in _SEGMENTS.split(folded) if seg]
+    return any(seg in FLOATING or seg == "x" for seg in segments)
 
 
 def _pin(name: str, value: object) -> str:
@@ -150,20 +176,38 @@ def _digest(name: str, value: object) -> str:
 def _pin_list(name: str, values: object) -> tuple[str, ...]:
     if isinstance(values, str) or not isinstance(values, Iterable):
         raise ManifestError(BAD_PIN, f"{name} must be a list of resolved references")
-    pins = [_pin(f"{name} entry", v) for v in values]
+    items = list(values)
+    if len(items) > _MAX_ITEMS:
+        raise ManifestError(BAD_PIN, f"{name} lists more than {_MAX_ITEMS} references")
+    pins = [_pin(f"{name} entry", v) for v in items]
     if len(set(pins)) != len(pins):
         raise ManifestError(DUPLICATE_PIN, f"{name} names the same reference twice")
     return tuple(sorted(pins))
 
 
 def _versioned_list(name: str, values: object) -> tuple[str, ...]:
-    """Prompt, tool and skill pins are ``<name>@<version>``: the version is part of what was resolved."""
-    pins = _pin_list(name, values)
-    for pin in pins:
-        head, sep, version = pin.rpartition("@")
-        if not sep or not head or not version:
-            raise ManifestError(UNRESOLVED_PIN, f"{name} entry {pin!r} must be <name>@<version>")
-    return pins
+    """Prompt, tool and skill pins are ``<name>@<version>`` (exactly one ``@``): the version is part of what was
+    resolved, and only the version is checked for floating words (a prompt may be *named* ``production-support``)."""
+    if isinstance(values, str) or not isinstance(values, Iterable):
+        raise ManifestError(BAD_PIN, f"{name} must be a list of resolved references")
+    items = list(values)
+    if len(items) > _MAX_ITEMS:
+        raise ManifestError(BAD_PIN, f"{name} lists more than {_MAX_ITEMS} references")
+    pins: list[str] = []
+    for item in items:
+        text = _text(UNRESOLVED_PIN if item in (None, "") else BAD_PIN, f"{name} entry", item)
+        head, sep, version = text.partition("@")
+        if not sep or not head or not version or "@" in version:
+            raise ManifestError(UNRESOLVED_PIN, f"{name} entry {text!r} must be <name>@<version>")
+        if _floating(version):
+            raise ManifestError(
+                UNRESOLVED_PIN,
+                f"{name} entry {text!r} names a floating version; pin the version it resolved to",
+            )
+        pins.append(text)
+    if len(set(pins)) != len(pins):
+        raise ManifestError(DUPLICATE_PIN, f"{name} names the same reference twice")
+    return tuple(sorted(pins))
 
 
 @dataclass(frozen=True)
@@ -212,6 +256,11 @@ class ResolvedPins:
         if isinstance(kbs, str) or not isinstance(kbs, Iterable):
             raise ManifestError(
                 BAD_PIN, "knowledge_base_versions must be a list of KnowledgeBasePin"
+            )
+        kbs = tuple(kbs)  # a generator is consumed once: take it here, before anything looks at it
+        if len(kbs) > _MAX_ITEMS:
+            raise ManifestError(
+                BAD_PIN, f"knowledge_base_versions lists more than {_MAX_ITEMS} entries"
             )
         if not all(isinstance(kb, KnowledgeBasePin) for kb in kbs):
             raise ManifestError(
@@ -265,29 +314,46 @@ class DeploymentScope:
 
 @dataclass(frozen=True)
 class PinnedRuleBundle:
-    """A rule bundle whose exact bytes were verified against the digest the operator pinned, and where it came from."""
+    """A rule bundle whose exact bytes were verified against the digest the operator pinned, and where it came from.
+
+    Make one per admission with :func:`pin_rule_bundle`: it is a snapshot, and one held for long records the digest of
+    the bytes as they were then, not of the file as it is now. ``path`` is absolute so a later re-verification
+    does not depend on the working directory.
+    """
 
     path: str
     bundle: RuleBundle
 
     def __post_init__(self) -> None:
         _text(BAD_FIELD, "rule bundle path", self.path)
+        if not PurePath(self.path).is_absolute():
+            raise ManifestError(BAD_FIELD, "the rule bundle path must be absolute")
         if not isinstance(self.bundle, RuleBundle):
             raise ManifestError(BAD_FIELD, "bundle must be a verified RuleBundle")
+        if type(self.bundle.sha256) is not str or not _DIGEST.fullmatch(self.bundle.sha256):
+            raise ManifestError(BAD_FIELD, "the bundle's digest must be a full lowercase SHA-256")
 
 
 def pin_rule_bundle(path: str | Path, expected_sha256: str) -> PinnedRuleBundle:
-    """Load and verify the configured rule bundle (#726) before any pin is final: missing, oversized, changed or
-    malformed bytes refuse admission (``rule_bundle_refused``, with the loader's own code in the message)."""
+    """Load and verify the configured rule bundle (#726) before any pin is final: missing, oversized, changed,
+    malformed or unreadable bytes, and a path that is not a path, refuse admission (``rule_bundle_refused``, with
+    the loader's own code in the message). The recorded path is resolved to an absolute one."""
+    if not isinstance(path, (str, Path)) or not str(path):
+        raise ManifestError(RULE_BUNDLE_REFUSED, "the rule bundle path must be a non-empty path")
     try:
-        bundle = load_rule_bundle(path, expected_sha256)
+        resolved = Path(path).resolve()
+        bundle = load_rule_bundle(resolved, expected_sha256)
     except RuleBundleError as exc:
         raise ManifestError(RULE_BUNDLE_REFUSED, f"rule bundle refused: {exc}") from exc
-    except OSError as exc:
+    except (
+        OSError,
+        ValueError,
+        TypeError,
+    ) as exc:  # an unreadable file, an embedded NUL, a bad digest type
         raise ManifestError(
             RULE_BUNDLE_REFUSED, f"rule bundle could not be read: {type(exc).__name__}"
         ) from exc
-    return PinnedRuleBundle(path=str(path), bundle=bundle)
+    return PinnedRuleBundle(path=str(resolved), bundle=bundle)
 
 
 @dataclass(frozen=True)
@@ -300,6 +366,11 @@ class BuiltManifest:
 
     manifest_bytes: bytes
     manifest_digest: str
+
+    def __post_init__(self) -> None:
+        read_manifest(
+            self.manifest_bytes, self.manifest_digest
+        )  # bytes, digest and schema must agree
 
     @property
     def record(self) -> dict[str, Any]:
@@ -315,13 +386,15 @@ class BuiltManifest:
         return str(self.record["workflow_run_id"])
 
     def row_values(self) -> dict[str, Any]:
-        """The columns of ``caliber_run_manifests`` this manifest fills (``created_at`` is the record's own)."""
+        """The columns of ``caliber_run_manifests`` this manifest fills; ``created_at`` is the record's own time."""
+        created = datetime.fromisoformat(str(self.record["created_at"]).replace("Z", "+00:00"))
         return {
             "manifest_id": self.manifest_id,
             "workflow_run_id": self.workflow_run_id,
             "schema_version": SCHEMA_VERSION,
             "manifest_bytes": self.manifest_bytes,
             "manifest_digest": self.manifest_digest,
+            "created_at": created.astimezone(timezone.utc).replace(tzinfo=None),
         }
 
 
@@ -345,7 +418,11 @@ def digest_of(data: bytes) -> str:
 def _timestamp(value: object) -> str:
     if not isinstance(value, datetime) or value.tzinfo is None or value.utcoffset() is None:
         raise ManifestError(BAD_FIELD, "created_at must be a timezone-aware datetime")
-    return value.astimezone(timezone.utc).isoformat(timespec="microseconds").replace("+00:00", "Z")
+    try:
+        utc = value.astimezone(timezone.utc)
+    except OverflowError as exc:
+        raise ManifestError(BAD_FIELD, "created_at is outside the representable range") from exc
+    return utc.isoformat(timespec="microseconds").replace("+00:00", "Z")
 
 
 def build_run_manifest(
@@ -377,6 +454,12 @@ def build_run_manifest(
         )
     if not isinstance(scope, DeploymentScope):
         raise ManifestError(BAD_SCOPE, "scope must be a DeploymentScope")
+    if scope != DeploymentScope.fixed(scope.project_id):
+        raise ManifestError(
+            BAD_SCOPE,
+            f"this deployment is fixed to organization {FIXED_TENANT_ID!r}, region {FIXED_REGION!r} "
+            f"and residency {FIXED_RESIDENCY!r}; the scope names others",
+        )
     if requested_tenant_id is not None and requested_tenant_id != scope.tenant_id:
         raise ManifestError(
             ORGANIZATION_SWITCH,
@@ -400,8 +483,8 @@ def build_run_manifest(
 
     record: dict[str, Any] = {
         "schema_version": SCHEMA_VERSION,
-        "manifest_id": _text(BAD_FIELD, "manifest_id", manifest_id),
-        "workflow_run_id": _text(BAD_FIELD, "workflow_run_id", workflow_run_id),
+        "manifest_id": _text(BAD_FIELD, "manifest_id", manifest_id, limit=_MAX_ID),
+        "workflow_run_id": _text(BAD_FIELD, "workflow_run_id", workflow_run_id, limit=_MAX_ID),
         "tenant_id": scope.tenant_id,
         "region": scope.region,
         "residency": scope.residency,
@@ -434,22 +517,29 @@ def read_manifest(manifest_bytes: bytes, manifest_digest: str | None = None) -> 
     """Read a stored manifest back: check the digest when given, parse the bytes and validate against ADR 0003.
 
     Accepts any record the v1 schema accepts, including those written before the builder was strict (the
-    ``valid_*`` contract fixtures). Raises :class:`ManifestError` ``invalid_manifest`` for anything else.
+    ``valid_*`` contract fixtures), pretty-printed or not. The bytes must be UTF-8 without a byte-order mark, at most
+    1 MiB, with no duplicate key, ``NaN`` or lone surrogate. Raises :class:`ManifestError` ``invalid_manifest`` for
+    anything else, and nothing else.
     """
     if type(manifest_bytes) is not bytes or not manifest_bytes:
         raise ManifestError(INVALID_MANIFEST, "there are no manifest bytes to read")
+    if len(manifest_bytes) > _MAX_MANIFEST_BYTES:
+        raise ManifestError(INVALID_MANIFEST, "the manifest is larger than 1 MiB")
     if manifest_digest is not None and digest_of(manifest_bytes) != manifest_digest:
         raise ManifestError(INVALID_MANIFEST, "the manifest bytes do not match their digest")
     try:
         record = json.loads(
-            manifest_bytes, object_pairs_hook=_no_duplicates, parse_constant=_no_constants
+            manifest_bytes.decode("utf-8"),
+            object_pairs_hook=_no_duplicates,
+            parse_constant=_no_constants,
         )
-    except (ValueError, UnicodeDecodeError) as exc:
-        raise ManifestError(INVALID_MANIFEST, f"the manifest is not valid JSON: {exc}") from exc
-    try:
         validate_record(KIND, record)
-    except (ContractValidationError, ValueError) as exc:
-        raise ManifestError(INVALID_MANIFEST, str(exc)) from exc
+        canonical_bytes(record)  # a lone surrogate parses, but can be neither stored nor digested
+    except (
+        ValueError,  # includes JSON, Unicode and contract errors
+        RecursionError,
+    ) as exc:
+        raise ManifestError(INVALID_MANIFEST, f"the manifest is not valid: {exc}") from exc
     if not isinstance(record, dict):  # unreachable: validate_record refuses anything but an object
         raise ManifestError(INVALID_MANIFEST, "the manifest must be an object")  # pragma: no cover
     return record
