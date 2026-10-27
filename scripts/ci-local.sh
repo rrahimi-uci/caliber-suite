@@ -271,6 +271,8 @@ job_migration_parity_postgres() {
         tests/test_policy_decisions.py \
         tests/test_execution_owner.py \
         tests/test_trace_experiment_ownership.py \
+        tests/test_event_outbox.py \
+        tests/test_context_sources.py \
         -k postgresql --no-cov -q
     status=$?
   fi

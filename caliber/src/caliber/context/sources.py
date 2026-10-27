@@ -10,9 +10,14 @@ B07.2; this module is the inventory they read). The rules:
   base. Anything else (an unknown id, another project's knowledge base, a version of a different knowledge base) is the
   same :class:`SourceError`, with one message that names no identifier, so a foreign id cannot be probed.
 * **Idempotent and race-safe.** Approving an approved source returns the existing row; two concurrent approvals
-  create one (the unique key decides). Approving a revoked source reactivates the row (new approver and time).
+  create one (the unique key decides). Approving a revoked source reactivates the row (new approver and time). The
+  row is read fresh and locked (``FOR UPDATE``, PostgreSQL) before a change, so two concurrent revocations or
+  reactivations change it once and audit once, never overwriting who revoked it.
 * **Revoking keeps the row** (``revoked_at``, ``revoked_by``) as evidence; revoking a source that is not approved is
   :data:`NOT_APPROVED`. Both changes write an audit row; none of this commits (the caller owns the transaction).
+* **Only a completed build of a live knowledge base** can be approved (the same ``completed`` rule that gates
+  activating a version), and an approval whose version or knowledge base has since been deleted no longer counts:
+  :func:`is_approved` and :func:`approved_sources` join the version, so the inventory fails closed.
 * **No authorization here.** Who may approve is the caller's decision (a project editor or owner through a route);
   this module records the act and checks the source is real.
 """
@@ -21,7 +26,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime, timezone
-from typing import Final
+from typing import Any, Final
 
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
@@ -69,15 +74,24 @@ def new_source_id() -> str:
 
 
 def _find(
-    session: Session, project_id: str, knowledge_base_id: str, version_id: str
+    session: Session,
+    project_id: str,
+    knowledge_base_id: str,
+    version_id: str,
 ) -> CaliberApprovedContextSource | None:
-    return session.execute(
-        select(CaliberApprovedContextSource).where(
+    """The row, read from the database (never the session's identity map: a revocation committed elsewhere must
+    be seen) and locked for the caller's transaction, so concurrent changes take turns."""
+    statement = (
+        select(CaliberApprovedContextSource)
+        .where(
             CaliberApprovedContextSource.project_id == project_id,
             CaliberApprovedContextSource.knowledge_base_id == knowledge_base_id,
             CaliberApprovedContextSource.version_id == version_id,
         )
-    ).scalar_one_or_none()
+        .execution_options(populate_existing=True)
+        .with_for_update()
+    )
+    return session.execute(statement).scalar_one_or_none()
 
 
 def _require_real_source(
@@ -94,6 +108,8 @@ def _require_real_source(
             CaliberKnowledgeBaseVersion.knowledge_base_version_id == version_id,
             CaliberKnowledgeBaseVersion.knowledge_base_id == knowledge_base_id,
             CaliberKnowledgeBase.project_id == project_id,
+            CaliberKnowledgeBaseVersion.status == "completed",
+            CaliberKnowledgeBase.status != "archived",
         )
     ).first()
     if found is None:
@@ -127,16 +143,13 @@ def approve_source(
         try:
             with session.begin_nested():
                 session.add(row)
-        except IntegrityError:  # a concurrent approval created it between the read and the insert
-            row = session.execute(
-                select(CaliberApprovedContextSource)
-                .where(
-                    CaliberApprovedContextSource.project_id == project,
-                    CaliberApprovedContextSource.knowledge_base_id == kb,
-                    CaliberApprovedContextSource.version_id == version,
-                )
-                .execution_options(populate_existing=True)
-            ).scalar_one()
+        except (
+            IntegrityError
+        ) as exc:  # a concurrent approval created it between the read and the insert
+            existing = _find(session, project, kb, version)
+            if existing is None:  # not the unique key: the project vanished, say so without detail
+                raise SourceError(SOURCE_NOT_FOUND, "no such source in this project") from exc
+            row = existing
         else:
             _audit(session, who, "approve_context_source", row)
             return row
@@ -169,22 +182,43 @@ def revoke_source(
     return row
 
 
+def _live(statement: Any) -> Any:
+    """Restrict to approvals whose version and knowledge base still exist (a deleted source no longer counts)."""
+    return statement.join(
+        CaliberKnowledgeBaseVersion,
+        CaliberKnowledgeBaseVersion.knowledge_base_version_id
+        == CaliberApprovedContextSource.version_id,
+    ).where(
+        CaliberKnowledgeBaseVersion.knowledge_base_id
+        == CaliberApprovedContextSource.knowledge_base_id
+    )
+
+
 def is_approved(session: Session, project_id: str, knowledge_base_id: str, version_id: str) -> bool:
-    """Whether the version is approved for the project right now (``False`` once revoked, and for anything unknown)."""
-    row = _find(session, project_id, knowledge_base_id, version_id)
-    return row is not None and row.revoked_at is None
+    """Whether the version is approved for the project right now: ``False`` once revoked, for anything never
+    approved, and for an approval whose version or knowledge base has since been deleted."""
+    found = session.execute(
+        _live(select(CaliberApprovedContextSource.id)).where(
+            CaliberApprovedContextSource.project_id == project_id,
+            CaliberApprovedContextSource.knowledge_base_id == knowledge_base_id,
+            CaliberApprovedContextSource.version_id == version_id,
+            CaliberApprovedContextSource.revoked_at.is_(None),
+        )
+    ).first()
+    return found is not None
 
 
 def approved_sources(session: Session, project_id: str) -> list[CaliberApprovedContextSource]:
-    """The project's currently approved sources, oldest approval first."""
+    """The project's currently approved, still existing sources, oldest approval first."""
     return list(
         session.execute(
-            select(CaliberApprovedContextSource)
+            _live(select(CaliberApprovedContextSource))
             .where(
                 CaliberApprovedContextSource.project_id == project_id,
                 CaliberApprovedContextSource.revoked_at.is_(None),
             )
             .order_by(CaliberApprovedContextSource.approved_at, CaliberApprovedContextSource.id)
+            .execution_options(populate_existing=True)
         ).scalars()
     )
 

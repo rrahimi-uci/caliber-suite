@@ -90,7 +90,7 @@ def _seed(factory: sessionmaker[Session]) -> None:
                         knowledge_base_version_id=f"{kb}-V{number}",
                         knowledge_base_id=kb,
                         version_number=number,
-                        status="ready",
+                        status="completed",
                         chunking_strategy="fixed",
                         embedding_model="m",
                         output_bucket="b",
@@ -301,11 +301,11 @@ def test_losing_the_insert_race_returns_the_winner(
             real = sources._find
             state = {"first": True}
 
-            def stale(*args: Any) -> Any:
+            def stale(*args: Any, **kwargs: Any) -> Any:
                 if state["first"]:
                     state["first"] = False
                     return None  # the read happened before the other transaction committed
-                return real(*args)
+                return real(*args, **kwargs)
 
             monkeypatch.setattr(sources, "_find", stale)
             lost = approve_source(session, "P-A", "KB-A", "KB-A-V1", "@loser")
@@ -354,3 +354,136 @@ def test_the_migration_rolls_back_cleanly(
         assert "caliber_approved_context_sources" not in inspect(engine).get_table_names()
         command.upgrade(Config(str(ALEMBIC_INI)), "head")
         assert "caliber_approved_context_sources" in inspect(engine).get_table_names()
+
+
+@pytest.mark.parametrize("dialect", DIALECTS)
+def test_a_revocation_committed_elsewhere_is_seen_by_a_session_that_holds_the_row(
+    dialect: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The app's sessions do not expire on commit: reads must come from the database, not the identity map."""
+    with _database(dialect, tmp_path, monkeypatch) as (_, factory):
+        _seed(factory)
+        with factory() as holder:
+            approve_source(holder, "P-A", "KB-A", "KB-A-V1", "@editor")
+            holder.commit()
+            with factory() as other:
+                revoke_source(other, "P-A", "KB-A", "KB-A-V1", "@owner")
+                other.commit()
+            assert is_approved(holder, "P-A", "KB-A", "KB-A-V1") is False
+            assert approved_sources(holder, "P-A") == []
+            back = approve_source(holder, "P-A", "KB-A", "KB-A-V1", "@editor")
+            holder.commit()
+            assert back.revoked_at is None, "the approval is real, not a no-op on a stale copy"
+        with factory() as check:
+            assert is_approved(check, "P-A", "KB-A", "KB-A-V1") is True
+
+
+def test_concurrent_revocations_on_postgresql_change_the_row_once(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    if not os.environ.get("CALIBER_TEST_POSTGRES_URL"):
+        pytest.skip("CALIBER_TEST_POSTGRES_URL is not set")
+    with _database("postgresql", tmp_path, monkeypatch) as (_, factory):
+        _seed(factory)
+        with factory() as session:
+            approve_source(session, "P-A", "KB-A", "KB-A-V1", "@editor")
+            session.commit()
+        barrier = threading.Barrier(4)
+        outcomes: list[str] = []
+        lock = threading.Lock()
+
+        def revoke(who: str) -> None:
+            with factory() as session:
+                barrier.wait(10)
+                try:
+                    revoke_source(session, "P-A", "KB-A", "KB-A-V1", who)
+                    session.commit()
+                    result = "revoked"
+                except SourceError as exc:
+                    session.rollback()
+                    result = exc.code
+            with lock:
+                outcomes.append(result)
+
+        threads = [threading.Thread(target=revoke, args=(f"@r{n}",), daemon=True) for n in range(4)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join(30)
+        assert sorted(outcomes) == ["not_approved"] * 3 + ["revoked"], outcomes
+        with factory() as session:
+            audits = session.execute(
+                select(func.count())
+                .select_from(CaliberAuditLog)
+                .where(CaliberAuditLog.action == "revoke_context_source")
+            ).scalar_one()
+            row = session.execute(select(CaliberApprovedContextSource)).scalar_one()
+        assert audits == 1 and row.revoked_by in {"@r0", "@r1", "@r2", "@r3"}
+
+
+@pytest.mark.parametrize("dialect", DIALECTS)
+def test_only_a_completed_build_of_a_live_knowledge_base_can_be_approved_and_deleted_sources_stop_counting(
+    dialect: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    with _database(dialect, tmp_path, monkeypatch) as (_, factory):
+        _seed(factory)
+        with factory() as session:
+            version = session.get(CaliberKnowledgeBaseVersion, "KB-A-V2")
+            assert version is not None
+            for status in ("queued", "processing", "failed"):
+                version.status = status
+                session.flush()
+                with pytest.raises(SourceError) as refused:
+                    approve_source(session, "P-A", "KB-A", "KB-A-V2", "@editor")
+                assert refused.value.code == SOURCE_NOT_FOUND, status
+            version.status = "completed"
+            kb = session.get(CaliberKnowledgeBase, "KB-A")
+            assert kb is not None
+            kb.status = "archived"
+            session.flush()
+            with pytest.raises(SourceError):
+                approve_source(session, "P-A", "KB-A", "KB-A-V2", "@editor")
+            kb.status = "active"
+            session.flush()
+            approve_source(session, "P-A", "KB-A", "KB-A-V1", "@editor")
+            session.commit()
+            assert is_approved(session, "P-A", "KB-A", "KB-A-V1")
+            session.delete(session.get(CaliberKnowledgeBaseVersion, "KB-A-V1"))
+            session.commit()
+            assert is_approved(session, "P-A", "KB-A", "KB-A-V1") is False, "the version is gone"
+            assert approved_sources(session, "P-A") == []
+            assert _count(factory) == 1, "the approval row remains as evidence"
+
+
+@pytest.mark.parametrize("dialect", DIALECTS)
+def test_an_approval_rolls_back_with_the_callers_transaction(
+    dialect: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    with _database(dialect, tmp_path, monkeypatch) as (_, factory):
+        _seed(factory)
+        with factory() as session:
+            approve_source(session, "P-A", "KB-A", "KB-A-V1", "@editor")
+            session.rollback()
+        assert _count(factory) == 0
+        with factory() as session:
+            assert (
+                session.execute(select(func.count()).select_from(CaliberAuditLog)).scalar_one() == 0
+            )
+
+
+@pytest.mark.parametrize("dialect", DIALECTS)
+def test_an_integrity_error_that_is_not_the_unique_key_is_a_refusal_not_a_crash(
+    dialect: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    with _database(dialect, tmp_path, monkeypatch) as (_, factory):
+        _seed(factory)
+        with factory() as session:
+            approve_source(session, "P-A", "KB-A", "KB-A-V1", "@editor")
+            session.commit()
+            monkeypatch.setattr(
+                sources, "_find", lambda *a, **k: None
+            )  # the read never sees the row
+            with pytest.raises(SourceError) as caught:
+                approve_source(session, "P-A", "KB-A", "KB-A-V1", "@editor")
+            assert caught.value.code == SOURCE_NOT_FOUND
+            session.rollback()
