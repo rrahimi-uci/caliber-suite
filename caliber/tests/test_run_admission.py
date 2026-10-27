@@ -1629,10 +1629,9 @@ def test_an_unapproved_knowledge_base_version_refuses_admission_in_the_reference
         lambda request: replace(base, approved_sources_required=True, lineage_required=False),
     )
     refused = _run(client, workflow_id, idempotency_key="src-1")
-    assert refused.status_code == 409, refused.text
-    assert (
-        "source_not_approved" in refused.json()["detail"] and "kb-1@V1" in refused.json()["detail"]
-    )
+    assert refused.status_code == 403, refused.text
+    assert refused.json()["reason_code"] == "source_not_approved"
+    assert "kb-1@V1" in refused.json()["detail"]
     assert _counts(db_session) == before, "a refused admission stores nothing"
 
     approve_source(db_session, PROJECT, "kb-1", "V1", "@editor")
@@ -1642,7 +1641,7 @@ def test_an_unapproved_knowledge_base_version_refuses_admission_in_the_reference
     revoke_source(db_session, PROJECT, "kb-1", "V1", "@owner")
     db_session.commit()
     again = _run(client, workflow_id, idempotency_key="src-3")
-    assert again.status_code == 409 and "kb-1@V1" in again.json()["detail"], (
+    assert again.status_code == 403 and "kb-1@V1" in again.json()["detail"], (
         "revocation applies at once"
     )
 
@@ -1657,3 +1656,31 @@ def test_settings_require_approved_sources_in_the_reference_profile_only() -> No
         SimpleNamespace(profile="development")
     ).approved_sources_required
     assert not AdmissionSettings(enabled=True).approved_sources_required
+
+
+def test_the_source_check_runs_after_the_caller_is_known_to_be_allowed_to_run_the_workflow(
+    client: TestClient, db_session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A caller who may not run the workflow is refused for that, and never learns what its project has approved."""
+    from caliber.db.models import CaliberWorkflow
+    from caliber.workflows.admission import AdmissionSettings as Settings
+
+    _enable(client)
+    workflow_id, version_id = _project_workflow(client, db_session)
+    _pin_a_knowledge_base(monkeypatch, db_session)
+    workflow, version = _db_pair(db_session, workflow_id, version_id)
+    assert isinstance(workflow, CaliberWorkflow)
+    stranger = _identity("@stranger")
+    with pytest.raises(AdmissionDenied) as caught:
+        admission.prepare_admission(
+            session=db_session,
+            settings=Settings(enabled=True, approved_sources_required=True),
+            workflow=workflow,
+            version=version,
+            identity=stranger,
+            source="api",
+            now=datetime.now(timezone.utc),
+            run_tenant_id="local",
+            intent=_intent(workflow_id=workflow_id),
+        )
+    assert caught.value.code == "grant_refused" and "kb-1" not in str(caught.value)

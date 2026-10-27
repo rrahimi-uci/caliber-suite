@@ -43,6 +43,7 @@ from caliber.routes._deps import (
     parse_json_object,
     scoped_child_or_404,
 )
+from caliber.routes._errors import CaliberHTTPException
 from caliber.schemas import (
     RuntimeApprovalAckSchema,
     WorkflowRunApprovalDecisionRequest,
@@ -63,6 +64,7 @@ from caliber.schemas import (
 from caliber.trace_client import fetch_trace_spans
 from caliber.workflows.admission import (
     OVERRIDE_NOT_ADMITTED,
+    SOURCE_NOT_APPROVED,
     AdmissionDenied,
     AdmissionSettings,
     admitted_manifest_metadata,
@@ -298,6 +300,9 @@ def _refuse_admission(session: Session, exc: AdmissionDenied) -> HTTPException:
     record_denial(
         session, exc
     )  # the decision's own rows went with the rollback; its audit row is written now
+    if exc.code == SOURCE_NOT_APPROVED:
+        # machine-readable (``reason_code`` in the standard error body), not only in the message
+        return CaliberHTTPException(exc.status, str(exc), reason_code=SOURCE_NOT_APPROVED)
     return HTTPException(status_code=exc.status, detail=str(exc))
 
 

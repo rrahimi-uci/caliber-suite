@@ -297,7 +297,7 @@ def test_a_run_over_an_unapproved_knowledge_base_is_refused_until_the_source_is_
             {**body, "idempotency_key": "src-1"},
         )
         if reference_app.profile == "reference":
-            assert refused.status_code == 409, refused.text
+            assert refused.status_code == 403, refused.text
             assert "source_not_approved" in refused.text and "KB-b02@KBV-b02" in refused.text
             with reference_app.session_factory() as session:
                 assert (
@@ -328,6 +328,6 @@ def test_a_run_over_an_unapproved_knowledge_base_is_refused_until_the_source_is_
                 "/workflow-runs",
                 {**body, "idempotency_key": "src-3"},
             )
-            assert again.status_code == 409, "a revoked source is refused at once"
+            assert again.status_code == 403, "a revoked source is refused at once"
         else:
             assert refused.status_code == 202, "development profile: sources need no approval"
