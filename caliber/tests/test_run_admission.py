@@ -1234,7 +1234,7 @@ def test_a_retry_must_be_the_request_that_created_the_run(db_session: Session) -
         assert caught.value.status == 409 and caught.value.code == "intent_conflict", change
 
     # A run admitted without a recorded intent is compared on the fields its own row keeps.
-    legacy = _existing(created_by="@test")
+    legacy = _existing(created_by="@test", manifest_legacy=True)
     check_retry_intent(db_session, legacy, _intent())
     for change in (
         {"workflow_id": "WF-2"},
