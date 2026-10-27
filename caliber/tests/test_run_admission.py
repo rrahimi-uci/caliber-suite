@@ -303,16 +303,16 @@ def test_the_request_digest_covers_the_purpose_and_the_scope() -> None:
     assert admission.request_digest_of(_intent(alias="manual")) != digest
 
 
-def test_a_retry_falls_back_when_the_manifest_has_no_digest_and_refuses_an_unreadable_one(
+def test_a_retry_refuses_an_admitted_run_it_cannot_compare_and_accepts_an_older_complete_intent(
     client: TestClient, db_session: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    # A run that claims a manifest but has none stored (or one written before the field) is compared on its summary.
-    run = _existing(
+    # An admitted run whose manifest is missing is corrupt, not "legacy": the check fails closed.
+    orphan = _existing(
         manifest_legacy=False, summary={"admission_intent": _intent()}, created_by="@test"
     )
-    check_retry_intent(db_session, run, _intent())
-    with pytest.raises(AdmissionDenied):
-        check_retry_intent(db_session, run, _intent(input_text="other"))
+    with pytest.raises(AdmissionDenied) as caught:
+        check_retry_intent(db_session, orphan, _intent())
+    assert caught.value.status == 500 and caught.value.code == "manifest_refused"
 
     _enable(client)
     workflow_id, _ = _project_workflow(client, db_session)
@@ -325,21 +325,36 @@ def test_a_retry_falls_back_when_the_manifest_has_no_digest_and_refuses_an_unrea
         raise admission.ManifestError("invalid_manifest", "the digest does not match")
 
     monkeypatch.setattr(admission, "read_manifest", unreadable)
-    with pytest.raises(AdmissionDenied) as caught:
+    with pytest.raises(AdmissionDenied) as unreadable_caught:
         check_retry_intent(db_session, admitted, _intent(workflow_id=workflow_id))
-    assert caught.value.status == 500 and caught.value.code == "manifest_refused"
+    assert (
+        unreadable_caught.value.status == 500 and unreadable_caught.value.code == "manifest_refused"
+    )
     monkeypatch.undo()
+
+    # A manifest written before the digest existed: the intent the run stored then (complete, without the later
+    # fields) is what the retry is compared with; an incomplete stored intent matches nothing.
     old = {
         k: v
         for k, v in read_manifest(bytes(original.manifest_bytes)).items()
         if k != "request_digest"
     }
     monkeypatch.setattr(admission, "read_manifest", lambda *a, **k: old)
+    now_intent = _intent(workflow_id=workflow_id)
+    first_keys = admission._FIRST_INTENT_KEYS
     admitted.summary = {
         **(admitted.summary or {}),
-        "admission_intent": {"workflow_id": workflow_id},
+        "admission_intent": {k: v for k, v in now_intent.items() if k in first_keys},
     }
-    check_retry_intent(db_session, admitted, _intent(workflow_id=workflow_id)), "an older manifest"
+    check_retry_intent(db_session, admitted, now_intent)
+    with pytest.raises(AdmissionDenied):
+        check_retry_intent(db_session, admitted, _intent(workflow_id=workflow_id, input_text="x"))
+    for incomplete in ({}, {"workflow_id": workflow_id}):
+        admitted.summary = {**(admitted.summary or {}), "admission_intent": incomplete}
+        with pytest.raises(AdmissionDenied) as refused:
+            check_retry_intent(db_session, admitted, now_intent)
+        assert refused.value.status == 409
+    db_session.rollback()
 
 
 def test_policy_denial_rolls_back_all(
@@ -493,6 +508,75 @@ def test_the_event_trigger_admits_and_refuses_like_the_create_route(
     refused = client.post(path, json={**body, "idempotency_key": "evt-2"})
     assert refused.status_code == 409, refused.text
     assert _counts(db_session) == before, "the refused event stored nothing"
+
+
+def test_a_trigger_retry_returns_the_original_after_its_implicit_target_moved(
+    client: TestClient, db_session: Session
+) -> None:
+    """The request named no alias; the trigger picked ``prod``. When ``prod`` later points at a version whose
+    trigger names another alias (and no deployment exists for it), the identical retry is still the same request."""
+    _enable(client)
+    workflow_id, version_id = _project_workflow(
+        client, db_session, trigger={"mode": "event", "event_name": "e", "alias": "prod"}
+    )
+    deploy_prod(client, workflow_id, version_id)
+    path = f"{PREFIX}/workflows/{workflow_id}/trigger"
+    body = {"event_name": "e", "input": "o-1", "idempotency_key": "evt-implicit"}
+    fired = client.post(path, json=body)
+    assert fired.status_code == 202, fired.text
+    run_id = fired.json()["data"]["workflow_run_id"]
+
+    moved = _manifest(workflow_id, "A new prompt.")
+    moved["nodes"]["start"]["trigger"] = {"mode": "event", "event_name": "e", "alias": "staging"}
+    second, _ = create_draft(client, workflow_id, moved)
+    assert client.post(f"{PREFIX}/workflow-versions/{second}/publish").status_code == 200
+    deploy_prod(client, workflow_id, second)
+
+    again = client.post(path, json=body)
+    assert again.status_code == 200 and again.json()["data"]["workflow_run_id"] == run_id
+    assert client.post(path, json={**body, "input": "o-2"}).status_code == 409
+    assert _counts(db_session)[CaliberRunManifest.__tablename__] == 1
+
+
+def test_a_retry_is_answered_before_the_target_is_resolved(
+    client: TestClient, db_session: Session
+) -> None:
+    from caliber.db.models import CaliberWorkflowDeployment
+
+    _enable(client)
+    workflow_id, version_id = _project_workflow(client, db_session)
+    deploy_prod(client, workflow_id, version_id)
+    first = _run(client, workflow_id, alias="prod", input="hello", idempotency_key="k-gone")
+    assert first.status_code == 202, first.text
+    run_id = first.json()["data"]["workflow_run_id"]
+
+    for deployment in db_session.execute(select(CaliberWorkflowDeployment)).scalars():
+        deployment.status = "inactive"  # the alias no longer resolves to anything
+    db_session.commit()
+    assert (
+        _run(client, workflow_id, alias="prod", input="x", idempotency_key="k-new").status_code
+        == 404
+    )
+    again = _run(client, workflow_id, alias="prod", input="hello", idempotency_key="k-gone")
+    assert again.status_code == 202 and again.json()["data"]["workflow_run_id"] == run_id
+    changed = _run(client, workflow_id, alias="prod", input="other", idempotency_key="k-gone")
+    assert changed.status_code == 409, changed.text
+
+
+def test_an_object_input_is_one_request_however_its_keys_are_ordered(
+    client: TestClient, db_session: Session
+) -> None:
+    _enable(client)
+    workflow_id, _ = _project_workflow(client, db_session)
+    first = _run(client, workflow_id, input={"a": 1, "b": 2}, idempotency_key="k-obj")
+    assert first.status_code == 202, first.text
+    run_id = first.json()["data"]["workflow_run_id"]
+    reordered = _run(client, workflow_id, input={"b": 2, "a": 1}, idempotency_key="k-obj")
+    assert reordered.status_code == 202 and reordered.json()["data"]["workflow_run_id"] == run_id
+    lookalike = _run(client, workflow_id, input="{'a': 1, 'b': 2}", idempotency_key="k-obj")
+    assert lookalike.status_code == 409, "a string that prints like the object is another request"
+    different = _run(client, workflow_id, input={"a": 1, "b": 3}, idempotency_key="k-obj")
+    assert different.status_code == 409
 
 
 def test_a_store_failure_or_a_lost_decision_stores_nothing_and_says_why(

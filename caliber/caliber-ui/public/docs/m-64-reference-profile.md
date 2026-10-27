@@ -283,13 +283,17 @@ synchronous real run (`POST /workflow-versions/{id}/run`) is never queued, so wi
 3. **Retries.** A request that reuses an idempotency key is authorized first, then returns the *original* run and
    manifest when it is the same request from the same caller (same workflow, release selector, explicit version
    selector, input, files, project, release/environment/model, priority and session) even if the alias has since
-   moved; any difference, including another caller, is a `409` (`intent_conflict`, one message for every
+   moved, been deactivated or now points at a version that fails a preflight, or the workflow is paused (the key is
+   looked up, after the caller is authorized, *before* the target is resolved); any difference, including another caller, is a `409` (`intent_conflict`, one message for every
    difference, so it is not an oracle). "The same request" is the canonical *intent*: the workflow, the selectors as
    named (never what they resolved to), the input, the purpose and the server-derived scope. Its SHA-256 is stored in
    the immutable manifest as `request_digest` and the retry is compared with that, not with anything on the mutable
    run row (the intent itself is also kept in the run's summary for diagnosis; a run admitted before the digest
-   existed is compared on that intent, a legacy run on the fields its own row keeps). A manifest that cannot be
-   read fails the retry closed (`500`, `manifest_refused`). The key's scope is (workflow, source, key), so the same
+   existed is compared on its stored intent when that is complete, and is a `409` when it is not; a legacy run is
+   compared on the fields its own row keeps). An input that is not text is compared as canonical JSON, so the key
+   order of an object does not matter and a string that prints like the object is a different request. A trigger
+   names its alias only if the caller did: the intent records what was asked, not the alias the trigger picked. An admitted run whose manifest is
+   missing or cannot be read fails the retry closed (`500`, `manifest_refused`). The key's scope is (workflow, source, key), so the same
    key from another source or in another project's workflow is a different request. A key that names a run created while
    admission was off returns that legacy run (it has no manifest). Two requests racing on one key admit exactly one
    run, and the loser gets the same answer a later retry would (PostgreSQL scenario).

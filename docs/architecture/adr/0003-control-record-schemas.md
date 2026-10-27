@@ -76,9 +76,11 @@ RunManifest: what a workflow run was pinned to and who started it.
 
 `project_id` (#676) and `request_digest` (#687) were added to `run_manifest` v1 in place. ADR 0003 requires readers to be upgraded before a writer
 emits a new optional field, and this schema is strict (`additionalProperties: false`), so a build that predates the
-field would reject a manifest carrying it. That rule holds here because no manifest writer existed before admission
-(#680, #684): the first writer and the reader that understands the field (`caliber.run_manifest.read_manifest`) ship
-together, and a deployment must not run an older build against manifests a newer one wrote.
+field would reject a manifest carrying it. The in-place change is acceptable because no
+tagged release (`caliber-v0.1.0a1` is the only one) contains `run_manifest`: the first writer (admission, #680) and its
+reader (`caliber.run_manifest.read_manifest`) exist only on the development line, so no supported deployment holds a
+manifest an older reader must understand. Once a release carries the schema, a new field needs the reader-first
+sequence above. Until then a deployment must not run an older development build against manifests a newer one wrote.
 
 ### proposal
 

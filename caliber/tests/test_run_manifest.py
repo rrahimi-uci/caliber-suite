@@ -1329,3 +1329,12 @@ def test_a_malformed_request_digest_is_refused(bad: str) -> None:
     with pytest.raises(ManifestError) as caught:
         _build(request_digest=bad)
     assert caught.value.code in {"bad_pin", "unresolved_pin"}
+
+
+def test_the_schema_does_not_accept_a_request_digest_with_a_trailing_newline() -> None:
+    from caliber.contracts import ContractValidationError, validate_record
+
+    record = read_manifest(_build().manifest_bytes)
+    validate_record("run_manifest", {**record, "request_digest": "a" * 64})
+    with pytest.raises(ContractValidationError):
+        validate_record("run_manifest", {**record, "request_digest": "a" * 64 + "\n"})

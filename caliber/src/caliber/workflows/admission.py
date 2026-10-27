@@ -488,17 +488,23 @@ def intent_of(
     priority: int = 0,
     session_id: str | None = None,
     source: str = "api",
+    input_json: str | None = None,
 ) -> dict[str, Any]:
     """The canonical intent of a request: what was *asked for* (selectors, input, who, why, where), never what the
     selectors resolve to now. ``source`` gives the purpose and the project the server-derived scope. Stored on the
-    run when it is admitted, its digest in the manifest, and compared on every retry of its key."""
+    run when it is admitted, its digest in the manifest, and compared on every retry of its key. ``input_json`` is the
+    canonical JSON of an input that was not text (so ``{"b": 2, "a": 1}`` and ``{"a": 1, "b": 2}`` are one request and
+    the string ``"{'a': 1}"`` is another)."""
     scope = DeploymentScope.fixed(project_id or None)
     return {
         "workflow_id": workflow_id,
         "release_selector": alias or "",
         "version_selector": version_selector or None,
         "actor": actor,
-        "input": input_text or "",
+        "input": ""
+        if input_json
+        else input_text or "",  # an object's text is its repr, which is order-dependent
+        "input_json": input_json or None,
         "input_files": [dict(item) for item in input_files or []],
         "project_id": project_id or None,
         "workspace_release_id": workspace_release_id or None,
@@ -522,16 +528,42 @@ def request_digest_of(intent: dict[str, Any]) -> str:
     return digest_of(canonical_bytes(intent))
 
 
+#: What an intent recorded before ``purpose``, ``scope`` and ``input_json`` existed carried; a stored intent that lacks
+#: any of these is not an intent this code wrote, and is refused rather than matched on whatever it has.
+_FIRST_INTENT_KEYS: Final = frozenset(
+    {
+        "workflow_id",
+        "release_selector",
+        "version_selector",
+        "actor",
+        "input",
+        "input_files",
+        "project_id",
+        "workspace_release_id",
+        "environment_id",
+        "model_id",
+        "config_sha256",
+        "priority",
+        "session_id",
+    }
+)
+
+
 def _manifest_request_digest(session: Session, run: CaliberWorkflowRun) -> str | None:
-    """The ``request_digest`` the run's manifest recorded, or ``None`` for a legacy run, a run with no manifest row, or
-    a manifest written before the field existed. An unreadable manifest is refused (never guessed around)."""
-    if run.manifest_legacy:
+    """The ``request_digest`` the run's manifest recorded, or ``None`` for a legacy run or a manifest written before the
+    field existed. An admitted run whose manifest is missing or unreadable is refused (never guessed around): admission
+    writes the two together."""
+    if run.manifest_legacy is not False:
         return None
     row = session.execute(
         select(CaliberRunManifest).where(CaliberRunManifest.workflow_run_id == run.workflow_run_id)
     ).scalar_one_or_none()
     if row is None:
-        return None
+        raise AdmissionDenied(
+            MANIFEST_REFUSED,
+            "an admitted run has no stored manifest, so the request cannot be compared with it",
+            status=500,
+        )
     try:
         record = read_manifest(bytes(row.manifest_bytes), row.manifest_digest)
     except ManifestError as exc:
@@ -560,8 +592,10 @@ def check_retry_intent(
     stored = (existing.summary or {}).get("admission_intent")
     if recorded is not None:
         same = recorded == request_digest_of(intent)
-    elif isinstance(stored, dict):
+    elif isinstance(stored, dict) and stored.keys() >= _FIRST_INTENT_KEYS:
         same = all(intent.get(key) == value for key, value in stored.items())
+    elif existing.manifest_legacy is False:
+        same = False  # admitted, but neither a digest nor a complete intent to compare with
     else:
         same = (
             existing.workflow_id == intent["workflow_id"]

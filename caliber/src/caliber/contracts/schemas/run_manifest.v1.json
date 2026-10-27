@@ -182,7 +182,7 @@
         "string",
         "null"
       ],
-      "pattern": "^[0-9a-f]{64}$",
+      "pattern": "^[0-9a-f]{64}\\Z",
       "description": "SHA-256 of the canonical admission intent: the workflow, the release and version selectors the caller named (never what they resolved to), the input, the purpose, and the server-derived scope. Absent on manifests written before it existed; a retry of the run's idempotency key is compared with it."
     }
   },
