@@ -33,6 +33,7 @@ from tests.egi_scenarios.conftest import (
     PROJECT_B,
     ReferenceApp,
     Workspaces,
+    seed_release,
 )
 from tests.egi_scenarios.test_b02_admission import _call, _published_workflow
 from tests.workflow_helpers import make_tool_payload
@@ -86,6 +87,7 @@ def test_foreign_workspace_denied_before_dispatch(
         "alias": "manual",
         "input": "hi",
         "idempotency_key": "v02-foreign",
+        **seed_release(reference_app, PROJECT_A),
     }
     refused = _call(reference_app, "POST", EDITOR_B, PROJECT_B, "/workflow-runs", body)
     assert refused.status_code in (403, 404), refused.text
@@ -104,6 +106,7 @@ def test_forged_user_header_without_proxy_secret_denied(
         "alias": "manual",
         "input": "hi",
         "idempotency_key": "v02-forged",
+        **seed_release(reference_app, PROJECT_A),
     }
     forged = {"X-CALIBER-User": EDITOR_A, "X-CALIBER-Project": PROJECT_A}
     for headers in (forged, {**forged, "X-CALIBER-Proxy-Secret": "not-the-secret"}):
@@ -144,6 +147,7 @@ def test_request_for_more_authority_denied(
             "alias": "manual",
             "input": "hi",
             "idempotency_key": "v02-more",
+            **seed_release(reference_app, PROJECT_A),
         },
     )
     assert started.status_code == 202, started.text
@@ -187,6 +191,7 @@ def test_deny_writes_redacted_audit_row(
             "alias": "manual",
             "input": SECRET_INPUT,
             "idempotency_key": "v02-audit",
+            **seed_release(reference_app, PROJECT_A),
         },
     )
     assert started.status_code == 202, started.text

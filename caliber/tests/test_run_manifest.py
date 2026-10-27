@@ -1348,3 +1348,103 @@ def test_the_grant_id_is_recorded_when_given_and_validated() -> None:
         with pytest.raises(ManifestError) as caught:
             _build(grant_id=bad)
         assert caught.value.code == "bad_field"
+
+
+# ---------------------------------------------------------------- lineage required in the reference profile (B02.4, #691)
+
+
+def test_reference_profile_requires_lineage(client: Any, db_session: Any) -> None:
+    from types import SimpleNamespace
+
+    import caliber.routes.workflow_runs as routes
+    from caliber.db.models import CaliberWorkflowRun
+    from caliber.workflows.admission import AdmissionSettings
+    from caliber.workflows.run_launch import LineageRequiredError, enqueue_workflow_run
+    from tests.test_run_admission import _db_pair, _project_workflow
+
+    settings = AdmissionSettings.from_config(SimpleNamespace(profile="reference"))
+    assert settings.lineage_required is True and settings.enabled is True
+    workflow_id, version_id = _project_workflow(client, db_session)
+    workflow, version = _db_pair(db_session, workflow_id, version_id)
+    for coordinates in ({}, {"workspace_release_id": "WSR-1"}, {"environment_id": "WSE-1"}):
+        with pytest.raises(LineageRequiredError, match="lineage_required"):
+            enqueue_workflow_run(
+                db_session,
+                workflow=workflow,
+                version=version,
+                alias="manual",
+                source="event",
+                actor="@test",
+                admission=settings,
+                **coordinates,
+            )
+    assert db_session.query(CaliberWorkflowRun).count() == 0, "nothing was written"
+
+    # The public routes answer 422 {"error": "lineage_required"} before anything is stored.
+    client.app.state.config = client.app.state.config.model_copy(
+        update={"workflow_run_queue_enabled": True}
+    )
+    original = routes._admission_settings
+    routes._admission_settings = lambda request: settings  # type: ignore[assignment]
+    try:
+        created = client.post(
+            "/ajax-api/2.0/mlflow/caliber/workflow-runs",
+            json={"workflow_id": workflow_id, "alias": "manual", "input": "hi"},
+        )
+        triggered = client.post(
+            f"/ajax-api/2.0/mlflow/caliber/workflows/{workflow_id}/trigger", json={"input": "hi"}
+        )
+    finally:
+        routes._admission_settings = original  # type: ignore[assignment]
+    for response in (created, triggered):
+        assert response.status_code == 422, response.text
+        assert response.json()["error"] == "lineage_required"
+    assert db_session.query(CaliberWorkflowRun).count() == 0
+
+
+def test_development_profile_allows_no_lineage(client: Any, db_session: Any) -> None:
+    from types import SimpleNamespace
+
+    from caliber.workflows.admission import AdmissionSettings
+    from caliber.workflows.run_launch import enqueue_workflow_run
+    from tests.test_run_admission import _db_pair, _project_workflow
+
+    assert (
+        AdmissionSettings.from_config(SimpleNamespace(profile="development")).lineage_required
+        is False
+    )
+    assert AdmissionSettings(enabled=False).lineage_required is False
+    workflow_id, version_id = _project_workflow(client, db_session)
+    workflow, version = _db_pair(db_session, workflow_id, version_id)
+    run, created = enqueue_workflow_run(
+        db_session,
+        workflow=workflow,
+        version=version,
+        alias="manual",
+        source="event",
+        actor="@test",
+        admission=AdmissionSettings(enabled=False),
+    )
+    assert created is True and run.runtime_lineage_id is None
+    # and with no admission object at all (the cron scheduler's call), no lineage is required
+    run2, _ = enqueue_workflow_run(
+        db_session,
+        workflow=workflow,
+        version=version,
+        alias="manual",
+        source="cron",
+        actor="@sched",
+    )
+    assert run2.runtime_lineage_id is None
+
+
+def test_a_trigger_names_both_halves_of_its_lineage_or_neither() -> None:
+    from pydantic import ValidationError
+
+    from caliber.schemas import WorkflowTriggerRequest
+
+    WorkflowTriggerRequest(workspace_release_id="WSR-1", environment_id="WSE-1")
+    WorkflowTriggerRequest()
+    for half in ({"workspace_release_id": "WSR-1"}, {"environment_id": "WSE-1"}):
+        with pytest.raises(ValidationError, match="provided together"):
+            WorkflowTriggerRequest(**half)

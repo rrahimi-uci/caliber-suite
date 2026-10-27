@@ -25,7 +25,13 @@ from caliber.db.models import (
 from caliber.orchestrator.workflow_run_worker import WorkflowRunWorker
 from caliber.workflows import deployment_bundle
 from caliber.workflows.ir import IRAgent, IRKnowledgeQuery
-from tests.egi_scenarios.conftest import EDITOR_A, PROJECT_A, ReferenceApp, Workspaces
+from tests.egi_scenarios.conftest import (
+    EDITOR_A,
+    PROJECT_A,
+    ReferenceApp,
+    Workspaces,
+    seed_release,
+)
 from tests.workflow_helpers import make_manifest, make_tool_payload
 
 PREFIX = "/ajax-api/2.0/mlflow/caliber"
@@ -163,6 +169,7 @@ def _admit(app: ReferenceApp, kind: str, prompts: dict[str, str]) -> tuple[str, 
             "alias": "manual",
             "input": "hi",
             "idempotency_key": f"v10-{kind}",
+            **seed_release(app, PROJECT_A),
         },
     )
     assert run.status_code == 202, run.text

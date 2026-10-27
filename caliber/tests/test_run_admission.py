@@ -1419,3 +1419,137 @@ def test_the_policy_and_grant_ttl_come_from_the_settings(
     assert json.dumps(
         sorted(REFERENCE_POLICY_V1.action_risk)
     )  # the reference policy is the default
+
+
+# ---------------------------------------------------------------- runtime lineage on every start (B02.4, #691)
+
+
+def test_a_trigger_with_lineage_runs_and_its_identical_retry_returns_the_original(
+    client: TestClient, db_session: Session
+) -> None:
+    from tests.workflow_helpers import seed_workspace_release
+
+    _enable(client)
+    workflow_id, version_id = _project_workflow(
+        client, db_session, trigger={"mode": "event", "event_name": "e", "alias": "prod"}
+    )
+    deploy_prod(client, workflow_id, version_id)
+    lineage = seed_workspace_release(db_session, PROJECT)
+    db_session.commit()
+    path = f"{PREFIX}/workflows/{workflow_id}/trigger"
+    body = {"event_name": "e", "input": "o-1", "idempotency_key": "evt-lineage", **lineage}
+    fired = client.post(path, json=body)
+    assert fired.status_code == 202, fired.text
+    run_id = fired.json()["data"]["workflow_run_id"]
+    run = db_session.get(CaliberWorkflowRun, run_id)
+    assert run is not None and run.runtime_lineage_id, "the trigger created the run's lineage"
+    again = client.post(path, json=body)
+    assert again.status_code == 200 and again.json()["data"]["workflow_run_id"] == run_id
+    assert client.post(path, json={**body, "input": "o-2"}).status_code == 409
+
+
+def test_an_invalid_lineage_is_refused_like_on_the_create_route(
+    client: TestClient, db_session: Session
+) -> None:
+    from tests.workflow_helpers import seed_workspace_release
+
+    _enable(client)
+    workflow_id, version_id = _project_workflow(
+        client, db_session, trigger={"mode": "event", "event_name": "e", "alias": "prod"}
+    )
+    deploy_prod(client, workflow_id, version_id)
+    lineage = seed_workspace_release(db_session, PROJECT)
+    db_session.commit()
+    path = f"{PREFIX}/workflows/{workflow_id}/trigger"
+    unknown = {**lineage, "environment_id": "WSE-nope"}
+    for url, body in (
+        (path, {"event_name": "e", "idempotency_key": "x1", **unknown}),
+        (
+            f"{PREFIX}/workflow-runs",
+            {"workflow_id": workflow_id, "alias": "prod", "idempotency_key": "x2", **unknown},
+        ),
+    ):
+        refused = client.post(url, json=body)
+        assert refused.status_code == 409, (url, refused.text)
+    for bad in (
+        {"workspace_release_id": "", "environment_id": ""},
+        {**lineage, "config_sha256": "G" * 64},
+        {**lineage, "config_sha256": "a" * 63},
+    ):
+        for url, extra in (
+            (path, {"event_name": "e"}),
+            (f"{PREFIX}/workflow-runs", {"workflow_id": workflow_id, "alias": "prod"}),
+        ):
+            assert client.post(url, json={**extra, **bad}).status_code == 400, (url, bad)
+    # a digest that is well formed but not the release's is a lineage error (409), not a server error
+    mismatch = client.post(path, json={"event_name": "e", **lineage, "config_sha256": "b" * 64})
+    assert mismatch.status_code == 409, mismatch.text
+    assert db_session.query(CaliberWorkflowRun).count() == 0
+
+
+def test_a_retried_run_keeps_its_lineage_and_a_run_without_one_cannot_be_retried_where_it_is_required(
+    client: TestClient, db_session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from datetime import datetime, timezone
+
+    import caliber.routes.workflow_runs as routes
+    from caliber.db.models import CaliberWorkspaceRuntimeLineage
+    from tests.workflow_helpers import seed_workspace_release
+
+    _enable(client)
+    workflow_id, _ = _project_workflow(client, db_session)
+    lineage = seed_workspace_release(db_session, PROJECT)
+    db_session.commit()
+    with_lineage = _run(client, workflow_id, idempotency_key="r-1", **lineage)
+    without = _run(client, workflow_id, idempotency_key="r-2")
+    assert with_lineage.status_code == 202 and without.status_code == 202
+    ids = [
+        with_lineage.json()["data"]["workflow_run_id"],
+        without.json()["data"]["workflow_run_id"],
+    ]
+    for run_id in ids:
+        run = db_session.get(CaliberWorkflowRun, run_id)
+        assert run is not None
+        run.status, run.completed_at = "failed", datetime.now(timezone.utc)
+    db_session.commit()
+
+    retried = client.post(f"{PREFIX}/workflow-runs/{ids[0]}/retry")
+    assert retried.status_code == 202, retried.text
+    new_id = retried.json()["data"]["workflow_run_id"]
+    db_session.expire_all()
+    new = db_session.get(CaliberWorkflowRun, new_id)
+    original = db_session.get(CaliberWorkflowRun, ids[0])
+    assert new is not None and original is not None
+    assert new.runtime_lineage_id and new.runtime_lineage_id != original.runtime_lineage_id
+    a = db_session.get(CaliberWorkspaceRuntimeLineage, original.runtime_lineage_id)
+    b = db_session.get(CaliberWorkspaceRuntimeLineage, new.runtime_lineage_id)
+    assert a is not None and b is not None
+    assert (b.workspace_release_id, b.environment_id, b.config_sha256, b.consumer_id) == (
+        a.workspace_release_id,
+        a.environment_id,
+        a.config_sha256,
+        new_id,
+    )
+    assert (new.summary or {}).get("strict_lineage") is True
+
+    # Where lineage is required, a run that never had it is not retried into one that still has none.
+    settings = AdmissionSettings.from_config(client.app.state.config)
+    from dataclasses import replace
+
+    monkeypatch.setattr(
+        routes, "_admission_settings", lambda request: replace(settings, lineage_required=True)
+    )
+    refused = client.post(f"{PREFIX}/workflow-runs/{ids[1]}/retry")
+    assert refused.status_code == 422 and refused.json()["error"] == "lineage_required"
+    again = client.post(f"{PREFIX}/workflow-runs/{ids[0]}/retry")
+    assert again.status_code == 202, "a run that has lineage can be retried"
+
+    # and a release that is no longer eligible refuses the retry instead of dropping the lineage
+    from caliber.db.models import CaliberWorkspaceRelease
+
+    release = db_session.get(CaliberWorkspaceRelease, lineage["workspace_release_id"])
+    assert release is not None
+    release.status = "rejected"
+    db_session.commit()
+    blocked = client.post(f"{PREFIX}/workflow-runs/{ids[0]}/retry")
+    assert blocked.status_code == 409, blocked.text

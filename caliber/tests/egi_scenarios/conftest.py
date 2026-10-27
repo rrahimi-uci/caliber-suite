@@ -32,6 +32,7 @@ from caliber.db.models import CaliberProject, CaliberProjectMember
 from caliber.server import create_app
 from tests.dialect_helpers import DIALECTS, dialect_database_url
 from tests.egi_scenarios.harness.process import free_port
+from tests.workflow_helpers import seed_workspace_release
 
 APP_PATH = Path(__file__).parent / "downstream" / "app.py"
 #: How long ``start()`` waits for ``/health``. Raise it with the environment variable on a loaded CI runner.
@@ -297,6 +298,15 @@ def two_workspaces(reference_app: ReferenceApp) -> Workspaces:
             )
         session.commit()
     return Workspaces(PROJECT_A, PROJECT_B, EDITOR_A, APPROVER_A, EDITOR_B)
+
+
+def seed_release(app: ReferenceApp, project_id: str, name: str = "egi") -> dict[str, str]:
+    """An approved, current workspace release and its environment in ``project_id``: the runtime lineage coordinates
+    a run names in the reference profile. Returns the two request fields (``workspace_release_id``, ``environment_id``)."""
+    with app.session_factory() as session:
+        coordinates = seed_workspace_release(session, project_id, name)
+        session.commit()
+        return coordinates
 
 
 # ------------------------------------------------------------------------------ scripted model

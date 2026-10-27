@@ -18,7 +18,13 @@ from sqlalchemy import func, select
 from caliber.db.models import CaliberRunManifest, CaliberWorkflowRun
 from caliber.run_manifest import read_manifest
 from caliber.workflows.admission import request_digest_of
-from tests.egi_scenarios.conftest import EDITOR_A, PROJECT_A, ReferenceApp, Workspaces
+from tests.egi_scenarios.conftest import (
+    EDITOR_A,
+    PROJECT_A,
+    ReferenceApp,
+    Workspaces,
+    seed_release,
+)
 from tests.egi_scenarios.test_b02_admission import _call, _published_workflow
 from tests.workflow_helpers import make_manifest
 
@@ -32,7 +38,13 @@ def _start(app: ReferenceApp, workflow_id: str, **body: Any) -> Any:
         EDITOR_A,
         PROJECT_A,
         "/workflow-runs",
-        {"workflow_id": workflow_id, "alias": "manual", "idempotency_key": KEY, **body},
+        {
+            "workflow_id": workflow_id,
+            "alias": "manual",
+            "idempotency_key": KEY,
+            **seed_release(app, PROJECT_A),
+            **body,
+        },
     )
 
 
@@ -107,6 +119,7 @@ def test_requests_racing_on_one_key_admit_exactly_one_run(
     reference_app: ReferenceApp, two_workspaces: Workspaces
 ) -> None:
     workflow_id = _published_workflow(reference_app)
+    seed_release(reference_app, PROJECT_A)  # once, before the threads: the racing requests share it
     barrier = threading.Barrier(6)
     results: list[tuple[str, int, str]] = []
     lock = threading.Lock()

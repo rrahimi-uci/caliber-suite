@@ -348,3 +348,68 @@ def create_and_publish(
     r = client.post(f"{PREFIX}/workflow-versions/{version_id}/publish")
     assert r.status_code == 200, r.text
     return workflow_id, version_id
+
+
+def seed_workspace_release(session: Any, project_id: str, name: str = "rl") -> dict[str, str]:
+    """An approved, current workspace release and its environment in ``project_id`` (flushes, does not commit).
+
+    The runtime-lineage coordinates a run names in the reference profile; idempotent per ``(project_id, name)``.
+    Returns the two request fields ``workspace_release_id`` and ``environment_id``.
+    """
+    from caliber.db.models import CaliberWorkspaceEnvironment, CaliberWorkspaceRevision
+    from caliber.workspace_release_service import create_workspace_release
+
+    digest = "a" * 64
+    environment_id = f"WSE-{name}-{project_id}"[:64]
+    revision_id = f"WSR-{name}-{project_id}"[:64]
+    existing = session.get(CaliberWorkspaceEnvironment, environment_id)
+    if existing is not None:
+        return {
+            "workspace_release_id": str(existing.current_release_id),
+            "environment_id": environment_id,
+        }
+    environment = CaliberWorkspaceEnvironment(
+        environment_id=environment_id,
+        project_id=project_id,
+        name=f"{name}-dev",
+        environment_class="development",
+        promotion_order=10,
+        status="active",
+        created_by="@test",
+    )
+    session.add_all(
+        [
+            environment,
+            CaliberWorkspaceRevision(
+                revision_id=revision_id,
+                project_id=project_id,
+                revision_number=1,
+                source_id=None,
+                source_commit_sha=None,
+                manifest={"apiVersion": "caliber/v1alpha1"},
+                manifest_sha256=digest,
+                source_bundle_sha256=digest,
+                source_snapshot_file_id=None,
+                source_attestation="caller_attested",
+                revision_sha256=digest,
+                status="ready",
+                created_by="@test",
+            ),
+        ]
+    )
+    session.flush()
+    release = create_workspace_release(
+        session,
+        project_id=project_id,
+        revision_id=revision_id,
+        environment_id=environment_id,
+        environment_config_sha256=digest,
+        runtime_dependencies_sha256=digest,
+        policy_sha256=digest,
+        request_idempotency_key=f"release-{name}-{project_id}",
+        requested_by="@test",
+    )
+    release.status = "approved"
+    environment.current_release_id = release.release_id
+    session.flush()
+    return {"workspace_release_id": release.release_id, "environment_id": environment_id}

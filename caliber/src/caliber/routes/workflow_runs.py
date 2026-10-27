@@ -30,6 +30,7 @@ from caliber.db.models import (
     CaliberWorkflowRunEvent,
     CaliberWorkflowVersion,
     CaliberWorkspaceRelease,
+    CaliberWorkspaceRuntimeLineage,
 )
 from caliber.ids import new_workflow_run_id
 from caliber.mcp_policy import deployment_blockers
@@ -84,7 +85,12 @@ from caliber.workflows.manifest import (
     parse_manifest,
 )
 from caliber.workflows.run_events import append_run_event
-from caliber.workflows.run_launch import enqueue_workflow_run
+from caliber.workflows.run_launch import (
+    LINEAGE_REQUIRED_MESSAGE,
+    LineageRequiredError,
+    enqueue_workflow_run,
+    require_lineage,
+)
 from caliber.workflows.run_state import (
     RUN_STATUS_CANCELLED,
     RUN_STATUS_COMPLETED,
@@ -293,6 +299,13 @@ def _refuse_admission(session: Session, exc: AdmissionDenied) -> HTTPException:
         session, exc
     )  # the decision's own rows went with the rollback; its audit row is written now
     return HTTPException(status_code=exc.status, detail=str(exc))
+
+
+def _lineage_required_response(exc: LineageRequiredError) -> JSONResponse:
+    """``422 {"error": "lineage_required"}``: the reference profile starts no run without runtime lineage."""
+    return JSONResponse(
+        {"error": "lineage_required", "detail": str(exc), "status_code": 422}, status_code=422
+    )
 
 
 def _ensure_queue_enabled(request: Request) -> None:
@@ -709,6 +722,11 @@ async def create_workflow_run(request: Request) -> JSONResponse:  # noqa: PLR091
     identity = resolve_identity(request)
     body = await parse_json_object(request)
     payload = WorkflowRunCreateRequest.model_validate(body)
+    if _admission_settings(request).lineage_required:
+        try:
+            require_lineage(payload.workspace_release_id, payload.environment_id)
+        except LineageRequiredError as exc:
+            return _lineage_required_response(exc)
     factory = get_session_factory(request)
     with factory() as session:
         replayed_version = (
@@ -897,6 +915,8 @@ async def create_workflow_run(request: Request) -> JSONResponse:  # noqa: PLR091
                 )
             except RuntimeError as exc:
                 raise HTTPException(status_code=409, detail=str(exc)) from exc
+            except ValueError as exc:
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
             run.runtime_lineage_id = lineage.lineage_id
             session.flush()
 
@@ -1082,6 +1102,11 @@ async def trigger_workflow_event(request: Request) -> JSONResponse:
     _ensure_queue_enabled(request)
     body = await parse_json_object(request, allow_empty=True)
     payload = WorkflowTriggerRequest.model_validate(body)
+    if _admission_settings(request).lineage_required:
+        try:
+            require_lineage(payload.workspace_release_id, payload.environment_id)
+        except LineageRequiredError as exc:
+            return _lineage_required_response(exc)
 
     factory = get_session_factory(request)
     with factory() as session:
@@ -1098,6 +1123,10 @@ async def trigger_workflow_event(request: Request) -> JSONResponse:
                 actor=actor,
                 input_text=_input_to_text(payload.input),
                 project_id=wf.project_id,
+                workspace_release_id=payload.workspace_release_id,
+                environment_id=payload.environment_id,
+                model_id=payload.model_id,
+                config_sha256=payload.config_sha256,
                 source="event",
                 input_json=_canonical_input(payload.input),
             ),
@@ -1138,12 +1167,24 @@ async def trigger_workflow_event(request: Request) -> JSONResponse:
                 input_text=_input_to_text(payload.input),
                 input_json=_canonical_input(payload.input),
                 idempotency_key=payload.idempotency_key,
+                workspace_release_id=payload.workspace_release_id,
+                environment_id=payload.environment_id,
+                model_id=payload.model_id,
+                config_sha256=payload.config_sha256,
                 publish=lambda evt: _emit_queue_event(request, evt),
                 identity=resolve_identity(request),
                 admission=_admission_settings(request),
             )
         except AdmissionDenied as exc:
             raise _refuse_admission(session, exc) from exc
+        except (
+            RuntimeError
+        ) as exc:  # the lineage is not valid for this project (as on the create-run route)
+            session.rollback()
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        except ValueError as exc:
+            session.rollback()
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
         session.commit()
         data = WorkflowRunSchema.model_validate(run)
     return envelope_response(data, status_code=202 if created else 200)
@@ -1534,6 +1575,15 @@ async def retry_workflow_run(request: Request) -> JSONResponse:  # noqa: PLR0912
                 **retry_manifest_metadata,
             }
         retry_admission = _admission_settings(request)
+        # A retried run keeps the lineage of the run it retries (a fresh record for the new run): the reference profile
+        # starts no run without one, so a run that has none cannot be retried there.
+        original_lineage = (
+            session.get(CaliberWorkspaceRuntimeLineage, run.runtime_lineage_id)
+            if run.runtime_lineage_id
+            else None
+        )
+        if retry_admission.lineage_required and original_lineage is None:
+            return _lineage_required_response(LineageRequiredError(LINEAGE_REQUIRED_MESSAGE))
         retry_prepared = None
         if retry_admission.enabled:
             # A retry is a new run, so it is admitted like one: pinned afresh, granted, decided and recorded.
@@ -1560,6 +1610,12 @@ async def retry_workflow_run(request: Request) -> JSONResponse:  # noqa: PLR0912
                 priority=int(run.priority or 0),
                 session_id=run.session_id,
                 source="retry",
+                workspace_release_id=original_lineage.workspace_release_id
+                if original_lineage
+                else None,
+                environment_id=original_lineage.environment_id if original_lineage else None,
+                model_id=original_lineage.model_id if original_lineage else None,
+                config_sha256=original_lineage.config_sha256 if original_lineage else None,
             )
             try:
                 retry_prepared = prepare_admission(
@@ -1628,6 +1684,26 @@ async def retry_workflow_run(request: Request) -> JSONResponse:  # noqa: PLR0912
         )
         session.add(retried)
         session.flush()
+        if original_lineage is not None:
+            try:
+                retry_lineage = create_runtime_lineage(
+                    session,
+                    project_id=original_lineage.project_id,
+                    workspace_release_id=original_lineage.workspace_release_id,
+                    revision_id=original_lineage.revision_id,
+                    environment_id=original_lineage.environment_id,
+                    consumer_kind="run",
+                    consumer_id=retried.workflow_run_id,
+                    model_id=original_lineage.model_id,
+                    config_sha256=original_lineage.config_sha256,
+                    strict_execution=True,
+                    created_by=actor,
+                )
+            except RuntimeError as exc:  # the release or environment is no longer eligible
+                raise HTTPException(status_code=409, detail=str(exc)) from exc
+            retried.runtime_lineage_id = retry_lineage.lineage_id
+            retried.summary = {**(retried.summary or {}), "strict_lineage": True}
+            session.flush()
         if retry_prepared is not None:
             try:
                 retry_record = persist_admission(

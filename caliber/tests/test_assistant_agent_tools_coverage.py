@@ -872,6 +872,44 @@ class TestMutateEdges:
         with session_factory() as db:
             assert db.query(CaliberWorkflowRun).count() == 0
 
+    def test_run_workflow_is_refused_without_lineage_in_the_reference_profile(
+        self, svc, session_factory
+    ) -> None:
+        """B02.4: a chat has no workspace release to run against, so the reference profile refuses the tool's run
+        (nothing is queued)."""
+        from caliber.config import CaliberConfig
+
+        with session_factory() as db:
+            db.add(
+                CaliberWorkflow(
+                    workflow_id="WF-lin",
+                    name="Lin",
+                    owner=USER,
+                    status="active",
+                    visibility="user",
+                    project_id=None,
+                )
+            )
+            db.add(
+                CaliberWorkflowVersion(
+                    version_id="WFV-lin",
+                    workflow_id="WF-lin",
+                    version_number=1,
+                    status="published",
+                    manifest=make_manifest("WF-lin"),
+                    manifest_hash="h",
+                    created_by=USER,
+                )
+            )
+            db.commit()
+        svc._runtime_config = CaliberConfig.model_construct(profile="reference")
+        sid = _session(svc, session_factory)
+        ts = _toolset(svc, session_factory, sid, mode="build", approval="auto_all")
+        out = json.loads(ts.dispatch("run_workflow", {"version_id": "WFV-lin", "input_text": "go"}))
+        assert "error" in out and "lineage_required" in out["error"]
+        with session_factory() as db:
+            assert db.query(CaliberWorkflowRun).count() == 0
+
     def test_approve_draft_is_human_gated(self, svc, session_factory) -> None:
         sid = _session(svc, session_factory)
         ts = _toolset(svc, session_factory, sid, mode="build", approval="auto_all")
