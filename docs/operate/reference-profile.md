@@ -195,7 +195,7 @@ schema with `pg_temp` last in `search_path`, so a temporary table cannot shadow 
 ran, and every run created by a path other than admission, is legacy. Such a run has no manifest and can never get
 one (`a manifest needs an existing, non-legacy run`, also raised for a run that does not exist), and the flag
 cannot be changed afterwards (`caliber_workflow_runs.manifest_legacy is write-once`), so a historical pin cannot be
-fabricated. Admission (#676, #680) creates a run with `manifest_legacy = false` in the same transaction as its
+fabricated. Admission (#680, below) creates a run with `manifest_legacy = false` in the same transaction as its
 manifest. A client with `DELETE` on runs can still delete a legacy run and re-insert the same id as a non-legacy
 one; that needs write access to runs and is not guarded here.
 
@@ -261,6 +261,52 @@ built = build_run_manifest(
 | `rule_bundle_refused` | the configured bundle's bytes are missing, changed or invalid | restore the bundle or update the pinned digest deliberately |
 | `rule_bundle_required` / `rule_bundle_unexpected` | enabled without a verified bundle / a bundle while disabled | align the configuration and the call |
 | `invalid_manifest` | stored bytes are not a valid manifest, or do not match their digest (`read_manifest`) | treat as corruption: the row is immutable evidence |
+
+### Admitting a run (B02.2a, #680)
+
+With admission on (always under `CALIBER_PROFILE=reference`, otherwise `CALIBER_ADMISSION_ENABLED=true`), every run a
+user starts is *admitted*: the run, its grant, its policy decision and its immutable manifest are created in one
+transaction, or none of them are. The paths covered are the create-run route (`POST /workflow-runs`), the event
+trigger (`POST /workflows/{id}/trigger`) and the assistant's `run_workflow` tool; each authenticates and authorizes the
+caller (`resource.execute` in the workflow's project) *before* admission.
+
+1. **Pins first.** Before any row is written, everything the run depends on is taken from the version's *sealed
+   deployment bundle* (prompts, tools, MCP tools, skills, knowledge-base versions, the models its agents name, the
+   policy version, the bundle's own digest) and the configured rule bundle is loaded and verified
+   (`CALIBER_RULE_BUNDLE_PATH`/`_SHA256`). The manifest is built by [the builder](#building-a-manifest-admission-676).
+   A version that was never compiled, whose bundle fails its integrity check, or that has an unresolved runtime
+   dependency, is refused (`409`, `bundle_unavailable`); so is a rule bundle that is missing or changed
+   (`manifest_refused: rule_bundle_refused`). An unresolved evaluation dataset does not stop a run.
+2. **One transaction.** The run is inserted with `manifest_legacy = false`, then the grant is issued (never beyond the
+   caller's *current* role), the decision is recorded under the policy (`policy-v1`: risk ceiling 4), and only on an
+   allow the manifest is stored. A denial (`403`, with the decision's reason codes) or any later failure rolls the
+   transaction back: no run, grant, decision, manifest or event remains, and no partial admitted run can be
+   dispatched.
+3. **Retries.** A request that reuses an idempotency key is authorized first, then returns the *original* run and
+   manifest when it is the same request (same workflow, release selector, input, files and project) even if the
+   alias has since moved; a different request under the same key is a `409` (`intent_conflict`). Two requests racing
+   on one key admit exactly one run (PostgreSQL scenario).
+4. **Who and what.** The subject is the authenticated caller (`session`, `pat` or `trusted_header`), the workload is
+   the workflow pinned to its version digest, the purpose is `workflow_run:<source>`, and the scope is the fixed
+   deployment (`local` organization, region and residency) plus the workflow's project. A workflow outside any
+   project cannot be admitted (`409`, `project_required`); a manifest override on a manual run cannot be pinned, so
+   it is not admitted (`409`, `manifest_override_not_admitted`).
+
+| response | code | meaning and recovery |
+| --- | --- | --- |
+| `409` | `project_required` | the workflow has no project; move it into one |
+| `409` | `bundle_unavailable` | compile and publish the version again (its sealed bundle is missing, altered or unresolved) |
+| `409` | `manifest_refused` | a pin is floating or ambiguous, the rule bundle is missing or changed, or the project belongs to another organization; the message says which |
+| `409` | `intent_conflict` | the idempotency key belongs to a different request; use a new key |
+| `409` | `manifest_override_not_admitted` | save the manifest as a version, publish it and run that |
+| `403` | `policy_denied` / `grant_refused` | the policy or the caller's role does not allow it; the reason codes are in the message |
+| `503` | `authority_unavailable` | the grant or decision store could not answer; nothing was stored, retry |
+
+**Not admitted yet (stay legacy runs):** runs started by the cron scheduler and by a service token, because neither
+has a typed subject (a user who authenticated) to put in a grant; they need a service-principal model first. Legacy
+runs are marked as such and never gain a manifest. **Executing** an admitted run under its grant, and fencing each
+transition, are the worker tasks that follow (#684, #685); until then admission records and authorizes but the worker
+does not yet check the grant.
 
 ## Run principals: subject and workload
 

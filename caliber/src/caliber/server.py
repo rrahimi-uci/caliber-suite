@@ -81,6 +81,7 @@ from caliber.storage import WorkingDirectoryService, build_backend
 from caliber.testing.fault_barriers import ENV_VAR as FAULT_BARRIERS_ENV
 from caliber.testing.fault_barriers import armed_barriers
 from caliber.trace_client import MLflowTraceClient
+from caliber.workflows.admission import AdmissionSettings
 from caliber.workflows.runtime import bind_sandbox_config
 from caliber.workflows.tools import bind_module_allowlist
 from caliber.workspace_import_worker import WorkspaceImportWorker
@@ -963,6 +964,9 @@ def create_app(config: CaliberConfig | None = None) -> ASGIApp:  # noqa: PLR0915
             path_limits={GITHUB_WEBHOOK_PATH: resolved.github_webhook_max_body_bytes},
         )
     app.state.config = resolved
+    AdmissionSettings.from_config(
+        resolved
+    )  # a rule bundle path without its digest (or the reverse) fails startup
     app.state.engine = engine
     app.state.session_factory = session_factory
     app.state.secret_store = secret_store

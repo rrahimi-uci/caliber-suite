@@ -56,6 +56,14 @@ from caliber.schemas import (
     WorkflowTriggerRequest,
 )
 from caliber.trace_client import fetch_trace_spans
+from caliber.workflows.admission import (
+    OVERRIDE_NOT_ADMITTED,
+    AdmissionDenied,
+    AdmissionSettings,
+    check_retry_intent,
+    persist_admission,
+    prepare_admission,
+)
 from caliber.workflows.approval_policy import (
     ApprovalPolicy,
     ApprovalPolicyError,
@@ -263,6 +271,18 @@ def _emit_queue_event(request: Request, payload: dict[str, Any]) -> None:
                 payload.get("type"),
                 exc_info=True,
             )
+
+
+def _admission_settings(request: Request) -> AdmissionSettings:
+    """The deployment's admission settings, read from the running config (``enabled`` is false unless the reference
+    profile or ``CALIBER_ADMISSION_ENABLED`` says so)."""
+    return AdmissionSettings.from_config(request.app.state.config)
+
+
+def _refuse_admission(session: Session, exc: AdmissionDenied) -> HTTPException:
+    """Roll the whole transaction back (the run, its grant and its decision are one unit) and answer the refusal."""
+    session.rollback()
+    return HTTPException(status_code=exc.status, detail=str(exc))
 
 
 def _ensure_queue_enabled(request: Request) -> None:
@@ -600,7 +620,7 @@ def _clone_manifest(manifest: dict[str, Any]) -> dict[str, Any]:
     return deepcopy(manifest)
 
 
-async def create_workflow_run(request: Request) -> JSONResponse:  # noqa: PLR0915
+async def create_workflow_run(request: Request) -> JSONResponse:  # noqa: PLR0912, PLR0915
     from caliber.auth import resolve_identity  # noqa: PLC0415 - avoids an import cycle
 
     actor = require_scopes(request, [SCOPE_OPERATOR])
@@ -617,7 +637,16 @@ async def create_workflow_run(request: Request) -> JSONResponse:  # noqa: PLR091
         # already applies the *visibility* filter; this is the separate
         # project-membership-role axis section 2.4 names.
         require_project_access_if_scoped(session, identity, workflow.project_id, "resource.execute")
+        admission = _admission_settings(request)
         submitted_manifest = payload.manifest
+        if submitted_manifest is not None and admission.enabled:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    f"{OVERRIDE_NOT_ADMITTED}: a manifest override cannot be pinned, so it is not admitted; "
+                    "save it as a version, publish it and run that"
+                ),
+            )
         if submitted_manifest is not None and alias != "manual":
             raise HTTPException(
                 status_code=400,
@@ -659,6 +688,20 @@ async def create_workflow_run(request: Request) -> JSONResponse:  # noqa: PLR091
             idempotency_key=payload.idempotency_key,
         )
         if existing is not None:
+            if admission.enabled:
+                try:
+                    check_retry_intent(
+                        existing,
+                        workflow_id=workflow.workflow_id,
+                        alias=alias,
+                        input_text=_input_to_text(payload.input),
+                        input_files=[dict(item) for item in payload.input_files]
+                        if payload.input_files
+                        else None,
+                        project_id=workflow.project_id,
+                    )
+                except AdmissionDenied as exc:
+                    raise _refuse_admission(session, exc) from exc
             return envelope_response(WorkflowRunSchema.model_validate(existing), status_code=202)
 
         tenant_id = "local"
@@ -668,8 +711,23 @@ async def create_workflow_run(request: Request) -> JSONResponse:  # noqa: PLR091
                 tenant_id = project.tenant_id
 
         now = datetime.now(timezone.utc)
+        prepared = None
+        if admission.enabled:
+            try:
+                prepared = prepare_admission(
+                    settings=admission,
+                    workflow=workflow,
+                    version=version,
+                    identity=identity,
+                    source=payload.source,
+                    now=now,
+                    run_tenant_id=tenant_id,
+                )
+            except AdmissionDenied as exc:
+                raise _refuse_admission(session, exc) from exc
         run = CaliberWorkflowRun(
-            workflow_run_id=new_workflow_run_id(),
+            workflow_run_id=prepared.run_id if prepared is not None else new_workflow_run_id(),
+            manifest_legacy=prepared is None,
             workflow_id=workflow.workflow_id,
             project_id=workflow.project_id,
             tenant_id=tenant_id,
@@ -741,6 +799,21 @@ async def create_workflow_run(request: Request) -> JSONResponse:  # noqa: PLR091
             run.runtime_lineage_id = lineage.lineage_id
             session.flush()
 
+        admitted = None
+        if prepared is not None:
+            try:
+                admitted = persist_admission(
+                    session, prepared, run, identity=identity, settings=admission
+                )
+            except AdmissionDenied as exc:
+                raise _refuse_admission(session, exc) from exc
+            run.summary = {
+                **(run.summary or {}),
+                "admitted": True,
+                "manifest_id": admitted.manifest_id,
+            }
+            session.flush()
+
         _append_run_event(
             session,
             workflow_run_id=run.workflow_run_id,
@@ -769,6 +842,17 @@ async def create_workflow_run(request: Request) -> JSONResponse:  # noqa: PLR091
                 "priority": payload.priority,
                 "manifest_mode": manifest_metadata["manifest_mode"],
                 "manifest_hash": manifest_metadata["manifest_hash"],
+                **(
+                    {
+                        "admitted": True,
+                        "grant_id": admitted.grant_id,
+                        "decision_id": admitted.decision_id,
+                        "manifest_id": admitted.manifest_id,
+                        "run_manifest_digest": admitted.manifest_digest,
+                    }
+                    if admitted is not None
+                    else {}
+                ),
             },
         )
         session.commit()
@@ -922,17 +1006,22 @@ async def trigger_workflow_event(request: Request) -> JSONResponse:
                 ),
             )
 
-        run, created = enqueue_workflow_run(
-            session,
-            workflow=workflow,
-            version=version,
-            alias=alias,
-            source="event",
-            actor=actor,
-            input_text=_input_to_text(payload.input),
-            idempotency_key=payload.idempotency_key,
-            publish=lambda evt: _emit_queue_event(request, evt),
-        )
+        try:
+            run, created = enqueue_workflow_run(
+                session,
+                workflow=workflow,
+                version=version,
+                alias=alias,
+                source="event",
+                actor=actor,
+                input_text=_input_to_text(payload.input),
+                idempotency_key=payload.idempotency_key,
+                publish=lambda evt: _emit_queue_event(request, evt),
+                identity=resolve_identity(request),
+                admission=_admission_settings(request),
+            )
+        except AdmissionDenied as exc:
+            raise _refuse_admission(session, exc) from exc
         session.commit()
         data = WorkflowRunSchema.model_validate(run)
     return envelope_response(data, status_code=202 if created else 200)
