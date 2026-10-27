@@ -204,6 +204,7 @@ BACKEND_CORE_TESTS=(
   tests/test_secret_canary.py
   tests/test_observability_logging.py
   tests/test_run_manifest.py
+  tests/test_run_admission.py
   tests/test_policy_principal.py
   tests/test_worker_inventory.py
   tests/test_request_limits.py

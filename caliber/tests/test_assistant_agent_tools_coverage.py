@@ -834,6 +834,44 @@ class TestMutateEdges:
         )
         assert "error" in out and "parent workflow not found" in out["error"]
 
+    def test_run_workflow_is_refused_when_admission_denies_it(self, svc, session_factory) -> None:
+        """B02.2a: with admission on, a workflow outside any project cannot be admitted, so Aria's run is refused
+        and nothing is queued."""
+        from caliber.config import CaliberConfig
+
+        with session_factory() as db:
+            db.add(
+                CaliberWorkflow(
+                    workflow_id="WF-solo",
+                    name="Solo",
+                    owner=USER,
+                    status="active",
+                    visibility="user",
+                    project_id=None,
+                )
+            )
+            db.add(
+                CaliberWorkflowVersion(
+                    version_id="WFV-solo",
+                    workflow_id="WF-solo",
+                    version_number=1,
+                    status="published",
+                    manifest=make_manifest("WF-solo"),
+                    manifest_hash="h",
+                    created_by=USER,
+                )
+            )
+            db.commit()
+        svc._runtime_config = CaliberConfig.model_construct(admission_enabled=True)
+        sid = _session(svc, session_factory)
+        ts = _toolset(svc, session_factory, sid, mode="build", approval="auto_all")
+        out = json.loads(
+            ts.dispatch("run_workflow", {"version_id": "WFV-solo", "input_text": "go"})
+        )
+        assert "error" in out and "not admitted" in out["error"] and "project" in out["error"]
+        with session_factory() as db:
+            assert db.query(CaliberWorkflowRun).count() == 0
+
     def test_approve_draft_is_human_gated(self, svc, session_factory) -> None:
         sid = _session(svc, session_factory)
         ts = _toolset(svc, session_factory, sid, mode="build", approval="auto_all")

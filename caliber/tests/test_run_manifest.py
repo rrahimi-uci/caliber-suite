@@ -847,9 +847,15 @@ def test_a_knowledge_base_pin_must_be_resolved_and_unique() -> None:
             KnowledgeBasePin(kb_id, version)  # type: ignore[arg-type]
     with pytest.raises(ManifestError) as caught:
         _pins(
-            knowledge_base_versions=[KnowledgeBasePin("kb-1", "v7"), KnowledgeBasePin("kb-1", "v8")]
+            knowledge_base_versions=[KnowledgeBasePin("kb-1", "v7"), KnowledgeBasePin("kb-1", "v7")]
         )
     assert caught.value.code == "duplicate_pin"
+    several = _pins(
+        knowledge_base_versions=[KnowledgeBasePin("kb-1", "v8"), KnowledgeBasePin("kb-1", "v7")]
+    )
+    assert [kb.version_id for kb in several.knowledge_base_versions] == ["v7", "v8"], (
+        "one KB, two versions"
+    )
     for bad in ("kb-1", [("kb-1", "v7")], 5):
         with pytest.raises(ManifestError) as typed:
             _pins(knowledge_base_versions=bad)

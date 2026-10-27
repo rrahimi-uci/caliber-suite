@@ -267,10 +267,9 @@ class ResolvedPins:
                 BAD_PIN, "knowledge_base_versions must hold KnowledgeBasePin values"
             )
         ordered = tuple(sorted(kbs, key=lambda kb: (kb.knowledge_base_id, kb.version_id)))
-        if len({kb.knowledge_base_id for kb in ordered}) != len(ordered):
+        if len(set(ordered)) != len(ordered):
             raise ManifestError(
-                DUPLICATE_PIN,
-                "a knowledge base is pinned at two versions (or twice): name exactly one",
+                DUPLICATE_PIN, "a knowledge base version is pinned twice: name each version once"
             )
         set_(self, "knowledge_base_versions", ordered)
 
