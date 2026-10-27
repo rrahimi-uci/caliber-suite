@@ -6,17 +6,21 @@ extra is installed.
 """
 
 from caliber.memory.service import (
+    PARTITION_KEYS,
     MemoryDependencyError,
     MemoryDisabledError,
     MemoryLifecycleUnavailableError,
     MemoryService,
     build_mem0_config,
+    user_namespace,
 )
 
 __all__ = [
+    "PARTITION_KEYS",
     "MemoryDependencyError",
     "MemoryDisabledError",
     "MemoryLifecycleUnavailableError",
     "MemoryService",
     "build_mem0_config",
+    "user_namespace",
 ]

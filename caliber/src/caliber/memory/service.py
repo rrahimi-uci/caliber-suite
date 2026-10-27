@@ -37,6 +37,16 @@ class MemoryDisabledError(RuntimeError):
     """Raised when memory is used while ``CALIBER_MEMORY_ENABLED`` is false."""
 
 
+#: Keys mem0 treats as partitions. They may never ride in free-form ``metadata`` in the reference profile: mem0 keeps
+#: ``metadata`` in the stored payload and filters on those fields, so a write could land in another user's namespace.
+PARTITION_KEYS = frozenset({"user_id", "agent_id", "run_id", "actor_id"})
+
+
+def user_namespace(user_id: str, project_id: str | None = None) -> str:
+    """The reference-profile ``user_id`` partition: the user, qualified by the active project when there is one."""
+    return f"{project_id}:{user_id}" if project_id else user_id
+
+
 class MemoryLifecycleUnavailableError(RuntimeError):
     """The reference profile refuses a durable-memory operation until the owned memory lifecycle exists (M20).
 
@@ -219,6 +229,10 @@ class MemoryService:
         if not scope:
             raise ValueError("at least one of agent_id / user_id / run_id is required")
         self._require_owned(scope)
+        if self._strict and metadata and PARTITION_KEYS & set(metadata):
+            raise MemoryLifecycleUnavailableError(
+                "metadata may not carry partition keys (user_id, agent_id, run_id, actor_id) in the reference profile"
+            )
         use_infer = self._default_infer if infer is None else infer
         if self._strict and use_infer:
             raise MemoryLifecycleUnavailableError(

@@ -105,7 +105,7 @@ def test_safe_config_has_no_violations(app_config: CaliberConfig) -> None:
     assert reference_profile_violations(_config(app_config)) == []
 
 
-def test_eight_violations_in_order(app_config: CaliberConfig) -> None:
+def test_every_violation_in_order(app_config: CaliberConfig) -> None:
     every_unsafe: dict[str, Any] = {}
     for settings, _ in UNSAFE.values():
         every_unsafe.update(settings)

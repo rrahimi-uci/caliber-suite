@@ -132,7 +132,9 @@ def test_a_visible_agent_is_usable_and_the_partition_reaches_mem0_unchanged(
     _agent(db_session, "AG-mine", owner="@notadmin")
     resp = reference_client.post(SEARCH, json={"query": "q", "agent_id": "AG-mine"}, headers=OTHER)
     assert resp.status_code == 200
-    assert mem0.calls == [("search", {"query": "q", "top_k": 10, "agent_id": "AG-mine"})]
+    assert mem0.calls == [
+        ("search", {"query": "q", "top_k": 10, "agent_id": "AG-mine", "user_id": "@notadmin"})
+    ], "the caller's own memory within the agent: user_id is added server-side"
 
 
 def test_a_visible_workflow_is_a_usable_partition(
@@ -160,15 +162,35 @@ def test_a_run_id_must_be_a_visible_run(
     reference_client: TestClient, mem0: _Mem0, db_session: Session
 ) -> None:
     _agent(db_session, "AG-mine", owner="@notadmin")
-    db_session.add(
-        CaliberWorkflowRun(workflow_run_id="RUN-1", workflow_id="WF-x", created_by="@someone-else")
+    db_session.add_all(
+        [
+            CaliberWorkflow(
+                workflow_id="WF-mine", name="mine", owner="@notadmin", visibility="user"
+            ),
+            CaliberWorkflow(
+                workflow_id="WF-theirs", name="theirs", owner="@someone-else", visibility="user"
+            ),
+            CaliberWorkflowRun(workflow_run_id="RUN-mine", workflow_id="WF-mine"),
+            CaliberWorkflowRun(workflow_run_id="RUN-theirs", workflow_id="WF-theirs"),
+        ]
     )
     db_session.commit()
-    resp = reference_client.get(
-        BASE, params={"agent_id": "AG-mine", "run_id": "RUN-ghost"}, headers=OTHER
-    )
-    assert resp.status_code == 404 and resp.json()["detail"] == NOT_FOUND
+    for run_id in ("RUN-ghost", "RUN-theirs"):
+        resp = reference_client.get(
+            BASE, params={"agent_id": "AG-mine", "run_id": run_id}, headers=OTHER
+        )
+        assert resp.status_code == 404 and resp.json()["detail"] == NOT_FOUND, run_id
     assert mem0.calls == []
+    ok = reference_client.get(
+        BASE, params={"agent_id": "AG-mine", "run_id": "RUN-mine"}, headers=OTHER
+    )
+    assert ok.status_code == 200
+    assert mem0.calls == [
+        (
+            "get_all",
+            {"top_k": 50, "agent_id": "AG-mine", "run_id": "RUN-mine", "user_id": "@notadmin"},
+        )
+    ]
 
 
 def test_a_run_id_alone_is_not_a_partition(reference_client: TestClient, mem0: _Mem0) -> None:
@@ -186,12 +208,91 @@ def test_a_request_that_names_no_partition_acts_on_the_callers_own(
 ) -> None:
     assert reference_client.post(SEARCH, json={"query": "q"}, headers=OTHER).status_code == 200
     assert reference_client.get(BASE, headers=OTHER).status_code == 200
-    assert reference_client.post(
-        BASE, json={"text": "remember", "infer": False}, headers={"X-CALIBER-User": "@notadmin"}
-    ).status_code in (201, 403)
-    searched = [c for c in mem0.calls if c[0] in {"search", "get_all"}]
-    assert all(call[1]["user_id"] == "@notadmin" for call in searched)
-    assert len(searched) == 2
+    written = reference_client.post(BASE, json={"text": "remember", "infer": False})
+    assert written.status_code == 201
+    assert [(name, call["user_id"]) for name, call in mem0.calls] == [
+        ("search", "@notadmin"),
+        ("get_all", "@notadmin"),
+        ("add", "@test"),
+    ]
+    assert all("agent_id" not in call for _, call in mem0.calls)
+
+
+def test_the_bare_user_namespace_is_qualified_by_the_active_project(
+    reference_client: TestClient, mem0: _Mem0, db_session: Session
+) -> None:
+    """One user's own notes in project A are not the notes in project B."""
+    from caliber.db.models import CaliberProject, CaliberProjectMember
+
+    for project in ("P-a", "P-b"):
+        db_session.add(
+            CaliberProject(project_id=project, name=f"Project {project}", owner="@test")
+        )
+        db_session.add(
+            CaliberProjectMember(
+                member_id=f"M-{project}",
+                project_id=project,
+                user_id="@notadmin",
+                role="editor",
+                created_by="@test",
+            )
+        )
+    db_session.commit()
+    for project in ("P-a", "P-b"):
+        resp = reference_client.post(
+            SEARCH, json={"query": "q"}, headers={**OTHER, "X-CALIBER-Project": project}
+        )
+        assert resp.status_code == 200, resp.text
+    reached = [call["user_id"] for name, call in mem0.calls if name == "search"]
+    assert reached == ["P-a:@notadmin", "P-b:@notadmin"]
+
+
+def test_a_client_never_chooses_whose_memory_a_write_lands_in(
+    reference_client: TestClient, mem0: _Mem0, db_session: Session
+) -> None:
+    _agent(db_session, "AG-mine", owner="@someone", visibility="project")
+    for metadata in (
+        {"user_id": "@victim"},
+        {"run_id": "RUN-x"},
+        {"agent_id": "AG-other"},
+        {"actor_id": "@victim", "note": "x"},
+    ):
+        resp = reference_client.post(
+            BASE,
+            json={"text": "planted", "agent_id": "AG-mine", "infer": False, "metadata": metadata},
+        )
+        assert resp.status_code == 400, metadata
+        assert "partition keys" in resp.json()["detail"]
+    assert mem0.calls == []
+    ok = reference_client.post(
+        BASE,
+        json={
+            "text": "fine",
+            "agent_id": "AG-mine",
+            "infer": False,
+            "metadata": {"topic": "color"},
+        },
+    )
+    assert ok.status_code == 201
+
+
+@pytest.mark.parametrize("bad", [["@victim"], 5, "", "   ", {"a": 1}, True])
+def test_a_malformed_scope_value_is_a_400_not_a_silent_fallback(
+    reference_client: TestClient, mem0: _Mem0, bad: Any
+) -> None:
+    for key in ("user_id", "agent_id", "run_id"):
+        resp = reference_client.post(SEARCH, json={"query": "q", key: bad})
+        assert resp.status_code == 400, (key, bad)
+        assert key in resp.json()["detail"]
+    assert mem0.calls == []
+
+
+def test_top_k_is_capped_in_the_reference_profile(
+    reference_client: TestClient, mem0: _Mem0
+) -> None:
+    assert reference_client.post(SEARCH, json={"query": "q", "top_k": 10**9}).status_code == 200
+    assert reference_client.get(BASE, params={"top_k": "999999"}).status_code == 200
+    assert [call["top_k"] for _, call in mem0.calls] == [100, 100]
 
 
 def test_user_id_must_be_the_callers_own_even_for_an_admin(
@@ -225,11 +326,21 @@ def test_bulk_deletion_is_unavailable_until_the_lifecycle_exists(
     assert mem0.calls == [], "no delete reached mem0"
 
 
+def test_the_route_refuses_deletion_before_it_looks_at_the_partition(
+    reference_client: TestClient, mem0: _Mem0
+) -> None:
+    """Pins the route's own refusal (and its order): a free-form partition is a 403 here, not a 404."""
+    resp = reference_client.request("DELETE", BASE, json={"agent_id": "free-label"})
+    assert resp.status_code == 403
+    assert resp.json()["detail"].startswith("memory deletion is unavailable")
+    assert mem0.calls == []
+
+
 @pytest.mark.parametrize("body", [{}, {"infer": True}])
 def test_a_write_must_ask_for_verbatim_storage(
     reference_client: TestClient, mem0: _Mem0, db_session: Session, body: dict[str, Any]
 ) -> None:
-    _agent(db_session, "AG-mine", owner="@admin-user")
+    _agent(db_session, "AG-mine", owner="@test")
     resp = reference_client.post(BASE, json={"text": "remember", "agent_id": "AG-mine", **body})
     assert resp.status_code == 403
     assert "infer=false" in resp.json()["detail"]
@@ -245,7 +356,16 @@ def test_a_verbatim_write_to_a_visible_partition_is_stored(
     )
     assert resp.status_code == 201
     assert mem0.calls == [
-        ("add", {"text": "remember", "metadata": None, "infer": False, "agent_id": "AG-mine"})
+        (
+            "add",
+            {
+                "text": "remember",
+                "metadata": None,
+                "infer": False,
+                "agent_id": "AG-mine",
+                "user_id": "@test",
+            },
+        )
     ]
 
 
@@ -273,6 +393,7 @@ def test_the_strict_service_refuses_what_the_route_refuses_without_touching_mem0
         lambda: service.get_all(run_id="RUN-1"),
         lambda: service.add("x", run_id="RUN-1", infer=False),
         lambda: service.list_entities(run_id="RUN-1"),
+        lambda: service.add("x", agent_id="AG", infer=False, metadata={"user_id": "@victim"}),
     ):
         with pytest.raises(MemoryLifecycleUnavailableError):
             call()
@@ -306,8 +427,6 @@ def test_the_service_is_strict_exactly_when_the_profile_is_reference(
     import sys
     import types
 
-    captured: dict[str, Any] = {}
-
     class _Memory:
         @staticmethod
         def from_config(_config: Any) -> _Mem0:
@@ -319,30 +438,48 @@ def test_the_service_is_strict_exactly_when_the_profile_is_reference(
             update={"profile": profile, "memory_enabled": True, "memory_infer": False}
         )
         service = MemoryService.from_config(config)
-        captured[profile] = service._strict
         assert service._strict is expect
 
 
-def test_in_run_memory_tools_go_through_the_strict_service(
+def test_in_run_memory_tools_are_the_run_initiators_memory_within_the_workflow(
     app_config: CaliberConfig, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The tools build the service themselves, so the rule has to live in it: a run-only scope is refused."""
+    """The tools build the service themselves, so the owner is bound server-side: the model never supplies it,
+    and a run with no initiator gets no memory tools at all."""
     fake = _Mem0()
     monkeypatch.setattr(
         MemoryService, "from_config", classmethod(lambda cls, config: _strict_service(fake))
     )
     config = app_config.model_copy(update={"profile": "reference", "memory_enabled": True})
-    tools = bind_run_memory_tools(config, agent_id="WF-1", run_id="RUN-1")
+    tools = bind_run_memory_tools(config, agent_id="WF-1", run_id="RUN-1", user_id="@alice")
     assert tools["memory_search"]("q")["count"] == 0
     assert tools["memory_add"]("remember this")["added"] is True
-    assert [name for name, _ in fake.calls] == ["search", "add"]
-    assert fake.calls[1][1]["infer"] is False and fake.calls[1][1]["agent_id"] == "WF-1"
-    fake.calls.clear()
-    monkeypatch.setattr(
-        MemoryService, "from_config", classmethod(lambda cls, config: _strict_service(fake))
+    assert tools["memory_list"]({})["count"] == 0
+    assert tools["list_entities"]({})["count"] == 0
+    assert [name for name, _ in fake.calls] == ["search", "add", "get_all", "entities"]
+    for _, call in fake.calls:
+        owner = call.get("filters", call)
+        assert owner["agent_id"] == "WF-1" and owner["user_id"] == "@alice"
+    assert fake.calls[1][1]["infer"] is False
+    assert bind_run_memory_tools(config, agent_id="WF-1", run_id="RUN-1") == {}, (
+        "no initiator, no tools"
     )
-    run_only = bind_run_memory_tools(config, agent_id=None, run_id="RUN-1")
-    assert run_only == {}, "no agent scope, no tools"
+    assert bind_run_memory_tools(config, agent_id=None, run_id="RUN-1", user_id="@alice") == {}
+
+
+def test_development_tools_keep_the_workflow_wide_partition(
+    app_config: CaliberConfig, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    fake = _Mem0()
+    monkeypatch.setattr(
+        MemoryService,
+        "from_config",
+        classmethod(lambda cls, config: _strict_service(fake, strict=False)),
+    )
+    config = app_config.model_copy(update={"memory_enabled": True})
+    tools = bind_run_memory_tools(config, agent_id="WF-1", user_id="@alice")
+    tools["memory_search"]("q")
+    assert "user_id" not in fake.calls[0][1]
 
 
 def test_a_lifecycle_refusal_from_the_service_is_a_403_not_a_502(
