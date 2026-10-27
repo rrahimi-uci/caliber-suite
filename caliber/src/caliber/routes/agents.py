@@ -45,10 +45,10 @@ from caliber.db.models import (
     CaliberVerificationItem,
 )
 from caliber.db.scoping import apply_visibility_filter, get_visible
+from caliber.observability.experiment_registry import claim_for_writer
 from caliber.observability.trace_access import (
     ExperimentClaimConflict,
     ExperimentLookupError,
-    assert_experiment_claim_allowed,
 )
 from caliber.prompt_targets import is_hidden_prompt_target
 from caliber.resource_access import require_project_access_if_scoped
@@ -181,24 +181,6 @@ async def register_agent(request: Request) -> JSONResponse:
                 ),
             )
 
-        # A workflow of another project may already claim this experiment as its default; the
-        # agent table's own uniqueness cannot see that, and an experiment decides who sees traces.
-        try:
-            assert_experiment_claim_allowed(
-                session,
-                payload.experiment_id,
-                visibility="project" if identity.active_project_id else "user",
-                project_id=identity.active_project_id,
-                owner=actor,
-            )
-        except ExperimentClaimConflict as exc:
-            raise HTTPException(status_code=409, detail=str(exc)) from exc
-        except ExperimentLookupError as exc:
-            raise HTTPException(
-                status_code=503,
-                detail=f"the experiment could not be resolved, so it was not claimed: {exc}",
-            ) from exc
-
         # `resource.write.runtime`, composed with the `SCOPE_OPERATOR`
         # global-scope floor above -- the same project-role check every other
         # runtime family's create route already uses (P2 isolation closure),
@@ -207,6 +189,27 @@ async def register_agent(request: Request) -> JSONResponse:
         require_project_access_if_scoped(
             session, identity, identity.active_project_id, "resource.write.runtime"
         )
+
+        # After the project check: a caller who may not write here must not cause an experiment to be created.
+        # A workflow of another project may already claim this experiment as its default; the
+        # agent table's own uniqueness cannot see that, and an experiment decides who sees traces.
+        try:
+            claim_for_writer(
+                session,
+                payload.experiment_id,
+                visibility="project" if identity.active_project_id else "user",
+                project_id=identity.active_project_id,
+                owner=actor,
+                reference_profile=request.app.state.config.profile == "reference",
+                is_admin=identity.has_scope(SCOPE_ADMIN),
+            )
+        except ExperimentClaimConflict as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        except ExperimentLookupError as exc:
+            raise HTTPException(
+                status_code=503,
+                detail=f"the experiment could not be resolved, so it was not claimed: {exc}",
+            ) from exc
 
         agent = CaliberAgentConfig(
             agent_id=payload.agent_id,

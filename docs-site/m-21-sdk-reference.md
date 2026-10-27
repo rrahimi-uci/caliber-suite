@@ -10330,6 +10330,44 @@ This callable takes no public parameters.
 - [`CaliberAPIError`](#caliberapierror)
 - [`CaliberTransportError`](#calibertransporterror)
 
+###### `migrate_experiment_claims() -> dict[str, Any]`
+
+Register every experiment claim that predates the owner registry (admin only).
+
+Returns ``{"registered", "quarantined", "skipped_existing", "mismatched", "unresolved"}``
+lists. An
+experiment claimed by two or more projects or users is quarantined with no owner; resolve it
+with :meth:`resolve_experiment_conflict`.
+
+This callable takes no public parameters.
+
+**Returns:** `dict[str, Any]`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `resolve_experiment_conflict(experiment: str, *, owner_kind: str, owner_id: str = '') -> dict[str, Any]`
+
+Record who owns a quarantined experiment (admin only).
+
+``owner_kind`` is ``project``, ``user`` or ``public`` (``owner_id`` names the project or
+user). The decision is attributed and audited.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `experiment` | positional-or-keyword | `str` | `—` |
+| `owner_kind` | keyword-only | `str` | `—` |
+| `owner_id` | keyword-only | `str` | `''` |
+
+**Returns:** `dict[str, Any]`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
 ###### `metrics(**params) -> Any`
 
 Operate on the observability traces and metrics surface with the supplied arguments and return the server response.

@@ -51,7 +51,10 @@ _EXPECTED_COUNTS = {
     # +1 (`B03.3`): CaliberPolicyDecision is immutable evidence keyed by run/grant ids
     # (no foreign keys: a decision about an unknown grant is still evidence) --
     # unscoped by design; its access is through the run and grant it names.
-    SCOPING_UNSCOPED: 52,
+    # +1 (`B11.registry`): CaliberExperimentOwner is the system registry of who owns an MLflow experiment
+    # (scope_kind/scope_id name the owner); it is read through experiment_registry and the admin routes only,
+    # never listed to callers -- unscoped by design.
+    SCOPING_UNSCOPED: 53,
     # -1 (`P1-E`): CaliberPersonalAccessToken gained project_id (optional
     # PAT project binding) and moves from owned_catalog to project_only --
     # see below.

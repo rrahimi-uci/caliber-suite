@@ -210,21 +210,28 @@ built = build_run_manifest(
 )
 ```
 
-- **Resolved, never named.** Every pin is the concrete value the run will use. A floating selector (`latest`,
-  `current`, `head`, `default`, `*`, or `name@latest`) is `unresolved_pin`; a prompt, tool or skill pin is
-  `<name>@<version>`; `bundle_digest` is a full lowercase SHA-256. Lists are sorted and may not repeat
+- **Resolved, never named.** Every pin must be the concrete value the run will use, and resolving it is the
+  caller's duty: the builder cannot see the database, so it rejects what it can *recognise* as a moving target. After
+  Unicode (NFKC) folding, a segment that is a floating word (`latest`, `current`, `head`, `default`, `stable`, `main`,
+  `master`, `nightly`, ... as in `v-latest` or `gpt-4o-latest`), a wildcard version segment (`1.x`) or a range or
+  wildcard character (`*`, `^`, `>=`, `${...}`) is `unresolved_pin`; a prompt, tool or skill pin is exactly
+  `<name>@<version>` and only the version is checked; `bundle_digest` is a full lowercase SHA-256. Strings must be
+  NFC, at most 512 characters (64 for the manifest and run ids), and lists at most 256 entries. Lists are sorted and may not repeat
   (`duplicate_pin`), so the order of resolution never changes the digest. A manifest is never filled in later.
 - **Fixed scope.** `DeploymentScope` carries organization (`tenant_id`), project, region and residency, all
-  server-derived (`local` in the reference profile, ADR 0001). A caller that names another organization is
+  server-derived and **enforced**: the builder refuses (`bad_scope`) a scope whose organization, region or residency
+  is not the deployment's (`local` in the reference profile, ADR 0001). A caller that names another organization is
   `organization_switch`; a subject acting in another project than the run's scope is `project_mismatch`. The
   manifest records `project_id` (optional in the v1 schema, absent for a run outside any project).
 - **Rule bundle.** When rule bundles are enabled the bundle is loaded and verified first (`pin_rule_bundle`, #726): a
   missing, oversized, changed or malformed file is `rule_bundle_refused` and no manifest is built; a verified bundle's
-  path and SHA-256 are recorded. Enabled without one is `rule_bundle_required`; one given while disabled is
+  absolute path and SHA-256 are recorded (make one `PinnedRuleBundle` per admission: it is a snapshot, not a handle on the file). Enabled without one is `rule_bundle_required`; one given while disabled is
   `rule_bundle_unexpected`. The digest in the manifest is the digest of the bytes that were verified, so editing the
   file afterwards changes nothing about this run (the context code re-verifies the bytes when it uses them, #736).
 - **The digest excludes itself.** `manifest_digest` is the SHA-256 of the canonical bytes (sorted keys, no
   whitespace, UTF-8, no `NaN`); the record carries no digest field.
+- **Self-consistent result.** `BuiltManifest` re-reads its own bytes on construction (digest, schema, UTF-8, no
+  duplicate key or lone surrogate), so bytes and digest cannot disagree; `row_values()` includes `created_at`.
 - **Strict writer, tolerant reader.** The builder is stricter than the v1 schema (which takes any non-empty string),
   so records written before it still validate and `read_manifest(bytes, digest)` still reads them.
 
@@ -321,6 +328,46 @@ and an expiry that is not in the future.
 
 This task stores and checks grants; it makes no policy decision and records none (B03.3 and B03.5). A rollback
 (`caliber-migrate downgrade 0114`) drops the table and therefore the grants, never the runs.
+
+## Experiment ownership
+
+In the reference profile CALIBER, not the first editor, decides who owns an MLflow experiment
+(`caliber/src/caliber/observability/experiment_registry.py`; B11.registry, #665; migration `0118`, table
+`caliber_experiment_owners`, keyed by the tracking backend and the canonical experiment id). Registering an agent,
+creating or updating a workflow, or publishing from the assistant with an experiment reference:
+
+- creates the experiment server-side, tagged with its owner, when it does not exist (`provenance=created`);
+- refuses an experiment that already exists but nobody registered (`409`), unless an administrator is registering
+  it, who may adopt it (`provenance=adopted`); and refuses a numeric id that names no experiment;
+- refuses an experiment another project or user owns (`409`), whichever alias (name or id) is used, even when two
+  requests race (the primary key admits one row);
+- fails closed (`503`) when the tracking backend cannot answer, and registers nothing.
+
+The authorization check (project write access) runs *before* the claim, so a request that is refused creates
+nothing. The registry row shares the request's database transaction (a rollback leaves no owner), but the MLflow
+experiment does not: if a request fails after CALIBER created the experiment, the experiment stays, carrying the tags
+CALIBER wrote (`caliber.owner_kind`, `caliber.owner_id`, `caliber.created_by`). The scope those tags name may register
+it on retry; nobody else may (an experiment without those tags is an existing one, refused as above). MLflow's own
+API is not scoped, so anyone who can reach it can still create or tag experiments directly.
+
+For data from before the registry, an administrator runs `POST /observability/experiment-claims/migrate` once: an
+experiment claimed by exactly one scope becomes that scope's, one claimed by two or more is quarantined, and the
+report lists `registered`, `quarantined`, `skipped_existing`, `mismatched` (already registered, but a legacy claim
+names another scope too) and `unresolved`. It is safe to run again, and to run twice at once. Each quarantine is
+settled with `POST /observability/experiment-claim-conflicts/resolve` (the owner is a project that exists, a user, or
+`public` with no id; one administrator wins a race, the other gets `404`). A resolved experiment is visible to its
+owner (under any alias it wrote, and without any text claim) and hidden from the losing scope even though that scope's
+old agent or workflow claim still names it; it no longer appears in the conflicts listing. The SDK has
+`migrate_experiment_claims()` and `resolve_experiment_conflict()`. Details of aliases, quarantine and visibility are in
+the [observability architecture](m-09-observability.md). Development keeps the earlier behaviour: an
+unregistered experiment goes to whoever binds it first, and a name that resolves to nothing stays a plain reference.
+
+Known limits: the registry's key includes the tracking backend's URI (credentials and query dropped, scheme and host
+lower-cased, trailing slash removed), so repointing CALIBER at another server starts a new registry and a default
+per-directory `file:` store differs by working directory; use a tracking server. Fleet, prompt-target and
+skill-target agents that CALIBER names itself are not registered until an administrator runs the migration. There is
+no release or transfer path: deleting the agent or workflow does not free the experiment (an administrator cannot
+reassign an *active* owner yet).
 
 ## The execution-owner lease
 

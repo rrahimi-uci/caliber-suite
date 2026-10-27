@@ -2285,6 +2285,45 @@ class CaliberPolicyDecision(Base):
 guard_immutable(CaliberPolicyDecision)
 
 
+class CaliberExperimentOwner(Base):
+    """Who owns one tracking-backend experiment: the shared, exclusive registry behind agent and workflow claims (B11.registry, #665).
+
+    Keyed by ``(tracking_backend, experiment_id)`` where ``experiment_id`` is the **canonical** id the backend
+    assigned, never the name or alias a claim was written with, so a name and an id (or two names) that mean one
+    experiment are one row. The primary key is the exclusivity: two projects racing to claim the same experiment
+    cannot both insert. ``provenance`` says how the first claim was made: ``created`` (CALIBER created the experiment
+    server-side for the owner), ``adopted`` (an existing experiment taken by an administrator, or by anyone outside
+    the reference profile) or ``legacy`` (migrated from a claim that predates the registry). A legacy experiment
+    claimed by two scopes is ``quarantined`` with no owner: nobody sees its traces until an administrator decides.
+    """
+
+    __tablename__ = "caliber_experiment_owners"
+    __table_args__ = (
+        CheckConstraint("status IN ('active', 'quarantined')", name="ck_experiment_owner_status"),
+        CheckConstraint(
+            "provenance IN ('created', 'adopted', 'legacy', 'resolved')",
+            name="ck_experiment_owner_provenance",
+        ),
+        CheckConstraint(
+            "(status = 'active' AND ((scope_kind IN ('project', 'user') AND scope_id <> '') OR "
+            "(scope_kind = 'public' AND scope_id = ''))) OR "
+            "(status = 'quarantined' AND scope_kind = '' AND scope_id = '')",
+            name="ck_experiment_owner_scope",
+        ),
+    )
+
+    tracking_backend: Mapped[str] = mapped_column(String(512), primary_key=True)
+    experiment_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    scope_kind: Mapped[str] = mapped_column(String(16))
+    scope_id: Mapped[str] = mapped_column(String(256))
+    status: Mapped[str] = mapped_column(String(16), default="active")
+    provenance: Mapped[str] = mapped_column(String(16))
+    claimed_by: Mapped[str] = mapped_column(String(256))
+    claimed_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    resolved_by: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+
 class CaliberExecutionOwner(Base):
     """The single-owner lease for a named execution role (B13.2, #668; ``caliber.ownership``).
 

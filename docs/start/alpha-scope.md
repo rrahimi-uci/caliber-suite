@@ -155,8 +155,8 @@ These are real and deliberate for the alpha. Read them before you rely on the pr
   guessed, and trace reads answer 503 while a claim cannot be resolved. An experiment that two projects
   already claim from before this check is hidden from everyone but an admin until an operator removes
   one of the claims (`GET /observability/experiment-claim-conflicts`, admin only). One that nobody has
-  bound yet goes to whoever binds it first; proving ownership needs CALIBER to create the experiment,
-  which is planned work. **MLflow's own UI and API run on the same server and are not
+  bound yet goes to whoever binds it first, except in the reference profile, where CALIBER creates the
+  experiment and records its owner (the owner registry, `docs/operate/reference-profile.md`). **MLflow's own UI and API run on the same server and are not
   scoped**: anyone who can reach the MLflow port can read every project's traces, so keep it off a
   network shared with people who must not. Do not put sensitive data in traces on a shared alpha
   deployment.

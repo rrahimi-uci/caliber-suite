@@ -22,7 +22,7 @@ def _project_identity() -> CaliberIdentity:
 
 @pytest.fixture
 def publisher() -> AssistantPublisher:
-    return AssistantPublisher()
+    return AssistantPublisher(reference_profile=False)
 
 
 class TestPublishTool:
