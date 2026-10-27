@@ -1,0 +1,594 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://caliber.dev/schemas/context_manifest.v1.json",
+  "title": "ContextManifest: the ordered, labelled context one agent step was given",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "context_manifest_id",
+    "workflow_run_id",
+    "step_request_id",
+    "revision",
+    "tenant_id",
+    "region",
+    "segments",
+    "token_allocation",
+    "created_at"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "v1"
+    },
+    "context_manifest_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64
+    },
+    "workflow_run_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64
+    },
+    "step_request_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "revision": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "tenant_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "region": {
+      "type": "string",
+      "minLength": 1
+    },
+    "residency": {
+      "type": "string",
+      "minLength": 1,
+      "default": "local"
+    },
+    "project_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "segments": {
+      "type": "array",
+      "maxItems": 512,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "position",
+          "tier",
+          "kind",
+          "source",
+          "content_digest",
+          "tokens"
+        ],
+        "properties": {
+          "position": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "tier": {
+            "enum": [
+              "instruction",
+              "data"
+            ]
+          },
+          "kind": {
+            "enum": [
+              "system_instruction",
+              "workflow_instruction",
+              "user_input",
+              "retrieved_text",
+              "tool_output",
+              "history",
+              "memory"
+            ]
+          },
+          "source": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "enum": [
+                  "prompt",
+                  "input",
+                  "knowledge_base",
+                  "tool",
+                  "memory",
+                  "history"
+                ]
+              },
+              "knowledge_base_id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 64
+              },
+              "version_id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 64
+              },
+              "reference": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 256
+              }
+            }
+          },
+          "content_digest": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "tokens": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "retrieval": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "mode"
+            ],
+            "properties": {
+              "mode": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 64
+              },
+              "index_version": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 64
+              }
+            }
+          },
+          "transform": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "name",
+              "version"
+            ],
+            "properties": {
+              "name": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 128
+              },
+              "version": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 64
+              }
+            }
+          },
+          "authorization_decision_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          }
+        },
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "tier": {
+                  "const": "instruction"
+                }
+              },
+              "required": [
+                "tier"
+              ]
+            },
+            "then": {
+              "properties": {
+                "kind": {
+                  "enum": [
+                    "system_instruction",
+                    "workflow_instruction"
+                  ]
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "kind": {
+                  "enum": [
+                    "system_instruction",
+                    "workflow_instruction"
+                  ]
+                }
+              },
+              "required": [
+                "kind"
+              ]
+            },
+            "then": {
+              "properties": {
+                "tier": {
+                  "const": "instruction"
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "kind": {
+                  "const": "retrieved_text"
+                }
+              },
+              "required": [
+                "kind"
+              ]
+            },
+            "then": {
+              "required": [
+                "authorization_decision_id",
+                "retrieval"
+              ],
+              "properties": {
+                "tier": {
+                  "const": "data"
+                },
+                "source": {
+                  "properties": {
+                    "kind": {
+                      "const": "knowledge_base"
+                    }
+                  },
+                  "required": [
+                    "knowledge_base_id",
+                    "version_id"
+                  ]
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "kind": {
+                  "enum": [
+                    "system_instruction",
+                    "workflow_instruction"
+                  ]
+                }
+              },
+              "required": [
+                "kind"
+              ]
+            },
+            "then": {
+              "properties": {
+                "source": {
+                  "properties": {
+                    "kind": {
+                      "const": "prompt"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "kind": {
+                  "const": "user_input"
+                }
+              },
+              "required": [
+                "kind"
+              ]
+            },
+            "then": {
+              "properties": {
+                "source": {
+                  "properties": {
+                    "kind": {
+                      "const": "input"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "kind": {
+                  "const": "tool_output"
+                }
+              },
+              "required": [
+                "kind"
+              ]
+            },
+            "then": {
+              "properties": {
+                "source": {
+                  "properties": {
+                    "kind": {
+                      "const": "tool"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "kind": {
+                  "const": "history"
+                }
+              },
+              "required": [
+                "kind"
+              ]
+            },
+            "then": {
+              "properties": {
+                "source": {
+                  "properties": {
+                    "kind": {
+                      "const": "history"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "kind": {
+                  "const": "memory"
+                }
+              },
+              "required": [
+                "kind"
+              ]
+            },
+            "then": {
+              "properties": {
+                "source": {
+                  "properties": {
+                    "kind": {
+                      "const": "memory"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "kind": {
+                  "const": "memory"
+                }
+              },
+              "required": [
+                "kind"
+              ]
+            },
+            "then": {
+              "required": [
+                "authorization_decision_id"
+              ],
+              "properties": {
+                "source": {
+                  "required": [
+                    "reference"
+                  ]
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "source": {
+                  "properties": {
+                    "kind": {
+                      "const": "knowledge_base"
+                    }
+                  },
+                  "required": [
+                    "kind"
+                  ]
+                }
+              },
+              "required": [
+                "source"
+              ]
+            },
+            "then": {
+              "required": [
+                "authorization_decision_id"
+              ],
+              "properties": {
+                "source": {
+                  "required": [
+                    "knowledge_base_id",
+                    "version_id"
+                  ]
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "source": {
+                  "properties": {
+                    "kind": {
+                      "const": "prompt"
+                    }
+                  },
+                  "required": [
+                    "kind"
+                  ]
+                }
+              },
+              "required": [
+                "source"
+              ]
+            },
+            "then": {
+              "properties": {
+                "source": {
+                  "required": [
+                    "reference"
+                  ]
+                }
+              }
+            }
+          }
+        ]
+      },
+      "minItems": 1
+    },
+    "omitted": {
+      "type": "array",
+      "maxItems": 512,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "source",
+          "reason"
+        ],
+        "properties": {
+          "source": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "enum": [
+                  "prompt",
+                  "input",
+                  "knowledge_base",
+                  "tool",
+                  "memory",
+                  "history"
+                ]
+              },
+              "knowledge_base_id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 64
+              },
+              "version_id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 64
+              },
+              "reference": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 256
+              }
+            }
+          },
+          "reason": {
+            "enum": [
+              "token_budget",
+              "unauthorized",
+              "redacted",
+              "filtered",
+              "duplicate"
+            ]
+          },
+          "tokens": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      }
+    },
+    "redacted": {
+      "type": "array",
+      "maxItems": 512,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "position",
+          "reason"
+        ],
+        "properties": {
+          "position": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "fields": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "maxItems": 64
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          }
+        }
+      }
+    },
+    "token_allocation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "budget",
+        "used",
+        "instruction",
+        "data"
+      ],
+      "properties": {
+        "budget": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "used": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "instruction": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "data": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^\\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\\d|3[01])T([01]\\d|2[0-3]):[0-5]\\d:([0-5]\\d|60)(\\.\\d+)?(Z|[+-]([01]\\d|2[0-3]):[0-5]\\d)\\Z"
+    }
+  }
+}

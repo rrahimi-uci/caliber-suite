@@ -208,6 +208,7 @@ BACKEND_CORE_TESTS=(
   tests/test_event_outbox.py
   tests/test_context_sources.py
   tests/test_context_authorize.py
+  tests/test_context_manifest.py
   tests/test_run_pins.py
   tests/test_run_identity.py
   tests/test_policy_principal.py
@@ -274,6 +275,7 @@ job_migration_parity_postgres() {
         tests/test_trace_experiment_ownership.py \
         tests/test_event_outbox.py \
         tests/test_context_sources.py \
+        tests/test_context_manifest.py \
         -k postgresql --no-cov -q
     status=$?
   fi

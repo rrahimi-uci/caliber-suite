@@ -768,6 +768,43 @@ Legacy runs have no guard. **Not covered, tracked in #973:** preview runs, evalu
 calibration, the assistant's knowledge tools, runtime export and `knowledge_build` nodes still read knowledge-base
 bytes without this check, and cron and service-token runs are not admitted (#958).
 
+## The context manifest
+
+What an agent step is given is recorded before the provider sees it (B07.3a, #704): `caliber.context.manifest` builds a
+`context_manifest` v1 record (ADR 0003) and stores it once in `caliber_context_manifests`, as canonical JSON with its
+SHA-256 (the record has no digest field: the digest excludes itself), unique per `(run, step request, revision)`.
+Re-assembling a step is a new revision, never an edit; a revision that skips ahead or repeats is refused. UPDATE and
+DELETE are refused by database triggers and by the ORM (and, as for run manifests, run the application as a role without
+those privileges).
+
+A manifest lists the **segments** in the order the provider sees them (`position` equals the index), each with (a segment's
+`kind` must match its source: a knowledge base's text can only be `retrieved_text`, an instruction can only come from a prompt):
+
+- a **trust tier**: `instruction` only for a system or workflow instruction (and every one is); everything else, the
+  user's input, **retrieved text**, tool output, history and memory, is `data`. Text a source contains can never be
+  promoted to an instruction by being retrieved;
+- its **source** (prompt, input, knowledge-base version, tool, memory, history), the **retrieval** and **transform** that
+  produced it, and the digest of its content (the content is not stored in the manifest);
+- for payload loaded from a knowledge base or memory, the **authorization decision id** of the recorded `context.read` allow
+  that let it be loaded: a segment without one is refused (`unauthorized_payload`), and storing the manifest checks each
+  id against the recorded decision (an allow, of that action, for this run, of that exact source: `knowledge_base:<kb>@<version>`
+  or `memory:<reference>`, decided no later than the manifest). A decision authorizes a read, not a step, so any step of its
+  run may cite it;
+- the **omitted** and **redacted** items and the **token allocation** (`budget`, `used`, `instruction`, `data`; `used`
+  is the sum of the segments and may not exceed the budget).
+
+Storing also checks that the run exists and that the record's scope and project are the deployment's and the run's, and
+stores only canonical bytes. `content_digest` is a plain SHA-256 of the content, so a short, guessable value (a yes/no, an
+id) can be confirmed offline by anyone who can read the manifest: treat the record as evidence for the project's members and
+platform administrators, and do not expose it more widely without a keyed digest.
+
+Reading a manifest back (`read_context_manifest`) re-checks the digest, the schema (an unknown `schema_version` is
+`unknown_version`, never read as the nearest) and every rule above, so a reordered or relabelled record is caught twice,
+by its digest and by its positions. Refusals carry a stable code: `invalid_manifest`, `unknown_version`, `tier_violation`,
+`unauthorized_payload`, `ordering`, `tokens`, `authorization_rejected`, `duplicate_revision`, `revision_gap`. Nothing here
+talks to a provider and nothing creates manifests during a run yet: wiring creation into the runtime's context assembly
+is B07.3b (#710), and B08 consumes the record.
+
 ## Policy decisions
 
 `caliber.policy.decisions.decide(...)` (B03.3, #671; migration `0117`, table `caliber_policy_decisions`) answers "may

@@ -54,7 +54,10 @@ _EXPECTED_COUNTS = {
     # +1 (`B11.registry`): CaliberExperimentOwner is the system registry of who owns an MLflow experiment
     # (scope_kind/scope_id name the owner); it is read through experiment_registry and the admin routes only,
     # never listed to callers -- unscoped by design.
-    SCOPING_UNSCOPED: 54,
+    # +1 (`B07.3a`): CaliberContextManifest is a write-once child of a workflow run (FK `workflow_run_id`) and carries
+    # no project column of its own, like its sibling CaliberRunManifest: the run supplies the project boundary, and
+    # the record names the project in its canonical bytes. Confirmed by direct look; no route lists it.
+    SCOPING_UNSCOPED: 55,
     # -1 (`P1-E`): CaliberPersonalAccessToken gained project_id (optional
     # PAT project binding) and moves from owned_catalog to project_only --
     # see below.
