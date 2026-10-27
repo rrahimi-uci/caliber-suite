@@ -162,16 +162,24 @@ def bind_run_memory_tools(
     agent_id: str | None,
     run_id: str | None = None,
     top_k: int = _DEFAULT_TOP_K,
+    user_id: str | None = None,
 ) -> dict[str, Callable[..., Any]]:
     """Return memory tool closures bound to a run scope.
 
     Returns ``{}`` when memory is disabled or ``agent_id`` is missing (no scope
-    to partition by) — so the caller's stub rows remain in effect. The mem0
+    to partition by) — so the caller's stub rows remain in effect. In the
+    reference profile the memory is also the *run initiator's* within the
+    workflow (``user_id``, set server-side, never by the model), and a run with
+    no initiator gets no memory tools: nobody owns what it would write. The mem0
     service is built lazily on first tool use so a run that never touches memory
     never opens a pgvector connection.
     """
     if not config.memory_enabled or not agent_id:
         return {}
+    strict = config.profile == "reference"
+    if strict and not user_id:
+        return {}
+    owner: dict[str, Any] = {"user_id": user_id} if strict and user_id else {}
 
     holder: list[MemoryService] = []
 
@@ -185,7 +193,9 @@ def bind_run_memory_tools(
         if not query:
             return {"error": "memory_search requires a query string", "memories": [], "count": 0}
         try:
-            result = _service().search(query, agent_id=agent_id, run_id=run_id, top_k=top_k)
+            result = _service().search(
+                query, agent_id=agent_id, run_id=run_id, top_k=top_k, **owner
+            )
             return _format_search(result)
         except (MemoryDisabledError, MemoryDependencyError) as exc:
             return {"error": str(exc), "memories": [], "count": 0}
@@ -198,7 +208,7 @@ def bind_run_memory_tools(
         if not text:
             return {"error": "memory_add requires text to remember", "added": False}
         try:
-            result = _service().add(text, agent_id=agent_id, run_id=run_id)
+            result = _service().add(text, agent_id=agent_id, run_id=run_id, **owner)
             return _format_add(result)
         except (MemoryDisabledError, MemoryDependencyError) as exc:
             return {"error": str(exc), "added": False}
@@ -209,7 +219,7 @@ def bind_run_memory_tools(
     def _list(arg: object = "") -> dict[str, Any]:
         top_k = _coerce_top_k(arg, _DEFAULT_LIST_TOP_K)
         try:
-            result = _service().get_all(agent_id=agent_id, run_id=run_id, top_k=top_k)
+            result = _service().get_all(agent_id=agent_id, run_id=run_id, top_k=top_k, **owner)
             return _format_search(result)
         except (MemoryDisabledError, MemoryDependencyError) as exc:
             return {"error": str(exc), "memories": [], "count": 0}
@@ -220,7 +230,9 @@ def bind_run_memory_tools(
     def _list_entities(arg: object = "") -> dict[str, Any]:
         top_k = _coerce_top_k(arg, _DEFAULT_LIST_TOP_K)
         try:
-            result = _service().list_entities(agent_id=agent_id, run_id=run_id, top_k=top_k)
+            result = _service().list_entities(
+                agent_id=agent_id, run_id=run_id, top_k=top_k, **owner
+            )
             return _format_entities(result)
         except (MemoryDisabledError, MemoryDependencyError) as exc:
             return {"error": str(exc), "entities": [], "count": 0}

@@ -37,6 +37,24 @@ class MemoryDisabledError(RuntimeError):
     """Raised when memory is used while ``CALIBER_MEMORY_ENABLED`` is false."""
 
 
+#: Keys mem0 treats as partitions. They may never ride in free-form ``metadata`` in the reference profile: mem0 keeps
+#: ``metadata`` in the stored payload and filters on those fields, so a write could land in another user's namespace.
+PARTITION_KEYS = frozenset({"user_id", "agent_id", "run_id", "actor_id"})
+
+
+def user_namespace(user_id: str, project_id: str | None = None) -> str:
+    """The reference-profile ``user_id`` partition: the user, qualified by the active project when there is one."""
+    return f"{project_id}:{user_id}" if project_id else user_id
+
+
+class MemoryLifecycleUnavailableError(RuntimeError):
+    """The reference profile refuses a durable-memory operation until the owned memory lifecycle exists (M20).
+
+    Bulk deletion, LLM-inferred writes and run-only partitions have no owner, retention or legal-hold story yet, so
+    the strict profile does not offer them rather than offer them unsafely.
+    """
+
+
 class MemoryDependencyError(RuntimeError):
     """Raised when memory is enabled but the ``[memory]`` extra is not installed."""
 
@@ -153,9 +171,19 @@ def _normalize_entity_rows(rows: Any) -> list[dict[str, Any]]:
 class MemoryService:
     """Thin, scope-aware wrapper over a mem0 ``Memory`` instance."""
 
-    def __init__(self, memory: Any, *, default_infer: bool = True) -> None:
+    def __init__(self, memory: Any, *, default_infer: bool = True, strict: bool = False) -> None:
         self._memory = memory
         self._default_infer = default_infer
+        # Strict is the reference profile: no operation without an owner-derived partition, no bulk delete, no
+        # LLM-inferred write (``MemoryLifecycleUnavailableError``). Development keeps today's behaviour.
+        self._strict = strict
+
+    def _require_owned(self, scope: dict[str, str]) -> None:
+        """Strict mode: a partition must name an agent/workflow or a user; a run id alone is a free-form label."""
+        if self._strict and "agent_id" not in scope and "user_id" not in scope:
+            raise MemoryLifecycleUnavailableError(
+                "memory in the reference profile is partitioned by an agent/workflow or a user, not by a run alone"
+            )
 
     @classmethod
     def from_config(cls, config: CaliberConfig) -> MemoryService:
@@ -180,7 +208,7 @@ class MemoryService:
                 "agent memory requires the [memory] extra: pip install 'caliber-suite[memory]'"
             ) from exc
         memory = Memory.from_config(build_mem0_config(config))
-        return cls(memory, default_infer=config.memory_infer)
+        return cls(memory, default_infer=config.memory_infer, strict=config.profile == "reference")
 
     def add(
         self,
@@ -200,12 +228,18 @@ class MemoryService:
         scope = _scope(agent_id, user_id, run_id)
         if not scope:
             raise ValueError("at least one of agent_id / user_id / run_id is required")
-        return self._memory.add(
-            text,
-            metadata=metadata,
-            infer=self._default_infer if infer is None else infer,
-            **scope,
-        )
+        self._require_owned(scope)
+        if self._strict and metadata and PARTITION_KEYS & set(metadata):
+            raise MemoryLifecycleUnavailableError(
+                "metadata may not carry partition keys (user_id, agent_id, run_id, actor_id) in the reference profile"
+            )
+        use_infer = self._default_infer if infer is None else infer
+        if self._strict and use_infer:
+            raise MemoryLifecycleUnavailableError(
+                "LLM-inferred memory writes are unavailable in the reference profile; "
+                "set CALIBER_MEMORY_INFER=false and send infer=false"
+            )
+        return self._memory.add(text, metadata=metadata, infer=use_infer, **scope)
 
     def search(
         self,
@@ -217,7 +251,9 @@ class MemoryService:
         top_k: int = 10,
     ) -> Any:
         """Semantic-search memories in the given scope."""
-        return self._memory.search(query, top_k=top_k, **_scope(agent_id, user_id, run_id))
+        scope = _scope(agent_id, user_id, run_id)
+        self._require_owned(scope)
+        return self._memory.search(query, top_k=top_k, **scope)
 
     def get_all(
         self,
@@ -228,7 +264,9 @@ class MemoryService:
         top_k: int = 50,
     ) -> Any:
         """List memories in the given scope."""
-        return self._memory.get_all(top_k=top_k, **_scope(agent_id, user_id, run_id))
+        scope = _scope(agent_id, user_id, run_id)
+        self._require_owned(scope)
+        return self._memory.get_all(top_k=top_k, **scope)
 
     def list_entities(
         self,
@@ -248,6 +286,7 @@ class MemoryService:
         scope = _scope(agent_id, user_id, run_id)
         if not scope:
             raise ValueError("at least one of agent_id / user_id / run_id is required")
+        self._require_owned(scope)
         raw = self._memory.entity_store.list(filters=scope, top_k=top_k)
         return {"results": _normalize_entity_rows(raw)}
 
@@ -262,4 +301,9 @@ class MemoryService:
         scope = _scope(agent_id, user_id, run_id)
         if not scope:
             raise ValueError("at least one of agent_id / user_id / run_id is required")
+        if self._strict:
+            raise MemoryLifecycleUnavailableError(
+                "deleting memory is unavailable in the reference profile until the owned memory "
+                "lifecycle (retention and legal hold) exists"
+            )
         return self._memory.delete_all(**scope)

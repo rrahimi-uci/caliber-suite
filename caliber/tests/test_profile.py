@@ -66,6 +66,10 @@ UNSAFE: dict[str, tuple[dict[str, Any], str]] = {
         {"approval_allow_self_approval": True},
         "CALIBER_APPROVAL_ALLOW_SELF_APPROVAL",
     ),
+    "memory_inference_enabled": (
+        {"memory_enabled": True, "memory_infer": True},
+        "CALIBER_MEMORY_INFER",
+    ),
 }
 
 
@@ -101,7 +105,7 @@ def test_safe_config_has_no_violations(app_config: CaliberConfig) -> None:
     assert reference_profile_violations(_config(app_config)) == []
 
 
-def test_eight_violations_in_order(app_config: CaliberConfig) -> None:
+def test_every_violation_in_order(app_config: CaliberConfig) -> None:
     every_unsafe: dict[str, Any] = {}
     for settings, _ in UNSAFE.values():
         every_unsafe.update(settings)
@@ -276,7 +280,7 @@ def test_the_refusal_counts_and_bullets_every_violation(app_config: CaliberConfi
     with pytest.raises(ConfigError) as refused:
         create_app(_config(app_config, **every_unsafe))
     lines = str(refused.value).splitlines()
-    assert lines[0] == "reference profile refused (8 violations):"
+    assert lines[0] == "reference profile refused (9 violations):"
     assert len(lines) == 1 + len(UNSAFE)
     assert all(line.startswith("- ") for line in lines[1:])
 

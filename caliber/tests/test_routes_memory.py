@@ -218,3 +218,32 @@ def test_a_free_form_partition_label_is_still_usable(monkeypatch, client: TestCl
     resp = client.post(SEARCH, json={"query": "q", "agent_id": "wf-not-a-registered-agent"})
 
     assert resp.status_code == 200
+
+
+def test_an_existing_run_id_scope_is_checked_through_its_workflow(
+    monkeypatch, client: TestClient, db_session
+) -> None:
+    """Regression: a run has no visibility columns, so checking it like an agent raised (a 500) for every real
+    run id. Its parent workflow's visibility decides."""
+    from caliber.db.models import CaliberWorkflow, CaliberWorkflowRun
+
+    _enable(monkeypatch)
+    db_session.add_all(
+        [
+            CaliberWorkflow(
+                workflow_id="WF-mine", name="mine", owner="@notadmin", visibility="user"
+            ),
+            CaliberWorkflow(
+                workflow_id="WF-theirs", name="theirs", owner="@someone-else", visibility="user"
+            ),
+            CaliberWorkflowRun(workflow_run_id="RUN-mine", workflow_id="WF-mine"),
+            CaliberWorkflowRun(workflow_run_id="RUN-theirs", workflow_id="WF-theirs"),
+        ]
+    )
+    db_session.commit()
+    mine = client.get(BASE, params={"run_id": "RUN-mine"}, headers={"X-CALIBER-User": "@notadmin"})
+    theirs = client.get(
+        BASE, params={"run_id": "RUN-theirs"}, headers={"X-CALIBER-User": "@notadmin"}
+    )
+    assert mine.status_code == 200
+    assert theirs.status_code == 404

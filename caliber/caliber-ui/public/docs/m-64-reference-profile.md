@@ -36,6 +36,7 @@ An unknown profile name is a configuration error. `GET /ajax-api/2.0/mlflow/cali
 | `egress_policy_disabled` | `egress_policy_enabled` | `CALIBER_EGRESS_POLICY_ENABLED` | true | The egress policy is what stops a tool or webhook from reaching internal addresses. |
 | `mcp_insecure_http` | `mcp_allow_insecure_http` | `CALIBER_MCP_ALLOW_INSECURE_HTTP` | false | Plain-HTTP MCP servers send tool calls and results in the clear. |
 | `self_approval_allowed` | `approval_allow_self_approval` | `CALIBER_APPROVAL_ALLOW_SELF_APPROVAL` | false | The account that started a run could approve its own protected action. |
+| `memory_inference_enabled` | `memory_infer` | `CALIBER_MEMORY_INFER` | false while CALIBER_MEMORY_ENABLED is true | LLM-inferred memory writes create durable, free-form facts nobody owns; the owned memory lifecycle does not exist yet. |
 | `fault_barriers_enabled` | `fault_barriers` | `CALIBER_FAULT_BARRIERS` | unset | An armed fault barrier makes the process exit on purpose; it exists only for scenario tests. |
 
 The messages in the refusal name the setting and the variable to change. The table is checked by
@@ -61,6 +62,36 @@ applies; the default is never lower than a route's own:
 A refusal carries `x-request-id` (the caller's, or one generated) and writes one warning log line naming the
 method, path and size. The body is refused, not drained, so a client that keeps sending a very large body may see
 a connection reset rather than the `413`.
+
+## Memory is owned, derived and read-mostly
+
+Until the owned memory lifecycle (M20: retention, legal hold, deletion) exists, the reference profile does not offer
+free-form durable memory (B12 memory, #667). The `/memory` API and the in-run memory tools behave as follows:
+
+- **No free-form partition.** `agent_id` must name an agent or workflow, and `run_id` a workflow run, that the caller
+  can see; `user_id` must be the caller's own identity, admins included. A scope value that is present but not a
+  non-empty string is a `400`, not ignored. A run id alone is refused (`403`).
+- **The partition is pinned to the caller.** With an `agent_id`, the memory is the caller's own within that agent or
+  workflow (the server adds `user_id`); with none, it is the caller's own namespace, qualified by the active
+  project (`<project>:<user>`). A client never chooses whose memory a read or write reaches, and `metadata` may not
+  carry `user_id`, `agent_id`, `run_id` or `actor_id` (`400`), because mem0 filters on those stored fields.
+- **One refusal, no disclosure.** A partition that does not exist, one that belongs to another project or user, and a
+  label that names nothing all answer `404 memory partition not found`; no id is echoed.
+- **Writes are verbatim.** `POST /memory` requires `infer=false` (`403` otherwise), because LLM-inferred writes create
+  durable facts nobody owns; and startup refuses `CALIBER_MEMORY_INFER=true` while memory is enabled (table above).
+- **No bulk deletion.** `DELETE /memory` answers `403`: deleting memory needs the lifecycle's retention and legal-hold
+  rules.
+- **Bounded reads.** `top_k` is capped at 100.
+- **In-run tools.** `memory_search`, `memory_add`, `memory_list` and `list_entities` act on the run initiator's
+  memory within the workflow (the initiator is set by the server, never by the model); a run with no initiator gets no
+  memory tools.
+- **Same rules below the route.** The service layer refuses bulk delete, inferred writes, run-only partitions and
+  partition keys in `metadata` (`MemoryLifecycleUnavailableError`). It does not itself check that an `agent_id` or
+  `user_id` belongs to the caller: the route and the in-run tool binding do that and are the only callers.
+
+The development profile keeps the previous behaviour. **Known limitation:** the installed mem0 2.x rejects entity ids
+passed as top-level search/list arguments, which the service does today (also in development); until that is
+fixed (tracked separately) search and list through the memory service return an error.
 
 ## A configuration that passes
 
@@ -94,6 +125,27 @@ missing differs, and neither case is a profile refusal:
   account from whoever starts a run.
 
 The database must be migrated (`caliber-migrate`) before the first start.
+
+## A stored secret never leaves the platform
+
+`caliber/tests/test_secret_canary.py` (B12.5b, #666) stores `EGI_CANARY_<uuid4>` as `egi-canary` through the
+encrypted secret store, points `llm_api_key_env` at `secret://egi-canary`, and runs the core journey over HTTP with
+logging at DEBUG: sign in (the trusted proxy header), create a project, register an agent, publish, promote and run
+a workflow, run a **calibration run** to a candidate and **apply** it, read the LLM provider status (which resolves
+the secret inside the request; the test fails if nothing in the journey did), and export the audit log, plus refused
+requests. It fails if the value appears in any response (status, headers, cookies, body; the helper calls too), any
+log record (message, arguments, `extra` fields as the JSON formatter renders them, traceback), any
+`caliber_workflow_run_events` row or any audit row. The failure paths of resolution (a revoked secret, corrupted
+ciphertext, a provider built from a revoked secret) are scanned the same way, and a control test plants the value in
+every scanned surface to prove the scan can fail. It runs in the Backend core job and the full backend suite.
+
+Not covered: the prompt *registry* routes and MLflow traces need a live MLflow registry, which ordinary CI does
+not have; the journey's prompts are the agent prompts in the workflow manifest, which the calibration run rewrites.
+Sign-in by session login is covered by `test_auth_sessions`, not by this journey.
+
+Running it found that `CALIBER_LOG_LEVEL=DEBUG` with the default S3 log sink recursed: the S3 client's own DEBUG
+records re-entered the handler, so each record caused a growing number of S3 writes. The handler now ignores records
+emitted while it delivers a batch.
 
 ## Run manifests are written once
 
@@ -209,7 +261,7 @@ The bundle schema is enforced in code with closed key sets; it is not (yet) a re
 ADR 0001 describes the whole reference shape; this table is what the *process* checks today. Not checked:
 
 - **The shape itself:** one tenant and region, MLflow addressed by `MLFLOW_TRACKING_URI`, an S3-compatible object store, at least two projects, and one real model provider next to the scripted adapter. Readiness reporting for MLflow and the object store is #535. The PostgreSQL version and the `pgvector` extension are checked by the migrations (migration `0060`) and the migration-parity CI job, not by the profile.
-- **Request bounds and the secret canary** (#533). ADR 0001 also names origin rules for #533, but #533 has no allowed-origins task yet; that rule is not scheduled.
+- **Origin rules** (#533). ADR 0001 names them, but #533 has no allowed-origins task yet; that rule is not scheduled.
 - **The trusted-connector set** (#534), **refusing code-execution paths and the full attack pack** (#535), **a single execution owner** (#536) and **the Apply separation-of-duties flag** (#589).
 - **Cookie flags:** `auth_session_cookie_secure` is not checked.
 - **The database role:** whether the application connects as a role without `UPDATE`, `DELETE` or `TRUNCATE` on `caliber_run_manifests` (see "Run manifests are written once").
