@@ -4,7 +4,7 @@
 recorded, read *this* knowledge-base version, now? It is called by the knowledge-query runner before the retrieval
 service is touched, so a refusal means nothing was fetched. The answer comes from:
 
-1. **The run's own identity.** The caller supplies the run's authenticated subject (the worker takes it from
+1. **The run's own identity.** The caller supplies the run's subject (the worker takes it from
    :func:`caliber.workflows.run_identity.identity_for_run`); it must equal the subject the manifest recorded. The
    subject, workload, project and purpose used below are the manifest's, never the caller's.
 2. **The exact grant.** ``decide`` (B03.3) is called with the manifest's run id, the grant id the manifest names, the
@@ -55,7 +55,8 @@ class ContextDenied(PermissionError):  # noqa: N818 - a refusal, named for what 
     """The run may not read the source; nothing was loaded. ``code`` is stable, ``reasons`` the policy's."""
 
     def __init__(self, code: str, reasons: tuple[str, ...] = ()) -> None:
-        super().__init__(_MESSAGE)
+        detail = f" ({', '.join(reasons)})" if reasons else ""
+        super().__init__(f"{code}{detail}: {_MESSAGE}")
         self.code = code
         self.reasons = reasons
 
@@ -145,6 +146,13 @@ def authorize_source(
     return ContextAuthorization(knowledge_base_id, version_id, decision)
 
 
+def _commit_quietly(session: Session) -> None:
+    try:
+        session.commit()
+    except SQLAlchemyError:
+        session.rollback()
+
+
 def source_guard_for(
     session_factory: Callable[[], Session],
     identity: Subject,
@@ -159,21 +167,32 @@ def source_guard_for(
     has no knowledge base to name and is refused like any source the grant does not list."""
 
     def guard(version_id: str) -> None:
-        with session_factory() as session:
-            row = session.get(CaliberKnowledgeBaseVersion, version_id)
-            knowledge_base_id = row.knowledge_base_id if row is not None else ""
-            try:
-                authorize_source(
-                    session,
-                    identity,
-                    run_manifest,
-                    grant_id,
-                    knowledge_base_id,
-                    version_id,
-                    policy=policy,
-                )
-            finally:
+        try:
+            with session_factory() as session:
+                try:
+                    row = session.get(CaliberKnowledgeBaseVersion, version_id)
+                    knowledge_base_id = row.knowledge_base_id if row is not None else ""
+                    authorize_source(
+                        session,
+                        identity,
+                        run_manifest,
+                        grant_id,
+                        knowledge_base_id,
+                        version_id,
+                        policy=policy,
+                    )
+                except ContextDenied:
+                    _commit_quietly(
+                        session
+                    )  # the decision (or audit row) of a refusal stays on record
+                    raise
+                except SQLAlchemyError:
+                    # never let a database message (SQL and bound parameters) reach the node's error text
+                    session.rollback()
+                    raise ContextDenied(AUTHORITY_UNAVAILABLE) from None
                 session.commit()
+        except SQLAlchemyError:
+            raise ContextDenied(AUTHORITY_UNAVAILABLE) from None
 
     return guard
 

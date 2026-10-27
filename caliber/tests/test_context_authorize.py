@@ -179,9 +179,12 @@ def test_exact_policy_arguments(world: World, monkeypatch: pytest.MonkeyPatch) -
 
 
 def test_wrong_grant_denied(world: World) -> None:
-    for grant_id in ("gr-nope", "", "gr-" + "0" * 32):
+    with pytest.raises(ContextDenied) as blank:
+        world.authorize(grant_id="")
+    assert blank.value.code == "manifest_invalid"
+    for grant_id in ("gr-nope", "gr-" + "0" * 32):
         with pytest.raises(ContextDenied) as caught:
-            world.authorize(grant_id=grant_id or "gr-blank")
+            world.authorize(grant_id=grant_id)
         assert caught.value.code == "authority_denied" and "grant_not_found" in caught.value.reasons
         assert KB not in str(caught.value) and V1 not in str(caught.value), "no source named"
     other = {**world.record, "subject": {"user_id": "@mallory", "auth_method": "session"}}
@@ -244,6 +247,10 @@ def test_foreign_or_unapproved_source_never_reaches_query(
     db.expire_all()
     run = db.get(CaliberWorkflowRun, world.run_id)
     assert run is not None and run.status == "failed", (run.status, run.error_code)
+    assert run.error_code == "context_denied" and "source_not_approved" in (run.error_summary or "")
+    assert KB not in (run.error_summary or "") and V1 not in (run.error_summary or ""), (
+        "no source named"
+    )
     assert queries == [], "zero retrieval calls"
     assert _decisions(db, "context.read") == [], "a withdrawn source asks no policy question"
     from caliber.db.models import CaliberAuditLog
@@ -343,3 +350,75 @@ def test_an_unavailable_or_malformed_authority_is_a_refusal_never_an_allow(
         with pytest.raises(ContextDenied) as caught:
             world.authorize()
         assert caught.value.code == "authority_unavailable"
+
+
+def test_the_guard_follows_how_the_run_was_admitted_not_only_the_workers_configuration(
+    world: World, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Admitted with sources (its grant carries ``context.read``), a run is guarded even by a worker that does not
+    require approved sources; a run admitted without them is refused by a worker that does."""
+    queries: list[Any] = []
+    monkeypatch.setattr(
+        KnowledgeBaseService, "query", lambda self, request, **kw: queries.append(request)
+    )
+    real = AdmissionSettings.from_config
+    # a worker whose configuration does not require approved sources
+    monkeypatch.setattr(
+        AdmissionSettings,
+        "from_config",
+        classmethod(lambda cls, config: replace(real(config), approved_sources_required=False)),
+    )
+    revoke_source(world.db, PROJECT, KB, V1, "@owner")
+    world.db.commit()
+    _worker(world.client)._tick()
+    world.db.expire_all()
+    run = world.db.get(CaliberWorkflowRun, world.run_id)
+    assert run is not None and (run.status, run.error_code) == ("failed", "context_denied")
+    assert queries == []
+
+
+def test_a_run_admitted_without_context_read_is_refused_where_sources_are_required(
+    client: TestClient, db_session: Session, world: World, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The upgrade case: a queued run admitted before sources were authorized has no ``context.read`` in its grant and
+    cannot read one; it fails by name (resubmit it)."""
+    queries: list[Any] = []
+    monkeypatch.setattr(
+        KnowledgeBaseService, "query", lambda self, request, **kw: queries.append(request)
+    )
+    old_run = db_session.get(CaliberWorkflowRun, world.run_id)
+    assert old_run is not None
+    with monkeypatch.context() as patch:  # admitted where approved sources were not required
+        real = AdmissionSettings.from_config
+        patch.setattr(
+            AdmissionSettings,
+            "from_config",
+            classmethod(lambda cls, config: replace(real(config), approved_sources_required=False)),
+        )
+        created = client.post(
+            f"{PREFIX}/workflow-runs",
+            json={
+                "workflow_id": old_run.workflow_id,
+                "alias": "manual",
+                "input": "q",
+                "idempotency_key": "ctx-legacy-grant",
+            },
+        )
+    assert created.status_code == 202, created.text
+    legacy_id = created.json()["data"]["workflow_run_id"]
+    grant = db_session.execute(
+        select(CaliberRunGrant).where(CaliberRunGrant.workflow_run_id == legacy_id)
+    ).scalar_one()
+    assert "context.read" not in grant.allowed_actions
+    db_session.execute(  # keep the first run out of this tick
+        CaliberWorkflowRun.__table__.update()
+        .where(CaliberWorkflowRun.workflow_run_id == world.run_id)
+        .values(status="cancelled")
+    )
+    db_session.commit()
+    _worker(client)._tick()
+    db_session.expire_all()
+    run = db_session.get(CaliberWorkflowRun, legacy_id)
+    assert run is not None and (run.status, run.error_code) == ("failed", "context_denied")
+    assert "action_not_allowed" in (run.error_summary or "")
+    assert queries == []

@@ -1087,7 +1087,9 @@ def build_plan(  # noqa: PLR0915 - central workflow plan assembler
                 "knowledge_query node requires at least one version_id or knowledge_base_id"
             )
         if source_guard is not None:
-            for version_id in version_ids:
+            for version_id in dict.fromkeys(
+                version_ids
+            ):  # each version once; all are checked before any is read
                 source_guard(version_id)
         raw_retrieval_modes = _normalize_retrieval_modes(raw.get("retrieval_modes"))
         retrieval_modes = (

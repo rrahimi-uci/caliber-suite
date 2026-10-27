@@ -32,9 +32,10 @@ from caliber.events.bus import EventBus
 from caliber.ids import new_runtime_approval_id, new_workflow_run_checkpoint_id
 from caliber.mcp_policy import deployment_blockers
 from caliber.observability.trace import bind_trace_id
+from caliber.policy.grants import GrantDenied, load_grant
 from caliber.secrets import resolve_secret
 from caliber.storage import StorageError, WorkingDirectoryService, build_backend
-from caliber.workflows.admission import AdmissionSettings
+from caliber.workflows.admission import CONTEXT_READ_ACTION, AdmissionSettings
 from caliber.workflows.compiler import CompileError
 from caliber.workflows.effect_ledger import SqlEffectLedger
 from caliber.workflows.file_tools import (
@@ -1594,21 +1595,35 @@ class WorkflowRunWorker:
                 # edit would otherwise wait for every pre-flight in progress).
                 session.commit()
 
-            # Reference profile: every context source the run reads is authorized, by the run's own grant, before its
-            # bytes are loaded (B07.2). Legacy runs, and deployments that do not require approved sources, have none.
+            # Every context source the run reads is authorized, by the run's own grant, before its bytes are loaded
+            # (B07.2). The guard is built when the run was admitted with sources (its grant carries ``context.read``) or
+            # this deployment requires approved sources: it follows the run's admission, not only the worker's
+            # configuration. Legacy runs have none.
             source_guard = None
-            if (
-                admitted_identity is not None
-                and pinned is not None
-                and admission_settings.approved_sources_required
-            ):
-                source_guard = source_guard_for(
-                    self._session_factory,
-                    admitted_identity.subject,
-                    pinned.record,
-                    admitted_identity.grant_id,
-                    policy=admission_settings.policy,
-                )
+            if admitted_identity is not None and pinned is not None:
+                try:
+                    grant = load_grant(
+                        session, run_id=run.workflow_run_id, grant_id=admitted_identity.grant_id
+                    )
+                except GrantDenied as exc:
+                    self._mark_failed(
+                        session,
+                        run,
+                        error_code=exc.code,
+                        error_summary="the run's grant cannot be read",
+                    )
+                    return
+                if (
+                    admission_settings.approved_sources_required
+                    or CONTEXT_READ_ACTION in grant.allowed_actions
+                ):
+                    source_guard = source_guard_for(
+                        self._session_factory,
+                        admitted_identity.subject,
+                        pinned.record,
+                        admitted_identity.grant_id,
+                        policy=admission_settings.policy,
+                    )
 
             # Execute over the full input (input_payload); fall back to the summary
             # preview for legacy rows. Keep the summary's copy bounded so polling
@@ -2020,7 +2035,10 @@ class WorkflowRunWorker:
                 session,
                 row,
                 result=result,
-                error_code="runtime_error",
+                # a refused context source keeps its own code (the reasons are in the summary)
+                error_code="context_denied"
+                if "ContextDenied" in (result.error or "")
+                else "runtime_error",
                 error_summary=result.error or "workflow runtime failed",
             )
 
