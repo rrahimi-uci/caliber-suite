@@ -1869,7 +1869,9 @@ class WorkflowRunWorker:
                     # persists across runs. Empty dict when memory is disabled.
                     extra_tools={
                         **runtime_file_tools,
-                        **bind_run_memory_tools(self._config, agent_id=run.workflow_id),
+                        **bind_run_memory_tools(
+                            self._config, agent_id=run.workflow_id, user_id=run.created_by
+                        ),
                     },
                     **managed_execute_kwargs,
                 )

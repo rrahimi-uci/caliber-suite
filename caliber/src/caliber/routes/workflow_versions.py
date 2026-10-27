@@ -1060,7 +1060,7 @@ def _run_workflow_version_sync(  # noqa: PLR0912, PLR0915 - run orchestration + 
         extra_tools = {
             **extra_tools,
             **managed_tools,
-            **bind_run_memory_tools(config, agent_id=wd_ctx.workflow_id),
+            **bind_run_memory_tools(config, agent_id=wd_ctx.workflow_id, user_id=actor),
         }
 
         _publish_workflow_event(
