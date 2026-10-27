@@ -100,6 +100,13 @@ REFERENCE_REQUIREMENTS: tuple[Requirement, ...] = (
         "The account that started a run could approve its own protected action.",
     ),
     Requirement(
+        "memory_inference_enabled",
+        "memory_infer",
+        "CALIBER_MEMORY_INFER",
+        "false while CALIBER_MEMORY_ENABLED is true",
+        "LLM-inferred memory writes create durable, free-form facts nobody owns; the owned memory lifecycle does not exist yet.",
+    ),
+    Requirement(
         "fault_barriers_enabled",
         "fault_barriers",
         "CALIBER_FAULT_BARRIERS",
@@ -199,6 +206,16 @@ def reference_profile_violations(config: CaliberConfig) -> list[ProfileViolation
                 "approval_allow_self_approval",
                 "true",
                 "CALIBER_APPROVAL_ALLOW_SELF_APPROVAL",
+                "false",
+            )
+        )
+    if config.memory_enabled and config.memory_infer:
+        found.append(
+            _violation(
+                "memory_inference_enabled",
+                "memory_infer",
+                "true while memory is enabled",
+                "CALIBER_MEMORY_INFER",
                 "false",
             )
         )

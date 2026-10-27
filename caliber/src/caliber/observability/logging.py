@@ -29,6 +29,7 @@ import json
 import logging
 import os
 import socket
+import threading
 import uuid
 from contextlib import suppress
 from datetime import datetime, timezone
@@ -161,8 +162,14 @@ class S3LogHandler(logging.Handler):
         self._sequence = 0
         self._session_id = uuid.uuid4().hex
         self._hostname = socket.gethostname().split(".", 1)[0] or "host"
+        # Set while this thread is delivering a batch. The S3 client logs about its own request (botocore at
+        # DEBUG), and with the root logger at DEBUG those records come straight back into ``emit``: each
+        # delivery would then trigger another, without end.
+        self._delivering = threading.local()
 
     def emit(self, record: logging.LogRecord) -> None:
+        if getattr(self._delivering, "active", False):
+            return
         try:
             self._buffer.append(self.format(record))
             if len(self._buffer) >= self._flush_lines:
@@ -178,6 +185,7 @@ class S3LogHandler(logging.Handler):
                 return
             lines = self._buffer
             self._buffer = []
+            self._delivering.active = True
             try:
                 self._ensure_bucket()
                 self._client.put_object(
@@ -191,6 +199,8 @@ class S3LogHandler(logging.Handler):
                 # Keep stderr as the durable fallback and avoid unbounded memory growth
                 # if the object store is unavailable for an extended period.
                 return
+            finally:
+                self._delivering.active = False
         finally:
             self.release()
 
