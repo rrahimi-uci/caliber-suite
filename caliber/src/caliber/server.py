@@ -42,6 +42,7 @@ from caliber.eval.provider import EvalProvider
 from caliber.eval.provider import build_provider as build_eval_provider
 from caliber.events.bus import EventBus
 from caliber.events.nats_bus import build_event_bus
+from caliber.events.outbox import OutboxPublisher, bind_outbox, outbox_active
 from caliber.events.webhooks import WebhookDispatcher, build_dispatcher
 from caliber.execution_role import ExecutionRoleController
 from caliber.features import FeatureGateMiddleware
@@ -286,7 +287,7 @@ def _warn_if_known_vulnerable_dependencies() -> None:
         _WARNED_DEPENDENCY_ADVISORIES.add(advisory_key)
 
 
-def _build_lifespan(
+def _build_lifespan(  # noqa: PLR0915 - one lifespan: every owner loop's start and stop
     engine: Engine,
     worker: RefinementWorker,
     workflow_run_worker: WorkflowRunWorker | None,
@@ -309,6 +310,7 @@ def _build_lifespan(
     session_factory: Any = None,
     reference_profile: bool = False,
     execution_lease_seconds: float = 30.0,
+    outbox_publisher: OutboxPublisher | None = None,
 ) -> Lifespan:
     """Create the Starlette lifespan callback that starts/stops background tasks.
 
@@ -349,6 +351,8 @@ def _build_lifespan(
         await release_reconciler.start()
         await calibration_drain_task.start()
         await webhooks.start()
+        if outbox_publisher is not None:
+            await outbox_publisher.start()
 
     async def stop_owner_loops() -> None:
         # Webhooks first, then every other loop at once: each drain waits for its own in-flight work, and one after
@@ -365,6 +369,8 @@ def _build_lifespan(
             stops.append(aria_plan_worker.stop(grace_seconds=grace_seconds))
         if workflow_run_worker is not None:
             stops.append(workflow_run_worker.stop(grace_seconds=grace_seconds))
+        if outbox_publisher is not None:
+            stops.append(outbox_publisher.stop(grace_seconds=grace_seconds))
         stops += [
             worker.stop(grace_seconds=grace_seconds),
             calibration_drain_task.stop(grace_seconds=grace_seconds),
@@ -853,6 +859,18 @@ def create_app(config: CaliberConfig | None = None) -> ASGIApp:  # noqa: PLR0915
         # receiver that dropped it.
         session_factory=session_factory,
     )
+    # B13.4: record run events in the transition's transaction and deliver them from an owner-only loop.
+    bind_outbox(outbox_active(resolved))
+    outbox_publisher = (
+        OutboxPublisher(
+            session_factory=session_factory,
+            poll_seconds=resolved.event_outbox_poll_seconds,
+            max_attempts=resolved.event_outbox_max_attempts,
+            retention_days=resolved.event_outbox_retention_days,
+        )
+        if outbox_active(resolved)
+        else None
+    )
     csrf_manager = build_token_manager(
         enabled=resolved.csrf_enabled,
         secret_env_var=resolved.csrf_signing_secret_env,
@@ -902,6 +920,7 @@ def create_app(config: CaliberConfig | None = None) -> ASGIApp:  # noqa: PLR0915
             session_factory=session_factory,
             reference_profile=resolved.profile == "reference",
             execution_lease_seconds=resolved.execution_lease_seconds,
+            outbox_publisher=outbox_publisher,
         ),
         exception_handlers={
             HTTPException: http_exception_handler,

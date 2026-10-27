@@ -54,7 +54,7 @@ _EXPECTED_COUNTS = {
     # +1 (`B11.registry`): CaliberExperimentOwner is the system registry of who owns an MLflow experiment
     # (scope_kind/scope_id name the owner); it is read through experiment_registry and the admin routes only,
     # never listed to callers -- unscoped by design.
-    SCOPING_UNSCOPED: 53,
+    SCOPING_UNSCOPED: 54,
     # -1 (`P1-E`): CaliberPersonalAccessToken gained project_id (optional
     # PAT project binding) and moves from owned_catalog to project_only --
     # see below.
@@ -112,7 +112,13 @@ _EXPECTED_COUNTS = {
     # +1 (`B03.2`): CaliberRunGrant has a required project_id (the project the
     # run acted in) and no visibility tier -- project_only, confirmed by direct
     # look; its access is the exact run/grant id plus current project membership.
-    SCOPING_PROJECT_ONLY: 27,
+    # +1 (`B13.4`): CaliberEventOutbox has a bare project_id (the project the
+    # event belongs to) and no visibility tier -- project_only, confirmed by
+    # direct look; rows are read only by the publisher, never through a route.
+    # +1 (`B13.4`): CaliberEventInbox is a consumer's deduplication table keyed
+    # by (consumer, event_id) with no project column -- unscoped, confirmed by
+    # direct look; it is written and read only by the consumer that owns it.
+    SCOPING_PROJECT_ONLY: 28,
 }
 
 

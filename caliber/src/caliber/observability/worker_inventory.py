@@ -146,6 +146,14 @@ _WORKER_NOTES: dict[str, WorkerNote] = {
         tables=("CaliberWebhookAcceptedEvent", "CaliberWebhookDeadLetter"),
         ownership="owner_only",
     ),
+    "OutboxPublisher": WorkerNote(
+        description=(
+            "Hands recorded business events (the transactional outbox) to each consumer's inbox, with retry "
+            "and backoff; delivery is at-least-once and consumers deduplicate on the event id."
+        ),
+        tables=("CaliberEventOutbox", "CaliberEventInbox"),
+        ownership="owner_only",
+    ),
     "WorkspaceImportWorker": WorkerNote(
         description=(
             "Claims queued push-mode Workspace import jobs and materializes each into an "
@@ -295,6 +303,7 @@ _WORKER_MODULE_NAMES = (
     "caliber.orchestrator.release_reconciler",
     "caliber.orchestrator.calibration_drain",
     "caliber.events.webhooks",
+    "caliber.events.outbox",
 )
 
 
