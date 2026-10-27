@@ -148,3 +148,10 @@ def test_a_saturated_notification_bus_loses_no_business_event(
         pass
     assert _count(reference_app, CaliberEventInbox) == before + SATURATING_EVENTS
     assert _count(reference_app, CaliberEventOutbox, CaliberEventOutbox.status == PENDING) == 0
+
+
+def test_the_reference_profile_binds_the_outbox_at_startup(reference_app: ReferenceApp) -> None:
+    """Nothing here switches it on: the app's own startup does, in the reference profile (and only there)."""
+    from caliber.events.outbox import outbox_enabled
+
+    assert outbox_enabled() is (reference_app.profile == "reference")

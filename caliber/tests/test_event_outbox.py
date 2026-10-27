@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import threading
+import time
 from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
@@ -17,8 +18,9 @@ from typing import Any
 import pytest
 from alembic import command
 from alembic.config import Config
-from sqlalchemy import create_engine, func, select
+from sqlalchemy import create_engine, func, inspect, null, select, update
 from sqlalchemy.engine import Engine
+from sqlalchemy.exc import DataError, IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
 from caliber.contracts import ContractValidationError, validate_record
@@ -29,6 +31,7 @@ from caliber.db.models import (
     CaliberWorkflow,
     CaliberWorkflowRun,
     CaliberWorkflowRunEvent,
+    CaliberWorkflowVersion,
 )
 from caliber.events import outbox
 from caliber.events.outbox import (
@@ -333,8 +336,9 @@ def test_a_failing_consumer_is_retried_with_backoff_and_the_event_is_never_lost(
         with factory() as session:
             row = session.get(CaliberEventOutbox, "evt-1")
             assert row is not None and (row.status, row.attempts) == (PENDING, 1)
-            assert row.last_error is not None and "consumer down" in row.last_error
-            assert "SECRET-PAYLOAD" not in row.last_error, "the payload is never in the error"
+            assert row.last_error == "recorder: RuntimeError", (
+                "the consumer and the kind of error, no more"
+            )
         clock.advance(11)
         assert publisher.publish_batch().retried == 1  # the second failure: 20 s now
         clock.advance(11)
@@ -567,11 +571,11 @@ def test_a_failing_tick_does_not_end_the_loop(
         calls = {"n": 0}
         real = publisher.publish_batch
 
-        def flaky() -> Any:
+        def flaky(*args: Any) -> Any:
             calls["n"] += 1
             if calls["n"] == 1:
                 raise RuntimeError("database blip")
-            return real()
+            return real(*args)
 
         publisher.publish_batch = flaky  # type: ignore[method-assign]
         await publisher.start()
@@ -673,3 +677,360 @@ def test_a_receive_that_loses_the_insert_race_reports_a_duplicate(
             _stale_first_read(session)
             assert receive(session, "billing", envelope, {"a": 1}) is False
         assert _count(factory, CaliberEventInbox) == 1
+
+
+# ---------------------------------------------------------------- review hardening
+
+
+@pytest.mark.parametrize("dialect", DIALECTS)
+def test_a_consumers_database_error_never_puts_the_payload_in_the_row_or_the_log(
+    dialect: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    class Leaky:
+        name = "leaky"
+
+        def receive(self, envelope: dict[str, Any], payload: dict[str, Any]) -> None:
+            raise DataError(
+                "INSERT INTO inbox ... [parameters: SECRET-PAYLOAD]", None, ValueError("too long")
+            )
+
+    with _database(dialect, tmp_path, monkeypatch) as (_, factory):
+        with factory() as session:
+            _event(session, 1)
+            session.commit()
+        with caplog.at_level("DEBUG", logger="caliber.events.outbox"):
+            assert (
+                OutboxPublisher(factory, consumers=[Leaky()], clock=Clock()).publish_batch().retried
+                == 1
+            )
+        with factory() as session:
+            row = session.get(CaliberEventOutbox, "evt-1")
+            assert row is not None and row.last_error == "leaky: DataError/ValueError"
+        assert "SECRET-PAYLOAD" not in caplog.text
+
+
+@pytest.mark.parametrize("dialect", DIALECTS)
+def test_one_failing_consumer_does_not_keep_the_others_from_the_event(
+    dialect: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    with _database(dialect, tmp_path, monkeypatch) as (_, factory):
+        with factory() as session:
+            _event(session, 1)
+            session.commit()
+        down, up = Recorder("down"), Recorder("up")
+        down.fail = 1
+        publisher = OutboxPublisher(
+            factory, consumers=[down, up], clock=(clock := Clock()), backoff_base_seconds=1
+        )
+        assert publisher.publish_batch().retried == 1
+        assert up.received == ["evt-1"], "the second consumer had it on the first pass"
+        clock.advance(5)
+        assert publisher.publish_batch().delivered == 1
+        assert down.received == ["evt-1"]
+
+
+@pytest.mark.parametrize("dialect", DIALECTS)
+def test_a_receive_that_fails_for_another_reason_than_a_duplicate_is_an_error(
+    dialect: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Swallowing every IntegrityError would let the publisher mark delivered an event nobody holds."""
+    with _database(dialect, tmp_path, monkeypatch) as (_, factory):
+        envelope = build_envelope(
+            event_id="evt-n",
+            event_type="caliber.test",
+            payload={"a": 1},
+            time=T0,
+            correlation_id="c",
+        )
+        with factory() as session:
+            with pytest.raises(IntegrityError):
+                receive(session, "billing", envelope, null())  # type: ignore[arg-type]  # SQL NULL: the column is NOT NULL
+            session.rollback()
+        assert _count(factory, CaliberEventInbox) == 0
+
+
+@pytest.mark.parametrize("dialect", DIALECTS)
+def test_a_stale_publisher_cannot_settle_a_row_another_publisher_has_taken_over(
+    dialect: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    with _database(dialect, tmp_path, monkeypatch) as (_, factory):
+        with factory() as session:
+            _event(session, 1)
+            session.commit()
+        clock = Clock()
+        taker_consumer = Recorder("taker")
+        taker = OutboxPublisher(factory, consumers=[taker_consumer], clock=clock, lease_seconds=30)
+
+        class Slow:
+            """A's handoff outlives its lease; B takes the row over and delivers it, then A's handoff fails."""
+
+            name = "slow"
+
+            def receive(self, envelope: dict[str, Any], payload: dict[str, Any]) -> None:
+                clock.advance(31)
+                assert taker.publish_batch().delivered == 1
+                raise RuntimeError("too late")
+
+        stale = OutboxPublisher(
+            factory, consumers=[Slow()], clock=clock, lease_seconds=30, max_attempts=1
+        )
+        assert stale.publish_batch().dead == 0, "A does not mark dead a row it no longer holds"
+        with factory() as session:
+            row = session.get(CaliberEventOutbox, "evt-1")
+            assert row is not None and row.status == DELIVERED and row.last_error is None
+
+
+@pytest.mark.parametrize("dialect", DIALECTS)
+def test_an_event_whose_handoff_never_finishes_runs_out_of_attempts(
+    dialect: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    class Dies:
+        name = "dies"
+
+        def receive(self, envelope: dict[str, Any], payload: dict[str, Any]) -> None:
+            raise SystemExit("the process dies in the consumer")
+
+    with _database(dialect, tmp_path, monkeypatch) as (_, factory):
+        with factory() as session:
+            _event(session, 1)
+            session.commit()
+        clock = Clock()
+        publisher = OutboxPublisher(
+            factory, consumers=[Dies()], clock=clock, lease_seconds=5, max_attempts=2
+        )
+        for _ in range(2):
+            with pytest.raises(SystemExit):
+                publisher.publish_batch()
+            clock.advance(6)  # the dead publisher's lease lapses
+        assert publisher.publish_batch().dead == 1, "the third claim finds the attempts spent"
+        with factory() as session:
+            row = session.get(CaliberEventOutbox, "evt-1")
+            assert row is not None and row.status == DEAD and "abandoned" in str(row.last_error)
+
+
+@pytest.mark.parametrize("dialect", DIALECTS)
+def test_rows_a_batch_cannot_reach_before_its_lease_ends_are_released_uncounted(
+    dialect: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    with _database(dialect, tmp_path, monkeypatch) as (_, factory):
+        with factory() as session:
+            for number in (1, 2, 3):
+                _event(session, number)
+            session.commit()
+        clock = Clock()
+
+        class Slow(Recorder):
+            def receive(self, envelope: dict[str, Any], payload: dict[str, Any]) -> None:
+                super().receive(envelope, payload)
+                clock.advance(31)  # the first handoff outlasts the batch's lease
+
+        consumer = Slow()
+        publisher = OutboxPublisher(factory, consumers=[consumer], clock=clock, lease_seconds=30)
+        assert publisher.publish_batch().delivered == 1
+        assert consumer.received == ["evt-1"]
+        with factory() as session:
+            rest = [session.get(CaliberEventOutbox, f"evt-{n}") for n in (2, 3)]
+            assert all(
+                row is not None and (row.status, row.attempts, row.claimed_by) == (PENDING, 0, None)
+                for row in rest
+            )
+        assert publisher.publish_batch().delivered == 1, "and they are picked up next"
+
+
+@pytest.mark.parametrize("dialect", DIALECTS)
+def test_a_claim_another_publisher_won_first_is_skipped(
+    dialect: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The claim is a conditional UPDATE, so it is exclusive on SQLite too (where SKIP LOCKED does nothing)."""
+    with _database(dialect, tmp_path, monkeypatch) as (_, factory):
+        with factory() as session:
+            _event(session, 1)
+            session.commit()
+        clock = Clock()
+        consumer = Recorder()
+
+        def rival_session() -> Session:
+            session = factory()
+            real_execute = session.execute
+            state = {"selected": False}
+
+            def execute(statement: Any, *args: Any, **kwargs: Any) -> Any:
+                result = real_execute(statement, *args, **kwargs)
+                if not state[
+                    "selected"
+                ]:  # right after the candidates are read, a rival claims the row
+                    state["selected"] = True
+                    real_execute(
+                        update(CaliberEventOutbox).values(
+                            claimed_by="rival", lease_expires_at=T0 + timedelta(hours=1)
+                        )
+                    )
+                return result
+
+            session.execute = execute  # type: ignore[method-assign]
+            return session
+
+        publisher = OutboxPublisher(rival_session, consumers=[consumer], clock=clock)
+        assert publisher.publish_batch().claimed == 0
+        assert consumer.received == []
+
+
+def test_stop_lets_the_row_in_flight_finish_releases_the_rest_and_claims_nothing_after(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    entered, release = threading.Event(), threading.Event()
+
+    class Blocking(Recorder):
+        def receive(self, envelope: dict[str, Any], payload: dict[str, Any]) -> None:
+            entered.set()
+            assert release.wait(10)
+            super().receive(envelope, payload)
+
+    async def scenario(factory: sessionmaker[Session]) -> None:
+        with factory() as session:
+            for number in (1, 2, 3):
+                _event(session, number)
+            session.commit()
+        consumer = Blocking()
+        publisher = OutboxPublisher(factory, consumers=[consumer], poll_seconds=0.05)
+        await publisher.start()
+        for _ in range(200):
+            if entered.is_set():
+                break
+            await asyncio.sleep(0.01)
+        assert entered.is_set()
+        stopping = asyncio.ensure_future(publisher.stop(grace_seconds=10))
+        await asyncio.sleep(0.1)
+        assert not stopping.done(), "stop waits for the handoff in flight"
+        release.set()
+        await stopping
+        assert consumer.received == ["evt-1"]
+        time.sleep(0.2)
+        assert consumer.received == ["evt-1"], "nothing is handed over after stop returned"
+        with factory() as session:
+            rest = [session.get(CaliberEventOutbox, f"evt-{n}") for n in (2, 3)]
+            assert all(
+                row is not None and (row.status, row.attempts, row.claimed_by) == (PENDING, 0, None)
+                for row in rest
+            )
+
+    with _database("sqlite", tmp_path, monkeypatch) as (_, factory):
+        asyncio.run(scenario(factory))
+
+
+def test_stop_gives_up_on_a_handoff_that_outlasts_the_grace(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    entered, release = threading.Event(), threading.Event()
+
+    class Hung(Recorder):
+        def receive(self, envelope: dict[str, Any], payload: dict[str, Any]) -> None:
+            entered.set()
+            release.wait(10)
+
+    async def scenario(factory: sessionmaker[Session]) -> None:
+        with factory() as session:
+            _event(session, 1)
+            session.commit()
+        publisher = OutboxPublisher(factory, consumers=[Hung()], poll_seconds=0.05)
+        await publisher.start()
+        for _ in range(200):
+            if entered.is_set():
+                break
+            await asyncio.sleep(0.01)
+        started = time.monotonic()
+        await publisher.stop(grace_seconds=0.1)
+        assert time.monotonic() - started < 2, "stop is bounded by the grace"
+        release.set()
+
+    with _database("sqlite", tmp_path, monkeypatch) as (_, factory):
+        asyncio.run(scenario(factory))
+
+
+@pytest.mark.parametrize("dialect", DIALECTS)
+def test_a_refused_announcement_rolls_back_its_run_event_too(
+    dialect: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A caller that handles the error and commits must not persist the run event without its outbox row."""
+    with _database(dialect, tmp_path, monkeypatch) as (_, factory):
+        run_id = _seed_run(factory)
+        bind_outbox(True)
+        with factory() as session:
+            enqueue(  # a stale row with this event id and different content
+                session,
+                event_id=f"run-event:{run_id}:1",
+                event_type="caliber.other",
+                aggregate_type="thing",
+                aggregate_id="T-1",
+                project_id="PRJ-ob",
+                payload={"stale": True},
+            )
+            session.commit()
+            with pytest.raises(OutboxConflict):
+                append_run_event(
+                    session,
+                    workflow_run_id=run_id,
+                    project_id="PRJ-ob",
+                    event_type="workflow.run.queued",
+                )
+            session.commit()
+        assert _count(factory, CaliberWorkflowRunEvent) == 0
+
+
+@pytest.mark.parametrize("dialect", DIALECTS)
+def test_the_outbox_migration_rolls_back_cleanly(
+    dialect: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    with _database(dialect, tmp_path, monkeypatch) as (engine, _):
+        assert {"caliber_event_outbox", "caliber_event_inbox"} <= set(
+            inspect(engine).get_table_names()
+        )
+        command.downgrade(Config(str(ALEMBIC_INI)), "0118")
+        assert not {"caliber_event_outbox", "caliber_event_inbox"} & set(
+            inspect(engine).get_table_names()
+        )
+        command.upgrade(Config(str(ALEMBIC_INI)), "head")
+        assert "caliber_event_outbox" in inspect(engine).get_table_names()
+
+
+def test_deleting_a_workflow_deletes_its_runs_announcements_everywhere(
+    client: Any, db_session: Session
+) -> None:
+    from caliber.workflows.run_launch import enqueue_workflow_run
+    from tests.workflow_helpers import PREFIX, create_workflow
+
+    bind_outbox(True)
+    workflow_id = create_workflow(client, "Outbox purge")
+    workflow = db_session.get(CaliberWorkflow, workflow_id)
+    assert workflow is not None
+    version = CaliberWorkflowVersion(
+        version_id="WFV-purge",
+        workflow_id=workflow_id,
+        version_number=1,
+        status="published",
+        manifest={"nodes": [], "edges": []},
+        manifest_hash="h",
+        created_by="@test",
+    )
+    db_session.add(version)
+    db_session.flush()
+    run, _ = enqueue_workflow_run(
+        db_session, workflow=workflow, version=version, alias="prod", source="api", actor="@test"
+    )
+    db_session.commit()
+    event_id = f"run-event:{run.workflow_run_id}:1"
+    assert db_session.get(CaliberEventOutbox, event_id) is not None
+    envelope = build_envelope(
+        event_id=event_id,
+        event_type="caliber.workflow.run.queued",
+        payload={"a": 1},
+        time=T0,
+        correlation_id="c",
+    )
+    receive(db_session, "billing", envelope, {"a": 1})
+    db_session.commit()
+
+    assert client.delete(f"{PREFIX}/workflows/{workflow_id}").status_code == 200
+    db_session.expire_all()
+    assert db_session.get(CaliberEventOutbox, event_id) is None
+    assert db_session.get(CaliberEventInbox, ("billing", event_id)) is None

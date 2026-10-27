@@ -230,7 +230,7 @@ but does not fence a stale process whose lease expired mid-transition, and two l
 | `ReleaseReconcilerTask` | `owner_only` | none: settles incomplete release operations by scan |
 | `CalibrationDrain` | `owner_only` | conditional `UPDATE ... WHERE status = 'queued'` claim |
 | `WebhookDispatcher` | `owner_only` | accept lease (at least 60 s, covering the retry window) plus an in-process in-flight claim |
-| `OutboxPublisher` | `owner_only` | per-row lease (`claimed_by`, `lease_expires_at`) with `FOR UPDATE SKIP LOCKED`; redelivery is deduplicated by the consumer's inbox key `(consumer, event_id)` |
+| `OutboxPublisher` | `owner_only` | per-row lease (`claimed_by`, `lease_expires_at`): a conditional UPDATE claims each row (exclusive on SQLite too; `FOR UPDATE SKIP LOCKED` on PostgreSQL avoids the contention) and only the claimer can settle it; redelivery is deduplicated by the consumer's inbox key `(consumer, event_id)` |
 | `WorkspaceImportWorker` | `owner_only` | per-job lease (`workspace_import_lease_seconds`) |
 
 The event bus is not in the worker inventory and is classified by its own row in the table above.

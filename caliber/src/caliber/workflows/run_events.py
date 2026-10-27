@@ -145,7 +145,12 @@ def append_run_event(
                         "payload": payload,
                     },
                 )
-        except IntegrityError as exc:
+        except Exception as exc:
+            if not isinstance(exc, IntegrityError):
+                # Not a sequence conflict (an outbox conflict, a refused envelope): the run event is flushed but its
+                # announcement is not, and a caller that handles the error and commits must not persist half.
+                savepoint.rollback()
+                raise
             # Roll back only this allocation, not the caller's work. Without the
             # savepoint a retry would run inside a session the failed flush had
             # already invalidated.

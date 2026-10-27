@@ -652,7 +652,9 @@ class _FakeLoop:
         self.log.append((self.name, "stop-end", time.monotonic()))
 
 
-def _lifespan(log: list[tuple[str, str, float]], *, janitor: str = "janitor") -> Any:
+def _lifespan(
+    log: list[tuple[str, str, float]], *, janitor: str = "janitor", outbox: bool = False
+) -> Any:
     from caliber.server import _build_lifespan
 
     names = ["worker", "workflow", "aria", "knowledge", "imports", "scheduler"]
@@ -679,7 +681,20 @@ def _lifespan(log: list[tuple[str, str, float]], *, janitor: str = "janitor") ->
         None,  # type: ignore[arg-type]
         bus,  # type: ignore[arg-type]
         background_tasks_enabled=True,
+        outbox_publisher=_FakeLoop("outbox", log, 0.3) if outbox else None,  # type: ignore[arg-type]
     )
+
+
+def test_the_outbox_publisher_runs_and_stops_with_the_owner_loops() -> None:
+    log: list[tuple[str, str, float]] = []
+
+    async def scenario() -> None:
+        app = SimpleNamespace(state=SimpleNamespace())
+        async with _lifespan(log, outbox=True)(app):
+            assert ("outbox", "start") in [(n, what) for n, what, _ in log]
+        assert ("outbox", "stop-end") in [(n, what) for n, what, _ in log]
+
+    asyncio.run(scenario())
 
 
 def test_the_owner_loops_stop_together_after_the_webhooks_and_before_the_bus_and_engine() -> None:

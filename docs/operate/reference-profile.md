@@ -602,16 +602,27 @@ background publisher delivers the rows afterwards.
   same id with different content is refused (`OutboxConflict`). The row holds an ADR 0003 `event_envelope` (the
   payload is referenced by `dataref` and `datahash`, never inlined) and the payload itself.
 - **Delivery is at least once.** `OutboxPublisher` (an owner-only loop; it appears in the worker inventory) claims due
-  rows with `FOR UPDATE SKIP LOCKED` and a lease, hands each to every registered consumer, and marks the row
-  `delivered`. A consumer that fails is retried with exponential backoff (`CALIBER_EVENT_OUTBOX_MAX_ATTEMPTS`, default
-  20); a row that exhausts its attempts is `dead` and kept for an operator. A publisher that dies holding a claim is
-  covered by the lease: the row is due again when it expires, and a second publisher redelivers it.
+  rows one by one with a conditional update (exclusive on SQLite too; `FOR UPDATE SKIP LOCKED` on PostgreSQL) and a
+  lease, hands each to every registered consumer (one that is down does not keep the others from the event), and
+  marks the row `delivered`. A consumer that fails is retried with exponential backoff
+  (`CALIBER_EVENT_OUTBOX_MAX_ATTEMPTS`, default 20); a row that exhausts its attempts is `dead` and kept for an
+  operator. The attempt is counted when the row is claimed, so an event whose handoff kills the process or hangs
+  still runs out of attempts. A publisher that dies holding a claim is covered by the lease: the row is due again
+  when it expires, and a second publisher redelivers it; a publisher that outlives its lease can no longer settle the
+  row. Lease times come from the publishers' clocks (one publisher runs at a time, the execution owner).
+- **Stopping.** Losing the lease or shutting down finishes the handoff in flight (bounded by
+  `CALIBER_SHUTDOWN_GRACE_SECONDS`), releases the rest of the batch without counting an attempt, and claims nothing
+  more.
+- **No payload in errors.** `last_error` and the log carry the consumer's name and the exception class, never its
+  message (a database error's text can include the statement's parameters, which are the payload).
 - **Consumers deduplicate.** `SqlInboxConsumer` acknowledges by committing a row in `caliber_event_inbox` whose key is
-  `(consumer, event_id)`, so a redelivery after a crash is ignored; `claim_unprocessed` and `mark_processed` give a
-  consumer its own at-least-once work queue.
+  `(consumer, event_id)`, so a redelivery after a crash is ignored; `claim_unprocessed` (a plain read: no lock, no lease) and
+  `mark_processed` (idempotent) let a single consumer track its own work.
 - **A full notification queue loses nothing.** The in-process bus and SSE stay notifications: a slow subscriber's
   bounded queue drops its copy. The outbox row was committed with the transition and is delivered regardless.
-- **Retention.** Delivered rows are pruned after `CALIBER_EVENT_OUTBOX_RETENTION_DAYS` (default 7); dead rows are kept.
+- **Retention.** Delivered rows are pruned after `CALIBER_EVENT_OUTBOX_RETENTION_DAYS` (default 7); dead rows are
+  kept, and so are inbox rows (a consumer's own retention). Deleting a workflow deletes its runs' outbox and inbox
+  rows with them.
 - **What it does not do yet.** The default registers no consumer, so rows are delivered at once and pruned; it
   publishes nothing to the bus or to webhooks (that would duplicate the notifications that exist). Webhook and
   alert events are not in the outbox. Consumers arrive with the features that need them.

@@ -370,7 +370,7 @@ def _build_lifespan(  # noqa: PLR0915 - one lifespan: every owner loop's start a
         if workflow_run_worker is not None:
             stops.append(workflow_run_worker.stop(grace_seconds=grace_seconds))
         if outbox_publisher is not None:
-            stops.append(outbox_publisher.stop())
+            stops.append(outbox_publisher.stop(grace_seconds=grace_seconds))
         stops += [
             worker.stop(grace_seconds=grace_seconds),
             calibration_drain_task.stop(grace_seconds=grace_seconds),

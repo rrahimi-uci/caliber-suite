@@ -21,6 +21,12 @@ Guarantees and their limits, stated plainly:
   no-op.
 * **No business event is lost to a full notification queue.** SSE and the in-process bus remain a *notification*
   (a slow subscriber's full queue drops its copy); the outbox row is the durable truth and is delivered regardless.
+* **A claim is exclusive, a lease is not forever.** Each row is claimed by a conditional UPDATE (so it holds on SQLite
+  too) that also counts the attempt, with a lease of ``lease_seconds``; only the publisher that holds the claim can
+  settle the row; rows a batch cannot reach before its lease ends are released uncounted. Lease expiry uses the
+  publishers' clocks (they all run as the execution owner, one at a time), not database time.
+* **Errors keep no payload.** A failed handoff stores and logs the consumer's name and the exception *class* only: a
+  database error's text can carry the statement's parameters, which are the payload.
 * **Not ordered across events.** Rows are claimed oldest first but retries and concurrent publishers reorder; a
   consumer that needs order uses the aggregate's own sequence (a run event's ``sequence``).
 * **Not exactly-once to the outside world.** An external consumer must deduplicate on ``event_id``.
@@ -216,12 +222,17 @@ def receive(
         payload=payload,
     )
     begin_sqlite_transaction(session)
-    if session.get(CaliberEventInbox, (consumer, str(envelope["id"]))) is not None:
+    key = (consumer, str(envelope["id"]))
+    if session.get(CaliberEventInbox, key) is not None:
         return False
     try:
         with session.begin_nested():
             session.add(row)
-    except IntegrityError:  # another transaction recorded it between the read and the insert
+    except IntegrityError:
+        # Only the primary key means "already received". Any other constraint failure is a defect the caller must
+        # see: swallowing it would let the publisher mark an event delivered that nobody holds.
+        if session.get(CaliberEventInbox, key, populate_existing=True) is None:
+            raise
         return False
     return True
 
@@ -229,7 +240,8 @@ def receive(
 def claim_unprocessed(
     session: Session, consumer: str, *, limit: int = 100
 ) -> list[CaliberEventInbox]:
-    """The consumer's received but not yet processed events, oldest first."""
+    """The consumer's received but not yet processed events, oldest first. A read: it takes no lock and no lease, so
+    a consumer with several workers must claim by its own means (and ``mark_processed`` is the idempotent finish)."""
     return list(
         session.execute(
             select(CaliberEventInbox)
@@ -313,15 +325,25 @@ class OutboxPublisher:
     retention_days: float = 7.0
     clock: Callable[[], datetime] = lambda: datetime.now(timezone.utc)
     _task: asyncio.Task[None] | None = field(default=None, init=False, repr=False)
+    _halt: threading.Event = field(default_factory=threading.Event, init=False, repr=False)
+    _in_batch: bool = field(default=False, init=False, repr=False)
     _ticks: int = field(default=0, init=False, repr=False)
 
     # -- one batch -------------------------------------------------------------------------
 
-    def publish_batch(self) -> PublishResult:
-        """Claim up to ``batch_size`` due rows, hand each to every consumer, and settle each row."""
+    def publish_batch(self, halt: threading.Event | None = None) -> PublishResult:
+        """Claim up to ``batch_size`` due rows, hand each to every consumer, and settle each row.
+
+        A claim is a conditional UPDATE per row (so it is exclusive on SQLite too, where ``SKIP LOCKED`` does nothing)
+        that counts the attempt up front: an event whose handoff kills the process still runs out of attempts. Rows
+        this batch cannot reach before its lease runs out, or after ``halt`` is set, are released untouched.
+        """
         now = _naive(self.clock())
+        deadline = now + timedelta(seconds=self.lease_seconds)
+        claimed: list[tuple[str, dict[str, Any], dict[str, Any], int]] = []
+        abandoned = 0
         with self.session_factory() as session:
-            rows = list(
+            candidates = list(
                 session.execute(
                     select(CaliberEventOutbox)
                     .where(
@@ -337,48 +359,99 @@ class OutboxPublisher:
                     .with_for_update(skip_locked=True)
                 ).scalars()
             )
-            claimed = [
-                (row.event_id, dict(row.envelope), dict(row.payload), int(row.attempts))
-                for row in rows
-            ]
-            for row in rows:
-                row.claimed_by = self.owner_id
-                row.lease_expires_at = now + timedelta(seconds=self.lease_seconds)
+            for row in candidates:
+                attempts = int(row.attempts) + 1
+                exhausted = attempts > self.max_attempts
+                result = session.execute(
+                    update(CaliberEventOutbox)
+                    .where(
+                        CaliberEventOutbox.event_id == row.event_id,
+                        CaliberEventOutbox.status == PENDING,
+                        or_(
+                            CaliberEventOutbox.lease_expires_at.is_(None),
+                            CaliberEventOutbox.lease_expires_at <= now,
+                        ),
+                    )
+                    .values(
+                        **(
+                            {
+                                "attempts": attempts,
+                                "status": DEAD,
+                                "claimed_by": None,
+                                "lease_expires_at": None,
+                                "last_error": "abandoned: every earlier handoff attempt never finished",
+                            }
+                            if exhausted
+                            else {
+                                "attempts": attempts,
+                                "claimed_by": self.owner_id,
+                                "lease_expires_at": deadline,
+                            }
+                        )
+                    )
+                    .execution_options(synchronize_session=False)
+                )
+                if not getattr(result, "rowcount", 0):
+                    continue  # another publisher claimed it first
+                if exhausted:
+                    abandoned += 1
+                else:
+                    claimed.append((row.event_id, dict(row.envelope), dict(row.payload), attempts))
             session.commit()
-        delivered = retried = dead = 0
-        for event_id, envelope, payload, attempts in claimed:
+        delivered = retried = 0
+        dead = abandoned
+        unreached: list[str] = []
+        for position, (event_id, envelope, payload, attempts) in enumerate(claimed):
+            if (halt is not None and halt.is_set()) or _naive(self.clock()) >= deadline:
+                unreached = [item[0] for item in claimed[position:]]
+                break
             error = self._hand_off(envelope, payload)
             if error is None:
                 self._settle_delivered(event_id)
                 delivered += 1
-            elif self._settle_failed(event_id, attempts + 1, error):
+            elif self._settle_failed(event_id, attempts, error):
                 dead += 1
             else:
                 retried += 1
+        if unreached:
+            self._release(unreached)
         return PublishResult(delivered=delivered, retried=retried, dead=dead)
 
     def _hand_off(self, envelope: dict[str, Any], payload: dict[str, Any]) -> str | None:
-        """``None`` when every consumer acknowledged; otherwise why not (nothing of the payload)."""
+        """``None`` when every consumer acknowledged; otherwise which ones failed and with what kind of error.
+
+        Every consumer is tried: one that is down does not keep the others from the event (a consumer that already has
+        it ignores the redelivery). Only names and exception classes are kept, never the message: a database error's
+        text can carry the statement's parameters, which is the payload.
+        """
+        failures: list[str] = []
         for consumer in self.consumers:
             try:
                 consumer.receive(envelope, payload)
             except Exception as exc:
+                kind = type(exc).__name__
+                cause = getattr(exc, "orig", None)
+                if cause is not None:
+                    kind = f"{kind}/{type(cause).__name__}"
                 logger.warning(
-                    "outbox handoff of %s to %s failed",
-                    envelope.get("id"),
-                    consumer.name,
-                    exc_info=True,
+                    "outbox handoff of %s to %s failed: %s", envelope.get("id"), consumer.name, kind
                 )
-                return f"{consumer.name}: {type(exc).__name__}: {exc}"[:_MAX_ERROR]
-        return None
+                failures.append(f"{consumer.name}: {kind}")
+        return "; ".join(failures)[:_MAX_ERROR] if failures else None
+
+    def _mine(self, event_id: str) -> tuple[Any, ...]:
+        """The conditions under which this publisher may still settle a row: it is pending and still ours."""
+        return (
+            CaliberEventOutbox.event_id == event_id,
+            CaliberEventOutbox.status == PENDING,
+            CaliberEventOutbox.claimed_by == self.owner_id,
+        )
 
     def _settle_delivered(self, event_id: str) -> None:
         with self.session_factory() as session:
             session.execute(
                 update(CaliberEventOutbox)
-                .where(
-                    CaliberEventOutbox.event_id == event_id, CaliberEventOutbox.status == PENDING
-                )
+                .where(*self._mine(event_id))
                 .values(
                     status=DELIVERED,
                     delivered_at=_naive(self.clock()),
@@ -390,18 +463,17 @@ class OutboxPublisher:
             session.commit()
 
     def _settle_failed(self, event_id: str, attempts: int, error: str) -> bool:
-        """Record a failed attempt; ``True`` when the row is now dead."""
+        """Record a failed attempt; ``True`` when the row is now dead. A row another publisher has since taken over
+        is left to it."""
         now = _naive(self.clock())
         dead = attempts >= self.max_attempts
         delay = min(
             self.backoff_cap_seconds, self.backoff_base_seconds * (2 ** max(0, attempts - 1))
         )
         with self.session_factory() as session:
-            session.execute(
+            result = session.execute(
                 update(CaliberEventOutbox)
-                .where(
-                    CaliberEventOutbox.event_id == event_id, CaliberEventOutbox.status == PENDING
-                )
+                .where(*self._mine(event_id))
                 .values(
                     status=DEAD if dead else PENDING,
                     attempts=attempts,
@@ -412,7 +484,22 @@ class OutboxPublisher:
                 )
             )
             session.commit()
-        return dead
+        return dead and bool(getattr(result, "rowcount", 0))
+
+    def _release(self, event_ids: list[str]) -> None:
+        """Give back rows this batch claimed but did not reach, without counting an attempt."""
+        with self.session_factory() as session:
+            for event_id in event_ids:
+                session.execute(
+                    update(CaliberEventOutbox)
+                    .where(*self._mine(event_id))
+                    .values(
+                        attempts=CaliberEventOutbox.attempts - 1,
+                        claimed_by=None,
+                        lease_expires_at=None,
+                    )
+                )
+            session.commit()
 
     # -- housekeeping ----------------------------------------------------------------------
 
@@ -433,27 +520,40 @@ class OutboxPublisher:
     async def start(self) -> None:
         if self._task is not None:
             raise RuntimeError("OutboxPublisher.start() called while already running")
-        self._task = asyncio.create_task(self._run(), name="caliber.event_outbox")
+        self._halt = (
+            threading.Event()
+        )  # a new one: a thread an earlier stop() gave up on keeps its own, set
+        self._task = asyncio.create_task(self._run(self._halt), name="caliber.event_outbox")
 
     async def stop(self, *, grace_seconds: float = 5.0) -> None:
+        """Stop claiming. A batch in flight finishes the row it is on (the rest are released), bounded by
+        ``grace_seconds``; an idle loop is cancelled at once."""
         task, self._task = self._task, None
         if task is None:
             return
-        task.cancel()
+        self._halt.set()
+        if not self._in_batch:
+            task.cancel()
         with contextlib.suppress(asyncio.CancelledError, asyncio.TimeoutError):
             await asyncio.wait_for(asyncio.shield(task), grace_seconds)
+        if not task.done():
+            task.cancel()
 
-    async def _run(self) -> None:
-        while True:
+    async def _run(self, halt: threading.Event) -> None:
+        while not halt.is_set():
             try:
-                result = await asyncio.to_thread(self.publish_batch)
+                self._in_batch = True
+                try:
+                    result = await asyncio.to_thread(self.publish_batch, halt)
+                finally:
+                    self._in_batch = False
                 self._ticks += 1
                 if self._ticks % 60 == 0:
                     await asyncio.to_thread(self.prune_delivered)
             except Exception:  # the loop must outlive a database blip; the next tick retries
                 logger.exception("outbox publish tick failed")
                 result = PublishResult()
-            if result.claimed == 0:
+            if result.claimed == 0 and not halt.is_set():
                 await asyncio.sleep(self.poll_seconds)
 
 
