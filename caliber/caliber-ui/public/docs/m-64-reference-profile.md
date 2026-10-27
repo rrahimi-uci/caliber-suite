@@ -98,17 +98,23 @@ The database must be migrated (`caliber-migrate`) before the first start.
 ## A stored secret never leaves the platform
 
 `caliber/tests/test_secret_canary.py` (B12.5b, #666) stores `EGI_CANARY_<uuid4>` as `egi-canary` through the
-encrypted secret store, points `llm_api_key_env` at `secret://egi-canary`, runs the core journey (sign in, create a
-project, register an agent, publish and queue a workflow run, run the refinement pipeline to a candidate, apply
-it, export the audit log) with logging at DEBUG, and fails if the value appears in any response body (refused
-requests included), any log record (with its traceback), any `caliber_workflow_run_events` row or any audit row.
-The failure paths of resolution (a revoked secret, corrupted ciphertext, a provider built from a revoked secret) are
-scanned the same way, and a control test plants the value in every scanned surface to prove the scan can fail. It
-runs in the Backend core job and the full backend suite.
+encrypted secret store, points `llm_api_key_env` at `secret://egi-canary`, and runs the core journey over HTTP with
+logging at DEBUG: sign in (the trusted proxy header), create a project, register an agent, publish, promote and run
+a workflow, run a **calibration run** to a candidate and **apply** it, read the LLM provider status (which resolves
+the secret inside the request; the test fails if nothing in the journey did), and export the audit log, plus refused
+requests. It fails if the value appears in any response (status, headers, cookies, body; the helper calls too), any
+log record (message, arguments, `extra` fields as the JSON formatter renders them, traceback), any
+`caliber_workflow_run_events` row or any audit row. The failure paths of resolution (a revoked secret, corrupted
+ciphertext, a provider built from a revoked secret) are scanned the same way, and a control test plants the value in
+every scanned surface to prove the scan can fail. It runs in the Backend core job and the full backend suite.
 
-Running it found that `CALIBER_LOG_LEVEL=DEBUG` with the default S3 log sink looped forever: the S3 client's own
-DEBUG records re-entered the handler and each delivery triggered another. The handler now ignores records emitted
-while it delivers a batch.
+Not covered: the prompt *registry* routes and MLflow traces need a live MLflow registry, which ordinary CI does
+not have; the journey's prompts are the agent prompts in the workflow manifest, which the calibration run rewrites.
+Sign-in by session login is covered by `test_auth_sessions`, not by this journey.
+
+Running it found that `CALIBER_LOG_LEVEL=DEBUG` with the default S3 log sink recursed: the S3 client's own DEBUG
+records re-entered the handler, so each record caused a growing number of S3 writes. The handler now ignores records
+emitted while it delivers a batch.
 
 ## Not enforced yet
 

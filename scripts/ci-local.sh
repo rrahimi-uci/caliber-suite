@@ -193,6 +193,7 @@ BACKEND_CORE_TESTS=(
   tests/test_approval_ux_contract.py
   tests/test_secret_canary.py
   tests/test_observability_logging.py
+  tests/test_worker_inventory.py
   tests/test_request_limits.py
 )
 
