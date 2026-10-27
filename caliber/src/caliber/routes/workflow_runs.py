@@ -43,7 +43,9 @@ from caliber.routes._deps import (
     parse_json_object,
     scoped_child_or_404,
 )
+from caliber.run_manifest import canonical_bytes, digest_of
 from caliber.schemas import (
+    AdmissionManifestSchema,
     RuntimeApprovalAckSchema,
     WorkflowRunApprovalDecisionRequest,
     WorkflowRunCancelRequest,
@@ -91,6 +93,7 @@ from caliber.workflows.run_launch import (
     enqueue_workflow_run,
     require_lineage,
 )
+from caliber.workflows.run_pins import PinsError, load_run_manifest
 from caliber.workflows.run_state import (
     RUN_STATUS_CANCELLED,
     RUN_STATUS_COMPLETED,
@@ -111,6 +114,7 @@ CREATE_PATH = PREFIX + "/workflow-runs"
 DETAIL_PATH = PREFIX + "/workflow-runs/{run_id}"
 LINEAGE_PATH = DETAIL_PATH + "/lineage"
 MANIFEST_PATH = DETAIL_PATH + "/manifest"
+ADMISSION_MANIFEST_PATH = DETAIL_PATH + "/admission-manifest"
 EVENTS_PATH = DETAIL_PATH + "/events"
 TRACE_PATH = DETAIL_PATH + "/trace"
 CHECKPOINTS_PATH = DETAIL_PATH + "/checkpoints"
@@ -1215,6 +1219,56 @@ async def get_workflow_run_lineage(request: Request) -> JSONResponse:
     with factory() as session:
         run = _get_run_or_404(session, run_id, request=request)
         data = _build_workflow_run_lineage(session, run)
+    return envelope_response(data)
+
+
+async def get_workflow_run_admission_manifest(request: Request) -> JSONResponse:
+    """The run's immutable admission manifest (B02.5, #695); ``legacy`` runs answer with nulls. Distinct from
+    ``/manifest``, which is the workflow manifest the run executed and is unchanged."""
+    from caliber.auth import resolve_identity  # noqa: PLC0415 - avoids an import cycle
+
+    require_user(request)
+    run_id = request.path_params["run_id"]
+    factory = get_session_factory(request)
+    with factory() as session:
+        run = _get_run_or_404(session, run_id, request=request)
+        try:
+            require_project_access_if_scoped(
+                session, resolve_identity(request), run.project_id, "read"
+            )
+        except HTTPException as exc:
+            if exc.status_code != 404:  # noqa: PLR2004 - HTTP not found
+                raise
+            # A run you can see but whose project you have no role in is, for this evidence, a run that is not there.
+            raise HTTPException(
+                status_code=404, detail=f"workflow run {run_id!r} not found"
+            ) from exc
+        if run.manifest_legacy:
+            data = AdmissionManifestSchema(workflow_run_id=run.workflow_run_id, legacy=True)
+        else:
+            try:
+                loaded = load_run_manifest(session, run.workflow_run_id)
+            except PinsError as exc:
+                raise HTTPException(status_code=409, detail=f"{exc.code}: {exc}") from exc
+            if loaded is None:
+                raise HTTPException(
+                    status_code=409,
+                    detail="manifest_missing: this admitted run has no stored manifest",
+                )
+            if digest_of(canonical_bytes(loaded.record)) != loaded.digest:
+                raise HTTPException(
+                    status_code=409,
+                    detail="manifest_corrupt: the stored manifest is not in canonical form, so its digest "
+                    "cannot be checked against the record",
+                )
+            data = AdmissionManifestSchema(
+                workflow_run_id=run.workflow_run_id,
+                schema_version=str(loaded.record["schema_version"]),
+                legacy=False,
+                manifest_id=loaded.manifest_id,
+                run_manifest=loaded.record,
+                manifest_digest=loaded.digest,
+            )
     return envelope_response(data)
 
 
@@ -2778,6 +2832,9 @@ def register(app: Starlette) -> None:
     app.routes.append(Route(DETAIL_PATH, get_workflow_run, methods=["GET"]))
     app.routes.append(Route(LINEAGE_PATH, get_workflow_run_lineage, methods=["GET"]))
     app.routes.append(Route(MANIFEST_PATH, get_workflow_run_manifest, methods=["GET"]))
+    app.routes.append(
+        Route(ADMISSION_MANIFEST_PATH, get_workflow_run_admission_manifest, methods=["GET"])
+    )
     app.routes.append(Route(EVENTS_PATH, list_workflow_run_events, methods=["GET"]))
     app.routes.append(Route(TRACE_PATH, get_workflow_run_trace, methods=["GET"]))
     app.routes.append(Route(CHECKPOINTS_PATH, list_workflow_run_checkpoints, methods=["GET"]))

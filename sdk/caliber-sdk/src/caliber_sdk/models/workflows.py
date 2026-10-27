@@ -130,6 +130,26 @@ class WorkflowRun:
 
 
 @dataclass
+class AdmissionManifest:
+    """The immutable manifest a run was admitted with: what it was pinned to and who started it.
+
+    Not the workflow manifest the run executed (that is ``runs.manifest``). A legacy run has none:
+    ``legacy`` is true and ``run_manifest`` and ``manifest_digest`` are ``None``.
+    ``manifest_digest`` is the SHA-256 of the canonical bytes of ``run_manifest``.
+    """
+
+    workflow_run_id: str = ""
+    #: ``True`` for a run with no admission manifest, ``False`` for an admitted one;
+    #: ``None`` when the server did not say (never read as admitted).
+    legacy: bool | None = None
+    schema_version: str | None = None
+    manifest_id: str | None = None
+    run_manifest: dict[str, Any] | None = None
+    manifest_digest: str | None = None
+    extra: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
 class WorkflowService:
     """A workflow published as an externally invocable HTTP service."""
 

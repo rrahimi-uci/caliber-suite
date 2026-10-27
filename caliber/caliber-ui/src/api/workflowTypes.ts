@@ -513,6 +513,20 @@ export interface WorkflowRunManifest {
   manifest: WorkflowManifest;
 }
 
+/**
+ * GET /workflow-runs/{id}/admission-manifest: the immutable manifest a run was
+ * admitted with (pins, who started it, why), not the workflow manifest it ran
+ * (`WorkflowRunManifest`). A legacy run has `legacy: true` and nulls.
+ */
+export interface AdmissionManifest {
+  workflow_run_id: string;
+  legacy: boolean;
+  schema_version: string | null;
+  manifest_id: string | null;
+  run_manifest: Record<string, unknown> | null;
+  manifest_digest: string | null;
+}
+
 export interface WorkflowRunEvent {
   event_id: number;
   workflow_run_id: string;

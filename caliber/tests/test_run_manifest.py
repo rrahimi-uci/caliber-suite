@@ -1448,3 +1448,175 @@ def test_a_trigger_names_both_halves_of_its_lineage_or_neither() -> None:
     for half in ({"workspace_release_id": "WSR-1"}, {"environment_id": "WSE-1"}):
         with pytest.raises(ValidationError, match="provided together"):
             WorkflowTriggerRequest(**half)
+
+
+# ---------------------------------------------------------------- the admission manifest endpoint (B02.5, #695)
+
+ADMISSION_PREFIX = "/ajax-api/2.0/mlflow/caliber"
+
+
+def _admitted_and_legacy(client: Any, db_session: Any) -> tuple[str, str]:
+    from tests.test_run_admission import _enable, _project_workflow, _run
+
+    _enable(client)
+    workflow_id, _ = _project_workflow(client, db_session)
+    admitted = _run(client, workflow_id, idempotency_key="am-1", input="hi")
+    assert admitted.status_code == 202, admitted.text
+    _enable(client, admission_enabled=False)
+    legacy = _run(client, workflow_id, idempotency_key="am-2", input="hi")
+    assert legacy.status_code == 202, legacy.text
+    return admitted.json()["data"]["workflow_run_id"], legacy.json()["data"]["workflow_run_id"]
+
+
+def test_admission_manifest_digest(client: Any, db_session: Any) -> None:
+    from caliber.run_manifest import canonical_bytes, digest_of
+
+    admitted_id, _ = _admitted_and_legacy(client, db_session)
+    response = client.get(f"{ADMISSION_PREFIX}/workflow-runs/{admitted_id}/admission-manifest")
+    assert response.status_code == 200, response.text
+    data = response.json()["data"]
+    assert data["legacy"] is False and data["schema_version"] == "v1"
+    record = data["run_manifest"]
+    assert record["workflow_run_id"] == admitted_id and data["manifest_id"] == record["manifest_id"]
+    assert data["manifest_digest"] == digest_of(canonical_bytes(record)), "the digest is checkable"
+    assert record["pins"]["workflow_version"] and record["grant_id"] and record["request_digest"]
+
+
+def test_legacy_snapshot_preserved(client: Any, db_session: Any) -> None:
+    """A legacy run answers the new endpoint with nulls and ``legacy: true``; its workflow manifest is still served
+    by the old endpoint."""
+    _, legacy_id = _admitted_and_legacy(client, db_session)
+    response = client.get(f"{ADMISSION_PREFIX}/workflow-runs/{legacy_id}/admission-manifest")
+    assert response.status_code == 200
+    assert response.json()["data"] == {
+        "workflow_run_id": legacy_id,
+        "schema_version": None,
+        "legacy": True,
+        "manifest_id": None,
+        "run_manifest": None,
+        "manifest_digest": None,
+    }
+    old = client.get(f"{ADMISSION_PREFIX}/workflow-runs/{legacy_id}/manifest")
+    assert old.status_code == 200 and old.json()["data"]["manifest"]["workflow_id"]
+
+
+def test_existing_manifest_response_unchanged(client: Any, db_session: Any) -> None:
+    admitted_id, legacy_id = _admitted_and_legacy(client, db_session)
+    for run_id in (admitted_id, legacy_id):
+        data = client.get(f"{ADMISSION_PREFIX}/workflow-runs/{run_id}/manifest").json()["data"]
+        assert set(data) == {
+            "workflow_run_id",
+            "workflow_id",
+            "workflow_version_id",
+            "manifest_mode",
+            "manifest_hash",
+            "manifest",
+        }, "exactly the fields the UI and SDK already read"
+        assert data["workflow_run_id"] == run_id and data["manifest_mode"] in {
+            "saved_version",
+            "snapshot",
+        }
+
+
+def test_foreign_run404(client: Any, db_session: Any) -> None:
+    admitted_id, _ = _admitted_and_legacy(client, db_session)
+    missing = client.get(f"{ADMISSION_PREFIX}/workflow-runs/WR-none/admission-manifest")
+    # another project's caller sees what a missing run looks like
+    other = client.get(
+        f"{ADMISSION_PREFIX}/workflow-runs/{admitted_id}/admission-manifest",
+        headers={"X-CALIBER-User": "@mallory", "X-CALIBER-Project": "P-someone-else"},
+    )
+    assert missing.status_code == 404 and other.status_code == 404, other.text
+    assert other.json()["detail"].replace(admitted_id, "X") == missing.json()["detail"].replace(
+        "WR-none", "X"
+    ), "a foreign run is indistinguishable from a missing one"
+
+
+def test_a_corrupt_or_missing_admission_manifest_is_a_409(
+    client: Any, db_session: Any, monkeypatch: Any
+) -> None:
+    import caliber.routes.workflow_runs as routes
+    from caliber.db.models import CaliberWorkflowRun
+    from caliber.workflows.run_pins import PinsError
+
+    admitted_id, _ = _admitted_and_legacy(client, db_session)
+
+    def corrupt(*_a: Any) -> Any:
+        raise PinsError("manifest_corrupt", "the bytes changed")
+
+    with monkeypatch.context() as patch:
+        patch.setattr(routes, "load_run_manifest", corrupt)
+        response = client.get(f"{ADMISSION_PREFIX}/workflow-runs/{admitted_id}/admission-manifest")
+        assert response.status_code == 409 and "manifest_corrupt" in response.json()["detail"]
+    with monkeypatch.context() as patch:
+        patch.setattr(routes, "load_run_manifest", lambda *_a: None)
+        response = client.get(f"{ADMISSION_PREFIX}/workflow-runs/{admitted_id}/admission-manifest")
+        assert response.status_code == 409 and "manifest_missing" in response.json()["detail"]
+    assert db_session.get(CaliberWorkflowRun, admitted_id) is not None
+
+
+def test_a_caller_who_can_see_the_run_but_has_no_project_role_cannot_read_its_admission_manifest(
+    client: Any, db_session: Any
+) -> None:
+    """Visibility is not membership: a public workflow's runs are visible to anyone, the admission evidence is not."""
+    from caliber.db.models import CaliberProjectMember, CaliberWorkflow, CaliberWorkflowRun
+
+    admitted_id, legacy_id = _admitted_and_legacy(client, db_session)
+    run = db_session.get(CaliberWorkflowRun, admitted_id)
+    assert run is not None
+    workflow = db_session.get(CaliberWorkflow, run.workflow_id)
+    assert workflow is not None
+    workflow.visibility = "public"
+    db_session.commit()
+    outsider = {"X-CALIBER-User": "@mallory"}
+    for run_id in (admitted_id, legacy_id):
+        seen = client.get(f"{ADMISSION_PREFIX}/workflow-runs/{run_id}", headers=outsider)
+        assert seen.status_code == 200, "the run itself is visible"
+        denied = client.get(
+            f"{ADMISSION_PREFIX}/workflow-runs/{run_id}/admission-manifest", headers=outsider
+        )
+        assert denied.status_code == 404, denied.text
+        assert denied.json()["detail"] == f"workflow run {run_id!r} not found", (
+            "no project is named"
+        )
+
+    # a viewer in the project may read it
+    db_session.add(
+        CaliberProjectMember(
+            member_id="M-viewer",
+            project_id=run.project_id,
+            user_id="@viewer",
+            role="viewer",
+            created_by="@test",
+        )
+    )
+    db_session.commit()
+    allowed = client.get(
+        f"{ADMISSION_PREFIX}/workflow-runs/{admitted_id}/admission-manifest",
+        headers={"X-CALIBER-User": "@viewer"},
+    )
+    assert allowed.status_code == 200, allowed.text
+    assert allowed.json()["data"]["legacy"] is False
+
+
+def test_a_stored_manifest_that_is_not_canonical_cannot_be_checked_and_is_a_409(
+    client: Any, db_session: Any, monkeypatch: Any
+) -> None:
+    import caliber.routes.workflow_runs as routes
+    from caliber.workflows.run_pins import RunPins
+
+    admitted_id, _ = _admitted_and_legacy(client, db_session)
+    real = routes.load_run_manifest
+
+    def different_digest(session: Any, run_id: str) -> Any:
+        loaded = real(session, run_id)
+        return RunPins(
+            manifest_id=loaded.manifest_id,
+            digest="0" * 64,
+            record=loaded.record,
+            pins=loaded.pins,
+        )
+
+    monkeypatch.setattr(routes, "load_run_manifest", different_digest)
+    response = client.get(f"{ADMISSION_PREFIX}/workflow-runs/{admitted_id}/admission-manifest")
+    assert response.status_code == 409 and "manifest_corrupt" in response.json()["detail"]

@@ -125,7 +125,15 @@ _ROUTES = Path(__file__).resolve().parents[1] / "src" / "caliber" / "routes"
 #: `require_scopes` check stayed in the handler's own body (not the new
 #: `_run_workflow_preview_sync` helper) for the same `scope_inference.py`
 #: AST-visibility reason the `257`/`261`/`263` bumps above document.
-_BASELINE = 262
+#:
+#: Bumped from 262 to 263: `B02.5` (#695) added `routes/workflow_runs.py::
+#: get_workflow_run_admission_manifest`, a one-row read, inline via
+#: `with factory() as session` like its sibling `get_workflow_run_manifest`
+#: and the rest of that file, with `require_project_access_if_scoped` in the
+#: handler's own body so `scope_inference.py` still documents the project role
+#: it needs (offloading the body to a helper would hide the check from the
+#: single-function AST walk, as the `257`/`261`/`263` bumps above explain).
+_BASELINE = 263
 
 _SESSION_MARKERS = ("with factory() as session", "with session_factory() as session")
 
