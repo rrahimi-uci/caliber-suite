@@ -1,6 +1,6 @@
 """Load and apply the JSON Schemas of the control records.
 
-Seven kinds, each with a schema per supported version in ``schemas/<kind>.<version>.json``. A record names its
+Eight kinds, each with a schema per supported version in ``schemas/<kind>.<version>.json``. A record names its
 version in ``schema_version``. The CloudEvents envelope (``event_envelope``) cannot: its ``specversion`` is
 CloudEvents' own and stays ``1.0``, so it names its schema version in the extension attribute ``schemaversion``,
 which defaults to ``v1`` when absent. Adding an optional field to a schema keeps its version; removing or
@@ -23,6 +23,7 @@ import jsonschema
 #: The control-record kinds, in the order ADR 0003 lists them.
 KINDS = (
     "run_manifest",
+    "context_manifest",
     "proposal",
     "receipt",
     "policy_decision",
@@ -33,6 +34,7 @@ KINDS = (
 #: Versions a record of each kind may carry. ``event_envelope`` carries CloudEvents' ``specversion``.
 SUPPORTED_VERSIONS: dict[str, tuple[str, ...]] = {
     "run_manifest": ("v1",),
+    "context_manifest": ("v1",),
     "proposal": ("v1",),
     "receipt": ("v1",),
     "policy_decision": ("v1",),

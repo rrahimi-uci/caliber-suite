@@ -83,6 +83,35 @@ reader (`caliber.run_manifest.read_manifest`) exist only on the development line
 manifest an older reader must understand. Once a release carries the schema, a new field needs the reader-first
 sequence above. Until then a deployment must not run an older development build against manifests a newer one wrote.
 
+### context_manifest
+
+ContextManifest (B07.3a, #704): the ordered, labelled context one agent step was given. Written once, by `caliber.context.manifest`,
+before the provider sees any of it; stored as canonical bytes with their SHA-256 (the record has no digest field: the digest excludes itself).
+
+| field | type | required | note |
+| --- | --- | --- | --- |
+| `schema_version` | const `v1` | yes | the schema version of this record |
+| `context_manifest_id` | string | yes | unique id of the manifest |
+| `workflow_run_id` | string | yes | the run it belongs to |
+| `step_request_id` | string | yes | the agent-step request it was assembled for; unique with `revision` per run |
+| `revision` | integer (at least 1) | yes | a re-assembly of the same step is a new revision, never an edit |
+| `tenant_id` | string | yes | `local` in the reference profile (ADR 0001) |
+| `region` | string | yes | `local` in the reference profile |
+| `residency` | string | no | `local` when absent |
+| `project_id` | string | no | the project the run was admitted in |
+| `segments` | array of objects | yes | in the order the provider sees them: `position` (0-based, contiguous), `tier` (`instruction` or `data`), `kind` (`system_instruction`, `workflow_instruction`, `user_input`, `retrieved_text`, `tool_output`, `history`, `memory`), `source` (`kind` of `prompt`, `input`, `knowledge_base`, `tool`, `memory`, `history`, with `knowledge_base_id`, `version_id` or `reference`), `content_digest`, `tokens`, optional `retrieval` (`mode`, `index_version`), `transform` (`name`, `version`) and `authorization_decision_id`. The content itself is not stored here, only its digest. |
+| `omitted` | array of objects | no | what was left out: `source`, `reason` (`token_budget`, `unauthorized`, `redacted`, `filtered`, `duplicate`) and `tokens` |
+| `redacted` | array of objects | no | segments changed for a policy reason: `position`, `fields`, `reason` |
+| `token_allocation` | object | yes | `budget`, `used`, `instruction`, `data` |
+| `created_at` | string (RFC 3339 date-time) | yes | when the manifest was written |
+
+Rules beyond field shapes (the schema enforces the first three, `caliber.context.manifest` all of them): an `instruction`
+segment comes only from a system or workflow instruction, and every system or workflow instruction is `instruction`
+tier; retrieved text is `data` tier, comes from a knowledge base version, and carries the `authorization_decision_id` of
+the recorded `context.read` allow that let it be loaded; `position` equals the segment's index (reordering a stored
+record is detectable twice, by the digest and by the positions); `used` is the sum of the segments' tokens and equals
+`instruction` plus `data`.
+
 ### proposal
 
 Proposal: one effect a run asks to perform, before it is performed.

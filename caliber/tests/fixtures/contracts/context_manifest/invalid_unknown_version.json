@@ -1,0 +1,82 @@
+{
+  "schema_version": "v9",
+  "context_manifest_id": "cm-1",
+  "workflow_run_id": "WR-1",
+  "step_request_id": "sr-1",
+  "revision": 1,
+  "tenant_id": "local",
+  "region": "local",
+  "residency": "local",
+  "project_id": "P-1",
+  "segments": [
+    {
+      "position": 0,
+      "tier": "instruction",
+      "kind": "workflow_instruction",
+      "source": {
+        "kind": "prompt",
+        "reference": "support@4"
+      },
+      "content_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "tokens": 120
+    },
+    {
+      "position": 1,
+      "tier": "data",
+      "kind": "user_input",
+      "source": {
+        "kind": "input"
+      },
+      "content_digest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "tokens": 30
+    },
+    {
+      "position": 2,
+      "tier": "data",
+      "kind": "retrieved_text",
+      "source": {
+        "kind": "knowledge_base",
+        "knowledge_base_id": "KB-1",
+        "version_id": "KBV-1"
+      },
+      "content_digest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "tokens": 400,
+      "retrieval": {
+        "mode": "dense",
+        "index_version": "idx-3"
+      },
+      "transform": {
+        "name": "chunk",
+        "version": "1"
+      },
+      "authorization_decision_id": "pd_1"
+    }
+  ],
+  "omitted": [
+    {
+      "source": {
+        "kind": "knowledge_base",
+        "knowledge_base_id": "KB-1",
+        "version_id": "KBV-1"
+      },
+      "reason": "token_budget",
+      "tokens": 900
+    }
+  ],
+  "redacted": [
+    {
+      "position": 2,
+      "fields": [
+        "ssn"
+      ],
+      "reason": "pii"
+    }
+  ],
+  "token_allocation": {
+    "budget": 2000,
+    "used": 550,
+    "instruction": 120,
+    "data": 430
+  },
+  "created_at": "2026-10-27T12:00:00Z"
+}

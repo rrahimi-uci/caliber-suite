@@ -2198,6 +2198,51 @@ def _manifest_digest_matches_bytes(_mapper: Any, _connection: Any, target: Any) 
         raise ValueError("manifest_digest must be the lowercase SHA-256 of manifest_bytes")
 
 
+class CaliberContextManifest(Base):
+    """The ordered, labelled context one agent step was given, as immutable canonical bytes (B07.3a, #704).
+
+    Unique per ``(workflow_run_id, step_request_id, revision)``: re-assembling a step is a new revision, never an edit.
+    ``manifest_bytes`` is the canonical JSON of the ``context_manifest`` v1 record (ADR 0003) and ``manifest_digest``
+    its lowercase SHA-256 (checked on insert by the ORM and, on PostgreSQL, by a CHECK). UPDATE and DELETE are refused
+    by database triggers (migration 0121) and by ``ImmutableRecordError``.
+    """
+
+    __tablename__ = "caliber_context_manifests"
+    __table_args__ = (
+        UniqueConstraint(
+            "workflow_run_id",
+            "step_request_id",
+            "revision",
+            name="uq_context_manifest_step_revision",
+        ),
+        CheckConstraint("length(manifest_digest) = 64", name="ck_context_manifest_digest_length"),
+        CheckConstraint("length(manifest_bytes) > 0", name="ck_context_manifest_bytes_present"),
+        CheckConstraint("revision >= 1", name="ck_context_manifest_revision"),
+    )
+
+    context_manifest_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    workflow_run_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("caliber_workflow_runs.workflow_run_id")
+    )
+    step_request_id: Mapped[str] = mapped_column(String(128))
+    revision: Mapped[int] = mapped_column(Integer)
+    schema_version: Mapped[str] = mapped_column(String(16), default="v1")
+    manifest_bytes: Mapped[bytes] = mapped_column(LargeBinary)
+    manifest_digest: Mapped[str] = mapped_column(String(64))
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+
+guard_immutable(CaliberContextManifest)
+
+
+@event.listens_for(CaliberContextManifest, "before_insert")
+def _context_manifest_digest_matches_bytes(_mapper: Any, _connection: Any, target: Any) -> None:
+    """Refuse a context manifest whose digest is not the SHA-256 of its own bytes, on every dialect."""
+    actual = hashlib.sha256(target.manifest_bytes or b"").hexdigest()
+    if target.manifest_digest != actual:
+        raise ValueError("manifest_digest must be the lowercase SHA-256 of manifest_bytes")
+
+
 class CaliberRunGrant(Base):
     """What one workflow run may do, for whom, in which project, until when (B03.2, #664).
 
