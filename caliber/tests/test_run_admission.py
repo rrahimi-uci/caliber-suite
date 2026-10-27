@@ -1684,3 +1684,35 @@ def test_the_source_check_runs_after_the_caller_is_known_to_be_allowed_to_run_th
             intent=_intent(workflow_id=workflow_id),
         )
     assert caught.value.code == "grant_refused" and "kb-1" not in str(caught.value)
+
+
+def test_child_workflow_source_checks_refuse_what_they_cannot_read(
+    client: TestClient, db_session: Session
+) -> None:
+    """A child that is too deep, missing, or not the compiled-against one is refused (403), never skipped; a version
+    already visited on the walk adds nothing (a cycle ends)."""
+    workflow_id, version_id = _project_workflow(client, db_session)
+    _, version = _db_pair(db_session, workflow_id, version_id)
+    digest = admission._dependencies(version)[0]
+    with pytest.raises(AdmissionDenied) as deep:
+        admission._child_sources(
+            db_session, {"version_id": version_id}, admission._MAX_CHILD_DEPTH, set()
+        )
+    assert deep.value.status == 403 and "too deeply" in str(deep.value)
+    with pytest.raises(AdmissionDenied) as missing:
+        admission._child_sources(db_session, {"version_id": "WFV-gone"}, 0, set())
+    assert missing.value.status == 403 and "cannot be read" in str(missing.value)
+    with pytest.raises(AdmissionDenied) as changed:
+        admission._child_sources(
+            db_session, {"version_id": version_id, "bundle_digest": "0" * 64}, 0, set()
+        )
+    assert changed.value.status == 403 and "compiled against" in str(changed.value)
+    assert (
+        admission._child_sources(
+            db_session, {"version_id": version_id, "bundle_digest": digest}, 0, set()
+        )
+        == set()
+    )
+    assert admission._knowledge_sources(db_session, version, seen={version_id}) == set(), (
+        "already visited"
+    )
