@@ -17,10 +17,11 @@ background workers stop cleanly on shutdown and the engine disposes its pool.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 import sys
-from collections.abc import AsyncIterator, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from typing import TYPE_CHECKING, Any
 
@@ -313,10 +314,9 @@ def _build_lifespan(
     Startup order: refinement worker → workflow-run worker → Aria worker →
     knowledge-build worker → workspace-import worker → scheduler → janitor →
     release reconciler → calibration drain → webhooks.
-    Shutdown reverses the dependency edge: webhooks and scheduler stop first,
-    followed by the workspace-import, knowledge, Aria, workflow-run,
-    refinement, and calibration workers; the janitor, release reconciler, and
-    event bus stop before the database engine is disposed.
+    Shutdown stops the webhook dispatcher first, then every other loop at once (each drain waits for its own
+    in-flight work, so one after another they would keep claiming new work for the sum of the graces); the event
+    bus stops, and the database engine is disposed, only after all of them.
 
     This list is prose and drifts; ``paper/scripts/gen_stats.py`` derives the loop
     count from the ``await <task>.start()`` calls below rather than from here.
@@ -350,21 +350,33 @@ def _build_lifespan(
         await webhooks.start()
 
     async def stop_owner_loops() -> None:
+        # Webhooks first, then every other loop at once: each drain waits for its own in-flight work, and one after
+        # another they would keep claiming new work (and the lease would be held) for the sum of the graces.
         await webhooks.stop()
+        stops: list[Awaitable[None]] = []
         if scheduler is not None:
-            await scheduler.stop()
+            stops.append(scheduler.stop())
         if workspace_import_worker is not None:
-            await workspace_import_worker.stop(grace_seconds=grace_seconds)
+            stops.append(workspace_import_worker.stop(grace_seconds=grace_seconds))
         if knowledge_build_worker is not None:
-            await knowledge_build_worker.stop(grace_seconds=grace_seconds)
+            stops.append(knowledge_build_worker.stop(grace_seconds=grace_seconds))
         if aria_plan_worker is not None:
-            await aria_plan_worker.stop(grace_seconds=grace_seconds)
+            stops.append(aria_plan_worker.stop(grace_seconds=grace_seconds))
         if workflow_run_worker is not None:
-            await workflow_run_worker.stop(grace_seconds=grace_seconds)
-        await worker.stop(grace_seconds=grace_seconds)
-        await calibration_drain_task.stop(grace_seconds=grace_seconds)
-        await release_reconciler.stop()
-        await janitor.stop()
+            stops.append(workflow_run_worker.stop(grace_seconds=grace_seconds))
+        stops += [
+            worker.stop(grace_seconds=grace_seconds),
+            calibration_drain_task.stop(grace_seconds=grace_seconds),
+            release_reconciler.stop(),
+            janitor.stop(),
+        ]
+        failures = [
+            r
+            for r in await asyncio.gather(*stops, return_exceptions=True)
+            if isinstance(r, BaseException)
+        ]
+        if failures:
+            raise failures[0]
 
     role = ExecutionRoleController(
         session_factory,

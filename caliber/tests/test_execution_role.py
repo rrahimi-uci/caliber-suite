@@ -8,10 +8,14 @@ timing; one test runs the real background task with a short lease.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
+import threading
+import time
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -30,7 +34,7 @@ from caliber.execution_role import (
     new_owner_id,
 )
 from caliber.ownership import DEFAULT_LEASE, Lease, current_lease
-from tests.dialect_helpers import DIALECTS, dialect_database_url
+from tests.dialect_helpers import DIALECTS, POSTGRES_TEST_URL, dialect_database_url
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 ALEMBIC_INI = PROJECT_ROOT / "alembic.ini"
@@ -394,6 +398,339 @@ def test_a_failing_tick_does_not_end_the_protocol(
 
     with _database("sqlite", tmp_path, monkeypatch) as (_, factory):
         asyncio.run(scenario(factory))
+
+
+# ---------------------------------------------------------------- failure modes found in review
+
+
+def test_loops_that_fail_to_start_are_stopped_the_lease_is_given_back_and_the_next_tick_recovers(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    async def scenario(factory: sessionmaker[Session]) -> None:
+        events: list[str] = []
+        failing = {"on": True}
+
+        async def start() -> None:
+            events.append("start")
+            if failing["on"]:
+                raise RuntimeError("already running")
+
+        async def stop() -> None:
+            events.append("stop")
+
+        controller = ExecutionRoleController(
+            factory, lease_seconds=30, start_loops=start, stop_loops=stop, owner_id="node-a"
+        )
+        rival_loops = Loops()
+        rival = _controller(factory, rival_loops, "node-b")
+        with _logged() as records:
+            await controller.start()
+        assert controller.role == SECONDARY and controller.lease is None
+        assert events == ["start", "stop"], "the loops that did start are stopped"
+        assert any("failed to start" in message for message in records.messages)
+        # Not stuck holding the lease: another process can take it at once.
+        assert await rival.tick() == OWNER
+        await rival.stop()
+        failing["on"] = False
+        assert await controller.tick() == OWNER and controller._loops_running
+        lease = _stored(factory)
+        assert lease is not None and (lease.owner_id, lease.fencing_token) == ("node-a", 3)
+        await controller.stop()
+
+    with _database("sqlite", tmp_path, monkeypatch) as (_, factory):
+        asyncio.run(scenario(factory))
+
+
+def test_shutting_down_during_a_lease_loss_stop_waits_for_that_stop_and_never_cancels_it(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    async def scenario(engine: Engine, factory: sessionmaker[Session]) -> None:
+        release_stop = asyncio.Event()
+        stopping = asyncio.Event()
+        finished: list[str] = []
+
+        async def start() -> None:
+            return None
+
+        async def stop() -> None:
+            stopping.set()
+            await release_stop.wait()
+            finished.append("stopped")
+
+        controller = ExecutionRoleController(
+            factory, lease_seconds=30, start_loops=start, stop_loops=stop, owner_id="node-a"
+        )
+        await controller.start()
+        _expire(engine)
+        _controller(
+            factory, Loops(), "node-b"
+        )  # a rival exists only to make the lease change hands
+        rival = _controller(factory, Loops(), "node-c")
+        assert await rival.tick() == OWNER
+        tick = asyncio.create_task(controller.tick())
+        await stopping.wait()
+        assert controller.role == SECONDARY
+        shutdown = asyncio.create_task(controller.stop())
+        await asyncio.sleep(0.1)
+        assert not shutdown.done(), "shutdown waits for the stop already in progress"
+        tick.cancel()  # even a cancelled caller does not cut the loops' stop short
+        await asyncio.sleep(0.05)
+        assert finished == []
+        release_stop.set()
+        await shutdown
+        assert finished == ["stopped"]
+        await rival.stop()
+        with contextlib.suppress(asyncio.CancelledError):
+            await tick
+
+    with _database("sqlite", tmp_path, monkeypatch) as (engine, factory):
+        asyncio.run(scenario(engine, factory))
+
+
+def test_a_renewal_that_hangs_costs_the_owner_its_loops_at_the_local_deadline(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    async def scenario(factory: sessionmaker[Session]) -> None:
+        loops = Loops()
+        controller = _controller(factory, loops, "node-a", lease=3.0)
+        await controller.start()
+        gate = threading.Event()
+        monkeypatch.setattr(controller, "_renew", lambda lease: gate.wait(10) and lease)
+        started = time.monotonic()
+        with _logged() as records:
+            assert await controller.tick() == SECONDARY
+        took = time.monotonic() - started
+        gate.set()
+        assert took < 2.5, (
+            f"the renewal was abandoned at the local deadline, not waited for ({took:.1f}s)"
+        )
+        assert loops.events == ["start", "stop"] and controller.lease is None
+        assert any("no answer from the database" in message for message in records.messages)
+        await controller.stop()
+
+    with _database("sqlite", tmp_path, monkeypatch) as (_, factory):
+        asyncio.run(scenario(factory))
+
+
+def test_a_secondary_whose_acquire_hangs_stays_secondary_and_keeps_ticking(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    async def scenario(factory: sessionmaker[Session]) -> None:
+        controller = _controller(factory, Loops(), "node-a", lease=3.0)
+        gate = threading.Event()
+        monkeypatch.setattr(controller, "_acquire", lambda: gate.wait(10) and None)
+        started = time.monotonic()
+        assert await controller.tick() == SECONDARY
+        assert time.monotonic() - started < 2.0
+        gate.set()
+        await controller.stop()
+
+    with _database("sqlite", tmp_path, monkeypatch) as (_, factory):
+        asyncio.run(scenario(factory))
+
+
+def test_the_lease_keeps_being_renewed_while_the_loops_drain_at_shutdown(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    async def scenario(factory: sessionmaker[Session]) -> None:
+        renewals: list[int] = []
+        draining = asyncio.Event()
+
+        async def start() -> None:
+            return None
+
+        async def stop() -> None:
+            draining.set()
+            await asyncio.sleep(
+                1.6
+            )  # a drain longer than one tick (the lease is 1.5 s, a tick 0.5 s)
+
+        controller = ExecutionRoleController(
+            factory, lease_seconds=1.5, start_loops=start, stop_loops=stop, owner_id="node-a"
+        )
+        original = controller._renew
+
+        def counting(lease: Lease) -> Lease:
+            renewals.append(1)
+            return original(lease)
+
+        monkeypatch.setattr(controller, "_renew", counting)
+        rival = _controller(factory, Loops(), "node-b", lease=1.5)
+        await controller.start()
+        await asyncio.sleep(0.1)
+        shutdown = asyncio.create_task(controller.stop())
+        await draining.wait()
+        before = len(renewals)
+        assert await rival.tick() == SECONDARY
+        await shutdown
+        assert len(renewals) > before, "still renewing while draining"
+        assert await rival.tick() == OWNER, "released only after the drain, so no overlap"
+        await rival.stop()
+
+    with _database("sqlite", tmp_path, monkeypatch) as (_, factory):
+        asyncio.run(scenario(factory))
+
+
+def test_a_tick_during_shutdown_never_takes_a_lease(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    async def scenario(factory: sessionmaker[Session]) -> None:
+        loops = Loops()
+        controller = _controller(factory, loops, "node-a")
+        controller._stopping = True
+        assert (
+            await controller.tick() == SECONDARY and loops.events == [] and controller.lease is None
+        )
+
+    with _database("sqlite", tmp_path, monkeypatch) as (_, factory):
+        asyncio.run(scenario(factory))
+
+
+def test_a_stop_that_raises_is_logged_and_the_role_stays_secondary(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    async def scenario(factory: sessionmaker[Session]) -> None:
+        async def start() -> None:
+            return None
+
+        async def stop() -> None:
+            raise RuntimeError("a loop would not stop")
+
+        controller = ExecutionRoleController(
+            factory, lease_seconds=30, start_loops=start, stop_loops=stop, owner_id="node-a"
+        )
+        await controller.start()
+        with _logged() as records:
+            await controller.stop()
+        assert controller.role == SECONDARY and controller.lease is None
+        assert any(
+            "stopping the owner-only loops failed" in message for message in records.messages
+        )
+
+    with _database("sqlite", tmp_path, monkeypatch) as (_, factory):
+        asyncio.run(scenario(factory))
+
+
+@pytest.mark.skipif(not POSTGRES_TEST_URL, reason="lock_timeout is a PostgreSQL setting")
+def test_postgresql_a_renewal_blocked_on_the_lease_row_gives_up_with_a_lock_timeout(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    async def scenario(engine: Engine, factory: sessionmaker[Session]) -> None:
+        loops = Loops()
+        controller = _controller(factory, loops, "node-a", lease=3.0)
+        await controller.start()
+        with engine.connect() as holder:
+            holder.execute(text("SELECT 1 FROM caliber_execution_owner FOR UPDATE"))
+            with _logged() as records:
+                assert await controller.tick() == SECONDARY
+            await asyncio.sleep(0.2)
+            holder.rollback()
+        assert loops.events == ["start", "stop"]
+        # The database gave up first (lock_timeout is a third of the lease, the local deadline two thirds), so
+        # the failure is the store's, not the controller's abandoned wait.
+        assert any("lease store is unavailable" in m for m in records.messages), records.messages
+        await controller.stop()
+
+    with _database("postgresql", tmp_path, monkeypatch) as (engine, factory):
+        asyncio.run(scenario(engine, factory))
+
+
+class _FakeLoop:
+    """A background task whose stop takes ``delay`` seconds and records when it began and ended."""
+
+    def __init__(self, name: str, log: list[tuple[str, str, float]], delay: float = 0.0) -> None:
+        self.name, self.log, self.delay = name, log, delay
+
+    async def start(self) -> None:
+        self.log.append((self.name, "start", time.monotonic()))
+
+    async def stop(self, **_: Any) -> None:
+        self.log.append((self.name, "stop-begin", time.monotonic()))
+        await asyncio.sleep(self.delay)
+        if self.name == "janitor-fails":
+            raise RuntimeError("did not stop")
+        self.log.append((self.name, "stop-end", time.monotonic()))
+
+
+def _lifespan(log: list[tuple[str, str, float]], *, janitor: str = "janitor") -> Any:
+    from caliber.server import _build_lifespan
+
+    names = ["worker", "workflow", "aria", "knowledge", "imports", "scheduler"]
+    loops = [_FakeLoop(n, log, 0.3) for n in names]
+    worker, workflow, aria, knowledge, imports, scheduler = loops
+    bus = _FakeLoop("bus", log)
+    engine = SimpleNamespace(dispose=lambda: log.append(("engine", "dispose", time.monotonic())))
+    return _build_lifespan(
+        engine,  # type: ignore[arg-type]
+        worker,  # type: ignore[arg-type]
+        workflow,  # type: ignore[arg-type]
+        aria,  # type: ignore[arg-type]
+        knowledge,  # type: ignore[arg-type]
+        imports,  # type: ignore[arg-type]
+        scheduler,  # type: ignore[arg-type]
+        _FakeLoop(janitor, log, 0.3),  # type: ignore[arg-type]
+        _FakeLoop("reconciler", log, 0.3),  # type: ignore[arg-type]
+        _FakeLoop("drain", log, 0.3),  # type: ignore[arg-type]
+        _FakeLoop("webhooks", log, 0.1),  # type: ignore[arg-type]
+        5.0,
+        None,  # type: ignore[arg-type]
+        None,  # type: ignore[arg-type]
+        None,  # type: ignore[arg-type]
+        None,  # type: ignore[arg-type]
+        bus,  # type: ignore[arg-type]
+        background_tasks_enabled=True,
+    )
+
+
+def test_the_owner_loops_stop_together_after_the_webhooks_and_before_the_bus_and_engine() -> None:
+    log: list[tuple[str, str, float]] = []
+
+    async def scenario() -> None:
+        app = SimpleNamespace(state=SimpleNamespace())
+        async with _lifespan(log)(app):
+            assert app.state.execution_role.role == OWNER
+        assert app.state.execution_role.role == SECONDARY, "leaving the lifespan stopped the loops"
+
+    asyncio.run(scenario())
+    begins = {n: t for n, what, t in log if what == "stop-begin"}
+    ends = {n: t for n, what, t in log if what == "stop-end"}
+    others = [n for n in begins if n not in {"webhooks", "bus"}]
+    assert len(others) == 9
+    assert ends["webhooks"] <= min(begins[n] for n in others), "webhooks stop first"
+    assert max(begins[n] for n in others) - min(begins[n] for n in others) < 0.15, (
+        "all signalled together"
+    )
+    assert max(ends[n] for n in others) - min(begins[n] for n in others) < 0.8, (
+        "so the drains overlap"
+    )
+    assert begins["bus"] >= max(ends[n] for n in others)
+    assert log[-1][:2] == ("engine", "dispose")
+
+
+def test_a_loop_that_fails_to_stop_does_not_keep_the_others_from_stopping() -> None:
+    log: list[tuple[str, str, float]] = []
+
+    async def scenario() -> None:
+        async with _lifespan(log, janitor="janitor-fails")(
+            SimpleNamespace(state=SimpleNamespace())
+        ):
+            pass
+
+    with _logged() as records:
+        asyncio.run(scenario())
+    ended = {n for n, what, _ in log if what == "stop-end"}
+    assert {
+        "worker",
+        "workflow",
+        "aria",
+        "knowledge",
+        "imports",
+        "scheduler",
+        "reconciler",
+        "drain",
+    } <= ended
+    assert any("stopping the owner-only loops failed" in message for message in records.messages)
+    assert log[-1][:2] == ("engine", "dispose"), "the engine is still disposed"
 
 
 def test_owner_ids_are_unique_per_incarnation_and_the_ticks_are_a_third_of_the_lease() -> None:

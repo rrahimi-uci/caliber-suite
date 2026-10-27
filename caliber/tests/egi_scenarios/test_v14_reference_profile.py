@@ -27,8 +27,9 @@ pytestmark = pytest.mark.xdist_group("egi-scenario-processes")
 CALIBER_DIR = Path(__file__).resolve().parents[2]
 READINESS = "/ajax-api/2.0/mlflow/caliber/readiness"
 LEASE_SECONDS = 3.0
-#: The issue's bound is 2 x the lease; polling over HTTP on a loaded runner needs a little slack on top.
-TAKEOVER_BOUND_SECONDS = 2 * LEASE_SECONDS + 3.0
+#: The issue's bound, exactly: a SIGKILLed owner's lease lapses within one lease and the secondary's next tick
+#: (a third of a lease) acquires and starts the loops, so 2 x the lease leaves slack for the HTTP poll.
+TAKEOVER_BOUND_SECONDS = 2 * LEASE_SECONDS
 
 
 def _role(server: ServerProcess) -> str:
@@ -97,11 +98,16 @@ def test_second_owner_is_api_only(reference_app: ReferenceApp, tmp_path: Path) -
         owner_id, token = _lease(reference_app)
         owner_pid = owner_id.split(":")[1]
         assert token == 1
+        # The owner's workers heartbeat, and nobody else's do: exactly the lease holder's process, not merely
+        # "at most one" (which an owner that never started its loops would also satisfy).
+        deadline = time.monotonic() + 20
         processes = _heartbeat_processes(reference_app)
-        assert len(processes) <= 1, (
-            f"owner-only workers heartbeat from one process only, saw {processes}"
+        while processes != {owner_pid} and time.monotonic() < deadline:
+            time.sleep(0.5)
+            processes = _heartbeat_processes(reference_app)
+        assert processes == {owner_pid}, (
+            f"owner-only workers heartbeat from the lease holder's process {owner_pid} only, saw {processes}"
         )
-        assert processes <= {owner_pid}, "and that process is the lease holder"
 
         # Kill the owner without a release: the lease lapses and the secondary takes it over.
         first.kill()

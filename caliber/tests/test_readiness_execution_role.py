@@ -23,10 +23,11 @@ def test_a_process_that_only_serves_requests_reports_secondary(client: TestClien
 def test_before_the_lifespan_has_run_no_loop_is_running_either(app_config) -> None:  # type: ignore[no-untyped-def]
     from caliber.server import create_app
 
-    app = create_app(app_config)  # no TestClient context: the lifespan has not started
-    with TestClient(app, headers={"X-CALIBER-User": "@test"}) as started:
-        assert started.get(READINESS).json()["data"]["execution_role"] == "secondary"
-    unstarted = TestClient(app, headers={"X-CALIBER-User": "@test"})
+    app = create_app(app_config)  # a fresh app, never started: nothing has published a controller
+    assert not hasattr(app.state, "execution_role")
+    unstarted = TestClient(
+        app, headers={"X-CALIBER-User": "@test"}
+    )  # no context manager: no lifespan
     assert unstarted.get(READINESS).json()["data"]["execution_role"] == "secondary"
 
 
@@ -38,9 +39,7 @@ def test_the_report_carries_the_role_and_defaults_to_owner() -> None:
     )
 
 
-def test_the_lifespan_publishes_the_controller_and_stops_the_loops_it_started(
-    worker_client: TestClient,
-) -> None:
+def test_the_lifespan_publishes_the_controller(worker_client: TestClient) -> None:
     controller = worker_client.app.state.execution_role  # type: ignore[attr-defined]
     assert controller.role == "owner" and controller.lease is None, (
         "no lease outside the reference profile"

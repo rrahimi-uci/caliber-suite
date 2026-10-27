@@ -13,7 +13,7 @@ already does: *"This list is prose and drifts;
 
 That script's `_lifespan_loops()` already solves the "which loops does the
 lifespan start" half of this problem with a proven `ast` walk over
-`_build_lifespan`'s nested `lifespan()` function -- this module ports the
+`_build_lifespan`'s nested `start_owner_loops()` function -- this module ports the
 same technique (rather than importing across the `paper`/`caliber`
 package boundary, which is unrelated coupling for four lines of logic) and
 extends it: `_build_lifespan`'s own typed parameters
