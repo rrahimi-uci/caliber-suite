@@ -271,13 +271,62 @@ def test_a_numeric_id_that_names_no_experiment_is_not_created(
     assert tracking.created == []
 
 
-def test_losing_the_creation_race_to_someone_else_is_a_refusal_not_a_takeover(
+def test_losing_the_creation_race_is_decided_like_any_existing_experiment_never_a_takeover(
     db_session: Session, tracking: FakeTracking
 ) -> None:
     tracking.race_on_create = "contested-name"
-    with pytest.raises(ExperimentNotClaimable, match="created by someone else a moment ago"):
+    with pytest.raises(ExperimentNotClaimable, match="already exists and nobody has registered it"):
         _claim(db_session, "contested-name", PROJECT_A, create_if_missing=True, may_adopt=False)
     assert db_session.query(CaliberExperimentOwner).count() == 0
+    # The creator registered it in the meantime: the loser is refused as a different scope, the winner is fine.
+    _claim(db_session, "999", PROJECT_B, create_if_missing=False, may_adopt=True)
+    with pytest.raises(ExperimentClaimConflict):
+        _claim(db_session, "contested-name", PROJECT_A, create_if_missing=True, may_adopt=False)
+    assert (
+        _claim(
+            db_session, "contested-name", PROJECT_B, create_if_missing=True, may_adopt=False
+        ).created
+        is False
+    )
+
+
+def test_a_creation_race_whose_winner_vanished_is_a_refusal(
+    db_session: Session, tracking: FakeTracking, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def already_exists(name: str, tags: dict[str, str] | None = None) -> str:
+        raise MlflowException("already exists", error_code=RESOURCE_ALREADY_EXISTS)
+
+    monkeypatch.setattr(mlflow, "create_experiment", already_exists)
+    with pytest.raises(ExperimentNotClaimable, match="created by someone else a moment ago"):
+        _claim(db_session, "ghost", PROJECT_A, create_if_missing=True, may_adopt=True)
+    assert db_session.query(CaliberExperimentOwner).count() == 0
+
+
+def test_a_stale_no_such_experiment_does_not_lock_the_owner_out_after_it_was_created(
+    db_session: Session, tracking: FakeTracking
+) -> None:
+    assert (
+        _claim(db_session, "late-exp", PROJECT_A, create_if_missing=False, may_adopt=False) is None
+    )  # cached as "no such experiment"
+    first = _claim(db_session, "late-exp", PROJECT_A, create_if_missing=True, may_adopt=False)
+    assert first.provenance == "created"
+    again = _claim(db_session, "late-exp", PROJECT_A, create_if_missing=True, may_adopt=False)
+    assert again.created is False and len(tracking.created) == 1, (
+        "the owner's repeat claim creates nothing"
+    )
+
+
+def test_a_cached_miss_that_was_created_elsewhere_is_refused_not_taken(
+    db_session: Session, tracking: FakeTracking
+) -> None:
+    assert (
+        _claim(db_session, "elsewhere", PROJECT_A, create_if_missing=False, may_adopt=False) is None
+    )
+    tracking.by_name["elsewhere"] = (
+        "321"  # someone created it directly in MLflow after the miss was cached
+    )
+    with pytest.raises(ExperimentNotClaimable, match="already exists and nobody has registered it"):
+        _claim(db_session, "elsewhere", PROJECT_A, create_if_missing=True, may_adopt=False)
 
 
 def test_a_backend_error_while_creating_is_a_lookup_failure(
@@ -716,6 +765,18 @@ def test_the_migration_and_resolution_routes_are_admin_only_audited_and_validate
     tracking.down = True
     clear_resolution_cache()
     assert client.post(f"{OBS}/experiment-claims/migrate").status_code == 503
+
+
+def test_a_registry_quarantine_is_listed_even_after_its_text_claims_are_gone(
+    client: TestClient, tracking: FakeTracking, db_session: Session
+) -> None:
+    _agent(db_session, "ag-2", "shared-exp", "P-own-A")
+    _wf(db_session, "WF-2", "7", "P-own-B")
+    assert client.post(f"{OBS}/experiment-claims/migrate").status_code == 200
+    db_session.delete(db_session.get(CaliberWorkflow, "WF-2"))
+    db_session.commit()
+    listed = client.get(f"{OBS}/experiment-claim-conflicts").json()["data"]["conflicts"]
+    assert listed == [{"experiment": "7", "claims": [], "quarantined": True}]
 
 
 # ---------------------------------------------------------------- PostgreSQL: two projects race

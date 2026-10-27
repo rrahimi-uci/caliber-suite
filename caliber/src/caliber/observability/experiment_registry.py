@@ -43,6 +43,7 @@ from caliber.observability.trace_access import (
     _claim_rows,
     assert_experiment_claim_allowed,
     claim_keys,
+    clear_resolution_cache,
     resolve_experiment,
     resolve_many,
 )
@@ -103,6 +104,10 @@ def _scope_of(visibility: str, project_id: str | None, owner: str) -> tuple[str,
 # ------------------------------------------------------------------ claiming
 
 
+class _CreateRace(Exception):  # noqa: N818 - control flow inside this module
+    """The experiment already existed when we tried to create it."""
+
+
 def _create_server_side(name: str, scope: tuple[str, str], claimant: str) -> str:
     """Create the experiment in the tracking backend for ``scope`` and return its canonical id."""
     try:
@@ -123,9 +128,7 @@ def _create_server_side(name: str, scope: tuple[str, str], claimant: str) -> str
         )
     except MlflowException as exc:
         if getattr(exc, "error_code", "") == "RESOURCE_ALREADY_EXISTS":
-            raise ExperimentNotClaimable(
-                f"experiment {name!r} was created by someone else a moment ago; ask an administrator to adopt it"
-            ) from exc
+            raise _CreateRace from exc
         logger.warning("could not create experiment %r: %s", name, exc)
         raise ExperimentLookupError(
             "the tracking backend did not answer, so the experiment's identity could not be established"
@@ -177,8 +180,20 @@ def claim_experiment(
             raise ExperimentNotClaimable(
                 f"there is no experiment {ref!r}; name the experiment to create"
             )
-        canonical = _create_server_side(ref, scope, claimant)
-        provenance = CREATED
+        try:
+            canonical = _create_server_side(ref, scope, claimant)
+            provenance = CREATED
+        except _CreateRace:
+            # It exists after all (a cached "no such experiment" from before it was created, or a concurrent
+            # creator): decide as for any existing experiment, by the registry and the caller's right to adopt.
+            clear_resolution_cache()
+            canonical = resolve_experiment(ref)
+            if canonical is None:
+                raise ExperimentNotClaimable(
+                    f"experiment {ref!r} was created by someone else a moment ago; ask an administrator to adopt it"
+                ) from None
+        else:
+            clear_resolution_cache()  # the cached "no such experiment" is stale now
     backend = tracking_backend()
     existing = session.get(CaliberExperimentOwner, (backend, canonical), populate_existing=True)
     if existing is not None:
