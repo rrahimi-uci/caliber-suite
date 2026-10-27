@@ -8,6 +8,7 @@ resolved (registry first, then the agent and workflow claims) and a project owne
 
 from __future__ import annotations
 
+from dataclasses import replace
 from types import SimpleNamespace
 from typing import Any
 
@@ -312,4 +313,108 @@ def test_the_decision_follows_the_membership_as_it_is_now(
     world.commit()
     assert can_read_payloads(world, _identity("@editor"), "payload-exp") is False, (
         "removed: refused"
+    )
+
+
+# ---------------------------------------------------------------- findings of the independent review (#956)
+
+
+def test_a_caller_acting_in_another_project_or_on_a_credential_bound_to_one_is_refused(
+    world: Session, tracking: dict[str, str]
+) -> None:
+    editor = _identity("@editor")
+    assert can_read_payloads(world, editor, "payload-exp") is True
+    for other in (
+        replace(editor, active_project_id="P-other"),
+        replace(editor, active_project_id=None),
+        replace(editor, credential_project_id="P-other"),
+        replace(editor, active_project_id="P-other", credential_project_id="P-other"),
+    ):
+        assert can_read_payloads(world, other, "payload-exp") is False, other
+    assert (
+        can_read_payloads(world, replace(editor, credential_project_id=PROJECT), "payload-exp")
+        is True
+    )
+
+
+def _claim_agent(world: Session, agent_id: str, experiment: str) -> None:
+    world.add(
+        CaliberAgentConfig(
+            agent_id=agent_id,
+            experiment_id=experiment,
+            name=agent_id,
+            owner="@owner",
+            project_id=PROJECT,
+            visibility="project",
+            artifact_types=["prompt"],
+            optimizer_config={},
+        )
+    )
+    world.commit()
+
+
+def test_a_reference_that_names_no_existing_experiment_gives_no_access_even_to_its_claimant(
+    world: Session, tracking: dict[str, str]
+) -> None:
+    _claim_agent(world, "ag-future", "99")
+    assert can_read_payloads(world, _identity("@owner"), "99") is False
+
+
+def test_a_stale_cached_miss_cannot_hand_the_old_claimant_access(
+    world: Session, tracking: dict[str, str]
+) -> None:
+    from caliber.observability.trace_access import resolve_experiment
+
+    _claim_agent(world, "ag-foo", "foo")
+    assert resolve_experiment("foo") is None  # cached as "no such experiment"
+    tracking["foo"] = "13"
+    world.add(
+        CaliberExperimentOwner(
+            tracking_backend=tracking_backend(),
+            experiment_id="13",
+            scope_kind="user",
+            scope_id="@viewer",
+            status="active",
+            provenance="resolved",
+            claimed_by="@root",
+        )
+    )
+    world.commit()
+    assert can_read_payloads(world, _identity("@owner"), "foo") is False, (
+        "fails closed on the stale miss"
+    )
+    clear_resolution_cache()
+    assert can_read_payloads(world, _identity("@viewer"), "foo") is True
+    assert can_read_payloads(world, _identity("@owner"), "foo") is False
+
+
+def test_garbage_and_database_errors_are_refusals_not_exceptions(
+    world: Session, tracking: dict[str, str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    for bad in (["payload-exp"], {"a": 1}, 11, None, b"11", "\x00"):
+        assert can_read_payloads(world, _identity("@owner"), bad) is False  # type: ignore[arg-type]
+
+    def broken(*_a: Any, **_k: Any) -> Any:
+        raise RuntimeError("database down")
+
+    from caliber.observability import experiment_registry
+
+    monkeypatch.setattr(experiment_registry, "registry_row", broken)
+    assert can_read_payloads(world, _identity("@owner"), "payload-exp") is False
+
+
+def test_a_deactivated_member_and_an_archived_project(
+    world: Session, tracking: dict[str, str]
+) -> None:
+    member = world.query(CaliberProjectMember).filter_by(user_id="@editor").one()
+    member.status = "inactive"
+    world.commit()
+    assert can_read_payloads(world, _identity("@editor"), "payload-exp") is False
+    member.status = "active"
+    project = world.get(CaliberProject, PROJECT)
+    assert project is not None
+    project.status = "archived"
+    world.commit()
+    assert can_read_payloads(world, _identity("@editor"), "payload-exp") is True, (
+        "as every read path"
     )

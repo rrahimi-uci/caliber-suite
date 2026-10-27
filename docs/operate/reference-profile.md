@@ -335,13 +335,18 @@ what is in it* (span inputs, outputs and tool arguments, which can hold personal
 permission, `trace.payload.read`, held by the project roles **owner** and **editor**; a reviewer or viewer is refused.
 `caliber.observability.trace_access.can_read_payloads(session, identity, experiment)` decides it:
 
-- the experiment's owner is the registry's active row (a quarantined row means no owner) or, before the legacy
-  migration, the single scope all agent and workflow claims name (none, or two scopes, means no owner);
-- a **project** owner: the caller's current membership role must allow the action
-  (`decide_project_access(..., "trace.payload.read")`); demotion or removal takes effect on the next call, and
-  `caliber.admin` is not an implicit project role, so an administrator who is not a member is refused;
-- a **user** owner: only that user. **Public**, no owner, a project that no longer exists, an empty reference and a
-  tracking backend that cannot answer are all refused: the function returns `False`, never raises, never guesses.
+- the reference must name an **existing** experiment; its owner is the registry's active row (a quarantined row
+  means no owner) or, for an experiment the registry has no row for (development, or before the legacy migration),
+  the single scope all agent and workflow claims name (none, or two scopes, means no owner);
+- a **project** owner: the caller must be acting in that project (the active project and any project-bound
+  credential are that project) and their current membership role must allow the action
+  (`decide_project_access(..., "trace.payload.read")`); demotion, removal or deactivation take effect on the next
+  call, and `caliber.admin` is not an implicit project role, so an administrator who is not a member is refused. An
+  archived project keeps its members' access, as every other read path does;
+- a **user** owner: only that user. **Public** experiments have no payload readers (intentional: their payloads
+  are the least accountable). No owner, a missing project, an empty or non-string reference, an unreachable
+  tracking backend or database are all refused: the function returns `False` and never guesses;
+- platform scopes (`caliber.viewer` and so on) are not checked here; the calling route must still require them.
 
 The permission is declared (and reserved in the route-scope inventory) by this task; the redaction routes (B11.4b)
 are the callers that enforce it, so no existing route changes behaviour yet.

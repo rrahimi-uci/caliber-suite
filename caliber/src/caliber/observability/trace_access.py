@@ -305,17 +305,20 @@ def visible_experiments(session: Session, identity: CaliberIdentity) -> set[str]
 def _owner_scope(session: Session, experiment_id: str) -> tuple[str, str] | None:
     """The single scope that owns ``experiment_id`` (a name or an id), or ``None`` when none can be established.
 
-    The registry decides where it has a row (a quarantined one means no owner); before the legacy migration the
-    agent and workflow claims decide, but only when they all name one scope. No claim, or a claim by two scopes, is
-    "no owner". Raises :class:`ExperimentLookupError` when the backend cannot say what the reference means.
+    The reference must name an existing experiment (a claim on a name that does not exist yet gives no payload
+    access: the experiment, once created, could be anyone's). The registry decides where it has a row (a quarantined
+    one means no owner); for an experiment it has no row for (development, or before the legacy migration) the agent
+    and workflow claims decide, but only when they all name one scope. No claim, or a claim by two scopes, is "no
+    owner". Raises :class:`ExperimentLookupError` when the backend cannot say what the reference means.
     """
     from caliber.observability.experiment_registry import registry_row  # noqa: PLC0415 - import cycle
 
     canonical = resolve_experiment(experiment_id)
-    if canonical is not None:
-        row = registry_row(session, canonical)
-        if row is not None:
-            return (row.scope_kind, row.scope_id) if row.status == "active" else None
+    if canonical is None:
+        return None  # payloads exist only for an experiment that exists; a claim on a name is no ownership of it yet
+    row = registry_row(session, canonical)
+    if row is not None:
+        return (row.scope_kind, row.scope_id) if row.status == "active" else None
     keys = claim_keys(experiment_id)
     scopes = {
         scope for ref, scope, _agent, _workflow in _claim_rows(session) if claim_keys(ref) & keys
@@ -329,33 +332,50 @@ def can_read_payloads(session: Session, identity: CaliberIdentity, experiment_id
     Seeing that a trace exists is :func:`visible_experiments`; reading what is in it is stricter, because payloads
     can hold personal data. The experiment's owner scope is resolved (:func:`_owner_scope`) and then:
 
-    * a project: the caller's *current* membership role must allow ``trace.payload.read`` (owner or editor),
-      through :func:`caliber.resource_access.decide_project_access`; a reviewer or viewer is refused, and
-      ``caliber.admin`` is not an implicit project role (the P1-B rule), so an administrator who is not a member is
-      refused too;
+    * a project: the caller must be *acting in that project* (the active project, and the project a project-bound
+      credential is bound to, are both that project, as :func:`visible_experiments` already requires), and their
+      *current* membership role must allow ``trace.payload.read`` (owner or editor), through
+      :func:`caliber.resource_access.decide_project_access`. A reviewer, a viewer, a removed or inactive member, and
+      ``caliber.admin`` without membership (not an implicit project role, the P1-B rule) are refused. An archived
+      project keeps its members' access, as every other read path does;
     * a user: only that user;
-    * public, no owner, a quarantined or contested experiment, a project that no longer exists, or a tracking backend
-      that cannot answer: refused. Never an exception, and never a guess.
+    * public, no owner, a quarantined or contested experiment, a reference that names no existing experiment, a
+      project that no longer exists, an unreachable tracking backend or database, and anything that is not a string
+      are all refused: the answer is ``False``, never a guess. Platform scopes (``caliber.viewer`` and so on) are not
+      checked here: the calling route must still require them.
     """
-    from caliber.db.models import CaliberProject  # noqa: PLC0415
-    from caliber.resource_access import decide_project_access  # noqa: PLC0415
-
-    if not experiment_id:
+    if type(experiment_id) is not str or not experiment_id:
         return False
     try:
         owner = _owner_scope(session, experiment_id)
+        return owner is not None and _owner_allows_payloads(session, identity, owner)
     except ExperimentLookupError:
         logger.warning("payload permission denied: the experiment could not be resolved")
-        return False
-    if owner is None:
-        return False
+    except Exception:  # a database error is a refusal, not a 500 and not an allow
+        logger.warning(
+            "payload permission denied: the owner could not be established", exc_info=True
+        )
+    return False
+
+
+def _owner_allows_payloads(
+    session: Session, identity: CaliberIdentity, owner: tuple[str, str]
+) -> bool:
+    from caliber.db.models import CaliberProject  # noqa: PLC0415
+    from caliber.resource_access import decide_project_access  # noqa: PLC0415
+
     kind, scope_id = owner
     if kind == "user":
-        return bool(scope_id) and identity.user_id == scope_id
-    if kind == "project":
-        project = session.get(CaliberProject, scope_id) if scope_id else None
-        return decide_project_access(session, identity, project, "trace.payload.read").allowed
-    return False
+        return identity.user_id == scope_id
+    if kind != "project":
+        return False  # public (or an unknown kind): no payload readers
+    bound_elsewhere = (
+        identity.credential_project_id is not None and identity.credential_project_id != scope_id
+    )
+    if identity.active_project_id != scope_id or bound_elsewhere:
+        return False  # acting in another project, or on a credential bound to another one
+    project = session.get(CaliberProject, scope_id)
+    return decide_project_access(session, identity, project, "trace.payload.read").allowed
 
 
 class TraceNotReadableError(ValueError):
