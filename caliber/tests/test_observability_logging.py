@@ -262,6 +262,61 @@ def test_s3_log_handler_batches_until_flush_line_threshold() -> None:
     assert [json.loads(line)["message"] for line in lines] == ["one", "two"]
 
 
+class _ChattyS3Client(_FakeS3Client):
+    """Logs about its own requests at DEBUG, as botocore does."""
+
+    def put_object(self, **kwargs: Any) -> None:
+        logging.getLogger("botocore.endpoint").debug("Making request for PutObject")
+        super().put_object(**kwargs)
+        if len(self.put_object_calls) > 50:
+            raise AssertionError("delivery re-entered the handler without end")
+
+
+def test_s3_log_handler_does_not_log_about_its_own_delivery_at_debug() -> None:
+    """With the root logger at DEBUG the S3 client's own records came back into the handler, and each delivery
+    caused another, forever (``CALIBER_LOG_LEVEL=DEBUG`` with the default S3 sink)."""
+    client = _ChattyS3Client()
+    handler = S3LogHandler(
+        client=client, bucket="caliber-log", flush_lines=1, auto_create_bucket=False
+    )
+    handler.setFormatter(JsonFormatter())
+    root = logging.getLogger()
+    previous = root.level
+    root.addHandler(handler)
+    root.setLevel(logging.DEBUG)
+    try:
+        logging.getLogger("caliber.test.s3").info("one real record")
+    finally:
+        root.removeHandler(handler)
+        root.setLevel(previous)
+    assert len(client.put_object_calls) == 1
+    body = client.put_object_calls[0]["Body"].decode("utf-8")
+    assert "one real record" in body
+    assert "PutObject" not in body, "records emitted while delivering are not delivered"
+
+
+def test_s3_log_handler_still_records_other_threads_while_one_is_delivering() -> None:
+    client = _FakeS3Client()
+    handler = S3LogHandler(
+        client=client, bucket="caliber-log", flush_lines=1, auto_create_bucket=False
+    )
+    handler.setFormatter(JsonFormatter())
+    handler._delivering.active = True  # this thread is mid-delivery
+    import threading
+
+    def other() -> None:
+        handler.emit(
+            logging.LogRecord(
+                "caliber.test", logging.INFO, __file__, 1, "from another thread", (), None
+            )
+        )
+
+    thread = threading.Thread(target=other)
+    thread.start()
+    thread.join()
+    assert len(client.put_object_calls) == 1
+
+
 def test_configure_logging_falls_back_to_stderr_when_s3_setup_fails(monkeypatch: Any) -> None:
     root = logging.getLogger()
     original_handlers = list(root.handlers)
