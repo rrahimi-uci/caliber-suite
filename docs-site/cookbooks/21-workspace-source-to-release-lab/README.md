@@ -225,7 +225,9 @@ curl -s -H "$AUTH" "$API/projects/$PID/releases/$RID/evaluations" | python3 -m j
   functions exist in the service layer with no caller, and the only caller of the claim is the
   opt-in `WorkspaceReleaseEvaluator` (`CALIBER_WORKSPACE_RELEASE_EVALUATOR_ENABLED`, off by
   default, claims only); the lab's backend test pins that fact so the lab fails loudly the day
-  an executor lands. Everything downstream of evaluation evidence —
+  an executor lands. The lab's live "still `queued` after a wait" check assumes that evaluator
+  is off: if an operator enables it, the evaluation becomes `running` and that check fails by
+  design (see the reference-profile page, "Release evaluation"). Everything downstream of evaluation evidence —
   quality signoff, CR accept, version tags, apply — is unreachable on a live server and is
   demonstrated as the refusal it is.
 - **This is a different feature from cookbook 11.** Lab 11's *release candidates* are a

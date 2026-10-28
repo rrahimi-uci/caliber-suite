@@ -1024,11 +1024,8 @@ def test_a_tick_claim_is_logged_with_what_it_means(
         with _logged() as records:
             _evaluator(factory).tick()
         claim_lines = [m for m in records.messages if "claimed " in m and ids["one"] in m]
-        assert (
-            claim_lines
-            and "#707" in claim_lines[0]
-            and "requeued on a clean stop" in claim_lines[0]
-        )
+        assert claim_lines and "nothing executes it" in claim_lines[0]
+        assert "#707" in claim_lines[0] and "requeued on a clean stop" in claim_lines[0]
 
 
 def test_a_failing_tick_is_logged_and_the_loop_keeps_going(
