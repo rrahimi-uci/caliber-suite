@@ -1118,3 +1118,55 @@ def test_0113_backfills_verification_item_project_id_from_agent(
     finally:
         engine.dispose()
         os.environ.pop("CALIBER_DATABASE_URL", None)
+
+
+@pytest.mark.parametrize("dialect", DIALECTS)
+def test_effect_ledger_rows_unchanged_by_the_effect_proposal_migrations(
+    dialect: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """B05.6 (#751): the legacy ledger rows an operator may still need to resolve are not migrated away, rewritten or given a
+    v1 receipt by the proposal, transition, receipt and dispatch-token migrations (0123 to 0126)."""
+    with dialect_database_url(dialect, tmp_path, "ledger_unchanged") as db_url:
+        monkeypatch.setenv("CALIBER_DATABASE_URL", db_url)
+        monkeypatch.chdir(PROJECT_ROOT)
+        cfg = Config(str(ALEMBIC_INI))
+        command.upgrade(cfg, "0122")
+        engine = create_engine(db_url)
+        try:
+            with engine.begin() as connection:
+                connection.execute(
+                    text(
+                        """
+                        INSERT INTO caliber_effect_ledger
+                            (effect_key, workflow_run_id, node_id, status, claimed_at)
+                        VALUES ('eff-stuck', 'WFR-1', 'charge', 'in_progress', '2026-01-01 00:00:00'),
+                               ('eff-failed', 'WFR-1', 'notify', 'failed', '2026-01-01 00:00:01')
+                        """
+                    )
+                )
+                connection.execute(
+                    text(
+                        """
+                        INSERT INTO caliber_effect_ledger
+                            (effect_key, workflow_run_id, node_id, status, claimed_at, completed_at, result, error)
+                        VALUES ('eff-done', 'WFR-1', 'send', 'completed', '2026-01-01 00:00:02',
+                                '2026-01-01 00:00:03', '{"status_code": 201}', 'late warning')
+                        """
+                    )
+                )
+            query = text("SELECT * FROM caliber_effect_ledger ORDER BY effect_key")
+            with engine.connect() as connection:
+                before = [tuple(row) for row in connection.execute(query)]
+            command.upgrade(cfg, "head")
+            with engine.connect() as connection:
+                after = [tuple(row) for row in connection.execute(query)]
+                receipts = connection.execute(
+                    text("SELECT count(*) FROM caliber_effect_receipts")
+                ).scalar_one()
+                proposals = connection.execute(
+                    text("SELECT count(*) FROM caliber_effect_proposals")
+                ).scalar_one()
+            assert before and after == before, "the ledger rows are exactly as they were"
+            assert (receipts, proposals) == (0, 0), "nothing was invented for them"
+        finally:
+            engine.dispose()
