@@ -912,14 +912,21 @@ A 2xx answer from a downstream is a *claim*. `caliber.effects.receipts` (table `
   (and is not a failure).
 - **Immutable, one per attempt, not borrowable.** A receipt is the canonical `receipt` v1 record and its SHA-256, refused for update
   or delete by database triggers (and on PostgreSQL a CHECK ties the digest to the bytes); `read_receipt` recomputes the record from the
-  columns, so an edited row is `receipt_corrupt`. The same facts delivered twice are one receipt (`created=False`); different facts
+  columns and checks it against its proposal (key, intent, attempt, connector, target), so a row edited in place is `receipt_corrupt`
+  (rewriting the columns *and* the bytes together would not be detected: there is no MAC, a limit of every immutable table here). The same facts delivered twice are one receipt (`created=False`; the response digest is not compared, because it hashes the whole lookup body, which can
+  gain a field between deliveries, and the first one stays recorded); a different request id or resource version
   for the same attempt, or a downstream request id that already belongs to another proposal or attempt, are `receipt_conflict` and
   never replace the first. A receipt can be recorded while the proposal is `dispatched`, `unknown` or `reconciled`, not before it was
   dispatched and not after it settled (`receipt_state`).
-- **`committed` needs a receipt.** `transition(..., COMMITTED, receipt_id=...)` verifies the receipt exists, was read back (`query`),
-  and answers *this* proposal's attempt, key and intent (`receipt_refused` otherwise); the id is recorded on the proposal, and the
-  database trigger refuses a move to `committed` that leaves `receipt_id` empty.
-- **Settling a dispatch.** `settle_dispatch(session, proposal_id, outcome=..., verify=...)` records what one attempt proved: a
+- **`committed` needs a receipt, and `failed` cannot have one.** `transition(..., COMMITTED, receipt_id=...)` verifies the receipt exists, was read
+  back (`query`), and answers *this* proposal's attempt, key and intent (`receipt_refused` otherwise); the id is recorded on the proposal, and the
+  database refuses a move to `committed` whose `receipt_id` is empty, does not exist or is another proposal's or attempt's. Once a verified receipt
+  exists the proposal cannot be moved to `failed` (`receipt_exists`; the database refuses it too): `failed` is final, and the downstream's own query
+  said it committed. The database also refuses a receipt for a proposal that is not `dispatched`, `unknown` or `reconciled`.
+- **Settling a dispatch.** `settle_dispatch(session, proposal_id, outcome=..., verify=...)` first checks the proposal is still `dispatched` at
+  `expected_version`, held by this owner and attempt (a stale worker is refused *before* a query is made and records nothing; a repeat of a
+  settle that already happened is `stale_version`), then records what one attempt proved, the receipt and the commit as one unit (a refused
+  commit keeps no receipt; if `verify` raises the proposal stays `dispatched`): a
   `committed_receipt` claim runs `verify()` (the authoritative query) and commits with the receipt if it confirms, and otherwise
   leaves the proposal `unknown` (`receipt_unverified`): a 404 or a mismatching stored request never certifies a failure, because a
   downstream that does not know a key yet may still process it; a `definitive_rejection` is `failed` (`rejected:<code>`),
@@ -947,6 +954,13 @@ settled = settle_dispatch(
 )
 ```
 
+- **What this does and does not prove.** `record_receipt` can only compare the facts it is handed with the proposal, so a receipt is as sound as
+  the connector verifier that built them from the downstream's answer. For document-request, `facts_from_lookup` confirms the stored key, case,
+  document type and (when the proposal expected a version) a stored version exactly one more, which holds only for a proposal built with
+  `document_request.build_intent`: its arguments are exactly `{"document_type": ...}`, because that is all the downstream stores; a proposal
+  with other arguments would commit downstream and then stay `unknown`. The proposal's effect class and expected version come from the
+  proposal itself, so only the key, case, document type and version are checked against the downstream's data. Under REPEATABLE READ
+  PostgreSQL refuses a competing insert as a serialization failure (`store_failed`): roll back and retry from a fresh read.
 - **Not here.** The callback that delivers receipts (B05.4b, #725), the lease-token fencing of the commit (B05.5a), the reconciler that
   asks about `unknown` proposals (B05.5b) and the dispatcher itself.
 
