@@ -506,6 +506,8 @@ jobs:
           tests/test_policy_principal.py
           tests/test_worker_inventory.py
           tests/test_request_limits.py
+          tests/test_upgrade_from_alpha.py
+          tests/test_migration_checksums.py
       - name: Run the SDK cookbook example tests against their stateful stand-ins
         # Every cookbook lab has an SDK example script that is replayed here against a
         # stateful stand-in server (the labs themselves run for real in cookbook-labs.yml).

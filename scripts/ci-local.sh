@@ -224,6 +224,8 @@ BACKEND_CORE_TESTS=(
   tests/test_policy_principal.py
   tests/test_worker_inventory.py
   tests/test_request_limits.py
+  tests/test_upgrade_from_alpha.py
+  tests/test_migration_checksums.py
 )
 
 job_backend_core() {

@@ -126,6 +126,28 @@ missing differs, and neither case is a profile refusal:
 
 The database must be migrated (`caliber-migrate`) before the first start.
 
+## Migrations that shipped in the alpha never change
+
+An alpha database sits at the head of the migrations that `caliber-v0.1.0a1` shipped; upgrading it means running
+the migrations after that head. That is only safe while the migrations up to that head are exactly the ones the
+alpha ran, so they are frozen (B16-Upgrade.1, #702). `caliber/tests/fixtures/alpha_0_1_0a1_migration_checksums.json`
+records the SHA-256 of every migration file in the tag, read from the tag's git objects, together with the alpha
+head. The head is derived from those files (the one revision nothing revises), never written in by hand.
+`caliber/tests/test_upgrade_from_alpha.py::test_shipped_migrations_unchanged` fails if any of them is edited
+(a line-ending change counts), renamed or removed, or if a migration is inserted into or branched off that history.
+Migrations added after the alpha are fine as long as they descend from the alpha head, and they need no manifest
+update. The failure names the file and the way out:
+
+```text
+0050_assistant_attachments.py: changed since caliber-v0.1.0a1 (sha256 6c27..., shipped 4306...)
+```
+
+Restore the file (`git checkout caliber-v0.1.0a1 -- caliber/src/caliber/db/migrations/versions/<file>`) and put the
+change in a new migration that revises the current head. `python caliber/tests/migration_checksums.py verify`
+runs the same check from the command line. Regenerate the manifest (`... migration_checksums.py generate`, which
+needs the tag fetched with `git fetch --tags`) only if the fixture itself was wrong; `generate --check` compares it
+with the tag without writing, and a test does the same wherever the tag is present.
+
 ## A stored secret never leaves the platform
 
 `caliber/tests/test_secret_canary.py` (B12.5b, #666) stores `EGI_CANARY_<uuid4>` as `egi-canary` through the
