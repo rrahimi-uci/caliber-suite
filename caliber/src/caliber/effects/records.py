@@ -22,8 +22,16 @@ commits, like the other immutable-record writers. :func:`read_proposal` rebuilds
 recomputes the intent from the stored columns, so a row edited around the database's triggers is detected, and an
 algorithm this build does not know is refused instead of being read as the nearest one.
 
-Not here: moving a proposal through its states (B05.2), the connector capability record (B05.3), receipts (B05.4) and
-the dispatcher itself. ``state`` is recorded as ``proposed`` and nothing in this module changes it.
+**States (B05.2, #705).** A proposal moves through the seven states of ADR 0003 only along :data:`TRANSITIONS`, by
+:func:`transition`, a compare-and-set on ``version``: the caller names the version it read, the UPDATE is conditioned on
+it, and a caller that read an old version is refused (:class:`StaleVersion`) instead of overwriting a newer state. Every
+move carries the evidence that justifies it (see :func:`transition`), the database refuses the same illegal moves from raw
+SQL, and a ``committed`` or ``failed`` proposal never changes again. ``unknown`` is left only through ``reconciled``: there
+is no edge from ``unknown`` (or anywhere) back to ``dispatched``, so recovery is a question to the downstream and never a
+blind second dispatch.
+
+Not here: the connector capability record (B05.3), receipts (B05.4), the callback, the reconciler and the dispatcher
+itself. A proposal is recorded as ``proposed``.
 """
 
 from __future__ import annotations
@@ -36,14 +44,16 @@ import re
 import uuid
 from collections.abc import Mapping
 from dataclasses import dataclass, field
-from typing import Any, Final
+from datetime import datetime, timezone
+from types import MappingProxyType
+from typing import Any, Final, cast
 
-from sqlalchemy import select
+from sqlalchemy import Table, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from caliber.contracts import validate_record
-from caliber.db.models import CaliberEffectProposal, CaliberWorkflowRun
+from caliber.db.models import CaliberEffectProposal, CaliberPolicyDecision, CaliberWorkflowRun
 from caliber.db.transactions import begin_sqlite_transaction
 from caliber.effects.inventory import EFFECT_CLASSES
 from caliber.run_manifest import FIXED_REGION, FIXED_TENANT_ID, canonical_bytes
@@ -58,6 +68,38 @@ INTENT_CONFLICT: Final = "intent_conflict"
 CORRUPT: Final = "corrupt"
 UNSUPPORTED_ALGORITHM: Final = "unsupported_algorithm"
 STORE_FAILED: Final = "store_failed"
+ILLEGAL_TRANSITION: Final = "illegal_transition"
+STALE_VERSION: Final = "stale_version"
+STALE_OWNER: Final = "stale_owner"
+EVIDENCE_REQUIRED: Final = "evidence_required"
+APPROVAL_REFUSED: Final = "approval_refused"
+
+APPROVED: Final = "approved"
+DISPATCHED: Final = "dispatched"
+COMMITTED: Final = "committed"
+FAILED: Final = "failed"
+UNKNOWN: Final = "unknown"
+RECONCILED: Final = "reconciled"
+#: The seven states of ADR 0003.
+STATES: Final = (PROPOSED, APPROVED, DISPATCHED, COMMITTED, FAILED, UNKNOWN, RECONCILED)
+#: The legal moves, and the only ones. No state can be skipped (``proposed`` to ``dispatched`` is refused: even a
+#: policy-approved read is recorded ``approved`` first), ``unknown`` has one way out (``reconciled``) and no way back to
+#: ``dispatched``, and ``committed`` and ``failed`` are final. A test keeps migration 0124's trigger identical to this.
+TRANSITIONS: Final[Mapping[str, frozenset[str]]] = MappingProxyType(
+    {
+        PROPOSED: frozenset({APPROVED, FAILED}),
+        APPROVED: frozenset({DISPATCHED, FAILED}),
+        DISPATCHED: frozenset({COMMITTED, FAILED, UNKNOWN}),
+        UNKNOWN: frozenset({RECONCILED}),
+        RECONCILED: frozenset({COMMITTED, FAILED}),
+        COMMITTED: frozenset(),
+        FAILED: frozenset(),
+    }
+)
+SETTLED: Final = frozenset({COMMITTED, FAILED})
+POLICY_DECISION: Final = "policy_decision"
+#: The policy action a decision must be for to approve a read effect, asked of the resource ``effect:<proposal id>``.
+EFFECT_ACTION: Final = "resource.execute"
 
 MAX_INTENT_BYTES: Final = 256 * 1024
 MAX_ARGS_DEPTH: Final = 64
@@ -71,6 +113,9 @@ _LIMITS: Final = {
     "connector_version": 64,
     "resource": 512,
     "expected_resource_version": 256,
+    "owner_id": 128,
+    "reason": 128,
+    "approval_ref": 128,
 }
 
 
@@ -326,6 +371,338 @@ def _same_or_conflict(existing: CaliberEffectProposal, intent: Intent) -> Record
     )
 
 
+# ---------------------------------------------------------------- states (B05.2)
+
+
+class StaleVersion(ProposalError):  # noqa: N818 - a refusal, named for what it says
+    """The caller's version of the proposal is not the current one (or the state it wanted was reached by another)."""
+
+    def __init__(
+        self, proposal_id: str, expected: int, current_version: int, current_state: str
+    ) -> None:
+        super().__init__(
+            STALE_VERSION,
+            f"proposal {proposal_id} is at version {current_version} ({current_state}); version {expected} was expected",
+        )
+        self.proposal_id = proposal_id
+        self.expected_version = expected
+        self.current_version = current_version
+        self.current_state = current_state
+
+
+@dataclass(frozen=True)
+class Approval:
+    """What approved a proposal. Only a recorded policy decision can approve a read; anything else is refused."""
+
+    kind: str
+    ref: str
+
+
+@dataclass(frozen=True)
+class ProposalState:
+    """A proposal's state, its compare-and-set ``version`` and the evidence recorded with its moves."""
+
+    proposal_id: str
+    state: str
+    version: int
+    attempt: int | None
+    owner_id: str | None
+    reason: str | None
+    approval_kind: str | None
+    approval_ref: str | None
+    dispatched_at: datetime | None
+    unknown_at: datetime | None
+    settled_at: datetime | None
+
+
+@dataclass(frozen=True)
+class Transitioned:
+    """The outcome of :func:`transition`: ``applied`` is ``False`` when the same move had already been recorded."""
+
+    proposal_id: str
+    state: str
+    version: int
+    applied: bool
+
+
+def effect_resource(proposal_id: str) -> str:
+    """The resource a policy decision must have been asked about to approve this proposal."""
+    return f"effect:{proposal_id}"
+
+
+def proposal_state(session: Session, proposal_id: str) -> ProposalState:
+    """The current state and version of ``proposal_id`` (``KeyError`` for an unknown id): what a caller passes back as
+    ``expected_version``."""
+    row = session.get(CaliberEffectProposal, proposal_id, populate_existing=True)
+    if row is None:
+        raise KeyError(proposal_id)
+    return ProposalState(
+        proposal_id=row.proposal_id,
+        state=row.state,
+        version=row.version,
+        attempt=row.attempt,
+        owner_id=row.owner_id,
+        reason=row.reason,
+        approval_kind=row.approval_kind,
+        approval_ref=row.approval_ref,
+        dispatched_at=row.dispatched_at,
+        unknown_at=row.unknown_at,
+        settled_at=row.settled_at,
+    )
+
+
+def _naive_utc(moment: datetime | None) -> datetime:
+    value = datetime.now(timezone.utc) if moment is None else moment
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc).replace(tzinfo=None)
+
+
+#: The largest attempt number: it is stored in a 32-bit column, and a larger value must be a refusal, not a database error.
+MAX_ATTEMPT: Final = 2**31 - 1
+
+
+def _count(name: str, value: object) -> int | None:
+    if value is None:
+        return None
+    if type(value) is not int or not 1 <= value <= MAX_ATTEMPT:
+        raise ProposalError(BAD_FIELD, f"{name} must be an integer from 1 to {MAX_ATTEMPT}")
+    return value
+
+
+def transition(
+    session: Session,
+    proposal_id: str,
+    to_state: str,
+    *,
+    expected_version: int,
+    approval: Approval | None = None,
+    owner_id: str | None = None,
+    attempt: int | None = None,
+    reason: str | None = None,
+    now: datetime | None = None,
+) -> Transitioned:
+    """Move a proposal to ``to_state`` if ``expected_version`` is still current, in the caller's transaction (never commits).
+
+    The UPDATE is conditioned on the version the caller read and the state it read, so two actors that both read the
+    same version cannot both move it: the second is refused with :class:`StaleVersion`. The same actor repeating a move
+    that was already recorded (same target, same evidence, version advanced by exactly that move) gets ``applied=False``
+    and no second write. A move that is not in :data:`TRANSITIONS` (including to the same state, and any move out of
+    ``committed`` or ``failed``) raises ``ProposalError`` with code ``illegal_transition``.
+
+    Each move needs its evidence, and evidence that does not belong to the move is refused:
+
+    * ``approved``: ``approval``, a ``policy_decision`` that is an *allow* for this proposal's run, asked about action
+      ``resource.execute`` on ``effect:<proposal id>``, and only for a ``read``. Any other effect class needs an
+      exact-intent approval (B06), which is not verifiable yet: ``approval_refused``, so nothing but a read reaches
+      ``dispatched`` today.
+    * ``dispatched``: ``owner_id`` and ``attempt`` (recorded with ``dispatched_at``).
+    * out of ``dispatched`` (``committed``, ``failed``, ``unknown``): the same ``owner_id`` and ``attempt`` that dispatched
+      it; a stale worker is ``stale_owner`` and records nothing. ``failed`` and ``unknown`` also need a ``reason``.
+    * ``failed`` (from any state), ``unknown`` and ``reconciled``: a short ``reason`` code (never a payload).
+
+    Under READ COMMITTED a conflicting move is :class:`StaleVersion` (or ``applied=False`` for a repeat). Under
+    REPEATABLE READ or SERIALIZABLE PostgreSQL itself refuses an UPDATE of a row another transaction changed after the
+    snapshot (a serialization failure): the caller rolls back and retries from a fresh read, as with the grants.
+    A repeat is only recognised while the proposal is still where the move left it: once it has moved on, the retry is
+    :class:`StaleVersion` and the caller reads ``current_state``. The owner check here is equality of the recorded
+    ``(owner_id, attempt)``; fencing by the lease token and expiry inside the transaction is B05.5a (#734).
+    """
+    if type(expected_version) is not int or expected_version < 1:
+        raise ProposalError(BAD_FIELD, "expected_version must be a positive integer")
+    if to_state not in STATES:
+        raise ProposalError(BAD_FIELD, f"to_state must be one of {', '.join(STATES)}")
+    owner = _text("owner_id", owner_id, nullable=True)
+    why = _text("reason", reason, nullable=True)
+    tries = _count("attempt", attempt)
+    begin_sqlite_transaction(session)
+    row = session.get(CaliberEffectProposal, proposal_id, populate_existing=True)
+    if row is None:
+        raise KeyError(proposal_id)
+    offered = _offered(approval, owner, tries, why)
+    if (
+        row.version == expected_version + 1
+        and row.state == to_state
+        and _complete(row, offered)
+        and _recorded(row, offered)
+    ):
+        return Transitioned(row.proposal_id, row.state, row.version, applied=False)
+    if row.version != expected_version:
+        raise StaleVersion(row.proposal_id, expected_version, row.version, row.state)
+    if to_state not in TRANSITIONS[row.state]:
+        raise ProposalError(
+            ILLEGAL_TRANSITION,
+            f"proposal {row.proposal_id} cannot move from {row.state} to {to_state}",
+        )
+    evidence = _evidence(session, row, to_state, approval, owner, tries, why)
+    _check_owner(row, owner, tries)
+    values: dict[str, Any] = {"state": to_state, "version": expected_version + 1, **evidence}
+    moment = _naive_utc(now)
+    for state, column in ((DISPATCHED, "dispatched_at"), (UNKNOWN, "unknown_at")):
+        if to_state == state:
+            values[column] = moment
+    if to_state in SETTLED:
+        values["settled_at"] = moment
+    table = cast(Table, CaliberEffectProposal.__table__)
+    result = session.execute(
+        update(table)
+        .where(
+            table.c.proposal_id == row.proposal_id,
+            table.c.version == expected_version,
+            table.c.state == row.state,
+        )
+        .values(**values)
+    )
+    session.expire(row)
+    if not getattr(
+        result, "rowcount", 0
+    ):  # another transaction moved it between the read and the update
+        current = session.get(CaliberEffectProposal, proposal_id, populate_existing=True)
+        if (
+            current is not None
+            and current.version == expected_version + 1
+            and current.state == to_state
+            and _complete(current, evidence)
+            and _recorded(current, evidence)
+        ):
+            return Transitioned(current.proposal_id, current.state, current.version, applied=False)
+        assert current is not None  # a proposal is never deleted
+        raise StaleVersion(proposal_id, expected_version, current.version, current.state)
+    return Transitioned(row.proposal_id, to_state, expected_version + 1, applied=True)
+
+
+def _offered(
+    approval: Approval | None, owner: str | None, attempt: int | None, reason: str | None
+) -> dict[str, Any]:
+    """The evidence the caller put forward, as the columns it would be recorded in (nothing verified)."""
+    offered: dict[str, Any] = {}
+    if owner is not None:
+        offered["owner_id"] = owner
+    if attempt is not None:
+        offered["attempt"] = attempt
+    if reason is not None:
+        offered["reason"] = reason
+    if isinstance(approval, Approval):
+        offered["approval_kind"] = approval.kind
+        offered["approval_ref"] = approval.ref
+    return offered
+
+
+def _complete(row: CaliberEffectProposal, offered: Mapping[str, Any]) -> bool:
+    """Whether ``offered`` carries all the evidence the move into ``row.state`` records or requires.
+
+    A repeat is recognised only by an actor that can present the same evidence, so one that cannot prove who it is (no
+    owner, no reason, no approval) is never told "already recorded". Whether the move came out of ``dispatched`` is read
+    from the timestamps: ``dispatched_at`` set and ``unknown_at`` not (a ``committed`` or ``failed`` reached through
+    ``unknown`` came out of ``reconciled``, which needs no owner).
+    """
+    needed: set[str] = set()
+    if row.state == APPROVED:
+        needed |= {"approval_kind", "approval_ref"}
+    if row.state in (FAILED, UNKNOWN, RECONCILED):
+        needed.add("reason")
+    from_dispatched = (
+        row.state == DISPATCHED
+        or (
+            row.state in (COMMITTED, FAILED)
+            and row.dispatched_at is not None
+            and row.unknown_at is None
+        )
+        or row.state == UNKNOWN
+    )
+    if from_dispatched:
+        needed |= {"owner_id", "attempt"}
+    return needed <= set(offered)
+
+
+def _recorded(row: CaliberEffectProposal, evidence: Mapping[str, Any]) -> bool:
+    return all(getattr(row, key) == value for key, value in evidence.items())
+
+
+def _evidence(
+    session: Session,
+    row: CaliberEffectProposal,
+    to_state: str,
+    approval: Approval | None,
+    owner: str | None,
+    attempt: int | None,
+    reason: str | None,
+) -> dict[str, Any]:
+    """The evidence columns this move writes; refuses a move without its evidence and evidence that is not its own."""
+    values: dict[str, Any] = {}
+    wants_reason = to_state in (FAILED, UNKNOWN, RECONCILED)
+    if (approval is not None) != (to_state == APPROVED):
+        raise ProposalError(
+            EVIDENCE_REQUIRED if to_state == APPROVED else BAD_FIELD,
+            "an approval is required to approve a proposal and belongs to no other move",
+        )
+    if (owner is not None or attempt is not None) and DISPATCHED not in (to_state, row.state):
+        raise ProposalError(
+            BAD_FIELD, "owner_id and attempt belong to the moves of a dispatched proposal"
+        )
+    if reason is not None and not wants_reason and to_state != COMMITTED:
+        raise ProposalError(BAD_FIELD, f"a reason does not belong to a move to {to_state}")
+    if wants_reason:
+        if reason is None:
+            raise ProposalError(EVIDENCE_REQUIRED, f"a move to {to_state} needs a reason")
+        values["reason"] = reason
+    elif reason is not None:
+        values["reason"] = reason
+    if approval is not None:
+        _verify_approval(session, row, approval)
+        values["approval_kind"] = approval.kind
+        values["approval_ref"] = approval.ref
+    if to_state == DISPATCHED:
+        if owner is None or attempt is None:
+            raise ProposalError(
+                EVIDENCE_REQUIRED, "dispatching a proposal needs an owner_id and an attempt"
+            )
+        values["owner_id"] = owner
+        values["attempt"] = attempt
+    return values
+
+
+def _check_owner(row: CaliberEffectProposal, owner: str | None, attempt: int | None) -> None:
+    if row.state != DISPATCHED:
+        return
+    if owner is None or attempt is None:
+        raise ProposalError(
+            EVIDENCE_REQUIRED,
+            "a move out of dispatched needs the owner_id and attempt that dispatched it",
+        )
+    if owner != row.owner_id or attempt != row.attempt:
+        raise ProposalError(
+            STALE_OWNER,
+            f"proposal {row.proposal_id} was dispatched by another owner or attempt: nothing recorded",
+        )
+
+
+def _verify_approval(session: Session, row: CaliberEffectProposal, approval: Approval) -> None:
+    if not isinstance(approval, Approval) or approval.kind != POLICY_DECISION:
+        raise ProposalError(
+            APPROVAL_REFUSED,
+            "only a recorded policy decision can approve a proposal; exact-intent approvals arrive with B06",
+        )
+    _text("approval_ref", approval.ref)
+    if row.effect_class != "read":
+        raise ProposalError(
+            APPROVAL_REFUSED,
+            f"a {row.effect_class} effect needs an exact-intent approval (B06), which is not available yet",
+        )
+    decision = session.get(CaliberPolicyDecision, approval.ref)
+    if (
+        decision is None
+        or decision.result != "allow"
+        or decision.workflow_run_id != row.workflow_run_id
+        or decision.action != EFFECT_ACTION
+        or decision.resource != effect_resource(row.proposal_id)
+    ):
+        raise ProposalError(
+            APPROVAL_REFUSED,
+            f"decision {approval.ref!r} is not an allow of {EFFECT_ACTION} on {effect_resource(row.proposal_id)} for this run",
+        )
+
+
 def read_proposal(session: Session, proposal_id: str) -> dict[str, Any]:
     """The ``proposal`` v1 record (ADR 0003) for ``proposal_id``, after recomputing its intent from the stored columns.
 
@@ -390,23 +767,46 @@ def read_proposal(session: Session, proposal_id: str) -> dict[str, Any]:
 
 
 __all__ = [
+    "APPROVAL_REFUSED",
+    "APPROVED",
     "BAD_FIELD",
+    "COMMITTED",
     "CORRUPT",
+    "DISPATCHED",
+    "EFFECT_ACTION",
+    "EVIDENCE_REQUIRED",
+    "FAILED",
+    "ILLEGAL_TRANSITION",
     "INTENT_ALGORITHM",
     "INTENT_CONFLICT",
     "MAX_ARGS_DEPTH",
     "MAX_INTENT_BYTES",
+    "POLICY_DECISION",
     "PROPOSED",
+    "RECONCILED",
     "RUN_NOT_FOUND",
+    "SETTLED",
+    "STALE_OWNER",
+    "STALE_VERSION",
+    "STATES",
     "STORE_FAILED",
+    "TRANSITIONS",
+    "UNKNOWN",
     "UNSUPPORTED_ALGORITHM",
+    "Approval",
     "Intent",
     "ProposalConflict",
     "ProposalError",
+    "ProposalState",
     "RecordedProposal",
+    "StaleVersion",
+    "Transitioned",
+    "effect_resource",
     "intent_digest",
     "logical_key",
     "new_proposal_id",
+    "proposal_state",
     "read_proposal",
     "record_proposal",
+    "transition",
 ]

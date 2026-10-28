@@ -699,10 +699,10 @@ def test_the_intent_columns_are_frozen_by_the_database(
 
 
 @pytest.mark.parametrize("dialect", DIALECTS)
-def test_every_column_but_state_is_frozen_by_the_database(
+def test_every_intent_column_is_frozen_by_the_database(
     dialect: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Derived from the model, so a column added later is frozen unless this test is changed on purpose."""
+    """Derived from the model: every column that is not state or the evidence that moves with it."""
     new_values = {
         "proposal_id": "'prop-other'",
         "tenant_id": "'elsewhere'",
@@ -710,7 +710,19 @@ def test_every_column_but_state_is_frozen_by_the_database(
         "intent_bytes": "'\\x01'::bytea" if dialect == "postgresql" else "x'01'",
         "args": "'[]'::json" if dialect == "postgresql" else "'[]'",
     }
-    columns = [c.name for c in CaliberEffectProposal.__table__.columns if c.name != "state"]
+    mutable = {
+        "state",
+        "version",
+        "attempt",
+        "owner_id",
+        "dispatched_at",
+        "unknown_at",
+        "settled_at",
+        "reason",
+        "approval_kind",
+        "approval_ref",
+    }
+    columns = [c.name for c in CaliberEffectProposal.__table__.columns if c.name not in mutable]
     with _database(dialect, tmp_path, monkeypatch) as (engine, factory):
         _seed_run(factory)
         with factory() as session:
@@ -729,30 +741,38 @@ def test_every_column_but_state_is_frozen_by_the_database(
 
 
 @pytest.mark.parametrize("dialect", DIALECTS)
-def test_state_is_the_one_column_that_may_change_and_only_to_a_known_state(
+def test_state_moves_only_with_the_next_version_and_only_to_a_known_state(
     dialect: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """The full transition rules are in ``test_effect_records.py``; here, that the freeze leaves room for them."""
     with _database(dialect, tmp_path, monkeypatch) as (engine, factory):
         _seed_run(factory)
         with factory() as session:
             recorded = _record(session)
             session.commit()
+        with pytest.raises(DBAPIError, match="version"), engine.begin() as connection:
+            connection.execute(
+                text(
+                    "UPDATE caliber_effect_proposals SET state = 'approved', approval_kind = 'policy_decision', "
+                    "approval_ref = 'pd-1' WHERE proposal_id = :p"
+                ),
+                {"p": recorded.proposal_id},
+            )
         with engine.begin() as connection:
             connection.execute(
                 text(
-                    "UPDATE caliber_effect_proposals SET state = 'approved' WHERE proposal_id = :p"
+                    "UPDATE caliber_effect_proposals SET state = 'approved', version = 2, "
+                    "approval_kind = 'policy_decision', approval_ref = 'pd-1' WHERE proposal_id = :p"
                 ),
                 {"p": recorded.proposal_id},
             )
         with factory() as session:
             assert read_proposal(session, recorded.proposal_id)["state"] == "approved"
-            row = session.get(CaliberEffectProposal, recorded.proposal_id)
-            assert row is not None
-            row.state = "dispatched"  # the ORM allows state too
-            session.commit()
-        with pytest.raises(IntegrityError), engine.begin() as connection:
+        with pytest.raises((IntegrityError, DBAPIError)), engine.begin() as connection:
             connection.execute(
-                text("UPDATE caliber_effect_proposals SET state = 'done' WHERE proposal_id = :p"),
+                text(
+                    "UPDATE caliber_effect_proposals SET state = 'done', version = 3 WHERE proposal_id = :p"
+                ),
                 {"p": recorded.proposal_id},
             )
 

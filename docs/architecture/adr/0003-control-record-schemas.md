@@ -140,7 +140,7 @@ Proposal: one effect a run asks to perform, before it is performed.
 | `connector_version` | string | no | the connector's version, part of the intent; absent on a record written before #700 |
 | `intent_algorithm` | string | no | the version of the canonical-intent algorithm that produced `intent_hash` (`intent-v1`); absent on a record written before #700 |
 
-`caliber.effects.records` stores a proposal in `caliber_effect_proposals` (B05.1, #700). The same logical key with the same intent is the same proposal; the same key with a different intent is refused (`ProposalConflict`, answered 409) and the stored intent stands. Every column but `state` is frozen by database triggers.
+`caliber.effects.records` stores a proposal in `caliber_effect_proposals` (B05.1, #700). The same logical key with the same intent is the same proposal; the same key with a different intent is refused (`ProposalConflict`, answered 409) and the stored intent stands. The intent columns are frozen by database triggers; `state` moves only along the seven-state table (B05.2, #705): `proposed` to `approved` or `failed`, `approved` to `dispatched` or `failed`, `dispatched` to `committed`, `failed` or `unknown`, `unknown` to `reconciled`, `reconciled` to `committed` or `failed`, `committed` and `failed` final, with a compare-and-set `version`.
 
 ### receipt
 
