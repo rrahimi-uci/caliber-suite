@@ -13,13 +13,14 @@ defaults, approval-policy defaults, observability sinks) so the import path
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any, Final, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
 from caliber.db_url import normalize_database_url
 from caliber.model_defaults import (
@@ -101,6 +102,34 @@ class WorkflowStorageConfig(BaseModel):
     scan_uploads: bool = False
 
     retention: RetentionConfig = Field(default_factory=RetentionConfig)
+
+
+#: The sections of an agent step's context that can be capped, and the default caps (tokens).
+CONTEXT_SECTIONS: Final = ("retrieved", "history")
+DEFAULT_CONTEXT_SECTION_CAPS: Final = '{"retrieved": 4000, "history": 2000}'
+
+
+def parse_section_caps(raw: str) -> dict[str, int]:
+    """The per-section token caps in ``raw`` (a JSON object), or ``ValueError`` saying what is wrong.
+
+    Only :data:`CONTEXT_SECTIONS` may be named (a typo must not silently leave a section uncapped), and each cap is a
+    positive integer (a boolean is not one).
+    """
+    try:
+        parsed = json.loads(raw)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("context_section_caps must be a JSON object") from exc
+    if not isinstance(parsed, dict):
+        raise ValueError("context_section_caps must be a JSON object")
+    unknown = sorted(set(parsed) - set(CONTEXT_SECTIONS))
+    if unknown:
+        raise ValueError(
+            f"context_section_caps names unknown sections {unknown}; known: {list(CONTEXT_SECTIONS)}"
+        )
+    for section, cap in parsed.items():
+        if type(cap) is not int or cap < 1:
+            raise ValueError(f"the cap for {section!r} must be a positive integer")
+    return {str(section): int(cap) for section, cap in parsed.items()}
 
 
 class CaliberConfig(BaseModel):
@@ -1724,6 +1753,26 @@ class CaliberConfig(BaseModel):
         ),
     )
 
+    context_section_caps: str = Field(
+        default=DEFAULT_CONTEXT_SECTION_CAPS,
+        description=(
+            "JSON object naming the most tokens each section of an agent step's context may use: "
+            "``retrieved`` (retrieved knowledge-base text) and ``history`` (earlier turns). Chunks beyond a "
+            "section's cap are dropped from the context manifest and listed as omitted for ``token_budget``. "
+            "A section left out is uncapped; unknown sections and non-positive caps are refused; a blank value "
+            "means the default. Not applied to a live agent step yet: it takes effect when the agent-step "
+            "adapters (B08) call ``caliber.context.manifest.pack_context`` with ``parse_section_caps`` of it."
+        ),
+    )
+
+    @field_validator("context_section_caps")
+    @classmethod
+    def _context_section_caps_are_valid(cls, value: str) -> str:
+        if not value.strip():  # an empty pass-through (a compose ${VAR:-}) means "not set"
+            return DEFAULT_CONTEXT_SECTION_CAPS
+        parse_section_caps(value)
+        return value
+
     # ------------------------------------------------------------------
     # CSRF protection (parity checklist §11). Opt-in because the common
     # deployment shape — MLflow's auth proxy in front of CALIBER —
@@ -2435,6 +2484,7 @@ _ENV_VAR_TABLE: list[tuple[str, str, Any]] = [
     ("CALIBER_PII_REDACTION_ENABLED", "pii_redaction_enabled", _flag),
     ("CALIBER_PII_REDACTION_REPLACEMENT", "pii_redaction_replacement", str),
     ("CALIBER_PII_REDACTION_EXTRA_PATTERNS", "pii_redaction_extra_patterns", str),
+    ("CALIBER_CONTEXT_SECTION_CAPS", "context_section_caps", str),
     ("CALIBER_CSRF_ENABLED", "csrf_enabled", _flag),
     ("CALIBER_CSRF_SIGNING_SECRET_ENV", "csrf_signing_secret_env", str),
     ("CALIBER_CSRF_TOKEN_TTL_SECONDS", "csrf_token_ttl_seconds", int),

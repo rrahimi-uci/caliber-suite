@@ -102,7 +102,7 @@ before the provider sees any of it; stored as canonical bytes with their SHA-256
 | `segments` | array of objects | yes | in the order the provider sees them: `position` (0-based, contiguous), `tier` (`instruction` or `data`), `kind` (`system_instruction`, `workflow_instruction`, `user_input`, `retrieved_text`, `tool_output`, `history`, `memory`), `source` (`kind` of `prompt`, `input`, `knowledge_base`, `tool`, `memory`, `history`, with `knowledge_base_id`, `version_id` or `reference`), `content_digest`, `tokens`, optional `retrieval` (`mode`, `index_version`), `transform` (`name`, `version`) and `authorization_decision_id`. The content itself is not stored here, only its digest. |
 | `omitted` | array of objects | no | what was left out: `source`, `reason` (`token_budget`, `unauthorized`, `redacted`, `filtered`, `duplicate`) and `tokens` |
 | `redacted` | array of objects | no | segments changed for a policy reason: `position`, `fields`, `reason` |
-| `token_allocation` | object | yes | `budget`, `used`, `instruction`, `data` |
+| `token_allocation` | object | yes | `budget`, `used`, `instruction`, `data`, and optionally `sections`: one `{section, cap_tokens, used_tokens}` per capped section (`retrieved`, `history`), where `used_tokens` equals the tokens of that section's segments and does not exceed `cap_tokens` (B07.4, #719; absent on a manifest written before it) |
 | `created_at` | string (RFC 3339 date-time) | yes | when the manifest was written |
 
 Rules beyond field shapes. The schema enforces these: an `instruction` segment comes only from a system or workflow

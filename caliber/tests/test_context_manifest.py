@@ -7,6 +7,7 @@ Alembic; the pure cases need no database.
 from __future__ import annotations
 
 import copy
+import dataclasses
 import hashlib
 import json
 import os
@@ -31,6 +32,7 @@ from caliber.context.manifest import (
     INVALID,
     ORDERING,
     REVISION_GAP,
+    SECTION_KINDS,
     TIER_VIOLATION,
     TOKENS,
     UNAUTHORIZED_PAYLOAD,
@@ -38,9 +40,11 @@ from caliber.context.manifest import (
     BuiltContextManifest,
     ContextManifestError,
     ContextSegment,
+    PackedContext,
     build_context_manifest,
     load_context_manifest,
     next_revision,
+    pack_context,
     read_context_manifest,
     store_context_manifest,
 )
@@ -53,6 +57,7 @@ from caliber.db.models import (
     CaliberWorkflow,
     CaliberWorkflowRun,
 )
+from caliber.redaction import DEFAULT_PATTERNS, IDENTITY_REDACTOR, Redactor
 from caliber.run_manifest import DeploymentScope, canonical_bytes, digest_of
 from tests.dialect_helpers import DIALECTS, dialect_database_url
 
@@ -706,3 +711,323 @@ def test_an_integrity_error_that_is_not_the_revision_is_not_called_a_duplicate(
             with pytest.raises(ContextManifestError) as caught:
                 store_context_manifest(session, _build(step_request_id="sr-2"))
             assert caught.value.code == INVALID
+
+
+# ---------------------------------------------------------------- caps and redaction (B07.4, #719)
+
+REDACTOR = Redactor.from_patterns(DEFAULT_PATTERNS)
+KB_SOURCE = {"kind": "knowledge_base", "knowledge_base_id": KB, "version_id": VERSION}
+
+
+def _chunk(
+    text: str, tokens: int, *, kind: str = "retrieved_text", number: int = 0
+) -> ContextSegment:
+    if kind == "history":
+        return ContextSegment("data", "history", {"kind": "history"}, text, tokens)
+    return ContextSegment(
+        "data",
+        "retrieved_text",
+        {**KB_SOURCE, "version_id": f"{VERSION}-{number}"},
+        text,
+        tokens,
+        retrieval={"mode": "dense", "index_version": "idx-3"},
+        transform={"name": "chunk", "version": "1"},
+        authorization_decision_id="pd_ok",
+    )
+
+
+def _pack(segments: list[ContextSegment], caps: dict[str, int], **kwargs: Any) -> PackedContext:
+    return pack_context(segments, caps=caps, redactor=kwargs.pop("redactor", REDACTOR), **kwargs)
+
+
+def _manifest_of(packed: PackedContext, **overrides: Any) -> BuiltContextManifest:
+    return _build(
+        segments=list(packed.segments),
+        omitted=list(packed.omitted),
+        redacted=list(packed.redacted),
+        sections=list(packed.sections),
+        **overrides,
+    )
+
+
+def test_omissions_and_redactions_recorded() -> None:
+    """Cap 10 over three chunks of 8 keeps one and lists two for the budget; an email persists as the replacement."""
+    chunks = [_chunk(f"chunk {n}", 8, number=n) for n in range(3)]
+    packed = _pack(chunks, {"retrieved": 10})
+    assert [s.content for s in packed.segments] == ["chunk 0"]
+    assert [(o["reason"], o["tokens"]) for o in packed.omitted] == [("token_budget", 8)] * 2
+    assert [o["source"]["version_id"] for o in packed.omitted] == [f"{VERSION}-1", f"{VERSION}-2"]
+    assert packed.sections == ({"section": "retrieved", "cap_tokens": 10, "used_tokens": 8},)
+    record = _manifest_of(packed).record
+    assert [s["tokens"] for s in record["segments"]] == [8]
+    assert [o["reason"] for o in record["omitted"]] == ["token_budget", "token_budget"]
+    assert record["token_allocation"]["sections"] == [
+        {"section": "retrieved", "cap_tokens": 10, "used_tokens": 8}
+    ]
+
+    with_email = [_chunk("write to alice@example.com today", 8)]
+    packed = _pack(with_email, {})
+    assert [s.content for s in packed.segments] == ["write to [REDACTED] today"]
+    assert packed.redacted == (
+        {"position": 0, "fields": ["content"], "reason": "redactor:pattern-1"},
+    )
+    built = _manifest_of(packed)
+    assert (
+        built.record["segments"][0]["content_digest"]
+        == hashlib.sha256(b"write to [REDACTED] today").hexdigest()
+    ), "the digest is of the redacted text"
+    assert b"alice@example.com" not in built.manifest_bytes
+    assert built.record["redacted"] == [
+        {"position": 0, "fields": ["content"], "reason": "redactor:pattern-1"}
+    ]
+
+
+def test_the_first_chunk_that_does_not_fit_ends_its_section_even_if_a_smaller_one_follows() -> None:
+    chunks = [_chunk("a", 8, number=0), _chunk("b", 8, number=1), _chunk("c", 1, number=2)]
+    packed = _pack(chunks, {"retrieved": 10})
+    assert [s.content for s in packed.segments] == ["a"]
+    assert [o["tokens"] for o in packed.omitted] == [8, 1], (
+        "lower-ranked chunks never jump the queue"
+    )
+
+
+def test_a_chunk_exactly_at_the_cap_fits_and_one_token_over_does_not() -> None:
+    assert len(_pack([_chunk("a", 10)], {"retrieved": 10}).segments) == 1
+    assert len(_pack([_chunk("a", 11)], {"retrieved": 10}).segments) == 0
+    assert len(_pack([_chunk("a", 1)], {"retrieved": 0}).segments) == 0, "a zero cap admits nothing"
+    assert len(_pack([_chunk("a", 0)], {"retrieved": 0}).segments) == 1, (
+        "an empty chunk costs nothing"
+    )
+
+
+def test_sections_are_capped_separately_and_a_section_without_a_cap_is_unlimited() -> None:
+    segments = [
+        _chunk("r1", 6, number=1),
+        _chunk("h1", 6, kind="history"),
+        _chunk("r2", 6, number=2),
+        _chunk("h2", 6, kind="history"),
+        *_segments()[:2],
+    ]
+    packed = _pack(segments, {"retrieved": 10, "history": 100})
+    assert [s.content for s in packed.segments] == [
+        "r1",
+        "h1",
+        "h2",
+        "You answer support questions.",
+        "refund?",
+    ]
+    assert [o["source"]["version_id"] for o in packed.omitted] == [f"{VERSION}-2"]
+    assert packed.sections == (
+        {"section": "retrieved", "cap_tokens": 10, "used_tokens": 6},
+        {"section": "history", "cap_tokens": 100, "used_tokens": 12},
+    )
+    uncapped = _pack(segments, {"history": 100})
+    assert len(uncapped.segments) == len(segments) and uncapped.omitted == ()
+    assert [s["section"] for s in uncapped.sections] == ["history"]
+    assert _pack(segments, {}).sections == ()
+    _manifest_of(packed)  # the arithmetic holds: the manifest validates
+
+
+def test_an_instruction_is_never_redacted_and_data_is() -> None:
+    segments = _segments()
+    segments[0] = dataclasses.replace(
+        segments[0], content="Escalate to ops@example.com on failure."
+    )
+    segments[1] = dataclasses.replace(segments[1], content="my email is bob@example.org")
+    packed = _pack(segments, {})
+    assert packed.segments[0].content == "Escalate to ops@example.com on failure."
+    assert packed.segments[1].content == "my email is [REDACTED]"
+    assert [r["position"] for r in packed.redacted] == [1]
+
+
+def test_a_redacted_entry_names_the_position_in_the_packed_manifest_and_every_rule_that_fired() -> (
+    None
+):
+    chunks = [
+        _chunk("x" * 40, 12, number=0),  # over the cap: dropped before the redacted one
+        _chunk("ssn 123-45-6789 mail a@b.co", 3, number=1),
+    ]
+    packed = _pack([_chunk("first", 4, number=2), *chunks], {"retrieved": 8})
+    assert [s.content for s in packed.segments] == ["first"]
+    packed = _pack(
+        [_chunk("first", 4, number=2), _chunk("ssn 123-45-6789 mail a@b.co", 3, number=1)],
+        {"retrieved": 8},
+    )
+    assert packed.segments[1].content == "ssn [REDACTED] mail [REDACTED]"
+    assert packed.redacted == (
+        {"position": 1, "fields": ["content"], "reason": "redactor:pattern-1,pattern-3"},
+    )
+    assert _manifest_of(packed).record["redacted"][0]["position"] == 1
+
+
+def test_a_chunk_with_nothing_left_after_redaction_is_omitted_as_redacted_and_costs_no_budget() -> (
+    None
+):
+    chunks = [
+        _chunk("alice@example.com", 9, number=0),
+        _chunk("kept", 9, number=1),
+    ]
+    packed = _pack(chunks, {"retrieved": 10})
+    assert [s.content for s in packed.segments] == ["kept"]
+    assert [(o["reason"], o["tokens"]) for o in packed.omitted] == [("redacted", 9)]
+    assert packed.redacted == ()
+    assert packed.sections[0]["used_tokens"] == 9
+    _manifest_of(packed)
+
+
+def test_tokens_are_recounted_after_redaction_only_when_a_counter_is_given() -> None:
+    chunk = _chunk("mail alice@example.com please", 50)
+    assert _pack([chunk], {}).segments[0].tokens == 50
+    assert _pack([chunk], {}, count_tokens=lambda text: len(text)).segments[0].tokens == len(
+        "mail [REDACTED] please"
+    )
+    untouched = _chunk("no pii here", 50)
+    assert _pack([untouched], {}, count_tokens=lambda text: 1).segments[0].tokens == 50
+    counted = _pack([chunk], {"retrieved": 20}, count_tokens=lambda text: len(text))
+    assert counted.omitted[0]["tokens"] == len("mail [REDACTED] please"), (
+        "the cap sees the redacted size"
+    )
+
+
+def test_with_redaction_disabled_nothing_is_changed() -> None:
+    packed = _pack(_segments(), {}, redactor=IDENTITY_REDACTOR)
+    assert [s.content for s in packed.segments] == [s.content for s in _segments()]
+    assert packed.redacted == () and packed.omitted == ()
+
+
+@pytest.mark.parametrize(
+    "caps",
+    [
+        {"unknown": 5},
+        {"retrieved": -1},
+        {"retrieved": True},
+        {"retrieved": 1.5},
+        {"retrieved": "9"},
+    ],
+)
+def test_caps_must_name_known_sections_with_non_negative_integers(caps: dict[str, Any]) -> None:
+    with pytest.raises(ContextManifestError) as refused:
+        _pack(_segments(), caps)
+    assert refused.value.code == INVALID
+
+
+def test_every_capped_kind_is_a_segment_kind_and_a_config_section() -> None:
+    from caliber.config import CONTEXT_SECTIONS
+
+    assert set(SECTION_KINDS) == set(CONTEXT_SECTIONS)
+    schema_kinds = {"retrieved_text", "history"}
+    assert set(SECTION_KINDS.values()) == schema_kinds
+
+
+def test_the_manifest_refuses_section_records_that_do_not_add_up() -> None:
+    packed = _pack([_chunk("a", 8)], {"retrieved": 10})
+    good = list(packed.sections)
+    wrong_use = [{**good[0], "used_tokens": 5}]
+    over_cap = [{**good[0], "cap_tokens": 4}]
+    twice = [good[0], good[0]]
+    for sections in (wrong_use, over_cap, twice):
+        refused = _refused(
+            TOKENS, segments=list(packed.segments), omitted=[], redacted=[], sections=sections
+        )
+        assert "section" in str(refused)
+    for sections in (
+        [{**good[0], "cap_tokens": 10.0}],
+        [{"section": "retrieved", "used_tokens": 8}],
+    ):
+        _refused(
+            INVALID, segments=list(packed.segments), omitted=[], redacted=[], sections=sections
+        )
+    _refused(
+        INVALID,
+        segments=list(packed.segments),
+        omitted=[],
+        redacted=[],
+        sections=[{**good[0], "section": "tools"}],
+    )
+
+
+def test_a_stored_manifest_without_sections_still_reads() -> None:
+    """Readers before writers: a record written before ``sections`` existed is unchanged and valid."""
+    built = _build()
+    assert "sections" not in built.record["token_allocation"]
+    assert read_context_manifest(built.manifest_bytes, built.manifest_digest) == built.record
+
+
+def test_a_redacted_entry_is_at_the_final_index_when_earlier_segments_were_dropped() -> None:
+    chunks = [
+        _chunk("a@b.co", 2, number=0),  # nothing left after redaction: omitted
+        _chunk("kept", 2, number=1),
+        _chunk("mail x@y.org", 2, number=2),  # redacted: final index 1, input index 2
+    ]
+    packed = _pack(chunks, {})
+    assert [s.content for s in packed.segments] == ["kept", "mail [REDACTED]"]
+    assert [r["position"] for r in packed.redacted] == [1]
+    built = _manifest_of(packed)
+    position = built.record["redacted"][0]["position"]
+    assert (
+        built.record["segments"][position]["content_digest"]
+        == hashlib.sha256(b"mail [REDACTED]").hexdigest()
+    )
+
+
+def test_a_data_segment_with_no_text_and_no_rule_fired_is_kept() -> None:
+    packed = _pack([_chunk("", 0, number=0), _chunk("plain", 1, number=1)], {"retrieved": 5})
+    assert [s.content for s in packed.segments] == ["", "plain"] and packed.omitted == ()
+
+
+def test_a_stored_form_with_a_non_integer_section_count_is_refused_whatever_wrote_it() -> None:
+    built = _manifest_of(_pack([_chunk("a", 8)], {"retrieved": 10}))
+    for key, value in (("cap_tokens", 10.0), ("used_tokens", 8.0), ("cap_tokens", True)):
+        record = copy.deepcopy(built.record)
+        record["token_allocation"]["sections"][0][key] = value
+        data = canonical_bytes(record)
+        with pytest.raises(ContextManifestError):
+            BuiltContextManifest(data, digest_of(data))
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        {"cap_tokens": -1},
+        {"used_tokens": -1},
+        {"extra": 1},
+        {"section": "tools"},
+    ],
+)
+def test_a_malformed_section_record_is_refused_by_the_schema(change: dict[str, Any]) -> None:
+    built = _manifest_of(_pack([_chunk("a", 8)], {"retrieved": 10}))
+    record = copy.deepcopy(built.record)
+    record["token_allocation"]["sections"][0].update(change)
+    data = canonical_bytes(record)
+    with pytest.raises(ContextManifestError):
+        BuiltContextManifest(data, digest_of(data))
+    too_many = copy.deepcopy(built.record)
+    too_many["token_allocation"]["sections"] = [
+        built.record["token_allocation"]["sections"][0]
+    ] * 17
+    data = canonical_bytes(too_many)
+    with pytest.raises(ContextManifestError):
+        BuiltContextManifest(data, digest_of(data))
+
+
+@pytest.mark.parametrize("dialect", DIALECTS)
+def test_a_packed_manifest_with_sections_is_stored_and_loaded_unchanged(
+    dialect: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    with _database(dialect, tmp_path, monkeypatch) as (_, factory):
+        _seed(factory)
+        _decision(factory)
+        segments = _segments()
+        segments[1] = dataclasses.replace(segments[1], content="reach me at carol@example.com")
+        packed = _pack(segments, {"retrieved": 500})
+        built = _manifest_of(packed)
+        assert built.record["token_allocation"]["sections"] == [
+            {"section": "retrieved", "cap_tokens": 500, "used_tokens": 400}
+        ]
+        with factory() as session:
+            store_context_manifest(session, built)
+            session.commit()
+            loaded = load_context_manifest(session, "WR-cm", "sr-1")
+        assert loaded is not None and loaded.manifest_bytes == built.manifest_bytes
+        assert loaded.record["redacted"][0]["position"] == 1
+        assert b"carol@example.com" not in loaded.manifest_bytes
