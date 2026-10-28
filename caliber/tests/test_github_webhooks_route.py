@@ -25,7 +25,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from starlette.testclient import TestClient
 
 from caliber.config import CaliberConfig
-from caliber.db.models import CaliberWorkspaceSourceEvent
+from caliber.db.models import CaliberInboxEvent, CaliberWorkspaceSourceEvent
 from caliber.routes.github_webhooks import PATH as WEBHOOK_PATH
 from caliber.secret_store import SecretCipher, SecretStore, generate_key
 from caliber.secrets import bind_secret_store, unbind_secret_store
@@ -168,6 +168,10 @@ def test_duplicate_delivery_is_idempotent_with_no_duplicate_row(
     assert first.json()["data"]["duplicate"] is False
     assert second.json()["data"]["duplicate"] is True
     assert len(_events(session_factory)) == 1
+    # The delivery's own inbox (source, delivery id, payload hash) is the only one: the route does not also reserve the
+    # delivery in the generic consumer/source/event-id inbox (B13.5b, #693), which would store every delivery twice.
+    with session_factory() as session:
+        assert session.execute(select(CaliberInboxEvent)).first() is None
 
 
 def test_bad_signature_is_rejected_and_never_reaches_the_inbox(
