@@ -23,22 +23,26 @@
       "type": "string",
       "minLength": 1,
       "maxLength": 128,
-      "description": "Names the step; the ContextManifest assembled for it carries the same id."
+      "pattern": "^(?=[\\s\\S]*[^\\s])[^\\x00-\\x1f\\x7f-\\x9f\\ud800-\\udfff]+\\Z",
+      "description": "Names one step: the one (run, node, occurrence, attempt) it was allocated for, and the id its ContextManifest carries."
     },
     "workflow_run_id": {
       "type": "string",
       "minLength": 1,
-      "maxLength": 64
+      "maxLength": 64,
+      "pattern": "^(?=[\\s\\S]*[^\\s])[^\\x00-\\x1f\\x7f-\\x9f\\ud800-\\udfff]+\\Z"
     },
     "node_id": {
       "type": "string",
       "minLength": 1,
-      "maxLength": 128
+      "maxLength": 128,
+      "pattern": "^(?=[\\s\\S]*[^\\s])[^\\x00-\\x1f\\x7f-\\x9f\\ud800-\\udfff]+\\Z"
     },
     "occurrence_id": {
       "type": "string",
       "minLength": 1,
       "maxLength": 128,
+      "pattern": "^(?=[\\s\\S]*[^\\s])[^\\x00-\\x1f\\x7f-\\x9f\\ud800-\\udfff]+\\Z",
       "description": "The durable occurrence of this node, allocated and persisted by the caller before the step runs; a retry presents the same one."
     },
     "attempt": {
@@ -62,7 +66,7 @@
     },
     "proposed_actions": {
       "type": "array",
-      "maxItems": 16,
+      "maxItems": 1,
       "items": {
         "type": "object",
         "additionalProperties": false,
@@ -81,7 +85,8 @@
               "reversible_write",
               "irreversible_write",
               "export"
-            ]
+            ],
+            "description": "UNTRUSTED: what the model claims. The platform binds the class from the protected-effect inventory (ProposedAction.bound_to) before anything is recorded."
           },
           "target": {
             "type": "object",
@@ -94,19 +99,23 @@
               "connector": {
                 "type": "string",
                 "minLength": 1,
-                "maxLength": 128
+                "maxLength": 128,
+                "pattern": "^(?=[\\s\\S]*[^\\s])[^\\x00-\\x1f\\x7f-\\x9f\\ud800-\\udfff]+\\Z"
               },
               "resource": {
                 "type": "string",
                 "minLength": 1,
-                "maxLength": 512
+                "maxLength": 512,
+                "pattern": "^(?=[\\s\\S]*[^\\s])[^\\x00-\\x1f\\x7f-\\x9f\\ud800-\\udfff]+\\Z"
               }
             }
           },
           "connector_version": {
             "type": "string",
             "minLength": 1,
-            "maxLength": 64
+            "maxLength": 64,
+            "pattern": "^(?=[\\s\\S]*[^\\s])[^\\x00-\\x1f\\x7f-\\x9f\\ud800-\\udfff]+\\Z",
+            "description": "UNTRUSTED: what the model claims; the platform binds the connector version."
           },
           "args": {
             "type": "object"
@@ -117,11 +126,13 @@
               "null"
             ],
             "minLength": 1,
-            "maxLength": 256
+            "maxLength": 256,
+            "pattern": "^(?=[\\s\\S]*[^\\s])[^\\x00-\\x1f\\x7f-\\x9f\\ud800-\\udfff]+\\Z"
           }
         },
         "description": "ProposedAction: one effect the step asks to perform. The shape of the Intent in the proposal v1 record (caliber.effects.records.Intent, ADR 0003) and nothing more: a step never reports a state, a receipt or an approval."
-      }
+      },
+      "description": "At most one in v1: one logical effect key per (run, node, occurrence). A version that carries more must first add a per-action identity."
     },
     "usage": {
       "type": "object",
@@ -165,6 +176,22 @@
           "maximum": 2147483647
         }
       }
+    },
+    "usage_source": {
+      "type": "string",
+      "enum": [
+        "provider",
+        "estimated",
+        "unknown"
+      ],
+      "description": "Where the usage figures come from; provider when absent. A refused or malformed result never releases the step's token reservation."
+    },
+    "error_code": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64,
+      "pattern": "^[a-z][a-z0-9_.-]*\\Z",
+      "description": "A short stable code for stop_reason error or refused."
     }
   },
   "allOf": [
@@ -204,6 +231,23 @@
         "properties": {
           "proposed_actions": {
             "const": []
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "required": [
+          "error_code"
+        ]
+      },
+      "then": {
+        "properties": {
+          "stop_reason": {
+            "enum": [
+              "error",
+              "refused"
+            ]
           }
         }
       }

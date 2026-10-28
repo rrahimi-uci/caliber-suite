@@ -287,6 +287,7 @@ job_migration_parity_postgres() {
         tests/test_event_outbox.py \
         tests/test_event_inbox.py \
         tests/test_effect_proposals.py \
+        tests/test_agent_step_contract.py \
         tests/test_effect_records.py \
         tests/test_effect_receipts.py \
         tests/test_routes_system_effects.py \
