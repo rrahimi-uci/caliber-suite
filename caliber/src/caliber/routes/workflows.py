@@ -28,6 +28,7 @@ from caliber.auth import SCOPE_ADMIN, SCOPE_OPERATOR, require_scopes, require_us
 from caliber.db.models import (
     CaliberAgentConfig,
     CaliberApprovalRequest,
+    CaliberEffectProposal,
     CaliberEvalDataset,
     CaliberEventInbox,
     CaliberEventOutbox,
@@ -1685,7 +1686,7 @@ async def delete_workflow(request: Request) -> JSONResponse:
             CaliberWorkflowRun.workflow_id == workflow_id
         )
         # Run manifests are immutable evidence that references the run: a workflow whose runs
-        # carry one cannot be deleted without destroying it.
+        # carry one cannot be deleted without destroying it. Effect proposals (B05.1) are the same.
         if (
             session.execute(
                 select(CaliberRunManifest.manifest_id)
@@ -1697,6 +1698,18 @@ async def delete_workflow(request: Request) -> JSONResponse:
             raise HTTPException(
                 status_code=409,
                 detail="cannot delete workflow: its runs have immutable run manifests",
+            )
+        if (
+            session.execute(
+                select(CaliberEffectProposal.proposal_id)
+                .where(CaliberEffectProposal.workflow_run_id.in_(run_ids_stmt))
+                .limit(1)
+            ).first()
+            is not None
+        ):
+            raise HTTPException(
+                status_code=409,
+                detail="cannot delete workflow: its runs have immutable effect proposals",
             )
         # Run-child rows reference run ids, not workflow ids, so delete them first.
         session.execute(

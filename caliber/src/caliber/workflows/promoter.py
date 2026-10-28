@@ -42,6 +42,7 @@ from caliber.auth import SCOPE_VIEWER, CaliberIdentity
 from caliber.config import CaliberConfig
 from caliber.db.models import (
     CaliberAgentConfig,
+    CaliberEffectProposal,
     CaliberEvalDataset,
     CaliberEvalDatasetExample,
     CaliberRunManifest,
@@ -1425,7 +1426,7 @@ def prune_workflow_runs(
     Returns the number of rows deleted. The janitor calls this each sweep so the
     ``caliber_workflow_runs`` index doesn't grow without bound (plan §26.3 sets
     a 7-day default for preview traces). ``retention_days <= 0`` disables pruning.
-    Runs that have an immutable manifest are never pruned.
+    Runs that have an immutable manifest or an effect proposal are never pruned.
     """
     if retention_days <= 0:
         return 0
@@ -1446,8 +1447,16 @@ def prune_workflow_runs(
         .where(CaliberRunManifest.workflow_run_id == CaliberWorkflowRun.workflow_run_id)
         .exists()
     )
+    # An effect proposal (B05.1) is the same: immutable, it references the run, and it records an effect that was asked for.
+    has_proposal = (
+        select(CaliberEffectProposal.proposal_id)
+        .where(CaliberEffectProposal.workflow_run_id == CaliberWorkflowRun.workflow_run_id)
+        .exists()
+    )
     rows = (
-        session.execute(select(CaliberWorkflowRun).where(age_ts < cutoff, ~has_manifest))
+        session.execute(
+            select(CaliberWorkflowRun).where(age_ts < cutoff, ~has_manifest, ~has_proposal)
+        )
         .scalars()
         .all()
     )

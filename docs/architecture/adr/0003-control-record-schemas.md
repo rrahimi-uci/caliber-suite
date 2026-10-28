@@ -127,8 +127,8 @@ Proposal: one effect a run asks to perform, before it is performed.
 | `proposal_id` | string | yes | unique id |
 | `workflow_run_id` | string | yes | the run that proposed it |
 | `node_id` | string | yes | the workflow node |
-| `logical_key` | string | yes | stable key: the same intent in a retry has the same key |
-| `intent_hash` | string | yes | digest of the exact intent (target, args, expected version) |
+| `logical_key` | string | yes | stable key of the logical effect: the SHA-256 of `(deployment, run, node, occurrence_id)`. A retry presents the same occurrence and finds the same proposal; a legitimate repeat (a loop iteration) is the next occurrence |
+| `intent_hash` | string | yes | `sha256:` and the digest of the canonical intent: connector identity and version, effect class, target resource, arguments and expected resource version (`caliber.effects.records.Intent`, algorithm `intent-v1`). Every approval and receipt reuses this full digest; none computes a reduced one |
 | `effect_class` | enum | yes | `read`, `reversible_write`, `irreversible_write`, `export` (ADR 0001) |
 | `target` | object | yes | `connector`, `resource` |
 | `args` | object | yes | the arguments of the effect |
@@ -136,6 +136,11 @@ Proposal: one effect a run asks to perform, before it is performed.
 | `state` | enum | yes | `proposed`, `approved`, `dispatched`, `committed`, `failed`, `unknown`, `reconciled` |
 | `tenant_id` | string | yes | `local` in the reference profile |
 | `region` | string | yes | `local` in the reference profile |
+| `occurrence_id` | string | no | the durable occurrence the logical key was built from; absent on a record written before #700 |
+| `connector_version` | string | no | the connector's version, part of the intent; absent on a record written before #700 |
+| `intent_algorithm` | string | no | the version of the canonical-intent algorithm that produced `intent_hash` (`intent-v1`); absent on a record written before #700 |
+
+`caliber.effects.records` stores a proposal in `caliber_effect_proposals` (B05.1, #700). The same logical key with the same intent is the same proposal; the same key with a different intent is refused (`ProposalConflict`, answered 409) and the stored intent stands. Every column but `state` is frozen by database triggers.
 
 ### receipt
 
