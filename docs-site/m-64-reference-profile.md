@@ -1546,5 +1546,6 @@ A configuration that passes this page is the minimum for the reference profile, 
 
 ## Related
 
+- [Reference profile recovery runbook](m-65-recovery-runbook.md) for the operator steps when the owner dies, an effect is `unknown`, a callback is redelivered or events back up.
 - [Health and readiness](m-50-health-and-readiness.md) for what the readiness response contains.
 - [Configuration and provider setup](m-48-configuration-and-provider-setup.md) for the settings themselves.

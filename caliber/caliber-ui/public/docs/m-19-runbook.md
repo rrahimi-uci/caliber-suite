@@ -23,6 +23,10 @@ endpoint, default, and state name below is the one the implementation actually u
 | Environments | One. There is no `dev`→`staging`→`prod` ladder to rehearse in |
 | Not covered here | Provider outages, MLflow's own operation, and anything under `caliber/caliber-ui` — those escalate to their owners |
 
+In the reference profile, where one process holds the execution-owner lease and runs the loops, failover,
+`unknown` effects, redelivered callbacks and outbox backlogs are covered by the
+[Reference profile recovery runbook](m-65-recovery-runbook.md); the procedures below do not depend on the lease.
+
 All paths below are relative to the API prefix `/ajax-api/2.0/mlflow/caliber`; the
 runbook writes them as `/caliber/…` for readability. Every mutating endpoint is
 scope-checked and audited — the audit row is part of the recovery, not a side effect
