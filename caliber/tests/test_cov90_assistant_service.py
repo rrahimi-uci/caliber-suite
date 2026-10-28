@@ -2505,6 +2505,43 @@ def test_publish_draft_publisher_failure(session_factory: sessionmaker[Session])
         assert row.status == "publish_failed"
 
 
+def test_publish_draft_refuses_a_built_in_tool_name_through_the_real_publisher(
+    session_factory: sessionmaker[Session],
+) -> None:
+    """An approved draft named like a built-in fails as ``publish_failed`` and registers nothing."""
+    from caliber.assistant.publisher import AssistantPublisher
+
+    svc = AssistantService(
+        engine=FakeAssistantEngine(),
+        publisher=AssistantPublisher(reference_profile=False),
+    )
+    sid = _new_session(svc, session_factory)
+    with session_factory() as db:
+        draft = CaliberAssistantDraft(
+            draft_id=new_assistant_draft_id(),
+            session_id=sid,
+            artifact_type="tool",
+            status="approved",
+            title="t",
+            spec={},
+            artifact={"name": "grep_files", "module_path": "caliber.workflows.demo_tools"},
+            created_by=USER,
+            updated_by=USER,
+        )
+        db.add(draft)
+        db.commit()
+        did = draft.draft_id
+    result = svc.publish_draft(did, session_factory=session_factory, user=USER)
+    assert result["success"] is False
+    assert result["code"] == "reserved_tool_name"
+    assert "different name" in result["error"]
+    with session_factory() as db:
+        row = db.get(CaliberAssistantDraft, did)
+        assert row is not None
+        assert row.status == "publish_failed"
+        assert db.query(CaliberToolRegistry).count() == 0
+
+
 def test_publish_draft_publisher_success(session_factory: sessionmaker[Session]) -> None:
     svc = AssistantService(engine=FakeAssistantEngine(), publisher=_OkPublisher())  # type: ignore[arg-type]
     sid = _new_session(svc, session_factory)

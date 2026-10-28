@@ -460,6 +460,54 @@ def test_generate_preview_and_publish_openapi_tool_draft(
     assert tool_row.execution_backend == "openapi_http"
 
 
+def test_publishing_a_draft_under_a_built_in_tool_name_is_refused_and_recoverable(
+    client: TestClient,
+    db_session: Session,
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("OPENAPI_TICKET_TOKEN", "ticket-secret")
+    integration = _create_integration(client)
+    _import_version(client, str(integration["integration_id"]))
+    operations = client.get(f"{BASE}/{integration['integration_id']}/operations").json()["data"]
+    target = next(
+        item for item in operations if item["operation_key"] == "GET /tickets/{ticket_id}"
+    )
+    generated = client.post(
+        f"{BASE}/{integration['integration_id']}/tool-drafts/generate",
+        json={
+            "operation_ids": [target["operation_id"]],
+            "auth_binding": {"kind": "bearer", "secret_ref": "env://OPENAPI_TICKET_TOKEN"},
+        },
+    )
+    assert generated.status_code == 201, generated.text
+    draft = generated.json()["data"][0]
+    publish_url = f"{BASE}/{integration['integration_id']}/tool-drafts/{draft['draft_id']}/publish"
+
+    refused = client.post(publish_url, json={"version": "1.0", "name": "Grep_Files"})
+    assert refused.status_code == 409, refused.text
+    detail = str(refused.json())
+    assert "reserved_tool_name" in detail
+    assert "'grep_files'" in detail
+    assert "different name" in detail
+
+    db_session.expire_all()
+    draft_row = db_session.get(CaliberOpenApiToolDraft, draft["draft_id"])
+    assert draft_row is not None
+    assert draft_row.published_tool_id is None
+    assert draft_row.status != "published"
+    assert (
+        db_session.query(CaliberToolRegistry)
+        .filter(CaliberToolRegistry.name == "Grep_Files")
+        .count()
+        == 0
+    )
+
+    # Recovery is the one the message gives: publish the same draft under a different name.
+    recovered = client.post(publish_url, json={"version": "1.0", "name": "get_ticket"})
+    assert recovered.status_code == 201, recovered.text
+    assert recovered.json()["data"]["tool"]["name"] == "get_ticket"
+
+
 def test_publish_project_scoped_draft_requires_operator_scope_not_just_project_role(
     client: TestClient,
     db_session: Session,
