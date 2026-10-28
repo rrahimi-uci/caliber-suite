@@ -160,7 +160,7 @@ Use the typed SDK where it exists. When a family is marked `Raw only`, the curre
 | Admin (`admin`) | `internal` | `1` | Typed SDK | `client.admin` | Metadata-only platform Admin inventory -- who holds each config-driven global scope. |
 | Assistant (`assistant`) | `internal` | `29` | Typed SDK | `client.aria.sessions`, `client.aria.drafts` | Aria chat sessions and drafts (preview). |
 | Dashboard (`dashboard`) | `internal` | `1` | Typed SDK | `CaliberClient.dashboard_summary()` | The dashboard summary. |
-| Effects (`effects`) | `internal` | `1` | No typed SDK | — | Internal route family. Use the served OpenAPI or raw HTTP only when you are intentionally working below the supported SDK contract. |
+| Effects (`effects`) | `internal` | `1` | n/a | `client.raw` | Every operation in this family is permanently outside SDK scope (see coverage_allowlist.toml's [[exclusion]] entries) -- there is nothing here a typed method would add. Use `client.raw` or the served OpenAPI document directly. |
 | Gate Verdicts (`gate-verdicts`) | `internal` | `2` | Typed SDK | `client.gate_verdicts` | Advisory per-version evaluation verdicts. They never block alias rotation, and they are not project-scoped. |
 | Health (`health`) | `internal` | `1` | Typed SDK | `CaliberClient.health()` | The bare liveness body: status, version and database. |
 | LLM Pricing (`llm-pricing`) | `internal` | `4` | Typed SDK | `client.llm_pricing` | Per-model token pricing (USD per 1K), used to cost gateway usage. |
