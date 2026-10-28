@@ -46,3 +46,5 @@ sdk/**/*.egg-info/
 # Local state for an agent-bridge/coordination tool running against this
 # checkout -- machine-local session bookkeeping, never meant to be committed.
 .agentbridge/
+cov.xml
+cov2.xml
