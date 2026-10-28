@@ -1,7 +1,7 @@
 """The document-request connector's capability record and request builders (B05.3, #711).
 
-What the downstream fixture (``tests/egi_scenarios/downstream/app.py``) shows, through the real OpenAPI executor with no
-mocked transport (tests in ``tests/egi_scenarios/test_connector_outcomes.py`` and ``test_connector_capabilities.py``; the
+What the downstream fixture (the document-request downstream app under ``caliber/tests``) shows, through the real OpenAPI executor with no
+mocked transport (tests in the connector outcome scenario tests and the connector capability scenario tests; the
 decision record is ``docs/reports/egi/D1-connector-capability.md``):
 
 * **Key emission.** ``POST /cases/{case_id}/document-requests`` needs an ``Idempotency-Key`` header; the same key again
