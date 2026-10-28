@@ -209,8 +209,9 @@ def facts_from_lookup(
             response_digest="sha256:" + hashlib.sha256(canonical_bytes(lookup_body)).hexdigest(),
             resource_version=str(version),
         )
-    except ProposalError:
-        return None  # a stored value this connector cannot represent is not this proposal's effect
+    except (ProposalError, ValueError, TypeError):
+        # a stored value this connector cannot represent (or digest: a NaN is not JSON) is not this proposal's effect
+        return None
     return facts if stored.digest == view.intent_hash else None
 
 

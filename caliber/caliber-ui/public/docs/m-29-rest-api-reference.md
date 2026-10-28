@@ -160,6 +160,7 @@ Use the typed SDK where it exists. When a family is marked `Raw only`, the curre
 | Admin (`admin`) | `internal` | `1` | Typed SDK | `client.admin` | Metadata-only platform Admin inventory -- who holds each config-driven global scope. |
 | Assistant (`assistant`) | `internal` | `29` | Typed SDK | `client.aria.sessions`, `client.aria.drafts` | Aria chat sessions and drafts (preview). |
 | Dashboard (`dashboard`) | `internal` | `1` | Typed SDK | `CaliberClient.dashboard_summary()` | The dashboard summary. |
+| Effects (`effects`) | `internal` | `1` | n/a | `client.raw` | Every operation in this family is permanently outside SDK scope (see coverage_allowlist.toml's [[exclusion]] entries) -- there is nothing here a typed method would add. Use `client.raw` or the served OpenAPI document directly. |
 | Gate Verdicts (`gate-verdicts`) | `internal` | `2` | Typed SDK | `client.gate_verdicts` | Advisory per-version evaluation verdicts. They never block alias rotation, and they are not project-scoped. |
 | Health (`health`) | `internal` | `1` | Typed SDK | `CaliberClient.health()` | The bare liveness body: status, version and database. |
 | LLM Pricing (`llm-pricing`) | `internal` | `4` | Typed SDK | `client.llm_pricing` | Per-model token pricing (USD per 1K), used to cost gateway usage. |
@@ -178,13 +179,13 @@ The served contract is route-table grounded and body-complete: paths and methods
 
 | Field | Value |
 | --- | --- |
-| Route paths | `390` |
-| Operations | `476` |
+| Route paths | `391` |
+| Operations | `477` |
 | Path coverage | `complete` |
 | Request bodies | `complete` |
 | GA families | `23` |
 | Beta families | `21` |
-| Internal families | `11` |
+| Internal families | `12` |
 
 ### Auth and scoping contract
 
@@ -258,6 +259,7 @@ Use these quick jumps when you already know the CALIBER subsystem and want the d
 | [Admin (`admin`)](#admin-admin) | `1` | `1` |
 | [Assistant (`assistant`)](#assistant-assistant) | `29` | `22` |
 | [Dashboard (`dashboard`)](#dashboard-dashboard) | `1` | `1` |
+| [Effects (`effects`)](#effects-effects) | `1` | `1` |
 | [Gate Verdicts (`gate-verdicts`)](#gate-verdicts-gate-verdicts) | `2` | `1` |
 | [Health (`health`)](#health-health) | `1` | `1` |
 | [LLM Pricing (`llm-pricing`)](#llm-pricing-llm-pricing) | `4` | `2` |
@@ -1058,6 +1060,14 @@ Published for route-table completeness, but not part of the supported SDK contra
 | Method | Path | Required scope | Parameters | Responses | Details |
 | --- | --- | --- | --- | --- | --- |
 | `GET` | `/ajax-api/2.0/mlflow/caliber/dashboard/summary` | any authenticated user | — | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_dashboard_summary` |
+
+#### Effects (`effects`)
+
+1 operation(s) across 1 route path(s).
+
+| Method | Path | Required scope | Parameters | Responses | Details |
+| --- | --- | --- | --- | --- | --- |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/effects/callbacks/receipt` | public | — | `400`, `401`, `403`, `404` | `operationId`: `post_effects_callbacks_receipt` |
 
 #### Gate Verdicts (`gate-verdicts`)
 

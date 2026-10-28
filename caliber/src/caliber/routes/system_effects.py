@@ -34,12 +34,18 @@ release-relevant evidence, not a convenience toggle.
 
 from __future__ import annotations
 
+import hashlib
+import json
+import threading
+import time
 from datetime import datetime, timezone
 from typing import Any, cast
 
 from sqlalchemy import func, select, update
 from sqlalchemy.engine import CursorResult
+from sqlalchemy.orm import Session, sessionmaker
 from starlette.applications import Starlette
+from starlette.concurrency import run_in_threadpool
 from starlette.exceptions import HTTPException
 from starlette.requests import Request
 from starlette.responses import JSONResponse
@@ -47,12 +53,51 @@ from starlette.routing import Route
 
 from caliber.audit import record as audit_record
 from caliber.auth import SCOPE_ADMIN, SCOPE_OPERATOR, require_scopes
-from caliber.db.models import CaliberWebhookDeadLetter
+from caliber.config import CaliberConfig
+from caliber.db.models import (
+    CaliberEffectProposal,
+    CaliberInboxEvent,
+    CaliberWebhookDeadLetter,
+    CaliberWorkflowRun,
+)
+from caliber.effects.callbacks import (
+    MIN_SECRET_CHARS,
+    CallbackBinding,
+    check_signature,
+    parse_bindings,
+)
+from caliber.effects.connectors.document_request import (
+    CONNECTOR as DOCUMENT_REQUEST,
+)
+from caliber.effects.connectors.document_request import (
+    facts_from_lookup,
+    lookup_config,
+    lookup_input,
+)
+from caliber.effects.receipts import RECEIPT_STATE, ReceiptFacts, record_receipt
+from caliber.effects.records import (
+    COMMITTED,
+    DISPATCHED,
+    FAILED,
+    RECONCILED,
+    STALE_VERSION,
+    UNKNOWN,
+    ProposalError,
+    ProposalView,
+    proposal_state,
+    proposal_view,
+    transition,
+)
+from caliber.events.inbox import InboxPayloadMismatch, process_once
+from caliber.events.outbox import payload_hash
+from caliber.integrations.openapi.executor import OpenApiExecutionError, execute_openapi_http_tool
 from caliber.routes._deps import (
     envelope_response_dict,
     get_session_factory,
     parse_json_object,
+    read_request_body,
 )
+from caliber.secrets import resolve_secret
 from caliber.workflows.effect_ledger import (
     IN_PROGRESS,
     RESOLUTIONS,
@@ -70,6 +115,18 @@ DEAD_LETTER_REPLAY_PATH = (
 DEAD_LETTER_ACK_PATH = (
     "/ajax-api/2.0/mlflow/caliber/system/webhook-dead-letters/{dead_letter_id}/acknowledge"
 )
+
+RECEIPT_CALLBACK_PATH = "/ajax-api/2.0/mlflow/caliber/effects/callbacks/receipt"
+_CALLBACK_MAX_BODY_BYTES = 4096
+_CALLBACK_CONSUMER = "effect-callback"
+_MAX_KEY_CHARS = 255
+#: How many lookups one connector in one project may have in flight: a signed caller cannot tie up the whole worker pool.
+_MAX_CONCURRENT_LOOKUPS = 4
+_LOOKUP_SLOTS: dict[tuple[str, str], threading.BoundedSemaphore] = {}
+_LOOKUP_SLOTS_LOCK = threading.Lock()
+_FIRST_ERROR_STATUS = 400
+#: The connectors whose lookup the platform knows how to run and verify (one today).
+_CALLBACK_CONNECTORS = frozenset({DOCUMENT_REQUEST})
 
 _STATUS_ANY = "any"
 _DEAD_LETTER_OPEN = "open"
@@ -369,6 +426,276 @@ async def replay_webhook_dead_letter(request: Request) -> JSONResponse:
     )
 
 
+# ---------------------------------------------------------------- the signed receipt callback (B05.4b, #725)
+
+
+def _callback_rejected() -> JSONResponse:
+    """The one refusal for every authentication failure (unknown connector or project, bad or stale signature, a secret that
+    cannot be read): a probe cannot tell them apart."""
+    return JSONResponse({"detail": "callback rejected"}, status_code=401)
+
+
+def _callback_reply(status_code: int, **body: Any) -> JSONResponse:
+    return JSONResponse(
+        {"data": body} if status_code < _FIRST_ERROR_STATUS else body, status_code=status_code
+    )
+
+
+def _authenticated_binding(
+    config: CaliberConfig, headers: dict[str, str], raw: bytes, *, now: float
+) -> tuple[CallbackBinding, str] | None:
+    """The binding whose secret signed this request and the delivery id, or ``None`` for any failure."""
+    connector = headers.get("x-caliber-connector", "")
+    project_id = headers.get("x-caliber-project", "")
+    binding = next(
+        (
+            b
+            for b in parse_bindings(config.effect_callback_connectors)
+            if b.connector == connector
+            and b.project_id == project_id
+            and b.connector in _CALLBACK_CONNECTORS
+        ),
+        None,
+    )
+    if binding is None:
+        return None
+    secret = resolve_secret(binding.secret_source)
+    delivery = headers.get("x-caliber-delivery", "")
+    if (
+        not secret
+        or len(secret) < MIN_SECRET_CHARS
+        or not check_signature(
+            secret,
+            connector=connector,
+            project_id=project_id,
+            timestamp=headers.get("x-caliber-timestamp", ""),
+            delivery=delivery,
+            signature=headers.get("x-caliber-signature", ""),
+            body=raw,
+            now=now,
+        )
+    ):
+        return None
+    return binding, delivery
+
+
+def _callback_key(raw: bytes) -> str | None:
+    """The idempotency key a callback names, or ``None`` if the body is not exactly ``{"idempotency_key": <key>}``."""
+    try:
+        body = json.loads(raw)
+    except (UnicodeDecodeError, ValueError):
+        return None
+    key = (
+        body.get("idempotency_key")
+        if isinstance(body, dict) and set(body) == {"idempotency_key"}
+        else None
+    )
+    if (
+        not isinstance(key, str)
+        or not 1 <= len(key) <= _MAX_KEY_CHARS
+        or not key.isascii()
+        or not key.isprintable()
+        or key != key.strip()
+    ):
+        return None
+    return key
+
+
+def _resolve_callback_proposal(
+    session: Session, binding: CallbackBinding, key: str
+) -> ProposalView | None:
+    """The proposal this connector may report on: its own, in the bound project. Anything else is simply not found, so a
+    callback cannot learn whether a key exists elsewhere."""
+    proposal_id = session.execute(
+        select(CaliberEffectProposal.proposal_id)
+        .join(
+            CaliberWorkflowRun,
+            CaliberWorkflowRun.workflow_run_id == CaliberEffectProposal.workflow_run_id,
+        )
+        .where(
+            CaliberEffectProposal.logical_key == key,
+            CaliberEffectProposal.connector == binding.connector,
+            CaliberWorkflowRun.project_id == binding.project_id,
+        )
+    ).scalar_one_or_none()
+    return None if proposal_id is None else proposal_view(session, proposal_id)
+
+
+def _commit_from_callback(
+    session: Session, proposal_id: str, facts: ReceiptFacts
+) -> tuple[str, bool]:
+    """Record the verified receipt and commit (``unknown`` goes through ``reconciled`` first).
+
+    Returns the receipt id and whether *this* call did the commit (``False`` if another delivery already had).
+    """
+    state = proposal_state(session, proposal_id)
+    if state.state == COMMITTED and state.receipt_id is not None:
+        return state.receipt_id, False
+    receipt = record_receipt(session, proposal_id, facts)
+    version = state.version
+    if state.state == UNKNOWN:
+        version = transition(
+            session, proposal_id, RECONCILED, expected_version=version, reason="receipt_callback"
+        ).version
+    transition(
+        session, proposal_id, COMMITTED, expected_version=version, receipt_id=receipt.receipt_id
+    )
+    return receipt.receipt_id, True
+
+
+def _callback_state_reply(view: ProposalView) -> JSONResponse | None:
+    """The answer for a proposal that is not waiting on a receipt, or ``None`` if it is (``unknown`` or ``reconciled``)."""
+    if view.state == COMMITTED:
+        return _callback_reply(200, status="already_committed")
+    if view.state == FAILED:
+        return _callback_reply(409, reason="proposal_failed")
+    if (
+        view.state == DISPATCHED
+    ):  # the dispatcher (or the reconciler, once the dispatch is abandoned) still owns it
+        return _callback_reply(202, status="in_flight")
+    if view.state not in (UNKNOWN, RECONCILED):
+        return _callback_reply(409, reason="not_dispatched")
+    return None
+
+
+def _inbox_source(binding: CallbackBinding) -> str:
+    """The inbox source of one connector *in one project* (a digest, so the two names fit its length limit): delivery ids
+    are unique per binding, never across projects."""
+    return hashlib.sha256(f"{binding.connector}\n{binding.project_id}".encode()).hexdigest()[:32]
+
+
+def _consumed_reply(
+    session: Session, binding: CallbackBinding, delivery: str, key: str
+) -> JSONResponse | None:
+    """``duplicate`` (or an ``inbox_payload_mismatch``) if this delivery id was already consumed by this binding."""
+    row = session.get(CaliberInboxEvent, (_CALLBACK_CONSUMER, _inbox_source(binding), delivery))
+    if row is None:
+        return None
+    if row.payload_hash != _callback_payload_hash(binding, key):
+        return _callback_reply(409, reason="inbox_payload_mismatch")
+    return _callback_reply(200, status="duplicate")
+
+
+def _callback_payload_hash(binding: CallbackBinding, key: str) -> str:
+    return payload_hash({"project_id": binding.project_id, "idempotency_key": key})
+
+
+def _lookup_slot(binding: CallbackBinding) -> threading.BoundedSemaphore:
+    with _LOOKUP_SLOTS_LOCK:
+        return _LOOKUP_SLOTS.setdefault(
+            (binding.connector, binding.project_id),
+            threading.BoundedSemaphore(_MAX_CONCURRENT_LOOKUPS),
+        )
+
+
+def _lookup_facts(
+    binding: CallbackBinding, view: ProposalView, key: str
+) -> ReceiptFacts | JSONResponse | None:
+    """Ask the downstream (outside any transaction, with a bounded number in flight per binding) and verify its answer.
+
+    The facts if it confirms, ``None`` if it holds nothing or something else, or the retryable refusal if it could not be
+    asked (or this binding already has its share of lookups in flight)."""
+    slot = _lookup_slot(binding)
+    if not slot.acquire(blocking=False):
+        return _callback_reply(503, status="busy")
+    try:
+        found = execute_openapi_http_tool(
+            execution_config=lookup_config(binding.base_url),
+            input_schema=None,
+            input_data=lookup_input(key),
+        )
+    except OpenApiExecutionError:
+        return _callback_reply(502, status="lookup_failed")
+    finally:
+        slot.release()
+    return facts_from_lookup(view, lookup_status=found["status_code"], lookup_body=found["json"])
+
+
+def _after_a_refused_commit(
+    factory: sessionmaker[Session], proposal_id: str, exc: ProposalError
+) -> JSONResponse:
+    """A refused commit is a retryable 409, except when it lost a race to a commit: then the effect *is* committed."""
+    if exc.code in (RECEIPT_STATE, STALE_VERSION):
+        with factory() as fresh:
+            if proposal_state(fresh, proposal_id).state == COMMITTED:
+                return _callback_reply(200, status="already_committed")
+    return _callback_reply(409, reason=exc.code)
+
+
+def _process_receipt_callback(  # noqa: PLR0911 - one distinct, documented answer per refusal
+    factory: sessionmaker[Session], config: CaliberConfig, headers: dict[str, str], raw: bytes
+) -> JSONResponse:
+    authenticated = _authenticated_binding(config, headers, raw, now=time.time())
+    if authenticated is None:
+        return _callback_rejected()
+    binding, delivery = authenticated
+    key = _callback_key(raw)
+    if key is None:
+        return _callback_reply(400, detail='the body must be exactly {"idempotency_key": <key>}')
+    with factory() as session:
+        replay = _consumed_reply(session, binding, delivery, key)
+        view = None if replay is not None else _resolve_callback_proposal(session, binding, key)
+    if replay is not None:
+        return replay
+    if view is None:
+        return _callback_reply(404, detail="no such proposal")
+    refused = _callback_state_reply(view)
+    if refused is not None:
+        return refused
+    facts = _lookup_facts(binding, view, key)
+    if isinstance(facts, JSONResponse):
+        return facts
+    if facts is None:
+        # The downstream does not (yet) hold this effect, or holds something else: not a receipt, and not a failure. The
+        # delivery is not consumed, so the connector can call again.
+        return _callback_reply(202, status="unknown")
+    with factory() as session:
+        try:
+            outcome = process_once(
+                session,
+                consumer=_CALLBACK_CONSUMER,
+                source=_inbox_source(binding),
+                event_id=delivery,
+                payload_hash=_callback_payload_hash(binding, key),
+                apply=lambda: _commit_from_callback(session, view.proposal_id, facts),
+            )
+            receipt_id, performed = outcome.value if outcome.value is not None else (None, False)
+            if outcome.applied and performed:
+                audit_record(
+                    session,
+                    actor=f"connector:{binding.connector}",
+                    action="effect_receipt_callback",
+                    entity_type="effect_proposal",
+                    entity_id=view.proposal_id,
+                    details={"delivery": delivery, "receipt_id": receipt_id},
+                )
+            session.commit()
+        except InboxPayloadMismatch:
+            session.rollback()
+            return _callback_reply(409, reason="inbox_payload_mismatch")
+        except ProposalError as exc:
+            session.rollback()  # the reservation went with it: the delivery is not consumed and can be retried
+            return _after_a_refused_commit(factory, view.proposal_id, exc)
+    if outcome.outcome == "duplicate":
+        return _callback_reply(200, status="duplicate")
+    return _callback_reply(200, status="committed", receipt_id=receipt_id)
+
+
+async def receive_effect_receipt(request: Request) -> JSONResponse:
+    """A connector's signed "the effect for this key is done" (B05.4b, #725).
+
+    Not session-authenticated: the connector is the caller, and its signature over the connector, project, timestamp, delivery id
+    and body (``caliber.effects.callbacks``) is the admission control. The callback is a *notification*: it names an
+    idempotency key and nothing else, and the platform asks the downstream itself before it records anything. A downstream that
+    has no such request yet leaves the proposal ``unknown`` (202) and the delivery unconsumed.
+    """
+    config = request.app.state.config
+    raw = await read_request_body(request, max_body_bytes=_CALLBACK_MAX_BODY_BYTES)
+    return await run_in_threadpool(
+        _process_receipt_callback, get_session_factory(request), config, dict(request.headers), raw
+    )
+
+
 def register(app: Starlette) -> None:
     app.routes.append(Route(EFFECTS_PATH, list_system_effects, methods=["GET"]))
     app.routes.append(Route(EFFECT_RESOLVE_PATH, resolve_system_effect, methods=["POST"]))
@@ -377,3 +704,4 @@ def register(app: Starlette) -> None:
         Route(DEAD_LETTER_ACK_PATH, acknowledge_webhook_dead_letter, methods=["POST"])
     )
     app.routes.append(Route(DEAD_LETTER_REPLAY_PATH, replay_webhook_dead_letter, methods=["POST"]))
+    app.routes.append(Route(RECEIPT_CALLBACK_PATH, receive_effect_receipt, methods=["POST"]))

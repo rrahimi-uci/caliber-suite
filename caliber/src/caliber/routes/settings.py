@@ -8,6 +8,7 @@ deployment-level settings can be changed safely in-process.
 
 from __future__ import annotations
 
+import json
 import os
 import re
 from collections.abc import Callable
@@ -1017,6 +1018,17 @@ def _runtime_groups(config: CaliberConfig) -> list[dict[str, Any]]:
                         "Most tokens the retrieved and history sections of an agent step's context may use "
                         "(recorded in the context manifest once the agent-step adapters, B08, apply it)."
                     ),
+                ),
+                _setting(
+                    config,
+                    key="effect_callback_connectors",
+                    env_var="CALIBER_EFFECT_CALLBACK_CONNECTORS",
+                    label="Effect callback connectors",
+                    description=(
+                        "Connectors allowed to call the signed receipt callback, by project (secret sources and URLs are not shown)."
+                    ),
+                    formatter=lambda value: f"{len(json.loads(str(value)))} connector binding(s)",
+                    sensitive=True,
                 ),
             ],
         ),

@@ -72,6 +72,7 @@ from caliber.routes.csrf import CSRF_PATH
 from caliber.routes.github_webhooks import PATH as GITHUB_WEBHOOK_PATH
 from caliber.routes.health import HEALTH_PATH
 from caliber.routes.static import build_handler as build_static_ui_handler
+from caliber.routes.system_effects import RECEIPT_CALLBACK_PATH
 from caliber.runtime_advisories import (
     SUPPORTED_PYTHON_MAX_EXCLUSIVE,
     SUPPORTED_PYTHON_MIN,
@@ -944,7 +945,8 @@ def create_app(config: CaliberConfig | None = None) -> ASGIApp:  # noqa: PLR0915
         # itself is the caller, with no CALIBER session to bind a CSRF
         # token to. Its only admission control is HMAC signature
         # verification inside the handler itself (routes/github_webhooks.py).
-        exempt_paths=frozenset({CSRF_PATH, GITHUB_WEBHOOK_PATH}),
+        # The receipt callback is a connector's signed call, exempt for the same reason (its signature is its admission).
+        exempt_paths=frozenset({CSRF_PATH, GITHUB_WEBHOOK_PATH, RECEIPT_CALLBACK_PATH}),
         dev_user=resolved.dev_user,
     )
     # Rate-limit middleware is installed only when enabled — when the
@@ -965,7 +967,9 @@ def create_app(config: CaliberConfig | None = None) -> ASGIApp:  # noqa: PLR0915
         app.add_middleware(
             RateLimitMiddleware,
             limiter=rate_limiter,
-            exempt_paths=frozenset({HEALTH_PATH, CSRF_PATH, GITHUB_WEBHOOK_PATH}),
+            exempt_paths=frozenset(
+                {HEALTH_PATH, CSRF_PATH, GITHUB_WEBHOOK_PATH, RECEIPT_CALLBACK_PATH}
+            ),
             dev_user=resolved.dev_user,
         )
     # Outermost, so a disabled preview area answers 404 before CSRF or rate limiting

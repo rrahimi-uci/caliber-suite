@@ -23,6 +23,7 @@ from typing import Any, Final, Literal
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
 from caliber.db_url import normalize_database_url
+from caliber.effects.callbacks import parse_bindings
 from caliber.model_defaults import (
     DEFAULT_OPENAI_MODEL,
     DEFAULT_OPENAI_REASONING_EFFORT,
@@ -1773,6 +1774,21 @@ class CaliberConfig(BaseModel):
         parse_section_caps(value)
         return value
 
+    effect_callback_connectors: str = Field(
+        default="[]",
+        description=(
+            "JSON array of the connectors allowed to call the receipt callback (B05.4b): each names a ``connector``, the "
+            "``project_id`` it may act in, the ``secret_source`` its signing secret is read from (never the secret itself) and "
+            "the ``base_url`` of its downstream, used for the authoritative lookup. Empty (the default) accepts no callback."
+        ),
+    )
+
+    @field_validator("effect_callback_connectors")
+    @classmethod
+    def _effect_callback_connectors_are_valid(cls, value: str) -> str:
+        parse_bindings(value)
+        return value
+
     # ------------------------------------------------------------------
     # CSRF protection (parity checklist §11). Opt-in because the common
     # deployment shape — MLflow's auth proxy in front of CALIBER —
@@ -2485,6 +2501,7 @@ _ENV_VAR_TABLE: list[tuple[str, str, Any]] = [
     ("CALIBER_PII_REDACTION_REPLACEMENT", "pii_redaction_replacement", str),
     ("CALIBER_PII_REDACTION_EXTRA_PATTERNS", "pii_redaction_extra_patterns", str),
     ("CALIBER_CONTEXT_SECTION_CAPS", "context_section_caps", str),
+    ("CALIBER_EFFECT_CALLBACK_CONNECTORS", "effect_callback_connectors", str),
     ("CALIBER_CSRF_ENABLED", "csrf_enabled", _flag),
     ("CALIBER_CSRF_SIGNING_SECRET_ENV", "csrf_signing_secret_env", str),
     ("CALIBER_CSRF_TOKEN_TTL_SECONDS", "csrf_token_ttl_seconds", int),
