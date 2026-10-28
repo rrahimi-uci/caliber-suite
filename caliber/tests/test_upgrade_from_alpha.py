@@ -21,17 +21,20 @@ import pytest
 from alembic.config import Config
 from alembic.script import ScriptDirectory
 
+from caliber.db.migrate import VERSION_TABLE
 from tests.migration_checksums import (
     ALPHA_TAG,
+    MIGRATIONS_PATH,
     RECOVERY_HINT,
     REPO_ROOT,
+    REQUIRE_TAG_ENV,
     VERSIONS_DIR,
-    ManifestError,
-    dump_manifest,
-    generate_manifest,
+    TagUnavailableError,
     head_revision,
     load_manifest,
+    require_tag_from_env,
     validate_manifest,
+    verify_manifest_against_tag,
     verify_tree,
 )
 
@@ -85,29 +88,50 @@ def test_the_current_head_descends_from_the_alpha_head() -> None:
     assert alpha_head() in ancestry
 
 
-def _tag_commit_available(commit: str) -> bool:
+def test_alpha_databases_are_versioned_in_the_table_the_code_still_reads() -> None:
+    """If the version table were renamed, an alpha database would look unversioned and be migrated from zero."""
+    assert load_manifest()["version_table"] == VERSION_TABLE
+
+
+def test_line_endings_of_shipped_migrations_are_never_rewritten() -> None:
+    """A Windows ``core.autocrlf`` checkout would otherwise change every byte the checksums cover."""
     result = subprocess.run(
-        ["git", "cat-file", "-e", f"{commit}^{{commit}}"],
+        ["git", "check-attr", "text", "--", f"{MIGRATIONS_PATH}/0001_initial.py"],
         cwd=REPO_ROOT,
         capture_output=True,
-        check=False,
+        text=True,
+        check=True,
     )
-    return result.returncode == 0
+    assert result.stdout.strip().endswith("text: unset"), result.stdout
+
+
+def test_codeowners_routes_the_frozen_migrations_and_their_manifest_to_the_owner() -> None:
+    """The checksum test cannot stop one change from editing a migration and its manifest entry; review can."""
+    owned = {
+        line.split()[0]: line.split()[1:]
+        for line in (REPO_ROOT / ".github" / "CODEOWNERS").read_text(encoding="utf-8").splitlines()
+        if line.strip() and not line.startswith("#")
+    }
+    for pattern in (
+        f"/{MIGRATIONS_PATH}/",
+        "/caliber/tests/fixtures/alpha_0_1_0a1_migration_checksums.json",
+    ):
+        assert owned.get(pattern), f"CODEOWNERS has no owner for {pattern}"
 
 
 def test_the_manifest_matches_the_release_tag() -> None:
     """The fixture is what the tag shipped, regenerated independently of the working tree.
 
-    CI checks out a single commit without tags, where this cannot run; it runs wherever the tag is fetched
-    (a normal clone). The checksum test above is what CI enforces on every change.
+    ``test_shipped_migrations_unchanged`` alone passes a change that edits a migration *and* its manifest
+    entry; this is the check that does not, because it reads the tag's own objects. A checkout without the
+    tag (the full-suite CI job, a shallow clone) skips it. The CI job that fetches the tag sets
+    ``CALIBER_REQUIRE_ALPHA_TAG``, so there a missing tag fails instead of skipping.
     """
     manifest = load_manifest()
-    if not _tag_commit_available(manifest["tag_commit"]):
-        pytest.skip(
-            f"{ALPHA_TAG} ({manifest['tag_commit']}) is not in this checkout; `git fetch --tags`"
-        )
     try:
-        regenerated = generate_manifest(REPO_ROOT, ALPHA_TAG)
-    except ManifestError as exc:  # the tag was moved or deleted locally: say so, do not skip
-        pytest.fail(f"the fixture cannot be checked against {ALPHA_TAG}: {exc}")
-    assert dump_manifest(regenerated) == dump_manifest(manifest)
+        problems = verify_manifest_against_tag(manifest, REPO_ROOT)
+    except TagUnavailableError as exc:
+        if require_tag_from_env():
+            pytest.fail(f"{REQUIRE_TAG_ENV} is set but the tag is unavailable: {exc}")
+        pytest.skip(str(exc))
+    assert not problems, "\n".join([*problems, "", RECOVERY_HINT])

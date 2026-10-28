@@ -233,7 +233,16 @@ job_backend_core() {
   "$VENV_PY" -m pip install -q -e "$SDK_DIR" || return 1
   "$VENV_PY" -m pip install -q -e "$CLI_DIR" || return 1
   "$VENV_PY" -m pip install -q -e "$PLUGIN_SDK_DIR" || return 1
-  "$VENV_PY" -m pytest -n auto --dist loadgroup --no-cov -q "${BACKEND_CORE_TESTS[@]}"
+  # The same two commands as CI's "Verify the alpha migration manifest against the release tag" step:
+  # the working-tree check cannot catch a change that edits a shipped migration and its manifest entry.
+  # The tag is fetched only if this clone does not already have it.
+  (
+    cd "$REPO_ROOT" || exit 1
+    git rev-parse --verify --quiet caliber-v0.1.0a1 >/dev/null ||
+      git fetch --no-tags --depth=1 origin tag caliber-v0.1.0a1 || exit 1
+    "$VENV_PY" caliber/tests/migration_checksums.py generate --check
+  ) || return 1
+  CALIBER_REQUIRE_ALPHA_TAG=1 "$VENV_PY" -m pytest -n auto --dist loadgroup --no-cov -q "${BACKEND_CORE_TESTS[@]}"
 }
 
 # The PostgreSQL half of tests/test_migrations.py's and

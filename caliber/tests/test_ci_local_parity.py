@@ -288,3 +288,29 @@ def test_the_backend_core_test_lists_match_between_ci_and_the_local_runner() -> 
     assert in_ci == locally
     for path in in_ci:
         assert (REPO_ROOT / "caliber" / path).exists(), f"{path} does not exist"
+
+
+def test_the_alpha_migration_manifest_is_compared_with_the_release_tag_in_ci_and_locally() -> None:
+    """The working-tree check passes a change that edits a shipped migration and its manifest entry; only
+    the comparison with the tag fails it, and the tag is not in a CI checkout unless a step fetches it.
+    Both runners must fetch it, run ``generate --check``, and make the tag-match test fail rather than skip."""
+    from tests.migration_checksums import ALPHA_TAG, REQUIRE_TAG_ENV
+
+    workflow = yaml.safe_load(WORKFLOW.read_text())
+    steps = workflow["jobs"]["backend-core"]["steps"]
+    names = [step.get("name", "") for step in steps]
+    verify = next(s for s in steps if s.get("name", "").startswith("Verify the alpha migration"))
+    core = next(s for s in steps if s.get("name", "").startswith("Run the core"))
+    assert names.index(verify["name"]) < names.index(core["name"])
+
+    check = "python caliber/tests/migration_checksums.py generate --check"
+    fetch = f"git fetch --no-tags --depth=1 origin tag {ALPHA_TAG}"
+    assert fetch in verify["run"]
+    assert check in verify["run"]
+    assert verify["run"].index(fetch) < verify["run"].index(check)
+    assert core["env"][REQUIRE_TAG_ENV] == "1"
+
+    script = SCRIPT.read_text()
+    assert fetch in script
+    assert "migration_checksums.py generate --check" in script
+    assert f"{REQUIRE_TAG_ENV}=1" in script

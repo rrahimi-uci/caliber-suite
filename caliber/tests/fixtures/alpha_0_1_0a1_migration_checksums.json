@@ -3,6 +3,7 @@
   "release_tag": "caliber-v0.1.0a1",
   "tag_commit": "3f3b562babf6391d13e176c1bd56da5033ace507",
   "migrations_path": "caliber/src/caliber/db/migrations/versions",
+  "version_table": "caliber_alembic_version",
   "algorithm": "sha256",
   "generated_by": "python caliber/tests/migration_checksums.py generate (from the repository root)",
   "base_revision": "0001",

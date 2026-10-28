@@ -131,22 +131,44 @@ The database must be migrated (`caliber-migrate`) before the first start.
 An alpha database sits at the head of the migrations that `caliber-v0.1.0a1` shipped; upgrading it means running
 the migrations after that head. That is only safe while the migrations up to that head are exactly the ones the
 alpha ran, so they are frozen (B16-Upgrade.1, #702). `caliber/tests/fixtures/alpha_0_1_0a1_migration_checksums.json`
-records the SHA-256 of every migration file in the tag, read from the tag's git objects, together with the alpha
-head. The head is derived from those files (the one revision nothing revises), never written in by hand.
-`caliber/tests/test_upgrade_from_alpha.py::test_shipped_migrations_unchanged` fails if any of them is edited
-(a line-ending change counts), renamed or removed, or if a migration is inserted into or branched off that history.
+records the SHA-256 of every migration file in the tag, read from the tag's objects, together with the tag's commit,
+the alpha head and the alembic version table (`caliber_alembic_version`). The head is derived from those files (the
+one revision nothing revises), never written in by hand.
+
+Two checks guard it, because each alone can be defeated:
+
+- `caliber/tests/test_upgrade_from_alpha.py::test_shipped_migrations_unchanged` compares the working tree with the
+  manifest. It needs no history, so it runs everywhere and never skips. It fails if a migration is edited (a
+  line-ending change counts), renamed or removed, or if one is inserted into or branched off the shipped history.
+  A change that edits a migration *and* its manifest entry passes it.
+- `test_the_manifest_matches_the_release_tag` (and `python caliber/tests/migration_checksums.py generate --check`)
+  regenerates the manifest from the tag and compares, which fails that change. The backend-core CI job fetches the
+  tag and sets `CALIBER_REQUIRE_ALPHA_TAG=1`, so there a missing tag is a failure, not a skip; elsewhere the test
+  skips when neither the tag nor its commit is in the checkout. `.github/CODEOWNERS` also sends any change to the
+  migrations directory or the manifest to the owner.
+
 Migrations added after the alpha are fine as long as they descend from the alpha head, and they need no manifest
-update. The failure names the file and the way out:
+update. Each failure names the file and the way out, for example:
 
 ```text
-0050_assistant_attachments.py: changed since caliber-v0.1.0a1 (sha256 6c27..., shipped 4306...)
+0050_assistant_attachments.py: changed since caliber-v0.1.0a1 (sha256 6c27..., shipped 4306...). Restore it from the
+shipped commit (`git show 3f3b562...:caliber/src/caliber/db/migrations/versions/0050_assistant_attachments.py > ...`,
+from the repository root) and put the change in a new migration that revises the current head.
 ```
 
-Restore the file (`git checkout caliber-v0.1.0a1 -- caliber/src/caliber/db/migrations/versions/<file>`) and put the
-change in a new migration that revises the current head. `python caliber/tests/migration_checksums.py verify`
-runs the same check from the command line. Regenerate the manifest (`... migration_checksums.py generate`, which
-needs the tag fetched with `git fetch --tags`) only if the fixture itself was wrong; `generate --check` compares it
-with the tag without writing, and a test does the same wherever the tag is present.
+A changed or missing file is restored from the recorded commit (the command is in the message and does not depend on
+the tag name being present). A new migration that revises a shipped revision is re-parented onto the current head
+(`alembic heads`). `python caliber/tests/migration_checksums.py verify` runs the working-tree check from the command
+line. Regenerate the manifest (`... migration_checksums.py generate`, with the tag fetched) only if the fixture itself
+was wrong.
+
+`.gitattributes` marks the migrations `-text`, so a Windows checkout with `core.autocrlf=true` cannot rewrite their
+line endings (the checksums are of exact bytes).
+
+For the alpha-upgrade tests that follow (#708, #715): create the alpha database by running `alembic upgrade
+<alpha head>` through the working-tree migrations directory, with the manifest's `version_table`. That reproduces the
+alpha schema only because those files are frozen, which the never-skipping check enforces. Never read the migrations
+from the tag in CI; it is not in the checkout.
 
 ## A stored secret never leaves the platform
 
@@ -1054,6 +1076,10 @@ for result in reconcile_pass(session_factory, lease=lease, targets=targets):
     print(result.proposal_id, result.outcome, result.state)  # committed | failed | unknown | unverified | lookup_failed | not_bound | in_flight | moved
 ```
 
+- **Timeout example (V08).** The connector's timeout fires after the request went out (`ambiguous`, recorded `unknown` with reason `ambiguous:may_have_been_sent`; not `failed`,
+  the downstream may have committed, and not `committed`, nobody read a receipt). A retry from the node layer is refused (`UnknownEffectError`, the run ends `failed`), nothing
+  can dispatch the proposal again (`illegal_transition` from `unknown` to `dispatched`), and the next reconciler pass finds the stored request by the original key and commits it
+  with a verified receipt: one downstream mutation throughout (`tests/egi_scenarios/test_v08_timeout_retry.py`).
 - **Refusals and recovery.** `lease_lost`: you are no longer the owner, stop and let the new owner reconcile. `store_failed`: roll back and retry. `unknown` after a
   pass: nothing proves the outcome yet (delayed visibility looks like absence); the next pass asks again, the effect is never re-sent, and dependents stay blocked.
   There is no operator action that fails an `unknown` effect without the downstream's evidence yet (the operator view below lists them; an audited action is #997); a connector that
