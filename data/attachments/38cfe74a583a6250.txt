@@ -1,0 +1,3 @@
+INFO     httpx:_client.py:1025 HTTP Request: POST http://127.0.0.1:54077/_test/reset "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: POST http://127.0.0.1:54077/_test/faults "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: GET http://127.0.0.1:54077/document-requests?idempotency_key=180d074a56e0f60275c2843761748ff4884eb6ee8ac35d9bc6a8a646cb96dcfb "HTTP/1.1 200 OK"

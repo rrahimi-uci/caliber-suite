@@ -1,0 +1,6 @@
+{"t":"2026-10-28T17:59:54.335Z","severity":"INFO","logger":"httpx","message":"HTTP Request: POST http://127.0.0.1:54077/_test/reset \"HTTP/1.1 200 OK\""}
+{"t":"2026-10-28T17:59:54.339Z","severity":"INFO","logger":"httpx","message":"HTTP Request: GET http://127.0.0.1:54077/openapi.json \"HTTP/1.1 200 OK\""}
+{"t":"2026-10-28T17:59:54.342Z","severity":"INFO","logger":"httpx","message":"HTTP Request: POST http://127.0.0.1:54077/_test/faults \"HTTP/1.1 200 OK\""}
+{"t":"2026-10-28T17:59:54.375Z","severity":"INFO","logger":"httpx","message":"HTTP Request: GET http://127.0.0.1:54077/_test/mutations \"HTTP/1.1 200 OK\""}
+{"t":"2026-10-28T17:59:54.396Z","severity":"INFO","logger":"httpx","message":"HTTP Request: GET http://127.0.0.1:54077/document-requests?idempotency_key=key-lost \"HTTP/1.1 200 OK\""}
+{"t":"2026-10-28T17:59:54.399Z","severity":"INFO","logger":"httpx","message":"HTTP Request: GET http://127.0.0.1:54077/_test/mutations \"HTTP/1.1 200 OK\""}

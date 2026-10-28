@@ -1,0 +1,4 @@
+INFO     httpx2:_client.py:1084 HTTP Request: POST http://testserver/_test/faults "HTTP/1.1 200 OK"
+INFO     httpx2:_client.py:1084 HTTP Request: GET http://testserver/_test/faults "HTTP/1.1 200 OK"
+INFO     httpx2:_client.py:1084 HTTP Request: POST http://testserver/cases/MORT-2026-000184/document-requests "HTTP/1.1 500 Internal Server Error"
+INFO     httpx2:_client.py:1084 HTTP Request: GET http://testserver/_test/faults "HTTP/1.1 200 OK"
