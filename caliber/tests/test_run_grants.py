@@ -92,7 +92,7 @@ def _seed(
     engine: Engine, *, member: str | None = "alice", status: str = "active", role: str = "editor"
 ) -> str:
     """A project, an optional member and a run; returns the run id."""
-    run_id = f"run-{uuid.uuid4().hex[:10]}"
+    run_id = f"run-a{uuid.uuid4().hex[:10]}"
     with Session(engine) as session, session.begin():
         if session.get(CaliberProject, "proj-1") is None:
             session.add(CaliberProject(project_id="proj-1", name="Project One", owner="@owner"))

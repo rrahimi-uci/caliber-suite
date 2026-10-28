@@ -91,7 +91,7 @@ def _migrated(
 
 
 def _add_run(engine: Engine, run_id: str | None = None, **columns: Any) -> str:
-    run_id = run_id or f"run-{uuid.uuid4().hex[:12]}"
+    run_id = run_id or f"run-a{uuid.uuid4().hex[:12]}"
     columns.setdefault("manifest_legacy", False)  # an admitted run; legacy is the default otherwise
     with Session(engine) as session, session.begin():
         session.add(CaliberWorkflowRun(workflow_run_id=run_id, workflow_id="wf-1", **columns))
@@ -534,10 +534,10 @@ def test_a_run_created_without_saying_otherwise_is_legacy_and_cannot_gain_a_mani
     dialect: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     with _migrated(dialect, tmp_path, monkeypatch) as (engine, _):
-        via_orm = f"run-{uuid.uuid4().hex[:8]}"
+        via_orm = f"run-a{uuid.uuid4().hex[:8]}"
         with Session(engine) as session, session.begin():
             session.add(CaliberWorkflowRun(workflow_run_id=via_orm, workflow_id="wf-1"))
-        via_sql = f"run-{uuid.uuid4().hex[:8]}"
+        via_sql = f"run-a{uuid.uuid4().hex[:8]}"
         with engine.begin() as connection:
             connection.execute(
                 text(
