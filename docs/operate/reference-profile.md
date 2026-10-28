@@ -1071,9 +1071,14 @@ Every row carries `source`, `source_version` and its own `safe_actions`, so a cl
 nothing) or read a proposal as a ledger claim. Legacy rows keep exactly the fields they always had (plus the label); the migrations that created the proposal tables
 leave them untouched and invent no receipt for them. A proposal row has identifiers, state, `version`, `attempt`, `owner_id`, `dispatch_token`, `reason`, `receipt_id`,
 timestamps, `blocks_dependents` (true while it is `dispatched`, `unknown` or `reconciled`: nothing that depends on it will run) and `abandoned` (for a `dispatched` attempt:
-`true` when its dispatching lease has been taken over and the reconciler will pick it up, `false` while that lease is still current, `null` otherwise). **No row carries a
-payload**: no arguments, intent bytes or recorded result. Query parameters: `source` (`all` by default, `legacy` or `proposal`), `status`, `proposal_state`,
-`workflow_run_id`, `limit` (1 to 1000, applied to each list); an unknown `source` or `proposal_state` is `400`. The response also carries `sources`, a description of each kind
+`true` when a newer lease has replaced its dispatching lease and the reconciler will pick it up; `false` when no newer lease has been acquired, which is the dispatcher's own
+lease *or* one that lapsed with nobody to replace it yet; `null` for any other state, a row with no recorded token, or no lease at all). The proposal response therefore also
+carries `lease` (the stored execution-owner lease: `owner_id`, `fencing_token`, `expires_at`, `expired`, or `null`), so an operator can tell those two `false` cases apart. **No row carries a
+payload**: no arguments, intent bytes or recorded result (the query selects only the listed columns). The view is **operator-scoped and system-wide**: it shows every
+project's rows (each with its `project_id`, `connector`, `resource` and `owner_id`), like the rest of `/system/*`; `reason` is a short code by convention and must never carry a
+payload (recorders pass fixed codes). Known limit: no index on proposal `state`/`created_at` yet, so a very large ledger lists by scan (a follow-up if it grows). Query parameters: `source` (`all` by default, `legacy` or `proposal`), `status`, `proposal_state`,
+`workflow_run_id`, `limit` (1 to 1000, applied to each list; the proposal list reports `proposals_truncated` when more matched, newest first); `proposal_state` is only checked when proposals are asked for, and an
+unknown `source` or `proposal_state` is `400`. The response also carries `sources`, a description of each kind
 (`settled_by`, `safe_actions`). SDK: `client.system.effects(source="proposal", proposal_state="unknown")`.
 
 ## Receipt callback: a connector tells the platform it is done (B05.4b, #725)

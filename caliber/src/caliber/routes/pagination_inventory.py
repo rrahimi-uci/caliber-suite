@@ -131,7 +131,7 @@ _PAGINATION_NOTES: dict[tuple[str, str], PaginationNote] = {
     ),
     _key("/system/effects"): PaginationNote(
         PaginationShape.AD_HOC_LIMIT_ONLY,
-        "own `limit` parsing (system_effects.py::list_system_effects); default 100, no cap",
+        "own `limit` parsing (system_effects.py::list_system_effects); default 100, cap 1000, applied to each of the two lists (legacy ledger rows and effect proposals); the proposal list also reports `proposals_truncated`",
     ),
     _key("/system/webhook-dead-letters"): PaginationNote(
         PaginationShape.AD_HOC_LIMIT_ONLY,

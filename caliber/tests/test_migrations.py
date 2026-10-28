@@ -1144,6 +1144,16 @@ def test_effect_ledger_rows_unchanged_by_the_effect_proposal_migrations(
                         """
                     )
                 )
+                connection.execute(
+                    text(
+                        """
+                        INSERT INTO caliber_effect_ledger
+                            (effect_key, workflow_run_id, node_id, status, claimed_at, completed_at, result, error)
+                        VALUES ('eff-done', 'WFR-1', 'send', 'completed', '2026-01-01 00:00:02',
+                                '2026-01-01 00:00:03', '{"status_code": 201}', 'late warning')
+                        """
+                    )
+                )
             query = text("SELECT * FROM caliber_effect_ledger ORDER BY effect_key")
             with engine.connect() as connection:
                 before = [tuple(row) for row in connection.execute(query)]

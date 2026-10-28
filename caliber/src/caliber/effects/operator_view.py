@@ -25,7 +25,7 @@ from sqlalchemy.orm import Session
 from caliber.db.models import CaliberEffectProposal, CaliberWorkflowRun
 from caliber.effects.reconcile import OPEN_STATES
 from caliber.effects.records import DISPATCHED, STATES
-from caliber.ownership import current_lease
+from caliber.ownership import current_lease, database_now
 
 LEGACY_SOURCE: Final = "legacy_ledger"
 LEGACY_VERSION: Final = "ledger-v0"
@@ -93,12 +93,66 @@ def list_proposals(
 ) -> list[dict[str, Any]]:
     """Effect proposals in ``states`` for operator inspection, newest first, without any payload.
 
-    ``abandoned`` says whether a ``dispatched`` attempt was dispatched under a lease that has since been taken over (``True``:
-    the reconciler will pick it up; ``False``: the dispatcher still holds that lease; ``None``: not a dispatched attempt, or
-    there is no token or lease to compare).
+    ``abandoned`` says whether a ``dispatched`` attempt was dispatched under a lease that a newer acquisition has replaced
+    (``True``: the reconciler will pick it up; ``False``: no newer lease has been acquired, so it is the dispatcher's own or
+    its lease has lapsed and nobody has taken over yet, see :func:`lease_summary`; ``None``: not a dispatched attempt, or no
+    token or lease to compare). Returns at most ``limit`` rows; use :func:`list_proposals_page` to know whether more exist.
     """
+    return list_proposals_page(
+        session, states=states, workflow_run_id=workflow_run_id, limit=limit
+    )[0]
+
+
+def lease_summary(session: Session) -> dict[str, Any] | None:
+    """The execution-owner lease as stored (who, which token, when it lapses, whether it has), or ``None`` if never acquired.
+
+    Lets an operator tell a dispatcher that still holds its lease from one whose lease lapsed with nobody to replace it (both
+    read ``abandoned: false`` until the next owner acquires)."""
+    held = current_lease(session)
+    if held is None:
+        return None
+    return {
+        "owner_id": held.owner_id,
+        "fencing_token": held.fencing_token,
+        "expires_at": _iso(held.expires_at),
+        "expired": held.expires_at <= database_now(session),
+    }
+
+
+def list_proposals_page(
+    session: Session,
+    *,
+    states: Sequence[str],
+    workflow_run_id: str | None = None,
+    limit: int = 100,
+) -> tuple[list[dict[str, Any]], bool]:
+    """Up to ``limit`` proposal rows (see :func:`list_proposals`) and whether more matched (a truncated list is said to be)."""
+    columns = (
+        CaliberEffectProposal.proposal_id,
+        CaliberEffectProposal.workflow_run_id,
+        CaliberEffectProposal.node_id,
+        CaliberEffectProposal.occurrence_id,
+        CaliberEffectProposal.logical_key,
+        CaliberEffectProposal.connector,
+        CaliberEffectProposal.connector_version,
+        CaliberEffectProposal.effect_class,
+        CaliberEffectProposal.resource,
+        CaliberEffectProposal.intent_hash,
+        CaliberEffectProposal.state,
+        CaliberEffectProposal.version,
+        CaliberEffectProposal.attempt,
+        CaliberEffectProposal.owner_id,
+        CaliberEffectProposal.dispatch_token,
+        CaliberEffectProposal.reason,
+        CaliberEffectProposal.receipt_id,
+        CaliberEffectProposal.dispatched_at,
+        CaliberEffectProposal.unknown_at,
+        CaliberEffectProposal.settled_at,
+        CaliberEffectProposal.created_at,
+        CaliberWorkflowRun.project_id,
+    )  # named columns only: the arguments and intent bytes are never loaded
     query = (
-        select(CaliberEffectProposal, CaliberWorkflowRun.project_id)
+        select(*columns)
         .join(
             CaliberWorkflowRun,
             CaliberWorkflowRun.workflow_run_id == CaliberEffectProposal.workflow_run_id,
@@ -109,11 +163,13 @@ def list_proposals(
     if workflow_run_id:
         query = query.where(CaliberEffectProposal.workflow_run_id == workflow_run_id)
     held = current_lease(session)
-    rows = session.execute(query.limit(max(1, min(int(limit), MAX_LIMIT)))).all()
-    return [_proposal_row(proposal, str(project_id), held) for proposal, project_id in rows]
+    wanted = max(1, min(int(limit), MAX_LIMIT))
+    rows = session.execute(query.limit(wanted + 1)).all()
+    return [_proposal_row(row, held) for row in rows[:wanted]], len(rows) > wanted
 
 
-def _proposal_row(proposal: CaliberEffectProposal, project_id: str, held: Any) -> dict[str, Any]:
+def _proposal_row(proposal: Any, held: Any) -> dict[str, Any]:
+    project_id = proposal.project_id
     abandoned: bool | None = None
     if proposal.state == DISPATCHED and proposal.dispatch_token is not None and held is not None:
         abandoned = proposal.dispatch_token < held.fencing_token
@@ -123,7 +179,7 @@ def _proposal_row(proposal: CaliberEffectProposal, project_id: str, held: Any) -
         "safe_actions": [],
         "proposal_id": proposal.proposal_id,
         "workflow_run_id": proposal.workflow_run_id,
-        "project_id": project_id,
+        "project_id": str(project_id),
         "node_id": proposal.node_id,
         "occurrence_id": proposal.occurrence_id,
         "logical_key": proposal.logical_key,
@@ -158,6 +214,8 @@ __all__ = [
     "PROPOSAL_VERSION",
     "describe_sources",
     "label_legacy",
+    "lease_summary",
     "list_proposals",
+    "list_proposals_page",
     "proposal_states",
 ]

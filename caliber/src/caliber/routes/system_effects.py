@@ -78,7 +78,8 @@ from caliber.effects.operator_view import (
     OPEN,
     describe_sources,
     label_legacy,
-    list_proposals,
+    lease_summary,
+    list_proposals_page,
     proposal_states,
 )
 from caliber.effects.receipts import RECEIPT_STATE, ReceiptFacts
@@ -150,6 +151,16 @@ _DEAD_LETTER_REPLAYED = "replayed"
 _DEAD_LETTER_REPLAYING = "replaying"
 
 
+def proposal_states_for(source: str, requested: str) -> tuple[str, ...]:
+    """The proposal states to list, or a 400; the filter is only checked when proposals are asked for."""
+    if source == _SOURCE_LEGACY:
+        return ()
+    try:
+        return proposal_states(requested)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
 async def list_system_effects(request: Request) -> JSONResponse:
     """``GET /caliber/system/effects`` — the operator reconciliation view: ledger claims and effect proposals, labelled apart.
 
@@ -179,10 +190,7 @@ async def list_system_effects(request: Request) -> JSONResponse:
         limit = int(request.query_params.get("limit") or 100)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail="'limit' must be an integer") from exc
-    try:
-        states = proposal_states(proposal_state)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    states = proposal_states_for(source, proposal_state)
 
     factory = get_session_factory(request)
     body: dict[str, Any] = {
@@ -203,9 +211,10 @@ async def list_system_effects(request: Request) -> JSONResponse:
             ]
         if source in (_SOURCE_ALL, _SOURCE_PROPOSAL):
             body["proposal_state"] = proposal_state.strip().casefold() or OPEN
-            body["proposals"] = list_proposals(
+            body["proposals"], body["proposals_truncated"] = list_proposals_page(
                 session, states=states, workflow_run_id=run_id or None, limit=limit
             )
+            body["lease"] = lease_summary(session)
     return envelope_response_dict(body)
 
 

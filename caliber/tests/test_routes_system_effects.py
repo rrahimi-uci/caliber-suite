@@ -13,6 +13,7 @@ recovery tool corrupt the evidence it recovers from.
 
 from __future__ import annotations
 
+import itertools
 from typing import Any
 
 import pytest
@@ -20,7 +21,7 @@ from sqlalchemy.orm import Session
 from starlette.testclient import TestClient
 
 from caliber.db.models import CaliberAuditLog, CaliberEffectLedger
-from caliber.effects.records import COMMITTED, UNKNOWN
+from caliber.effects.records import COMMITTED, RECONCILED, UNKNOWN
 from caliber.ownership import release
 from caliber.workflows.effect_ledger import COMPLETED, FAILED, IN_PROGRESS
 from tests.effect_helpers import leased
@@ -89,6 +90,50 @@ def test_listing_can_widen_to_any_status_and_filter_by_run(
 # ---------------------------------------------------------------- the operator reconciliation view (B05.6, #751)
 
 
+_LEGACY_ROW_KEYS = {
+    "effect_key",
+    "workflow_run_id",
+    "node_id",
+    "status",
+    "error",
+    "claimed_at",
+    "completed_at",
+    "has_result",
+    "source",
+    "source_version",
+    "safe_actions",
+}
+_PROPOSAL_ROW_KEYS = {
+    "source",
+    "source_version",
+    "safe_actions",
+    "proposal_id",
+    "workflow_run_id",
+    "project_id",
+    "node_id",
+    "occurrence_id",
+    "logical_key",
+    "connector",
+    "connector_version",
+    "effect_class",
+    "resource",
+    "intent_hash",
+    "state",
+    "version",
+    "blocks_dependents",
+    "attempt",
+    "owner_id",
+    "dispatch_token",
+    "abandoned",
+    "reason",
+    "receipt_id",
+    "dispatched_at",
+    "unknown_at",
+    "settled_at",
+    "created_at",
+}
+
+
 def _proposals(session: Session) -> dict[str, str]:
     """Proposals of every kind in RUN-ep. The first three are dispatched under one lease; ``current`` is dispatched after the
     lease turned over (a new acquisition), so the first dispatched one is *abandoned* and ``current`` is not."""
@@ -99,6 +144,9 @@ def _proposals(session: Session) -> dict[str, str]:
     out["abandoned"] = _proposal(session, occurrence="o-abandoned")
     out["unknown"] = _proposal(session, occurrence="o-unknown")
     _move(session, out["unknown"], UNKNOWN, owner_id=OWNER, attempt=ATTEMPT, reason="timeout")
+    out["reconciled"] = _proposal(session, occurrence="o-reconciled")
+    _move(session, out["reconciled"], UNKNOWN, owner_id=OWNER, attempt=ATTEMPT, reason="timeout")
+    _move(session, out["reconciled"], RECONCILED, reason="found by key")
     out["committed"] = _proposal(session, occurrence="o-committed")
     _move(
         session,
@@ -135,17 +183,20 @@ def test_lists_legacy_and_proposal_kinds(client: TestClient, db_session: Session
     legacy = data["effects"][0]
     assert (legacy["source"], legacy["source_version"]) == ("legacy_ledger", "ledger-v0")
     assert legacy["safe_actions"] == ["resolve:skip", "resolve:retry"]
-    assert legacy["status"] == "in_progress" and "has_result" in legacy, (
-        "the legacy row is unchanged"
-    )
+    assert set(legacy) == _LEGACY_ROW_KEYS and legacy["status"] == "in_progress"
+    assert data["proposals_truncated"] is False and data["lease"]["expired"] is False
 
     by_id = {p["proposal_id"]: p for p in data["proposals"]}
-    assert set(by_id) == {ids["abandoned"], ids["unknown"], ids["current"]}, "the open states only"
+    assert set(by_id) == {ids["abandoned"], ids["unknown"], ids["reconciled"], ids["current"]}, (
+        "the open states only"
+    )
     for row in by_id.values():
         assert (row["source"], row["source_version"]) == ("effect_proposal", "proposal-v1")
         assert row["safe_actions"] == [] and row["blocks_dependents"] is True
-        assert {"args", "intent_bytes", "result", "intent"}.isdisjoint(row), "no payload"
+        assert set(row) == _PROPOSAL_ROW_KEYS, "exactly these fields: no payload under any name"
         assert row["project_id"] == "PRJ-ep" and row["logical_key"] and row["intent_hash"]
+    assert by_id[ids["reconciled"]]["abandoned"] is None
+    assert by_id[ids["reconciled"]]["state"] == "reconciled"
     assert (by_id[ids["unknown"]]["state"], by_id[ids["unknown"]]["reason"]) == (
         "unknown",
         "timeout",
@@ -186,7 +237,7 @@ def test_the_view_can_show_one_kind_or_any_proposal_state(
     only_legacy = client.get(EFFECTS, params={"source": "legacy"}).json()["data"]
     assert "proposals" not in only_legacy and len(only_legacy["effects"]) == 1
     only_proposals = client.get(EFFECTS, params={"source": "proposal"}).json()["data"]
-    assert "effects" not in only_proposals and len(only_proposals["proposals"]) == 3
+    assert "effects" not in only_proposals and len(only_proposals["proposals"]) == 4
 
     every = client.get(EFFECTS, params={"source": "proposal", "proposal_state": "any"}).json()[
         "data"
@@ -213,6 +264,74 @@ def test_the_view_filters_proposals_by_run_and_bounds_the_list(
     assert other["proposals"] == [] and other["effects"] == []
     here = client.get(EFFECTS, params={"workflow_run_id": "RUN-ep", "limit": 2}).json()["data"]
     assert len(here["proposals"]) == 2
+
+
+def test_the_proposal_list_is_ordered_bounded_and_says_when_it_was_cut(
+    client: TestClient, db_session: Session
+) -> None:
+    _seed_run(client.app.state.session_factory)  # type: ignore[attr-defined]
+    _proposals(db_session)
+    params = {"source": "proposal", "proposal_state": "any"}
+    every = client.get(EFFECTS, params=params).json()["data"]
+    keys = [(r["created_at"], r["proposal_id"]) for r in every["proposals"]]
+    assert every["proposals_truncated"] is False and len(keys) == 6
+    for (a_time, a_id), (b_time, b_id) in itertools.pairwise(keys):
+        assert a_time > b_time or (a_time == b_time and a_id < b_id), "newest first, ties by id"
+    cut = client.get(EFFECTS, params={**params, "limit": 2}).json()["data"]
+    assert len(cut["proposals"]) == 2 and cut["proposals_truncated"] is True
+    assert [r["proposal_id"] for r in cut["proposals"]] == [
+        r["proposal_id"] for r in every["proposals"][:2]
+    ]
+    floor = client.get(EFFECTS, params={**params, "limit": 0}).json()["data"]
+    assert len(floor["proposals"]) == 1, "a limit below one is one"
+    ceiling = client.get(EFFECTS, params={**params, "limit": 100000}).json()["data"]
+    assert len(ceiling["proposals"]) == 6 and ceiling["proposals_truncated"] is False
+
+
+def test_abandoned_is_unknown_without_a_token_or_a_lease_and_the_lease_is_shown(
+    client: TestClient, db_session: Session
+) -> None:
+    from sqlalchemy import text
+
+    from caliber.ownership import current_lease, release
+
+    _seed_run(client.app.state.session_factory)  # type: ignore[attr-defined]
+    ids = _proposals(db_session)
+    url = {"source": "proposal", "proposal_state": "dispatched"}
+
+    def rows() -> dict[str, Any]:
+        found = client.get(EFFECTS, params=url).json()["data"]["proposals"]
+        return {r["proposal_id"]: r for r in found}
+
+    body = client.get(EFFECTS, params=url).json()["data"]
+    assert body["lease"]["owner_id"] == OWNER and body["lease"]["expired"] is False
+    assert body["lease"]["fencing_token"] == rows()[ids["current"]]["dispatch_token"]
+    # a row from before the token was recorded proves nothing: neither abandoned nor not
+    db_session.execute(
+        text("UPDATE caliber_effect_proposals SET dispatch_token = NULL WHERE proposal_id = :p"),
+        {"p": ids["abandoned"]},
+    )
+    db_session.commit()
+    assert rows()[ids["abandoned"]]["abandoned"] is None
+    # the lease lapses with nobody to replace it: not abandoned yet, and the lease says why
+    lease = current_lease(db_session)
+    assert lease is not None and release(db_session, lease)
+    db_session.commit()
+    lapsed = client.get(EFFECTS, params=url).json()["data"]
+    assert lapsed["lease"]["expired"] is True
+    assert {r["abandoned"] for r in lapsed["proposals"]} == {None, False}
+    # no lease was ever acquired: nothing to compare against
+    db_session.execute(text("DELETE FROM caliber_execution_owner"))
+    db_session.commit()
+    gone = client.get(EFFECTS, params=url).json()["data"]
+    assert gone["lease"] is None and {r["abandoned"] for r in gone["proposals"]} == {None}
+
+
+def test_a_proposal_filter_is_only_checked_when_proposals_are_asked_for(client: TestClient) -> None:
+    assert (
+        client.get(EFFECTS, params={"source": "legacy", "proposal_state": "x"}).status_code == 200
+    )
+    assert client.get(EFFECTS, params={"proposal_state": "x"}).status_code == 400
 
 
 @pytest.mark.parametrize(
@@ -245,6 +364,8 @@ def test_a_proposal_cannot_be_resolved_as_a_ledger_claim(
     assert refused.status_code == 400
     db_session.expire_all()
     assert proposal_state(db_session, ids["unknown"]) == before
+    audited = db_session.query(CaliberAuditLog).filter(CaliberAuditLog.action == "resolve_effect")
+    assert audited.count() == 0
 
 
 def test_resolving_a_legacy_claim_is_unaffected_by_proposals(
@@ -595,7 +716,6 @@ from caliber.effects.callbacks import sign
 from caliber.effects.connectors.document_request import submit_config, submit_input
 from caliber.effects.records import (
     DISPATCHED,
-    RECONCILED,
     proposal_state,
     proposal_view,
 )
