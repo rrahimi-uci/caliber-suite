@@ -1222,6 +1222,54 @@ revision-1 manifest; other model calls (a knowledge query's own answer synthesis
 not recorded. Token counts are an accounting estimate (four characters a token, and the recorded budget is the larger of the
 configured one and the total); enforcing a budget on a provider call is B08. Legacy runs and development have no recorder.
 
+## Approval requests: bound to the exact intent (B06.1, #706)
+
+A protected effect is approved by a person, and the approval has to say *what* was approved. `create_approval_request`
+(`caliber/src/caliber/workflows/approval_policy.py`) records a `pending` row in `caliber_runtime_approval_requests` that is bound to one
+effect proposal and to what the approver is shown (ADR 0003 `approval_request`; migration `0127`). It runs in the caller's transaction and
+never commits.
+
+- **What is bound.** `proposal_id`, the proposal's full `intent_hash` (`sha256:` and 64 hex digits, the digest every consumer reuses),
+  its `expected_resource_version` (the downstream version the approval is valid for, or `NULL`), the `evidence_hash` of what the approver
+  is shown, the `policy_digest` in force, `requested_by` and `expires_at` (`now + ttl_seconds`, UTC). The record is validated against
+  `approval_request.v1.json` before the row is stored (`risk_class` is the proposal's effect class; every response is allowed:
+  `approve`, `reject`, `request_changes`). Values are read from the stored proposal, never from the object the caller holds.
+- **Only a `proposed` proposal.** Any other state (already approved, dispatched, committed, failed, unknown or reconciled) raises
+  `ApprovalRequestError("proposal_not_proposed")`, a `ValueError` whose message is that code; nothing is stored. A proposal that does not
+  exist is `proposal_not_found`. A malformed `evidence_hash` or `policy_digest` (not `sha256:` and 64 lowercase hex digits), a blank,
+  control-character or over-256-character `requested_by`, or a `ttl_seconds` that is not an integer from 1 to 31 536 000 (one year) is
+  `bad_field`, and the message names the field.
+- **Legacy rows stay valid.** A node-level approval that guards no proposal keeps `NULL` in every new column and is decided exactly as
+  before. The database refuses a half-bound row: one with a `proposal_id` must also carry its intent hash, evidence hash, policy digest,
+  expiry and requester (`ck_runtime_approval_bound`), and the proposal must exist (a foreign key, enforced by PostgreSQL).
+- **Not here yet.** `superseded_by` (a newer request for the same node replaces an older one, B06.2) and `consumed_at` (the dispatcher
+  consumes the decision in the transaction that claims the effect, B06.4) are added empty; the decision route does not read any of the new
+  columns yet, and an approval that is expired or superseded is not refused until B06.2. Recheck at commit is B06.3.
+- **Migration.** `0127` adds nine nullable columns, a foreign key, a check and an index; no backfill, no trigger. Downgrade drops them; a
+  legacy request is untouched and a bound one is lost. It needs `0126` (B05.5b) to be applied first.
+- **Distinct actors.** The separation-of-duties rule of `record_approval` is now `assert_distinct_actor(actor, initiated_by, *, allow_self)`:
+  it raises `ApprovalPolicyError` ("the account that triggered this run cannot approve it; a second person must decide ...") when the
+  actor is the initiator, unless `allow_self` (`CALIBER_APPROVAL_ALLOW_SELF_APPROVAL`) is set; an unknown initiator is not compared.
+
+```python
+from caliber.workflows.approval_policy import ApprovalRequestError, create_approval_request
+
+try:
+    request = create_approval_request(
+        session,
+        proposal=proposal,
+        evidence_hash=evidence_digest,  # "sha256:" + 64 hex digits
+        policy_digest=policy_digest,
+        requested_by="editor_a",
+        ttl_seconds=86400,
+    )
+except ApprovalRequestError as refused:
+    # refused.code is "proposal_not_proposed", "proposal_not_found" or "bad_field". For proposal_not_proposed the proposal has already
+    # moved on: read its state, do not ask again for the same intent. Nothing was stored, so there is nothing to undo.
+    ...
+session.commit()  # the caller owns the transaction
+```
+
 ## Policy decisions
 
 `caliber.policy.decisions.decide(...)` (B03.3, #671; migration `0117`, table `caliber_policy_decisions`) answers "may
