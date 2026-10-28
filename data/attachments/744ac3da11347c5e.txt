@@ -1,7 +1,0 @@
-{"t":"2026-10-28T07:53:51.703Z","severity":"INFO","logger":"httpx","message":"HTTP Request: GET http://127.0.0.1:36863/health \"HTTP/1.1 200 OK\""}
-{"t":"2026-10-28T07:53:51.711Z","severity":"INFO","logger":"httpx","message":"HTTP Request: POST http://127.0.0.1:36863/_test/reset \"HTTP/1.1 200 OK\""}
-{"t":"2026-10-28T07:53:51.716Z","severity":"INFO","logger":"httpx","message":"HTTP Request: GET http://127.0.0.1:36863/openapi.json \"HTTP/1.1 200 OK\""}
-{"t":"2026-10-28T07:53:51.719Z","severity":"INFO","logger":"httpx","message":"HTTP Request: GET http://127.0.0.1:36863/openapi.json \"HTTP/1.1 200 OK\""}
-{"t":"2026-10-28T07:53:51.749Z","severity":"INFO","logger":"httpx","message":"HTTP Request: POST http://127.0.0.1:36863/cases/MORT-2026-000184/document-requests \"HTTP/1.1 201 Created\""}
-{"t":"2026-10-28T07:53:51.773Z","severity":"INFO","logger":"httpx","message":"HTTP Request: GET http://127.0.0.1:36863/document-requests?idempotency_key=key-q \"HTTP/1.1 200 OK\""}
-{"t":"2026-10-28T07:53:51.796Z","severity":"INFO","logger":"httpx","message":"HTTP Request: GET http://127.0.0.1:36863/document-requests?idempotency_key=never-sent \"HTTP/1.1 404 Not Found\""}

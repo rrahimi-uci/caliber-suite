@@ -1,8 +1,0 @@
-{"t":"2026-10-28T07:53:57.818Z","severity":"INFO","logger":"httpx","message":"HTTP Request: POST http://127.0.0.1:35207/_test/reset \"HTTP/1.1 200 OK\""}
-{"t":"2026-10-28T07:53:57.822Z","severity":"INFO","logger":"httpx","message":"HTTP Request: POST http://127.0.0.1:35207/cases/MORT-2026-000184/document-requests \"HTTP/1.1 201 Created\""}
-{"t":"2026-10-28T07:53:57.825Z","severity":"INFO","logger":"httpx","message":"HTTP Request: POST http://127.0.0.1:35207/_test/faults \"HTTP/1.1 200 OK\""}
-{"t":"2026-10-28T07:53:57.830Z","severity":"INFO","logger":"httpx","message":"HTTP Request: POST http://127.0.0.1:35207/_test/reset \"HTTP/1.1 200 OK\""}
-{"t":"2026-10-28T07:53:57.833Z","severity":"INFO","logger":"httpx","message":"HTTP Request: GET http://127.0.0.1:35207/_test/mutations \"HTTP/1.1 200 OK\""}
-{"t":"2026-10-28T07:53:57.835Z","severity":"INFO","logger":"httpx","message":"HTTP Request: GET http://127.0.0.1:35207/cases/MORT-2026-000184 \"HTTP/1.1 200 OK\""}
-{"t":"2026-10-28T07:53:57.837Z","severity":"INFO","logger":"httpx","message":"HTTP Request: GET http://127.0.0.1:35207/_test/faults \"HTTP/1.1 200 OK\""}
-{"t":"2026-10-28T07:53:57.839Z","severity":"INFO","logger":"httpx","message":"HTTP Request: GET http://127.0.0.1:35207/document-requests?idempotency_key=k1 \"HTTP/1.1 404 Not Found\""}

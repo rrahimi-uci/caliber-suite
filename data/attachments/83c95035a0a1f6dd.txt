@@ -1,0 +1,5 @@
+{"t":"2026-10-28T09:06:52.990Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/cases/MORT-2026-000184/document-requests \"HTTP/1.1 201 Created\""}
+{"t":"2026-10-28T09:06:52.994Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/_test/faults \"HTTP/1.1 200 OK\""}
+{"t":"2026-10-28T09:06:52.997Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/cases/NOPE/document-requests \"HTTP/1.1 404 Not Found\""}
+{"t":"2026-10-28T09:06:53.001Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: GET http://testserver/_test/faults \"HTTP/1.1 200 OK\""}
+{"t":"2026-10-28T09:06:53.004Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/cases/MORT-2026-000184/document-requests \"HTTP/1.1 500 Internal Server Error\""}

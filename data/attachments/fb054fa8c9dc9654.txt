@@ -1,1 +1,0 @@
-{"t":"2026-10-28T08:09:19.342Z","severity":"INFO","logger":"caliber.orchestrator.janitor","message":"janitor pruned 5 expired workflow-run rows"}

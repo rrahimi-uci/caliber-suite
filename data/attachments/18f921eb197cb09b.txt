@@ -1,0 +1,7 @@
+{"t":"2026-10-28T09:06:54.435Z","severity":"INFO","logger":"httpx","message":"HTTP Request: POST http://127.0.0.1:53849/_test/reset \"HTTP/1.1 200 OK\""}
+{"t":"2026-10-28T09:06:54.440Z","severity":"INFO","logger":"httpx","message":"HTTP Request: POST http://127.0.0.1:53849/_test/faults \"HTTP/1.1 200 OK\""}
+{"t":"2026-10-28T09:06:54.443Z","severity":"INFO","logger":"httpx","message":"HTTP Request: GET http://127.0.0.1:53849/_test/mutations \"HTTP/1.1 200 OK\""}
+{"t":"2026-10-28T09:06:54.468Z","severity":"INFO","logger":"httpx","message":"HTTP Request: GET http://127.0.0.1:53849/_test/mutations \"HTTP/1.1 200 OK\""}
+{"t":"2026-10-28T09:06:54.491Z","severity":"INFO","logger":"httpx","message":"HTTP Request: GET http://127.0.0.1:53849/_test/mutations \"HTTP/1.1 200 OK\""}
+{"t":"2026-10-28T09:06:54.494Z","severity":"INFO","logger":"httpx","message":"HTTP Request: GET http://127.0.0.1:53849/_test/mutations \"HTTP/1.1 200 OK\""}
+{"t":"2026-10-28T09:06:55.974Z","severity":"INFO","logger":"httpx","message":"HTTP Request: POST http://127.0.0.1:53849/cases/MORT-2026-000184/document-requests \"HTTP/1.1 201 Created\""}
