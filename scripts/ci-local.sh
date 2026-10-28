@@ -210,6 +210,7 @@ BACKEND_CORE_TESTS=(
   tests/test_effect_proposals.py
   tests/test_effect_records.py
   tests/test_effect_receipts.py
+  tests/test_routes_system_effects.py
   tests/test_context_sources.py
   tests/test_context_authorize.py
   tests/test_context_manifest.py
