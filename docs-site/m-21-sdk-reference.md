@@ -10105,9 +10105,15 @@ and the incident/alert surface.
 
 ###### `effects(**params) -> Any`
 
-Indeterminate effect-ledger claims. Defaults to ``status=in_progress``
-server-side -- the set that actually needs a decision. ``params``:
-``status``, ``workflow_run_id``, ``limit``.
+The operator reconciliation view: legacy effect-ledger claims
+(``effects``, ``source: legacy_ledger``; defaults to
+``status=in_progress`` server-side, the set that needs a decision) and
+effect proposals (``proposals``, ``source: effect_proposal``; defaults to
+the open states, settled by the reconciler and offering no operator
+action). Every row carries ``source``, ``source_version`` and the
+``safe_actions`` that apply to that kind. ``params``: ``source``
+(``all``, ``legacy`` or ``proposal``), ``status``, ``proposal_state``
+(``open``, ``any`` or one state), ``workflow_run_id``, ``limit``.
 
 | Parameter | Kind | Type | Default |
 | --- | --- | --- | --- |
