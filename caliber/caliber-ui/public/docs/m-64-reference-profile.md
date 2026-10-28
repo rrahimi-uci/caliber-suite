@@ -759,9 +759,9 @@ dispatcher that does arrives with the rest of B05 (#711 onwards). What exists is
   (string-keyed `dict`, `list`, `str`, `int`, finite `float`, `bool`, `None`, nested at most 64 deep) so two different Python values
   never share a digest; the converse is not promised (`intent-v1` is not RFC 8785): `1` and `1.0`, or NFC and NFD spellings, are
   different intents, and a retry that respells one gets a conflict, never a silent match.
-- **Immutable.** Database triggers refuse a change to any column but `state`, refuse `DELETE` (and `TRUNCATE` on PostgreSQL),
-  and the ORM refuses the same. On SQLite (development) raw SQL can still bypass them with `INSERT OR REPLACE` or by deleting a
-  run with foreign keys off; PostgreSQL has no such path. `state` moves only through the transition table below. A workflow whose
+- **Immutable.** Database triggers refuse a change to the intent columns and `DELETE`, refuse `DELETE` (and `TRUNCATE` on PostgreSQL),
+  and the ORM refuses every edit (it cannot move a proposal at all: only `transition` can). On SQLite (development) raw SQL can still bypass them with `INSERT OR REPLACE` or by deleting a
+  run with foreign keys off, which also lets `INSERT OR REPLACE` replace a settled proposal; PostgreSQL has no such path. `state` moves only through the transition table below. A workflow whose
   runs have proposals cannot be deleted (409, "immutable effect proposals"), and retention never prunes such a run.
 - **Reading is checked.** `read_proposal` rebuilds the ADR 0003 `proposal` v1 record (with the optional `occurrence_id`,
   `connector_version` and `intent_algorithm`) and recomputes the intent from the stored columns: an edited row is
@@ -805,6 +805,13 @@ with session_factory() as session:
   the version by exactly one, a change to the evidence columns without a state change, and any change to a `committed` or
   `failed` row (a test keeps the trigger's list identical to `TRANSITIONS`). Refusals: `illegal_transition`,
   `stale_version`, `stale_owner`, `evidence_required`, `approval_refused`, `bad_field`.
+  A move into a state must also leave that state's evidence in the row (the trigger checks it, so raw SQL cannot skip it).
+  Omitted evidence is never a wildcard: a caller that cannot present the owner, reason or approval a move needs is never told it
+  "was already recorded". Under REPEATABLE READ or SERIALIZABLE PostgreSQL refuses an UPDATE of a row another transaction changed
+  after the snapshot (a serialization failure): roll back and retry from a fresh read. A repeat is recognised only while the
+  proposal is where the move left it; once it has moved on, the retry is `stale_version` and the caller reads `current_state`.
+  `attempt` is 1 to 2147483647. The owner check is equality of the recorded `(owner_id, attempt)`; fencing by the lease token and
+  expiry inside the transaction is B05.5a (#734), and `reason` is the latest move's (the history belongs to the audit trail).
 
 ```python
 from caliber.effects.records import StaleVersion, proposal_state, transition
