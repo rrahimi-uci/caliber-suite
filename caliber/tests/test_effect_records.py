@@ -722,15 +722,38 @@ def test_raw_sql_cannot_make_a_move_the_application_would_refuse(
 
         for bad, match in (
             ("state = 'proposed', version = 4", "illegal"),  # backwards
-            ("state = 'reconciled', version = 4", "illegal"),  # a skip
-            ("state = 'approved', version = 4", "illegal"),
-            ("state = 'committed'", "version"),  # a legal move that does not advance the version
-            ("state = 'committed', version = 5", "version"),  # advances by two
-            ("state = 'committed', version = 3", "version"),  # does not advance
+            ("state = 'reconciled', version = 4, reason = 'r'", "illegal"),  # a skip
+            (
+                "state = 'approved', version = 4, approval_kind = 'policy_decision', approval_ref = 'x'",
+                "illegal",
+            ),
+            (
+                "state = 'committed', settled_at = CURRENT_TIMESTAMP",
+                "version",
+            ),  # does not advance the version
+            (
+                "state = 'committed', version = 5, settled_at = CURRENT_TIMESTAMP",
+                "version",
+            ),  # advances by two
+            ("state = 'committed', version = 3, settled_at = CURRENT_TIMESTAMP", "version"),
+            ("state = 'committed', version = 4", "evidence"),  # a commit that records no time
+            (
+                "state = 'failed', version = 4, settled_at = CURRENT_TIMESTAMP",
+                "evidence",
+            ),  # a failure with no reason
+            (
+                "state = 'unknown', version = 4, reason = 'timeout'",
+                "evidence",
+            ),  # unknown with no time
             ("owner_id = 'hijacker'", "evidence"),  # evidence moved without a state change
             ("attempt = 7", "evidence"),
             ("reason = 'edited'", "evidence"),
             ("version = 4", "evidence"),
+            ("dispatched_at = CURRENT_TIMESTAMP", "evidence"),
+            ("unknown_at = CURRENT_TIMESTAMP", "evidence"),
+            ("settled_at = CURRENT_TIMESTAMP", "evidence"),
+            ("approval_kind = 'approval'", "evidence"),
+            ("approval_ref = 'pd-forged'", "evidence"),
         ):
             with pytest.raises(DBAPIError, match=match):
                 sql(bad)
@@ -761,7 +784,8 @@ def test_a_no_op_update_of_the_mutable_columns_is_allowed_and_the_intent_stays_f
         with pytest.raises(DBAPIError, match="immutable"), engine.begin() as connection:
             connection.execute(
                 text(
-                    "UPDATE caliber_effect_proposals SET connector = 'x', state = 'dispatched', version = 3 WHERE proposal_id = :p"
+                    "UPDATE caliber_effect_proposals SET connector = 'x', state = 'dispatched', version = 3, "
+                    "owner_id = 'w', attempt = 1, dispatched_at = CURRENT_TIMESTAMP WHERE proposal_id = :p"
                 ),
                 {"p": proposal_id},
             )
@@ -817,6 +841,207 @@ def test_the_migration_rolls_back_to_0123_and_forward_again(
         command.upgrade(Config(str(ALEMBIC_INI)), "head")
         columns = {c["name"] for c in inspect(engine).get_columns("caliber_effect_proposals")}
         assert {"version", "attempt", "owner_id", "reason", "approval_ref"} <= columns
+
+
+@pytest.mark.parametrize("dialect", DIALECTS)
+def test_raw_sql_cannot_dispatch_without_an_owner_or_approve_without_an_approval(
+    dialect: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    with _database(dialect, tmp_path, monkeypatch) as (engine, factory):
+        _seed_run(factory)
+        with factory() as session:
+            proposed = _at(session, PROPOSED)
+            approved = _at(session, APPROVED, occurrence="o-a")
+            reconciled = _at(session, RECONCILED, occurrence="o-r")
+            session.commit()
+
+        def sql(proposal_id: str, statement: str) -> None:
+            with engine.begin() as connection:
+                connection.execute(
+                    text(f"UPDATE caliber_effect_proposals SET {statement} WHERE proposal_id = :p"),
+                    {"p": proposal_id},
+                )
+
+        with pytest.raises(DBAPIError, match="evidence"):
+            sql(proposed, "state = 'approved', version = 2")
+        with pytest.raises(DBAPIError, match="evidence"):
+            sql(
+                approved, "state = 'dispatched', version = 3, dispatched_at = CURRENT_TIMESTAMP"
+            )  # no owner
+        with pytest.raises(DBAPIError, match="evidence"):
+            sql(
+                approved, "state = 'dispatched', version = 3, owner_id = 'w', attempt = 1"
+            )  # no time
+        with pytest.raises(DBAPIError, match="evidence"):
+            sql(
+                reconciled,
+                "state = 'failed', version = 6, settled_at = CURRENT_TIMESTAMP, reason = NULL",
+            )
+        sql(
+            approved,
+            "state = 'dispatched', version = 3, owner_id = 'w', attempt = 1, dispatched_at = CURRENT_TIMESTAMP",
+        )
+
+
+@pytest.mark.parametrize("dialect", DIALECTS)
+def test_the_orm_cannot_move_a_proposal_at_all(
+    dialect: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    with _database(dialect, tmp_path, monkeypatch) as (_, factory):
+        _seed_run(factory)
+        with factory() as session:
+            proposal_id = _at(session, APPROVED)
+            session.commit()
+            row = session.get(CaliberEffectProposal, proposal_id)
+            assert row is not None
+            row.state = COMMITTED
+            row.version += 1
+            with pytest.raises(ImmutableRecordError):
+                session.flush()
+            session.rollback()
+            assert proposal_state(session, proposal_id).state == APPROVED
+
+
+def test_the_triggers_and_the_model_agree_on_which_columns_move_with_the_state() -> None:
+    from caliber.db.models import CaliberEffectProposal as Model
+
+    def migration(name: str) -> Any:
+        path = (
+            Path(__file__).resolve().parent.parent / f"src/caliber/db/migrations/versions/{name}.py"
+        )
+        spec = importlib.util.spec_from_file_location(name, path)
+        assert spec is not None and spec.loader is not None
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module
+
+    frozen = set(migration("0123_effect_proposals")._FROZEN)
+    moving = set(migration("0124_effect_proposal_transitions")._EVIDENCE) | {"state"}
+    assert frozen.isdisjoint(moving)
+    assert {c.name for c in Model.__table__.columns} == frozen | moving, (
+        "every column is frozen or moves with state"
+    )
+    required = migration("0124_effect_proposal_transitions")._REQUIRED
+    assert set(required) <= set(STATES) and all(set(cols) <= moving for cols in required.values())
+
+
+@pytest.mark.parametrize("dialect", DIALECTS)
+@pytest.mark.parametrize(
+    ("to_state", "prepare", "offered"),
+    [
+        (COMMITTED, DISPATCHED, {}),  # no owner or attempt
+        (COMMITTED, DISPATCHED, {"owner_id": OWNER}),
+        (FAILED, DISPATCHED, {"reason": "because"}),  # a dispatched failure needs the owner too
+        (UNKNOWN, DISPATCHED, {"reason": "because"}),
+        (FAILED, PROPOSED, {}),  # no reason
+        (RECONCILED, UNKNOWN, {}),
+        (APPROVED, PROPOSED, {}),  # no approval
+        (DISPATCHED, APPROVED, {"owner_id": OWNER}),
+    ],
+)
+def test_an_actor_that_cannot_present_the_evidence_is_never_told_the_move_was_already_recorded(
+    dialect: str,
+    to_state: str,
+    prepare: str,
+    offered: dict[str, Any],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Omitted evidence is not a wildcard: only a caller that can say who it is recognises its own repeat."""
+    with _database(dialect, tmp_path, monkeypatch) as (_, factory):
+        _seed_run(factory)
+        with factory() as session:
+            proposal_id = _at(session, prepare)
+            before = proposal_state(session, proposal_id).version
+            full = _evidence_for(session, proposal_id, prepare, to_state)
+            _move(session, proposal_id, to_state, **full)
+            with pytest.raises(ProposalError) as refused:
+                transition(session, proposal_id, to_state, expected_version=before, **offered)
+            assert refused.value.code in (
+                EVIDENCE_REQUIRED,
+                STALE_VERSION,
+                APPROVAL_REFUSED,
+                BAD_FIELD,
+            )
+            assert (
+                transition(session, proposal_id, to_state, expected_version=before, **full).applied
+                is False
+            )
+
+
+@pytest.mark.parametrize("dialect", DIALECTS)
+@pytest.mark.parametrize("attempt", [2**31, 2**40, 2**70])
+def test_an_attempt_number_beyond_the_column_is_a_refusal_not_a_database_error(
+    dialect: str, attempt: int, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    with _database(dialect, tmp_path, monkeypatch) as (_, factory):
+        _seed_run(factory)
+        with factory() as session:
+            proposal_id = _at(session, APPROVED)
+            refused = _refused(
+                BAD_FIELD, session, proposal_id, DISPATCHED, owner_id=OWNER, attempt=attempt
+            )
+            assert str(records.MAX_ATTEMPT) in str(refused)
+            assert _move(
+                session, proposal_id, DISPATCHED, owner_id=OWNER, attempt=records.MAX_ATTEMPT
+            ).applied
+            session.commit()
+
+
+@pytest.mark.parametrize("dialect", DIALECTS)
+@pytest.mark.parametrize("same_move", [True, False])
+def test_a_move_that_loses_the_update_race_is_classified_from_what_won(
+    dialect: str, same_move: bool, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The other transaction's move lands between this one's read and its UPDATE (arranged inside the same transaction
+    so it is deterministic on both dialects): the UPDATE matches no row, and the outcome is a repeat or a stale version."""
+    with _database(dialect, tmp_path, monkeypatch) as (_, factory):
+        _seed_run(factory)
+        with factory() as session:
+            proposal_id = _at(session, APPROVED)
+            session.commit()
+            real_execute = session.execute
+            state = {"fired": False}
+
+            def racing(statement: Any, *args: Any, **kwargs: Any) -> Any:
+                if (
+                    not state["fired"]
+                    and "UPDATE" in str(statement).upper()
+                    and "caliber_effect_proposals" in str(statement)
+                ):
+                    state["fired"] = True
+                    table = CaliberEffectProposal.__table__
+                    real_execute(
+                        update(table)
+                        .where(table.c.proposal_id == proposal_id)
+                        .values(
+                            state=DISPATCHED,
+                            version=3,
+                            owner_id=OWNER if same_move else "winner",
+                            attempt=1,
+                            dispatched_at=NAIVE_AT,
+                        )
+                    )
+                return real_execute(statement, *args, **kwargs)
+
+            monkeypatch.setattr(session, "execute", racing)
+            if same_move:
+                lost = transition(
+                    session, proposal_id, DISPATCHED, expected_version=2, owner_id=OWNER, attempt=1
+                )
+                assert (lost.applied, lost.version) == (False, 3)
+            else:
+                with pytest.raises(StaleVersion) as stale:
+                    transition(
+                        session,
+                        proposal_id,
+                        DISPATCHED,
+                        expected_version=2,
+                        owner_id=OWNER,
+                        attempt=1,
+                    )
+                assert (stale.value.current_version, stale.value.current_state) == (3, DISPATCHED)
+            assert state["fired"]
 
 
 # ---------------------------------------------------------------- concurrency (PostgreSQL)

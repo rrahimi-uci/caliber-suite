@@ -458,11 +458,15 @@ def _naive_utc(moment: datetime | None) -> datetime:
     return value.astimezone(timezone.utc).replace(tzinfo=None)
 
 
+#: The largest attempt number: it is stored in a 32-bit column, and a larger value must be a refusal, not a database error.
+MAX_ATTEMPT: Final = 2**31 - 1
+
+
 def _count(name: str, value: object) -> int | None:
     if value is None:
         return None
-    if type(value) is not int or value < 1:
-        raise ProposalError(BAD_FIELD, f"{name} must be a positive integer")
+    if type(value) is not int or not 1 <= value <= MAX_ATTEMPT:
+        raise ProposalError(BAD_FIELD, f"{name} must be an integer from 1 to {MAX_ATTEMPT}")
     return value
 
 
@@ -496,6 +500,13 @@ def transition(
     * out of ``dispatched`` (``committed``, ``failed``, ``unknown``): the same ``owner_id`` and ``attempt`` that dispatched
       it; a stale worker is ``stale_owner`` and records nothing. ``failed`` and ``unknown`` also need a ``reason``.
     * ``failed`` (from any state), ``unknown`` and ``reconciled``: a short ``reason`` code (never a payload).
+
+    Under READ COMMITTED a conflicting move is :class:`StaleVersion` (or ``applied=False`` for a repeat). Under
+    REPEATABLE READ or SERIALIZABLE PostgreSQL itself refuses an UPDATE of a row another transaction changed after the
+    snapshot (a serialization failure): the caller rolls back and retries from a fresh read, as with the grants.
+    A repeat is only recognised while the proposal is still where the move left it: once it has moved on, the retry is
+    :class:`StaleVersion` and the caller reads ``current_state``. The owner check here is equality of the recorded
+    ``(owner_id, attempt)``; fencing by the lease token and expiry inside the transaction is B05.5a (#734).
     """
     if type(expected_version) is not int or expected_version < 1:
         raise ProposalError(BAD_FIELD, "expected_version must be a positive integer")
@@ -509,7 +520,12 @@ def transition(
     if row is None:
         raise KeyError(proposal_id)
     offered = _offered(approval, owner, tries, why)
-    if row.version == expected_version + 1 and row.state == to_state and _recorded(row, offered):
+    if (
+        row.version == expected_version + 1
+        and row.state == to_state
+        and _complete(row, offered)
+        and _recorded(row, offered)
+    ):
         return Transitioned(row.proposal_id, row.state, row.version, applied=False)
     if row.version != expected_version:
         raise StaleVersion(row.proposal_id, expected_version, row.version, row.state)
@@ -546,6 +562,7 @@ def transition(
             current is not None
             and current.version == expected_version + 1
             and current.state == to_state
+            and _complete(current, evidence)
             and _recorded(current, evidence)
         ):
             return Transitioned(current.proposal_id, current.state, current.version, applied=False)
@@ -569,6 +586,33 @@ def _offered(
         offered["approval_kind"] = approval.kind
         offered["approval_ref"] = approval.ref
     return offered
+
+
+def _complete(row: CaliberEffectProposal, offered: Mapping[str, Any]) -> bool:
+    """Whether ``offered`` carries all the evidence the move into ``row.state`` records or requires.
+
+    A repeat is recognised only by an actor that can present the same evidence, so one that cannot prove who it is (no
+    owner, no reason, no approval) is never told "already recorded". Whether the move came out of ``dispatched`` is read
+    from the timestamps: ``dispatched_at`` set and ``unknown_at`` not (a ``committed`` or ``failed`` reached through
+    ``unknown`` came out of ``reconciled``, which needs no owner).
+    """
+    needed: set[str] = set()
+    if row.state == APPROVED:
+        needed |= {"approval_kind", "approval_ref"}
+    if row.state in (FAILED, UNKNOWN, RECONCILED):
+        needed.add("reason")
+    from_dispatched = (
+        row.state == DISPATCHED
+        or (
+            row.state in (COMMITTED, FAILED)
+            and row.dispatched_at is not None
+            and row.unknown_at is None
+        )
+        or row.state == UNKNOWN
+    )
+    if from_dispatched:
+        needed |= {"owner_id", "attempt"}
+    return needed <= set(offered)
 
 
 def _recorded(row: CaliberEffectProposal, evidence: Mapping[str, Any]) -> bool:

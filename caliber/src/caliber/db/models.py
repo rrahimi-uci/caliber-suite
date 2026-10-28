@@ -2252,8 +2252,9 @@ class CaliberEffectProposal(Base):
     connector identity and version, effect class, target resource, arguments and expected resource version,
     ``intent_algorithm`` names how it was built and ``intent_hash`` is ``sha256:`` plus its digest (checked on insert by
     the ORM and, on PostgreSQL, by a CHECK). Every column but ``state`` is frozen by database triggers (migration 0123)
-    and by ``ImmutableRecordError``; ``state`` (with ``version`` and the evidence that moves with it) changes only through
-    the transition table of B05.2 (#705, migration 0124), which the database enforces too.
+    and by ``ImmutableRecordError`` (every column, ``state`` included: the ORM cannot move a proposal); ``state`` (with
+    ``version`` and the evidence that moves with it) changes only through ``caliber.effects.records.transition``, the
+    transition table of B05.2 (#705, migration 0124), which the database enforces too.
     """
 
     __tablename__ = "caliber_effect_proposals"
@@ -2320,23 +2321,9 @@ class CaliberEffectProposal(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
 
-guard_immutable(
-    CaliberEffectProposal,
-    mutable=frozenset(
-        {
-            "state",
-            "version",
-            "attempt",
-            "owner_id",
-            "dispatched_at",
-            "unknown_at",
-            "settled_at",
-            "reason",
-            "approval_kind",
-            "approval_ref",
-        }
-    ),
-)
+# Every column is frozen for the ORM: a proposal moves only through ``caliber.effects.records.transition``, a Core
+# compare-and-set that supplies the evidence each move needs (an ORM edit of ``state`` would skip all of it).
+guard_immutable(CaliberEffectProposal)
 
 
 @event.listens_for(CaliberEffectProposal, "before_insert")

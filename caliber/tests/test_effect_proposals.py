@@ -753,14 +753,16 @@ def test_state_moves_only_with_the_next_version_and_only_to_a_known_state(
         with pytest.raises(DBAPIError, match="version"), engine.begin() as connection:
             connection.execute(
                 text(
-                    "UPDATE caliber_effect_proposals SET state = 'approved' WHERE proposal_id = :p"
+                    "UPDATE caliber_effect_proposals SET state = 'approved', approval_kind = 'policy_decision', "
+                    "approval_ref = 'pd-1' WHERE proposal_id = :p"
                 ),
                 {"p": recorded.proposal_id},
             )
         with engine.begin() as connection:
             connection.execute(
                 text(
-                    "UPDATE caliber_effect_proposals SET state = 'approved', version = 2 WHERE proposal_id = :p"
+                    "UPDATE caliber_effect_proposals SET state = 'approved', version = 2, "
+                    "approval_kind = 'policy_decision', approval_ref = 'pd-1' WHERE proposal_id = :p"
                 ),
                 {"p": recorded.proposal_id},
             )

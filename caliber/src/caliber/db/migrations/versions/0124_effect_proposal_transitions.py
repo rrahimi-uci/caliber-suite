@@ -7,7 +7,9 @@ that approved it. The database enforces the table itself, so a raw UPDATE cannot
 UPDATE trigger (SQLite and PostgreSQL) refuses any change of ``state`` that is not a legal edge or that does not advance
 ``version`` by one, refuses a change to those columns without a state change, and refuses every change to a settled
 (``committed`` or ``failed``) proposal. The legal edges are the ones in ``caliber.effects.records.TRANSITIONS`` (a test
-keeps the two lists identical); the intent columns stay frozen by migration 0123's triggers. Downgrade removes the guard and
+keeps the two lists identical) and a move into a state must leave that state's evidence in the row (``approved``: the
+approval; ``dispatched``: owner, attempt and time; ``unknown``/``failed``/``reconciled``: a reason; ``unknown``, ``committed``
+and ``failed``: their timestamps); the intent columns stay frozen by migration 0123's triggers. Downgrade removes the guard and
 the columns (and the evidence in them); migration 0123's triggers are untouched.
 
 Revision ID: 0124
@@ -57,10 +59,28 @@ _COLUMNS = (
     ("approval_kind", sa.String(length=32), None),
     ("approval_ref", sa.String(length=128), None),
 )
+#: What a move into each state must leave in the row (checked by the trigger, so raw SQL cannot skip the evidence).
+_REQUIRED: dict[str, tuple[str, ...]] = {
+    "approved": ("approval_kind", "approval_ref"),
+    "dispatched": ("owner_id", "attempt", "dispatched_at"),
+    "committed": ("settled_at",),
+    "failed": ("settled_at", "reason"),
+    "unknown": ("unknown_at", "reason"),
+    "reconciled": ("reason",),
+}
 _SETTLED_MESSAGE = "a settled effect proposal is final"
 _TOGETHER_MESSAGE = "the evidence of an effect proposal changes only with its state"
 _ILLEGAL_MESSAGE = "illegal effect proposal transition"
 _VERSION_MESSAGE = "an effect proposal transition advances the version by one"
+_EVIDENCE_MESSAGE = "an effect proposal transition records its evidence"
+
+
+def _missing() -> str:
+    clauses = [
+        f"(NEW.state = '{state}' AND ({' OR '.join(f'NEW.{c} IS NULL' for c in columns)}))"
+        for state, columns in _REQUIRED.items()
+    ]
+    return "(" + " OR ".join(clauses) + ")"
 
 
 def _legal_pg(old: str, new: str) -> str:
@@ -95,6 +115,9 @@ BEGIN
     IF NEW.version IS DISTINCT FROM OLD.version + 1 THEN
         RAISE EXCEPTION '{_VERSION_MESSAGE}' USING ERRCODE = '23000';
     END IF;
+    IF {_missing()} THEN
+        RAISE EXCEPTION '{_EVIDENCE_MESSAGE}: %', NEW.state USING ERRCODE = '23000';
+    END IF;
     RETURN NEW;
 END;
 $$"""
@@ -123,6 +146,9 @@ def _sqlite_triggers() -> tuple[str, ...]:
         f"CREATE TRIGGER trg_{_TABLE}_version BEFORE UPDATE ON {_TABLE} "
         f"WHEN NOT {_settled('OLD.state')} AND NEW.state IS NOT OLD.state AND NEW.version IS NOT OLD.version + 1 "
         f"BEGIN SELECT RAISE(ABORT, '{_VERSION_MESSAGE}'); END",
+        f"CREATE TRIGGER trg_{_TABLE}_evidence BEFORE UPDATE ON {_TABLE} "
+        f"WHEN NOT {_settled('OLD.state')} AND NEW.state IS NOT OLD.state AND {_missing()} "
+        f"BEGIN SELECT RAISE(ABORT, '{_EVIDENCE_MESSAGE}'); END",
     )
 
 
@@ -153,7 +179,7 @@ def downgrade() -> None:
         op.execute(sa.text(f"DROP TRIGGER IF EXISTS trg_{_TABLE}_guard ON {_TABLE}"))
         op.execute(sa.text("DROP FUNCTION IF EXISTS caliber_effect_proposals_guard()"))
     else:
-        for suffix in ("settled", "together", "illegal", "version"):
+        for suffix in ("settled", "together", "illegal", "version", "evidence"):
             op.execute(sa.text(f"DROP TRIGGER IF EXISTS trg_{_TABLE}_{suffix}"))
     for name in ("version", *(name for name, _, _ in _COLUMNS)):
         if _is_postgresql():
