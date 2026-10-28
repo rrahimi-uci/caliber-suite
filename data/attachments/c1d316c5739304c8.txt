@@ -1,0 +1,1 @@
+INFO     caliber.config:config.py:2022 CALIBER_LLM_PROVIDER=auto resolved to openai (the key is set)

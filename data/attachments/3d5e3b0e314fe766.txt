@@ -1,1 +1,0 @@
-{"t":"2026-10-28T09:07:55.777Z","severity":"ERROR","logger":"caliber.assistant.anthropic_engine","message":"Anthropic API error: provider unavailable"}

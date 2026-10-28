@@ -1,6 +1,0 @@
-{"t":"2026-10-28T09:07:01.582Z","severity":"INFO","logger":"httpx","message":"HTTP Request: GET http://127.0.0.1:45341/no-such-route \"HTTP/1.1 404 Not Found\""}
-{"t":"2026-10-28T09:07:01.705Z","severity":"INFO","logger":"httpx","message":"HTTP Request: GET http://127.0.0.1:45341/no-such-route \"HTTP/1.1 404 Not Found\""}
-{"t":"2026-10-28T09:07:01.834Z","severity":"INFO","logger":"httpx","message":"HTTP Request: GET http://127.0.0.1:45341/no-such-route \"HTTP/1.1 404 Not Found\""}
-{"t":"2026-10-28T09:07:01.966Z","severity":"INFO","logger":"httpx","message":"HTTP Request: GET http://127.0.0.1:45341/no-such-route \"HTTP/1.1 404 Not Found\""}
-{"t":"2026-10-28T09:07:02.089Z","severity":"INFO","logger":"httpx","message":"HTTP Request: GET http://127.0.0.1:45341/no-such-route \"HTTP/1.1 404 Not Found\""}
-{"t":"2026-10-28T09:07:02.213Z","severity":"INFO","logger":"httpx","message":"HTTP Request: GET http://127.0.0.1:45341/no-such-route \"HTTP/1.1 404 Not Found\""}

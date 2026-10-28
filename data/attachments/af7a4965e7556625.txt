@@ -1,6 +1,0 @@
-INFO     httpx:_client.py:1025 HTTP Request: GET http://127.0.0.1:53849/health "HTTP/1.1 200 OK"
-INFO     httpx:_client.py:1025 HTTP Request: POST http://127.0.0.1:53849/_test/reset "HTTP/1.1 200 OK"
-INFO     httpx:_client.py:1025 HTTP Request: GET http://127.0.0.1:53849/openapi.json "HTTP/1.1 200 OK"
-INFO     httpx:_client.py:1025 HTTP Request: POST http://127.0.0.1:53849/cases/MORT-2026-000184/document-requests "HTTP/1.1 201 Created"
-INFO     httpx:_client.py:1025 HTTP Request: POST http://127.0.0.1:53849/cases/MORT-2026-000184/document-requests "HTTP/1.1 200 OK"
-INFO     httpx:_client.py:1025 HTTP Request: GET http://127.0.0.1:53849/_test/mutations "HTTP/1.1 200 OK"
