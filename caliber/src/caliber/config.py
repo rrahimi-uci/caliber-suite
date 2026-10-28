@@ -1759,13 +1759,17 @@ class CaliberConfig(BaseModel):
             "JSON object naming the most tokens each section of an agent step's context may use: "
             "``retrieved`` (retrieved knowledge-base text) and ``history`` (earlier turns). Chunks beyond a "
             "section's cap are dropped from the context manifest and listed as omitted for ``token_budget``. "
-            "A section left out is uncapped; unknown sections and non-positive caps are refused."
+            "A section left out is uncapped; unknown sections and non-positive caps are refused; a blank value "
+            "means the default. Not applied to a live agent step yet: it takes effect when the agent-step "
+            "adapters (B08) call ``caliber.context.manifest.pack_context`` with ``parse_section_caps`` of it."
         ),
     )
 
     @field_validator("context_section_caps")
     @classmethod
     def _context_section_caps_are_valid(cls, value: str) -> str:
+        if not value.strip():  # an empty pass-through (a compose ${VAR:-}) means "not set"
+            return DEFAULT_CONTEXT_SECTION_CAPS
         parse_section_caps(value)
         return value
 

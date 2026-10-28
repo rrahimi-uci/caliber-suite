@@ -1013,7 +1013,10 @@ def _runtime_groups(config: CaliberConfig) -> list[dict[str, Any]]:
                     key="context_section_caps",
                     env_var="CALIBER_CONTEXT_SECTION_CAPS",
                     label="Context section caps",
-                    description="Most tokens the retrieved and history sections of an agent step's context may use.",
+                    description=(
+                        "Most tokens the retrieved and history sections of an agent step's context may use "
+                        "(recorded in the context manifest once the agent-step adapters, B08, apply it)."
+                    ),
                 ),
             ],
         ),

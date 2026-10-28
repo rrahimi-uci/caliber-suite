@@ -341,6 +341,9 @@ def pack_context(
     in that section (they rank below it), is dropped and listed in ``omitted`` with reason ``token_budget`` and its
     tokens. A section with no cap is unlimited. ``sections`` records each capped section's cap and what it used.
 
+    Give it the whole final list of segments: the ``redacted`` positions are indexes into the packed result, so
+    segments added or removed afterwards make them stale.
+
     Pure: nothing here talks to a store or a provider. The agent-step adapters (B08) call it to decide what the provider
     is given, and :func:`build_context_manifest` records the result; the assembly recorder of B07.3b records the
     context as the runtime passes it and does not pack it.
@@ -647,6 +650,7 @@ __all__ = [
     "INVALID",
     "ORDERING",
     "REVISION_GAP",
+    "SECTION_KINDS",
     "TIER_VIOLATION",
     "TOKENS",
     "UNAUTHORIZED_PAYLOAD",
@@ -654,9 +658,11 @@ __all__ = [
     "BuiltContextManifest",
     "ContextManifestError",
     "ContextSegment",
+    "PackedContext",
     "build_context_manifest",
     "load_context_manifest",
     "next_revision",
+    "pack_context",
     "read_context_manifest",
     "store_context_manifest",
 ]

@@ -951,3 +951,83 @@ def test_a_stored_manifest_without_sections_still_reads() -> None:
     built = _build()
     assert "sections" not in built.record["token_allocation"]
     assert read_context_manifest(built.manifest_bytes, built.manifest_digest) == built.record
+
+
+def test_a_redacted_entry_is_at_the_final_index_when_earlier_segments_were_dropped() -> None:
+    chunks = [
+        _chunk("a@b.co", 2, number=0),  # nothing left after redaction: omitted
+        _chunk("kept", 2, number=1),
+        _chunk("mail x@y.org", 2, number=2),  # redacted: final index 1, input index 2
+    ]
+    packed = _pack(chunks, {})
+    assert [s.content for s in packed.segments] == ["kept", "mail [REDACTED]"]
+    assert [r["position"] for r in packed.redacted] == [1]
+    built = _manifest_of(packed)
+    position = built.record["redacted"][0]["position"]
+    assert (
+        built.record["segments"][position]["content_digest"]
+        == hashlib.sha256(b"mail [REDACTED]").hexdigest()
+    )
+
+
+def test_a_data_segment_with_no_text_and_no_rule_fired_is_kept() -> None:
+    packed = _pack([_chunk("", 0, number=0), _chunk("plain", 1, number=1)], {"retrieved": 5})
+    assert [s.content for s in packed.segments] == ["", "plain"] and packed.omitted == ()
+
+
+def test_a_stored_form_with_a_non_integer_section_count_is_refused_whatever_wrote_it() -> None:
+    built = _manifest_of(_pack([_chunk("a", 8)], {"retrieved": 10}))
+    for key, value in (("cap_tokens", 10.0), ("used_tokens", 8.0), ("cap_tokens", True)):
+        record = copy.deepcopy(built.record)
+        record["token_allocation"]["sections"][0][key] = value
+        data = canonical_bytes(record)
+        with pytest.raises(ContextManifestError):
+            BuiltContextManifest(data, digest_of(data))
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        {"cap_tokens": -1},
+        {"used_tokens": -1},
+        {"extra": 1},
+        {"section": "tools"},
+    ],
+)
+def test_a_malformed_section_record_is_refused_by_the_schema(change: dict[str, Any]) -> None:
+    built = _manifest_of(_pack([_chunk("a", 8)], {"retrieved": 10}))
+    record = copy.deepcopy(built.record)
+    record["token_allocation"]["sections"][0].update(change)
+    data = canonical_bytes(record)
+    with pytest.raises(ContextManifestError):
+        BuiltContextManifest(data, digest_of(data))
+    too_many = copy.deepcopy(built.record)
+    too_many["token_allocation"]["sections"] = [
+        built.record["token_allocation"]["sections"][0]
+    ] * 17
+    data = canonical_bytes(too_many)
+    with pytest.raises(ContextManifestError):
+        BuiltContextManifest(data, digest_of(data))
+
+
+@pytest.mark.parametrize("dialect", DIALECTS)
+def test_a_packed_manifest_with_sections_is_stored_and_loaded_unchanged(
+    dialect: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    with _database(dialect, tmp_path, monkeypatch) as (_, factory):
+        _seed(factory)
+        _decision(factory)
+        segments = _segments()
+        segments[1] = dataclasses.replace(segments[1], content="reach me at carol@example.com")
+        packed = _pack(segments, {"retrieved": 500})
+        built = _manifest_of(packed)
+        assert built.record["token_allocation"]["sections"] == [
+            {"section": "retrieved", "cap_tokens": 500, "used_tokens": 400}
+        ]
+        with factory() as session:
+            store_context_manifest(session, built)
+            session.commit()
+            loaded = load_context_manifest(session, "WR-cm", "sr-1")
+        assert loaded is not None and loaded.manifest_bytes == built.manifest_bytes
+        assert loaded.record["redacted"][0]["position"] == 1
+        assert b"carol@example.com" not in loaded.manifest_bytes

@@ -76,7 +76,14 @@
     "budget": 2000,
     "used": 550,
     "instruction": 120,
-    "data": 430
+    "data": 430,
+    "sections": [
+      {
+        "section": "retrieved",
+        "cap_tokens": 500,
+        "used_tokens": 400
+      }
+    ]
   },
   "created_at": "2026-10-27T12:00:00Z"
 }

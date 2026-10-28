@@ -519,3 +519,11 @@ def test_context_section_caps_that_are_wrong_stop_the_service_at_startup(raw: st
         parse_section_caps(raw)
     with pytest.raises(ConfigError, match="invalid CALIBER configuration"):
         CaliberConfig.load(environ={"CALIBER_CONTEXT_SECTION_CAPS": raw})
+
+
+def test_a_blank_context_section_caps_means_the_default() -> None:
+    from caliber.config import DEFAULT_CONTEXT_SECTION_CAPS
+
+    for blank in ("", "   "):
+        config = CaliberConfig.load(environ={"CALIBER_CONTEXT_SECTION_CAPS": blank})
+        assert config.context_section_caps == DEFAULT_CONTEXT_SECTION_CAPS

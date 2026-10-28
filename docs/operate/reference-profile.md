@@ -950,13 +950,13 @@ log uses, `CALIBER_PII_REDACTION_*`; an `instruction` is the operator's own text
 taken, so the manifest hashes what the provider is given and the matched text is never recorded: a changed segment gets one
 `redacted` entry (`fields: ["content"]`, `reason: "redactor:pattern-1,pattern-3"`, naming which rules fired); a segment that
 is nothing but the replacement marker is dropped and listed in `omitted` as `redacted`. It caps the `retrieved` and `history`
-sections at `CALIBER_CONTEXT_SECTION_CAPS` (JSON, default `{"retrieved": 4000, "history": 2000}`; only those two names are
+sections at the caps the caller passes (`parse_section_caps(config.context_section_caps)`, from `CALIBER_CONTEXT_SECTION_CAPS`: JSON, default `{"retrieved": 4000, "history": 2000}`; only those two names are
 accepted and each cap is a positive integer, else the service refuses to start; a section left out is uncapped): chunks are kept in order while
 they fit, and the first chunk that does not fit and every later one in that section (they rank below it) is dropped and listed
 in `omitted` with reason `token_budget` and its tokens. The manifest's `token_allocation.sections` records each capped
 section's `cap_tokens` and `used_tokens`, and the manifest refuses a record where they do not add up to its segments. Example:
 with a cap of 10 and three retrieved chunks of 8 tokens, the manifest keeps the first chunk and lists two as `token_budget`;
-a chunk containing `alice@example.com` is hashed and recorded as `... [REDACTED] ...`.
+a chunk containing `alice@example.com` has its digest taken over the text with `[REDACTED]` in its place (the text itself is never stored).
 **Not yet applied to a live step:** the agent-step adapters (B08) call `pack_context` to decide what the provider receives. The
 recorder above (B07.3b) records the context as the runtime passes it and does not pack it, so until B08 consumes it no
 provider input is capped or redacted and the manifests it writes carry no `sections`; a manifest never claims a cap or a
