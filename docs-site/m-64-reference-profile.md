@@ -1379,6 +1379,78 @@ A result that is refused is the end of that step's use of it: nothing was propos
 the same `occurrence_id` with the next `attempt`. A `parse_*` call is pure: it does not read the clock, so the deadline and
 the other limits are checked by the platform around the provider call (B08.3), not here.
 
+## Agent step adapters: the boundary every provider answers through (B08.1b, #720)
+
+`caliber.workflows.agent_step` is the seam between the agent-step contracts above and a model provider. It adds no route, no
+table and no setting. It defines what an executor must do to take part in *governed* execution and how the platform treats
+the answer; the limits (B08.3), the token reservation (B08.4) and turning a model's tool call into a recorded proposal (B08.2)
+build on it and are not part of it.
+
+- **`AgentStepAdapter`** (`caliber.workflows.runtime.AgentStepAdapter` is the same protocol) is
+  `run_step(request: AgentStepRequest, step_input: AgentStepInput) -> AgentStepResult`. `AgentStepInput` carries the `agent`, its
+  `input_text` and `history`, the `handoff_agents` it may hand off to and `read_tools`: the callables of the tools the platform
+  classified `read` in the protected-effect inventory. **That is the only set of tools an adapter may run.** A tool the model
+  calls that is not in it is proposed (B08.2), never run, so an adapter cannot invoke a protected tool because it was never
+  given one. An adapter repeats the request's `step_request_id` and its run, node, occurrence and attempt; it never says an
+  effect happened (the result has no field for that) and answers a provider failure with a typed result, not an exception.
+- **`run_agent_step(adapter, request, step_input)`** is the one entry the platform calls, and it trusts nothing the adapter does:
+  1. the request is validated first (`parse_step_request(request.record())`); an invalid one raises `ContractValidationError`
+     and the adapter is **not called**;
+  2. an object without `run_step` is refused (`adapter_unsupported`);
+  3. whatever the adapter returns is rebuilt from its own record through `parse_step_result(record, request)`: schema, every
+     proposed action's intent, and that it answers *this* step. The platform returns that rebuilt result, never the adapter's
+     object, so `ProposedAction.platform_bound` is false on every action (an adapter cannot mark a claim as bound);
+  4. an exception, a timeout, a return that is not a result, or a result that fails step 3 becomes an `error` result with a fixed
+     `error_code`. **No exception text, provider payload or request value is placed in a result or a log line**; only the
+     exception's class name is logged. `KeyboardInterrupt` and `SystemExit` propagate.
+- **Refusals and failures keep the reservation.** They carry zero usage with `usage_source: "unknown"` (unless the adapter knows
+  its figures): "the provider may have been called and nothing is known", never "nothing was used". B08.4 keeps a conservative
+  charge for each of them; the boundary releases nothing.
+- **`FakeWorkflowExecutor` is the scripted adapter** (`FakeWorkflowExecutor(step_script=[...])`): deterministic, offline, no clock,
+  no network, and it never calls a tool. An entry is a `ScriptedStep` (answered with the request's identity), an exception
+  (raised, to stage a provider error or timeout) or a callable returning a raw `agent_step_result` record (read with
+  `parse_step_result` like provider output, so a claimed commit or another step's result is refused as it would be from a real
+  provider). Entries are used in order and a script that runs out refuses with `script_exhausted`; with no script every step
+  `completed` with usage estimated from the input. `fake.step_requests` lists the requests it was asked.
+- **The four provider executors refuse governed execution until each is integrated** (B08.openai-chat #729, B08.openai-responses
+  #730, B08.openai-agents #728, B08.anthropic #727): `OpenAIChatWorkflowExecutor`, `OpenAIResponsesWorkflowExecutor`,
+  `OpenAIAgentsWorkflowExecutor` and `AnthropicChatWorkflowExecutor` each implement `run_step` and answer `refused` with
+  `adapter_not_integrated` without building a client, importing an SDK or touching the network. Their `run_agent` (the ungoverned
+  path every existing workflow uses) is unchanged.
+- **Conformance harness.** `caliber/tests/agent_step_conformance.py` is what a provider adapter's tests plug into (B08.5 #769
+  parametrizes over it for the five executors): an adapter supplies a driver, which builds the adapter with its provider transport
+  stubbed to a scenario (`completes`, `proposes_protected_tool`, `provider_error`, `provider_timeout`, `unreadable_output`,
+  `claims_commit`, `another_steps_result`), and `run_scenario` checks, through `run_agent_step`, what must hold for every
+  adapter: it answers the asked step, a proposal is one unbound claim and a protected tool is never run, and a failure is bounded
+  and quiet.
+
+```python
+from caliber.workflows.agent_step import AgentStepInput, ScriptedStep, run_agent_step
+from caliber.workflows.runtime import FakeWorkflowExecutor
+
+fake = FakeWorkflowExecutor(step_script=[ScriptedStep("proposed_action", (action,)), TimeoutError()])
+result = run_agent_step(fake, request, AgentStepInput(agent=agent, input_text=text, read_tools=read_only_tools))
+if result.stop_reason == "proposed_action":
+    bound = result.proposed_actions[0].bound_to(inventory_effect_class)  # the platform's class, or ClaimMismatch
+```
+
+Failures the boundary returns (all `stop_reason` `error` unless noted; every one has `usage_source: "unknown"`, no proposal, and
+the asked step's identity). Recovery is always the same shape: the occurrence is retried as the next `attempt`, after the
+reservation of this one is settled (B08.4):
+
+| the adapter | result | recover by |
+| --- | --- | --- |
+| is an executor that is not integrated yet (`OpenAIChat`, `OpenAIResponses`, `OpenAIAgents`, `AnthropicChat`) | `refused`, `adapter_not_integrated` | running the node with the scripted adapter, or waiting for that provider's B08 task; the ungoverned `run_agent` path is unaffected |
+| has no `run_step` | `refused`, `adapter_unsupported` | passing an `AgentStepAdapter` |
+| raises (a provider error, anything else) | `adapter_error` | reading the server log (the exception's class and the step id, never its text) and retrying as the next attempt |
+| times out (`TimeoutError`) | `adapter_timeout` | the call's outcome is unknown: retry as the next attempt; the reservation is kept |
+| returns a result for another step, a record with an unknown field (`state`, `receipt_id`), `stop_reason: "committed"`, two actions, a bad effect class, usage that contradicts itself, or a non-result | `malformed_result` | none for this output: it was dropped; check the adapter's transcription of the provider output |
+| is a scripted fake that has no entry left | `refused`, `script_exhausted` | scripting one entry per step the test runs |
+
+An invalid *request* is not a result: `run_agent_step` raises `ContractValidationError` (for example `attempt: violates minimum 1`)
+before anything runs. Not covered here, so not claimed: limits are not enforced by this boundary (B08.3), no token reservation is
+made (B08.4), and the interpreter does not yet call `run_agent_step`; no governed node execution is enabled by this change.
+
 ## Policy decisions
 
 `caliber.policy.decisions.decide(...)` (B03.3, #671; migration `0117`, table `caliber_policy_decisions`) answers "may

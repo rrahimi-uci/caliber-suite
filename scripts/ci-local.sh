@@ -191,6 +191,7 @@ BACKEND_CORE_TESTS=(
   tests/test_adr_index.py
   tests/test_contracts_registry.py
   tests/test_agent_step_contract.py
+  tests/test_agent_step_adapter.py
   tests/test_approval_ux_contract.py
   tests/test_execution_role.py
   tests/test_readiness_execution_role.py
