@@ -246,10 +246,12 @@ built = build_run_manifest(
   `organization_switch`; a subject acting in another project than the run's scope is `project_mismatch`. The
   manifest records `project_id` (optional in the v1 schema, absent for a run outside any project).
 - **Rule bundle.** When rule bundles are enabled the bundle is loaded and verified first (`pin_rule_bundle`, #726): a
-  missing, oversized, changed or malformed file is `rule_bundle_refused` and no manifest is built; a verified bundle's
-  absolute path and SHA-256 are recorded (make one `PinnedRuleBundle` per admission: it is a snapshot, not a handle on the file). Enabled without one is `rule_bundle_required`; one given while disabled is
+  missing, oversized, changed or malformed file, or one whose context-manifest citation would exceed 256 KiB (see "The
+  rule bundle at context use"), is `rule_bundle_refused` and no manifest is built; a verified bundle's
+  symlink-resolved absolute path and SHA-256 are recorded (make one `PinnedRuleBundle` per admission: it is a snapshot, not a handle on the file). Enabled without one is `rule_bundle_required`; one given while disabled is
   `rule_bundle_unexpected`. The digest in the manifest is the digest of the bytes that were verified, so editing the
-  file afterwards changes nothing about this run (the context code re-verifies the bytes when it uses them, #736).
+  file afterwards changes nothing about this run (the context code re-verifies the bytes when it uses them, #736: see
+  "The context manifest", "The rule bundle at context use").
 - **The request digest.** `request_digest` (optional, 64 lowercase hex) is the SHA-256 of the canonical admission
   intent (see "Admitting a run"). A malformed one is `bad_pin`. It is part of the sealed bytes, so it cannot change
   after admission.
@@ -269,7 +271,7 @@ built = build_run_manifest(
 | `organization_switch` | the caller asked for another organization | none: this deployment serves one organization |
 | `project_mismatch` | the subject's project is not the run's project | admit the run in the subject's project |
 | `bad_field` | manifest id, run id, purpose or timestamp is malformed (a naive datetime) | supply clean values and an aware time |
-| `rule_bundle_refused` | the configured bundle's bytes are missing, changed or invalid | restore the bundle or update the pinned digest deliberately |
+| `rule_bundle_refused` | the configured bundle's bytes are missing, changed or invalid, or its context citation is over 256 KiB (262144 bytes) | restore the bundle or update the pinned digest deliberately; shorten `source_ref` values or split a bundle that is over the cap |
 | `rule_bundle_required` / `rule_bundle_unexpected` | enabled without a verified bundle / a bundle while disabled | align the configuration and the call |
 | `invalid_manifest` | stored bytes are not a valid manifest, or do not match their digest (`read_manifest`) | treat as corruption: the row is immutable evidence |
 
@@ -734,7 +736,29 @@ with session_factory() as session:
   be committed with a reservation still `received`, which every later delivery sees as a `duplicate` and an operator must resolve), and a side effect outside the
   transaction (a call to another service) is not covered by it. Rows are kept until `prune(session, older_than=...)`
   forgets them; use a cutoff older than the sender's longest redelivery window, because a forgotten id is applied again.
-  Nothing calls `process_once` yet: wiring the GitHub webhook and the connector callback is B13.5b (#693).
+
+### Who consumes it (B13.5b, #693)
+
+- **The connector receipt callback** is the consumer: `POST /ajax-api/2.0/mlflow/caliber/effects/callbacks/receipt` calls `process_once` with
+  consumer `effect-callback`, a source that is a digest of the connector and the project, the delivery id as the event id, and the hash of
+  `{project_id, idempotency_key}`. Its answers are the inbox's: the same signed delivery again is `200 {"data": {"status": "duplicate"}}`
+  (answered before any query of the downstream), the same delivery id carrying another key is `409 {"reason": "inbox_payload_mismatch"}`, and a
+  delivery whose transition is refused is rolled back whole (the reservation too), so the connector's retry is processed. The exact request,
+  signature and every other answer are in the Receipt callback section below.
+- **Out of order.** The callback carries no version of its own: it names a key and the platform asks the downstream. The ordering is the
+  proposal's compare-and-set `version` (B05.2), so a delivery that arrives after the proposal has settled is acknowledged with the
+  settled outcome and moves nothing: `200 already_committed` (a new delivery id), or `committed` with the first receipt's id when it had read the proposal before the commit won
+  (no second receipt, no second audit row). `InboxIgnored` / the `ignored` status exist for a consumer whose events carry a version
+  to compare; no consumer uses them yet, and the callback does not.
+- **The GitHub webhook is not a consumer of this table.** It already has a durable, signature-verified delivery inbox,
+  `caliber_workspace_source_events` (unique on source, delivery id and payload hash; migrations 0098 and 0101), inserted and committed in one
+  transaction. `POST /ajax-api/2.0/mlflow/caliber/webhooks/github` answers a repeat delivery `202 {"data": {"received": true, "duplicate": true}}` with no second row, and
+  the same delivery id with different evidence the same generic `401` as every other rejection (deliberately not a `409`, so an unauthenticated
+  caller cannot tell it from a bad signature). Reserving each delivery in `caliber_inbox_events` as well would store it twice and change that public
+  contract for no gain, so the route is unchanged; a test pins that it writes nothing to `caliber_inbox_events`.
+- **Recovery.** A delivery answered `5xx` or never answered (the process died before the commit) left no reservation: the sender's retry is processed.
+  A connector that gets `409 inbox_payload_mismatch` is reusing a delivery id for a different message: send the new message under a new id. A
+  reservation stuck at `received` (`InboxContractError`, see Limits) is the one case that needs an operator.
 
 ## Effect proposals
 
@@ -1244,11 +1268,12 @@ platform administrators, and do not expose it more widely without a keyed digest
 Reading a manifest back (`read_context_manifest`) re-checks the digest, the schema (an unknown `schema_version` is
 `unknown_version`, never read as the nearest) and every rule above, so a reordered or relabelled record is caught twice,
 by its digest and by its positions. Refusals carry a stable code: `invalid_manifest`, `unknown_version`, `tier_violation`,
-`unauthorized_payload`, `ordering`, `tokens`, `authorization_rejected`, `duplicate_revision`, `revision_gap`. Nothing here
+`unauthorized_payload`, `ordering`, `tokens`, `authorization_rejected`, `duplicate_revision`, `revision_gap`,
+`rule_bundle_changed`, `rule_bundle_unavailable`, `rule_bundle_mismatch`, `rule_bundle_unpinned`. Nothing here
 talks to a provider.
 
 **Recorded for every agent step (B07.3b, #710).** For an admitted run in the reference profile the worker hands the runtime a
-recorder (`caliber.context.assembly.context_recorder_for`, built together with the source guard), and the runtime calls it
+recorder (`caliber.context.assembly.context_recorder_for`, built together with the source guard, or alone for a run whose manifest pins a rule bundle), and the runtime calls it
 with each agent step's *initial* context (the step's instructions as resolved when it is assembled, its skills, its history
 and the one input the provider is sent, with the node whose edge delivered it) **before any of it reaches the provider**, for
 every agent, every handoff target (a native Agents SDK handoff runs inside the provider call, so every agent the step may
@@ -1283,6 +1308,72 @@ recorder above (B07.3b) records the context as the runtime passes it and does no
 provider input is capped or redacted and the manifests it writes carry no `sections`; a manifest never claims a cap or a
 redaction that was not applied. The issue's draft names (`allocation`, `redactions`, `budget`) map onto the shipped v1 record
 (`token_allocation.sections`, `redacted`, `token_budget`), which is kept so manifests already written stay valid.
+
+**The rule bundle at context use (B07.5b, #736).** A run admitted with a rule bundle has its path and SHA-256 in the run manifest
+(see "Admitting a run"); the run manifest is immutable and nothing here writes it. For every agent step the recorder reads
+the pin **from that manifest, never from the current configuration**, re-reads the bytes at the recorded path, re-hashes them
+**on every step** (nothing is trusted from an earlier step) and compares the hash with the recorded digest; only then are the
+bytes parsed (`caliber.context.rules.rule_bundle_reference`). The parse and the manifest entry are cached by the verified
+digest (a bounded LRU of 8 bundles): a digest is the hash of exactly one byte string, so a hit can only be the bundle those bytes
+parse to, and the cache never replaces the read and the hash. The step's context manifest then carries a `rule_bundle` entry: the
+bundle's `bundle_id`, `version` and `sha256`, and for each selected rule its `rule_id`, its `source_ref` (provenance) and the
+SHA-256 of its text (the rule text itself is not stored). Every rule of the operator-pinned bundle is selected, in bundle order.
+`rule_bundle_reference` also hands back the **verified in-memory bundle** (`VerifiedRuleBundle.bundle`): the B08 adapters must take
+rule text from that object and never reopen the path, so the text a provider is given is the text whose digest the manifest cites.
+
+Storing the manifest checks the cited digest against the run manifest read from the database: a run admitted with a bundle cites it
+in every step, a run admitted without one cites none (a bundle enabled later is never applied to it, and no pin is backfilled).
+That store check is only the digest comparison; the rest of the entry (id, version, per-rule fields) is not re-derived there, because
+the store cannot re-read the file. The recorder, which verified the bytes the entry was built from, is the trust boundary for it.
+
+A run that has a rule bundle is recorded even when it has no source guard (no approved sources required, no `context.read` grant);
+in that case no knowledge-base text is labelled `retrieved_text` (no source was authorized) and a query's text is `tool_output` of
+its node. Read `tool_output` there as "the output of this node", not as proof that the text did not come from a knowledge base: with
+no guard the platform did not authorize or label the source. So a path or configuration change after admission cannot alter what
+the run uses: the run uses the admitted bytes or is refused.
+
+**Size cap.** A context manifest is bounded to 1 MiB and every step cites the bundle, so admission refuses a bundle whose citation
+(the canonical JSON of the entry above) exceeds **256 KiB (262144 bytes)**: `rule_bundle_refused`, with the size and the cap in the
+message and none of the file's content. A citation takes about 116 bytes per rule plus the UTF-8 length of its `rule_id` and
+`source_ref` (a CJK character is 3 bytes). Measured: 1000 rules with 100-character ASCII source refs take 217 KB (admitted); 150 rules
+with 512-character CJK source refs take 248 KB (admitted); 200 such rules take 331 KB and 1000 rules with 512-character ASCII source
+refs take 629 KB (both refused at admission, though the loader accepts the files). Shorten the `source_ref` values or split the bundle.
+A bundle admitted before this cap that is over it but under the manifest's 1 MiB bound keeps working; one over the bound fails every
+step with `manifest_invalid`.
+
+| run error | meaning and recovery |
+| --- | --- |
+| `context_denied` with `rule_bundle_changed` | the bytes at the pinned path are no longer the admitted bytes (an edit, even a comment or whitespace; a replaced file; a file larger than 1 MiB): the step did not run and no context manifest was written. **The run stays failed**: restoring the file does not revive it. Resubmit: the new run is admitted against the *current* `CALIBER_RULE_BUNDLE_PATH` and `CALIBER_RULE_BUNDLE_SHA256`, so after an intentional edit update **both together** first (a path with a stale digest is refused at admission) |
+| `context_denied` with `rule_bundle_unavailable` | the pinned file is missing, not a regular file, unreadable, or the run manifest's pin is unusable. This includes a pinned path that existed when the run was admitted and is gone on the node that executes it (see "Which path is pinned"). The run stays failed; resubmit once the bundle is readable at the path a new admission will record |
+| `rule_bundle_refused` at admission (`409 manifest_refused`) | the configured bundle's bytes are missing, changed or invalid, or its citation is over the 256 KiB cap: fix the file or the pinned digest, or shorten the bundle; no run is created |
+| `context_denied` with `rule_bundle_mismatch` / `rule_bundle_unpinned` | a context manifest cited another bundle than the run's admitted one, or a bundle for a run admitted without one (the store refuses it; this indicates a defect, not an operator action) |
+
+Example. A run is admitted with `CALIBER_RULE_BUNDLE_PATH=/etc/caliber/rules.yaml`; an operator then appends a comment to the file.
+The worker's next agent step ends the run `failed` with error code `context_denied` and the summary
+`rule_bundle_changed: the run's pinned rule bundle cannot be used now (digest_mismatch)`; the provider was never called and the run's
+manifest is untouched. Deleting the comment does **not** revive that run: it stays failed. Submitting the same request again creates a
+new run, admitted against whatever `CALIBER_RULE_BUNDLE_PATH` / `CALIBER_RULE_BUNDLE_SHA256` say at that moment (the restored file with
+the old digest works; an intentionally edited file needs its new digest set together with the path). Changing those settings affects
+only runs admitted afterwards. The entry records provenance and digests, not the rule text: delivering rule text to the provider is the
+agent-step adapters' job (B08), as for caps and redaction, so a manifest never claims text was given that was not.
+
+**Which path is pinned.** Admission records the **symlink-resolved** absolute path, and the worker that executes the run reads exactly
+that path. It must therefore exist, with the same bytes, on every node that can execute the run, for as long as the run can still
+take a step. Mounts that rotate their real directory break this: a Kubernetes ConfigMap or Secret volume serves `rules.yaml ->
+..data/rules.yaml` where `..data` points at a `..data_<timestamp>` directory that is replaced and deleted on every update (and a Docker
+secret or a per-node temporary path differs between nodes). A run admitted before such a rotation records the old directory, which is
+gone, and its next step is refused as `rule_bundle_unavailable`. The run manifest's pin shape is immutable (#680, #726) and is not
+changed to work around this. Mount the bundle so its resolved path is stable and identical on every node.
+
+**Rollout.** An in-place edit or rotation of the bundle file fails every in-flight or waiting run admitted against the old bytes at its
+next agent step. Use versioned, content-addressed file names (for example `rules-<first 12 hex of the sha256>.yaml`), publish the new
+file next to the old one, switch `CALIBER_RULE_BUNDLE_PATH` and `CALIBER_RULE_BUNDLE_SHA256` together, and keep the old file in place
+until the runs admitted against it have drained (finished or failed).
+
+**Deploying the `rule_bundle` field.** Adding `rule_bundle` to the context manifest is a readers-first change: an API pod or worker still
+running the previous release rejects a stored manifest that carries it (`invalid_manifest`, the v1 schema is closed). Roll the new
+release to every pod that reads context manifests before any worker running it can record one for a bundle-pinned run (or drain
+bundle-pinned runs first); do not mix releases while bundle-pinned runs are in flight.
 
 What this does not cover, so it is not claimed: the tool specifications, the structured-output suffix and the results of tool
 calls made *during* a step are not in the manifest; a registry prompt is loaded when the step is assembled and again by the
@@ -1375,6 +1466,92 @@ POST /ajax-api/2.0/mlflow/caliber/workflow-runs/{run_id}/approval/approve   {"ru
 409 {"detail": "this approval request is bound to an effect proposal and cannot be decided here yet: exact-intent approval is not wired",
      "status_code": 409, "reason_code": "approval_bound_not_wired"}
 ```
+
+## Agent steps: a request, a result, and no effects (B08.1a, #713)
+
+An agent step is one bounded unit of model work in a workflow node. Two control records (ADR 0003) describe it, and
+`caliber.contracts.agent_step` is the gate in front of both: it validates a record and refuses it **before anything is
+dispatched**. This page is the contract; the adapters that produce results (B08.1b onwards) and the limit and budget
+enforcement (B08.3, B08.4) build on it and are not part of it.
+
+- **`agent_step_request` v1** names the step (`step_request_id`, `workflow_run_id`, `node_id`, the durable `occurrence_id`
+  and the `attempt`), what it was given (`run_manifest_digest` and `context_manifest_digest`, each 64 lowercase hex digits),
+  the one `grant_id` it runs under and its `limits`: `max_turns`, `max_tool_calls`, `max_tokens` (integers, zero allowed) and a
+  `deadline` (RFC 3339 with an offset, ASCII digits, at most nine fractional digits, no leap second;
+  `StepLimits.deadline_at` is the aware `datetime`, and nothing reads the clock). The platform enforces the limits, not the
+  adapter. Every identifier is not blank and has no control character or lone surrogate, the rule the effect proposal applies.
+- **The step and its id.** The platform allocates one `step_request_id` for one `(run, node, occurrence, attempt)` tuple; the
+  context manifest of the step carries the same id. A result must repeat the id *and* the tuple: one whose tuple matches but
+  whose id differs, or whose id matches but whose tuple differs, is refused.
+- **`agent_step_result` v1** answers it: the same five identifying fields, a `stop_reason` (`completed`, `proposed_action`,
+  `max_turns`, `max_tool_calls`, `max_tokens`, `deadline`, `refused`, `error`), the provider's `usage` and at most one
+  `proposed_actions` element, present exactly when the `stop_reason` is `proposed_action`. Optional: `usage_source`
+  (`provider` when absent, `estimated`, `unknown`) and `error_code` (a short lowercase token, only with `error` or `refused`).
+- **One proposed action per step, in v1.** A logical effect is keyed by `(run, node, occurrence)`, so a second action would
+  share the first's key. The array stays so a later version can carry more, but only after it adds a per-action identity.
+- **A step proposes; it never says anything happened.** The result has no `state`, `receipt` or `approval` field and every
+  schema is closed, so a result that claims a commit (`state: committed`, a `receipt_id`, `stop_reason: committed`) is
+  refused like any other unknown field or value. An action becomes a recorded proposal only through
+  `caliber.effects.records`, and `committed` there still needs a verified receipt.
+- **What the model says is a claim, not a fact.** Everything in a result is model output. In particular a proposed action's
+  `effect_class` and `connector_version` are **untrusted**: a model can call an irreversible write `read`, and a `read` can be
+  approved by policy alone. `ProposedAction.bound_to(inventory_effect_class)` returns the action carrying the platform's class
+  (from the protected-effect inventory) and raises `ClaimMismatch` (code `claim_mismatch`) when the claim differs; B08.2 calls it
+  before `record_proposal`, and an action that is not `platform_bound` is never recorded.
+- **One action shape for the step and the proposal.** A proposed action is `effect_class` (`read`, `reversible_write`,
+  `irreversible_write`, `export`), `target` (`connector` and `resource`), `connector_version`, `args` and
+  `expected_resource_version`: the names and meaning they have in the `proposal` record. `ProposedAction.intent` is the very
+  `caliber.effects.records.Intent` of that proposal and `ProposedAction.intent_hash` its `sha256:` digest, so what a step
+  proposed, what an approver is shown and what a receipt answers are one digest. An action is immutable (`args` is a read-only
+  deep view; `intent` and `record()` are fresh copies, so nothing handed out can make the stored arguments disagree with the
+  digest) and equal to another exactly when their canonical intents are (`{"a": True}` is not `{"a": 1}`). Parsing builds each
+  intent, so `args` that are too deep (more than 64 levels), too large (the intent is at most 256 KiB) or not plain JSON are
+  refused here too, not later at the store.
+- **Usage and the token reservation.** `usage.total_tokens` is what a budget settles against: it may not be less than
+  `prompt_tokens + completion_tokens`, and `cached_prompt_tokens` may not exceed `prompt_tokens`. When a call failed or the
+  provider gave no usage, report `usage_source` `estimated` or `unknown` rather than figures that look genuine. **A refused or
+  malformed result does not release the step's token reservation**: B08.4 keeps a conservative charge for it.
+- **Integers are integers.** `1.0` is not an integer for these two kinds; `attempt: 1.0` is refused, not coerced.
+
+```python
+from caliber.contracts import ContractValidationError, UnsupportedSchemaVersion
+from caliber.contracts.agent_step import parse_step_request, parse_step_result
+
+request = parse_step_request(request_record)  # raises before any provider or tool is touched
+try:
+    result = parse_step_result(result_record, request)  # the request is required: a result is read as its answer
+except UnsupportedSchemaVersion:
+    ...  # a newer writer: refuse the step and upgrade this reader first, never read it as v1
+except ContractValidationError as refusal:
+    print(refusal.errors)  # the violations, by path and rule; nothing was dispatched
+else:
+    for action in result.proposed_actions:
+        bound = action.bound_to(inventory_effect_class)  # the platform's class, or ClaimMismatch
+        print(bound.intent_hash)  # submit as a proposal; the effect is still unperformed
+```
+
+**Refusals are quiet.** For these two kinds a refusal names the field and the rule, never the offending value, an unexpected
+property name or an unbounded amount of text: at most 20 violations are listed, an unsupported version is named only when it is a
+short plain token (else by its type), and a record of more than 1 MiB of JSON text (1048576 characters) is refused before it is
+validated. Other record kinds keep their messages. Refusals and what to do (`ContractValidationError.errors`, sorted by path):
+
+| the record has | refused as | recover by |
+| --- | --- | --- |
+| `schema_version: "v2"` (or anything but `v1`) | `UnsupportedSchemaVersion`: `agent_step_result schema_version v2 is not supported; supported: v1` | upgrading the reader before the writer (ADR 0003, readers before writers) |
+| a field it does not define (`state`, `receipt_id`, a typo) | `<record>: additional properties are not allowed` (`proposed_actions/0: ...` inside an action; the property is not named) | removing the field; a step reports no state |
+| `stop_reason: "committed"` | `stop_reason: is not one of ['completed', 'proposed_action', ...]` | reporting `completed` or `proposed_action`; a commit is the proposal's, with a receipt |
+| `effect_class: "write"` | `proposed_actions/0/effect_class: is not one of ['read', 'reversible_write', 'irreversible_write', 'export']` | using one of the four classes of the connector inventory |
+| an action with no `target` | `proposed_actions/0: 'target' is a required property` | naming the connector and the resource |
+| two or more actions | `proposed_actions: violates maxItems 1` | proposing one effect per step; the next is the next occurrence |
+| proposals with `stop_reason: "completed"`, or `proposed_action` with none | `proposed_actions: must equal []` or `proposed_actions: violates minItems 1` | stopping with `proposed_action` exactly when there is a proposal |
+| `attempt: 1.0`, a blank or control-character identifier | `attempt: must be of type integer`, `node_id: does not match the required pattern` | integers and printable identifiers |
+| a total below the parts | `usage/total_tokens: is less than prompt_tokens + completion_tokens` | reporting the provider's total (or `usage_source: "estimated"`) |
+| a result for another step | `step_request_id: names another step than the request's, although run, node, occurrence and attempt are the same` (or `<field>: differs from the request's, although step_request_id is the same`) | applying only the result of the request that was asked |
+| an action whose class the platform does not hold | `ClaimMismatch`: `the step claimed effect_class 'read'; the platform's is 'irreversible_write'` | proposing nothing: the step's claim is discarded, the platform's class governs |
+
+A result that is refused is the end of that step's use of it: nothing was proposed, recorded or dispatched, and the retry is
+the same `occurrence_id` with the next `attempt`. A `parse_*` call is pure: it does not read the clock, so the deadline and
+the other limits are checked by the platform around the provider call (B08.3), not here.
 
 ## Policy decisions
 

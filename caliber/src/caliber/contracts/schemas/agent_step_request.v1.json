@@ -1,0 +1,106 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://caliber.dev/schemas/agent_step_request.v1.json",
+  "title": "AgentStepRequest: one bounded agent step, asked of an adapter",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "step_request_id",
+    "workflow_run_id",
+    "node_id",
+    "occurrence_id",
+    "attempt",
+    "run_manifest_digest",
+    "context_manifest_digest",
+    "grant_id",
+    "limits"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "v1"
+    },
+    "step_request_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^(?=[\\s\\S]*[^\\s])[^\\x00-\\x1f\\x7f-\\x9f\\ud800-\\udfff]+\\Z",
+      "description": "Names one step: the one (run, node, occurrence, attempt) it was allocated for, and the id its ContextManifest carries."
+    },
+    "workflow_run_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64,
+      "pattern": "^(?=[\\s\\S]*[^\\s])[^\\x00-\\x1f\\x7f-\\x9f\\ud800-\\udfff]+\\Z"
+    },
+    "node_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^(?=[\\s\\S]*[^\\s])[^\\x00-\\x1f\\x7f-\\x9f\\ud800-\\udfff]+\\Z"
+    },
+    "occurrence_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^(?=[\\s\\S]*[^\\s])[^\\x00-\\x1f\\x7f-\\x9f\\ud800-\\udfff]+\\Z",
+      "description": "The durable occurrence of this node, allocated and persisted by the caller before the step runs; a retry presents the same one."
+    },
+    "attempt": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 2147483647,
+      "description": "The attempt of this occurrence; the token reservation is keyed by run, node, occurrence and attempt."
+    },
+    "run_manifest_digest": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}\\Z",
+      "description": "SHA-256 of the run's RunManifest bytes (lowercase hex)."
+    },
+    "context_manifest_digest": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}\\Z",
+      "description": "SHA-256 of the ContextManifest bytes the provider is given (lowercase hex)."
+    },
+    "grant_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64,
+      "pattern": "^(?=[\\s\\S]*[^\\s])[^\\x00-\\x1f\\x7f-\\x9f\\ud800-\\udfff]+\\Z",
+      "description": "The one grant admission issued to the run (RunManifest.grant_id)."
+    },
+    "limits": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "max_turns",
+        "max_tool_calls",
+        "max_tokens",
+        "deadline"
+      ],
+      "properties": {
+        "max_turns": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 2147483647
+        },
+        "max_tool_calls": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 2147483647
+        },
+        "max_tokens": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 2147483647
+        },
+        "deadline": {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9](\\.[0-9]{1,9})?(Z|[+-]([01][0-9]|2[0-3]):[0-5][0-9])\\Z",
+          "description": "When the step must have stopped, RFC 3339 with an offset, ASCII digits, at most nine fractional digits, no leap second; the platform checks it before work and after the returned usage."
+        }
+      }
+    }
+  }
+}
