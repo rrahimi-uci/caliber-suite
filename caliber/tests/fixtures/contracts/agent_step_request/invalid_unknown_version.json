@@ -1,0 +1,17 @@
+{
+  "schema_version": "v2",
+  "step_request_id": "sr-0001",
+  "workflow_run_id": "run-0001",
+  "node_id": "request_document",
+  "occurrence_id": "occ-0001",
+  "attempt": 1,
+  "run_manifest_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "context_manifest_digest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "grant_id": "grant-0001",
+  "limits": {
+    "max_turns": 8,
+    "max_tool_calls": 4,
+    "max_tokens": 20000,
+    "deadline": "2026-10-26T09:10:00Z"
+  }
+}

@@ -190,6 +190,7 @@ BACKEND_CORE_TESTS=(
   tests/test_protected_effect_inventory.py
   tests/test_adr_index.py
   tests/test_contracts_registry.py
+  tests/test_agent_step_contract.py
   tests/test_approval_ux_contract.py
   tests/test_execution_role.py
   tests/test_readiness_execution_role.py
@@ -297,6 +298,7 @@ job_migration_parity_postgres() {
         tests/test_event_outbox.py \
         tests/test_event_inbox.py \
         tests/test_effect_proposals.py \
+        tests/test_agent_step_contract.py \
         tests/test_effect_records.py \
         tests/test_effect_receipts.py \
         tests/test_routes_system_effects.py \
