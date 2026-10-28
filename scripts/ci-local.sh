@@ -216,6 +216,8 @@ BACKEND_CORE_TESTS=(
   tests/test_context_manifest.py
   tests/test_context_assembly.py
   tests/test_context_assembly_runtime.py
+  tests/test_route_scope_inventory.py
+  tests/test_routes_openapi.py
   tests/test_run_pins.py
   tests/test_run_identity.py
   tests/test_policy_principal.py
