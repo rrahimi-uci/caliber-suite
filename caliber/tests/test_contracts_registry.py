@@ -1,4 +1,4 @@
-"""The control-record contracts: eight kinds, versioned schemas, typed rejection.
+"""The control-record contracts: ten kinds, versioned schemas, typed rejection.
 
 Fixtures under ``tests/fixtures/contracts/<kind>/`` are discovered by file-name prefix, so a package that adds
 a record field or a kind adds fixtures and does not edit this test:
@@ -30,6 +30,7 @@ from caliber.contracts import (
     UnknownContractKind,
     UnsupportedSchemaVersion,
     load_schema,
+    registry,
     validate_record,
 )
 
@@ -121,7 +122,7 @@ def test_every_kind_has_the_three_required_fixtures() -> None:
             "invalid_missing_field.json",
             "invalid_unknown_version.json",
         } <= names, kind
-    assert len(fixture_files()) >= 21
+    assert len(fixture_files()) >= 30
 
 
 @pytest.mark.parametrize("path", fixture_files(), ids=lambda p: f"{p.parent.name}/{p.stem}")
@@ -486,6 +487,36 @@ def test_a_record_that_is_not_plain_json_names_why() -> None:
         validate_record("proposal", record)
 
 
+def test_a_record_nested_too_deep_is_a_validation_error_for_an_existing_kind() -> None:
+    record = valid_record("proposal")
+    nested: dict[str, Any] = {}
+    for _ in range(100_000):
+        nested = {"k": nested}
+    record["args"] = nested
+    with pytest.raises(ContractValidationError, match="not plain JSON") as rejected:
+        validate_record("proposal", record)
+    assert rejected.value.kind == "proposal"
+
+
+def test_recursion_inside_the_validator_is_a_validation_error_too(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class Overflowing:
+        def iter_errors(self, _record: object) -> Any:
+            raise RecursionError("maximum recursion depth exceeded")
+
+    monkeypatch.setattr(registry, "_validator", lambda _kind, _version: Overflowing())
+    for kind in ("proposal", "agent_step_result"):
+        with pytest.raises(ContractValidationError, match="nested too deeply") as rejected:
+            validate_record(kind, valid_record(kind))
+        assert rejected.value.kind == kind
+
+
+def test_only_the_agent_step_kinds_are_refused_quietly() -> None:
+    assert {"agent_step_request", "agent_step_result"} == registry.QUIET_KINDS
+    assert set(KINDS) >= registry.QUIET_KINDS
+
+
 def test_an_unhashable_kind_is_an_unknown_kind_not_a_type_error() -> None:
     with pytest.raises(UnknownContractKind):
         validate_record([], {})  # type: ignore[arg-type]
@@ -529,6 +560,15 @@ NESTED_REQUIRED: dict[tuple[str, tuple[str, ...]], set[str]] = {
     ("run_manifest", ("subject",)): {"user_id", "auth_method"},
     ("run_manifest", ("workload",)): {"workload_id", "name", "workflow_version_digest"},
     ("proposal", ("target",)): {"connector", "resource"},
+    ("agent_step_request", ("limits",)): {"max_turns", "max_tool_calls", "max_tokens", "deadline"},
+    ("agent_step_result", ("proposed_actions", "[]")): {
+        "effect_class",
+        "target",
+        "connector_version",
+        "args",
+        "expected_resource_version",
+    },
+    ("agent_step_result", ("proposed_actions", "[]", "target")): {"connector", "resource"},
 }
 
 
