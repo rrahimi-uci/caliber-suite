@@ -116,6 +116,8 @@ MAX_INTENT_BYTES: Final = 256 * 1024
 MAX_ARGS_DEPTH: Final = 64
 #: No control characters, NUL or unpaired surrogates: ids reach the database and the digest as they are.
 _PRINTABLE: Final = re.compile(r"[^\x00-\x1f\x7f-\x9f\ud800-\udfff]+")
+#: The same rule, public for the other records that take an id or a name from a caller (approval requests, B06.1).
+PRINTABLE: Final = _PRINTABLE
 _LIMITS: Final = {
     "node_id": 128,
     "occurrence_id": 128,
@@ -1027,6 +1029,7 @@ __all__ = [
     "MAX_INTENT_BYTES",
     "NOT_ABANDONED",
     "POLICY_DECISION",
+    "PRINTABLE",
     "PROPOSED",
     "RECEIPT_EXISTS",
     "RECEIPT_REFUSED",
