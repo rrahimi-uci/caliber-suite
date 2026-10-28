@@ -1,17 +1,23 @@
 """The AgentStepAdapter boundary and the scripted fake adapter (B08.1b, #720).
 
 The boundary (``run_agent_step``) treats an adapter as untrusted: the request is checked before the adapter runs, and what
-the adapter returns or raises is rebuilt or replaced by a typed, bounded result, never an exception and never text from the
-failure. The scripted ``FakeWorkflowExecutor`` is deterministic and offline. The four provider executors refuse governed
-execution until their own B08 tasks integrate them. ``tests/agent_step_conformance.py`` is the harness those tasks plug into;
-here it is exercised through the fake.
+the adapter returns or raises is replaced by a typed, bounded result, never an exception and never text from the failure; a
+result is read once, from one plain snapshot, and only when it is exactly the contract's own types. The scripted
+``FakeWorkflowExecutor`` is deterministic and offline. The four provider executors refuse governed execution until their own
+B08 tasks integrate them. ``tests/agent_step_conformance.py`` is the harness those tasks plug into; here it is exercised
+through the fake, and each way an adapter could cheat it is shown to be caught.
 """
 
 from __future__ import annotations
 
+import asyncio
 import dataclasses
+import gc
+import importlib
 import json
 import logging
+import warnings
+from collections import deque
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any
@@ -22,6 +28,7 @@ from caliber.contracts import ContractValidationError, UnsupportedSchemaVersion
 from caliber.contracts.agent_step import (
     AgentStepRequest,
     AgentStepResult,
+    ProposedAction,
     StepLimits,
     StepUsage,
     parse_step_result,
@@ -33,19 +40,29 @@ from caliber.workflows.agent_step import (
     ADAPTER_TIMEOUT,
     ADAPTER_UNSUPPORTED,
     MALFORMED_RESULT,
+    NOT_CALLED_CODES,
+    PROVIDER_ERROR,
     SCRIPT_EXHAUSTED,
+    TOOL_ERROR,
+    TOOL_NOT_READ_CLASS,
     AgentStepAdapter,
     AgentStepInput,
     ScriptedStep,
+    StepHandoffTarget,
     StepScript,
     answer,
     failure,
+    filter_read_tools,
     refusal,
     run_agent_step,
 )
+from caliber.workflows.ir import IRAgent, IRToolBinding, NodeType
 from caliber.workflows.runtime import AgentStepAdapter as RuntimeAgentStepAdapter
 from caliber.workflows.runtime import FakeWorkflowExecutor
 from tests.agent_step_conformance import (
+    PLATFORM_CODES,
+    PROTECTED_TOOL,
+    READ_TOOL,
     SCENARIOS,
     SECRET_MARKER,
     AdapterDriver,
@@ -73,10 +90,6 @@ class Spy:
         return self.outcome
 
 
-def completed(ctx: StepContext, **changes: Any) -> AgentStepResult:
-    return dataclasses.replace(answer(ctx.request, "completed"), **changes)
-
-
 def run(adapter: object, ctx: StepContext) -> AgentStepResult:
     return run_agent_step(adapter, ctx.request, ctx.step_input)
 
@@ -100,11 +113,23 @@ class FakeDriver:
     unsupported: frozenset[Scenario] = frozenset()
 
     def adapter_for(self, scenario: Scenario, ctx: StepContext) -> object:
-        usage = StepUsage(100, 20, 120, 1, 0)
+        usage = ctx.staged_usage
         entries: dict[Scenario, Any] = {
-            Scenario.COMPLETES: ScriptedStep("completed", usage=usage),
+            Scenario.COMPLETES: ScriptedStep("completed", usage=usage, usage_source="provider"),
+            Scenario.READ_TOOL_CALL: ScriptedStep(
+                "completed",
+                usage=usage,
+                usage_source="provider",
+                read_tool_calls=((READ_TOOL, ctx.staged_read_args),),
+            ),
             Scenario.PROPOSES_PROTECTED_TOOL: ScriptedStep(
-                "proposed_action", (ctx.protected_action(),), usage
+                "proposed_action", (ctx.protected_action(),), usage, "provider"
+            ),
+            Scenario.MODEL_LIES_ABOUT_EFFECT_CLASS: ScriptedStep(
+                "proposed_action", (ctx.protected_action("read"),), usage, "provider"
+            ),
+            Scenario.BUDGET_EXHAUSTED: ScriptedStep(
+                "max_tokens", usage=usage, usage_source="provider"
             ),
             Scenario.PROVIDER_ERROR: RuntimeError(f"upstream said {SECRET_MARKER}"),
             Scenario.PROVIDER_TIMEOUT: TimeoutError(SECRET_MARKER),
@@ -116,7 +141,17 @@ class FakeDriver:
                 occurrence_id="occ-of-another-step"
             ),
         }
-        return FakeWorkflowExecutor(step_script=[entries[scenario]])
+
+        class Counting(FakeWorkflowExecutor):
+            """The script is the fake's stubbed provider: consuming an entry is the provider call."""
+
+            def run_step(
+                self, request: AgentStepRequest, step_input: AgentStepInput
+            ) -> AgentStepResult:
+                ctx.provider_called()
+                return super().run_step(request, step_input)
+
+        return Counting(step_script=[entries[scenario]])
 
 
 @pytest.mark.parametrize("scenario", SCENARIOS)
@@ -126,28 +161,111 @@ def test_the_fake_conforms_to_the_shared_harness(scenario: Scenario) -> None:
     assert result.step_request_id == ctx.request.step_request_id
 
 
-def test_the_harness_catches_an_adapter_that_executes_a_protected_tool() -> None:
-    """The conformance check is not hollow: an adapter that runs the protected tool is reported."""
+# ---- the harness is not hollow: each way an adapter can cheat is caught
 
-    class Executing(FakeDriver):
+
+def adapter_driver(build: Callable[[Scenario, StepContext], object]) -> AdapterDriver:
+    """A driver whose adapter is whatever ``build`` makes."""
+
+    class Custom(FakeDriver):
         def adapter_for(self, scenario: Scenario, ctx: StepContext) -> object:
-            def run_it(request: AgentStepRequest) -> AgentStepResult:
-                ctx.protected_tool(document_type="pay_statement")
-                return answer(request, "completed")
+            return build(scenario, ctx)
 
-            return Spy(run_it)
+    return Custom()
+
+
+def reaching_provider(
+    ctx: StepContext, respond: Callable[[AgentStepRequest], AgentStepResult]
+) -> Spy:
+    """An adapter whose stubbed provider is reached (its counter moves) before ``respond`` answers."""
+
+    def reach(request: AgentStepRequest) -> AgentStepResult:
+        ctx.provider_called()
+        return respond(request)
+
+    return Spy(reach)
+
+
+def completing(ctx: StepContext, request: AgentStepRequest) -> AgentStepResult:
+    return answer(request, "completed", usage=ctx.staged_usage, usage_source="provider")
+
+
+def test_the_harness_catches_a_driver_that_never_reaches_its_provider() -> None:
+    """A canned result with no provider path (the stub's counter never moves) is not a passing adapter."""
+    driver = adapter_driver(lambda scenario, ctx: Spy(lambda request: completing(ctx, request)))
+    with pytest.raises(AssertionError, match="never reached"):
+        run_scenario(driver, Scenario.COMPLETES)
+
+
+def test_the_harness_catches_an_adapter_that_runs_the_protected_tool_from_the_registry() -> None:
+    """A lazy adapter that runs whatever the model named from the unfiltered registry trips the canary."""
+
+    def build(scenario: Scenario, ctx: StepContext) -> object:
+        def respond(request: AgentStepRequest) -> AgentStepResult:
+            ctx.tool_registry[PROTECTED_TOOL](**ctx.staged_args)
+            return completing(ctx, request)
+
+        return reaching_provider(ctx, respond)
 
     with pytest.raises(AssertionError, match="executed a protected tool"):
-        run_scenario(Executing(), Scenario.COMPLETES)
+        run_scenario(adapter_driver(build), Scenario.COMPLETES)
+
+
+def test_the_harness_catches_an_adapter_that_resolves_the_protected_tool_from_its_binding() -> None:
+    """The agent's own tool binding points at the canary: an adapter that imports what the binding names is caught."""
+
+    def build(scenario: Scenario, ctx: StepContext) -> object:
+        def respond(request: AgentStepRequest) -> AgentStepResult:
+            binding = next(b for b in ctx.step_input.agent.tools if b.local_name == PROTECTED_TOOL)
+            tool = getattr(importlib.import_module(binding.module_path), binding.callable_name)
+            tool(**ctx.staged_args)
+            return completing(ctx, request)
+
+        return reaching_provider(ctx, respond)
+
+    with pytest.raises(AssertionError, match="executed a protected tool"):
+        run_scenario(adapter_driver(build), Scenario.COMPLETES)
+
+
+@pytest.mark.parametrize(
+    "dodged",
+    [Scenario.COMPLETES, Scenario.PROPOSES_PROTECTED_TOOL, Scenario.CLAIMS_COMMIT],
+)
+def test_the_harness_does_not_let_a_driver_declare_a_core_scenario_unsupported(
+    dodged: Scenario,
+) -> None:
+    class Dodging(FakeDriver):
+        unsupported = frozenset({dodged})
+
+    with pytest.raises(AssertionError, match="may not declare"):
+        run_scenario(Dodging(), Scenario.READ_TOOL_CALL)
 
 
 def test_the_harness_catches_an_adapter_that_leaks_provider_text() -> None:
-    class Leaking(FakeDriver):
-        def adapter_for(self, scenario: Scenario, ctx: StepContext) -> object:
-            return Spy(lambda request: answer(request, "error", error_code=SECRET_MARKER))
+    def build(scenario: Scenario, ctx: StepContext) -> object:
+        return reaching_provider(
+            ctx, lambda request: answer(request, "error", error_code=SECRET_MARKER)
+        )
 
     with pytest.raises(AssertionError, match="carries provider text"):
-        run_scenario(Leaking(), Scenario.PROVIDER_ERROR)
+        run_scenario(adapter_driver(build), Scenario.PROVIDER_ERROR)
+
+
+def test_the_harness_sees_a_debug_log_that_leaks_provider_text() -> None:
+    """Loggers are lowered to DEBUG for the run, so a leak at debug level is caught; the levels are then restored."""
+    root, caliber = logging.getLogger(), logging.getLogger("caliber")
+    before = (root.level, caliber.level)
+
+    def build(scenario: Scenario, ctx: StepContext) -> object:
+        def leak(request: AgentStepRequest) -> AgentStepResult:
+            logging.getLogger("caliber.some.adapter").debug("provider said %s", SECRET_MARKER)
+            return failure(request, PROVIDER_ERROR)
+
+        return reaching_provider(ctx, leak)
+
+    with pytest.raises(AssertionError, match="a log record carries provider text"):
+        run_scenario(adapter_driver(build), Scenario.PROVIDER_ERROR)
+    assert (root.level, caliber.level) == before
 
 
 def test_the_harness_skips_a_scenario_the_transport_cannot_stage() -> None:
@@ -156,6 +274,250 @@ def test_the_harness_skips_a_scenario_the_transport_cannot_stage() -> None:
 
     with pytest.raises(pytest.skip.Exception):
         run_scenario(Limited(), Scenario.ANOTHER_STEPS_RESULT)
+
+
+@pytest.mark.parametrize("platform_code", sorted(PLATFORM_CODES))
+def test_the_harness_does_not_accept_a_platform_code_as_a_provider_failure(
+    platform_code: str,
+) -> None:
+    """An adapter that only falls through to one of the platform's own codes has not exercised its provider path."""
+
+    def build(scenario: Scenario, ctx: StepContext) -> object:
+        return reaching_provider(ctx, lambda request: failure(request, platform_code))
+
+    with pytest.raises(AssertionError):
+        run_scenario(adapter_driver(build), Scenario.PROVIDER_ERROR)
+
+
+@pytest.mark.parametrize(
+    "scenario",
+    [
+        Scenario.PROVIDER_TIMEOUT,
+        Scenario.UNREADABLE_OUTPUT,
+        Scenario.CLAIMS_COMMIT,
+        Scenario.ANOTHER_STEPS_RESULT,
+    ],
+)
+def test_the_harness_expects_the_specific_code_for_timeouts_and_unreadable_output(
+    scenario: Scenario,
+) -> None:
+    def build(scenario: Scenario, ctx: StepContext) -> object:
+        return reaching_provider(ctx, lambda request: failure(request, PROVIDER_ERROR))
+
+    with pytest.raises(AssertionError):
+        run_scenario(adapter_driver(build), scenario)
+
+
+def test_the_harness_requires_the_adapter_itself_to_return_a_typed_failure() -> None:
+    """The boundary would catch a raise; the adapter must not rely on it. Only its direct (second) call raises here."""
+    calls: list[int] = []
+
+    def build(scenario: Scenario, ctx: StepContext) -> object:
+        def respond(request: AgentStepRequest) -> AgentStepResult:
+            calls.append(1)
+            if len(calls) > 1:
+                raise RuntimeError(SECRET_MARKER)
+            return failure(request, PROVIDER_ERROR)
+
+        return reaching_provider(ctx, respond)
+
+    with pytest.raises(pytest.fail.Exception, match="instead of returning a typed result"):
+        run_scenario(adapter_driver(build), Scenario.PROVIDER_ERROR)
+
+
+def test_the_harness_does_not_accept_an_adapter_that_raises_for_a_provider_error() -> None:
+    def build(scenario: Scenario, ctx: StepContext) -> object:
+        def respond(request: AgentStepRequest) -> AgentStepResult:
+            raise RuntimeError("provider down")
+
+        return reaching_provider(ctx, respond)
+
+    # the boundary turns the raise into adapter_error, which is the platform's code, not the adapter's
+    with pytest.raises(AssertionError):
+        run_scenario(adapter_driver(build), Scenario.PROVIDER_ERROR)
+
+
+@pytest.mark.parametrize(
+    ("usage", "source"),
+    [
+        (StepUsage(0, 0, 0, 0, 0), "provider"),
+        (StepUsage(1, 1, 2, 1, 0), "provider"),
+        (None, "estimated"),
+    ],
+    ids=["zero_usage", "recounted_usage", "estimated_source"],
+)
+def test_the_harness_checks_usage_fidelity_on_completion(
+    usage: StepUsage | None, source: str
+) -> None:
+    def build(scenario: Scenario, ctx: StepContext) -> object:
+        return reaching_provider(
+            ctx,
+            lambda request: answer(
+                request, "completed", usage=usage or ctx.staged_usage, usage_source=source
+            ),
+        )
+
+    with pytest.raises(AssertionError):
+        run_scenario(adapter_driver(build), Scenario.COMPLETES)
+
+
+def test_the_harness_requires_a_proposal_to_derive_from_the_models_tool_call() -> None:
+    def build(scenario: Scenario, ctx: StepContext) -> object:
+        generic = dataclasses.replace(ctx.protected_action(), args={"document_type": "template"})
+        return reaching_provider(
+            ctx,
+            lambda request: answer(
+                request,
+                "proposed_action",
+                usage=ctx.staged_usage,
+                usage_source="provider",
+                proposed_actions=[generic],
+            ),
+        )
+
+    with pytest.raises(AssertionError):
+        run_scenario(adapter_driver(build), Scenario.PROPOSES_PROTECTED_TOOL)
+
+
+def test_the_harness_requires_the_models_effect_class_claim_to_be_carried_unchanged() -> None:
+    """An adapter that quietly rewrites a lie to the platform's class hides it; the claim is kept for B08.2 to refuse."""
+
+    def build(scenario: Scenario, ctx: StepContext) -> object:
+        return reaching_provider(
+            ctx,
+            lambda request: answer(
+                request,
+                "proposed_action",
+                usage=ctx.staged_usage,
+                usage_source="provider",
+                proposed_actions=[ctx.protected_action()],
+            ),
+        )
+
+    with pytest.raises(AssertionError):
+        run_scenario(adapter_driver(build), Scenario.MODEL_LIES_ABOUT_EFFECT_CLASS)
+
+
+def test_the_harness_requires_a_read_tool_call_to_run_through_read_tools() -> None:
+    def build(scenario: Scenario, ctx: StepContext) -> object:
+        return reaching_provider(ctx, lambda request: completing(ctx, request))
+
+    with pytest.raises(AssertionError):
+        run_scenario(adapter_driver(build), Scenario.READ_TOOL_CALL)
+
+
+@pytest.mark.parametrize("source", ["unknown", "provider"])
+def test_the_harness_requires_an_exhausted_budget_to_keep_the_providers_usage(source: str) -> None:
+    """Zero usage fails whatever it claims as its source: the staged provider spent tokens."""
+
+    def build(scenario: Scenario, ctx: StepContext) -> object:
+        return reaching_provider(
+            ctx, lambda request: answer(request, "max_tokens", usage_source=source)
+        )
+
+    with pytest.raises(AssertionError):
+        run_scenario(adapter_driver(build), Scenario.BUDGET_EXHAUSTED)
+
+
+# ------------------------------------------------------------------------------------------ the step input
+
+
+def tool_agent(*names: str) -> IRAgent:
+    return IRAgent(
+        node_id="request_document",
+        node_type=NodeType.AGENT,
+        name="a",
+        tools=[IRToolBinding(n, n, "*", False, "read", False, "m", "f") for n in names],
+    )
+
+
+def test_the_step_input_copies_what_it_is_given_into_read_only_containers() -> None:
+    """What the platform built cannot be changed through what an adapter holds, or the reverse."""
+    agent = tool_agent("a", "b")
+    tools: dict[str, Callable[..., Any]] = {"a": lambda: 1}
+    history = [{"role": "user", "content": "hi"}]
+    step_input = AgentStepInput(agent, "text", history=tuple(history), read_tools=tools)
+    tools["b"] = lambda: 2
+    history[0]["content"] = "changed"
+    assert set(step_input.read_tools) == {"a"}
+    assert step_input.history == ({"role": "user", "content": "hi"},)
+    with pytest.raises(TypeError):
+        step_input.read_tools["b"] = lambda: 2  # type: ignore[index]
+    with pytest.raises(dataclasses.FrozenInstanceError):
+        step_input.read_tools = {}  # type: ignore[misc]
+
+
+def test_the_step_input_refuses_a_read_tool_the_agent_does_not_have() -> None:
+    with pytest.raises(ValueError, match="not a tool of agent"):
+        AgentStepInput(tool_agent("a"), "t", read_tools={"other": lambda: 1})
+
+
+@pytest.mark.parametrize("bad", [{"a": "not callable"}, ["a"], None])
+def test_the_step_input_refuses_read_tools_that_are_not_callables(bad: Any) -> None:
+    with pytest.raises(TypeError):
+        AgentStepInput(tool_agent("a"), "t", read_tools=bad)
+
+
+def test_handoff_targets_carry_only_their_own_read_class_callables() -> None:
+    parent, target = tool_agent("a"), tool_agent("b", "write")
+    target = dataclasses.replace(target, node_id="child")
+    read_b = lambda: "data"
+    step_input = AgentStepInput(
+        parent,
+        "t",
+        handoff_agents={"child": StepHandoffTarget(target, {"b": read_b})},
+    )
+    assert step_input.handoff_agents is not None
+    handed = step_input.handoff_agents["child"]
+    assert dict(handed.read_tools) == {"b": read_b}
+    with pytest.raises(TypeError):
+        step_input.handoff_agents["x"] = handed  # type: ignore[index]
+    with pytest.raises(TypeError):
+        handed.read_tools["write"] = read_b  # type: ignore[index]
+
+
+def test_a_handoff_target_cannot_carry_a_tool_the_target_lacks_or_the_runtimes_unfiltered_map() -> (
+    None
+):
+    target = dataclasses.replace(tool_agent("b"), node_id="child")
+    with pytest.raises(ValueError, match="not a tool of agent"):
+        StepHandoffTarget(target, {"write": lambda: 1})
+    # the runtime's own shape, a (agent, every-callable) tuple, is refused: the type is the guard
+    with pytest.raises(TypeError, match="StepHandoffTarget"):
+        AgentStepInput(
+            tool_agent("a"),
+            "t",
+            handoff_agents={"child": (target, {"b": lambda: 1})},  # type: ignore[dict-item]
+        )
+    with pytest.raises(ValueError, match="names another agent"):
+        AgentStepInput(
+            tool_agent("a"),
+            "t",
+            handoff_agents={"someone_else": StepHandoffTarget(target)},
+        )
+
+
+def test_filter_read_tools_fails_closed() -> None:
+    def tool() -> None:
+        return None
+
+    tools = {"read_it": tool, "write_it": tool, "boom": tool, "truthy": tool}
+
+    def is_read(name: str) -> Any:
+        if name == "boom":
+            raise RuntimeError("classifier down")
+        return {"read_it": True, "truthy": "yes"}.get(name, False)
+
+    assert set(filter_read_tools(tools, is_read)) == {"read_it"}
+
+
+def test_the_step_input_must_be_for_the_requests_node() -> None:
+    ctx = make_context()
+    other = AgentStepInput(dataclasses.replace(ctx.step_input.agent, node_id="another_node"), "t")
+    spy = Spy(lambda request: completing(ctx, request))
+    with pytest.raises(ContractValidationError, match="not the request's node"):
+        run_agent_step(spy, ctx.request, other)
+    assert spy.calls == []
 
 
 # ------------------------------------------------------------------------------------------ the boundary
@@ -182,6 +544,30 @@ def test_an_object_without_run_step_is_refused_and_not_called(not_an_adapter: ob
     ctx = make_context()
     result = run(not_an_adapter, ctx)
     assert_typed_failure(result, ctx, ADAPTER_UNSUPPORTED, "refused")
+
+
+def test_an_async_run_step_is_refused_and_its_coroutine_is_closed_not_left_unawaited() -> None:
+    ctx = make_context()
+    created: list[Any] = []
+
+    class AsyncAdapter:
+        async def run_step(self, request: AgentStepRequest, step_input: AgentStepInput) -> Any:
+            raise AssertionError("an async adapter's body must never run")
+
+    class Recording(AsyncAdapter):
+        def run_step(self, request: AgentStepRequest, step_input: AgentStepInput) -> Any:  # type: ignore[override]
+            coroutine = AsyncAdapter.run_step(self, request, step_input)
+            created.append(coroutine)
+            return coroutine
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        result = run(Recording(), ctx)
+        gc.collect()
+    assert_typed_failure(result, ctx, ADAPTER_UNSUPPORTED, "refused")
+    assert result.error_code in NOT_CALLED_CODES
+    (coroutine,) = created
+    assert coroutine.cr_frame is None  # closed: it can no longer be awaited
 
 
 @pytest.mark.parametrize(
@@ -287,22 +673,172 @@ def test_the_returned_action_is_the_models_claim_even_if_the_adapter_marked_it_b
     assert result.proposed_actions[0] == action
 
 
-def test_a_subclass_cannot_return_a_different_record_than_it_validates() -> None:
-    """The boundary returns what it rebuilt from the record, not the adapter's own object."""
+class Hostile(dict):  # type: ignore[type-arg]
+    """A record that answers differently once it has been iterated: valid for the first pass, a commit for the next."""
+
+    def __init__(self, record: dict[str, Any]) -> None:
+        super().__init__(record)
+        self.armed = False
+        self.reads_after_arming = 0
+
+    def items(self) -> Any:
+        self.armed = True
+        return super().items()
+
+    def __getitem__(self, key: str) -> Any:
+        if self.armed:
+            self.reads_after_arming += 1
+            if key == "stop_reason":
+                return "committed"
+            if key == "error_code":
+                return SECRET_MARKER
+        return super().__getitem__(key)
+
+    def get(self, key: str, default: Any = None) -> Any:
+        if self.armed:
+            self.reads_after_arming += 1
+            if key == "error_code":
+                return SECRET_MARKER
+        return super().get(key, default)
+
+
+def test_the_result_is_read_once_from_a_plain_snapshot(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A record whose reads change after the validation pass cannot get a different answer through the parse pass."""
+    ctx = make_context()
+    hostile: list[Hostile] = []
+    real_record = AgentStepResult.record
+
+    def stateful_record(self: AgentStepResult) -> dict[str, Any]:
+        record = Hostile(real_record(self))
+        hostile.append(record)
+        return record
+
+    monkeypatch.setattr(AgentStepResult, "record", stateful_record)
+    result = run(Spy(answer(ctx.request, "completed", usage_source="provider")), ctx)
+    monkeypatch.undo()
+    assert result.stop_reason == "completed"
+    assert result.error_code is None
+    assert SECRET_MARKER not in json.dumps(result.record())
+    (record,) = hostile
+    assert record.armed and record.reads_after_arming == 0
+
+
+def test_a_result_subclass_is_never_asked_for_its_record() -> None:
+    """A subclass can override ``record()``: it is refused before any of its code runs."""
+    ctx = make_context()
+    asked: list[int] = []
+
+    @dataclasses.dataclass(frozen=True)
+    class Sneaky(AgentStepResult):
+        def record(self) -> dict[str, Any]:
+            asked.append(1)
+            return {**super().record(), "stop_reason": "committed"}
+
+    base = answer(ctx.request, "completed")
+    sneaky = Sneaky(**{f.name: getattr(base, f.name) for f in dataclasses.fields(AgentStepResult)})
+    assert_typed_failure(run(Spy(sneaky), ctx), ctx, MALFORMED_RESULT, "error")
+    assert asked == []
+
+
+def test_a_proposed_action_subclass_is_never_asked_for_its_record() -> None:
+    ctx = make_context()
+    asked: list[int] = []
+
+    class Sneaky(ProposedAction):
+        def record(self) -> dict[str, Any]:
+            asked.append(1)
+            return {**super().record(), "effect_class": "read"}
+
+    real = ctx.protected_action()
+    sneaky = Sneaky(
+        connector=real.connector,
+        connector_version=real.connector_version,
+        effect_class=real.effect_class,
+        resource=real.resource,
+        args=dict(real.args),
+    )
+    result = answer(ctx.request, "proposed_action", proposed_actions=[sneaky])
+    assert_typed_failure(run(Spy(result), ctx), ctx, MALFORMED_RESULT, "error")
+    assert asked == []
+
+
+def test_a_usage_subclass_is_never_trusted() -> None:
     ctx = make_context()
 
-    class Sneaky(AgentStepResult):
+    class Sneaky(StepUsage):
         pass
 
-    sneaky = Sneaky(
-        **{
-            f.name: getattr(answer(ctx.request, "completed"), f.name)
-            for f in dataclasses.fields(AgentStepResult)
-        }
+    result = answer(ctx.request, "completed", usage=Sneaky(1, 1, 2, 1, 0))
+    assert_typed_failure(run(Spy(result), ctx), ctx, MALFORMED_RESULT, "error")
+
+
+class LyingText(str):
+    """A ``str`` that compares equal to anything it is asked about, as a hostile field could."""
+
+    __slots__ = ()
+
+    def __eq__(self, other: object) -> bool:
+        return True
+
+    def __hash__(self) -> int:
+        return 0
+
+
+@pytest.mark.parametrize(
+    "field",
+    ["stop_reason", "step_request_id", "error_code"],
+)
+def test_a_field_that_is_not_exactly_a_plain_value_is_malformed(field: str) -> None:
+    ctx = make_context()
+    base = answer(
+        ctx.request,
+        "error" if field == "error_code" else "completed",
+        error_code="x" if field == "error_code" else None,
     )
-    result = run(Spy(sneaky), ctx)
-    assert type(result) is AgentStepResult
-    assert result == answer(ctx.request, "completed")
+    tampered = dataclasses.replace(base, **{field: LyingText(getattr(base, field))})
+    assert_typed_failure(run(Spy(tampered), ctx), ctx, MALFORMED_RESULT, "error")
+
+
+@pytest.mark.parametrize(
+    "tamper",
+    [
+        lambda r: dataclasses.replace(r, attempt=True),
+        lambda r: dataclasses.replace(r, proposed_actions=[]),
+        lambda r: dataclasses.replace(r, usage_source=b"unknown"),
+        lambda r: dataclasses.replace(r, usage=StepUsage(True, 0, 1, 0, 0)),
+    ],
+    ids=["bool_attempt", "list_of_actions", "bytes_usage_source", "bool_usage_figure"],
+)
+def test_other_values_that_are_not_exactly_the_contracts_types_are_malformed(
+    tamper: Callable[[AgentStepResult], AgentStepResult],
+) -> None:
+    ctx = make_context()
+    assert_typed_failure(
+        run(Spy(tamper(answer(ctx.request, "completed"))), ctx), ctx, MALFORMED_RESULT, "error"
+    )
+
+
+def test_a_dropped_result_logs_its_usage_numbers_and_nothing_else(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """The figures an adapter reported on a result that is dropped are in the log (for B08.4's reconciliation), as numbers."""
+    ctx = make_context()
+    crossed = dataclasses.replace(
+        answer(ctx.request, "completed", usage=StepUsage(10, 5, 15, 2, 1)),
+        occurrence_id="occ-of-another-step",
+    )
+    with caplog.at_level(logging.DEBUG):
+        run(Spy(crossed), ctx)
+    assert "reported usage: prompt=10 completion=5 total=15 turns=2 tool_calls=1" in caplog.text
+    assert "occ-of-another-step" not in caplog.text
+
+
+def test_a_dropped_non_result_logs_no_usage(caplog: pytest.LogCaptureFixture) -> None:
+    ctx = make_context()
+    with caplog.at_level(logging.DEBUG):
+        run(Spy({"usage": {"total_tokens": 999}}), ctx)
+    assert "reported usage" not in caplog.text
+    assert "returned an invalid result" in caplog.text
 
 
 # ---- an adapter that fails: bounded, quiet, typed
@@ -315,6 +851,7 @@ def test_a_subclass_cannot_return_a_different_record_than_it_validates() -> None
         (ConnectionError(SECRET_MARKER), ADAPTER_ERROR),
         (KeyError(SECRET_MARKER), ADAPTER_ERROR),
         (TimeoutError(SECRET_MARKER), ADAPTER_TIMEOUT),
+        (asyncio.TimeoutError(SECRET_MARKER), ADAPTER_TIMEOUT),
         (ContractValidationError("agent_step_result", [SECRET_MARKER]), MALFORMED_RESULT),
         (UnsupportedSchemaVersion("agent_step_result", "v9", ("v1",)), MALFORMED_RESULT),
         (ProposalError("bad", SECRET_MARKER), MALFORMED_RESULT),
@@ -335,11 +872,31 @@ def test_an_adapter_that_raises_becomes_a_bounded_error_result(
     assert ctx.request.step_request_id in caplog.text
 
 
-def test_an_interrupt_is_not_swallowed() -> None:
+def test_a_base_exception_is_not_swallowed() -> None:
+    """Interrupts and cancellation propagate: the provider call may have happened, and the caller keeps the reservation."""
     ctx = make_context()
-    for interrupt in (KeyboardInterrupt(), SystemExit(1)):
+    for interrupt in (
+        KeyboardInterrupt(),
+        SystemExit(1),
+        asyncio.CancelledError(),
+        GeneratorExit(),
+    ):
         with pytest.raises(type(interrupt)):
             run(Spy(interrupt), ctx)
+
+
+def test_only_a_step_whose_adapter_never_ran_may_release_its_reservation() -> None:
+    ctx = make_context()
+    assert {ADAPTER_UNSUPPORTED, ADAPTER_NOT_INTEGRATED} == NOT_CALLED_CODES
+    kept = [
+        run(Spy(RuntimeError("x")), ctx),
+        run(Spy(TimeoutError("x")), ctx),
+        run(Spy(None), ctx),
+        run(FakeWorkflowExecutor(step_script=[RuntimeError("p")]), ctx),
+    ]
+    assert all(result.error_code not in NOT_CALLED_CODES for result in kept)
+    released = [run(object(), ctx), run(every_executor()["anthropic"], ctx)]
+    assert {result.error_code for result in released} == NOT_CALLED_CODES
 
 
 def test_a_failure_never_carries_a_proposal_or_invented_usage() -> None:
@@ -428,27 +985,65 @@ def test_a_scripted_proposal_is_returned_unexecuted_and_unbound() -> None:
     assert ctx.protected_calls == [] and ctx.read_calls == []
 
 
-def test_the_fake_never_calls_a_tool_it_was_handed() -> None:
-    """Neither the read callables nor anything else in the step input is invoked: a step proposes, it does not act."""
+def test_the_fake_runs_only_the_read_tools_a_scripted_step_names_and_never_a_protected_one() -> (
+    None
+):
     ctx = make_context()
-    fake = FakeWorkflowExecutor(step_script=[ScriptedStep("completed")])
+    fake = FakeWorkflowExecutor(step_script=[ScriptedStep("completed"), ScriptedStep("completed")])
     run(fake, ctx)
     run(FakeWorkflowExecutor(), ctx)
     assert ctx.read_calls == [] and ctx.protected_calls == []
+    named = ScriptedStep("completed", read_tool_calls=((READ_TOOL, {"case_id": "c-1"}),))
+    assert run(FakeWorkflowExecutor(step_script=[named]), ctx).stop_reason == "completed"
+    assert ctx.read_calls == [{"case_id": "c-1"}]
 
 
-def test_a_scripted_exception_is_raised_once_by_the_adapter_and_the_next_entry_still_runs() -> None:
+def test_a_scripted_call_to_a_tool_outside_read_tools_is_refused_and_not_run() -> None:
     ctx = make_context()
-    fake = FakeWorkflowExecutor(step_script=[TimeoutError("t"), ScriptedStep("completed")])
-    with pytest.raises(TimeoutError):
-        fake.run_step(ctx.request, ctx.step_input)
+    named = ScriptedStep("completed", read_tool_calls=((PROTECTED_TOOL, dict(ctx.staged_args)),))
+    result = run(FakeWorkflowExecutor(step_script=[named]), ctx)
+    assert_typed_failure(result, ctx, TOOL_NOT_READ_CLASS, "refused")
+    assert ctx.protected_calls == []
+
+
+def test_a_read_tool_that_raises_is_a_typed_failure_not_an_exception() -> None:
+    ctx = make_context()
+
+    def broken(**arguments: Any) -> None:
+        raise RuntimeError(SECRET_MARKER)
+
+    step_input = AgentStepInput(ctx.step_input.agent, "t", read_tools={READ_TOOL: broken})
+    fake = FakeWorkflowExecutor(
+        step_script=[ScriptedStep("completed", read_tool_calls=((READ_TOOL, {}),))]
+    )
+    result = fake.run_step(ctx.request, step_input)
+    assert_typed_failure(result, ctx, TOOL_ERROR, "error")
+
+
+@pytest.mark.parametrize(
+    ("staged", "code"),
+    [
+        (TimeoutError(SECRET_MARKER), ADAPTER_TIMEOUT),
+        (asyncio.TimeoutError(), ADAPTER_TIMEOUT),
+        (RuntimeError(SECRET_MARKER), PROVIDER_ERROR),
+        (KeyError("k"), PROVIDER_ERROR),
+    ],
+    ids=["timeout", "asyncio_timeout", "runtime", "key"],
+)
+def test_a_scripted_provider_exception_is_returned_as_a_typed_failure_by_the_adapter(
+    staged: Exception, code: str
+) -> None:
+    """A conformant adapter never raises: the fake's staged provider error comes back as a result, and the next entry runs."""
+    ctx = make_context()
+    fake = FakeWorkflowExecutor(step_script=[staged, ScriptedStep("completed")])
+    result = fake.run_step(ctx.request, ctx.step_input)
+    assert_typed_failure(result, ctx, code, "error")
     assert fake.run_step(ctx.request, ctx.step_input).stop_reason == "completed"
 
 
 def test_a_scripted_record_is_read_like_provider_output() -> None:
     ctx = make_context()
-    good = lambda request: ctx.valid_record()
-    fake = FakeWorkflowExecutor(step_script=[good])
+    fake = FakeWorkflowExecutor(step_script=[lambda request: ctx.valid_record()])
     assert run(fake, ctx).stop_reason == "completed"
 
 
@@ -464,12 +1059,12 @@ def test_a_scripted_record_is_read_like_provider_output() -> None:
     ],
     ids=["extra_state", "stop_committed", "version_v2", "other_attempt", "bad_action", "empty"],
 )
-def test_scripted_provider_records_that_are_invalid_are_malformed(
+def test_scripted_provider_records_that_are_invalid_are_malformed_and_returned_by_the_adapter(
     record: Callable[[StepContext], dict[str, Any]],
 ) -> None:
     ctx = make_context()
     fake = FakeWorkflowExecutor(step_script=[lambda request: record(ctx)])
-    assert_typed_failure(run(fake, ctx), ctx, MALFORMED_RESULT, "error")
+    assert_typed_failure(fake.run_step(ctx.request, ctx.step_input), ctx, MALFORMED_RESULT, "error")
 
 
 def test_a_scripted_record_with_too_deep_arguments_is_refused() -> None:
@@ -504,6 +1099,36 @@ def test_a_shared_script_hands_each_concurrent_step_a_different_entry() -> None:
     assert fake.step_script.remaining == 0
 
 
+def test_two_callers_on_one_entry_get_it_once_and_a_refusal_never_an_exception() -> None:
+    ctx = make_context()
+    for _ in range(25):
+        script = StepScript([ScriptedStep("completed")])
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            results = list(
+                pool.map(
+                    lambda _, script=script: script.answer(ctx.request, ctx.step_input), range(2)
+                )
+            )
+        assert sorted(r.stop_reason for r in results) == ["completed", "refused"]
+
+
+def test_the_script_does_not_check_then_pop() -> None:
+    """If another caller takes the last entry between a length check and the pop, the loser is refused, not an IndexError."""
+    ctx = make_context()
+
+    class Drained(deque):  # type: ignore[type-arg]
+        def __len__(self) -> int:
+            return 1
+
+        def __bool__(self) -> bool:
+            return True
+
+    script = StepScript([])
+    script._entries = Drained()
+    result = script.answer(ctx.request, ctx.step_input)
+    assert_typed_failure(result, ctx, SCRIPT_EXHAUSTED, "refused")
+
+
 def test_a_step_script_can_be_used_without_the_executor() -> None:
     ctx = make_context()
     script = StepScript([ScriptedStep("completed")])
@@ -513,7 +1138,7 @@ def test_a_step_script_can_be_used_without_the_executor() -> None:
 def test_run_agent_is_unchanged_by_the_step_script() -> None:
     """Existing (ungoverned) agent turns keep working and keep their own bookkeeping, scripted or not."""
     ctx = make_context()
-    agent = ctx.step_input.agent
+    agent = dataclasses.replace(ctx.step_input.agent, tools=[])
     fake = FakeWorkflowExecutor(step_script=[ScriptedStep("completed")])
     turn = fake.run_agent(agent, "hello world", tool_callables={}, preview=True)
     assert turn.final_output == "[Request document] processed: hello world"

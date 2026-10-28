@@ -33,7 +33,7 @@ import logging
 import re
 import textwrap
 import time
-from collections.abc import Callable, Collection, Iterable, Iterator
+from collections.abc import Callable, Collection, Iterator
 from concurrent.futures import ThreadPoolExecutor
 from concurrent.futures import TimeoutError as FuturesTimeout
 from dataclasses import dataclass, field
@@ -47,7 +47,6 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from caliber.auth import CaliberIdentity
 from caliber.config import provider_request_timeout
 from caliber.context.authorize import ContextDenied
-from caliber.contracts.agent_step import AgentStepRequest, AgentStepResult
 from caliber.effects.reconcile import UnknownEffectError
 from caliber.integrations.openapi.executor import bind_openapi_http_tool
 from caliber.llm.models import (
@@ -61,14 +60,7 @@ from caliber.tool_sandbox.models import ToolSandboxRunRequest
 from caliber.tool_sandbox.service import (
     sandbox_from_optional_config,
 )
-from caliber.workflows.agent_step import (
-    ADAPTER_NOT_INTEGRATED,
-    AgentStepAdapter,
-    AgentStepInput,
-    ScriptEntry,
-    StepScript,
-    refusal,
-)
+from caliber.workflows import agent_step as _agent_step
 from caliber.workflows.guardrails import (
     GuardrailBlockedError,
     GuardrailContext,
@@ -375,6 +367,10 @@ class AgentTurnResult:
 ResolvedHandoffAgents = dict[str, tuple[IRAgent, dict[str, Callable[..., Any]]]]
 
 
+#: The governed-step protocol (B08.1b); the Protocol itself lives in ``caliber.workflows.agent_step``.
+AgentStepAdapter = _agent_step.AgentStepAdapter
+
+
 class WorkflowExecutor(Protocol):
     """Runs a single agent turn given resolved tool callables."""
 
@@ -399,7 +395,8 @@ class FakeWorkflowExecutor:
 
     It is also the scripted :class:`~caliber.workflows.agent_step.AgentStepAdapter` (``run_step``, B08.1b): ``step_script``
     lists the outcomes it answers governed steps with (see :class:`~caliber.workflows.agent_step.StepScript`); without one
-    every step completes with a deterministic estimated usage. It proposes and answers; it never calls a tool.
+    every step completes with a deterministic estimated usage. It proposes and answers; it never runs a protected tool (a
+    scripted step may name read tools, which run only through ``read_tools``).
     """
 
     def __init__(
@@ -407,10 +404,10 @@ class FakeWorkflowExecutor:
         *,
         follow_handoffs: bool = True,
         skip_tools: bool = False,
-        step_script: Iterable[ScriptEntry] | None = None,
+        step_script: _agent_step.ScriptEntries | None = None,
     ) -> None:
-        self.step_script = StepScript(step_script)
-        self.step_requests: list[AgentStepRequest] = []
+        self.step_script = _agent_step.StepScript(step_script)
+        self.step_requests: list[_agent_step.AgentStepRequest] = []
         self.follow_handoffs = follow_handoffs
         # When True the executor does NOT invoke the agent's tools — simulating
         # an un-grounded agent so guardrails like tool_required_before_claim
@@ -463,8 +460,10 @@ class FakeWorkflowExecutor:
             tokens=len(input_text.split()) + 8,
         )
 
-    def run_step(self, request: AgentStepRequest, step_input: AgentStepInput) -> AgentStepResult:
-        """One governed step, answered from :attr:`step_script`; no tool is called and nothing is executed."""
+    def run_step(
+        self, request: _agent_step.AgentStepRequest, step_input: _agent_step.AgentStepInput
+    ) -> _agent_step.AgentStepResult:
+        """One governed step, answered from :attr:`step_script`; no protected tool is called and no effect happens."""
         self.step_requests.append(request)
         return self.step_script.answer(request, step_input)
 
@@ -736,14 +735,16 @@ class OpenAIChatWorkflowExecutor:
         self._prompt_cache_enabled = prompt_cache_enabled
         self._prompt_cache_retention = prompt_cache_retention or None
 
-    def run_step(self, request: AgentStepRequest, step_input: AgentStepInput) -> AgentStepResult:
+    def run_step(
+        self, request: _agent_step.AgentStepRequest, step_input: _agent_step.AgentStepInput
+    ) -> _agent_step.AgentStepResult:
         """Governed execution is not integrated for this executor yet (B08, #729): refused, no provider is called.
 
-        The step is answered with a ``refused`` result  before any client is built or any
+        The step is answered with a ``refused`` result (``adapter_not_integrated``) before any client is built or any
         network is touched; :meth:`run_agent` is unchanged. The task that integrates this adapter replaces this body.
         """
         del step_input
-        return refusal(request, ADAPTER_NOT_INTEGRATED)
+        return _agent_step.refusal(request, _agent_step.ADAPTER_NOT_INTEGRATED)
 
     def run_agent(  # noqa: PLR0915 - provider request/response loop with tool replay
         self,
@@ -952,14 +953,16 @@ class OpenAIResponsesWorkflowExecutor:
         self._prompt_cache_enabled = prompt_cache_enabled
         self._prompt_cache_retention = prompt_cache_retention or None
 
-    def run_step(self, request: AgentStepRequest, step_input: AgentStepInput) -> AgentStepResult:
+    def run_step(
+        self, request: _agent_step.AgentStepRequest, step_input: _agent_step.AgentStepInput
+    ) -> _agent_step.AgentStepResult:
         """Governed execution is not integrated for this executor yet (B08, #730): refused, no provider is called.
 
-        The step is answered with a ``refused`` result  before any client is built or any
+        The step is answered with a ``refused`` result (``adapter_not_integrated``) before any client is built or any
         network is touched; :meth:`run_agent` is unchanged. The task that integrates this adapter replaces this body.
         """
         del step_input
-        return refusal(request, ADAPTER_NOT_INTEGRATED)
+        return _agent_step.refusal(request, _agent_step.ADAPTER_NOT_INTEGRATED)
 
     def run_agent(  # noqa: PLR0915 - provider request/response loop with tool replay
         self,
@@ -1167,14 +1170,16 @@ class OpenAIAgentsWorkflowExecutor:
             handoff,
         )
 
-    def run_step(self, request: AgentStepRequest, step_input: AgentStepInput) -> AgentStepResult:
+    def run_step(
+        self, request: _agent_step.AgentStepRequest, step_input: _agent_step.AgentStepInput
+    ) -> _agent_step.AgentStepResult:
         """Governed execution is not integrated for this executor yet (B08, #728): refused, no provider is called.
 
-        The step is answered with a ``refused`` result  before any client is built or any
+        The step is answered with a ``refused`` result (``adapter_not_integrated``) before any client is built or any
         network is touched; :meth:`run_agent` is unchanged. The task that integrates this adapter replaces this body.
         """
         del step_input
-        return refusal(request, ADAPTER_NOT_INTEGRATED)
+        return _agent_step.refusal(request, _agent_step.ADAPTER_NOT_INTEGRATED)
 
     def run_agent(  # noqa: PLR0915 - SDK orchestration plus tool/result bridging
         self,
@@ -1486,14 +1491,16 @@ class AnthropicChatWorkflowExecutor:
         self._client = Anthropic(api_key=self._api_key, timeout=provider_request_timeout())
         return self._client
 
-    def run_step(self, request: AgentStepRequest, step_input: AgentStepInput) -> AgentStepResult:
+    def run_step(
+        self, request: _agent_step.AgentStepRequest, step_input: _agent_step.AgentStepInput
+    ) -> _agent_step.AgentStepResult:
         """Governed execution is not integrated for this executor yet (B08, #727): refused, no provider is called.
 
-        The step is answered with a ``refused`` result  before any client is built or any
+        The step is answered with a ``refused`` result (``adapter_not_integrated``) before any client is built or any
         network is touched; :meth:`run_agent` is unchanged. The task that integrates this adapter replaces this body.
         """
         del step_input
-        return refusal(request, ADAPTER_NOT_INTEGRATED)
+        return _agent_step.refusal(request, _agent_step.ADAPTER_NOT_INTEGRATED)
 
     def run_agent(  # noqa: PLR0912, PLR0915 - bounded Anthropic tool loop
         self,
@@ -8010,7 +8017,6 @@ def _value_for_field(context: dict[str, Any], field: str) -> Any:
 
 
 __all__ = [
-    "AgentStepAdapter",
     "AgentTurnResult",
     "CaliberRunContext",
     "FakeWorkflowExecutor",
