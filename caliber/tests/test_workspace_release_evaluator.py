@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import threading
+import time
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
@@ -20,11 +21,11 @@ from typing import Any
 import pytest
 from alembic import command
 from alembic.config import Config
-from sqlalchemy import create_engine, select, text
+from sqlalchemy import create_engine, event, select, text
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, sessionmaker
 
-from caliber.config import CaliberConfig
+from caliber.config import CaliberConfig, ConfigError
 from caliber.db import Base
 from caliber.db.models import (
     CaliberProject,
@@ -37,6 +38,7 @@ from caliber.db.session import sessionmaker_from_engine
 from caliber.observability.worker_registry import (
     KIND_WORKSPACE_RELEASE_EVALUATOR,
     reap_stale_workers,
+    stale_after_seconds,
 )
 from caliber.orchestrator import workspace_release_evaluator as evaluator_module
 from caliber.orchestrator.workspace_release_evaluator import (
@@ -82,10 +84,10 @@ class _Records(logging.Handler):
 
 
 @contextmanager
-def _logged() -> Iterator[_Records]:
-    """Capture the evaluator's own log (Alembic's logging setup detaches pytest's root handler)."""
+def _logged(name: str = LOGGER) -> Iterator[_Records]:
+    """Capture a log (Alembic's logging setup detaches pytest's root handler)."""
     handler = _Records()
-    logger = logging.getLogger(LOGGER)
+    logger = logging.getLogger(name)
     previous = logger.level
     logger.addHandler(handler)
     logger.setLevel(logging.DEBUG)
@@ -113,6 +115,31 @@ def _database(
             yield engine, sessionmaker_from_engine(engine)
         finally:
             engine.dispose()
+
+
+@contextmanager
+def _sql(engine: Engine) -> Iterator[list[str]]:
+    """Every statement the engine executes, in order (thread-safe: list.append)."""
+    statements: list[str] = []
+
+    def record(conn: Any, cursor: Any, statement: str, *rest: Any) -> None:
+        statements.append(" ".join(statement.split()))
+
+    event.listen(engine, "before_cursor_execute", record)
+    try:
+        yield statements
+    finally:
+        event.remove(engine, "before_cursor_execute", record)
+
+
+def _candidate_selects(statements: list[str]) -> list[str]:
+    return [
+        st
+        for st in statements
+        if st.startswith("SELECT")
+        and "FROM caliber_workspace_release_evaluations" in st
+        and "ORDER BY" in st
+    ]
 
 
 def _config(**overrides: Any) -> SimpleNamespace:
@@ -372,7 +399,37 @@ def test_a_claim_is_fenced_by_the_lease_it_was_made_under(
         claimed = worker.tick()
 
         assert claimed is not None and claimed.fencing_token == lease.fencing_token == 1
-        assert _row(factory, ids["one"]).claimed_by == worker.worker_id
+        identity = f"{worker.worker_id}:t1"
+        assert claimed.worker_id == identity, "the token is part of the claim identity"
+        row = _row(factory, ids["one"])
+        assert row.claimed_by == row.started_by == identity
+        assert row.claimed_by.startswith("workspace-release-evaluator-"), (
+            "recovery SQL LIKE still works"
+        )
+
+
+@pytest.mark.parametrize("dialect", DIALECTS)
+def test_the_fencing_token_is_recorded_across_an_owner_secondary_owner_flip(
+    dialect: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    with _database(dialect, tmp_path, monkeypatch) as (engine, factory):
+        ids = _seed(factory, "a", "b", times={"a": BASE, "b": BASE + timedelta(minutes=1)})
+        held: list[Lease | None] = [_acquire(factory, "node-a")]
+        worker = _evaluator(factory, provider=lambda: held[0])
+
+        first = worker.tick()
+        assert first is not None and first.fencing_token == 1
+        held[0] = None  # secondary: the lease is lost
+        assert worker.tick() is None
+        _expire_lease(engine)
+        held[0] = _acquire(factory, "node-a")  # owner again: a new acquisition raises the token
+        second = worker.tick()
+
+        assert second is not None and second.fencing_token == 2
+        assert _row(factory, ids["a"]).claimed_by == f"{worker.worker_id}:t1", (
+            "attempt 1 keeps its token"
+        )
+        assert _row(factory, ids["b"]).claimed_by == f"{worker.worker_id}:t2"
 
 
 @pytest.mark.parametrize("dialect", DIALECTS)
@@ -434,27 +491,44 @@ def test_a_lease_store_failure_claims_nothing_and_is_logged_without_row_content(
         assert HEX not in caplog.text, "no row content in the log"
 
 
-def test_the_fence_is_checked_before_the_row_is_read(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+@pytest.mark.parametrize("dialect", DIALECTS)
+def test_the_fence_statement_runs_before_the_queue_is_read(
+    dialect: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """A lost lease must not even look at the queue: the fence runs first, in the claiming transaction."""
-    with _database("sqlite", tmp_path, monkeypatch) as (_, factory):
+    """Executed SQL, not call order: a lost lease must not even look at the queue."""
+    with _database(dialect, tmp_path, monkeypatch) as (engine, factory):
         _seed(factory, "one")
         lease = _acquire(factory, "node-a")
-        calls: list[str] = []
-        real_claim = claim_workspace_release_evaluation
+        worker = _evaluator(factory, provider=lambda: lease)
+        with _sql(engine) as statements:
+            assert worker.tick() is not None
+        fence = next(
+            i
+            for i, st in enumerate(statements)
+            if st.startswith("SELECT") and "FROM caliber_execution_owner" in st
+        )
+        queue = statements.index(_candidate_selects(statements)[0])
+        assert fence < queue
+        if dialect == "postgresql":
+            sets = [i for i, st in enumerate(statements) if st.startswith("SET LOCAL")]
+            assert sets and max(sets) < fence, (
+                "the bounds are set before the fence waits on anything"
+            )
 
-        def fence(session: Session, held: Lease) -> None:
-            calls.append("fence")
 
-        def claim(*args: Any, **kwargs: Any) -> Any:
-            calls.append("claim")
-            return real_claim(*args, **kwargs)
-
-        monkeypatch.setattr(evaluator_module, "assert_fenced", fence)
-        monkeypatch.setattr(evaluator_module, "claim_workspace_release_evaluation", claim)
-        _evaluator(factory, provider=lambda: lease).tick()
-        assert calls == ["fence", "claim"]
+@pytest.mark.parametrize("dialect", DIALECTS)
+def test_a_lost_lease_never_reads_the_queue(
+    dialect: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    with _database(dialect, tmp_path, monkeypatch) as (engine, factory):
+        _seed(factory, "one")
+        stale = _acquire(factory, "node-a")
+        _expire_lease(engine)
+        _acquire(factory, "node-b")
+        worker = _evaluator(factory, provider=lambda: stale)
+        with _sql(engine) as statements:
+            assert worker.tick() is None
+        assert _candidate_selects(statements) == []
 
 
 def test_bind_lease_provider_turns_the_fence_on_and_off(
@@ -512,7 +586,52 @@ def test_postgresql_concurrent_evaluators_claim_each_row_exactly_once(
         for evaluation_id in ids.values():
             row = _row(factory, evaluation_id)
             assert row.status == EVALUATION_RUNNING and row.attempt_number == 1
-        assert {c.worker_id for c in claimed} <= {w.worker_id for w in workers}
+        assert {c.worker_id for c in claimed} <= {f"{w.worker_id}:t1" for w in workers}
+
+
+def test_postgresql_unfenced_concurrent_evaluators_win_each_row_exactly_once(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """No lease (the unfenced path): the row lock and the conditional UPDATE alone keep claims exclusive."""
+    from tests.dialect_helpers import POSTGRES_TEST_URL
+
+    if not POSTGRES_TEST_URL:
+        pytest.skip("CALIBER_TEST_POSTGRES_URL is not set")
+    with _database("postgresql", tmp_path, monkeypatch) as (engine, factory):
+        ids = _seed(factory, *[f"u{i}" for i in range(8)])
+        workers = [_evaluator(factory, provider=None) for _ in range(4)]
+        results: list[ClaimedEvaluation | None] = []
+        errors: list[BaseException] = []
+        start = threading.Barrier(len(workers))
+
+        def run(worker: WorkspaceReleaseEvaluator) -> None:
+            try:
+                start.wait(timeout=10)
+                for _ in range(3):
+                    results.append(worker.tick())
+            except BaseException as exc:
+                errors.append(exc)
+
+        with _sql(engine) as statements:
+            threads = [threading.Thread(target=run, args=(w,)) for w in workers]
+            for thread in threads:
+                thread.start()
+            for thread in threads:
+                thread.join(timeout=60)
+        assert errors == [], "a tick returns a row or None; it never raises"
+        assert len(results) == 12
+        won = [r.evaluation_id for r in results if r is not None]
+        assert len(won) == len(set(won)), "no row was won twice"
+        assert set(won) <= set(ids.values())
+        # drain what contention left behind: every row ends claimed exactly once
+        drain = workers[0]
+        while (got := drain.tick()) is not None:
+            won.append(got.evaluation_id)
+        assert sorted(won) == sorted(ids.values())
+        for evaluation_id in ids.values():
+            assert _row(factory, evaluation_id).attempt_number == 1
+        selects = _candidate_selects(statements)
+        assert selects and all(st.endswith("FOR UPDATE SKIP LOCKED") for st in selects), selects[:1]
 
 
 def test_postgresql_a_held_lease_row_bounds_the_claim_wait(
@@ -527,14 +646,61 @@ def test_postgresql_a_held_lease_row_bounds_the_claim_wait(
         lease = _acquire(factory, "node-a")
         # a third of 0.3 s is below the 100 ms floor: the claim waits at most 100 ms for the lease row
         worker = _evaluator(factory, provider=lambda: lease, execution_lease_seconds=0.3)
-        with engine.connect() as holder:
+        outcome: list[tuple[ClaimedEvaluation | None, float]] = []
+
+        def run() -> None:
+            began = time.monotonic()
+            outcome.append((worker.tick(), time.monotonic() - began))
+
+        with engine.connect() as holder, _logged() as records:
             holder.execute(text("SELECT 1 FROM caliber_execution_owner FOR UPDATE"))
-            with _logged() as caplog:
-                assert worker.tick() is None
-            holder.rollback()
+            thread = threading.Thread(target=run)
+            thread.start()
+            thread.join(timeout=5)  # a hang is an assertion failure, not a stuck test run
+            returned = not thread.is_alive()
+            holder.rollback()  # lets a stuck claim finish so the thread can always be joined
+            thread.join(timeout=30)
+        assert returned, "the claim waited on the held lease row for more than 5 s"
+        claimed, elapsed = outcome[0]
+        assert claimed is None and elapsed < 2.5, f"bounded wait took {elapsed:.2f}s"
         assert _row(factory, ids["one"]).status == EVALUATION_QUEUED
-        assert any("lease store is unavailable" in m for m in caplog.messages)
+        assert any("lease store is unavailable" in m for m in records.messages)
         assert worker.tick() is not None, "once the row is free the claim goes through"
+
+
+def test_postgresql_the_fenced_claim_sets_lock_and_statement_timeouts(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from tests.dialect_helpers import POSTGRES_TEST_URL
+
+    if not POSTGRES_TEST_URL:
+        pytest.skip("CALIBER_TEST_POSTGRES_URL is not set")
+    with _database("postgresql", tmp_path, monkeypatch) as (engine, factory):
+        _seed(factory, "one")
+        lease = _acquire(factory, "node-a")
+        seen: dict[str, str] = {}
+
+        def fence(session: Session, held: Lease) -> None:
+            seen["lock"] = session.execute(text("SHOW lock_timeout")).scalar_one()
+            seen["statement"] = session.execute(text("SHOW statement_timeout")).scalar_one()
+
+        monkeypatch.setattr(evaluator_module, "assert_fenced", fence)
+        # a third of a 3 s execution lease: both bounds are 1 s, in the claiming transaction only
+        worker = _evaluator(factory, provider=lambda: lease, execution_lease_seconds=3.0)
+        assert worker.tick() is not None
+        assert seen == {"lock": "1s", "statement": "1s"}
+        with factory() as after:
+            assert after.execute(text("SHOW statement_timeout")).scalar_one() == "0", (
+                "SET LOCAL ended"
+            )
+        # an unfenced claim (no lease) sets no timeouts
+        _seed_second = _evaluator(factory, provider=None)
+        with factory() as session:
+            _queue(session, "two")
+            session.commit()
+        with _sql(engine) as statements:
+            assert _seed_second.tick() is not None
+        assert not [st for st in statements if st.startswith("SET LOCAL")]
 
 
 def test_postgresql_a_takeover_waits_for_the_claim_in_flight(
@@ -682,48 +848,187 @@ def test_a_stale_row_of_a_replaced_evaluator_is_reaped_but_other_kinds_are_not(
         assert ids == {worker.worker_id, "gone-run-worker"}
 
 
-def test_reaping_runs_at_most_once_a_minute(
+def test_reaping_runs_at_most_once_a_minute_and_its_staleness_follows_the_poll_interval(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     with _database("sqlite", tmp_path, monkeypatch) as (_, factory):
-        calls: list[str] = []
+        calls: list[float] = []
         real = reap_stale_workers
 
         def counting(*args: Any, **kwargs: Any) -> int:
-            calls.append("reap")
+            calls.append(kwargs["stale_after"])
             return real(*args, **kwargs)
 
         monkeypatch.setattr(evaluator_module, "reap_stale_workers", counting)
-        worker = _evaluator(factory)
+        # a very long claim lease must not stretch how soon a silent evaluator reads as stale
+        worker = _evaluator(
+            factory, interval=20.0, workspace_release_evaluator_lease_seconds=86400.0
+        )
         worker.tick()
         worker.tick()
-        assert calls == ["reap"]
+        assert calls == [stale_after_seconds(20.0)] == [60.0]
 
 
 # ---------------------------------------------------------------- the loop
 
 
-def test_the_loop_claims_a_queued_row_and_stop_removes_the_heartbeat(
+def test_the_loop_claims_a_queued_row_and_a_clean_stop_requeues_it_and_removes_the_heartbeat(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     with _database("sqlite", tmp_path, monkeypatch) as (_, factory):
         ids = _seed(factory, "one")
         worker = _evaluator(factory)
+        seen: list[str] = []
 
         async def scenario() -> None:
             await worker.start()
             with pytest.raises(RuntimeError, match="already running"):
                 await worker.start()
             for _ in range(200):
-                if _row(factory, ids["one"]).status == EVALUATION_RUNNING:
+                row = _row(factory, ids["one"])
+                if row.status == EVALUATION_RUNNING:
+                    seen.append(row.claimed_by or "")
                     break
                 await asyncio.sleep(0.02)
             await worker.stop()
             await worker.stop()  # a second stop is a no-op
 
-        asyncio.run(scenario())
-        assert _row(factory, ids["one"]).claimed_by == worker.worker_id
+        with _logged() as records:
+            asyncio.run(scenario())
+        assert seen == [worker.worker_id], "the loop did claim it"
+        row = _row(factory, ids["one"])
+        assert row.status == EVALUATION_QUEUED and row.claimed_by is None, (
+            "stop gave the claim back"
+        )
         assert _heartbeats(factory) == [], "a clean stop is not reported as a dead worker"
+        text_ = records.text
+        assert "is enabled: it CLAIMS" in text_ and "#707" in text_ and "#721" in text_
+        assert "nothing executes it until B10.2" in text_
+        assert "requeued 1 claimed evaluation" in text_
+
+
+def _claim_as(
+    factory: Factory, evaluation_id: str, identity: str, lease_seconds: int = 300
+) -> None:
+    with factory() as session:
+        evaluation = session.get(CaliberWorkspaceReleaseEvaluation, evaluation_id)
+        assert evaluation is not None
+        claim_workspace_release_evaluation(
+            session, evaluation, worker_id=identity, lease_seconds=lease_seconds
+        )
+        session.commit()
+
+
+@pytest.mark.parametrize("dialect", DIALECTS)
+def test_release_claims_requeues_only_this_workers_running_claims(
+    dialect: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    with _database(dialect, tmp_path, monkeypatch) as (_, factory):
+        ids = _seed(factory, "plain", "fenced", "other", "lookalike", "done", "waiting")
+        worker = _evaluator(factory)
+        _claim_as(factory, ids["plain"], worker.worker_id)
+        _claim_as(factory, ids["fenced"], f"{worker.worker_id}:t7")
+        _claim_as(factory, ids["other"], "workspace-release-evaluator-9-other")
+        _claim_as(
+            factory, ids["lookalike"], f"{worker.worker_id}x"
+        )  # shares the prefix, is not ours
+        _claim_as(factory, ids["done"], worker.worker_id)
+        with factory() as session:
+            done = session.get(CaliberWorkspaceReleaseEvaluation, ids["done"])
+            assert done is not None
+            done.status = EVALUATION_SUCCEEDED
+            session.commit()
+        before = {name: _row(factory, evaluation_id) for name, evaluation_id in ids.items()}
+
+        with _logged() as records:
+            assert worker.release_claims() == 2
+
+        for name in ("plain", "fenced"):
+            row = _row(factory, ids[name])
+            assert row.status == EVALUATION_QUEUED
+            assert row.claimed_by is None and row.started_by is None and row.started_at is None
+            assert row.heartbeat_at is None and row.lease_expires_at is None
+            assert row.attempt_number == before[name].attempt_number == 1, (
+                "the attempt number is kept"
+            )
+        for name in ("other", "lookalike", "done"):
+            row = _row(factory, ids[name])
+            assert (row.status, row.claimed_by, row.lease_expires_at) == (
+                before[name].status,
+                before[name].claimed_by,
+                before[name].lease_expires_at,
+            ), f"{name} is not this worker's claim: untouched"
+        assert _row(factory, ids["waiting"]).status == EVALUATION_QUEUED
+        assert "requeued 2 claimed" in records.text
+        assert worker.release_claims() == 0, "nothing left to give back"
+        # a requeued row is claimable again, by anyone
+        again = _evaluator(factory).tick()
+        assert again is not None and again.evaluation_id in {
+            ids["plain"],
+            ids["fenced"],
+            ids["waiting"],
+        }
+
+
+def test_a_stop_after_the_lease_was_lost_still_gives_the_claim_back(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    with _database("sqlite", tmp_path, monkeypatch) as (_, factory):
+        ids = _seed(factory, "one")
+        lease = _acquire(factory, "node-a")
+        held: list[Lease | None] = [lease]
+        worker = _evaluator(factory, provider=lambda: held[0])
+
+        async def scenario() -> None:
+            await worker.start()
+            for _ in range(200):
+                if _row(factory, ids["one"]).status == EVALUATION_RUNNING:
+                    break
+                await asyncio.sleep(0.02)
+            held[0] = None  # the lease is lost, then the controller stops the loops
+            await worker.stop()
+
+        asyncio.run(scenario())
+        row = _row(factory, ids["one"])
+        assert row.status == EVALUATION_QUEUED and row.claimed_by is None
+
+
+def test_a_failure_to_requeue_is_logged_and_the_stop_still_completes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    with _database("sqlite", tmp_path, monkeypatch) as (_, factory):
+        worker = _evaluator(factory)
+
+        def broken() -> int:
+            raise RuntimeError("database went away")
+
+        monkeypatch.setattr(worker, "release_claims", broken)
+
+        async def scenario() -> None:
+            await worker.start()
+            await asyncio.sleep(0.05)
+            await worker.stop()
+
+        with _logged() as records:
+            asyncio.run(scenario())
+        assert "could not requeue its claims" in records.text
+        assert "workspace release evaluator stopped" in records.text
+        assert _heartbeats(factory) == [], "the heartbeat row is still removed"
+
+
+def test_a_tick_claim_is_logged_with_what_it_means(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    with _database("sqlite", tmp_path, monkeypatch) as (_, factory):
+        ids = _seed(factory, "one")
+        with _logged() as records:
+            _evaluator(factory).tick()
+        claim_lines = [m for m in records.messages if "claimed " in m and ids["one"] in m]
+        assert (
+            claim_lines
+            and "#707" in claim_lines[0]
+            and "requeued on a clean stop" in claim_lines[0]
+        )
 
 
 def test_a_failing_tick_is_logged_and_the_loop_keeps_going(
@@ -815,6 +1120,54 @@ def test_the_documented_defaults_and_the_env_vars() -> None:
     assert tuned.workspace_release_evaluator_lease_seconds == 60.0
 
 
+@pytest.mark.parametrize(
+    ("name", "value"),
+    [
+        ("INTERVAL_SECONDS", "0.1"),
+        ("INTERVAL_SECONDS", "0"),
+        ("INTERVAL_SECONDS", "3601"),
+        ("INTERVAL_SECONDS", "nan"),
+        ("INTERVAL_SECONDS", "inf"),
+        ("LEASE_SECONDS", "0"),
+        ("LEASE_SECONDS", "0.5"),
+        ("LEASE_SECONDS", "86401"),
+        ("LEASE_SECONDS", "nan"),
+        ("LEASE_SECONDS", "inf"),
+    ],
+)
+def test_the_evaluator_settings_refuse_values_that_would_crash_or_never_expire(
+    name: str, value: str
+) -> None:
+    """Refused when the settings load, never later as a raw ValueError out of ``create_app``."""
+    with pytest.raises(ConfigError):
+        CaliberConfig.load(environ={f"CALIBER_WORKSPACE_RELEASE_EVALUATOR_{name}": value})
+
+
+def test_the_evaluator_settings_accept_their_exact_bounds() -> None:
+    low = CaliberConfig.load(
+        environ={
+            "CALIBER_WORKSPACE_RELEASE_EVALUATOR_INTERVAL_SECONDS": "0.5",
+            "CALIBER_WORKSPACE_RELEASE_EVALUATOR_LEASE_SECONDS": "1",
+        }
+    )
+    assert (
+        low.workspace_release_evaluator_interval_seconds,
+        low.workspace_release_evaluator_lease_seconds,
+    ) == (0.5, 1.0)
+    high = CaliberConfig.load(
+        environ={
+            "CALIBER_WORKSPACE_RELEASE_EVALUATOR_INTERVAL_SECONDS": "3600",
+            "CALIBER_WORKSPACE_RELEASE_EVALUATOR_LEASE_SECONDS": "86400",
+        }
+    )
+    assert (
+        high.workspace_release_evaluator_interval_seconds,
+        high.workspace_release_evaluator_lease_seconds,
+    ) == (3600.0, 86400.0)
+    with pytest.raises(ValueError, match="finite|infinity|greater"):
+        CaliberConfig(workspace_release_evaluator_lease_seconds=float("inf"))
+
+
 def test_the_constructor_takes_the_documented_positional_arguments(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -869,3 +1222,21 @@ def test_the_server_builds_the_evaluator_only_when_the_release_feature_and_its_o
     assert _built_evaluator(monkeypatch, flag_off) is None
     default = app_config.model_copy(update={"feature_release_candidates_enabled": True})
     assert _built_evaluator(monkeypatch, default) is None, "opt-in: the default leaves it off"
+
+
+def test_the_server_warns_when_the_evaluator_is_enabled_but_the_release_feature_is_off(
+    app_config: CaliberConfig, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    dormant = app_config.model_copy(
+        update={
+            "feature_release_candidates_enabled": False,
+            "workspace_release_evaluator_enabled": True,
+        }
+    )
+    with _logged("caliber") as records:
+        assert _built_evaluator(monkeypatch, dormant) is None
+    assert any("EVALUATOR_ENABLED is true but" in m and "dormant" in m for m in records.messages)
+    quiet = app_config.model_copy(update={"feature_release_candidates_enabled": False})
+    with _logged("caliber") as records:
+        _built_evaluator(monkeypatch, quiet)
+    assert not any("EVALUATOR_ENABLED" in m for m in records.messages)

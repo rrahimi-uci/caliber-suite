@@ -861,6 +861,14 @@ def create_app(config: CaliberConfig | None = None) -> ASGIApp:  # noqa: PLR0915
         config=resolved,
     )
     # B10.1: claims queued Workspace release evaluations. Dormant while the release feature is off.
+    if (
+        resolved.workspace_release_evaluator_enabled
+        and not resolved.feature_release_candidates_enabled
+    ):
+        logger.warning(
+            "CALIBER_WORKSPACE_RELEASE_EVALUATOR_ENABLED is true but CALIBER_FEATURE_RELEASE_CANDIDATES is "
+            "false, so the Workspace release evaluator is dormant and no release evaluation will be claimed"
+        )
     workspace_release_evaluator = (
         WorkspaceReleaseEvaluator(
             session_factory,

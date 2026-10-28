@@ -870,23 +870,30 @@ class CaliberConfig(BaseModel):
         description=(
             "Opt in to the Workspace release evaluator (B10.1). When true and the "
             "release_candidates feature is on, it starts with the owner-only loops and claims "
-            "queued CaliberWorkspaceReleaseEvaluation rows, oldest first. Off by default: it "
-            "only claims (running the plan is B10.2), so a claimed evaluation would stay "
-            "running instead of queued. Never starts while "
-            "CALIBER_FEATURE_RELEASE_CANDIDATES is off."
+            "queued CaliberWorkspaceReleaseEvaluation rows, oldest first. Do not enable it in "
+            "a deployment until B10.2 (#707) lands: it only claims, so a claimed evaluation "
+            "stays running (a clean stop requeues it) and later evaluate calls answer 409. "
+            "Never starts while CALIBER_FEATURE_RELEASE_CANDIDATES is off."
         ),
     )
     workspace_release_evaluator_interval_seconds: float = Field(
         default=5.0,
-        gt=0,
-        description="Polling interval for Workspace release evaluator claim ticks.",
+        ge=0.5,
+        le=3600.0,
+        allow_inf_nan=False,
+        description=(
+            "Polling interval for Workspace release evaluator claim ticks "
+            "(0.5 to 3600 seconds, finite)."
+        ),
     )
     workspace_release_evaluator_lease_seconds: float = Field(
         default=300.0,
-        gt=0,
+        ge=1.0,
+        le=86400.0,
+        allow_inf_nan=False,
         description=(
-            "Claim-lease duration for a running Workspace release evaluation attempt before "
-            "another attempt may reclaim it."
+            "Claim-lease duration for a running Workspace release evaluation attempt "
+            "(1 to 86400 seconds, finite). Nothing reclaims an expired claim until B10.4."
         ),
     )
     github_source_control_enabled: bool = Field(
