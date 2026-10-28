@@ -1,0 +1,2 @@
+{"t":"2026-10-28T06:46:57.486Z","severity":"INFO","logger":"httpx","message":"HTTP Request: POST http://127.0.0.1:37287/things \"HTTP/1.0 503 Service Unavailable\""}
+{"t":"2026-10-28T06:46:57.759Z","severity":"INFO","logger":"httpx","message":"HTTP Request: POST http://127.0.0.1:37287/things \"HTTP/1.0 201 Created\""}

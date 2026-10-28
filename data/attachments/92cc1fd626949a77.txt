@@ -1,0 +1,6 @@
+{"t":"2026-10-28T06:47:01.549Z","severity":"INFO","logger":"httpx","message":"HTTP Request: POST http://127.0.0.1:47245/_test/reset \"HTTP/1.1 200 OK\""}
+{"t":"2026-10-28T06:47:01.553Z","severity":"INFO","logger":"httpx","message":"HTTP Request: POST http://127.0.0.1:47245/_test/faults \"HTTP/1.1 200 OK\""}
+{"t":"2026-10-28T06:47:01.556Z","severity":"INFO","logger":"httpx","message":"HTTP Request: POST http://127.0.0.1:47245/cases/MORT-2026-000184/document-requests \"HTTP/1.1 500 Internal Server Error\""}
+{"t":"2026-10-28T06:47:01.558Z","severity":"INFO","logger":"httpx","message":"HTTP Request: GET http://127.0.0.1:47245/_test/mutations \"HTTP/1.1 200 OK\""}
+{"t":"2026-10-28T06:47:01.561Z","severity":"INFO","logger":"httpx","message":"HTTP Request: GET http://127.0.0.1:47245/document-requests?idempotency_key=k1 \"HTTP/1.1 404 Not Found\""}
+{"t":"2026-10-28T06:47:01.564Z","severity":"INFO","logger":"httpx","message":"HTTP Request: POST http://127.0.0.1:47245/cases/MORT-2026-000184/document-requests \"HTTP/1.1 201 Created\""}
