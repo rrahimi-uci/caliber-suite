@@ -18,9 +18,11 @@ import re
 import threading
 import time
 from collections.abc import Callable
+from dataclasses import dataclass, field
 from typing import Any
 from urllib.parse import quote
 
+import httpx
 import jsonschema
 
 from caliber.egress import EgressBlockedError, EgressPolicy, build_client, check_url
@@ -60,8 +62,34 @@ _TOKEN_CACHE_LOCK = threading.Lock()
 _TOKEN_CACHE: dict[str, tuple[str, float | None]] = {}
 
 
+#: Transport failures that prove the request never reached the downstream: the connection was never established
+#: (refused, no route, DNS, a TLS handshake that failed, a connect timeout) or no connection was ever taken from the
+#: pool, or our own request was refused as malformed before it was sent. Anything else (a dropped read, a read or write timeout, a protocol error, an unknown exception) may have
+#: happened after the downstream received the request, so it is not in this set.
+_NEVER_SENT_ERRORS: tuple[type[BaseException], ...] = (
+    httpx.ConnectError,
+    httpx.ConnectTimeout,
+    httpx.PoolTimeout,
+    httpx.UnsupportedProtocol,
+    httpx.LocalProtocolError,  # our own request is malformed (an illegal header value): refused before it is sent
+)
+
+
 class OpenApiExecutionError(RuntimeError):
-    """Raised when a declarative OpenAPI-backed tool cannot execute safely."""
+    """Raised when a declarative OpenAPI-backed tool cannot execute safely.
+
+    ``never_sent`` is ``True`` only when the request is known never to have reached the downstream: the call was
+    refused before any attempt (input validation, configuration, authentication binding, the egress policy), or every
+    attempt failed to connect. It is ``False`` when any attempt may have reached the downstream (a dropped read, a
+    timeout after the request left, a 5xx answer that was then retried into a connection failure), and a caller that
+    needs to know whether an effect could have happened must treat ``False`` as "it may have". ``attempts`` is how many
+    requests were tried (0 when none was).
+    """
+
+    def __init__(self, message: str = "", *, never_sent: bool = False, attempts: int = 0) -> None:
+        super().__init__(message)
+        self.never_sent = never_sent
+        self.attempts = attempts
 
 
 def bind_egress_policy(policy: EgressPolicy | None) -> None:
@@ -93,11 +121,14 @@ def bind_openapi_http_tool(
     def _invoke(*args: Any, **kwargs: Any) -> dict[str, Any]:
         if args and kwargs:
             raise OpenApiExecutionError(
-                f"openapi tool {getattr(binding, 'local_name', 'tool')!r} got both args and kwargs"
+                f"openapi tool {getattr(binding, 'local_name', 'tool')!r} got both args and kwargs",
+                never_sent=True,
             )
         if args:
             if len(args) != 1 or not isinstance(args[0], dict):
-                raise OpenApiExecutionError("openapi tools accept one object argument")
+                raise OpenApiExecutionError(
+                    "openapi tools accept one object argument", never_sent=True
+                )
             payload = dict(args[0])
         else:
             payload = dict(kwargs)
@@ -112,20 +143,25 @@ def bind_openapi_http_tool(
     return _invoke
 
 
-def execute_openapi_http_tool(
+@dataclass(frozen=True)
+class _Prepared:
+    """A request that passed every check that can run before anything is sent."""
+
+    policy: EgressPolicy
+    method: str
+    url: str
+    request_kwargs: dict[str, Any] = field(repr=False)  # holds the auth headers
+    timeout: float
+    max_attempts: int
+
+
+def _prepare_request(
     *,
     execution_config: dict[str, Any] | None,
     input_schema: dict[str, Any] | None,
     input_data: dict[str, Any],
-    egress_policy: EgressPolicy | None = None,
-) -> dict[str, Any]:
-    """Validate input, inject auth, and perform one guarded HTTP request.
-
-    ``egress_policy`` lets a call site with a better policy (a workflow plan, a
-    request-scoped config) override the process-wide one. Omitting it does not
-    mean "unrestricted" — see :func:`active_egress_policy`.
-    """
-
+    egress_policy: EgressPolicy | None,
+) -> _Prepared:
     config = dict(execution_config or {})
     if not config:
         raise OpenApiExecutionError("openapi tool has no backend_config")
@@ -161,11 +197,18 @@ def execute_openapi_http_tool(
     headers.update(auth["headers"])
     query_params.update(auth["query"])
 
-    idempotency_key = str(config.get("idempotency_key_header") or "").strip()
-    if idempotency_key:
-        supplied = str(input_data.get("idempotency_key") or "").strip()
-        if supplied:
-            headers.setdefault(idempotency_key, supplied)
+    key_header = str(config.get("idempotency_key_header") or "").strip()
+    key_sent = False
+    if key_header:
+        key = _single_idempotency_key(
+            headers, key_header, str(input_data.get("idempotency_key") or "")
+        )
+        if key is not None:
+            headers[key_header] = key
+            key_sent = True
+    # ``key_sent``: the outgoing request really carries exactly one key (whether it came from the ``idempotency_key``
+    # input or from ``header_params``, in any header-name case). A bound header with no key behind it must not turn on
+    # retries of a POST, and two different keys are refused rather than sent.
 
     # Defence in depth, matching the webhook node: refuse the obvious destination
     # here, then let the transport re-check the address it actually connects to.
@@ -175,7 +218,7 @@ def execute_openapi_http_tool(
         raise OpenApiExecutionError(str(exc)) from exc
 
     timeout = float(config.get("timeout_seconds") or 30.0)
-    max_attempts = _max_attempts(config, method=method, has_idempotency_key=bool(idempotency_key))
+    max_attempts = _max_attempts(config, method=method, has_idempotency_key=key_sent)
     request_content_types = [
         str(item)
         for item in (config.get("request_content_types") or [])
@@ -189,25 +232,77 @@ def execute_openapi_http_tool(
         query_params=query_params,
     )
 
+    return _Prepared(
+        policy=policy,
+        method=method,
+        url=url,
+        request_kwargs=request_kwargs,
+        timeout=timeout,
+        max_attempts=max_attempts,
+    )
+
+
+def execute_openapi_http_tool(
+    *,
+    execution_config: dict[str, Any] | None,
+    input_schema: dict[str, Any] | None,
+    input_data: dict[str, Any],
+    egress_policy: EgressPolicy | None = None,
+) -> dict[str, Any]:
+    """Validate input, inject auth, and perform one guarded HTTP request.
+
+    ``egress_policy`` lets a call site with a better policy (a workflow plan, a
+    request-scoped config) override the process-wide one. Omitting it does not
+    mean "unrestricted" — see :func:`active_egress_policy`.
+    """
+
+    try:
+        prepared = _prepare_request(
+            execution_config=execution_config,
+            input_schema=input_schema,
+            input_data=input_data,
+            egress_policy=egress_policy,
+        )
+    except Exception as exc:
+        # Refused before any request was built, so nothing was sent. Any exception type gets the marker (a ValueError from
+        # a malformed timeout, a schema error), so a caller classifying it never mistakes it for "may have been sent".
+        exc.never_sent = True  # type: ignore[attr-defined]
+        exc.attempts = 0  # type: ignore[attr-defined]
+        raise
+    policy, method, url = prepared.policy, prepared.method, prepared.url
+    request_kwargs, timeout, max_attempts = (
+        prepared.request_kwargs,
+        prepared.timeout,
+        prepared.max_attempts,
+    )
+
     attempt = 0
     last_error: Exception | None = None
     response = None
+    possibly_sent = False  # whether any attempt may have reached the downstream
+    earlier_sent = False  # whether any attempt *before the last one* may have
     while attempt < max_attempts:
         attempt += 1
+        earlier_sent = possibly_sent
         try:
             with build_client(policy=policy, timeout=timeout) as client:
                 response = client.request(method, url, **request_kwargs)
         except EgressBlockedError as exc:
             # A block is a policy decision, not a transient fault. Retrying it would
             # only repeat the same refusal.
-            raise OpenApiExecutionError(str(exc)) from exc
+            raise OpenApiExecutionError(
+                str(exc), never_sent=not possibly_sent, attempts=attempt
+            ) from exc
         except Exception as exc:  # transport-level failure: connect reset, timeout
             last_error = exc
             response = None
+            if not isinstance(exc, _NEVER_SENT_ERRORS):
+                possibly_sent = True
             if attempt >= max_attempts:
                 break
             time.sleep(_backoff_seconds(attempt))
             continue
+        possibly_sent = True  # the downstream answered, so it received the request
         if response.status_code in _RETRYABLE_STATUS and attempt < max_attempts:
             time.sleep(_backoff_seconds(attempt))
             continue
@@ -215,7 +310,9 @@ def execute_openapi_http_tool(
 
     if response is None:
         raise OpenApiExecutionError(
-            f"openapi tool request failed after {attempt} attempt(s): {last_error}"
+            f"openapi tool request failed after {attempt} attempt(s): {last_error}",
+            never_sent=not possibly_sent,
+            attempts=attempt,
         ) from last_error
 
     parsed_json: Any = None
@@ -229,6 +326,8 @@ def execute_openapi_http_tool(
         "json": parsed_json,
         "headers": _safe_response_headers(response.headers),
         "attempts": attempt,
+        # Whether an attempt before the last one may have reached the downstream: a 4xx then proves nothing about it.
+        "earlier_attempts_may_have_been_sent": earlier_sent,
     }
 
 
@@ -507,13 +606,39 @@ def _required_secret(raw_source: object, field_name: str) -> str:
     return resolved
 
 
+def _single_idempotency_key(headers: dict[str, str], header: str, supplied: str) -> str | None:
+    """The one idempotency key the request carries, with every case-variant of the header removed from ``headers``.
+
+    ``None`` means no key. Two different keys (the ``idempotency_key`` input and a ``header_params`` entry, or two
+    spellings of the header), or a blank value in the header, are refused: sending either would make the emitted key
+    ambiguous or turn a bad key into a keyless request.
+    """
+    values: list[str] = []
+    for name in [name for name in headers if name.lower() == header.lower()]:
+        value = str(headers.pop(name)).strip()
+        if not value:
+            raise OpenApiExecutionError(f"the {header} header must not be blank")
+        values.append(value)
+    if supplied.strip():
+        values.append(supplied.strip())
+    if len(set(values)) > 1:
+        raise OpenApiExecutionError(f"two different idempotency keys were supplied for {header}")
+    return values[0] if values else None
+
+
 def _render_path(path: str, path_params: dict[str, Any]) -> str:
     def replace(match: re.Match[str]) -> str:
         name = match.group(1)
         if name not in path_params:
             raise OpenApiExecutionError(f"missing required path parameter {name!r}")
         value = path_params[name]
-        return quote("" if value is None else str(value), safe="")
+        text = "" if value is None else str(value)
+        if text in (
+            ".",
+            "..",
+        ):  # quote() leaves dots alone and the client would collapse the segment
+            raise OpenApiExecutionError(f"path parameter {name!r} must not be a dot segment")
+        return quote(text, safe="")
 
     return _PATH_PARAM.sub(replace, path)
 

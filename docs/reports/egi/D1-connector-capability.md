@@ -11,7 +11,7 @@ cd caliber
 pytest tests/egi_scenarios/test_connector_capabilities.py -q
 ```
 
-Result of the last run: 17 passed. The file needs no database, so it runs in the "EGI scenarios (PostgreSQL)" job and in any local run. Not exercised: authentication (`auth_binding` is `null` throughout); and the downstream's OpenAPI document was written to declare `Idempotency-Key` and `If-Match` as header parameters, so the experiment shows the executor can carry a spec-declared header, not that the real document-request system declares them.
+Result of the last D1 run: 17 passed (the file has since grown with the #711 tests). The file needs no database, so it runs in the "EGI scenarios (PostgreSQL)" job and in any local run. Not exercised: authentication (`auth_binding` is `null` throughout); and the downstream's OpenAPI document was written to declare `Idempotency-Key` and `If-Match` as header parameters, so the experiment shows the executor can carry a spec-declared header, not that the real document-request system declares them.
 
 ## Results
 
@@ -32,7 +32,7 @@ Where the tool as imported is *not* ready for exactly-once dispatch (these are f
 | --- | --- |
 | The key must travel as the spec's own `Idempotency-Key` header parameter. `idempotency_key_header` reads `input_data["idempotency_key"]`, but the input schema derived from the spec is `additionalProperties: false` and has no such property, so a bound tool rejects it. It works only with no input schema. | `test_a_derived_input_schema_refuses_the_configured_idempotency_key_input`, `test_the_configured_idempotency_key_header_works_without_a_derived_schema` |
 | Retries of a POST are enabled only when `idempotency_key_header` is bound in the config, not when the caller sends the key as a header parameter. Without the binding a lost response is an error after one attempt. | `test_a_key_sent_as_a_header_parameter_does_not_enable_retries_by_itself` |
-| The converse is a hazard: with the header bound and *no key sent*, `_max_attempts` still allows retries, so a POST that got a 503 is sent again without any key. Against a downstream that does not deduplicate that is a duplicate create. | `test_retries_are_allowed_when_a_header_is_bound_even_if_no_key_is_sent` |
+| The converse is a hazard: with the header bound and *no key sent*, `_max_attempts` still allows retries, so a POST that got a 503 is sent again without any key. Against a downstream that does not deduplicate that is a duplicate create. | `test_a_bound_header_with_no_key_sent_does_not_retry_a_post` (this finding is fixed by #711; the test now asserts the fix) |
 | A lost response surfaces as `OpenApiExecutionError("... failed after N attempt(s): <message>")`. The cause is kept (`__cause__` is `httpx.RemoteProtocolError` for a dropped read, `httpx.ConnectError` for a refused connection, an `EgressBlockedError` for a policy block), but the exception class and message are generic, so telling "never left" from "may have committed" means inspecting `__cause__`, which is fragile. | `test_query_by_key_after_lost_response`, `test_a_refused_connection_and_an_egress_block_keep_their_own_cause` |
 | No import path produces `idempotency_key_header` or `max_attempts`: `tool_drafts.py::build_execution_config` emits neither, and nothing in the API or UI sets them. A tool built the way an import builds it gets one attempt, no retries and no bound key. | `test_an_imported_tool_has_neither_a_bound_key_header_nor_retries` |
 | Every 4xx is returned as a normal result and never retried: a stale `If-Match` is 412 and a reused key with a different request is 422 (`attempts == 1`). A dispatcher has to classify both as "did not commit" itself. | `test_key_reuse_for_another_request_is_a_result_not_an_exception`, `test_stale_precondition_returns_412_and_no_mutation` |
@@ -40,7 +40,7 @@ Where the tool as imported is *not* ready for exactly-once dispatch (these are f
 
 ## Executor changes needed
 
-None of these is made here (out of scope; #522 task 3 owns them). All are in `caliber/src/caliber/integrations/openapi/executor.py::execute_openapi_http_tool` unless noted.
+**Status after #711 (B05.3, PR #989):** changes 1 and 4 are made; 2, 3, 5 and 6 are owned by #990. (When this report was written none was made.) All are in `caliber/src/caliber/integrations/openapi/executor.py::execute_openapi_http_tool` unless noted.
 
 1. **Retry only when a key is actually sent.** `_max_attempts(config, method=..., has_idempotency_key=bool(idempotency_key))` (line ~178) takes the flag from the binding. It should be true only when the outgoing request carries the idempotency header, whether it came from `input_data["idempotency_key"]` or from `header_params`.
 2. **One way to supply the key.** Either add an `idempotency_key` property to the derived input schema whenever `idempotency_key_header` is bound (`integrations/openapi/tool_drafts.py::build_tool_input_schema`), or drop the top-level input and read the key from `header_params[<header>]`. The dispatcher (#520) will derive the key and should pass it in one agreed field.
@@ -51,4 +51,4 @@ None of these is made here (out of scope; #522 task 3 owns them). All are in `ca
 
 ## Decision
 
-`keep`, conditional on #522 task 3 delivering changes 1, 2 and 5 (retry only when a key is sent; one way to supply the key; retry and key binding reachable from an import). The OpenAPI document-request connector carries a stable key, a precondition and a query by key through the existing executor today; what it lacks is the plumbing around them, which touches the tool-input and exception contracts and is therefore a task, not a footnote. No cooperative fixture connector is needed, provided the real document-request system declares the same headers as the experiment's downstream (to be checked against its OpenAPI document when #522 starts).
+`keep`, conditional on #522 task 3 delivering changes 1, 2 and 5 (**status: 1 delivered by #711; 2 and 5 are open and owned by #990**) (retry only when a key is sent; one way to supply the key; retry and key binding reachable from an import). The OpenAPI document-request connector carries a stable key, a precondition and a query by key through the existing executor today; what it lacks is the plumbing around them, which touches the tool-input and exception contracts and is therefore a task, not a footnote. No cooperative fixture connector is needed, provided the real document-request system declares the same headers as the experiment's downstream (to be checked against its OpenAPI document when #522 starts).

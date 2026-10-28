@@ -244,16 +244,13 @@ class _FlakyEndpoint(BaseHTTPRequestHandler):
         return
 
 
-def test_retries_are_allowed_when_a_header_is_bound_even_if_no_key_is_sent() -> None:
-    """Finding: ``_max_attempts`` decides on the *binding* of ``idempotency_key_header``, not on a key actually
-    being sent. With the header bound and no key supplied, a POST that got a 503 is retried keyless: against a
-    downstream that does not deduplicate, that is a duplicate create."""
+def _post_to_flaky(input_data: dict[str, Any], **config: Any) -> dict[str, Any]:
     _FlakyEndpoint.posts = []
     server = HTTPServer(("127.0.0.1", 0), _FlakyEndpoint)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     try:
-        result = execute_openapi_http_tool(
+        return execute_openapi_http_tool(
             execution_config={
                 "kind": "openapi_http",
                 "method": "POST",
@@ -263,18 +260,46 @@ def test_retries_are_allowed_when_a_header_is_bound_even_if_no_key_is_sent() -> 
                 "request_content_types": ["application/json"],
                 "idempotency_key_header": KEY_HEADER,
                 "max_attempts": 3,
+                **config,
             },
             input_schema=None,
-            input_data={"body": {"x": 1}},
+            input_data=input_data,
         )
     finally:
         server.shutdown()
         server.server_close()
         thread.join(timeout=5)
-    assert result["attempts"] == 2
-    assert [post["idempotency_key"] for post in _FlakyEndpoint.posts] == [None, None], (
-        "two POSTs reached the downstream and neither carried a key"
+
+
+def test_a_bound_header_with_no_key_sent_does_not_retry_a_post() -> None:
+    """The hazard this used to pin (D1 finding, ``_max_attempts`` decided on the *binding* of the header): with the
+    header bound and no key supplied, a POST that got a 503 was sent again keyless, a duplicate create against a
+    downstream that does not deduplicate. Retries now need a key that the request actually carries."""
+    result = _post_to_flaky({"body": {"x": 1}})
+    assert result["attempts"] == 1 and result["status_code"] == 503
+    assert [post["idempotency_key"] for post in _FlakyEndpoint.posts] == [None], (
+        "one POST, and it was not repeated"
     )
+
+
+@pytest.mark.parametrize("via", ["idempotency_key", "header_params", "header_params_lowercase"])
+def test_a_post_that_carries_its_key_is_retried_with_the_same_key(via: str) -> None:
+    """Whichever way the key is supplied, the retry carries the same one (the header name is matched case-insensitively)."""
+    if via == "idempotency_key":
+        data: dict[str, Any] = {"body": {"x": 1}, "idempotency_key": "k-1"}
+    else:
+        name = KEY_HEADER if via == "header_params" else KEY_HEADER.lower()
+        data = {"body": {"x": 1}, "header_params": {name: "k-1"}}
+    result = _post_to_flaky(data)
+    assert result["attempts"] == 2 and result["status_code"] == 201
+    assert [post["idempotency_key"] for post in _FlakyEndpoint.posts] == ["k-1", "k-1"]
+
+
+def test_a_blank_key_is_refused_by_the_transport_before_anything_is_sent() -> None:
+    with pytest.raises(OpenApiExecutionError) as refused:
+        _post_to_flaky({"body": {"x": 1}, "header_params": {KEY_HEADER: "  "}})
+    assert refused.value.never_sent is True, "an illegal header value never leaves the client"
+    assert _FlakyEndpoint.posts == []
 
 
 # ---------------------------------------------------------------- what a dispatcher also has to handle
