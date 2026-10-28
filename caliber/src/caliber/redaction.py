@@ -101,6 +101,20 @@ class Redactor:
             out = pattern.sub(self.replacement, out)
         return out
 
+    def redact_string_with_rules(self, value: str) -> tuple[str, tuple[str, ...]]:
+        """:meth:`redact_string`, and the ids of the patterns that matched, in pattern order.
+
+        A rule id is ``pattern-<n>``, ``n`` counting the configured patterns from 1, so a record can say which rule fired
+        without carrying the pattern (an operator's pattern can be sensitive) or the text it matched.
+        """
+        out = value
+        fired: list[str] = []
+        for number, pattern in enumerate(self.patterns, start=1):
+            out, count = pattern.subn(self.replacement, out)
+            if count:
+                fired.append(f"pattern-{number}")
+        return out, tuple(fired)
+
     def redact_value(self, value: Any) -> Any:
         """Recursively redact any JSON-shaped value.
 

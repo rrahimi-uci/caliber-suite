@@ -257,3 +257,16 @@ def test_audit_record_without_redactor_keeps_pii(db_session: Session) -> None:
         assert "alice@example.com" in row.details["reason"]
     finally:
         audit.configure_redactor(previous)
+
+
+def test_redact_string_with_rules_names_the_patterns_that_fired_in_order() -> None:
+    from caliber.redaction import DEFAULT_PATTERNS, Redactor
+
+    redactor = Redactor.from_patterns(DEFAULT_PATTERNS)
+    assert redactor.redact_string_with_rules("nothing sensitive") == ("nothing sensitive", ())
+    text, rules = redactor.redact_string_with_rules("a@b.co and 123-45-6789")
+    assert (text, rules) == ("[REDACTED] and [REDACTED]", ("pattern-1", "pattern-3"))
+    assert text == redactor.redact_string("a@b.co and 123-45-6789")
+    custom = Redactor.from_patterns([r"AKIA[0-9A-Z]{4}"], replacement="<x>")
+    assert custom.redact_string_with_rules("key AKIAABCD here") == ("key <x> here", ("pattern-1",))
+    assert Redactor(patterns=()).redact_string_with_rules("a@b.co") == ("a@b.co", ())

@@ -582,6 +582,35 @@
         "data": {
           "type": "integer",
           "minimum": 0
+        },
+        "sections": {
+          "type": "array",
+          "maxItems": 16,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "section",
+              "cap_tokens",
+              "used_tokens"
+            ],
+            "properties": {
+              "section": {
+                "enum": [
+                  "retrieved",
+                  "history"
+                ]
+              },
+              "cap_tokens": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "used_tokens": {
+                "type": "integer",
+                "minimum": 0
+              }
+            }
+          }
         }
       }
     },

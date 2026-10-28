@@ -24,9 +24,10 @@ Nothing here talks to a provider: B08 consumes the record.
 
 from __future__ import annotations
 
+import dataclasses
 import hashlib
 import json
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Final
@@ -39,6 +40,7 @@ from caliber.context.sources import memory_resource, source_resource
 from caliber.contracts import ContractValidationError, UnsupportedSchemaVersion, validate_record
 from caliber.db.models import CaliberContextManifest, CaliberPolicyDecision, CaliberWorkflowRun
 from caliber.db.transactions import begin_sqlite_transaction
+from caliber.redaction import Redactor
 from caliber.run_manifest import (
     FIXED_REGION,
     FIXED_RESIDENCY,
@@ -58,6 +60,8 @@ AUTHORIZED_SOURCES: Final = frozenset({"knowledge_base", "memory"})
 #: Segment kinds that always carry an authorization decision, whatever source they name.
 AUTHORIZED_KINDS: Final = frozenset({"retrieved_text", "memory"})
 CONTEXT_READ: Final = "context.read"
+#: The capped sections of a step's context and the segment kind each one is made of.
+SECTION_KINDS: Final = {"retrieved": "retrieved_text", "history": "history"}
 
 INVALID: Final = "invalid_manifest"
 UNKNOWN_VERSION: Final = "unknown_version"
@@ -150,6 +154,24 @@ def _check_rules(record: Mapping[str, Any]) -> None:
         raise ContextManifestError(TOKENS, "the token allocation does not add up to the segments")
     if allocation["used"] > allocation["budget"]:
         raise ContextManifestError(TOKENS, "the segments use more tokens than the budget allows")
+    _check_sections(allocation, segments)
+
+
+def _check_sections(allocation: Mapping[str, Any], segments: Sequence[Mapping[str, Any]]) -> None:
+    """Each recorded section is listed once, adds up to its segments and stays within its cap."""
+    seen: set[str] = set()
+    for item in allocation.get("sections", []):
+        section = item["section"]
+        used = sum(int(s["tokens"]) for s in segments if s["kind"] == SECTION_KINDS[section])
+        if section in seen:
+            raise ContextManifestError(TOKENS, f"the {section} section is allocated twice")
+        seen.add(section)
+        if item["used_tokens"] != used:
+            raise ContextManifestError(
+                TOKENS, f"the {section} section's tokens do not add up to its segments"
+            )
+        if item["used_tokens"] > item["cap_tokens"]:
+            raise ContextManifestError(TOKENS, f"the {section} section uses more than its cap")
 
 
 def _classify(record: Mapping[str, Any]) -> ContextManifestError | None:
@@ -266,7 +288,13 @@ def _check_types(
 
 def _strict_integers(record: Mapping[str, Any]) -> None:
     """A stored record's counts are integers (``1.0`` passes the schema but is a second form of ``1``)."""
-    counts: list[object] = [record["revision"], *record["token_allocation"].values()]
+    allocation = record["token_allocation"]
+    counts: list[object] = [
+        record["revision"],
+        *(value for key, value in allocation.items() if key != "sections"),
+    ]
+    for section in allocation.get("sections", []):
+        counts += [section["cap_tokens"], section["used_tokens"]]
     for segment in record["segments"]:
         counts += [segment["position"], segment["tokens"]]
     for item in (*record.get("omitted", []), *record.get("redacted", [])):
@@ -282,6 +310,97 @@ def _timestamp(moment: datetime) -> str:
         raise ContextManifestError(INVALID, "created_at is out of range") from exc
 
 
+@dataclass(frozen=True)
+class PackedContext:
+    """What :func:`pack_context` decided: the segments to give the provider, and what the manifest records of it."""
+
+    segments: tuple[ContextSegment, ...]
+    omitted: tuple[dict[str, Any], ...]
+    redacted: tuple[dict[str, Any], ...]
+    sections: tuple[dict[str, Any], ...]
+
+
+def pack_context(
+    segments: Sequence[ContextSegment],
+    *,
+    caps: Mapping[str, int],
+    redactor: Redactor,
+    count_tokens: Callable[[str], int] | None = None,
+) -> PackedContext:
+    """Redact and cap the context of one agent step before it is hashed, recorded or given to a provider.
+
+    **Redaction.** Every ``data``-tier segment's text goes through ``redactor`` first (an ``instruction`` is the
+    operator's own text and is never altered), and the digest is taken of the redacted text. A segment that changed is
+    recorded once in ``redacted`` (``fields: ["content"]``, ``reason: "redactor:pattern-1,pattern-3"``: which rules
+    fired, never what they matched). A segment with nothing left but the replacement marker is dropped and listed in
+    ``omitted`` as ``redacted``. If ``count_tokens`` is given the redacted segment's tokens are recounted; otherwise the
+    caller's count stands.
+
+    **Caps.** ``caps`` maps a section (``retrieved``, ``history``; see ``SECTION_KINDS``) to the most tokens it may use.
+    Within a section the segments are kept in order while they fit; the first one that does not fit, and every later one
+    in that section (they rank below it), is dropped and listed in ``omitted`` with reason ``token_budget`` and its
+    tokens. A section with no cap is unlimited. ``sections`` records each capped section's cap and what it used.
+
+    Pure: nothing here talks to a store or a provider. The agent-step adapters (B08) call it to decide what the provider
+    is given, and :func:`build_context_manifest` records the result; the assembly recorder of B07.3b records the
+    context as the runtime passes it and does not pack it.
+    """
+    for section, cap in caps.items():
+        if section not in SECTION_KINDS or type(cap) is not int or cap < 0:
+            raise ContextManifestError(
+                INVALID,
+                f"caps name the sections {sorted(SECTION_KINDS)} with non-negative integers",
+            )
+    kind_section = {kind: section for section, kind in SECTION_KINDS.items()}
+    used = dict.fromkeys(caps, 0)
+    full: set[str] = set()
+    kept: list[ContextSegment] = []
+    omitted: list[dict[str, Any]] = []
+    redacted: list[dict[str, Any]] = []
+    for segment in segments:
+        text, rules = (
+            redactor.redact_string_with_rules(segment.content)
+            if segment.tier == DATA
+            else (segment.content, ())
+        )
+        if rules and not text.replace(redactor.replacement, "").strip():
+            omitted.append(_omission(segment, "redacted"))
+            continue
+        tokens = count_tokens(text) if rules and count_tokens is not None else segment.tokens
+        capped = kind_section.get(segment.kind)
+        if capped in caps and capped is not None:
+            if capped in full or used[capped] + tokens > caps[capped]:
+                full.add(capped)
+                omitted.append(_omission(segment, "token_budget", tokens))
+                continue
+            used[capped] += tokens
+        if rules:
+            redacted.append(
+                {
+                    "position": len(kept),
+                    "fields": ["content"],
+                    "reason": "redactor:" + ",".join(rules),
+                }
+            )
+            kept.append(dataclasses.replace(segment, content=text, tokens=tokens))
+        else:
+            kept.append(segment)
+    sections = tuple(
+        {"section": section, "cap_tokens": caps[section], "used_tokens": used[section]}
+        for section in SECTION_KINDS
+        if section in caps
+    )
+    return PackedContext(tuple(kept), tuple(omitted), tuple(redacted), sections)
+
+
+def _omission(segment: ContextSegment, reason: str, tokens: int | None = None) -> dict[str, Any]:
+    return {
+        "source": dict(segment.source),
+        "reason": reason,
+        "tokens": segment.tokens if tokens is None else tokens,
+    }
+
+
 def build_context_manifest(
     *,
     context_manifest_id: str,
@@ -294,11 +413,13 @@ def build_context_manifest(
     created_at: datetime,
     omitted: Sequence[Mapping[str, Any]] = (),
     redacted: Sequence[Mapping[str, Any]] = (),
+    sections: Sequence[Mapping[str, Any]] = (),
 ) -> BuiltContextManifest:
     """Build and validate the manifest of one agent step. Pure: raises :class:`ContextManifestError`.
 
     The segments are numbered in the order given (so the order is the assembler's, recorded once). ``scope`` is the
-    deployment's fixed one (no organization switching).
+    deployment's fixed one (no organization switching). ``sections`` is :attr:`PackedContext.sections`: the per-section
+    caps and what each section used.
     """
     if not isinstance(scope, DeploymentScope) or scope != DeploymentScope.fixed(scope.project_id):
         raise ContextManifestError(
@@ -309,6 +430,10 @@ def build_context_manifest(
     if created_at.tzinfo is None:
         raise ContextManifestError(INVALID, "created_at must be timezone-aware")
     _check_types(revision, token_budget, segments, omitted, redacted)
+    for item in sections:
+        for key in ("cap_tokens", "used_tokens"):
+            if type(item.get(key)) is not int:
+                raise ContextManifestError(INVALID, f"a section's {key} must be an integer")
     try:
         records = [segment.to_record(position) for position, segment in enumerate(segments)]
     except (UnicodeEncodeError, ValueError) as exc:
@@ -331,6 +456,7 @@ def build_context_manifest(
             "used": sum(by_tier.values()),
             "instruction": by_tier[INSTRUCTION],
             "data": by_tier[DATA],
+            **({"sections": [dict(item) for item in sections]} if sections else {}),
         },
         "created_at": _timestamp(created_at),
     }

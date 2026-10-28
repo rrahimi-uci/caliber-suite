@@ -481,3 +481,41 @@ def test_an_explicit_judge_setting_is_still_a_plain_boolean(raw: str, expected: 
 
 def test_the_judge_stays_off_by_default() -> None:
     assert CaliberConfig.load(environ={}).workflow_llm_judge_enabled is False
+
+
+def test_context_section_caps_default_and_override() -> None:
+    from caliber.config import DEFAULT_CONTEXT_SECTION_CAPS, parse_section_caps
+
+    assert parse_section_caps(CaliberConfig.load(environ={}).context_section_caps) == {
+        "retrieved": 4000,
+        "history": 2000,
+    }
+    assert DEFAULT_CONTEXT_SECTION_CAPS == '{"retrieved": 4000, "history": 2000}'
+    config = CaliberConfig.load(environ={"CALIBER_CONTEXT_SECTION_CAPS": '{"history": 50}'})
+    assert parse_section_caps(config.context_section_caps) == {"history": 50}
+    assert parse_section_caps("{}") == {}
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        "not json",
+        "[]",
+        "5",
+        "null",
+        '{"retrieved": 0}',
+        '{"retrieved": -3}',
+        '{"retrieved": true}',
+        '{"retrieved": 1.5}',
+        '{"retrieved": "9"}',
+        '{"retreived": 100}',
+        '{"tools": 100}',
+    ],
+)
+def test_context_section_caps_that_are_wrong_stop_the_service_at_startup(raw: str) -> None:
+    from caliber.config import parse_section_caps
+
+    with pytest.raises(ValueError):
+        parse_section_caps(raw)
+    with pytest.raises(ConfigError, match="invalid CALIBER configuration"):
+        CaliberConfig.load(environ={"CALIBER_CONTEXT_SECTION_CAPS": raw})
