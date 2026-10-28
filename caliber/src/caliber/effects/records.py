@@ -61,7 +61,7 @@ from caliber.db.models import (
 )
 from caliber.db.transactions import begin_sqlite_transaction
 from caliber.effects.inventory import EFFECT_CLASSES
-from caliber.ownership import Lease, LeaseLost, assert_fenced
+from caliber.ownership import DEFAULT_LEASE, Lease, LeaseLost, assert_fenced
 from caliber.run_manifest import FIXED_REGION, FIXED_TENANT_ID, canonical_bytes
 
 INTENT_ALGORITHM: Final = "intent-v1"
@@ -554,7 +554,9 @@ def transition(
       PostgreSQL the lease row stays locked until the transaction ends, so a takeover waits for the write instead of
       overtaking it). A lease that is expired, taken over (a newer token) or never issued (a future token) is
       ``lease_lost`` and nothing is recorded: a stale worker cannot commit, fail or mark ``unknown`` itself. The proposal
-      stays ``dispatched`` for the reconciler, which asks the downstream by key. No lease is ``evidence_required``.
+      stays ``dispatched`` for the reconciler, which asks the downstream by key. No lease is ``evidence_required``, and a
+      lease that is not the execution-owner lease (any other name) is ``lease_lost``. A fence that could not be *asked* (the
+      database failed, timed out or was serialized away) is ``store_failed``, not ``lease_lost``: roll back and retry.
     * ``failed`` (from any state), ``unknown`` and ``reconciled``: a short ``reason`` code (never a payload).
     * ``committed``: ``receipt_id``, a verified receipt (:mod:`caliber.effects.receipts`) recorded for *this* proposal and
       dispatch attempt, read back from the downstream and matching the proposal's key and intent. A proposal never
@@ -564,7 +566,9 @@ def transition(
     REPEATABLE READ or SERIALIZABLE PostgreSQL itself refuses an UPDATE of a row another transaction changed after the
     snapshot (a serialization failure): the caller rolls back and retries from a fresh read, as with the grants.
     A repeat is only recognised while the proposal is still where the move left it: once it has moved on, the retry is
-    :class:`StaleVersion` and the caller reads ``current_state``. A repeat writes nothing, so it needs no lease.
+    :class:`StaleVersion` and the caller reads ``current_state``. A repeat of a move into or out of ``dispatched`` is fenced
+    like the move itself: a worker that lost its lease is not told "recorded, you own this attempt" (``applied=False``) and
+    goes on to send the effect; it is ``lease_lost``.
     """
     if type(expected_version) is not int or expected_version < 1:
         raise ProposalError(BAD_FIELD, "expected_version must be a positive integer")
@@ -584,6 +588,7 @@ def transition(
         and _complete(row, offered)
         and _recorded(row, offered)
     ):
+        _fence_a_repeat(session, row, to_state, owner, lease)
         return Transitioned(row.proposal_id, row.state, row.version, applied=False)
     if row.version != expected_version:
         raise StaleVersion(row.proposal_id, expected_version, row.version, row.state)
@@ -766,27 +771,63 @@ def _check_owner(row: CaliberEffectProposal, owner: str | None, attempt: int | N
         )
 
 
-def _fence(
-    session: Session, row: CaliberEffectProposal, owner: str | None, lease: Lease | None
-) -> None:
-    """The write is made under the exact lease the owner captured, still held, or it is not made (B05.5a, #734)."""
+def fence_owner(session: Session, proposal_id: str, owner: str | None, lease: Lease | None) -> None:
+    """Refuse unless ``lease`` is, right now, the held execution-owner lease of ``owner`` (B05.5a, #734).
+
+    The check :func:`transition` makes before every write into or out of ``dispatched``, exposed so a writer that records
+    something else first (a receipt) can take the lease row *first* and keep one lock order: lease, then receipt, then
+    proposal. Never commits; on PostgreSQL the lease row stays locked until the caller's transaction ends.
+    """
     if lease is None:
         raise ProposalError(
             EVIDENCE_REQUIRED,
             "a move into or out of dispatched needs the lease the owner captured when it acquired",
         )
+    if not isinstance(lease, Lease):
+        raise ProposalError(BAD_FIELD, "lease must be the Lease the owner captured")
     if lease.owner_id != owner:
         raise ProposalError(
             STALE_OWNER,
             f"the lease belongs to {lease.owner_id!r}, not to the owner {owner!r} of this move: nothing recorded",
         )
+    if lease.name != DEFAULT_LEASE:
+        raise ProposalError(
+            LEASE_LOST,
+            f"proposal {proposal_id}: {lease.name!r} is not the execution-owner lease; nothing recorded",
+        )
     try:
         assert_fenced(session, lease)
     except LeaseLost as exc:
+        store_failed = (
+            exc.__cause__ is not None
+        )  # the store failed: not the same as having lost the lease
+        if store_failed:
+            raise ProposalError(
+                STORE_FAILED,
+                f"proposal {proposal_id}: the lease could not be checked ({exc.reason}); nothing recorded, roll back and retry",
+            ) from exc
         raise ProposalError(
             LEASE_LOST,
-            f"proposal {row.proposal_id}: {exc.reason}; nothing recorded, the reconciler asks the downstream",
+            f"proposal {proposal_id}: {exc.reason}; nothing recorded, the reconciler asks the downstream",
         ) from exc
+
+
+def _fence(
+    session: Session, row: CaliberEffectProposal, owner: str | None, lease: Lease | None
+) -> None:
+    fence_owner(session, row.proposal_id, owner, lease)
+
+
+def _fence_a_repeat(
+    session: Session,
+    row: CaliberEffectProposal,
+    to_state: str,
+    owner: str | None,
+    lease: Lease | None,
+) -> None:
+    """The owner's move repeated (dispatching, or settling what it dispatched) is fenced like the move itself."""
+    if owner is not None or to_state == DISPATCHED:
+        _fence(session, row, owner, lease)
 
 
 def _verify_receipt(session: Session, row: CaliberEffectProposal, receipt_id: str) -> None:
@@ -935,6 +976,7 @@ __all__ = [
     "StaleVersion",
     "Transitioned",
     "effect_resource",
+    "fence_owner",
     "intent_digest",
     "logical_key",
     "new_proposal_id",

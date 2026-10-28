@@ -371,6 +371,7 @@ def test_the_same_move_repeated_by_the_same_actor_is_recorded_once(
                 expected_version=version,
                 owner_id=OWNER,
                 attempt=1,
+                lease=leased(session, OWNER),
             )
             assert (first.applied, again.applied) == (True, False)
             assert again.version == first.version == version + 1
@@ -1019,6 +1020,8 @@ def test_an_actor_that_cannot_present_the_evidence_is_never_told_the_move_was_al
                 APPROVAL_REFUSED,
                 BAD_FIELD,
             )
+            if "owner_id" in full:  # the owner's repeat is fenced too (B05.5a)
+                full["lease"] = leased(session, OWNER)
             assert (
                 transition(session, proposal_id, to_state, expected_version=before, **full).applied
                 is False
@@ -1228,12 +1231,14 @@ def test_a_lease_that_is_not_the_rows_is_lease_lost_whatever_the_reason(
             assert "nothing recorded" in str(lapsed)
             fresh = leased(session, OWNER)
             assert fresh.fencing_token == held.fencing_token + 1
+            other_name = acquire(session, OWNER, ttl_seconds=TTL_SECONDS, name="some-other-lease")
+            assert other_name is not None, "a real, held lease, but not the execution-owner lease"
             for label, lease in {
                 "an old token": expired,
                 "a future token": Lease(
                     fresh.name, OWNER, fresh.fencing_token + 1, fresh.expires_at
                 ),
-                "another lease name": Lease("some-other-lease", OWNER, 1, fresh.expires_at),
+                "another lease name": other_name,
                 "another owner's": Lease(
                     fresh.name, "worker-other", fresh.fencing_token, fresh.expires_at
                 ),
@@ -1360,6 +1365,113 @@ def test_the_new_owner_cannot_settle_what_the_previous_one_dispatched(
             )
             assert _count_receipt_rows(session) == 0
             session.commit()
+
+
+@pytest.mark.parametrize("dialect", DIALECTS)
+def test_a_repeat_of_the_owners_move_is_fenced_too(
+    dialect: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``applied=False`` tells a worker "recorded, this attempt is yours": a worker that lost its lease must not hear it."""
+    with _database(dialect, tmp_path, monkeypatch) as (_, factory):
+        _seed_run(factory)
+        with factory() as session:
+            proposal_id = _at(session, APPROVED)
+            held = leased(session, OWNER)
+            version = proposal_state(session, proposal_id).version
+            kwargs: dict[str, Any] = {"expected_version": version, "owner_id": OWNER, "attempt": 1}
+            assert transition(
+                session, proposal_id, DISPATCHED, lease=held, now=AT, **kwargs
+            ).applied
+            assert not transition(session, proposal_id, DISPATCHED, lease=held, **kwargs).applied
+            with pytest.raises(ProposalError) as no_lease:
+                transition(session, proposal_id, DISPATCHED, **kwargs)
+            assert no_lease.value.code == EVIDENCE_REQUIRED
+            _taken_over(session, held)
+            with pytest.raises(ProposalError) as stale:
+                transition(session, proposal_id, DISPATCHED, lease=held, **kwargs)
+            assert stale.value.code == LEASE_LOST, "the repeat of the dispatch under a lapsed lease"
+            # and the repeat of a settle: the owner settled, lost the lease, and asks again
+            current = leased(session, "worker-new")
+            assert current.owner_id == "worker-new"
+            settled = _at(session, DISPATCHED, occurrence="o-settled")
+            owner_lease = leased(session, OWNER)
+            first = _move(
+                session, settled, UNKNOWN, owner_id=OWNER, attempt=ATTEMPT, reason="timeout"
+            )
+            assert first.applied
+            _taken_over(session, owner_lease)
+            with pytest.raises(ProposalError) as repeat:
+                transition(
+                    session,
+                    settled,
+                    UNKNOWN,
+                    expected_version=first.version - 1,
+                    owner_id=OWNER,
+                    attempt=ATTEMPT,
+                    reason="timeout",
+                    lease=owner_lease,
+                )
+            assert repeat.value.code == LEASE_LOST
+            # a move that is not the owner's keeps needing no lease, repeated or not
+            assert _move(session, settled, RECONCILED, reason="found by key").applied
+            session.commit()
+
+
+@pytest.mark.parametrize("dialect", DIALECTS)
+def test_a_fence_that_cannot_be_asked_is_not_lease_lost_and_a_lease_is_checked_before_the_receipt(
+    dialect: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from sqlalchemy.exc import OperationalError
+
+    from caliber.effects import receipts as receipts_module
+    from caliber.ownership import LeaseLost
+
+    with _database(dialect, tmp_path, monkeypatch) as (_, factory):
+        _seed_run(factory)
+        with factory() as session:
+            proposal_id = _at(session, DISPATCHED)
+            held = leased(session, OWNER)
+            version = proposal_state(session, proposal_id).version
+
+            def broken(*args: Any, **kwargs: Any) -> None:
+                raise LeaseLost("the lease store is unavailable") from OperationalError(
+                    "s", {}, Exception("down")
+                )
+
+            monkeypatch.setattr(records, "assert_fenced", broken)
+            refused = _refused(
+                records.STORE_FAILED,
+                session,
+                proposal_id,
+                UNKNOWN,
+                owner_id=OWNER,
+                attempt=ATTEMPT,
+                reason="r",
+                lease=held,
+            )
+            assert "retry" in str(refused)
+            monkeypatch.undo()
+            with pytest.raises(ProposalError) as not_a_lease:
+                transition(
+                    session,
+                    proposal_id,
+                    UNKNOWN,
+                    expected_version=version,
+                    owner_id=OWNER,
+                    attempt=ATTEMPT,
+                    reason="r",
+                    lease="a lease",  # type: ignore[arg-type]
+                )
+            assert not_a_lease.value.code == BAD_FIELD
+            _taken_over(session, held)
+
+            def no_receipt(*args: Any, **kwargs: Any) -> None:
+                pytest.fail("a stale worker must be refused before it records a receipt")
+
+            monkeypatch.setattr(receipts_module, "record_receipt", no_receipt)
+            with pytest.raises(ProposalError) as stale:
+                _settle_with(session, proposal_id, held, _CLAIM)
+            assert stale.value.code == LEASE_LOST
 
 
 @pytest.mark.parametrize("dialect", DIALECTS)

@@ -57,6 +57,7 @@ from caliber.effects.records import (
     ProposalError,
     StaleVersion,
     Transitioned,
+    fence_owner,
     proposal_state,
     transition,
 )
@@ -216,6 +217,10 @@ def record_receipt(
     (``dispatched``, ``unknown`` or ``reconciled``), :class:`ReceiptMismatch` if the facts are not this proposal's, and
     :class:`ReceiptConflict` if a different receipt is already the authoritative one for the attempt or the request id is
     another proposal's. The same facts delivered again return the existing receipt (``created=False``).
+
+    This records a *verified statement about the downstream* and is not fenced by the execution-owner lease: only
+    :func:`settle_dispatch` (receipt and state move under the lease) is the owner's commit path. A receipt recorded on its
+    own makes the proposal impossible to fail but does not commit it.
     """
     if not isinstance(facts, ReceiptFacts):
         raise ProposalError(BAD_FIELD, "facts must be ReceiptFacts")
@@ -389,14 +394,17 @@ def settle_dispatch(
     * ``ambiguous``: ``unknown`` (``ambiguous:<code>``); only a later lookup by key can say more.
 
     ``verify`` is not called for any other outcome, and not before the proposal is checked: it must still be ``dispatched`` at
-    ``expected_version``, held by this ``owner_id`` and ``attempt`` (a stale worker is refused *before* it spends a query and
-    records nothing, receipt included; a repeat of a settle that already happened is ``stale_version``, so read the state). If
-    ``verify`` raises, the exception propagates and the proposal stays ``dispatched``. The receipt and the commit are one unit:
-    if the transition is refused, the receipt is not kept. Nothing is committed to the database (the caller's transaction).
+    ``expected_version``, held by this ``owner_id`` and ``attempt``, under a lease that is this owner's. Another owner or attempt
+    is refused *before* a query is made and records nothing, receipt included. Whether the lease is still *held* is decided at
+    the write, never before the query, so the lease row is not locked across the network call. A repeat of a settle that
+    already happened is ``stale_version``, so read the state. If ``verify`` raises, the exception propagates and the proposal
+    stays ``dispatched``. The receipt and the commit are one unit: if the transition is refused, the receipt is not kept.
+    Nothing is committed to the database (the caller's transaction).
 
-    ``lease`` is the execution-owner lease ``owner_id`` captured when it acquired (B05.5a, #734). Every write here, the receipt
-    and the state move together, is made in one transaction after the lease is compared (exact owner and fencing token, database
-    clock, :func:`caliber.effects.records.transition`): a worker whose lease expired or was taken over gets ``lease_lost``, the
+    ``lease`` is the execution-owner lease ``owner_id`` captured when it acquired (B05.5a, #734). The writes made here, the
+    receipt and the state move, are made in one transaction after the lease is compared (exact owner and fencing token, the
+    database's clock, :func:`caliber.effects.records.fence_owner`), and that comparison comes first, so the lock order is the
+    lease row, then the receipt, then the proposal. A worker whose lease expired or was taken over gets ``lease_lost``, the
     receipt is rolled back with the refused move, and the proposal stays ``dispatched``. Not even ``unknown`` is recorded by a
     stale worker: what the downstream did is for the reconciler, which asks it by key under the new lease.
     """
@@ -405,6 +413,9 @@ def settle_dispatch(
         facts = verify()
         if facts is not None:
             with session.begin_nested():
+                fence_owner(
+                    session, proposal_id, owner_id, lease
+                )  # lease row first: one lock order everywhere
                 receipt = record_receipt(session, proposal_id, facts, now=now)
                 moved = transition(
                     session,

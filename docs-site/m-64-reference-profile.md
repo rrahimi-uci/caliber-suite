@@ -815,12 +815,16 @@ with session_factory() as session:
   `lease=`, the `Lease` the owner captured when it acquired the execution-owner lease (see below), with `lease.owner_id == owner_id`. In the *same
   transaction* as the write (and, in `settle_dispatch`, the receipt), `caliber.ownership.assert_fenced` compares the persisted owner and fencing
   token for equality and the expiry against the database's clock; on PostgreSQL the lease row stays locked until the transaction ends, so a takeover
-  waits for the settle instead of overtaking it. No lease is `evidence_required`; another owner's lease is `stale_owner`; a lease that is expired,
-  taken over (an older token) or never issued (a future token) is `lease_lost`. Each refusal records nothing: a stale worker cannot commit, cannot
+  waits for the settle instead of overtaking it. No lease is `evidence_required` (and a value that is not a `Lease` is `bad_field`); another owner's lease is `stale_owner`; a lease that is
+  expired, taken over (an older token), never issued (a future token) or not the execution-owner lease at all (another lease name) is `lease_lost`. A fence that
+  could not be *asked* (the database failed, timed out, or was serialized away) is `store_failed`, not `lease_lost`: roll back and retry from a fresh read. Each refusal records nothing: a stale worker cannot commit, cannot
   fail, and cannot even mark the attempt `unknown` itself, and a receipt it was about to record is rolled back with the refused move. The attempt
-  stays `dispatched` for the reconciler (B05.5b), which asks the downstream by key under the new lease. A repeat of a move that was already recorded
-  writes nothing and so needs no lease. Recovery: re-read `proposal_state`; if it is still `dispatched` under another owner, do nothing and let the
-  reconciler find it; never re-dispatch. Moves that are not the owner's (`approved`, `reconciled`, the callback's commit) are not fenced by it.
+  stays `dispatched` for the reconciler (B05.5b), which asks the downstream by key under the new lease. A repeat of the owner's move is fenced too: `applied=False` tells a
+  worker "recorded, this attempt is yours", and a worker that lost its lease must not hear that and go on to send the effect (it is `lease_lost`). Recovery: re-read `proposal_state`; if it is still `dispatched` under another owner, do nothing and let the
+  reconciler find it; never re-dispatch. Moves that are not the owner's (`approved`, `reconciled`, the callback's commit) are not fenced by it, and neither is `record_receipt` on its
+  own: a receipt is a verified statement about the downstream, and only `settle_dispatch` (receipt and state move together, lease first, then receipt, then
+  proposal) is the owner's commit path. Moving a dispatched proposal under a *different* owner's lease, which the reconciler (B05.5b) must do, is not
+  possible here by design (`stale_owner`): it needs its own entry point.
 
 ```python
 from caliber.effects.records import StaleVersion, proposal_state, transition
@@ -941,7 +945,8 @@ A 2xx answer from a downstream is a *claim*. `caliber.effects.receipts` (table `
   exists the proposal cannot be moved to `failed` (`receipt_exists`; the database refuses it too): `failed` is final, and the downstream's own query
   said it committed. The database also refuses a receipt for a proposal that is not `dispatched`, `unknown` or `reconciled`.
 - **Settling a dispatch.** `settle_dispatch(session, proposal_id, outcome=..., verify=..., lease=...)` first checks the proposal is still `dispatched` at
-  `expected_version`, held by this owner and attempt, under this owner's lease (a stale worker is refused *before* a query is made and records nothing; a repeat of a
+  `expected_version`, held by this owner and attempt, under this owner's lease (another owner or attempt is refused *before* a query is made and records nothing; whether the lease is
+  still *held* is decided at the write, never before the query, so the lease row is not locked across the network call; a repeat of a
   settle that already happened is `stale_version`), then records what one attempt proved, the receipt and the commit as one unit (a refused
   commit keeps no receipt; if `verify` raises the proposal stays `dispatched`): a
   `committed_receipt` claim runs `verify()` (the authoritative query) and commits with the receipt if it confirms, and otherwise
