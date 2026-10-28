@@ -1,23 +1,29 @@
 """The document-request connector's capability record and request builders (B05.3, #711).
 
-Measured against the downstream fixture (``tests/egi_scenarios/downstream/app.py``, decision record
-``docs/reports/egi/D1-connector-capability.md``) through the real OpenAPI executor, no mocked transport:
+What the downstream fixture (``tests/egi_scenarios/downstream/app.py``) shows, through the real OpenAPI executor with no
+mocked transport (tests in ``tests/egi_scenarios/test_connector_outcomes.py`` and ``test_connector_capabilities.py``; the
+decision record is ``docs/reports/egi/D1-connector-capability.md``):
 
 * **Key emission.** ``POST /cases/{case_id}/document-requests`` needs an ``Idempotency-Key`` header; the same key again
   replays the stored answer (201 the first time, 200 after) and commits once.
-* **Key scope.** One namespace for the whole downstream: a key names one request wherever it is used.
-* **Key retention.** The fixture never expires a key; the real system's retention is **unconfirmed**, so it is recorded
-  as unbounded here and a dispatcher must not rely on a key older than a retention someone has confirmed.
+* **Replay comes before the precondition.** The stored answer for a key is replayed even if the retry carries a stale
+  ``If-Match``, so a retry of a request that committed is a 200, not a 412 (measured).
 * **Intent conflict.** The same key for a different request is 422 and commits nothing.
 * **Precondition.** ``If-Match`` carries the case's integer version; a stale one is 412 and commits nothing.
-* **Lookup.** ``GET /document-requests?idempotency_key=...`` reads the stored request (200) or says there is none (404);
-  it reads its own writes in the fixture. A 404 does **not** prove the request will never be processed (a request in
-  flight at the downstream may still commit; the fixture keeps no tombstone and offers no cancel), so absence is not
-  proof of non-commit and an unknown effect stays unknown.
+* **Lookup.** ``GET /document-requests?idempotency_key=...`` reads the stored request (200) or says there is none (404); it
+  reads its own writes (measured).
+
+Two claims are **argued from the fixture's code, not measured**, and so are the ones to confirm against the real system: the
+key's scope is one namespace for the whole downstream (the fixture holds one case), and a 404 does **not** prove the request
+will never be processed (a request in flight at the downstream may still commit; the fixture keeps no tombstone and offers no
+cancel), so absence is not proof of non-commit and an unknown effect stays unknown. Key **retention is unconfirmed** (the
+fixture never expires a key; the real system's is unknown), so a dispatcher must not rely on a key older than a retention
+someone has confirmed.
 """
 
 from __future__ import annotations
 
+import re
 from typing import Any, Final
 
 from caliber.effects.connectors import ConnectorCapability
@@ -35,10 +41,12 @@ CAPABILITY: Final = ConnectorCapability(
     version=VERSION,
     idempotency_key_header=KEY_HEADER,
     key_scope="downstream",
+    key_retention="unconfirmed",
     key_retention_seconds=None,
     key_conflict_status=422,
     precondition_header=PRECONDITION_HEADER,
     stale_precondition_status=412,
+    definitive_rejection_statuses=frozenset({400, 404, 412, 422}),
     lookup_by_key=True,
     lookup_consistency="read_your_writes",
     absence_proves_noncommit=False,
@@ -65,7 +73,7 @@ def submit_config(
 
 
 def lookup_config(server_url: str) -> dict[str, Any]:
-    """The execution config of the lookup-by-key operation (a read, so it may be retried)."""
+    """The execution config of the lookup-by-key operation (a read; one attempt, the caller decides about retrying)."""
     return {
         "kind": "openapi_http",
         "method": "GET",
@@ -74,6 +82,21 @@ def lookup_config(server_url: str) -> dict[str, Any]:
         "auth_binding": None,
         "max_attempts": 1,
     }
+
+
+#: A case id the path can carry as one segment (no ``.``/``..``, no separators); the executor also refuses dot segments.
+_CASE_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}")
+#: A key is printable ASCII with no surrounding whitespace: anything else is refused here, before a request is built,
+#: rather than failing inside the HTTP client as an error that looks like "may have been sent".
+_KEY = re.compile(r"[\x21-\x7e](?:[\x20-\x7e]{0,253}[\x21-\x7e])?")
+
+
+def _key(value: object) -> str:
+    if not isinstance(value, str) or not _KEY.fullmatch(value):
+        raise ValueError(
+            "an idempotency key is 1 to 255 printable ASCII characters with no surrounding whitespace"
+        )
+    return value
 
 
 def submit_input(
@@ -86,11 +109,13 @@ def submit_input(
     """The input of a submit call: the key and the expected version travel as the headers the downstream reads.
 
     This is the one place they are put on the request, so a caller cannot send a precondition the proposal did not record
-    or a request without its key.
+    or a request without its key. ``case_id`` must be a single safe path segment.
     """
-    if not isinstance(idempotency_key, str) or not idempotency_key.strip():
-        raise ValueError("a submit needs a non-blank idempotency key")
-    headers = {KEY_HEADER: idempotency_key}
+    if not isinstance(case_id, str) or not _CASE_ID.fullmatch(case_id):
+        raise ValueError(
+            "case_id must be 1 to 128 letters, digits, dots, underscores or hyphens, starting with a letter or digit"
+        )
+    headers = {KEY_HEADER: _key(idempotency_key)}
     if expected_resource_version is not None:
         if type(expected_resource_version) is not int or expected_resource_version < 0:
             raise ValueError("expected_resource_version must be a non-negative integer or None")
@@ -100,9 +125,7 @@ def submit_input(
 
 def lookup_input(idempotency_key: str) -> dict[str, Any]:
     """The input of a lookup-by-key call."""
-    if not isinstance(idempotency_key, str) or not idempotency_key.strip():
-        raise ValueError("a lookup needs a non-blank idempotency key")
-    return {"query_params": {"idempotency_key": idempotency_key}}
+    return {"query_params": {"idempotency_key": _key(idempotency_key)}}
 
 
 __all__ = [

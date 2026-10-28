@@ -18,7 +18,7 @@ import re
 import threading
 import time
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 from urllib.parse import quote
 
@@ -121,11 +121,14 @@ def bind_openapi_http_tool(
     def _invoke(*args: Any, **kwargs: Any) -> dict[str, Any]:
         if args and kwargs:
             raise OpenApiExecutionError(
-                f"openapi tool {getattr(binding, 'local_name', 'tool')!r} got both args and kwargs"
+                f"openapi tool {getattr(binding, 'local_name', 'tool')!r} got both args and kwargs",
+                never_sent=True,
             )
         if args:
             if len(args) != 1 or not isinstance(args[0], dict):
-                raise OpenApiExecutionError("openapi tools accept one object argument")
+                raise OpenApiExecutionError(
+                    "openapi tools accept one object argument", never_sent=True
+                )
             payload = dict(args[0])
         else:
             payload = dict(kwargs)
@@ -147,7 +150,7 @@ class _Prepared:
     policy: EgressPolicy
     method: str
     url: str
-    request_kwargs: dict[str, Any]
+    request_kwargs: dict[str, Any] = field(repr=False)  # holds the auth headers
     timeout: float
     max_attempts: int
 
@@ -195,15 +198,17 @@ def _prepare_request(
     query_params.update(auth["query"])
 
     key_header = str(config.get("idempotency_key_header") or "").strip()
+    key_sent = False
     if key_header:
-        supplied = str(input_data.get("idempotency_key") or "").strip()
-        if supplied:
-            headers.setdefault(key_header, supplied)
-    # A key is "sent" only if the outgoing request really carries it (whether it came from the ``idempotency_key`` input
-    # or from ``header_params``): a bound header with no key behind it must not turn on retries of a POST.
-    key_sent = bool(key_header) and any(
-        name.lower() == key_header.lower() and str(value).strip() for name, value in headers.items()
-    )
+        key = _single_idempotency_key(
+            headers, key_header, str(input_data.get("idempotency_key") or "")
+        )
+        if key is not None:
+            headers[key_header] = key
+            key_sent = True
+    # ``key_sent``: the outgoing request really carries exactly one key (whether it came from the ``idempotency_key``
+    # input or from ``header_params``, in any header-name case). A bound header with no key behind it must not turn on
+    # retries of a POST, and two different keys are refused rather than sent.
 
     # Defence in depth, matching the webhook node: refuse the obvious destination
     # here, then let the transport re-check the address it actually connects to.
@@ -258,8 +263,11 @@ def execute_openapi_http_tool(
             input_data=input_data,
             egress_policy=egress_policy,
         )
-    except OpenApiExecutionError as exc:
-        exc.never_sent = True  # refused before any request was built, so nothing was sent
+    except Exception as exc:
+        # Refused before any request was built, so nothing was sent. Any exception type gets the marker (a ValueError from
+        # a malformed timeout, a schema error), so a caller classifying it never mistakes it for "may have been sent".
+        exc.never_sent = True  # type: ignore[attr-defined]
+        exc.attempts = 0  # type: ignore[attr-defined]
         raise
     policy, method, url = prepared.policy, prepared.method, prepared.url
     request_kwargs, timeout, max_attempts = (
@@ -272,8 +280,10 @@ def execute_openapi_http_tool(
     last_error: Exception | None = None
     response = None
     possibly_sent = False  # whether any attempt may have reached the downstream
+    earlier_sent = False  # whether any attempt *before the last one* may have
     while attempt < max_attempts:
         attempt += 1
+        earlier_sent = possibly_sent
         try:
             with build_client(policy=policy, timeout=timeout) as client:
                 response = client.request(method, url, **request_kwargs)
@@ -316,6 +326,8 @@ def execute_openapi_http_tool(
         "json": parsed_json,
         "headers": _safe_response_headers(response.headers),
         "attempts": attempt,
+        # Whether an attempt before the last one may have reached the downstream: a 4xx then proves nothing about it.
+        "earlier_attempts_may_have_been_sent": earlier_sent,
     }
 
 
@@ -594,13 +606,39 @@ def _required_secret(raw_source: object, field_name: str) -> str:
     return resolved
 
 
+def _single_idempotency_key(headers: dict[str, str], header: str, supplied: str) -> str | None:
+    """The one idempotency key the request carries, with every case-variant of the header removed from ``headers``.
+
+    ``None`` means no key. Two different keys (the ``idempotency_key`` input and a ``header_params`` entry, or two
+    spellings of the header), or a blank value in the header, are refused: sending either would make the emitted key
+    ambiguous or turn a bad key into a keyless request.
+    """
+    values: list[str] = []
+    for name in [name for name in headers if name.lower() == header.lower()]:
+        value = str(headers.pop(name)).strip()
+        if not value:
+            raise OpenApiExecutionError(f"the {header} header must not be blank")
+        values.append(value)
+    if supplied.strip():
+        values.append(supplied.strip())
+    if len(set(values)) > 1:
+        raise OpenApiExecutionError(f"two different idempotency keys were supplied for {header}")
+    return values[0] if values else None
+
+
 def _render_path(path: str, path_params: dict[str, Any]) -> str:
     def replace(match: re.Match[str]) -> str:
         name = match.group(1)
         if name not in path_params:
             raise OpenApiExecutionError(f"missing required path parameter {name!r}")
         value = path_params[name]
-        return quote("" if value is None else str(value), safe="")
+        text = "" if value is None else str(value)
+        if text in (
+            ".",
+            "..",
+        ):  # quote() leaves dots alone and the client would collapse the segment
+            raise OpenApiExecutionError(f"path parameter {name!r} must not be a dot segment")
+        return quote(text, safe="")
 
     return _PATH_PARAM.sub(replace, path)
 

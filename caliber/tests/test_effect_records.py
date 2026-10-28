@@ -1182,25 +1182,31 @@ def test_connector_sends_stable_key(downstream: Any) -> None:
     """The connector puts the proposal's key on the request, so sending it twice commits once and both answers are the
     same committed receipt claim."""
     from caliber.effects.connectors import TransportOutcome, classify_result
+    from caliber.effects.connectors.document_request import CAPABILITY
 
     first = _connector_call(downstream, "stable-key-1", 1)
     again = _connector_call(downstream, "stable-key-1", 1)
     assert (first["status_code"], again["status_code"]) == (201, 200)
     assert first["json"] == again["json"]
     assert downstream.mutations() == 1
-    assert {classify_result(first).outcome, classify_result(again).outcome} == {
-        TransportOutcome.COMMITTED_RECEIPT
-    }
+    assert {
+        classify_result(first, capability=CAPABILITY).outcome,
+        classify_result(again, capability=CAPABILITY).outcome,
+    } == {TransportOutcome.COMMITTED_RECEIPT}
 
 
 def test_stale_version_fails_without_mutation(downstream: Any) -> None:
     """The connector sends the proposal's expected version as ``If-Match``; a stale one is a definitive rejection and the
     downstream commits nothing."""
     from caliber.effects.connectors import TransportOutcome, classify_result
+    from caliber.effects.connectors.document_request import CAPABILITY
 
     refused = _connector_call(downstream, "stale-key-1", 999)
     assert refused["status_code"] == 412
-    assert classify_result(refused).outcome is TransportOutcome.DEFINITIVE_REJECTION
+    assert (
+        classify_result(refused, capability=CAPABILITY).outcome
+        is TransportOutcome.DEFINITIVE_REJECTION
+    )
     assert downstream.mutations() == 0
     assert _connector_call(downstream, "stale-key-2", 1)["status_code"] == 201, (
         "the current version is accepted"
