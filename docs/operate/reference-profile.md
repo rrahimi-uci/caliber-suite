@@ -1027,9 +1027,15 @@ them the one way ADR 0003 allows: by asking the downstream by the **original log
   | cannot be reached, or no binding for this connector and project | nothing | `lookup_failed` / `not_bound` |
 
   A proposal that another actor moved while the downstream was asked is `moved` and is not overwritten (the write is conditioned on the version that was read).
-- **Unknown blocks what depends on it.** The runtime asks `plan.effect_gate` before every node, with the node and everything upstream of it; while an effect any of
-  them asked for is `dispatched`, `unknown` or `reconciled`, the node does not run and the run ends with `UnknownEffectError: effect <proposal> (node <n>, unknown)
-  has no final outcome: reconcile it ...`. The queued-run worker installs the gate for every run. Nothing downstream of an effect nobody can vouch for is written.
+- **Unknown blocks what depends on it.** The runtime asks `plan.effect_gate` before every node, at the top of **every attempt** of its retries and before a
+  guardrail re-runs the agents feeding it, with the node and everything it may depend on: every node upstream of it by edge, and the **inline children** of each of
+  those (a `for_each` / `loop` / `error_boundary` target, a boundary's `compensate_with`, an agent's handoff targets), which have no edges of their own. While an
+  effect any of them asked for is `dispatched`, `unknown` or `reconciled`, the node does not run and the run ends with `UnknownEffectError: effect <proposal> (node
+  <n>, unknown) has no final outcome: reconcile it ...` (run status `failed`, error code `runtime_error`). The refusal is never absorbed: a fan-out item, a loop
+  iteration, an error boundary or its compensation does not turn it into the item's own error. The queued-run worker installs the gate for every run.
+- **A refused run is over; it is not resumed.** The run is `failed`; once the reconciler settles the effect nothing restarts it. A *new* run is a new logical effect
+  (the logical key includes the run id), so it is not gated by the old run's open effect and may ask the downstream for the same thing again: decide that with the
+  operator before re-running something whose effect is `unknown`. Parking a gated run and resuming it after reconciliation is a follow-up.
 
 ```python
 from caliber.effects.callbacks import parse_bindings
@@ -1042,8 +1048,12 @@ for result in reconcile_pass(session_factory, lease=lease, targets=targets):
 
 - **Refusals and recovery.** `lease_lost`: you are no longer the owner, stop and let the new owner reconcile. `store_failed`: roll back and retry. `unknown` after a
   pass: nothing proves the outcome yet (delayed visibility looks like absence); the next pass asks again, the effect is never re-sent, and dependents stay blocked.
-  An operator who knows the downstream never processed the request resolves it deliberately (a connector that can prove it should set `absence_proves_noncommit`).
-- **Limits.** One connector (document-request) can be reconciled; another needs a verifier and capability record in `reconcile.CONNECTORS`. The gate runs where
+  There is no operator action that fails an `unknown` effect without the downstream's evidence yet (the operator reconciliation view is B05.6, #751); a connector that
+  can prove absence should set `absence_proves_noncommit`.
+- **Limits.** A pass looks at every candidate (a backlog that stays `unknown` cannot hide a newer one) and does not renew the lease: the caller bounds it with
+  `budget_seconds` and renews or stops in `on_progress`. A `dispatched` row under the *current* lease is `in_flight` and is the dispatcher's to settle (it must record
+  `unknown` on any error that is not a lost lease; the reconciler never abandons it). A `dispatched` row with no recorded token (none exist in shipped code; a
+  downgrade through 0125 drops the column) is never abandoned. One connector (document-request) can be reconciled; another needs a verifier and capability record in `reconcile.CONNECTORS`. The gate runs where
   the runtime does (the queued-run worker, not preview or evaluation, which refuse effect nodes). A subworkflow's child plan is built separately and is not gated (the legacy effect ledger is not installed there either).
 
 ## Receipt callback: a connector tells the platform it is done (B05.4b, #725)

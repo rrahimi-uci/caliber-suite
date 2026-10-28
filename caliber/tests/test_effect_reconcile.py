@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import itertools
 import threading
 from dataclasses import replace
 from pathlib import Path
@@ -1056,12 +1057,411 @@ def test_upstream_nodes_follow_every_path_and_never_include_what_comes_after() -
 
     from caliber.workflows.runtime import _upstream_node_ids
 
-    edges = [("s", "a"), ("s", "b"), ("a", "j"), ("b", "j"), ("j", "o"), ("x", "j"), ("j", "later")]
-    ir = SimpleNamespace(edges=[SimpleNamespace(from_node=f, to_node=t) for f, t in edges])
-    assert _upstream_node_ids(ir, "j") == {"s", "a", "b", "x", "j"}  # type: ignore[arg-type]
-    assert _upstream_node_ids(ir, "s") == {"s"}  # type: ignore[arg-type]
-    assert _upstream_node_ids(ir, "o") == {"s", "a", "b", "x", "j", "o"}  # type: ignore[arg-type]
-    cyclic = SimpleNamespace(
-        edges=[SimpleNamespace(from_node=f, to_node=t) for f, t in [("a", "b"), ("b", "a")]]
+    def graph(edges: list[tuple[str, str]]) -> Any:
+        nodes = {n: SimpleNamespace() for pair in edges for n in pair}
+        return SimpleNamespace(
+            nodes=nodes, edges=[SimpleNamespace(from_node=f, to_node=t) for f, t in edges]
+        )
+
+    ir = graph(
+        [("s", "a"), ("s", "b"), ("a", "j"), ("b", "j"), ("j", "o"), ("x", "j"), ("j", "later")]
     )
-    assert _upstream_node_ids(cyclic, "a") == {"a", "b"}  # type: ignore[arg-type]
+    assert _upstream_node_ids(ir, "j") == {"s", "a", "b", "x", "j"}
+    assert _upstream_node_ids(ir, "s") == {"s"}
+    assert _upstream_node_ids(ir, "o") == {"s", "a", "b", "x", "j", "o"}
+    assert _upstream_node_ids(graph([("a", "b"), ("b", "a")]), "a") == {"a", "b"}
+
+
+def test_a_node_depends_on_the_inline_targets_of_everything_upstream_of_it() -> None:
+    """A fan-out, loop or boundary runs its target itself (no edge to it): the target's effect is the node's effect."""
+    from caliber.workflows.ir import (
+        IRAgent,
+        IREdge,
+        IRErrorBoundary,
+        IRForEach,
+        IRHandoff,
+        IRLoop,
+        IRWorkflow,
+    )
+    from caliber.workflows.runtime import _upstream_node_ids
+
+    nodes: dict[str, Any] = {
+        "start": IRAgent(node_id="start", node_type="agent", handoffs=[IRHandoff("helper")]),
+        "each": IRForEach(node_id="each", node_type="for_each", target_node_id="t-each"),
+        "again": IRLoop(node_id="again", node_type="loop", target_node_id="t-loop"),
+        "guard": IRErrorBoundary(
+            node_id="guard",
+            node_type="error_boundary",
+            target_node_id="t-guard",
+            compensate_with="undo",
+        ),
+        "plain": IRAgent(node_id="plain", node_type="agent"),
+        "final": IRAgent(node_id="final", node_type="agent"),
+        "unrelated": IRAgent(node_id="unrelated", node_type="agent"),
+    }
+    for name in ("helper", "t-each", "t-loop", "t-guard", "undo"):
+        nodes[name] = IRAgent(node_id=name, node_type="agent")
+    chain = ["start", "each", "again", "guard", "plain", "final"]
+    ir = IRWorkflow(
+        workflow_id="w",
+        version="1",
+        nodes=nodes,
+        edges=[
+            IREdge(f"e{i}", a, "out", b, "in", None)  # type: ignore[arg-type]
+            for i, (a, b) in enumerate(itertools.pairwise(chain))
+        ],
+        entry_node_id="start",
+        output_node_id="final",
+    )
+    assert _upstream_node_ids(ir, "final") == {
+        *chain,
+        "helper",
+        "t-each",
+        "t-loop",
+        "t-guard",
+        "undo",
+    }
+    assert _upstream_node_ids(ir, "each") == {"start", "each", "helper", "t-each"}
+    assert "unrelated" not in _upstream_node_ids(ir, "final")
+
+
+def _wrapped_manifest(wrapper: str) -> dict[str, Any]:
+    from tests.workflow_helpers import make_manifest
+
+    data = make_manifest()
+    wrap: dict[str, Any] = {"id": "wrap", "type": wrapper, "target_node_id": "agent"}
+    if wrapper == "for_each":
+        wrap |= {
+            "inputs": {"items": {"type": "structured"}},
+            "outputs": {"text": {"type": "string"}, "results": {"type": "structured"}},
+        }
+        port, out = "items", "text"
+    elif wrapper == "loop":
+        wrap |= {
+            "max_iterations": 2,
+            "stop_condition": "False",
+            "inputs": {"input": {"type": "string"}},
+            "outputs": {"output": {"type": "string"}},
+        }
+        port, out = "input", "output"
+    else:
+        wrap |= {
+            "fallback_text": "fallback",
+            "inputs": {"input": {"type": "string"}},
+            "outputs": {"output": {"type": "string"}, "error": {"type": "structured"}},
+        }
+        port, out = "input", "output"
+    data["nodes"]["wrap"] = wrap
+    data["edges"] = [
+        {"id": "e1", "from": "start", "to": "wrap", "map": {"msg": port}},
+        {"id": "e2", "from": "wrap", "to": "final", "map": {out: "response"}},
+    ]
+    return data
+
+
+def _gate_refusing(node: str, asked: list[set[str]]) -> Any:
+    def gate(ids: Any) -> None:
+        asked.append(set(ids))
+        if node in ids:
+            raise UnknownEffectError([("prop-1", node, UNKNOWN)])
+
+    return gate
+
+
+@pytest.mark.parametrize("wrapper", ["for_each", "loop", "error_boundary"])
+def test_an_open_effect_of_an_inline_target_is_not_absorbed_and_blocks_everything_after(
+    wrapper: str,
+) -> None:
+    """A fan-out, loop or boundary may not isolate the refusal as the item's (or the target's) own error, and the nodes
+    after it are gated on the target as well."""
+    from caliber.workflows.compiler import build_ir
+    from caliber.workflows.manifest import parse_manifest
+    from caliber.workflows.runtime import FakeWorkflowExecutor, RuntimePlan, execute
+    from tests.workflow_helpers import fake_resolver
+
+    asked: list[set[str]] = []
+    plan = RuntimePlan(
+        ir=build_ir(parse_manifest(_wrapped_manifest(wrapper)), fake_resolver(), version="g"),
+        resolver=fake_resolver(),
+        effect_gate=_gate_refusing("agent", asked),
+    )
+    executor = FakeWorkflowExecutor()
+    result = execute(plan, '["a","b"]', executor=executor)
+    assert result.status == "error", [s.node_id for s in result.steps]
+    assert (result.error or "").startswith("UnknownEffectError"), result.error
+    assert executor.calls == [], "the provider was never called"
+    assert "final" not in [step.node_id for step in result.steps]
+    assert any("wrap" in ids and "agent" in ids for ids in asked), (
+        "the wrapper is gated on its own target"
+    )
+
+
+def test_a_compensation_does_not_run_against_an_effect_nobody_can_vouch_for() -> None:
+    from caliber.workflows.compiler import build_ir
+    from caliber.workflows.manifest import parse_manifest
+    from caliber.workflows.runtime import FakeWorkflowExecutor, RuntimePlan, execute
+    from tests.workflow_helpers import fake_resolver, make_manifest
+
+    data = make_manifest()
+    data["nodes"]["boom"] = {
+        "id": "boom",
+        "type": "python_code",
+        "code": "raise RuntimeError('boom')",
+        "inputs": {"input": {"type": "string"}},
+        "outputs": {"text": {"type": "string"}},
+    }
+    data["nodes"]["wrap"] = {
+        "id": "wrap",
+        "type": "error_boundary",
+        "target_node_id": "boom",
+        "compensate_with": "agent",
+        "fallback_text": "fallback",
+        "inputs": {"input": {"type": "string"}},
+        "outputs": {"output": {"type": "string"}, "error": {"type": "structured"}},
+    }
+    data["edges"] = [
+        {"id": "e1", "from": "start", "to": "wrap", "map": {"msg": "input"}},
+        {"id": "e2", "from": "wrap", "to": "final", "map": {"output": "response"}},
+    ]
+    asked: list[set[str]] = []
+    executor = FakeWorkflowExecutor()
+    result = execute(
+        RuntimePlan(
+            ir=build_ir(parse_manifest(data), fake_resolver(), version="g"),
+            resolver=fake_resolver(),
+            effect_gate=_gate_refusing("agent", asked),
+        ),
+        "hi",
+        executor=executor,
+    )
+    assert result.status == "error" and (result.error or "").startswith("UnknownEffectError")
+    assert executor.calls == []
+
+
+def test_a_node_retry_is_gated_again_before_each_attempt() -> None:
+    from caliber.workflows.compiler import build_ir
+    from caliber.workflows.manifest import parse_manifest
+    from caliber.workflows.runtime import FakeWorkflowExecutor, RuntimePlan, execute
+    from tests.workflow_helpers import fake_resolver, make_manifest
+
+    data = make_manifest()
+    data["nodes"]["boom"] = {
+        "id": "boom",
+        "type": "python_code",
+        "code": "raise RuntimeError('boom')",
+        "execution_policy": {"max_retries": 2},
+        "inputs": {"input": {"type": "string"}},
+        "outputs": {"text": {"type": "string"}},
+    }
+    data["edges"] = [
+        {"id": "e1", "from": "start", "to": "boom", "map": {"msg": "input"}},
+        {"id": "e2", "from": "boom", "to": "final", "map": {"text": "response"}},
+    ]
+    calls: list[set[str]] = []
+
+    def gate(ids: Any) -> None:
+        calls.append(set(ids))
+        if (
+            "boom" in ids and sum("boom" in c for c in calls) == 2
+        ):  # the second attempt: its effect went unknown
+            raise UnknownEffectError([("prop-1", "boom", UNKNOWN)])
+
+    result = execute(
+        RuntimePlan(
+            ir=build_ir(parse_manifest(data), fake_resolver(), version="g"),
+            resolver=fake_resolver(),
+            effect_gate=gate,
+        ),
+        "hi",
+        executor=FakeWorkflowExecutor(),
+    )
+    assert result.status == "error" and (result.error or "").startswith("UnknownEffectError")
+    assert sum("boom" in c for c in calls) == 2, "asked on the retry, and a refusal is not retried"
+
+
+def test_a_guardrail_retry_is_gated_before_it_runs_the_agent_again(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from caliber.workflows import runtime as runtime_module
+    from caliber.workflows.compiler import build_ir
+    from caliber.workflows.manifest import parse_manifest
+    from caliber.workflows.runtime import RuntimePlan, execute
+    from tests.test_workflow_hardening import _GroundAfterExecutor
+    from tests.workflow_helpers import fake_resolver, make_support_manifest
+
+    data = make_support_manifest()
+    data["nodes"]["policy_guardrail"]["on_failure"] = "block_retry"
+    data["nodes"]["policy_guardrail"]["max_retries"] = 2
+    retrying = {"started": False}
+    real = runtime_module._retry_blocked_guardrail
+
+    def marked(*args: Any, **kwargs: Any) -> Any:
+        retrying["started"] = True
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(runtime_module, "_retry_blocked_guardrail", marked)
+
+    def gate(ids: Any) -> None:
+        if retrying["started"] and "policy_guardrail" not in ids:  # the agent's own turn
+            raise UnknownEffectError([("prop-1", "support_agent", UNKNOWN)])
+
+    result = execute(
+        RuntimePlan(
+            ir=build_ir(parse_manifest(data), fake_resolver(), version="g"),
+            resolver=fake_resolver(),
+            effect_gate=gate,
+        ),
+        "what is your refund policy?",
+        executor=_GroundAfterExecutor(),
+    )
+    assert result.status == "error" and (result.error or "").startswith("UnknownEffectError")
+    assert retrying["started"]
+
+
+@pytest.mark.parametrize("wrapper", ["for_each", "loop", "error_boundary"])
+def test_an_effect_that_goes_unknown_while_the_wrapper_runs_is_still_not_absorbed(
+    wrapper: str,
+) -> None:
+    """The wrapper passed its own gate; the open effect appears when the *target* is asked (a concurrent branch left it unknown)."""
+    from caliber.workflows.compiler import build_ir
+    from caliber.workflows.manifest import parse_manifest
+    from caliber.workflows.runtime import FakeWorkflowExecutor, RuntimePlan, execute
+    from tests.workflow_helpers import fake_resolver
+
+    def gate(ids: Any) -> None:
+        if set(ids) == {"agent"}:  # only the target's own run
+            raise UnknownEffectError([("prop-1", "agent", UNKNOWN)])
+
+    executor = FakeWorkflowExecutor()
+    result = execute(
+        RuntimePlan(
+            ir=build_ir(parse_manifest(_wrapped_manifest(wrapper)), fake_resolver(), version="g"),
+            resolver=fake_resolver(),
+            effect_gate=gate,
+        ),
+        '["a","b"]',
+        executor=executor,
+    )
+    assert result.status == "error", [(s.node_id, s.status, s.detail) for s in result.steps]
+    assert (result.error or "").startswith("UnknownEffectError") and executor.calls == []
+
+
+# ---------------------------------------------------------------- a backlog cannot hide a newer proposal
+
+
+def test_a_pass_reaches_a_newer_proposal_behind_a_backlog_that_stays_unknown(database: Any) -> None:
+    _, factory = database
+    with factory() as session:
+        stuck = [_unknown(session, f"o-stuck-{n}") for n in range(3)]
+        fresh = _unknown(session, "o-fresh")
+        body = _stored(session, fresh)
+        from caliber.effects.records import proposal_view
+
+        key = proposal_view(session, fresh).logical_key
+        session.commit()
+    lease = _owner(factory)
+    downstream = _Downstream(factory)  # 404 for the backlog
+    downstream.script[key] = Answer(200, body)
+    results = reconcile_pass(
+        factory, lease=lease, targets=TARGETS, lookup=downstream, limit=2, now=AT
+    )
+    outcomes = {r.proposal_id: r.outcome for r in results}
+    assert outcomes[fresh] == RECONCILED_COMMITTED
+    assert {outcomes[p] for p in stuck} == {STILL_UNKNOWN}
+    assert len(results) == 4 and len(downstream.asked) == 4, "every proposal asked once, none twice"
+
+
+def test_a_pass_stops_at_its_budget_and_reports_progress_before_each_proposal(
+    database: Any,
+) -> None:
+    _, factory = database
+    with factory() as session:
+        for n in range(3):
+            _unknown(session, f"o-{n}")
+        session.commit()
+    lease = _owner(factory)
+    downstream = _Downstream(factory)
+    progress: list[int] = []
+    results = reconcile_pass(
+        factory,
+        lease=lease,
+        targets=TARGETS,
+        lookup=downstream,
+        budget_seconds=0.0,
+        on_progress=lambda: progress.append(1),
+    )
+    assert results == [] and progress == [] and downstream.asked == []
+    results = reconcile_pass(
+        factory,
+        lease=lease,
+        targets=TARGETS,
+        lookup=downstream,
+        on_progress=lambda: progress.append(1),
+    )
+    assert len(results) == 3 and len(progress) == 3
+
+    def stop() -> None:
+        raise RuntimeError("the owner loop is stopping")
+
+    with pytest.raises(RuntimeError, match="stopping"):
+        reconcile_pass(factory, lease=lease, targets=TARGETS, lookup=downstream, on_progress=stop)
+
+
+@pytest.mark.parametrize("raised", ["stale", "receipt_state"])
+def test_a_commit_that_loses_to_another_actor_is_moved_not_an_error(
+    raised: str, database: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from caliber.effects.receipts import RECEIPT_STATE
+
+    _, factory = database
+    with factory() as session:
+        proposal_id = _unknown(session, "o-1")
+        body = _stored(session, proposal_id)
+        from caliber.effects.records import proposal_view
+
+        key = proposal_view(session, proposal_id).logical_key
+        session.commit()
+    lease = _owner(factory)
+
+    def lost(*args: Any, **kwargs: Any) -> Any:
+        if raised == "stale":
+            raise StaleVersion(proposal_id, 3, 4, COMMITTED)
+        raise ProposalError(RECEIPT_STATE, "committed meanwhile")
+
+    monkeypatch.setattr(reconcile, "commit_found", lost)
+    downstream = _Downstream(factory)
+    downstream.script[key] = Answer(200, body)
+    result = reconcile_one(
+        factory, proposal_id, lease=lease, targets=TARGETS, lookup=downstream, now=AT
+    )
+    assert result.outcome == MOVED and result.state == UNKNOWN
+
+
+def test_any_other_refusal_while_committing_is_raised(
+    database: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _, factory = database
+    with factory() as session:
+        proposal_id = _unknown(session, "o-1")
+        body = _stored(session, proposal_id)
+        from caliber.effects.records import proposal_view
+
+        key = proposal_view(session, proposal_id).logical_key
+        session.commit()
+
+    def refused(*args: Any, **kwargs: Any) -> Any:
+        raise ProposalError(EVIDENCE_REQUIRED, "scripted")
+
+    monkeypatch.setattr(reconcile, "commit_found", refused)
+    downstream = _Downstream(factory)
+    downstream.script[key] = Answer(200, body)
+    with pytest.raises(ProposalError) as raised:
+        reconcile_one(
+            factory,
+            proposal_id,
+            lease=_owner(factory),
+            targets=TARGETS,
+            lookup=downstream,
+            now=AT,
+        )
+    assert raised.value.code == EVIDENCE_REQUIRED

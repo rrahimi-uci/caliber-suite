@@ -28,10 +28,12 @@ what it can prove:
 * **No blind redrive.** Nothing here sends the effect: there is no edge from ``unknown`` back to ``dispatched``, so a crash
   before the send, after the downstream committed, or before the receipt was persisted all end the same way: a lookup by key,
   never a second request.
-* **Unknown blocks what depends on it.** :func:`effect_gate` is the check the runtime makes before it runs a node: while an
-  effect the node (or anything upstream of it) asked for is ``dispatched``, ``unknown`` or ``reconciled``, the node does not
-  run (:class:`UnknownEffectError`, naming what to reconcile), so no write that depends on an effect nobody can vouch for
-  is made.
+* **Unknown blocks what depends on it.** :func:`effect_gate` is the check the runtime makes before it runs a node (at every
+  attempt, and before a guardrail re-runs its agents): while an effect the node, anything upstream of it, or any of their inline
+  children (a fan-out, loop or boundary's target and compensation, an agent's handoff targets) asked for is ``dispatched``,
+  ``unknown`` or ``reconciled``, the node does not run (:class:`UnknownEffectError`, naming what to reconcile) and nothing
+  absorbs the refusal. No write that depends on an effect nobody can vouch for is made. The refused run is ``failed`` and is not
+  resumed (a follow-up).
 
 Where the connector lives is the callback binding's ``base_url`` (``CALIBER_EFFECT_CALLBACK_CONNECTORS``): the same
 ``(connector, project)`` that may report a receipt is the one the reconciler asks. Scheduling a pass (the owner loop that
@@ -42,12 +44,13 @@ itself.
 from __future__ import annotations
 
 import logging
+import time
 from collections.abc import Callable, Collection, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Final
 
-from sqlalchemy import or_, select
+from sqlalchemy import and_, or_, select
 from sqlalchemy.orm import Session, sessionmaker
 
 from caliber.audit import record as audit_record
@@ -55,7 +58,7 @@ from caliber.db.models import CaliberEffectProposal, CaliberWorkflowRun
 from caliber.effects.callbacks import CallbackBinding
 from caliber.effects.connectors import ConnectorCapability, interpret_lookup
 from caliber.effects.connectors import document_request as _document_request
-from caliber.effects.receipts import ReceiptFacts, record_receipt
+from caliber.effects.receipts import RECEIPT_STATE, ReceiptFacts, record_receipt
 from caliber.effects.records import (
     COMMITTED,
     DISPATCHED,
@@ -201,25 +204,34 @@ def commit_found(
     return receipt.receipt_id, True
 
 
-def candidates(session: Session, lease: Lease, *, limit: int = DEFAULT_PASS_LIMIT) -> list[str]:
-    """The proposals this owner should look at: ``unknown`` and ``reconciled`` ones, and ``dispatched`` ones whose dispatching
-    lease has been taken over (a lower ``dispatch_token``), oldest first."""
+def _candidate_page(session: Session, lease: Lease, limit: int, after: str | None) -> list[str]:
+    """Up to ``limit`` candidate ids greater than ``after``, in id order (a keyset on the primary key: never the same row twice,
+    never skipping one, and no comparison of timestamps, which SQLite stores at another precision than it binds)."""
     if type(limit) is not int or limit < 1:
         raise ValueError("limit must be a positive integer")
-    return list(
-        session.execute(
-            select(CaliberEffectProposal.proposal_id)
-            .where(
-                or_(
-                    CaliberEffectProposal.state.in_((UNKNOWN, RECONCILED)),
-                    (CaliberEffectProposal.state == DISPATCHED)
-                    & (CaliberEffectProposal.dispatch_token < lease.fencing_token),
-                )
-            )
-            .order_by(CaliberEffectProposal.created_at, CaliberEffectProposal.proposal_id)
-            .limit(limit)
-        ).scalars()
+    query = select(CaliberEffectProposal.proposal_id).where(
+        or_(
+            CaliberEffectProposal.state.in_((UNKNOWN, RECONCILED)),
+            and_(
+                CaliberEffectProposal.state == DISPATCHED,
+                CaliberEffectProposal.dispatch_token < lease.fencing_token,
+            ),
+        )
     )
+    if after is not None:
+        query = query.where(CaliberEffectProposal.proposal_id > after)
+    return [
+        str(proposal_id)
+        for proposal_id in session.execute(
+            query.order_by(CaliberEffectProposal.proposal_id).limit(limit)
+        ).scalars()
+    ]
+
+
+def candidates(session: Session, lease: Lease, *, limit: int = DEFAULT_PASS_LIMIT) -> list[str]:
+    """The first ``limit`` proposals this owner should look at, in id order: ``unknown`` and ``reconciled`` ones, and
+    ``dispatched`` ones whose dispatching lease has been taken over (a lower ``dispatch_token``)."""
+    return _candidate_page(session, lease, limit, None)
 
 
 def _project_of(session: Session, proposal_id: str) -> str | None:
@@ -316,9 +328,15 @@ def _settle(
             if facts is None:
                 # a stored request that is not this effect (or none at all) is not a receipt
                 return Reconciliation(view.proposal_id, UNVERIFIED, state.state)
-            receipt_id, performed = commit_found(
-                session, view.proposal_id, facts, reason=RECONCILER_REASON, now=now
-            )
+            committed = _commit_unless_moved(session, view.proposal_id, facts, now)
+            if (
+                committed is None
+            ):  # the callback route (or another reconciler) got there between the read and the write
+                session.rollback()
+                return Reconciliation(
+                    view.proposal_id, MOVED, proposal_state(session, view.proposal_id).state
+                )
+            receipt_id, performed = committed
             if performed:
                 _audit(session, lease, view.proposal_id, COMMITTED, {"receipt_id": receipt_id})
             session.commit()
@@ -352,6 +370,20 @@ def _settle(
     )
 
 
+def _commit_unless_moved(
+    session: Session, proposal_id: str, facts: ReceiptFacts, now: datetime | None
+) -> tuple[str, bool] | None:
+    """:func:`commit_found`, or ``None`` if another actor settled the proposal after it was read (nothing is kept)."""
+    try:
+        return commit_found(session, proposal_id, facts, reason=RECONCILER_REASON, now=now)
+    except StaleVersion:  # (a ProposalError too: it is caught first)
+        return None
+    except ProposalError as exc:
+        if exc.code != RECEIPT_STATE:
+            raise
+        return None
+
+
 def _audit(
     session: Session, lease: Lease, proposal_id: str, state: str, details: dict[str, Any]
 ) -> None:
@@ -372,27 +404,52 @@ def reconcile_pass(
     targets: Targets,
     lookup: Lookup = ask_downstream,
     limit: int = DEFAULT_PASS_LIMIT,
+    budget_seconds: float | None = None,
+    on_progress: Callable[[], None] | None = None,
     now: datetime | None = None,
 ) -> list[Reconciliation]:
-    """One pass over :func:`candidates`, under ``lease``. Stops (raising ``ProposalError`` ``lease_lost``) the moment the lease
-    is not this owner's: whatever is left is the next owner's."""
+    """One pass over *every* candidate (in id order, ``limit`` at a time, so a backlog of proposals that stay ``unknown`` can
+    never hide a newer resolvable one), under ``lease``. Stops (raising ``ProposalError`` ``lease_lost``) the moment the lease is
+    not this owner's: whatever is left is the next owner's.
+
+    A lookup can take its executor timeout (30 s by default) and a pass does not renew the lease, so a caller that owns the loop
+    bounds it: ``budget_seconds`` ends the pass after the proposal that crossed it (the rest wait for the next pass), and
+    ``on_progress`` is called before each proposal (renew the lease there, or raise to stop).
+    """
+    started = time.monotonic()
     with factory() as session:
         fence_owner(session, "pass", lease.owner_id, lease)
-        found = candidates(session, lease, limit=limit)
+        page = _candidate_page(session, lease, limit, None)
     results: list[Reconciliation] = []
-    for proposal_id in found:
-        try:
-            results.append(
-                reconcile_one(
-                    factory, proposal_id, lease=lease, targets=targets, lookup=lookup, now=now
-                )
-            )
-        except ProposalError as exc:
-            if exc.code == LEASE_LOST:
-                raise
-            logger.warning("reconcile %s: %s", proposal_id, exc.code)
-            results.append(Reconciliation(proposal_id, STILL_UNKNOWN, UNKNOWN, exc.code))
+    while page:
+        for proposal_id in page:
+            if budget_seconds is not None and time.monotonic() - started >= budget_seconds:
+                return results
+            if on_progress is not None:
+                on_progress()
+            results.append(_reconcile_or_report(factory, proposal_id, lease, targets, lookup, now))
+        with factory() as session:
+            page = _candidate_page(session, lease, limit, page[-1])
     return results
+
+
+def _reconcile_or_report(
+    factory: sessionmaker[Session],
+    proposal_id: str,
+    lease: Lease,
+    targets: Targets,
+    lookup: Lookup,
+    now: datetime | None,
+) -> Reconciliation:
+    try:
+        return reconcile_one(
+            factory, proposal_id, lease=lease, targets=targets, lookup=lookup, now=now
+        )
+    except ProposalError as exc:
+        if exc.code == LEASE_LOST:
+            raise
+        logger.warning("reconcile %s: %s", proposal_id, exc.code)
+        return Reconciliation(proposal_id, STILL_UNKNOWN, UNKNOWN, exc.code)
 
 
 def unresolved_effects(

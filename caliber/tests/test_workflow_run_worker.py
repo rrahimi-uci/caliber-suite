@@ -2533,8 +2533,10 @@ def test_worker_does_not_run_a_node_whose_effect_has_no_final_outcome(client) ->
 
     with client.app.state.session_factory() as session:
         run = session.get(CaliberWorkflowRun, run_id)
-        assert run is not None and run.status != "completed"
-        assert "UnknownEffectError" in str(run.error_summary or "") + str(run.summary or "")
+        assert run is not None
+        assert (run.status, run.error_code) == ("failed", "runtime_error")
+        assert str(run.error_summary).startswith("UnknownEffectError: effect prop-")
+        assert "reconcile it" in str(run.error_summary)
         steps = (
             session.query(CaliberWorkflowRunEvent)
             .filter(

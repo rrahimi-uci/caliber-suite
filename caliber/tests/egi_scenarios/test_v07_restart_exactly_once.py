@@ -340,7 +340,7 @@ def test_dependent_node_blocked_while_unknown(
     assert [step.node_id for step in blocked.steps] == ["start"], (
         "the effect's own node did not run again"
     )
-    with factory() as session, pytest.raises(UnknownEffectError):
+    with pytest.raises(UnknownEffectError):
         effect_gate(factory, "RUN-ep")({NODE, "final"})
 
     # delayed visibility: the request that was "in flight" lands at the downstream late, from somewhere else
