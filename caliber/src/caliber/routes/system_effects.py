@@ -74,6 +74,14 @@ from caliber.effects.connectors.document_request import (
     lookup_config,
     lookup_input,
 )
+from caliber.effects.operator_view import (
+    OPEN,
+    describe_sources,
+    label_legacy,
+    lease_summary,
+    list_proposals_page,
+    proposal_states,
+)
 from caliber.effects.receipts import RECEIPT_STATE, ReceiptFacts
 from caliber.effects.reconcile import commit_found
 from caliber.effects.records import (
@@ -129,6 +137,9 @@ _FIRST_ERROR_STATUS = 400
 _CALLBACK_CONNECTORS = frozenset({DOCUMENT_REQUEST})
 
 _STATUS_ANY = "any"
+_SOURCE_ALL = "all"
+_SOURCE_LEGACY = "legacy"
+_SOURCE_PROPOSAL = "proposal"
 _DEAD_LETTER_OPEN = "open"
 _DEAD_LETTER_ACKNOWLEDGED = "acknowledged"
 #: A replay that actually reached the receiver. Distinct from "acknowledged":
@@ -140,38 +151,71 @@ _DEAD_LETTER_REPLAYED = "replayed"
 _DEAD_LETTER_REPLAYING = "replaying"
 
 
+def proposal_states_for(source: str, requested: str) -> tuple[str, ...]:
+    """The proposal states to list, or a 400; the filter is only checked when proposals are asked for."""
+    if source == _SOURCE_LEGACY:
+        return ()
+    try:
+        return proposal_states(requested)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
 async def list_system_effects(request: Request) -> JSONResponse:
-    """``GET /caliber/system/effects`` — ledger rows needing or recording a decision.
+    """``GET /caliber/system/effects`` — the operator reconciliation view: ledger claims and effect proposals, labelled apart.
 
-    Operator scope to read: a stuck effect is an operational fact an on-call
-    responder needs, and the row carries no payload (see ``list_effects``).
+    Operator scope to read: a stuck effect is an operational fact an on-call responder needs, and no row carries a payload
+    (see ``list_effects`` and :mod:`caliber.effects.operator_view`).
 
-    Defaults to ``in_progress`` rather than everything, because an unbounded list of
-    completed effects buries the handful that are actually blocking a run.
+    Two kinds of record, never mixed (B05.6, #751). ``effects`` is the **legacy ledger** (``source: legacy_ledger``), exactly
+    as before plus its label and ``safe_actions`` (the admin ``resolve`` applies to an ``in_progress`` claim); ``proposals`` is
+    the **effect proposal** ledger (``source: effect_proposal``, ADR 0003), settled by the reconciler and offering no operator
+    action. ``source`` (``all`` by default, ``legacy`` or ``proposal``) picks which to list.
+
+    The legacy list defaults to ``in_progress`` rather than everything, because an unbounded list of completed effects buries
+    the handful that are actually blocking a run; the proposal list defaults to the ``open`` states (``dispatched``, ``unknown``,
+    ``reconciled``) for the same reason (``proposal_state`` also takes ``any`` or one state).
     """
     require_scopes(request, [SCOPE_OPERATOR])
+    source = (request.query_params.get("source") or _SOURCE_ALL).strip().casefold()
+    if source not in (_SOURCE_ALL, _SOURCE_LEGACY, _SOURCE_PROPOSAL):
+        raise HTTPException(
+            status_code=400,
+            detail=f"'source' must be one of {_SOURCE_ALL}, {_SOURCE_LEGACY}, {_SOURCE_PROPOSAL}",
+        )
     status = (request.query_params.get("status") or IN_PROGRESS).strip()
+    proposal_state = (request.query_params.get("proposal_state") or OPEN).strip()
     run_id = (request.query_params.get("workflow_run_id") or "").strip()
     try:
         limit = int(request.query_params.get("limit") or 100)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail="'limit' must be an integer") from exc
+    states = proposal_states_for(source, proposal_state)
 
     factory = get_session_factory(request)
+    body: dict[str, Any] = {
+        "status": status,
+        "resolutions": list(RESOLUTIONS),
+        "sources": describe_sources(),
+    }
     with factory() as session:
-        rows = list_effects(
-            session,
-            status=None if status.casefold() == _STATUS_ANY else status,
-            workflow_run_id=run_id or None,
-            limit=limit,
-        )
-    return envelope_response_dict(
-        {
-            "effects": rows,
-            "status": status,
-            "resolutions": list(RESOLUTIONS),
-        }
-    )
+        if source in (_SOURCE_ALL, _SOURCE_LEGACY):
+            body["effects"] = [
+                label_legacy(row, in_progress=IN_PROGRESS)
+                for row in list_effects(
+                    session,
+                    status=None if status.casefold() == _STATUS_ANY else status,
+                    workflow_run_id=run_id or None,
+                    limit=limit,
+                )
+            ]
+        if source in (_SOURCE_ALL, _SOURCE_PROPOSAL):
+            body["proposal_state"] = proposal_state.strip().casefold() or OPEN
+            body["proposals"], body["proposals_truncated"] = list_proposals_page(
+                session, states=states, workflow_run_id=run_id or None, limit=limit
+            )
+            body["lease"] = lease_summary(session)
+    return envelope_response_dict(body)
 
 
 async def resolve_system_effect(request: Request) -> JSONResponse:
