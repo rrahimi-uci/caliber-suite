@@ -1,0 +1,1 @@
+WARNING  caliber.assistant.anthropic_engine:anthropic_engine.py:55 Anthropic API key is not configured. Assistant engine calls will fail until a valid key is set.
