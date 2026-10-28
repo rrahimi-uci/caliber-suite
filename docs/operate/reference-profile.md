@@ -184,6 +184,15 @@ For the alpha-upgrade tests that follow (#708, #715): create the alpha database 
 alpha schema only because those files are frozen, which the never-skipping check enforces. Never read the migrations
 from the tag in CI; it is not in the checkout.
 
+The Beta's deterministic fixture (`caliber/tests/alpha_seed.py`) creates that schema, inserts representative
+alpha-shaped rows using raw column names, and refuses a database at any other revision or one that already contains
+rows. It is an offline test fixture, not an operator bootstrap path; it uses public test constants and must never be
+used as a source of credentials. Run its acceptance checks with:
+
+```sh
+PYTHONPATH=caliber/src caliber/.venv/bin/python -m pytest caliber/tests/test_upgrade_from_alpha.py
+```
+
 ## A stored secret never leaves the platform
 
 `caliber/tests/test_secret_canary.py` (B12.5b, #666) stores `EGI_CANARY_<uuid4>` as `egi-canary` through the

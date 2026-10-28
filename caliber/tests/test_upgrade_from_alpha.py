@@ -22,6 +22,22 @@ from alembic.config import Config
 from alembic.script import ScriptDirectory
 
 from caliber.db.migrate import VERSION_TABLE
+from tests.alpha_seed import (
+    AlphaSeedError,
+    expected_rows,
+    migrate_database,
+    read_seeded_rows,
+    row_counts,
+    seed_alpha_database,
+    seed_sha256,
+)
+from tests.alpha_seed import (
+    alpha_database as seeded_alpha_database,
+)
+from tests.alpha_seed import (
+    alpha_head as seeded_alpha_head,
+)
+from tests.dialect_helpers import DIALECTS
 from tests.migration_checksums import (
     ALPHA_TAG,
     MIGRATIONS_PATH,
@@ -135,3 +151,38 @@ def test_the_manifest_matches_the_release_tag() -> None:
             pytest.fail(f"{REQUIRE_TAG_ENV} is set but the tag is unavailable: {exc}")
         pytest.skip(str(exc))
     assert not problems, "\n".join([*problems, "", RECOVERY_HINT])
+
+
+@pytest.mark.parametrize("dialect", DIALECTS)
+def test_seed_at_alpha_head(dialect: str, tmp_path: Path) -> None:
+    """The B16.2 fixture is created at the recorded alpha head and reads back byte-for-byte on each dialect."""
+    with seeded_alpha_database(dialect, tmp_path, "alpha_seed") as database:
+        assert database.head == seeded_alpha_head() == alpha_head()
+        assert read_seeded_rows(database.url) == expected_rows()
+        assert {
+            table: len(rows) for table, rows in read_seeded_rows(database.url).items()
+        } == row_counts()
+
+
+def test_seed_refuses_a_database_that_is_not_at_the_alpha_head(tmp_path: Path) -> None:
+    """A current or otherwise unsupported revision cannot be mistaken for an alpha database."""
+    with seeded_alpha_database("sqlite", tmp_path, "wrong_revision", seed=False) as database:
+        migrate_database(database.url)
+        with pytest.raises(AlphaSeedError, match="not a caliber-v0.1.0a1 database"):
+            seed_alpha_database(database.url)
+
+
+def test_seed_refuses_a_second_seed_into_an_existing_alpha_database(tmp_path: Path) -> None:
+    """Seeding is fail-closed and does not append duplicate projects, runs, or credentials."""
+    with seeded_alpha_database("sqlite", tmp_path, "duplicate_seed") as database:
+        before = read_seeded_rows(database.url)
+        with pytest.raises(AlphaSeedError, match="already holds"):
+            seed_alpha_database(database.url)
+        assert read_seeded_rows(database.url) == before
+
+
+def test_seed_fingerprint_is_stable() -> None:
+    """The fixture's data fingerprint is deterministic and can be recorded by the upgrade evidence."""
+    fingerprint = seed_sha256()
+    assert len(fingerprint) == 64
+    assert fingerprint == seed_sha256()
