@@ -60,3 +60,8 @@ reason = "Prometheus text exposition, not JSON -- belongs to a scraper, not a cl
 method = "POST"
 path = "/webhooks/github"
 reason = "Called by GitHub itself, never by a caliber_sdk client -- there is no CALIBER identity on this request (see routes/workspace_source_connections.py / routes/github_webhooks.py: admission is HMAC signature verification against a stored connection's webhook secret, not session/PAT auth). Operator-facing management of the connection this delivers to (get/configure/revoke/reconcile-deliveries) is real SDK coverage on ProjectSourceConnectionAPI; the inbound delivery endpoint itself is deliberately not modelled, the same way /auth/login's browser-cookie session is not."
+
+[[exclusion]]
+method = "POST"
+path = "/effects/callbacks/receipt"
+reason = "Called by a downstream connector, never by a caliber_sdk client -- there is no CALIBER identity on this request (see routes/system_effects.py and effects/callbacks.py: admission is an HMAC signature over connector, project, timestamp, delivery id and body against the connector's configured secret, not session/PAT auth). Operators read the resulting proposal and receipt through the effects list, which is SDK coverage; the inbound notification itself is deliberately not modelled."
