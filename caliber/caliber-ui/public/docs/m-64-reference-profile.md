@@ -819,12 +819,12 @@ with session_factory() as session:
   expired, taken over (an older token), never issued (a future token) or not the execution-owner lease at all (another lease name) is `lease_lost`. A fence that
   could not be *asked* (the database failed, timed out, or was serialized away) is `store_failed`, not `lease_lost`: roll back and retry from a fresh read. Each refusal records nothing: a stale worker cannot commit, cannot
   fail, and cannot even mark the attempt `unknown` itself, and a receipt it was about to record is rolled back with the refused move. The attempt
-  stays `dispatched` for the reconciler (B05.5b), which asks the downstream by key under the new lease. A repeat of the owner's move is fenced too: `applied=False` tells a
+  stays `dispatched` for the reconciler (below), which asks the downstream by key under the new lease. A repeat of the owner's move is fenced too: `applied=False` tells a
   worker "recorded, this attempt is yours", and a worker that lost its lease must not hear that and go on to send the effect (it is `lease_lost`). Recovery: re-read `proposal_state`; if it is still `dispatched` under another owner, do nothing and let the
   reconciler find it; never re-dispatch. Moves that are not the owner's (`approved`, `reconciled`, the callback's commit) are not fenced by it, and neither is `record_receipt` on its
   own: a receipt is a verified statement about the downstream, and only `settle_dispatch` (receipt and state move together, lease first, then receipt, then
-  proposal) is the owner's commit path. Moving a dispatched proposal under a *different* owner's lease, which the reconciler (B05.5b) must do, is not
-  possible here by design (`stale_owner`): it needs its own entry point.
+  proposal) is the owner's commit path. Moving a dispatched proposal under a *different* owner's lease, which the reconciler must do, is not
+  possible here by design (`stale_owner`): it has its own entry point, `abandon_dispatch` (below).
 
 ```python
 from caliber.effects.records import StaleVersion, proposal_state, transition
@@ -984,7 +984,63 @@ settled = settle_dispatch(
   with other arguments would commit downstream and then stay `unknown`. The proposal's effect class and expected version come from the
   proposal itself, so only the key, case, document type and version are checked against the downstream's data. Under REPEATABLE READ
   PostgreSQL refuses a competing insert as a serialization failure (`store_failed`): roll back and retry from a fresh read.
-- **Not here.** The reconciler that asks about `unknown` and abandoned `dispatched` proposals (B05.5b) and the dispatcher itself.
+- **Not here.** The dispatcher itself (B04.1). The reconciler for `unknown` and abandoned `dispatched` proposals is below.
+
+## Reconciler: only the owner asks about unknown and abandoned effects (B05.5b, #742)
+
+An effect with no recorded outcome is `unknown`, and an attempt whose dispatcher died or lost its lease while it was `dispatched` is *abandoned*:
+it may have been sent. Neither is ever dispatched again (there is no edge from `unknown` back to `dispatched`). `caliber.effects.reconcile` settles
+them the one way ADR 0003 allows: by asking the downstream by the **original logical key**, and believing only what it can prove.
+
+- **Owner-only.** `reconcile_pass(factory, lease=..., targets=..., lookup=...)` needs the `Lease` the execution owner captured, and every write re-compares it
+  in the transaction that writes (`fence_owner`: exact owner and fencing token, database clock). No question is asked on a lease that is gone. A pass
+  whose lease is taken over stops with `ProposalError` `lease_lost`; what it already settled stays settled and the new owner's pass takes the rest. Which
+  process runs the pass, and when, belongs with the dispatcher's owner loop (B04.1); until then the pass is called by the code that holds the lease.
+- **Abandoned means a prior lease.** Migration 0126 records `dispatch_token` (the fencing token the owner held) with every dispatch. A `dispatched` proposal is
+  abandoned exactly when its token is lower than the token of the lease the reconciler holds; `abandon_dispatch` then records `unknown` with reason
+  `abandoned_dispatch` (under the *reconciler's* lease; `not_abandoned` for a dispatch under the current lease, which is in flight in this very process and is
+  left alone, or one with no recorded token, which proves nothing). A dispatch under another token is also never a repeat of the dispatch before it.
+- **Only authoritative terminal evidence moves it.** The lookup runs outside any transaction, against the connector's own query, at the `base_url` of the
+  `CALIBER_EFFECT_CALLBACK_CONNECTORS` binding for that connector and project (so it goes through the egress policy), and is read by the connector's
+  capability record (`interpret_lookup`):
+
+  | The downstream says | Recorded | Outcome |
+  | --- | --- | --- |
+  | a stored request that is this proposal's effect (key, intent, target, expected version) | verified receipt, `reconciled`, `committed`; one audit entry | `committed` |
+  | 404 from a connector that proves absence final (tombstone or honoured cancel, reads its own writes) | `reconciled`, `failed` (`absence_proven`) | `failed` |
+  | 404 from any other connector (document-request included): delayed visibility, or a request still in flight | nothing | `unknown` |
+  | 5xx, 401, an unreadable body, another request under the key | nothing | `unknown` / `unverified` |
+  | cannot be reached, or no binding for this connector and project | nothing | `lookup_failed` / `not_bound` |
+
+  A proposal that another actor moved while the downstream was asked is `moved` and is not overwritten (the write is conditioned on the version that was read).
+- **Unknown blocks what depends on it.** The runtime asks `plan.effect_gate` before every node, at the top of **every attempt** of its retries and before a
+  guardrail re-runs the agents feeding it, with the node and everything it may depend on: every node upstream of it by edge, and the **inline children** of each of
+  those (a `for_each` / `loop` / `error_boundary` target, a boundary's `compensate_with`, an agent's handoff targets), which have no edges of their own. While an
+  effect any of them asked for is `dispatched`, `unknown` or `reconciled`, the node does not run and the run ends with `UnknownEffectError: effect <proposal> (node
+  <n>, unknown) has no final outcome: reconcile it ...` (run status `failed`, error code `runtime_error`). The refusal is never absorbed: a fan-out item, a loop
+  iteration, an error boundary or its compensation does not turn it into the item's own error. The queued-run worker installs the gate for every run.
+- **A refused run is over; it is not resumed.** The run is `failed`; once the reconciler settles the effect nothing restarts it. A *new* run is a new logical effect
+  (the logical key includes the run id), so it is not gated by the old run's open effect and may ask the downstream for the same thing again: decide that with the
+  operator before re-running something whose effect is `unknown`. Parking a gated run and resuming it after reconciliation is a follow-up.
+
+```python
+from caliber.effects.callbacks import parse_bindings
+from caliber.effects.reconcile import reconcile_pass, targets_from_bindings
+
+targets = targets_from_bindings(parse_bindings(config.effect_callback_connectors))
+for result in reconcile_pass(session_factory, lease=lease, targets=targets):
+    print(result.proposal_id, result.outcome, result.state)  # committed | failed | unknown | unverified | lookup_failed | not_bound | in_flight | moved
+```
+
+- **Refusals and recovery.** `lease_lost`: you are no longer the owner, stop and let the new owner reconcile. `store_failed`: roll back and retry. `unknown` after a
+  pass: nothing proves the outcome yet (delayed visibility looks like absence); the next pass asks again, the effect is never re-sent, and dependents stay blocked.
+  There is no operator action that fails an `unknown` effect without the downstream's evidence yet (the operator reconciliation view is B05.6, #751); a connector that
+  can prove absence should set `absence_proves_noncommit`.
+- **Limits.** A pass looks at every candidate (a backlog that stays `unknown` cannot hide a newer one) and does not renew the lease: the caller bounds it with
+  `budget_seconds` and renews or stops in `on_progress`. A `dispatched` row under the *current* lease is `in_flight` and is the dispatcher's to settle (it must record
+  `unknown` on any error that is not a lost lease; the reconciler never abandons it). A `dispatched` row with no recorded token (none exist in shipped code; a
+  downgrade through 0125 drops the column) is never abandoned. One connector (document-request) can be reconciled; another needs a verifier and capability record in `reconcile.CONNECTORS`. The gate runs where
+  the runtime does (the queued-run worker, not preview or evaluation, which refuse effect nodes). A subworkflow's child plan is built separately and is not gated (the legacy effect ledger is not installed there either).
 
 ## Receipt callback: a connector tells the platform it is done (B05.4b, #725)
 
@@ -1039,7 +1095,7 @@ headers = {
 }
 ```
 
-- **Not here.** The reconciler that asks about `unknown` proposals on its own (B05.5b). The lease fencing of a dispatcher's own settle (B05.5a, above) does
+- **Not here.** The lease fencing of a dispatcher's own settle (B05.5a, above) does
   not apply to this callback, which is not an owner-only path; the callback commits an `unknown` or `reconciled` proposal only, never one a dispatcher still holds.
 
 ## Approved context sources

@@ -718,6 +718,7 @@ def test_every_intent_column_is_frozen_by_the_database(
         "version",
         "attempt",
         "owner_id",
+        "dispatch_token",
         "dispatched_at",
         "unknown_at",
         "settled_at",

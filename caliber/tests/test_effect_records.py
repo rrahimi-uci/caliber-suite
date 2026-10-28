@@ -842,7 +842,8 @@ def test_a_no_op_update_of_the_mutable_columns_is_allowed_and_the_intent_stays_f
             connection.execute(
                 text(
                     "UPDATE caliber_effect_proposals SET connector = 'x', state = 'dispatched', version = 3, "
-                    "owner_id = 'w', attempt = 1, dispatched_at = CURRENT_TIMESTAMP WHERE proposal_id = :p"
+                    "owner_id = 'w', attempt = 1, dispatch_token = 1, dispatched_at = CURRENT_TIMESTAMP "
+                    "WHERE proposal_id = :p"
                 ),
                 {"p": proposal_id},
             )
@@ -934,9 +935,14 @@ def test_raw_sql_cannot_dispatch_without_an_owner_or_approve_without_an_approval
                 reconciled,
                 "state = 'failed', version = 6, settled_at = CURRENT_TIMESTAMP, reason = NULL",
             )
+        with pytest.raises(DBAPIError, match="evidence"):
+            sql(
+                approved,
+                "state = 'dispatched', version = 3, owner_id = 'w', attempt = 1, dispatched_at = CURRENT_TIMESTAMP",
+            )  # no fencing token
         sql(
             approved,
-            "state = 'dispatched', version = 3, owner_id = 'w', attempt = 1, dispatched_at = CURRENT_TIMESTAMP",
+            "state = 'dispatched', version = 3, owner_id = 'w', attempt = 1, dispatch_token = 1, dispatched_at = CURRENT_TIMESTAMP",
         )
 
 
@@ -973,12 +979,12 @@ def test_the_triggers_and_the_model_agree_on_which_columns_move_with_the_state()
         return module
 
     frozen = set(migration("0123_effect_proposals")._FROZEN)
-    moving = set(migration("0125_effect_receipts")._EVIDENCE_0125) | {"state"}
+    moving = set(migration("0126_effect_dispatch_token")._EVIDENCE_0126) | {"state"}
     assert frozen.isdisjoint(moving)
     assert {c.name for c in Model.__table__.columns} == frozen | moving, (
         "every column is frozen or moves with state"
     )
-    required = migration("0125_effect_receipts")._REQUIRED_0125
+    required = migration("0126_effect_dispatch_token")._REQUIRED_0126
     assert set(required) <= set(STATES) and all(set(cols) <= moving for cols in required.values())
 
 
@@ -1058,6 +1064,7 @@ def test_a_move_that_loses_the_update_race_is_classified_from_what_won(
         _seed_run(factory)
         with factory() as session:
             proposal_id = _at(session, APPROVED)
+            held = leased(session, OWNER)
             session.commit()
             real_execute = session.execute
             state = {"fired": False}
@@ -1078,6 +1085,7 @@ def test_a_move_that_loses_the_update_race_is_classified_from_what_won(
                             version=3,
                             owner_id=OWNER if same_move else "winner",
                             attempt=1,
+                            dispatch_token=held.fencing_token,
                             dispatched_at=NAIVE_AT,
                         )
                     )

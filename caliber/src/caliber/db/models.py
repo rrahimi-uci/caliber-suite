@@ -2310,6 +2310,9 @@ class CaliberEffectProposal(Base):
     #: ``dispatched`` must present the same pair.
     attempt: Mapped[int | None] = mapped_column(Integer, nullable=True)
     owner_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    #: The execution-owner lease's fencing token the owner held when it dispatched (B05.5b, #742, migration 0126): an
+    #: attempt is abandoned exactly when this is lower than the token of the lease now held.
+    dispatch_token: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     dispatched_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     unknown_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     settled_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
