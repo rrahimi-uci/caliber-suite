@@ -19,7 +19,7 @@ import pytest
 
 from caliber.context import rule_bundle
 from caliber.context import rules as context_rules
-from caliber.context.manifest import ContextManifestError
+from caliber.context.manifest import ContextManifestError, ContextSegment, build_context_manifest
 from caliber.context.rule_bundle import (
     BAD_EXPECTED_DIGEST,
     CODES,
@@ -28,6 +28,7 @@ from caliber.context.rule_bundle import (
     INVALID_YAML,
     MALFORMED,
     MAX_BUNDLE_BYTES,
+    MAX_CITATION_BYTES,
     MISSING_BYTES,
     TOO_LARGE,
     UNKNOWN_FIELD,
@@ -40,15 +41,24 @@ from caliber.context.rule_bundle import (
     sha256_of,
 )
 from caliber.context.rules import (
+    CACHE_SIZE,
     RULE_BUNDLE_CHANGED,
     RULE_BUNDLE_MISMATCH,
     RULE_BUNDLE_UNAVAILABLE,
     RULE_BUNDLE_UNPINNED,
+    clear_rule_bundle_cache,
     rule_bundle_record,
     rule_bundle_reference,
 )
 from caliber.policy.principal import Subject, Workload
-from caliber.run_manifest import DeploymentScope, ResolvedPins, build_run_manifest, pin_rule_bundle
+from caliber.run_manifest import (
+    DeploymentScope,
+    ManifestError,
+    ResolvedPins,
+    build_run_manifest,
+    canonical_bytes,
+    pin_rule_bundle,
+)
 
 FIXTURE = Path(__file__).parent / "fixtures" / "rule_bundles" / "support_rules.v1.yaml"
 #: Pinned: the fixture's bytes must hash to this, so the hash is deterministic and a changed fixture is noticed.
@@ -582,7 +592,9 @@ def _pinned_run(tmp_path: Path, text: str = GOOD) -> tuple[Path, str, dict[str, 
 
 def test_context_references_pinned_hash(tmp_path: Path) -> None:
     path, digest, record = _pinned_run(tmp_path)
-    reference = rule_bundle_reference(record)
+    verified = rule_bundle_reference(record)
+    assert verified is not None
+    reference = verified.record
     assert reference == {
         "bundle_id": "b1",
         "version": "1",
@@ -598,13 +610,19 @@ def test_context_references_pinned_hash(tmp_path: Path) -> None:
     assert record["rule_bundle_sha256"] == digest
     assert record["rule_bundle_path"] == str(path.resolve())
     assert "Say hello." not in repr(reference), "the rule text is not recorded, only its digest"
-    assert reference == rule_bundle_reference(record), "the same pin gives the same reference"
+    again = rule_bundle_reference(record)
+    assert again is not None and again.record == reference, "the same pin gives the same reference"
+    assert again.record is not verified.record, (
+        "a fresh copy each time: a caller cannot alter the next one"
+    )
+    assert again.bundle is verified.bundle and again.bundle.rules[0].text == "Say hello."
 
 
 def test_the_whole_fixture_bundle_is_selected_in_bundle_order_with_provenance() -> None:
     record = {"rule_bundle_path": str(FIXTURE), "rule_bundle_sha256": FIXTURE_SHA256}
-    reference = rule_bundle_reference(record)
-    assert reference is not None
+    verified = rule_bundle_reference(record)
+    assert verified is not None
+    reference = verified.record
     assert [(r["rule_id"], r["source_ref"]) for r in reference["rules"]] == [
         ("refund-window", "scripted/policy#refunds"),
         ("escalate-fraud", "scripted/policy#fraud"),
@@ -644,7 +662,7 @@ def test_changed_bytes_refused_at_use(tmp_path: Path) -> None:
     # the original bytes restored: the pin is honoured again, with nothing re-admitted
     path.write_text(GOOD, encoding="utf-8")
     reference = rule_bundle_reference(record)
-    assert reference is not None and reference["sha256"] == digest
+    assert reference is not None and reference.record["sha256"] == digest
 
 
 def test_an_unreadable_pinned_bundle_is_unavailable_not_changed(tmp_path: Path) -> None:
@@ -709,10 +727,10 @@ def test_a_repointed_path_after_admission_cannot_change_the_run_pin(tmp_path: Pa
     )
     alias.unlink()
     alias.symlink_to(other)  # the alias now means a different, perfectly valid bundle
-    reference = rule_bundle_reference(record)
-    assert reference is not None
-    assert (reference["bundle_id"], reference["sha256"]) == ("b1", digest)
-    assert reference["sha256"] != other_digest
+    verified = rule_bundle_reference(record)
+    assert verified is not None
+    assert (verified.record["bundle_id"], verified.record["sha256"]) == ("b1", digest)
+    assert verified.record["sha256"] != other_digest
 
 
 def test_the_reference_builder_is_pure_over_a_verified_bundle() -> None:
@@ -732,9 +750,223 @@ def test_the_context_reference_module_reads_only_the_pinned_file() -> None:
             imported |= {alias.name for alias in node.names}
     assert imported <= {
         "__future__",
-        "hashlib",
+        "copy",
+        "threading",
+        "collections",
         "collections.abc",
+        "dataclasses",
         "typing",
         "caliber.context.manifest",
         "caliber.context.rule_bundle",
     }, imported
+
+
+# ---------------------------------------------------------------- the citation cap at admission (B07.5b, #736)
+
+
+def _bundle_text(rules: int, source_ref: str, *, bundle_id: str = "sized") -> str:
+    """A valid bundle of ``rules`` rules, each citing ``source_ref`` (a value may hold up to 512 characters)."""
+    lines = [f'schema_version: v1\nbundle_id: {bundle_id}\nversion: "1"\nrules:\n']
+    for number in range(rules):
+        lines.append(
+            f'  - id: r{number:04d}\n    text: "Say hello."\n    source_ref: "{source_ref}"\n'
+            "    applies_to: [greeting]\n"
+        )
+    return "".join(lines)
+
+
+def _citation_size(path: Path, digest: str) -> int:
+    bundle = load_rule_bundle(path, digest)
+    return len(canonical_bytes(rule_bundle_record(bundle)))
+
+
+CJK = "漢" * 512  # 512 characters, 3 bytes each
+
+
+def test_a_bundle_whose_citation_cannot_fit_a_context_manifest_is_refused_at_admission(
+    tmp_path: Path,
+) -> None:
+    # The file is far below the loader's 1 MiB cap, but every step's context manifest would have to cite 340 KB of it.
+    path, digest = _write(tmp_path, _bundle_text(200, CJK))
+    assert path.stat().st_size < MAX_BUNDLE_BYTES, "the loader itself accepts this file"
+    assert _citation_size(path, digest) > MAX_CITATION_BYTES == 262_144
+    with pytest.raises(ManifestError) as refused:
+        pin_rule_bundle(path, digest)
+    assert refused.value.code == "rule_bundle_refused"
+    message = str(refused.value)
+    assert "262144" in message and "context citation" in message, "the cap and the size are named"
+    assert CJK[:8] not in message and "r0001" not in message, "no payload in the message"
+
+
+def test_a_bundle_just_under_the_cap_is_admitted_and_every_steps_manifest_builds(
+    tmp_path: Path,
+) -> None:
+    path, digest = _write(tmp_path, _bundle_text(150, CJK))
+    size = _citation_size(path, digest)
+    assert 200_000 < size <= MAX_CITATION_BYTES, size
+    pinned = pin_rule_bundle(path, digest)  # admitted
+    # ...and a context manifest with the most segments a step may have, each with a long prompt reference, still builds
+    segments = [
+        ContextSegment(
+            "instruction",
+            "workflow_instruction",
+            {"kind": "prompt", "reference": f"p{number}-" + "x" * 240},
+            "text",
+            1,
+        )
+        for number in range(512)
+    ]
+    built = build_context_manifest(
+        context_manifest_id="cm-cap",
+        workflow_run_id="WR-cap",
+        step_request_id="sr-cap",
+        revision=1,
+        scope=DeploymentScope.fixed("P-cap"),
+        segments=segments,
+        token_budget=10_000,
+        created_at=datetime(2026, 10, 28, tzinfo=timezone.utc),
+        rule_bundle=rule_bundle_record(pinned.bundle),
+    )
+    assert len(built.manifest_bytes) < (1 << 20)
+    over, over_digest = _write(tmp_path, _bundle_text(165, CJK), "over.yaml")
+    with pytest.raises(ManifestError):
+        pin_rule_bundle(over, over_digest)
+
+
+def test_the_small_fixture_is_far_below_the_cap() -> None:
+    assert _citation_size(FIXTURE, FIXTURE_SHA256) < 2_000
+
+
+# ---------------------------------------------------------------- verification on every use, and the cache (B07.5b)
+
+
+def test_the_bytes_are_re_read_and_re_hashed_on_every_call_while_the_parse_is_cached(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    clear_rule_bundle_cache()
+    text = GOOD.replace("b1", "cached-one")
+    path, digest, record = _pinned_run(tmp_path, text)
+    parses: list[int] = []
+    real_parse = context_rules.parse_rule_bundle
+    monkeypatch.setattr(
+        context_rules,
+        "parse_rule_bundle",
+        lambda data, expected: parses.append(1) or real_parse(data, expected),
+    )
+    reads: list[int] = []
+    real_read = context_rules.read_rule_bundle_bytes
+    monkeypatch.setattr(
+        context_rules,
+        "read_rule_bundle_bytes",
+        lambda target: reads.append(1) or real_read(target),
+    )
+    for _ in range(5):
+        verified = rule_bundle_reference(record)
+        assert verified is not None and verified.record["sha256"] == digest
+    assert (len(parses), len(reads)) == (1, 5), "parsed once, read from the file on every step"
+
+    # changed bytes: the cached parse of the old digest is not served; the step is refused
+    path.write_text(text + "# edited\n", encoding="utf-8")
+    with pytest.raises(ContextManifestError) as refused:
+        rule_bundle_reference(record)
+    assert refused.value.code == RULE_BUNDLE_CHANGED
+    assert len(reads) == 6 and len(parses) == 2, "a miss goes to the parser, which refuses it"
+    # the original bytes back: a hit again, without another parse
+    path.write_text(text, encoding="utf-8")
+    assert rule_bundle_reference(record) is not None
+    assert len(parses) == 2
+
+
+def test_a_cached_digest_never_stands_in_for_bytes_that_were_not_read(tmp_path: Path) -> None:
+    clear_rule_bundle_cache()
+    path, _, record = _pinned_run(tmp_path)
+    assert rule_bundle_reference(record) is not None  # now cached under the pinned digest
+    path.write_bytes(b"not the pinned bytes")
+    with pytest.raises(ContextManifestError) as refused:
+        rule_bundle_reference(record)
+    assert refused.value.code == RULE_BUNDLE_CHANGED
+    path.unlink()
+    with pytest.raises(ContextManifestError) as gone:
+        rule_bundle_reference(record)
+    assert gone.value.code == RULE_BUNDLE_UNAVAILABLE
+
+
+def test_the_cache_is_bounded_and_evicts_the_least_recently_used(tmp_path: Path) -> None:
+    clear_rule_bundle_cache()
+    records = []
+    for number in range(CACHE_SIZE + 3):
+        path = tmp_path / f"b{number}.yaml"
+        path.write_text(GOOD.replace("b1", f"bundle-{number}"), encoding="utf-8")
+        digest = hashlib.sha256(path.read_bytes()).hexdigest()
+        record = {"rule_bundle_path": str(path), "rule_bundle_sha256": digest}
+        assert rule_bundle_reference(record) is not None
+        records.append((digest, record))
+    assert len(context_rules._cache) == CACHE_SIZE
+    kept = list(context_rules._cache)
+    assert records[0][0] not in kept and records[-1][0] in kept
+    assert rule_bundle_reference(records[3][1]) is not None  # a hit makes it the most recent
+    assert list(context_rules._cache)[-1] == records[3][0]
+
+
+def test_a_malformed_digest_is_never_cached_or_served(tmp_path: Path) -> None:
+    clear_rule_bundle_cache()
+    path, _, _ = _pinned_run(tmp_path)
+    for digest in ("A" * 64, "abc", "0" * 64):
+        with pytest.raises(ContextManifestError):
+            rule_bundle_reference({"rule_bundle_path": str(path), "rule_bundle_sha256": digest})
+    assert len(context_rules._cache) == 0
+
+
+def test_the_file_is_opened_without_a_controlling_terminal_or_inheritance(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path, digest = _write(tmp_path, GOOD)
+    flags: list[int] = []
+    real_open = os.open
+
+    def spy(target: Any, mode: int, *args: Any) -> int:
+        flags.append(mode)
+        return real_open(target, mode, *args)
+
+    monkeypatch.setattr(rule_bundle.os, "open", spy)
+    load_rule_bundle(path, digest)
+    assert len(flags) == 1
+    for name in ("O_NONBLOCK", "O_NOCTTY", "O_CLOEXEC"):
+        assert flags[0] & getattr(os, name), name
+
+
+# ---------------------------------------------------------------- the recorded path is the symlink-resolved one
+
+
+def test_a_rotating_mount_leaves_the_recorded_path_missing_on_the_next_use(tmp_path: Path) -> None:
+    """The ConfigMap/Secret pattern: ``rules.yaml -> ..data/rules.yaml``, ``..data -> ..data_<timestamp>``.
+
+    Admission records the resolved ``..data_<timestamp>`` path, which the kubelet removes on the next rotation. The
+    pin is not rewritten, so a run admitted before the rotation cannot use its bundle: ``rule_bundle_unavailable``.
+    """
+    mount = tmp_path / "mount"
+    first = mount / "..data_1"
+    first.mkdir(parents=True)
+    (first / "rules.yaml").write_text(GOOD, encoding="utf-8")
+    (mount / "..data").symlink_to("..data_1")
+    (mount / "rules.yaml").symlink_to("..data/rules.yaml")
+    digest = hashlib.sha256(GOOD.encode()).hexdigest()
+    pinned = pin_rule_bundle(mount / "rules.yaml", digest)
+    assert pinned.path == str((first / "rules.yaml").resolve()), (
+        "the resolved path, not the stable name"
+    )
+    record = {"rule_bundle_path": pinned.path, "rule_bundle_sha256": digest}
+    assert rule_bundle_reference(record) is not None
+
+    second = mount / "..data_2"  # the same bytes, republished under a new directory
+    second.mkdir()
+    (second / "rules.yaml").write_text(GOOD, encoding="utf-8")
+    (mount / "..data_tmp").symlink_to("..data_2")
+    (mount / "..data_tmp").replace(mount / "..data")
+    (first / "rules.yaml").unlink()
+    first.rmdir()
+    assert pin_rule_bundle(mount / "rules.yaml", digest) is not None, "new admissions still work"
+    # ...but the run admitted before the rotation records the old directory
+    with pytest.raises(ContextManifestError) as refused:
+        rule_bundle_reference(record)
+    assert refused.value.code == RULE_BUNDLE_UNAVAILABLE

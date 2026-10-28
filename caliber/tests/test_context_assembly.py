@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 from dataclasses import replace
 from pathlib import Path
 from typing import Any
@@ -670,3 +671,160 @@ def test_a_refused_bundle_message_names_the_bundle_not_a_context_source() -> Non
     custom = ContextDenied("rule_bundle_changed", message="the pinned bundle changed")
     assert str(custom) == "rule_bundle_changed: the pinned bundle changed"
     assert custom.code == "rule_bundle_changed" and custom.reasons == ()
+
+
+# ---------------------------------------------------------------- verified on every step, on every path to an agent
+
+
+def _edit(path: Path) -> None:
+    """One more comment after admission: the rules read the same, the bytes are not the admitted bytes."""
+    path.write_text(
+        path.read_text(encoding="utf-8") + "# edited after admission\n", encoding="utf-8"
+    )
+
+
+def _real_recorder(world: AgentWorld) -> Any:
+    """The worker's own recorder for the run's stored manifest (no source guard), as the runtime calls it."""
+    from caliber.run_manifest import read_manifest
+
+    row = world.db.execute(select(CaliberRunManifest)).scalar_one()
+    record = read_manifest(bytes(row.manifest_bytes), row.manifest_digest)
+    return assembly_module.context_recorder_for(
+        world.client.app.state.session_factory, record, None
+    )
+
+
+def test_the_bundle_is_verified_again_for_the_second_step_of_one_run(
+    client: TestClient, db_session: Session, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    path = _rules_copy(tmp_path)
+    world = _make_world(client, db_session, monkeypatch, two_agents=True, rules=path)
+    calls: list[int] = []
+    real = runtime_module._run_agent_traced
+
+    def spy(*args: Any, **kwargs: Any) -> Any:
+        calls.append(1)
+        result = real(*args, **kwargs)
+        if len(calls) == 1:
+            _edit(path)  # between step 1 and step 2
+        return result
+
+    monkeypatch.setattr(runtime_module, "_run_agent_traced", spy)
+    world.tick()
+    run = world.run()
+    assert (run.status, run.error_code) == ("failed", "context_denied")
+    assert "rule_bundle_changed" in (run.error_summary or "")
+    assert len(calls) == 1, "step 1 ran on the admitted bytes; step 2 never reached the provider"
+    assert len(world.manifests()) == 1, "only step 1 was recorded"
+
+
+def test_every_handoff_recipient_re_verifies_the_bundle(
+    client: TestClient, db_session: Session, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from caliber.context.authorize import ContextDenied
+    from caliber.workflows.runtime import FakeWorkflowExecutor, _run_agent_with_history
+    from tests.test_workflow_runtime import _plan
+
+    path = _rules_copy(tmp_path)
+    world = _make_world(client, db_session, monkeypatch, rules=path)
+    recorder = _real_recorder(world)
+    recorded: list[str] = []
+
+    def edits_after_the_first(assembly: Any) -> None:
+        recorder(assembly)
+        recorded.append(assembly.node_id)
+        if len(recorded) == 1:
+            _edit(path)  # between the target and its recipients
+
+    plan = _plan(make_manifest())
+    plan.context_recorder = edits_after_the_first
+    agent = plan.ir.nodes["agent"]
+    other = replace(agent, node_id="other")  # type: ignore[type-var]
+    ran: list[str] = []
+
+    class Executor(FakeWorkflowExecutor):
+        def run_agent(self, agent: Any, input_text: str, **kwargs: Any) -> Any:
+            ran.append(agent.node_id)
+            return super().run_agent(agent, input_text, **kwargs)
+
+    with pytest.raises(ContextDenied) as refused:
+        _run_agent_with_history(
+            plan,
+            Executor(),
+            agent,  # type: ignore[arg-type]
+            "hello",
+            handoff_agents={"agent": (agent, {}), "other": (other, {})},  # type: ignore[dict-item]
+            tool_callables={},
+            preview=False,
+        )
+    assert refused.value.code == "rule_bundle_changed"
+    assert recorded == ["agent"] and ran == [], (
+        "the second recipient was refused before any provider ran"
+    )
+    assert len(world.manifests()) == 1
+
+
+def test_every_item_a_for_each_runs_an_agent_on_re_verifies_the_bundle(
+    client: TestClient, db_session: Session, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from caliber.workflows.runtime import FakeWorkflowExecutor, execute
+    from tests.test_context_assembly_runtime import _knowledge, _knowledge_node
+    from tests.test_workflow_runtime import _plan
+
+    path = _rules_copy(tmp_path)
+    world = _make_world(client, db_session, monkeypatch, rules=path)
+    recorder = _real_recorder(world)
+    recorded: list[str] = []
+
+    def edits_after_the_first(assembly: Any) -> None:
+        recorder(assembly)
+        recorded.append(assembly.node_id)
+        if len(recorded) == 1:
+            _edit(path)  # between item 1 and item 2
+
+    data = make_manifest()
+    data["nodes"]["knowledge"] = _knowledge_node()
+    data["nodes"]["wrap"] = {
+        "id": "wrap",
+        "type": "for_each",
+        "target_node_id": "agent",
+        "inputs": {"items": {"type": "structured"}},
+        "outputs": {"text": {"type": "string"}, "results": {"type": "structured"}},
+    }
+    data["edges"] = [
+        {"id": "e1", "from": "start", "to": "knowledge", "map": {"msg": "question"}},
+        {"id": "e2", "from": "knowledge", "to": "wrap", "map": {"answer": "items"}},
+        {"id": "e3", "from": "wrap", "to": "final", "map": {"text": "response"}},
+    ]
+    executor = FakeWorkflowExecutor()
+    result = execute(
+        _plan(data, knowledge_query_runner=_knowledge, context_recorder=edits_after_the_first),
+        "hello",
+        executor=executor,
+    )
+    assert result.status == "error"
+    assert (result.error or "").startswith("ContextDenied: rule_bundle_changed")
+    assert recorded == ["agent"], "the second item's record call raised"
+    assert len(executor.calls) == 1, "item 1 ran; item 2 was refused before its agent ran"
+    assert len(world.manifests()) == 1
+
+
+def test_a_bundle_at_the_admission_cap_is_admitted_and_every_step_records(
+    client: TestClient, db_session: Session, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    cjk = "漢" * 512
+    rules = "".join(
+        f'  - id: r{number:04d}\n    text: "Say hello."\n    source_ref: "{cjk}"\n    applies_to: [x]\n'
+        for number in range(150)
+    )
+    path = _rules_copy(
+        tmp_path, f'schema_version: v1\nbundle_id: near-cap\nversion: "1"\nrules:\n{rules}'
+    )
+    world = _make_world(client, db_session, monkeypatch, two_agents=True, rules=path)
+    world.tick()
+    assert world.run().status == "completed", (world.run().error_code, world.run().error_summary)
+    rows = world.manifests()
+    assert len(rows) == 2
+    for row in rows:
+        assert 200_000 < len(row.manifest_bytes) < (1 << 20)
+        assert len(json.loads(row.manifest_bytes)["rule_bundle"]["rules"]) == 150

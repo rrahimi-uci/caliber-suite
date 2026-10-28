@@ -613,7 +613,11 @@ def _verify_run(session: Session, record: Mapping[str, Any]) -> None:
 def _verify_rule_bundle(session: Session, record: Mapping[str, Any]) -> None:
     """The rule bundle the manifest cites is the one the run was admitted with, by digest.
 
-    The admitted digest is read from the run's stored manifest (immutable, and never written here). A run admitted with a
+    The admitted digest is read from the run's stored manifest (immutable, and never written here). **This is the whole
+    check**: the store compares the cited digest with the run's pin and nothing else in the entry (the bundle id,
+    version and per-rule fields), because it cannot re-read the file; the recorder
+    (:func:`caliber.context.rules.rule_bundle_reference`), which verified the bytes the entry was built from, is the
+    trust boundary for the rest of it. A run admitted with a
     bundle must cite exactly that digest in every step's manifest; a run admitted without one must cite none, so a
     bundle enabled after admission is never applied to it.
     """

@@ -41,7 +41,13 @@ from datetime import datetime, timezone
 from pathlib import Path, PurePath
 from typing import Any, Final
 
-from caliber.context.rule_bundle import RuleBundle, RuleBundleError, load_rule_bundle
+from caliber.context.rule_bundle import (
+    MAX_CITATION_BYTES,
+    RuleBundle,
+    RuleBundleError,
+    load_rule_bundle,
+    rule_bundle_record,
+)
 from caliber.contracts import ContractValidationError, validate_record
 from caliber.policy.principal import Subject, Workload
 
@@ -335,8 +341,9 @@ class PinnedRuleBundle:
 
 def pin_rule_bundle(path: str | Path, expected_sha256: str) -> PinnedRuleBundle:
     """Load and verify the configured rule bundle (#726) before any pin is final: missing, oversized, changed,
-    malformed or unreadable bytes, and a path that is not a path, refuse admission (``rule_bundle_refused``, with
-    the loader's own code in the message). The recorded path is resolved to an absolute one."""
+    malformed or unreadable bytes, a path that is not a path, and a bundle whose context-manifest citation would exceed
+    ``MAX_CITATION_BYTES`` (256 KiB) refuse admission (``rule_bundle_refused``, with the loader's own code or the byte
+    counts in the message, never the file's content). The recorded path is the **symlink-resolved** absolute one."""
     if not isinstance(path, (str, Path)) or not str(path):
         raise ManifestError(RULE_BUNDLE_REFUSED, "the rule bundle path must be a non-empty path")
     try:
@@ -352,6 +359,15 @@ def pin_rule_bundle(path: str | Path, expected_sha256: str) -> PinnedRuleBundle:
         raise ManifestError(
             RULE_BUNDLE_REFUSED, f"rule bundle could not be read: {type(exc).__name__}"
         ) from exc
+    # Every agent step of the run cites the bundle in its context manifest (B07.5b, #736), and a manifest is bounded
+    # to 1 MiB: a bundle whose citation could not fit with its segments is refused here, not at the run's first step.
+    size = len(canonical_bytes(rule_bundle_record(bundle)))
+    if size > MAX_CITATION_BYTES:
+        raise ManifestError(
+            RULE_BUNDLE_REFUSED,
+            f"rule bundle refused: its context citation would take {size} bytes, over the "
+            f"{MAX_CITATION_BYTES}-byte cap (fewer rules or shorter source_ref/id values)",
+        )
     return PinnedRuleBundle(path=str(resolved), bundle=bundle)
 
 

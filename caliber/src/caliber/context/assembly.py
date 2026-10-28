@@ -157,7 +157,8 @@ def context_recorder_for(
         step_request_id = f"{assembly.node_id[:90]}-{uuid.uuid4().hex[:24]}"
         try:
             # The pinned rule bundle's bytes are verified against the admitted digest now, at use, for every step.
-            rule_bundle = rule_bundle_reference(run_manifest)
+            verified = rule_bundle_reference(run_manifest)
+            rule_bundle = verified.record if verified is not None else None
         except ContextManifestError as exc:
             raise ContextDenied(exc.code, message=str(exc)) from None
         try:

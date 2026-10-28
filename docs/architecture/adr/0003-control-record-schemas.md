@@ -117,7 +117,12 @@ stored record is detectable twice, by the digest and by the positions); `used` i
 equals `instruction` plus `data`, within `budget`; a segment is redacted once; and an `omitted` source refused as
 `unauthorized` is recorded by `kind` only, never by identifier; a rule is selected once; and, when the manifest is stored, a
 `rule_bundle` it cites carries the digest the run manifest's `rule_bundle_sha256` pinned at admission (a run admitted with a
-bundle cites it in every step's manifest, a run admitted without one cites none; the run manifest is read, never written). Stored records are canonical JSON (one record, one byte
+bundle cites it in every step's manifest, a run admitted without one cites none; the run manifest is read, never written). That store check
+compares the digest only: the recorder, which re-reads and re-hashes the pinned file for every step before it builds the entry, is the trust
+boundary for the rest of the entry, because the store cannot re-read the file. Admission refuses a bundle whose `rule_bundle` entry would be
+over 256 KiB of canonical JSON, so every step's manifest stays within the 1 MiB bound. Adding `rule_bundle` to this closed schema is a
+readers-first change: a pod still running the previous release rejects a manifest that carries it (`invalid_manifest`), so roll the reader out
+before any writer records one. Stored records are canonical JSON (one record, one byte
 form, one digest) with integer counts.
 
 ### proposal

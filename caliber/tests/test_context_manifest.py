@@ -1073,9 +1073,9 @@ def _bundle_reference(tmp_path: Path, text: str = BUNDLE_TEXT) -> tuple[dict[str
     path = tmp_path / "rules.yaml"
     path.write_text(text, encoding="utf-8")
     digest = hashlib.sha256(text.encode()).hexdigest()
-    reference = rule_bundle_reference({"rule_bundle_path": str(path), "rule_bundle_sha256": digest})
-    assert reference is not None
-    return reference, path, digest
+    verified = rule_bundle_reference({"rule_bundle_path": str(path), "rule_bundle_sha256": digest})
+    assert verified is not None
+    return verified.record, path, digest
 
 
 def _admit(
@@ -1180,8 +1180,9 @@ def test_a_rule_cannot_be_selected_twice_and_an_oversized_citation_fails_closed(
     twice = copy.deepcopy(reference)
     twice["rules"].append(dict(twice["rules"][0]))
     _refused(INVALID, rule_bundle=twice)
-    # the longest possible entries at the most rules a bundle may hold still fit the manifest's 1 MiB bound with room for
-    # its segments (about three quarters of it), and one rule more than a bundle may hold is refused by the schema
+    # The *builder's* bound: the longest possible ASCII entries at the most rules a bundle may hold still fit the manifest's
+    # 1 MiB (admission refuses such a bundle long before: its citation is capped at 256 KiB, see test_rule_bundle.py),
+    # and one rule more than a bundle may hold is refused by the schema.
     huge = copy.deepcopy(reference)
     huge["rules"] = [
         {"rule_id": f"r{number:0>127}", "source_ref": "s" * 512, "text_digest": "e" * 64}

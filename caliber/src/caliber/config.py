@@ -767,7 +767,10 @@ class CaliberConfig(BaseModel):
             "the run manifest, and refuses to admit while the file is missing or changed. Each agent step of an "
             "admitted run re-verifies the bytes at the *recorded* path against the *recorded* digest and cites the "
             "bundle in its context manifest; changed bytes refuse the step (``context_denied`` with "
-            "``rule_bundle_changed``). Changing these settings affects only runs admitted afterwards."
+            "``rule_bundle_changed``; the run stays failed, resubmit). Changing these settings affects only runs "
+            "admitted afterwards (set path and digest together). The recorded path is the symlink-resolved one and "
+            "must exist with the same bytes on every node that can run the run. Admission refuses a bundle whose "
+            "context citation exceeds 256 KiB."
         ),
     )
     rule_bundle_sha256: str = Field(
