@@ -103,6 +103,31 @@ def _key(value: object) -> str:
     return value
 
 
+def build_intent(
+    *, case_id: str, document_type: str, expected_resource_version: int | None, effect_class: str
+) -> Intent:
+    """The intent of a document request: the one shape :func:`facts_from_lookup` can verify.
+
+    The arguments are exactly ``{"document_type": ...}`` (the downstream stores the case and the document type, nothing else), so
+    build every document-request proposal with this: a proposal with other arguments would commit downstream and then never
+    verify, and stay ``unknown``.
+    """
+    if not isinstance(case_id, str) or not _CASE_ID.fullmatch(case_id):
+        raise ValueError(
+            "case_id must be 1 to 128 letters, digits, dots, underscores or hyphens, starting with a letter or digit"
+        )
+    return Intent(
+        connector=CONNECTOR,
+        connector_version=VERSION,
+        effect_class=effect_class,
+        resource=f"cases/{case_id}/document-requests",
+        args={"document_type": document_type},
+        expected_resource_version=None
+        if expected_resource_version is None
+        else str(expected_resource_version),
+    )
+
+
 def submit_input(
     *,
     case_id: str,
@@ -161,10 +186,8 @@ def facts_from_lookup(
     ):
         return None
     if view.expected_resource_version is not None:
-        try:
-            if version != int(view.expected_resource_version) + 1:
-                return None
-        except ValueError:
+        expected = view.expected_resource_version
+        if not (expected.isascii() and expected.isdigit()) or version != int(expected) + 1:
             return None
     try:
         stored = Intent(
@@ -199,6 +222,7 @@ __all__ = [
     "PRECONDITION_HEADER",
     "SUBMIT_PATH",
     "VERSION",
+    "build_intent",
     "facts_from_lookup",
     "lookup_config",
     "lookup_input",

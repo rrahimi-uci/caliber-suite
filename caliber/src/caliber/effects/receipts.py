@@ -11,7 +11,10 @@ against the proposal before it is stored:
 * the **connector identity and version** and the **target** are the proposal's, and
 * the **dispatch attempt** is the one the proposal recorded.
 
-Anything else is refused with the *names* of the fields that differ and never their values (:class:`ReceiptMismatch`). A
+Anything else is refused with the *names* of the fields that differ and never their values (:class:`ReceiptMismatch`).
+Be exact about what this proves: :func:`record_receipt` can only compare the facts it is handed with the proposal, so a receipt
+is as sound as the connector verifier that built the facts from the downstream's answer (``facts_from_lookup``); the
+"target and version" check (the stored resource and the version the effect produced) is that verifier's, not this module's. A
 receipt is immutable bytes (the canonical ``receipt`` v1 record and its SHA-256) with one authoritative receipt per
 ``(proposal, attempt)``; a downstream request id belongs to one proposal only, so a receipt cannot be borrowed by another
 (:class:`ReceiptConflict`). Delivering the same facts twice is idempotent; different facts for the same attempt are a conflict
@@ -47,10 +50,14 @@ from caliber.effects.records import (
     COMMITTED,
     DISPATCHED,
     FAILED,
+    ILLEGAL_TRANSITION,
     RECONCILED,
+    STALE_OWNER,
     UNKNOWN,
     ProposalError,
+    StaleVersion,
     Transitioned,
+    proposal_state,
     transition,
 )
 from caliber.run_manifest import canonical_bytes
@@ -299,12 +306,13 @@ def _refuse_a_borrowed_request(session: Session, proposal_id: str, facts: Receip
 def _same_or_conflict(existing: CaliberEffectReceipt, facts: ReceiptFacts) -> RecordedReceipt:
     if (
         existing.downstream_request_id != facts.downstream_request_id
-        or existing.response_digest != facts.response_digest
         or existing.resource_version != facts.resource_version
     ):
         raise ReceiptConflict(
             f"attempt {existing.attempt} of proposal {existing.proposal_id} already has a different authoritative receipt"
         )
+    # The response digest is not compared: it is a hash of the whole body the lookup returned, which can gain a field between
+    # two deliveries of the same effect; the first delivery's digest stays the recorded one.
     return RecordedReceipt(
         existing.receipt_id, existing.proposal_id, existing.attempt, created=False
     )
@@ -335,6 +343,10 @@ def read_receipt(session: Session, receipt_id: str) -> dict[str, Any]:
         or proposal is None
         or proposal.logical_key != row.logical_key
         or proposal.intent_hash != row.intent_hash
+        or proposal.attempt != row.attempt
+        or proposal.connector != row.connector
+        or proposal.connector_version != row.connector_version
+        or proposal.resource != row.resource
     ):
         raise ProposalError(
             RECEIPT_CORRUPT,
@@ -374,22 +386,28 @@ def settle_dispatch(
     * ``definitive_rejection``: ``failed`` (``rejected:<code>``); ``proven_not_sent``: ``failed`` (``not_sent``).
     * ``ambiguous``: ``unknown`` (``ambiguous:<code>``); only a later lookup by key can say more.
 
-    ``verify`` is not called for any other outcome. Nothing is committed to the database (the caller's transaction).
+    ``verify`` is not called for any other outcome, and not before the proposal is checked: it must still be ``dispatched`` at
+    ``expected_version``, held by this ``owner_id`` and ``attempt`` (a stale worker is refused *before* it spends a query and
+    records nothing, receipt included; a repeat of a settle that already happened is ``stale_version``, so read the state). If
+    ``verify`` raises, the exception propagates and the proposal stays ``dispatched``. The receipt and the commit are one unit:
+    if the transition is refused, the receipt is not kept. Nothing is committed to the database (the caller's transaction).
     """
+    _precheck(session, proposal_id, expected_version, owner_id, attempt)
     if outcome.outcome is TransportOutcome.COMMITTED_RECEIPT:
         facts = verify()
         if facts is not None:
-            receipt = record_receipt(session, proposal_id, facts, now=now)
-            moved = transition(
-                session,
-                proposal_id,
-                COMMITTED,
-                expected_version=expected_version,
-                owner_id=owner_id,
-                attempt=attempt,
-                receipt_id=receipt.receipt_id,
-                now=now,
-            )
+            with session.begin_nested():
+                receipt = record_receipt(session, proposal_id, facts, now=now)
+                moved = transition(
+                    session,
+                    proposal_id,
+                    COMMITTED,
+                    expected_version=expected_version,
+                    owner_id=owner_id,
+                    attempt=attempt,
+                    receipt_id=receipt.receipt_id,
+                    now=now,
+                )
             return Settled(COMMITTED, moved.version, receipt.receipt_id, None, moved.applied)
         return _settle(
             session,
@@ -426,6 +444,25 @@ def settle_dispatch(
         attempt,
         now,
     )
+
+
+def _precheck(
+    session: Session, proposal_id: str, expected_version: int, owner_id: str, attempt: int
+) -> None:
+    """Refuse a settle that could not succeed (stale version, not dispatched, another owner) before any query is made."""
+    state = proposal_state(session, proposal_id)
+    if state.version != expected_version:
+        raise StaleVersion(proposal_id, expected_version, state.version, state.state)
+    if state.state != DISPATCHED:
+        raise ProposalError(
+            ILLEGAL_TRANSITION,
+            f"proposal {proposal_id} is {state.state}: only a dispatched proposal is settled here",
+        )
+    if state.owner_id != owner_id or state.attempt != attempt:
+        raise ProposalError(
+            STALE_OWNER,
+            f"proposal {proposal_id} was dispatched by another owner or attempt: nothing recorded",
+        )
 
 
 def _settle(

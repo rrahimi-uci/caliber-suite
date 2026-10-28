@@ -1050,8 +1050,9 @@ def test_truncate_is_refused_postgresql(tmp_path: Path, monkeypatch: pytest.Monk
             _record(session)
             session.commit()
         with (
-            pytest.raises(DBAPIError, match="DELETE refused|immutable|cannot truncate"),
+            pytest.raises(DBAPIError, match="DELETE refused|immutable"),
             engine.begin() as connection,
         ):
-            connection.execute(text("TRUNCATE caliber_effect_proposals"))
+            # both tables in one statement: no foreign-key refusal, so it is the table's own trigger that refuses
+            connection.execute(text("TRUNCATE caliber_effect_proposals, caliber_effect_receipts"))
         assert _count(factory, CaliberEffectProposal) == 1

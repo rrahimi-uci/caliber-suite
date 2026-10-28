@@ -79,6 +79,7 @@ STALE_OWNER: Final = "stale_owner"
 EVIDENCE_REQUIRED: Final = "evidence_required"
 APPROVAL_REFUSED: Final = "approval_refused"
 RECEIPT_REFUSED: Final = "receipt_refused"
+RECEIPT_EXISTS: Final = "receipt_exists"
 
 APPROVED: Final = "approved"
 DISPATCHED: Final = "dispatched"
@@ -705,6 +706,18 @@ def _evidence(
         values["reason"] = reason
     elif reason is not None:
         values["reason"] = reason
+    if (
+        to_state == FAILED
+        and session.execute(
+            select(CaliberEffectReceipt.receipt_id)
+            .where(CaliberEffectReceipt.proposal_id == row.proposal_id)
+            .limit(1)
+        ).first()
+    ):
+        raise ProposalError(
+            RECEIPT_EXISTS,
+            f"proposal {row.proposal_id} has a verified receipt: the downstream says it committed, so it cannot be failed",
+        )
     if (receipt_id is not None) != (to_state == COMMITTED):
         raise ProposalError(
             EVIDENCE_REQUIRED if to_state == COMMITTED else BAD_FIELD,
@@ -865,6 +878,7 @@ __all__ = [
     "MAX_INTENT_BYTES",
     "POLICY_DECISION",
     "PROPOSED",
+    "RECEIPT_EXISTS",
     "RECEIPT_REFUSED",
     "RECONCILED",
     "RUN_NOT_FOUND",

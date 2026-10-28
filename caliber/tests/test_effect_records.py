@@ -761,18 +761,21 @@ def test_raw_sql_cannot_make_a_move_the_application_would_refuse(
                 "illegal",
             ),
             (
-                "state = 'committed', settled_at = CURRENT_TIMESTAMP, receipt_id = 'rcpt-x'",
+                "state = 'unknown', unknown_at = CURRENT_TIMESTAMP, reason = 'r'",
                 "version",
             ),  # does not advance the version
             (
-                "state = 'committed', version = 5, settled_at = CURRENT_TIMESTAMP, receipt_id = 'rcpt-x'",
+                "state = 'unknown', version = 5, unknown_at = CURRENT_TIMESTAMP, reason = 'r'",
                 "version",
             ),  # advances by two
             (
-                "state = 'committed', version = 3, settled_at = CURRENT_TIMESTAMP, receipt_id = 'rcpt-x'",
+                "state = 'unknown', version = 3, unknown_at = CURRENT_TIMESTAMP, reason = 'r'",
                 "version",
             ),
-            ("state = 'committed', version = 4", "evidence"),  # a commit that records no time
+            (
+                "state = 'committed', version = 4",
+                "evidence|needs a receipt",
+            ),  # a commit that records no time
             (
                 "state = 'failed', version = 4, settled_at = CURRENT_TIMESTAMP",
                 "evidence",
@@ -1247,3 +1250,78 @@ def test_stale_version_fails_without_mutation(downstream: Any) -> None:
     assert _connector_call(downstream, "stale-key-2", 1)["status_code"] == 201, (
         "the current version is accepted"
     )
+
+
+# ---------------------------------------------------------------- the named receipt tests (B05.4a, #717)
+
+
+def test_committed_requires_verified_receipt() -> None:
+    """A proposal moves to ``committed`` only with a verified receipt of its own dispatch (the fuller cases, the
+    downstream fixture and the database rules are in ``test_effect_receipts.py``)."""
+    import tempfile
+
+    from caliber.effects.records import RECEIPT_REFUSED
+
+    with tempfile.TemporaryDirectory() as tmp, pytest.MonkeyPatch.context() as monkeypatch:
+        with _database("sqlite", Path(tmp), monkeypatch) as (_, factory):
+            _seed_run(factory)
+            with factory() as session:
+                proposal_id = _at(session, DISPATCHED)
+                other = _new(session, occurrence="occ-other")
+                _move(session, other, APPROVED, **_evidence_for(session, other, PROPOSED, APPROVED))
+                _move(session, other, DISPATCHED, owner_id=OWNER, attempt=ATTEMPT)
+                foreign = _receipt(session, other)
+                _refused(
+                    EVIDENCE_REQUIRED,
+                    session,
+                    proposal_id,
+                    COMMITTED,
+                    owner_id=OWNER,
+                    attempt=ATTEMPT,
+                )
+                for bad in ("rcpt-missing", foreign):
+                    _refused(
+                        RECEIPT_REFUSED,
+                        session,
+                        proposal_id,
+                        COMMITTED,
+                        owner_id=OWNER,
+                        attempt=ATTEMPT,
+                        receipt_id=bad,
+                    )
+                own = _receipt(session, proposal_id)
+                assert _move(
+                    session, proposal_id, COMMITTED, owner_id=OWNER, attempt=ATTEMPT, receipt_id=own
+                ).applied
+                assert proposal_state(session, proposal_id).receipt_id == own
+
+
+def test_200_without_query_match_is_unknown() -> None:
+    """A 2xx claim whose authoritative query does not confirm it leaves the proposal ``unknown``: not committed, and not
+    failed either."""
+    import tempfile
+
+    from caliber.effects.connectors import Classified, TransportOutcome
+    from caliber.effects.receipts import settle_dispatch
+
+    with tempfile.TemporaryDirectory() as tmp, pytest.MonkeyPatch.context() as monkeypatch:
+        with _database("sqlite", Path(tmp), monkeypatch) as (_, factory):
+            _seed_run(factory)
+            with factory() as session:
+                proposal_id = _at(session, DISPATCHED)
+                settled = settle_dispatch(
+                    session,
+                    proposal_id,
+                    expected_version=proposal_state(session, proposal_id).version,
+                    owner_id=OWNER,
+                    attempt=ATTEMPT,
+                    outcome=Classified(TransportOutcome.COMMITTED_RECEIPT, "http_200", 200, 1),
+                    verify=lambda: None,
+                    now=AT,
+                )
+                assert (settled.state, settled.reason, settled.receipt_id) == (
+                    UNKNOWN,
+                    "receipt_unverified",
+                    None,
+                )
+                assert proposal_state(session, proposal_id).state == UNKNOWN

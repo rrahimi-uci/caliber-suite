@@ -8,7 +8,10 @@ version it produced, the downstream's request id and the digest of its stored re
 receipt per ``(proposal_id, attempt)``, and a downstream request id can belong to one proposal only
 (``(connector, downstream_request_id)`` is unique). UPDATE and DELETE are refused by triggers (SQLite and PostgreSQL;
 PostgreSQL adds a BEFORE TRUNCATE trigger). ``caliber_effect_proposals`` gains ``receipt_id``, and migration 0124's guard is
-replaced so that a move to ``committed`` must leave ``receipt_id`` in the row (raw SQL cannot commit without a receipt).
+replaced so that a move to ``committed`` must leave a ``receipt_id`` that names an existing receipt *of this proposal and
+attempt* (raw SQL cannot commit without one, nor with another proposal's), and a move to ``failed`` is refused while a verified
+receipt exists for the proposal (a proposal cannot be failed once the downstream's own query said it committed). A BEFORE INSERT
+trigger on the receipts refuses a receipt for a proposal that is no longer open (settled or not yet dispatched).
 Downgrade drops the receipts and ``receipt_id`` and restores 0124's guard.
 
 Revision ID: 0125
@@ -65,6 +68,9 @@ _ILLEGAL_MESSAGE = "illegal effect proposal transition"
 _VERSION_MESSAGE = "an effect proposal transition advances the version by one"
 _EVIDENCE_MESSAGE = "an effect proposal transition records its evidence"
 _RECEIPT_MESSAGE = "caliber_effect_receipts is immutable"
+_NO_RECEIPT_MESSAGE = "a committed effect proposal needs a receipt of its own attempt"
+_FAILED_MESSAGE = "an effect proposal with a verified receipt cannot be failed"
+_CLOSED_MESSAGE = "a receipt can only be recorded for a dispatched, unknown or reconciled proposal"
 
 
 def _settled(old: str) -> str:
@@ -79,6 +85,20 @@ def _missing(required: dict[str, tuple[str, ...]]) -> str:
     return "(" + " OR ".join(clauses) + ")"
 
 
+def _pg_receipt_rules(enabled: bool) -> str:
+    if not enabled:
+        return ""
+    return f"""IF NEW.state = 'committed' AND NOT EXISTS (
+        SELECT 1 FROM {_RECEIPTS} r
+        WHERE r.receipt_id = NEW.receipt_id AND r.proposal_id = NEW.proposal_id AND r.attempt IS NOT DISTINCT FROM NEW.attempt
+    ) THEN
+        RAISE EXCEPTION '{_NO_RECEIPT_MESSAGE}' USING ERRCODE = '23000';
+    END IF;
+    IF NEW.state = 'failed' AND EXISTS (SELECT 1 FROM {_RECEIPTS} r WHERE r.proposal_id = NEW.proposal_id) THEN
+        RAISE EXCEPTION '{_FAILED_MESSAGE}' USING ERRCODE = '23000';
+    END IF;"""
+
+
 def _legal_pg() -> str:
     pairs = [
         f"(OLD.state = '{a}' AND NEW.state = '{b}')" for a, targets in _TRANSITIONS.items() for b in targets
@@ -86,7 +106,9 @@ def _legal_pg() -> str:
     return "(" + " OR ".join(pairs) + ")"
 
 
-def _pg_guard(schema: str, evidence: tuple[str, ...], required: dict[str, tuple[str, ...]]) -> str:
+def _pg_guard(
+    schema: str, evidence: tuple[str, ...], required: dict[str, tuple[str, ...]], receipts: bool = True
+) -> str:
     pin = f'SET search_path = "{schema}", pg_temp'
     changed = " OR ".join(f"NEW.{c}::text IS DISTINCT FROM OLD.{c}::text" for c in evidence)
     return f"""
@@ -110,9 +132,43 @@ BEGIN
     IF {_missing(required)} THEN
         RAISE EXCEPTION '{_EVIDENCE_MESSAGE}: %', NEW.state USING ERRCODE = '23000';
     END IF;
+    {_pg_receipt_rules(receipts)}
     RETURN NEW;
 END;
 $$"""
+
+
+def _pg_closed_function(schema: str) -> str:
+    return f"""
+CREATE FUNCTION "{schema}".caliber_effect_receipts_open() RETURNS trigger LANGUAGE plpgsql
+    SET search_path = "{schema}", pg_temp AS $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM {_PROPOSALS} p
+        WHERE p.proposal_id = NEW.proposal_id AND p.state IN ('dispatched', 'unknown', 'reconciled')
+    ) THEN
+        RAISE EXCEPTION '{_CLOSED_MESSAGE}' USING ERRCODE = '23000';
+    END IF;
+    RETURN NEW;
+END;
+$$"""
+
+
+def _sqlite_receipt_triggers() -> tuple[str, ...]:
+    return (
+        f"CREATE TRIGGER trg_{_RECEIPTS}_open BEFORE INSERT ON {_RECEIPTS} "
+        f"WHEN NOT EXISTS (SELECT 1 FROM {_PROPOSALS} p WHERE p.proposal_id = NEW.proposal_id "
+        f"AND p.state IN ('dispatched', 'unknown', 'reconciled')) "
+        f"BEGIN SELECT RAISE(ABORT, '{_CLOSED_MESSAGE}'); END",
+        f"CREATE TRIGGER trg_{_PROPOSALS}_receipt BEFORE UPDATE ON {_PROPOSALS} "
+        f"WHEN NOT {_settled('OLD.state')} AND NEW.state IS NOT OLD.state AND NEW.state = 'committed' AND NOT EXISTS ("
+        f"SELECT 1 FROM {_RECEIPTS} r WHERE r.receipt_id = NEW.receipt_id AND r.proposal_id = NEW.proposal_id "
+        f"AND r.attempt IS NEW.attempt) BEGIN SELECT RAISE(ABORT, '{_NO_RECEIPT_MESSAGE}'); END",
+        f"CREATE TRIGGER trg_{_PROPOSALS}_not_failed BEFORE UPDATE ON {_PROPOSALS} "
+        f"WHEN NOT {_settled('OLD.state')} AND NEW.state IS NOT OLD.state AND NEW.state = 'failed' AND EXISTS ("
+        f"SELECT 1 FROM {_RECEIPTS} r WHERE r.proposal_id = NEW.proposal_id) "
+        f"BEGIN SELECT RAISE(ABORT, '{_FAILED_MESSAGE}'); END",
+    )
 
 
 def _sqlite_guard_triggers(evidence: tuple[str, ...], required: dict[str, tuple[str, ...]]) -> tuple[str, ...]:
@@ -199,6 +255,13 @@ def upgrade() -> None:
         )
         op.execute(sa.text(f"REVOKE UPDATE, DELETE, TRUNCATE ON {_RECEIPTS} FROM PUBLIC"))
         op.execute(sa.text(_pg_guard(schema, _EVIDENCE_0125, _REQUIRED_0125)))
+        op.execute(sa.text(_pg_closed_function(schema)))
+        op.execute(
+            sa.text(
+                f"CREATE TRIGGER trg_{_RECEIPTS}_open BEFORE INSERT ON {_RECEIPTS} "
+                "FOR EACH ROW EXECUTE FUNCTION caliber_effect_receipts_open()"
+            )
+        )
     else:
         for verb in ("UPDATE", "DELETE"):
             op.execute(
@@ -209,19 +272,20 @@ def upgrade() -> None:
             )
         for suffix in ("together", "evidence"):
             op.execute(sa.text(f"DROP TRIGGER IF EXISTS trg_{_PROPOSALS}_{suffix}"))
-        for statement in _sqlite_guard_triggers(_EVIDENCE_0125, _REQUIRED_0125):
+        for statement in (*_sqlite_guard_triggers(_EVIDENCE_0125, _REQUIRED_0125), *_sqlite_receipt_triggers()):
             op.execute(sa.text(statement))
 
 
 def downgrade() -> None:
     if _is_postgresql():
         schema = op.get_bind().execute(sa.text("SELECT current_schema()")).scalar_one()
-        op.execute(sa.text(_pg_guard(schema, _EVIDENCE_0124, _REQUIRED_0124)))
+        op.execute(sa.text(_pg_guard(schema, _EVIDENCE_0124, _REQUIRED_0124, receipts=False)))
         op.drop_table(_RECEIPTS)  # drops the table's own triggers
         op.execute(sa.text("DROP FUNCTION IF EXISTS caliber_effect_receipts_immutable()"))
+        op.execute(sa.text("DROP FUNCTION IF EXISTS caliber_effect_receipts_open()"))
         op.drop_column(_PROPOSALS, "receipt_id")
     else:
-        for suffix in ("together", "evidence"):
+        for suffix in ("together", "evidence", "receipt", "not_failed"):
             op.execute(sa.text(f"DROP TRIGGER IF EXISTS trg_{_PROPOSALS}_{suffix}"))
         op.drop_table(_RECEIPTS)
         op.execute(sa.text(f"ALTER TABLE {_PROPOSALS} DROP COLUMN receipt_id"))

@@ -247,7 +247,6 @@ def test_the_same_attempt_cannot_get_a_second_different_authoritative_receipt(
             first = record_receipt(session, proposal_id, _facts(session, proposal_id), now=AT)
             for change in (
                 {"downstream_request_id": "DR-OTHER"},
-                {"response_digest": "sha256:" + "e" * 64},
                 {"resource_version": "3"},
                 {"resource_version": None},
             ):
@@ -413,6 +412,8 @@ def _tamper(engine: Any, dialect: str, statement: str, **params: Any) -> None:
         "verified_at = '2001-01-01 00:00:00'",
         "intent_hash = 'sha256:' || repeat('1', 64)",
         "logical_key = repeat('2', 64)",
+        "connector = 'forged'",
+        "resource = 'cases/FORGED/document-requests'",
         "receipt_bytes = receipt_bytes || x'20'",
     ],
 )
@@ -599,26 +600,242 @@ def test_a_repeated_commit_with_the_same_receipt_is_recorded_once_and_without_it
 
 
 @pytest.mark.parametrize("dialect", DIALECTS)
-def test_raw_sql_cannot_commit_a_proposal_without_a_receipt(
+def test_raw_sql_cannot_commit_a_proposal_without_a_receipt_of_its_own(
     dialect: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     with _database(dialect, tmp_path, monkeypatch) as (engine, factory):
         _seed_run(factory)
         with factory() as session:
             proposal_id = _proposal(session)
+            other = _proposal(session, occurrence="occ-other")
+            own = record_receipt(
+                session, proposal_id, _facts(session, proposal_id), now=AT
+            ).receipt_id
+            foreign = record_receipt(session, other, _facts(session, other), now=AT).receipt_id
             session.commit()
         commit = (
             "UPDATE caliber_effect_proposals SET state = 'committed', version = 4, settled_at = CURRENT_TIMESTAMP"
             "{extra} WHERE proposal_id = :p"
         )
-        with pytest.raises(DBAPIError, match="evidence"), engine.begin() as connection:
-            connection.execute(text(commit.format(extra="")), {"p": proposal_id})
+        for extra, match in (
+            ("", "evidence|needs a receipt"),  # no receipt (both rules refuse it)
+            (", receipt_id = 'rcpt-any'", "needs a receipt"),  # one that does not exist
+            (f", receipt_id = '{foreign}'", "needs a receipt"),  # another proposal's
+        ):
+            with pytest.raises(DBAPIError, match=match), engine.begin() as connection:
+                connection.execute(text(commit.format(extra=extra)), {"p": proposal_id})
         with engine.begin() as connection:
             connection.execute(
-                text(commit.format(extra=", receipt_id = 'rcpt-any'")), {"p": proposal_id}
+                text(commit.format(extra=f", receipt_id = '{own}'")), {"p": proposal_id}
             )
         with factory() as session:
             assert proposal_state(session, proposal_id).state == COMMITTED
+
+
+@pytest.mark.parametrize("dialect", DIALECTS)
+def test_a_proposal_with_a_verified_receipt_cannot_be_failed(
+    dialect: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The downstream's own query said it committed: ``failed`` is final, so it would leave a proposal that says it did not
+    happen next to a receipt that proves it did."""
+    with _database(dialect, tmp_path, monkeypatch) as (engine, factory):
+        _seed_run(factory)
+        with factory() as session:
+            proposal_id = _proposal(session)
+            record_receipt(session, proposal_id, _facts(session, proposal_id), now=AT)
+            version = proposal_state(session, proposal_id).version
+            with pytest.raises(ProposalError) as refused:
+                transition(
+                    session,
+                    proposal_id,
+                    FAILED,
+                    expected_version=version,
+                    owner_id=OWNER,
+                    attempt=ATTEMPT,
+                    reason="rejected",
+                )
+            assert refused.value.code == "receipt_exists"
+            session.commit()
+        with (
+            pytest.raises(DBAPIError, match="cannot be failed"),
+            engine.begin() as connection,
+        ):  # and not by raw SQL
+            connection.execute(
+                text(
+                    "UPDATE caliber_effect_proposals SET state = 'failed', version = 4, settled_at = CURRENT_TIMESTAMP, "
+                    "reason = 'x' WHERE proposal_id = :p"
+                ),
+                {"p": proposal_id},
+            )
+        with factory() as session:
+            assert proposal_state(session, proposal_id).state == DISPATCHED
+
+
+@pytest.mark.parametrize("dialect", DIALECTS)
+def test_the_database_refuses_a_receipt_for_a_proposal_that_is_not_open(
+    dialect: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    with _database(dialect, tmp_path, monkeypatch) as (engine, factory):
+        _seed_run(factory)
+        with factory() as session:
+            settled = _proposal(session)
+            _move(session, settled, FAILED, owner_id=OWNER, attempt=ATTEMPT, reason="rejected")
+            view = proposal_view(session, settled)
+            session.commit()
+        import hashlib
+
+        insert = text(
+            "INSERT INTO caliber_effect_receipts (receipt_id, proposal_id, attempt, logical_key, intent_hash, connector, "
+            "connector_version, resource, downstream_request_id, response_digest, verified_by, verified_at, receipt_bytes, "
+            "receipt_digest) VALUES ('r1', :p, 1, :k, :h, 'c', 'v', 'r', 'd1', :rd, 'query', CURRENT_TIMESTAMP, :b, :bd)"
+        )
+        params = {
+            "p": settled,
+            "k": view.logical_key,
+            "h": view.intent_hash,
+            "rd": "sha256:" + "a" * 64,
+            "b": b"x",
+            "bd": hashlib.sha256(b"x").hexdigest(),
+        }
+        with (
+            pytest.raises(DBAPIError, match="dispatched, unknown or reconciled"),
+            engine.begin() as connection,
+        ):
+            connection.execute(insert, params)
+        assert _count(factory, CaliberEffectReceipt) == 0
+
+
+@pytest.mark.parametrize("dialect", DIALECTS)
+def test_a_stale_settle_is_refused_before_a_query_is_made_and_records_nothing(
+    dialect: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from caliber.effects.records import StaleVersion
+
+    with _database(dialect, tmp_path, monkeypatch) as (_, factory):
+        _seed_run(factory)
+        with factory() as session:
+            proposal_id = _proposal(session)
+            version = proposal_state(session, proposal_id).version
+            claim = Classified(TransportOutcome.COMMITTED_RECEIPT, "http_201", 201, 1)
+            queried: list[bool] = []
+
+            def verify() -> ReceiptFacts | None:
+                queried.append(True)
+                return _facts(session, proposal_id)
+
+            def settle(**overrides: Any) -> Any:
+                arguments: dict[str, Any] = {
+                    "expected_version": version,
+                    "owner_id": OWNER,
+                    "attempt": ATTEMPT,
+                    "outcome": claim,
+                    "verify": verify,
+                    "now": AT,
+                }
+                arguments.update(overrides)
+                return settle_dispatch(session, proposal_id, **arguments)
+
+            with pytest.raises(ProposalError) as other_owner:
+                settle(owner_id="worker-2")
+            assert other_owner.value.code == "stale_owner"
+            with pytest.raises(ProposalError) as other_attempt:
+                settle(attempt=2)
+            assert other_attempt.value.code == "stale_owner"
+            with pytest.raises(StaleVersion):
+                settle(expected_version=version + 5)
+            assert queried == [] and _count_receipts(session) == 0
+            assert settle().state == COMMITTED
+            with pytest.raises(StaleVersion):  # a repeat of a settle that already happened
+                settle()
+            queried.clear()
+            unknown = _proposal(session, occurrence="occ-u")
+            _move(session, unknown, UNKNOWN, owner_id=OWNER, attempt=ATTEMPT, reason="timeout")
+            with pytest.raises(ProposalError) as not_dispatched:
+                settle_dispatch(
+                    session,
+                    unknown,
+                    expected_version=proposal_state(session, unknown).version,
+                    owner_id=OWNER,
+                    attempt=ATTEMPT,
+                    outcome=claim,
+                    verify=verify,
+                )
+            assert not_dispatched.value.code == "illegal_transition" and queried == []
+
+
+def _count_receipts(session: Session) -> int:
+    return len(list(session.execute(select(CaliberEffectReceipt)).scalars()))
+
+
+@pytest.mark.parametrize("dialect", DIALECTS)
+def test_the_receipt_is_not_kept_when_the_commit_is_refused_and_a_failing_query_changes_nothing(
+    dialect: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from caliber.effects import receipts as receipts_module
+    from caliber.effects.records import StaleVersion
+
+    with _database(dialect, tmp_path, monkeypatch) as (_, factory):
+        _seed_run(factory)
+        with factory() as session:
+            proposal_id = _proposal(session)
+            version = proposal_state(session, proposal_id).version
+            claim = Classified(TransportOutcome.COMMITTED_RECEIPT, "http_201", 201, 1)
+
+            def raising() -> ReceiptFacts | None:
+                raise RuntimeError("the lookup is down")
+
+            with pytest.raises(RuntimeError):
+                settle_dispatch(
+                    session,
+                    proposal_id,
+                    expected_version=version,
+                    owner_id=OWNER,
+                    attempt=ATTEMPT,
+                    outcome=claim,
+                    verify=raising,
+                )
+            assert (
+                proposal_state(session, proposal_id).state == DISPATCHED
+                and _count_receipts(session) == 0
+            )
+
+            def refuse(
+                *args: Any, **kwargs: Any
+            ) -> Any:  # another transaction moved it after the precheck
+                raise StaleVersion(proposal_id, version, version + 1, UNKNOWN)
+
+            monkeypatch.setattr(receipts_module, "transition", refuse)
+            with pytest.raises(StaleVersion):
+                settle_dispatch(
+                    session,
+                    proposal_id,
+                    expected_version=version,
+                    owner_id=OWNER,
+                    attempt=ATTEMPT,
+                    outcome=claim,
+                    verify=lambda: _facts(session, proposal_id),
+                )
+            session.commit()
+        assert _count(factory, CaliberEffectReceipt) == 0, (
+            "the receipt went with the refused commit"
+        )
+
+
+@pytest.mark.parametrize("dialect", DIALECTS)
+def test_a_redelivery_whose_lookup_body_gained_a_field_is_still_the_same_receipt(
+    dialect: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    with _database(dialect, tmp_path, monkeypatch) as (_, factory):
+        _seed_run(factory)
+        with factory() as session:
+            proposal_id = _proposal(session)
+            first = record_receipt(session, proposal_id, _facts(session, proposal_id), now=AT)
+            drifted = _facts(session, proposal_id, response_digest="sha256:" + "9" * 64)
+            again = record_receipt(session, proposal_id, drifted, now=AT)
+            assert (again.created, again.receipt_id) == (False, first.receipt_id)
+            assert (
+                read_receipt(session, first.receipt_id)["response_digest"] == "sha256:" + "b" * 64
+            )
 
 
 @pytest.mark.parametrize("dialect", DIALECTS)
@@ -949,6 +1166,80 @@ def test_a_stored_request_that_is_not_this_proposals_effect_gives_no_facts(
             assert (
                 facts_from_lookup(view, lookup_status=200, lookup_body={**body, **change}) is None
             )
+
+
+def test_the_connectors_own_intent_builder_makes_the_one_shape_the_verifier_can_confirm() -> None:
+    from caliber.effects.connectors.document_request import build_intent
+
+    intent = build_intent(
+        case_id=CASE,
+        document_type=DOC,
+        expected_resource_version=1,
+        effect_class="irreversible_write",
+    )
+    assert (intent.connector, intent.connector_version) == (CONNECTOR, VERSION)
+    assert intent.resource == f"cases/{CASE}/document-requests"
+    assert dict(intent.args) == {"document_type": DOC} and intent.expected_resource_version == "1"
+    assert (
+        build_intent(
+            case_id=CASE, document_type=DOC, expected_resource_version=None, effect_class="read"
+        ).expected_resource_version
+        is None
+    )
+    for bad in ("", "..", "a/b", None):
+        with pytest.raises(ValueError):
+            build_intent(
+                case_id=bad, document_type=DOC, expected_resource_version=1, effect_class="read"
+            )  # type: ignore[arg-type]
+
+
+@pytest.mark.parametrize("dialect", DIALECTS)
+def test_a_proposal_with_arguments_beyond_the_document_type_can_never_be_confirmed(
+    dialect: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Documented, not hidden: the downstream stores only the case and the document type, so such a proposal would commit
+    downstream and then stay ``unknown``; ``build_intent`` is the one way to build a proposal this connector can verify."""
+    with _database(dialect, tmp_path, monkeypatch) as (_, factory):
+        _seed_run(factory)
+        with factory() as session:
+            recorded = record_proposal(
+                session,
+                workflow_run_id="RUN-ep",
+                node_id="ask",
+                occurrence_id="occ-extra",
+                intent=Intent(
+                    connector=CONNECTOR,
+                    connector_version=VERSION,
+                    effect_class="read",
+                    resource=f"cases/{CASE}/document-requests",
+                    args={"document_type": DOC, "note": "please hurry"},
+                    expected_resource_version="1",
+                ),
+            )
+            proposal_id = recorded.proposal_id
+            decision = _decision(session, proposal_id, decision_id="pd-extra")
+            _move(session, proposal_id, APPROVED, approval=Approval(POLICY_DECISION, decision))
+            _move(session, proposal_id, DISPATCHED, owner_id=OWNER, attempt=ATTEMPT)
+            view = proposal_view(session, proposal_id)
+            stored = {**_STORED, "idempotency_key": view.logical_key}
+            assert facts_from_lookup(view, lookup_status=200, lookup_body=stored) is None
+
+
+@pytest.mark.parametrize("expected", ["+1", " 1", "1 ", "1_0", "\uff11", "-1", "1.0", "0x1", ""])
+@pytest.mark.parametrize("dialect", DIALECTS)
+def test_an_expected_version_that_is_not_plain_digits_is_not_compared_loosely(
+    dialect: str, expected: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    with _database(dialect, tmp_path, monkeypatch) as (_, factory):
+        _seed_run(factory)
+        with factory() as session:
+            try:
+                proposal_id = _proposal(session, expected=expected)
+            except ProposalError:
+                return  # the empty string is refused by the intent itself
+            view = proposal_view(session, proposal_id)
+            stored = {**_STORED, "idempotency_key": view.logical_key}
+            assert facts_from_lookup(view, lookup_status=200, lookup_body=stored) is None
 
 
 @pytest.mark.parametrize("dialect", DIALECTS)
