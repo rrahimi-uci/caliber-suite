@@ -1046,6 +1046,10 @@ for result in reconcile_pass(session_factory, lease=lease, targets=targets):
     print(result.proposal_id, result.outcome, result.state)  # committed | failed | unknown | unverified | lookup_failed | not_bound | in_flight | moved
 ```
 
+- **Timeout example (V08).** The connector's timeout fires after the request went out (`ambiguous`, recorded `unknown` with reason `ambiguous:may_have_been_sent`; not `failed`,
+  the downstream may have committed, and not `committed`, nobody read a receipt). A retry from the node layer is refused (`UnknownEffectError`, the run ends `failed`), nothing
+  can dispatch the proposal again (`illegal_transition` from `unknown` to `dispatched`), and the next reconciler pass finds the stored request by the original key and commits it
+  with a verified receipt: one downstream mutation throughout (`tests/egi_scenarios/test_v08_timeout_retry.py`).
 - **Refusals and recovery.** `lease_lost`: you are no longer the owner, stop and let the new owner reconcile. `store_failed`: roll back and retry. `unknown` after a
   pass: nothing proves the outcome yet (delayed visibility looks like absence); the next pass asks again, the effect is never re-sent, and dependents stay blocked.
   There is no operator action that fails an `unknown` effect without the downstream's evidence yet (the operator view below lists them; an audited action is #997); a connector that
