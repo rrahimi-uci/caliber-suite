@@ -1,1 +1,0 @@
-{"t":"2026-10-28T05:11:05.353Z","severity":"WARNING","logger":"caliber.config","message":"CALIBER_LLM_PROVIDER=auto resolved to fake: the key is not set, so workflow agents, calibration and judges are SIMULATED. Configure a real model key to use a real provider (OPENAI_API_KEY is the default source)."}

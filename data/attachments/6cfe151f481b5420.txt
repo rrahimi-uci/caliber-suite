@@ -1,0 +1,5 @@
+{"t":"2026-10-28T05:40:19.882Z","severity":"INFO","logger":"httpx","message":"HTTP Request: GET http://127.0.0.1:37311/health \"HTTP/1.1 200 OK\""}
+{"t":"2026-10-28T05:40:19.893Z","severity":"INFO","logger":"httpx","message":"HTTP Request: POST http://127.0.0.1:37311/_test/reset \"HTTP/1.1 200 OK\""}
+{"t":"2026-10-28T05:40:19.898Z","severity":"INFO","logger":"httpx","message":"HTTP Request: GET http://127.0.0.1:37311/openapi.json \"HTTP/1.1 200 OK\""}
+{"t":"2026-10-28T05:40:19.930Z","severity":"INFO","logger":"httpx","message":"HTTP Request: POST http://127.0.0.1:37311/cases/MORT-2026-000184/document-requests \"HTTP/1.1 201 Created\""}
+{"t":"2026-10-28T05:40:19.933Z","severity":"INFO","logger":"httpx","message":"HTTP Request: GET http://127.0.0.1:37311/_test/mutations \"HTTP/1.1 200 OK\""}
