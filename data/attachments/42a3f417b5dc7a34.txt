@@ -1,7 +1,0 @@
-{"t":"2026-10-28T20:36:58.721Z","severity":"INFO","logger":"httpx","message":"HTTP Request: GET http://127.0.0.1:38401/health \"HTTP/1.1 200 OK\""}
-{"t":"2026-10-28T20:36:58.729Z","severity":"INFO","logger":"httpx","message":"HTTP Request: POST http://127.0.0.1:38401/_test/reset \"HTTP/1.1 200 OK\""}
-{"t":"2026-10-28T20:36:58.733Z","severity":"INFO","logger":"httpx","message":"HTTP Request: GET http://127.0.0.1:38401/openapi.json \"HTTP/1.1 200 OK\""}
-{"t":"2026-10-28T20:36:58.737Z","severity":"INFO","logger":"httpx","message":"HTTP Request: POST http://127.0.0.1:38401/_test/faults \"HTTP/1.1 200 OK\""}
-{"t":"2026-10-28T20:36:58.765Z","severity":"INFO","logger":"httpx","message":"HTTP Request: POST http://127.0.0.1:38401/cases/MORT-2026-000184/document-requests \"HTTP/1.1 500 Internal Server Error\""}
-{"t":"2026-10-28T20:36:59.040Z","severity":"INFO","logger":"httpx","message":"HTTP Request: POST http://127.0.0.1:38401/cases/MORT-2026-000184/document-requests \"HTTP/1.1 201 Created\""}
-{"t":"2026-10-28T20:36:59.043Z","severity":"INFO","logger":"httpx","message":"HTTP Request: GET http://127.0.0.1:38401/_test/mutations \"HTTP/1.1 200 OK\""}

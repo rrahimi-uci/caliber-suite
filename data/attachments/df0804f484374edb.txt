@@ -1,3 +1,0 @@
-INFO     httpx2:_client.py:1084 HTTP Request: GET http://testserver/cases/NOPE "HTTP/1.1 404 Not Found"
-INFO     httpx2:_client.py:1084 HTTP Request: POST http://testserver/cases/NOPE/document-requests "HTTP/1.1 404 Not Found"
-INFO     httpx2:_client.py:1084 HTTP Request: GET http://testserver/_test/mutations "HTTP/1.1 200 OK"
