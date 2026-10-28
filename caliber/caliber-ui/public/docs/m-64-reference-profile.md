@@ -684,6 +684,58 @@ background publisher delivers the rows afterwards.
   publishes nothing to the bus or to webhooks (that would duplicate the notifications that exist). Webhook and
   alert events are not in the outbox. Consumers arrive with the features that need them.
 
+## Inbound events: the inbox
+
+An inbound event (a webhook, a connector callback) can be sent twice, arrive on two workers at once, or reach a process
+that dies half way through. `caliber/src/caliber/events/inbox.py` (B13.5a, #689) makes each one apply **once**. This is
+the inbox for events from outside; `caliber_event_inbox` above is the end of our own outbox handoff and is unchanged.
+
+- **Identity is `(consumer, source, event_id)`**, the primary key of `caliber_inbox_events`. The row also stores the
+  `payload_hash` (`sha256:<hex>`, from `caliber.events.outbox.payload_hash`) the event arrived with and a `status`:
+  `received`, `processed` or `ignored`.
+- **One transaction.** `process_once(session, consumer=..., source=..., event_id=..., payload_hash=..., apply=...)`
+  inserts the reservation, runs `apply` (the business transition, in your session), and marks the row `processed`,
+  inside savepoints of your transaction. It never commits: you commit, so the three stand or fall together. Handing the event to a durable
+  queue instead is the same call with an `apply` that calls `caliber.events.outbox.enqueue`; the sender may be answered
+  once that commit returns.
+- **Results.** `processed` (with `apply`'s value), `duplicate` (the same identity and payload were already taken:
+  acknowledge it, nothing is applied) or `ignored` (`apply` raised `InboxIgnored`: whatever it wrote is undone and the
+  row is recorded, so a redelivery is a duplicate).
+- **Refusals.** The same identity with a different payload raises `InboxPayloadMismatch` (a different message reusing
+  an id; the stored hash is never overwritten and nothing is applied). A blank, over-long or control-character-bearing `consumer` (64), `source`
+  (64) or `event_id` (160), or a `payload_hash` that is not `sha256:` plus 64 lowercase hex digits, raises `ValueError`
+  before the database is touched.
+- **Recovery.** If `apply` raises, the reservation goes with it, so the sender's retry is processed: a failed
+  transaction is never treated as already processed. If the process dies before the commit, the database discards the
+  transaction and the outcome is the same. Concurrent duplicates serialise on the primary key: on PostgreSQL the second
+  waits for the first (with no timeout of its own: a first delivery that hangs holds the key, so give the transaction a
+  `lock_timeout`), then reports `duplicate` if it committed or takes over if it rolled back. On SQLite a concurrent
+  duplicate fails at once with a lock error and the retry is a `duplicate`.
+
+```python
+from caliber.events.inbox import process_once
+from caliber.events.outbox import payload_hash
+
+with session_factory() as session:
+    result = process_once(
+        session,
+        consumer="documents",
+        source="connector",
+        event_id=delivery_id,
+        payload_hash=payload_hash(body),
+        apply=lambda: advance_run(session, body),
+    )
+    session.commit()
+# result.outcome is "processed", "duplicate" or "ignored"; InboxPayloadMismatch means answer 409
+```
+
+- **Limits.** This is at-most-once *application* per key, not exactly-once delivery: the sender may still send it many
+  times, and each is acknowledged. `apply` must not commit or roll back the session (if it does, `InboxContractError` is raised; its writes may already
+  be committed with a reservation still `received`, which every later delivery sees as a `duplicate` and an operator must resolve), and a side effect outside the
+  transaction (a call to another service) is not covered by it. Rows are kept until `prune(session, older_than=...)`
+  forgets them; use a cutoff older than the sender's longest redelivery window, because a forgotten id is applied again.
+  Nothing calls `process_once` yet: wiring the GitHub webhook and the connector callback is B13.5b (#693).
+
 ## Approved context sources
 
 A run's context may only come from sources its project has approved (B07, #692). The inventory is

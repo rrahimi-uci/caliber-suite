@@ -57,7 +57,10 @@ _EXPECTED_COUNTS = {
     # +1 (`B07.3a`): CaliberContextManifest is a write-once child of a workflow run (FK `workflow_run_id`) and carries
     # no project column of its own, like its sibling CaliberRunManifest: the run supplies the project boundary, and
     # the record names the project in its canonical bytes. Confirmed by direct look; no route lists it.
-    SCOPING_UNSCOPED: 55,
+    # +1 (`B13.5a`): CaliberInboxEvent is the dedup reservation of an inbound event keyed by (consumer, source,
+    # event_id) with no project column -- a webhook can arrive before any project is resolved. Unscoped, confirmed by
+    # direct look; it is written and read only through `caliber.events.inbox` in the transaction it guards.
+    SCOPING_UNSCOPED: 56,
     # -1 (`P1-E`): CaliberPersonalAccessToken gained project_id (optional
     # PAT project binding) and moves from owned_catalog to project_only --
     # see below.

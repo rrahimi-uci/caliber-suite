@@ -1,4 +1,5 @@
-"""V09 public path: business events survive crashes and a saturated notification bus (B13.4, #685).
+"""V09 public path: business events survive crashes and a saturated notification bus (B13.4, #685), and an inbound
+event is applied once (B13.5a, #689).
 
 The reference-profile app on PostgreSQL (the same logic on SQLite in the development profile with the outbox switched
 on). A run is admitted through the public API and every run event it produced has a durable outbox row written in the
@@ -16,9 +17,22 @@ from typing import Any
 import pytest
 from sqlalchemy import func, select
 
-from caliber.db.models import CaliberEventInbox, CaliberEventOutbox, CaliberWorkflowRunEvent
+from caliber.db.models import (
+    CaliberEventInbox,
+    CaliberEventOutbox,
+    CaliberInboxEvent,
+    CaliberWorkflowRunEvent,
+)
 from caliber.events.bus import EventBus
-from caliber.events.outbox import DELIVERED, PENDING, OutboxPublisher, SqlInboxConsumer, bind_outbox
+from caliber.events.inbox import DUPLICATE, PROCESSED, InboxPayloadMismatch, process_once
+from caliber.events.outbox import (
+    DELIVERED,
+    PENDING,
+    OutboxPublisher,
+    SqlInboxConsumer,
+    bind_outbox,
+    payload_hash,
+)
 from caliber.workflows.run_events import append_run_event
 from tests.egi_scenarios.conftest import (
     EDITOR_A,
@@ -167,3 +181,69 @@ def test_the_reference_profile_binds_the_outbox_at_startup(reference_app: Refere
     from caliber.events.outbox import outbox_enabled
 
     assert outbox_enabled() is (reference_app.profile == "reference")
+
+
+def test_inbox_dedupes_by_id_and_hash(
+    reference_app: ReferenceApp, two_workspaces: Workspaces
+) -> None:
+    """An inbound callback for an admitted run, delivered twice, changes the run once; a different message that reuses
+    its id is refused; a delivery whose transition fails leaves no trace, so the sender's retry is applied."""
+    bind_outbox(True)
+    run_id = _admit_a_run(reference_app, "v09-3")
+    body = {"status": "approved", "document": "DOC-1"}
+    digest = payload_hash(body)
+
+    def callback(event_id: str, digest: str, fail: bool = False) -> Any:
+        with reference_app.session_factory() as session:
+
+            def transition() -> None:
+                append_run_event(
+                    session,
+                    workflow_run_id=run_id,
+                    project_id=PROJECT_A,
+                    event_type="workflow.run.callback",
+                    payload={"event_id": event_id},
+                )
+                if fail:
+                    raise RuntimeError("the transition failed after it wrote")
+
+            try:
+                result = process_once(
+                    session,
+                    consumer="v09-connector",
+                    source="document-request",
+                    event_id=event_id,
+                    payload_hash=digest,
+                    apply=transition,
+                )
+            except BaseException:
+                session.rollback()
+                raise
+            session.commit()
+            return result
+
+    def run_events() -> int:
+        return _count(
+            reference_app,
+            CaliberWorkflowRunEvent,
+            CaliberWorkflowRunEvent.workflow_run_id == run_id,
+            CaliberWorkflowRunEvent.event_type == "workflow.run.callback",
+        )
+
+    assert callback("cb-1", digest).outcome == PROCESSED
+    assert callback("cb-1", digest).outcome == DUPLICATE
+    assert run_events() == 1, "the same callback twice is one transition"
+
+    with pytest.raises(InboxPayloadMismatch):
+        callback("cb-1", payload_hash({"status": "rejected"}))
+    assert run_events() == 1
+
+    with pytest.raises(RuntimeError, match="after it wrote"):
+        callback("cb-2", digest, fail=True)
+    assert run_events() == 1, "the failed transition's run event was rolled back"
+    assert _count(reference_app, CaliberInboxEvent, CaliberInboxEvent.event_id == "cb-2") == 0
+    assert callback("cb-2", digest).outcome == PROCESSED, (
+        "the retry is processed, not treated as done"
+    )
+    assert run_events() == 2
+    assert _count(reference_app, CaliberInboxEvent) == 2
