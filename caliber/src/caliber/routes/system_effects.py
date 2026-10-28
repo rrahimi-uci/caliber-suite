@@ -74,7 +74,8 @@ from caliber.effects.connectors.document_request import (
     lookup_config,
     lookup_input,
 )
-from caliber.effects.receipts import RECEIPT_STATE, ReceiptFacts, record_receipt
+from caliber.effects.receipts import RECEIPT_STATE, ReceiptFacts
+from caliber.effects.reconcile import commit_found
 from caliber.effects.records import (
     COMMITTED,
     DISPATCHED,
@@ -86,7 +87,6 @@ from caliber.effects.records import (
     ProposalView,
     proposal_state,
     proposal_view,
-    transition,
 )
 from caliber.events.inbox import InboxPayloadMismatch, process_once
 from caliber.events.outbox import payload_hash
@@ -528,19 +528,7 @@ def _commit_from_callback(
 
     Returns the receipt id and whether *this* call did the commit (``False`` if another delivery already had).
     """
-    state = proposal_state(session, proposal_id)
-    if state.state == COMMITTED and state.receipt_id is not None:
-        return state.receipt_id, False
-    receipt = record_receipt(session, proposal_id, facts)
-    version = state.version
-    if state.state == UNKNOWN:
-        version = transition(
-            session, proposal_id, RECONCILED, expected_version=version, reason="receipt_callback"
-        ).version
-    transition(
-        session, proposal_id, COMMITTED, expected_version=version, receipt_id=receipt.receipt_id
-    )
-    return receipt.receipt_id, True
+    return commit_found(session, proposal_id, facts, reason="receipt_callback")
 
 
 def _callback_state_reply(view: ProposalView) -> JSONResponse | None:

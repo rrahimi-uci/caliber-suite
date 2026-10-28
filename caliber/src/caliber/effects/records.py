@@ -78,6 +78,8 @@ ILLEGAL_TRANSITION: Final = "illegal_transition"
 STALE_VERSION: Final = "stale_version"
 STALE_OWNER: Final = "stale_owner"
 LEASE_LOST: Final = "lease_lost"
+NOT_ABANDONED: Final = "not_abandoned"
+ABANDONED_REASON: Final = "abandoned_dispatch"
 EVIDENCE_REQUIRED: Final = "evidence_required"
 APPROVAL_REFUSED: Final = "approval_refused"
 RECEIPT_REFUSED: Final = "receipt_refused"
@@ -417,6 +419,7 @@ class ProposalState:
     version: int
     attempt: int | None
     owner_id: str | None
+    dispatch_token: int | None
     reason: str | None
     approval_kind: str | None
     approval_ref: str | None
@@ -488,6 +491,7 @@ def proposal_state(session: Session, proposal_id: str) -> ProposalState:
         version=row.version,
         attempt=row.attempt,
         owner_id=row.owner_id,
+        dispatch_token=row.dispatch_token,
         reason=row.reason,
         approval_kind=row.approval_kind,
         approval_ref=row.approval_ref,
@@ -582,6 +586,7 @@ def transition(
     if row is None:
         raise KeyError(proposal_id)
     offered = _offered(approval, owner, tries, why, _text("receipt_id", receipt_id, nullable=True))
+    offered |= _dispatch_token(to_state, lease)  # a dispatch under another token is not a repeat
     if (
         row.version == expected_version + 1
         and row.state == to_state
@@ -601,6 +606,7 @@ def transition(
     _check_owner(row, owner, tries)
     if DISPATCHED in (row.state, to_state):
         _fence(session, row, owner, lease)
+    evidence |= _dispatch_token(to_state, lease)
     values: dict[str, Any] = {"state": to_state, "version": expected_version + 1, **evidence}
     moment = _naive_utc(now)
     for state, column in ((DISPATCHED, "dispatched_at"), (UNKNOWN, "unknown_at")):
@@ -636,6 +642,65 @@ def transition(
     return Transitioned(row.proposal_id, to_state, expected_version + 1, applied=True)
 
 
+def abandon_dispatch(
+    session: Session,
+    proposal_id: str,
+    *,
+    expected_version: int,
+    lease: Lease,
+    now: datetime | None = None,
+) -> Transitioned:
+    """``dispatched`` to ``unknown`` for an attempt whose dispatching lease has since been taken over (B05.5b, #742).
+
+    The reconciler's entry point, under *its own* lease (the lease it holds now, not the dead owner's, so the ``owner_id`` and
+    ``attempt`` of the dispatch are not presented): in the caller's transaction it compares that lease
+    (:func:`fence_owner`) and refuses unless the proposal is ``dispatched`` at ``expected_version`` and was dispatched under a
+    lower fencing token (``dispatch_token``; a ``NULL`` one proves nothing and is never abandoned). It records
+    ``unknown`` with the reason ``abandoned_dispatch``: the attempt may have been sent, and only a query by key can say.
+    Never commits, and never re-dispatches: ``unknown`` has no edge back to ``dispatched``.
+    """
+    if type(expected_version) is not int or expected_version < 1:
+        raise ProposalError(BAD_FIELD, "expected_version must be a positive integer")
+    fence_owner(session, proposal_id, lease.owner_id if isinstance(lease, Lease) else None, lease)
+    begin_sqlite_transaction(session)
+    row = session.get(CaliberEffectProposal, proposal_id, populate_existing=True)
+    if row is None:
+        raise KeyError(proposal_id)
+    if row.version != expected_version:
+        raise StaleVersion(proposal_id, expected_version, row.version, row.state)
+    if row.state != DISPATCHED:
+        raise ProposalError(
+            ILLEGAL_TRANSITION,
+            f"proposal {proposal_id} is {row.state}: only a dispatched attempt is abandoned",
+        )
+    if row.dispatch_token is None or row.dispatch_token >= lease.fencing_token:
+        raise ProposalError(
+            NOT_ABANDONED,
+            f"proposal {proposal_id} was dispatched under the lease that is still current (or under one with no recorded token)",
+        )
+    table = cast(Table, CaliberEffectProposal.__table__)
+    result = session.execute(
+        update(table)
+        .where(
+            table.c.proposal_id == proposal_id,
+            table.c.version == expected_version,
+            table.c.state == DISPATCHED,
+        )
+        .values(
+            state=UNKNOWN,
+            version=expected_version + 1,
+            reason=ABANDONED_REASON,
+            unknown_at=_naive_utc(now),
+        )
+    )
+    session.expire(row)
+    if not getattr(result, "rowcount", 0):  # moved between the read and the update
+        current = session.get(CaliberEffectProposal, proposal_id, populate_existing=True)
+        assert current is not None  # a proposal is never deleted
+        raise StaleVersion(proposal_id, expected_version, current.version, current.state)
+    return Transitioned(proposal_id, UNKNOWN, expected_version + 1, applied=True)
+
+
 def _offered(
     approval: Approval | None,
     owner: str | None,
@@ -657,6 +722,13 @@ def _offered(
         offered["approval_kind"] = approval.kind
         offered["approval_ref"] = approval.ref
     return offered
+
+
+def _dispatch_token(to_state: str, lease: Lease | None) -> dict[str, Any]:
+    """The fencing token a dispatch records (nothing for any other move, or for a lease that is not one)."""
+    if to_state == DISPATCHED and isinstance(lease, Lease):
+        return {"dispatch_token": lease.fencing_token}
+    return {}
 
 
 def _complete(row: CaliberEffectProposal, offered: Mapping[str, Any]) -> bool:
@@ -937,6 +1009,7 @@ def read_proposal(session: Session, proposal_id: str) -> dict[str, Any]:
 
 
 __all__ = [
+    "ABANDONED_REASON",
     "APPROVAL_REFUSED",
     "APPROVED",
     "BAD_FIELD",
@@ -952,6 +1025,7 @@ __all__ = [
     "LEASE_LOST",
     "MAX_ARGS_DEPTH",
     "MAX_INTENT_BYTES",
+    "NOT_ABANDONED",
     "POLICY_DECISION",
     "PROPOSED",
     "RECEIPT_EXISTS",
@@ -975,6 +1049,7 @@ __all__ = [
     "RecordedProposal",
     "StaleVersion",
     "Transitioned",
+    "abandon_dispatch",
     "effect_resource",
     "fence_owner",
     "intent_digest",
