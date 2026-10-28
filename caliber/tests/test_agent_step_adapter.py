@@ -723,6 +723,14 @@ def test_the_result_is_read_once_from_a_plain_snapshot(monkeypatch: pytest.Monke
     assert record.armed and record.reads_after_arming == 0
 
 
+def test_a_record_that_is_not_a_json_object_is_malformed(monkeypatch: pytest.MonkeyPatch) -> None:
+    ctx = make_context()
+    monkeypatch.setattr(AgentStepResult, "record", lambda self: ["not", "an", "object"])
+    result = run(Spy(answer(ctx.request, "completed")), ctx)
+    monkeypatch.undo()
+    assert_typed_failure(result, ctx, MALFORMED_RESULT, "error")
+
+
 def test_a_result_subclass_is_never_asked_for_its_record() -> None:
     """A subclass can override ``record()``: it is refused before any of its code runs."""
     ctx = make_context()
