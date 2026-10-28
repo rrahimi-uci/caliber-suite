@@ -188,12 +188,35 @@ def _feature_for(stem: str) -> str:
     return cleaned.title() or "Other"
 
 
-def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
-    """Tag each collected test with an Allure epic + feature for the report.
+def lone_surrogate_in(value: object, _depth: int = 0) -> bool:
+    """Whether ``value`` is (or, in a shallow container, holds) a string with a lone surrogate."""
+    if isinstance(value, str):
+        return any(0xD800 <= ord(char) <= 0xDFFF for char in value)
+    if _depth < 3 and isinstance(value, list | tuple | set | frozenset):
+        return any(lone_surrogate_in(item, _depth + 1) for item in value)
+    if _depth < 3 and isinstance(value, dict):
+        return any(lone_surrogate_in(item, _depth + 1) for pair in value.items() for item in pair)
+    return False
 
-    No-op when allure-pytest isn't active (normal ``make test`` runs without
-    ``--alluredir``) — the markers are harmless either way.
+
+def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
+    """Refuse a lone-surrogate parameter value, and tag each collected test with an Allure epic + feature for the report.
+
+    The Allure listener (enabled only in the push-to-main full suite) writes every parameter value to UTF-8 JSON, so a lone
+    surrogate used as a pytest parameter aborts the whole run with an INTERNALERROR (it reached ``main`` three times). Building
+    the value inside the test is the fix; failing at collection makes the mistake visible on the PR instead.
+
+    The Allure markers are a no-op when allure-pytest isn't active (normal ``make test`` runs without ``--alluredir``) — they
+    are harmless either way.
     """
+    for item in items:
+        callspec = getattr(item, "callspec", None)
+        for name, value in callspec.params.items() if callspec is not None else ():
+            if lone_surrogate_in(value):
+                raise pytest.UsageError(
+                    f"{item.nodeid}: parameter {name!r} holds a lone surrogate; build it inside the test "
+                    "(the Allure listener cannot write it and aborts the full run)"
+                )
     try:
         import allure
     except Exception:
