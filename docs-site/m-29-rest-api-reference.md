@@ -1067,7 +1067,7 @@ Published for route-table completeness, but not part of the supported SDK contra
 
 | Method | Path | Required scope | Parameters | Responses | Details |
 | --- | --- | --- | --- | --- | --- |
-| `POST` | `/ajax-api/2.0/mlflow/caliber/effects/callbacks/receipt` | public | — | `400`, `401`, `403`, `404` | `operationId`: `post_effects_callbacks_receipt` |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/effects/callbacks/receipt` | public — A downstream connector is the caller, with no CALIBER session/PAT to hold a scope check against; its HMAC signature over connector, project, timestamp, delivery id and body, checked in-handler against the connector's configured secret (caliber.effects.callbacks), is the admission control -- the same 'external caller, own auth' shape as the GitHub webhook. | — | `400`, `401`, `403`, `404` | `operationId`: `post_effects_callbacks_receipt` |
 
 #### Gate Verdicts (`gate-verdicts`)
 
