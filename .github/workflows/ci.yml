@@ -504,7 +504,10 @@ jobs:
         # The SDK's own job installs only the SDK, so these tests would skip there; here
         # the server package, PyYAML and mcp are present.
         working-directory: sdk/caliber-sdk
-        run: pytest -q -p no:cacheprovider tests/test_cookbook_*.py
+        # The server package brings pytest-asyncio, which (1.4.1) fails the run under the SDK's
+        # `filterwarnings = error` unless the loop scope is set; the SDK's own job has no such plugin,
+        # so the option is set here rather than in the SDK's pyproject.
+        run: pytest -q -p no:cacheprovider -o asyncio_default_fixture_loop_scope=function tests/test_cookbook_*.py
 
   # `docs/workspace-plan.md` section 15.2: "Each schema step has a
   # fresh-install test, upgrade test from the preceding revision, and
