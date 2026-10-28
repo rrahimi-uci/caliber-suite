@@ -748,7 +748,29 @@ with session_factory() as session:
   be committed with a reservation still `received`, which every later delivery sees as a `duplicate` and an operator must resolve), and a side effect outside the
   transaction (a call to another service) is not covered by it. Rows are kept until `prune(session, older_than=...)`
   forgets them; use a cutoff older than the sender's longest redelivery window, because a forgotten id is applied again.
-  Nothing calls `process_once` yet: wiring the GitHub webhook and the connector callback is B13.5b (#693).
+
+### Who consumes it (B13.5b, #693)
+
+- **The connector receipt callback** is the consumer: `POST /ajax-api/2.0/mlflow/caliber/effects/callbacks/receipt` calls `process_once` with
+  consumer `effect-callback`, a source that is a digest of the connector and the project, the delivery id as the event id, and the hash of
+  `{project_id, idempotency_key}`. Its answers are the inbox's: the same signed delivery again is `200 {"data": {"status": "duplicate"}}`
+  (answered before any query of the downstream), the same delivery id carrying another key is `409 {"reason": "inbox_payload_mismatch"}`, and a
+  delivery whose transition is refused is rolled back whole (the reservation too), so the connector's retry is processed. The exact request,
+  signature and every other answer are in the Receipt callback section below.
+- **Out of order.** The callback carries no version of its own: it names a key and the platform asks the downstream. The ordering is the
+  proposal's compare-and-set `version` (B05.2), so a delivery that arrives after the proposal has settled is acknowledged with the
+  settled outcome and moves nothing: `200 already_committed` (a new delivery id), or `committed` with the first receipt's id when it had read the proposal before the commit won
+  (no second receipt, no second audit row). `InboxIgnored` / the `ignored` status exist for a consumer whose events carry a version
+  to compare; no consumer uses them yet, and the callback does not.
+- **The GitHub webhook is not a consumer of this table.** It already has a durable, signature-verified delivery inbox,
+  `caliber_workspace_source_events` (unique on source, delivery id and payload hash; migrations 0098 and 0101), inserted and committed in one
+  transaction. `POST /ajax-api/2.0/mlflow/caliber/webhooks/github` answers a repeat delivery `202 {"data": {"received": true, "duplicate": true}}` with no second row, and
+  the same delivery id with different evidence the same generic `401` as every other rejection (deliberately not a `409`, so an unauthenticated
+  caller cannot tell it from a bad signature). Reserving each delivery in `caliber_inbox_events` as well would store it twice and change that public
+  contract for no gain, so the route is unchanged; a test pins that it writes nothing to `caliber_inbox_events`.
+- **Recovery.** A delivery answered `5xx` or never answered (the process died before the commit) left no reservation: the sender's retry is processed.
+  A connector that gets `409 inbox_payload_mismatch` is reusing a delivery id for a different message: send the new message under a new id. A
+  reservation stuck at `received` (`InboxContractError`, see Limits) is the one case that needs an operator.
 
 ## Effect proposals
 
