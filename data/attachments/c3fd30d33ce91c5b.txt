@@ -1,0 +1,6 @@
+{"t":"2026-10-28T07:53:57.896Z","severity":"INFO","logger":"httpx","message":"HTTP Request: POST http://127.0.0.1:36863/_test/reset \"HTTP/1.1 200 OK\""}
+{"t":"2026-10-28T07:53:57.902Z","severity":"INFO","logger":"httpx","message":"HTTP Request: POST http://127.0.0.1:36863/_test/faults \"HTTP/1.1 200 OK\""}
+{"t":"2026-10-28T07:53:57.906Z","severity":"INFO","logger":"httpx","message":"HTTP Request: GET http://127.0.0.1:36863/_test/mutations \"HTTP/1.1 200 OK\""}
+{"t":"2026-10-28T07:53:57.930Z","severity":"INFO","logger":"httpx","message":"HTTP Request: GET http://127.0.0.1:36863/_test/mutations \"HTTP/1.1 200 OK\""}
+{"t":"2026-10-28T07:53:57.932Z","severity":"INFO","logger":"httpx","message":"HTTP Request: GET http://127.0.0.1:36863/_test/mutations \"HTTP/1.1 200 OK\""}
+{"t":"2026-10-28T07:53:59.428Z","severity":"INFO","logger":"httpx","message":"HTTP Request: POST http://127.0.0.1:36863/cases/MORT-2026-000184/document-requests \"HTTP/1.1 201 Created\""}

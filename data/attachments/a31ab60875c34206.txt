@@ -1,0 +1,3 @@
+{"t":"2026-10-28T07:53:55.796Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: GET http://testserver/cases/NOPE \"HTTP/1.1 404 Not Found\""}
+{"t":"2026-10-28T07:53:55.801Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/cases/NOPE/document-requests \"HTTP/1.1 404 Not Found\""}
+{"t":"2026-10-28T07:53:55.806Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: GET http://testserver/_test/mutations \"HTTP/1.1 200 OK\""}

@@ -1,0 +1,4 @@
+{"t":"2026-10-28T07:53:59.602Z","severity":"INFO","logger":"httpx","message":"HTTP Request: POST http://127.0.0.1:35207/_test/reset \"HTTP/1.1 200 OK\""}
+{"t":"2026-10-28T07:53:59.640Z","severity":"INFO","logger":"httpx","message":"HTTP Request: POST http://127.0.0.1:35207/cases/MORT-2026-000184/document-requests \"HTTP/1.1 201 Created\""}
+{"t":"2026-10-28T07:53:59.670Z","severity":"INFO","logger":"httpx","message":"HTTP Request: POST http://127.0.0.1:35207/cases/MORT-2026-000184/document-requests \"HTTP/1.1 412 Precondition Failed\""}
+{"t":"2026-10-28T07:53:59.675Z","severity":"INFO","logger":"httpx","message":"HTTP Request: GET http://127.0.0.1:35207/_test/mutations \"HTTP/1.1 200 OK\""}

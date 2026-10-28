@@ -1,5 +1,0 @@
-{"t":"2026-10-28T06:46:59.026Z","severity":"INFO","logger":"httpx","message":"HTTP Request: GET http://127.0.0.1:34001/health \"HTTP/1.1 200 OK\""}
-{"t":"2026-10-28T06:46:59.036Z","severity":"INFO","logger":"httpx","message":"HTTP Request: POST http://127.0.0.1:34001/_test/reset \"HTTP/1.1 200 OK\""}
-{"t":"2026-10-28T06:46:59.041Z","severity":"INFO","logger":"httpx","message":"HTTP Request: GET http://127.0.0.1:34001/openapi.json \"HTTP/1.1 200 OK\""}
-{"t":"2026-10-28T06:46:59.073Z","severity":"INFO","logger":"httpx","message":"HTTP Request: POST http://127.0.0.1:34001/cases/MORT-2026-000184/document-requests \"HTTP/1.1 412 Precondition Failed\""}
-{"t":"2026-10-28T06:46:59.076Z","severity":"INFO","logger":"httpx","message":"HTTP Request: GET http://127.0.0.1:34001/_test/mutations \"HTTP/1.1 200 OK\""}

@@ -1,0 +1,4 @@
+{"t":"2026-10-28T07:54:10.647Z","severity":"INFO","logger":"httpx","message":"HTTP Request: GET http://127.0.0.1:55709/health \"HTTP/1.1 200 OK\""}
+{"t":"2026-10-28T07:54:10.670Z","severity":"INFO","logger":"httpx","message":"HTTP Request: GET http://127.0.0.1:55709/barrier/before_dispatch \"HTTP/1.1 200 OK\""}
+{"t":"2026-10-28T07:54:10.978Z","severity":"INFO","logger":"httpx","message":"HTTP Request: GET http://127.0.0.1:55709/health \"HTTP/1.1 200 OK\""}
+{"t":"2026-10-28T07:54:10.999Z","severity":"INFO","logger":"httpx","message":"HTTP Request: GET http://127.0.0.1:55709/barrier/before_dispatch \"HTTP/1.1 200 OK\""}

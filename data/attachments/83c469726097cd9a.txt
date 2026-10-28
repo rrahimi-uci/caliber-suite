@@ -1,4 +1,0 @@
-{"t":"2026-10-28T07:03:38.721Z","severity":"INFO","logger":"caliber","message":"CALIBER plugin starting (log_level=INFO, log_sink=s3)"}
-{"t":"2026-10-28T07:03:38.737Z","severity":"INFO","logger":"caliber.observability.mlflow_tracing","message":"CALIBER tracing: autolog enabled for openai"}
-{"t":"2026-10-28T07:03:38.739Z","severity":"INFO","logger":"caliber","message":"encrypted secret store disabled (CALIBER_SECRET_ENCRYPTION_KEY_SOURCE unset); secret:// references will not resolve"}
-{"t":"2026-10-28T07:03:38.740Z","severity":"WARNING","logger":"caliber.csrf","message":"csrf is enabled but its secret source resolved to empty; CSRF protection will not engage. Configure the source named by config.csrf_signing_secret_env."}

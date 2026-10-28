@@ -1,3 +1,0 @@
-{"t":"2026-10-28T06:46:59.487Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/cases/MORT-2026-000184/document-requests \"HTTP/1.1 412 Precondition Failed\""}
-{"t":"2026-10-28T06:46:59.493Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: GET http://testserver/_test/mutations \"HTTP/1.1 200 OK\""}
-{"t":"2026-10-28T06:46:59.499Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: GET http://testserver/document-requests?idempotency_key=k1 \"HTTP/1.1 404 Not Found\""}

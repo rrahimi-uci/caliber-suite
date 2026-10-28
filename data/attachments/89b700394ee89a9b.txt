@@ -1,1 +1,0 @@
-{"t":"2026-10-28T06:49:42.336Z","severity":"WARNING","logger":"caliber.assistant.openai_engine","message":"OpenAI API key is not configured. Assistant engine calls will fail until a valid key is set."}
