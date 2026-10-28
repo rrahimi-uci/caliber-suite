@@ -185,7 +185,7 @@ def _quiet_message(error: jsonschema.ValidationError) -> str:  # noqa: PLR0911 -
     """A refusal reason built from the rule that failed (which the schema defines), never from the instance."""
     keyword, rule = str(error.validator), error.validator_value
     if keyword == "required":
-        return error.message  # names a property the schema requires, not one the record chose
+        return str(error.message)  # names a property the schema requires, not one the record chose
     if keyword == "additionalProperties":
         return "additional properties are not allowed"
     if keyword == "pattern":
