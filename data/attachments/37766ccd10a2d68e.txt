@@ -1,5 +1,0 @@
-{"t":"2026-10-28T17:59:56.762Z","severity":"INFO","logger":"httpx","message":"HTTP Request: POST http://127.0.0.1:54077/_test/reset \"HTTP/1.1 200 OK\""}
-{"t":"2026-10-28T17:59:56.766Z","severity":"INFO","logger":"httpx","message":"HTTP Request: GET http://127.0.0.1:54077/openapi.json \"HTTP/1.1 200 OK\""}
-{"t":"2026-10-28T17:59:56.797Z","severity":"INFO","logger":"httpx","message":"HTTP Request: POST http://127.0.0.1:54077/cases/MORT-2026-000184/document-requests \"HTTP/1.1 201 Created\""}
-{"t":"2026-10-28T17:59:56.825Z","severity":"INFO","logger":"httpx","message":"HTTP Request: POST http://127.0.0.1:54077/cases/MORT-2026-000184/document-requests \"HTTP/1.1 422 Unprocessable Entity\""}
-{"t":"2026-10-28T17:59:56.827Z","severity":"INFO","logger":"httpx","message":"HTTP Request: GET http://127.0.0.1:54077/_test/mutations \"HTTP/1.1 200 OK\""}

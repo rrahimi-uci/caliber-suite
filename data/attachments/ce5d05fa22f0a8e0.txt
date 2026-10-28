@@ -1,0 +1,4 @@
+{"t":"2026-10-28T18:40:31.813Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/cases/MORT-2026-000184/document-requests \"HTTP/1.1 201 Created\""}
+{"t":"2026-10-28T18:40:31.818Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/cases/MORT-2026-000184/document-requests \"HTTP/1.1 200 OK\""}
+{"t":"2026-10-28T18:40:31.824Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: GET http://testserver/_test/mutations \"HTTP/1.1 200 OK\""}
+{"t":"2026-10-28T18:40:31.830Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: GET http://testserver/cases/MORT-2026-000184 \"HTTP/1.1 200 OK\""}
