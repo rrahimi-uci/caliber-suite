@@ -13,11 +13,20 @@ recovery tool corrupt the evidence it recovers from.
 
 from __future__ import annotations
 
+from typing import Any
+
+import pytest
 from sqlalchemy.orm import Session
 from starlette.testclient import TestClient
 
 from caliber.db.models import CaliberAuditLog, CaliberEffectLedger
+from caliber.effects.records import COMMITTED, UNKNOWN
+from caliber.ownership import release
 from caliber.workflows.effect_ledger import COMPLETED, FAILED, IN_PROGRESS
+from tests.effect_helpers import leased
+from tests.test_effect_proposals import _seed_run
+from tests.test_effect_receipts import _proposal
+from tests.test_effect_records import ATTEMPT, OWNER, _move
 from tests.workflow_helpers import PREFIX
 
 EFFECTS = f"{PREFIX}/system/effects"
@@ -75,6 +84,180 @@ def test_listing_can_widen_to_any_status_and_filter_by_run(
 
     scoped = client.get(EFFECTS, params={"workflow_run_id": "WFR-2"}).json()["data"]["effects"]
     assert [row["effect_key"] for row in scoped] == ["eff-b"]
+
+
+# ---------------------------------------------------------------- the operator reconciliation view (B05.6, #751)
+
+
+def _proposals(session: Session) -> dict[str, str]:
+    """Proposals of every kind in RUN-ep. The first three are dispatched under one lease; ``current`` is dispatched after the
+    lease turned over (a new acquisition), so the first dispatched one is *abandoned* and ``current`` is not."""
+    from caliber.effects.records import APPROVED
+    from tests.test_effect_records import _at, _receipt
+
+    out: dict[str, str] = {}
+    out["abandoned"] = _proposal(session, occurrence="o-abandoned")
+    out["unknown"] = _proposal(session, occurrence="o-unknown")
+    _move(session, out["unknown"], UNKNOWN, owner_id=OWNER, attempt=ATTEMPT, reason="timeout")
+    out["committed"] = _proposal(session, occurrence="o-committed")
+    _move(
+        session,
+        out["committed"],
+        COMMITTED,
+        owner_id=OWNER,
+        attempt=ATTEMPT,
+        receipt_id=_receipt(session, out["committed"]),
+    )
+    out["approved"] = _at(session, APPROVED, occurrence="o-approved")
+    release(
+        session, leased(session, OWNER)
+    )  # the lease lapses; the next dispatch is a new acquisition
+    out["current"] = _proposal(session, occurrence="o-current")
+    session.commit()
+    return out
+
+
+def test_lists_legacy_and_proposal_kinds(client: TestClient, db_session: Session) -> None:
+    """Two kinds of record, labelled apart, each with the actions that apply to *it* and no payload."""
+    _seed_run(client.app.state.session_factory)  # type: ignore[attr-defined]
+    _stuck_effect(db_session, "eff-stuck")
+    db_session.add(
+        CaliberEffectLedger(
+            effect_key="eff-done", workflow_run_id="WFR-1", node_id="n", status=COMPLETED
+        )
+    )
+    db_session.commit()
+    ids = _proposals(db_session)
+
+    data = client.get(EFFECTS).json()["data"]
+
+    assert [r["effect_key"] for r in data["effects"]] == ["eff-stuck"]
+    legacy = data["effects"][0]
+    assert (legacy["source"], legacy["source_version"]) == ("legacy_ledger", "ledger-v0")
+    assert legacy["safe_actions"] == ["resolve:skip", "resolve:retry"]
+    assert legacy["status"] == "in_progress" and "has_result" in legacy, (
+        "the legacy row is unchanged"
+    )
+
+    by_id = {p["proposal_id"]: p for p in data["proposals"]}
+    assert set(by_id) == {ids["abandoned"], ids["unknown"], ids["current"]}, "the open states only"
+    for row in by_id.values():
+        assert (row["source"], row["source_version"]) == ("effect_proposal", "proposal-v1")
+        assert row["safe_actions"] == [] and row["blocks_dependents"] is True
+        assert {"args", "intent_bytes", "result", "intent"}.isdisjoint(row), "no payload"
+        assert row["project_id"] == "PRJ-ep" and row["logical_key"] and row["intent_hash"]
+    assert (by_id[ids["unknown"]]["state"], by_id[ids["unknown"]]["reason"]) == (
+        "unknown",
+        "timeout",
+    )
+    assert by_id[ids["unknown"]]["abandoned"] is None, "only a dispatched attempt can be abandoned"
+    assert by_id[ids["abandoned"]]["abandoned"] is True
+    assert by_id[ids["current"]]["abandoned"] is False
+    assert by_id[ids["abandoned"]]["dispatch_token"] < by_id[ids["current"]]["dispatch_token"]
+
+    assert data["proposal_state"] == "open"
+    sources = data["sources"]
+    assert sources["legacy_ledger"]["settled_by"] == "operator"
+    assert sources["effect_proposal"]["settled_by"] == "reconciler"
+    assert sources["effect_proposal"]["safe_actions"] == []
+    assert set(data["resolutions"]) == {"skip", "retry"}
+
+
+def test_a_settled_legacy_claim_offers_no_action(client: TestClient, db_session: Session) -> None:
+    db_session.add(
+        CaliberEffectLedger(
+            effect_key="eff-done", workflow_run_id="WFR-1", node_id="n", status=COMPLETED
+        )
+    )
+    db_session.commit()
+    rows = client.get(EFFECTS, params={"status": "any", "source": "legacy"}).json()["data"][
+        "effects"
+    ]
+    assert [(r["effect_key"], r["safe_actions"]) for r in rows] == [("eff-done", [])]
+
+
+def test_the_view_can_show_one_kind_or_any_proposal_state(
+    client: TestClient, db_session: Session
+) -> None:
+    _seed_run(client.app.state.session_factory)  # type: ignore[attr-defined]
+    _stuck_effect(db_session, "eff-stuck")
+    ids = _proposals(db_session)
+
+    only_legacy = client.get(EFFECTS, params={"source": "legacy"}).json()["data"]
+    assert "proposals" not in only_legacy and len(only_legacy["effects"]) == 1
+    only_proposals = client.get(EFFECTS, params={"source": "proposal"}).json()["data"]
+    assert "effects" not in only_proposals and len(only_proposals["proposals"]) == 3
+
+    every = client.get(EFFECTS, params={"source": "proposal", "proposal_state": "any"}).json()[
+        "data"
+    ]
+    assert {p["proposal_id"] for p in every["proposals"]} == set(ids.values())
+    committed = client.get(
+        EFFECTS, params={"source": "proposal", "proposal_state": "committed"}
+    ).json()["data"]["proposals"]
+    assert [p["proposal_id"] for p in committed] == [ids["committed"]]
+    assert committed[0]["blocks_dependents"] is False and committed[0]["receipt_id"]
+    unknown = client.get(
+        EFFECTS, params={"source": "proposal", "proposal_state": " UNKNOWN "}
+    ).json()["data"]
+    assert unknown["proposal_state"] == "unknown"
+    assert [p["proposal_id"] for p in unknown["proposals"]] == [ids["unknown"]]
+
+
+def test_the_view_filters_proposals_by_run_and_bounds_the_list(
+    client: TestClient, db_session: Session
+) -> None:
+    _seed_run(client.app.state.session_factory)  # type: ignore[attr-defined]
+    _proposals(db_session)
+    other = client.get(EFFECTS, params={"workflow_run_id": "RUN-other"}).json()["data"]
+    assert other["proposals"] == [] and other["effects"] == []
+    here = client.get(EFFECTS, params={"workflow_run_id": "RUN-ep", "limit": 2}).json()["data"]
+    assert len(here["proposals"]) == 2
+
+
+@pytest.mark.parametrize(
+    "params",
+    [
+        {"source": "everything"},
+        {"proposal_state": "done"},
+        {"source": "proposal", "proposal_state": "x"},
+    ],
+)
+def test_an_unknown_source_or_proposal_state_is_a_400(
+    client: TestClient, params: dict[str, Any]
+) -> None:
+    assert client.get(EFFECTS, params=params).status_code == 400
+
+
+def test_a_proposal_cannot_be_resolved_as_a_ledger_claim(
+    client: TestClient, db_session: Session
+) -> None:
+    """The legacy ``resolve`` is for ledger claims only: a proposal is settled by the reconciler, and the refusal changes nothing."""
+    from caliber.effects.records import proposal_state
+
+    _seed_run(client.app.state.session_factory)  # type: ignore[attr-defined]
+    ids = _proposals(db_session)
+    before = proposal_state(db_session, ids["unknown"])
+    refused = client.post(
+        f"{EFFECTS}/{ids['unknown']}/resolve",
+        json={"resolution": "skip", "reason": "operator says so"},
+    )
+    assert refused.status_code == 400
+    db_session.expire_all()
+    assert proposal_state(db_session, ids["unknown"]) == before
+
+
+def test_resolving_a_legacy_claim_is_unaffected_by_proposals(
+    client: TestClient, db_session: Session
+) -> None:
+    _seed_run(client.app.state.session_factory)  # type: ignore[attr-defined]
+    _proposals(db_session)
+    key = _stuck_effect(db_session, "eff-stuck")
+    response = client.post(
+        f"{EFFECTS}/{key}/resolve", json={"resolution": "skip", "reason": "confirmed"}
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["data"]["status"] == COMPLETED
 
 
 def test_a_non_integer_limit_is_a_400_not_a_500(client: TestClient) -> None:
@@ -401,7 +584,6 @@ def test_replay_is_refused_when_dispatch_is_disabled(
 import json
 import time
 from collections.abc import Iterator
-from typing import Any
 
 import pytest
 from sqlalchemy import func, select
@@ -412,10 +594,8 @@ from caliber.db.models import CaliberEffectReceipt, CaliberInboxEvent
 from caliber.effects.callbacks import sign
 from caliber.effects.connectors.document_request import submit_config, submit_input
 from caliber.effects.records import (
-    COMMITTED,
     DISPATCHED,
     RECONCILED,
-    UNKNOWN,
     proposal_state,
     proposal_view,
 )
@@ -423,9 +603,6 @@ from caliber.effects.records import FAILED as PROPOSAL_FAILED
 from caliber.integrations.openapi.executor import execute_openapi_http_tool
 from caliber.routes.system_effects import RECEIPT_CALLBACK_PATH
 from caliber.server import create_app
-from tests.test_effect_proposals import _seed_run
-from tests.test_effect_receipts import _proposal
-from tests.test_effect_records import ATTEMPT, OWNER, _move
 
 SECRET = "callback-secret-for-tests"  # gitleaks:allow
 SECRET_ENV = "EFFECT_CALLBACK_TEST_SECRET"  # gitleaks:allow
