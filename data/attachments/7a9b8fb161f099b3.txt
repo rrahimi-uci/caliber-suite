@@ -1,0 +1,413 @@
+{"t":"2026-10-28T20:04:29.043Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Context impl SQLiteImpl."}
+{"t":"2026-10-28T20:04:29.045Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Will assume non-transactional DDL."}
+{"t":"2026-10-28T20:04:29.095Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade  -> 0001, initial: caliber_agent_config and caliber_verification_queue"}
+{"t":"2026-10-28T20:04:29.107Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0001 -> 0002, jobs and audit log"}
+{"t":"2026-10-28T20:04:29.121Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0002 -> 0003, runtime locks"}
+{"t":"2026-10-28T20:04:29.125Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0003 -> 0004, job diagnosis column"}
+{"t":"2026-10-28T20:04:29.129Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0004 -> 0005, job candidate column"}
+{"t":"2026-10-28T20:04:29.133Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0005 -> 0006, eval results column + approval requests table"}
+{"t":"2026-10-28T20:04:29.142Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0006 -> 0007, retry semantics + multi-approver votes"}
+{"t":"2026-10-28T20:04:29.151Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0007 -> 0008, approval comments + rollback checkpoints"}
+{"t":"2026-10-28T20:04:29.169Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0008 -> 0009, job heartbeat column"}
+{"t":"2026-10-28T20:04:29.174Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0009 -> 0010, skills table"}
+{"t":"2026-10-28T20:04:29.179Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0010 -> 0011, eval datasets"}
+{"t":"2026-10-28T20:04:29.190Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0011 -> 0012, conversation policies"}
+{"t":"2026-10-28T20:04:29.195Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0012 -> 0013, regression replay runs"}
+{"t":"2026-10-28T20:04:29.204Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0013 -> 0014, skill standard fields"}
+{"t":"2026-10-28T20:04:29.213Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0014 -> 0015, Add skill_name to refinement_jobs for skill-targeted optimization."}
+{"t":"2026-10-28T20:04:29.216Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0015 -> 0016, workflow studio tables"}
+{"t":"2026-10-28T20:04:29.242Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0016 -> 0017, workflow promotion requests"}
+{"t":"2026-10-28T20:04:29.249Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0017 -> 0018, workflow compiled bundle"}
+{"t":"2026-10-28T20:04:29.253Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0018 -> 0019, assistant authoring"}
+{"t":"2026-10-28T20:04:29.277Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0019 -> 0020, mcp servers"}
+{"t":"2026-10-28T20:04:29.283Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0020 -> 0021, assistant session metadata"}
+{"t":"2026-10-28T20:04:29.287Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0021 -> 0022, workflow calibration spec on refinement jobs"}
+{"t":"2026-10-28T20:04:29.291Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0022 -> 0023, workflow file/workspace storage tables"}
+{"t":"2026-10-28T20:04:29.305Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0023 -> 0024, eval dataset file join table"}
+{"t":"2026-10-28T20:04:29.312Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0024 -> 0025, projects (workspaces) table"}
+{"t":"2026-10-28T20:04:29.317Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0025 -> 0026, project scoping columns on user-facing resources"}
+{"t":"2026-10-28T20:04:29.349Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0026 -> 0027, project storage backend selection"}
+{"t":"2026-10-28T20:04:29.355Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0027 -> 0028, workflow run queue foundation tables and lifecycle columns"}
+{"t":"2026-10-28T20:04:29.390Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0028 -> 0029, mcp tool policies"}
+{"t":"2026-10-28T20:04:29.394Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0029 -> 0030, drop queued workflow-run started_at default"}
+{"t":"2026-10-28T20:04:29.414Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0030 -> 0031, add refine_iteration to refinement jobs"}
+{"t":"2026-10-28T20:04:29.419Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0031 -> 0032, add input_payload to workflow runs"}
+{"t":"2026-10-28T20:04:29.423Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0032 -> 0033, knowledge bases for chunking, embeddings, and RAG"}
+{"t":"2026-10-28T20:04:29.462Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0033 -> 0034, knowledge graph artifacts and queued knowledge-base builds"}
+{"t":"2026-10-28T20:04:29.498Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0034 -> 0035, knowledge graph config and Apache AGE retrieval"}
+{"t":"2026-10-28T20:04:29.503Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0035 -> 0036, workflow session memory"}
+{"t":"2026-10-28T20:04:29.510Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0036 -> 0037, database live event bus"}
+{"t":"2026-10-28T20:04:29.521Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0037 -> 0038, add manifest_snapshot to workflow runs"}
+{"t":"2026-10-28T20:04:29.527Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0038 -> 0039, drop conversation_policies"}
+{"t":"2026-10-28T20:04:29.530Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0039 -> 0040, workflow benchmark reports"}
+{"t":"2026-10-28T20:04:29.538Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0040 -> 0041, workflow services"}
+{"t":"2026-10-28T20:04:29.548Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0041 -> 0042, drop approval governance tables"}
+{"t":"2026-10-28T20:04:29.556Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0042 -> 0043, component calibration test cases"}
+{"t":"2026-10-28T20:04:29.569Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0043 -> 0044, eval example superseded_version"}
+{"t":"2026-10-28T20:04:29.575Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0044 -> 0045, prompt test runs"}
+{"t":"2026-10-28T20:04:29.587Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0045 -> 0046, tool test runs"}
+{"t":"2026-10-28T20:04:29.602Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0046 -> 0047, skill test runs"}
+{"t":"2026-10-28T20:04:29.616Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0047 -> 0048, knowledge base test runs"}
+{"t":"2026-10-28T20:04:29.629Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0048 -> 0049, eval runs (scorecard)"}
+{"t":"2026-10-28T20:04:29.641Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0049 -> 0050, assistant context attachments"}
+{"t":"2026-10-28T20:04:29.648Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0050 -> 0051, assistant queued / steer messages"}
+{"t":"2026-10-28T20:04:29.655Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0051 -> 0052, eval dataset \u2192 MLflow GenAI dataset sync linkage"}
+{"t":"2026-10-28T20:04:29.671Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0052 -> 0053, custom LLM judges (MLflow 3.14 make_judge)"}
+{"t":"2026-10-28T20:04:29.676Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0053 -> 0054, structured human-review queues"}
+{"t":"2026-10-28T20:04:29.687Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0054 -> 0055, Aria goal-plans (agentic orchestration, Phase 1)"}
+{"t":"2026-10-28T20:04:29.698Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0055 -> 0056, Aria mid-run interactions (agentic orchestration, Phase 2)"}
+{"t":"2026-10-28T20:04:29.705Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0056 -> 0057, Aria plan-step quality gate (self-correction)"}
+{"t":"2026-10-28T20:04:29.717Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0057 -> 0058, Aria plan task-context persistence"}
+{"t":"2026-10-28T20:04:29.729Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0058 -> 0059, Eval run subject_ref (artifact-target scoring)"}
+{"t":"2026-10-28T20:04:29.735Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0059 -> 0060, Knowledge chunk pgvector column + HNSW index for ANN retrieval"}
+{"t":"2026-10-28T20:04:29.738Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0060 -> 0061, per-model LLM token pricing (gateway cost config)"}
+{"t":"2026-10-28T20:04:29.745Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0061 -> 0062, per-version advisory eval-gate verdicts"}
+{"t":"2026-10-28T20:04:29.750Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0062 -> 0063, immutable per-version skill content snapshots"}
+{"t":"2026-10-28T20:04:29.756Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0063 -> 0064, immutable evidence bundle on an evaluation run"}
+{"t":"2026-10-28T20:04:29.761Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0064 -> 0065, at-most-once external effect ledger"}
+{"t":"2026-10-28T20:04:29.768Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0065 -> 0066, server-validated password accounts and revocable sessions"}
+{"t":"2026-10-28T20:04:29.779Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0066 -> 0067, encrypted-at-rest secret store with versions, rotation, and revocation"}
+{"t":"2026-10-28T20:04:29.790Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0067 -> 0068, record who started a workflow run"}
+{"t":"2026-10-28T20:04:29.795Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0068 -> 0069, worker self-reported liveness"}
+{"t":"2026-10-28T20:04:29.801Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0069 -> 0070, durable webhook dead letters"}
+{"t":"2026-10-28T20:04:29.809Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0070 -> 0071, per-service rate limit and CORS policy"}
+{"t":"2026-10-28T20:04:29.816Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0071 -> 0072, shared per-service rate-limit accounting"}
+{"t":"2026-10-28T20:04:29.826Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0072 -> 0073, durable accept record so abrupt process loss does not lose webhook events"}
+{"t":"2026-10-28T20:04:29.832Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0073 -> 0074, incident history for SLO objectives"}
+{"t":"2026-10-28T20:04:29.842Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0074 -> 0075, durable calibration jobs, so a long calibration is not one long HTTP request"}
+{"t":"2026-10-28T20:04:29.852Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0075 -> 0076, snapshot the executable tool definition for durable calibration jobs"}
+{"t":"2026-10-28T20:04:29.857Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0076 -> 0077, lease accepted webhook deliveries to one live dispatcher replica"}
+{"t":"2026-10-28T20:04:29.869Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0077 -> 0078, fence calibration attribution with a monotonic tool revision"}
+{"t":"2026-10-28T20:04:29.875Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0078 -> 0079, arbitrate one open incident per objective in the database"}
+{"t":"2026-10-28T20:04:29.880Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0079 -> 0080, track and retry incident resolution notifications"}
+{"t":"2026-10-28T20:04:29.886Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0080 -> 0081, backfill current immutable skill snapshots"}
+{"t":"2026-10-28T20:04:29.888Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0081 -> 0082, add durable release operations"}
+{"t":"2026-10-28T20:04:29.898Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0082 -> 0083, add explicit operator resolution and retry lineage for calibration jobs"}
+{"t":"2026-10-28T20:04:29.922Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0083 -> 0084, add independent assistant reviewer decisions"}
+{"t":"2026-10-28T20:04:29.940Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0084 -> 0085, add release candidates, signoffs, and report jobs"}
+{"t":"2026-10-28T20:04:29.959Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0085 -> 0086, add personal access tokens for automation"}
+{"t":"2026-10-28T20:04:29.968Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0086 -> 0087, add governed openapi integration drafts"}
+{"t":"2026-10-28T20:04:29.990Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0087 -> 0088, add openapi tool drafts and declarative tool backends"}
+{"t":"2026-10-28T20:04:30.007Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0088 -> 0089, add openapi operation dependencies, graph snapshot, and tool packs"}
+{"t":"2026-10-28T20:04:30.027Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0089 -> 0090, add project memberships and resource access roles"}
+{"t":"2026-10-28T20:04:30.037Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0090 -> 0091, add rework tasks"}
+{"t":"2026-10-28T20:04:30.047Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0091 -> 0092, add quality reviews"}
+{"t":"2026-10-28T20:04:30.055Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0092 -> 0093, add workspace schema foundation: project slug/source-mode/archive/accepted-revision\nfields, project-member deactivation fields, audit-log environment correlation, and\nthe caliber_workspace_environments table"}
+{"t":"2026-10-28T20:04:30.092Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0093 -> 0094, add optional project_id to caliber_personal_access_tokens (PAT project binding)"}
+{"t":"2026-10-28T20:04:30.099Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0094 -> 0095, add project-scoping lookup indexes (isolation closure, item 3)"}
+{"t":"2026-10-28T20:04:30.129Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0095 -> 0096, add project visibility to MCP server registry"}
+{"t":"2026-10-28T20:04:30.141Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0096 -> 0097, persist the assistant session project context"}
+{"t":"2026-10-28T20:04:30.147Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0097 -> 0098, add dormant Workspace source/import/revision persistence"}
+{"t":"2026-10-28T20:04:30.207Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0098 -> 0099, add bounded Workspace import attempt budgets"}
+{"t":"2026-10-28T20:04:30.269Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0099 -> 0100, add Workspace Change Request and review history"}
+{"t":"2026-10-28T20:04:30.333Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0100 -> 0101, add Workspace source webhook inbox and actor links"}
+{"t":"2026-10-28T20:04:30.352Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0101 -> 0102, add Workspace release and operation foundation"}
+{"t":"2026-10-28T20:04:30.424Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0102 -> 0103, add Workspace release governance bindings and audit severity"}
+{"t":"2026-10-28T20:04:30.549Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0103 -> 0104, add durable Workspace environment operation pointers"}
+{"t":"2026-10-28T20:04:30.597Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0104 -> 0105, add immutable Workspace runtime lineage coordinates"}
+{"t":"2026-10-28T20:04:31.097Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0105 -> 0106, add the nullable rework-task Workspace-release FK and exactly-one-source check"}
+{"t":"2026-10-28T20:04:31.139Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0106 -> 0107, add a first-class scope/role authorization snapshot to Aria plans/steps"}
+{"t":"2026-10-28T20:04:31.158Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0107 -> 0108, add encrypted GitHub App connection storage for Workspace sources"}
+{"t":"2026-10-28T20:04:31.169Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0108 -> 0109, enforce one active GitHub App connection per installation"}
+{"t":"2026-10-28T20:04:31.173Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0109 -> 0110, add DB-level name-uniqueness constraints for 4 root resources with no constraint at all"}
+{"t":"2026-10-28T20:04:31.215Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0110 -> 0111, add ``source_kind`` discriminator to Workspace revisions for managed snapshots"}
+{"t":"2026-10-28T20:04:31.262Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0111 -> 0112, add nullable project_id to caliber_release_operations and backfill it"}
+{"t":"2026-10-28T20:04:31.344Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0112 -> 0113, add nullable project_id to caliber_verification_queue and backfill it"}
+{"t":"2026-10-28T20:04:31.376Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0113 -> 0114, persist immutable run manifests (one row per run) and mark pre-manifest runs as legacy"}
+{"t":"2026-10-28T20:04:31.390Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0114 -> 0115, persist run-bound grants, immutable except for revocation"}
+{"t":"2026-10-28T20:04:31.403Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0115 -> 0116, add the single-owner execution lease table"}
+{"t":"2026-10-28T20:04:31.410Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0116 -> 0117, persist policy decisions, immutable"}
+{"t":"2026-10-28T20:04:31.424Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0117 -> 0118, add the exclusive experiment owner registry"}
+{"t":"2026-10-28T20:04:31.429Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0118 -> 0119, add the event outbox and the consumer inbox"}
+{"t":"2026-10-28T20:04:31.442Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0119 -> 0120, add the approved context source inventory"}
+{"t":"2026-10-28T20:04:31.449Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0120 -> 0121, persist immutable context manifests"}
+{"t":"2026-10-28T20:04:31.456Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0121 -> 0122, add the consumer/source/event-id inbox"}
+{"t":"2026-10-28T20:04:31.464Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0122 -> 0123, persist effect proposals with an immutable intent and a durable occurrence"}
+{"t":"2026-10-28T20:04:31.481Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0123 -> 0124, add compare-and-set versioning and the seven-state transition table to effect proposals"}
+{"t":"2026-10-28T20:04:31.532Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0124 -> 0125, persist immutable verified effect receipts; a proposal commits only with one"}
+{"t":"2026-10-28T20:04:31.557Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0125 -> 0126, record the fencing token an effect proposal was dispatched under"}
+{"t":"2026-10-28T20:04:31.573Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0126 -> 0127, bind a runtime approval request to the exact effect proposal it approves"}
+{"t":"2026-10-28T20:04:31.680Z","severity":"INFO","logger":"caliber","message":"CALIBER plugin starting (log_level=INFO, log_sink=s3)"}
+{"t":"2026-10-28T20:04:31.697Z","severity":"INFO","logger":"caliber.observability.mlflow_tracing","message":"CALIBER tracing: autolog enabled for openai"}
+{"t":"2026-10-28T20:04:31.698Z","severity":"INFO","logger":"caliber","message":"encrypted secret store disabled (CALIBER_SECRET_ENCRYPTION_KEY_SOURCE unset); secret:// references will not resolve"}
+{"t":"2026-10-28T20:04:31.700Z","severity":"INFO","logger":"caliber","message":"CALIBER assistant engine: fake (configured=fake)"}
+{"t":"2026-10-28T20:04:31.729Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/csrf \"HTTP/1.1 200 OK\""}
+{"t":"2026-10-28T20:04:31.748Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/workflows \"HTTP/1.1 201 Created\""}
+{"t":"2026-10-28T20:04:31.753Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/csrf \"HTTP/1.1 200 OK\""}
+{"t":"2026-10-28T20:04:31.773Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/workflows/WF-ea23c738/versions \"HTTP/1.1 201 Created\""}
+{"t":"2026-10-28T20:04:31.779Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/csrf \"HTTP/1.1 200 OK\""}
+{"t":"2026-10-28T20:04:31.806Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/workflow-versions/WFV-18d1cb8e/publish \"HTTP/1.1 200 OK\""}
+{"t":"2026-10-28T20:04:31.834Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/csrf \"HTTP/1.1 200 OK\""}
+{"t":"2026-10-28T20:04:31.896Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/workflow-runs \"HTTP/1.1 202 Accepted\""}
+{"t":"2026-10-28T20:04:31.907Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:31.908Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:31.909Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:31.910Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:31.911Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:31.912Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:31.912Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:31.913Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:31.914Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:31.915Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:31.915Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:31.916Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:31.917Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:31.917Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:31.918Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:31.919Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:31.920Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:31.921Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:31.921Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:31.922Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:31.923Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:31.924Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:31.925Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:31.926Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:31.926Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:31.927Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:31.928Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:31.929Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:31.929Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:31.930Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:31.931Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:31.932Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:31.932Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:31.933Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:31.934Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:31.934Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:31.935Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:31.936Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:31.936Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:31.937Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:31.938Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:31.939Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:31.939Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:31.940Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:31.941Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:31.941Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:31.942Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:31.943Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:31.944Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:31.944Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:31.945Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:31.946Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:31.946Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:31.947Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:31.948Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:31.949Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:31.949Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:31.950Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:31.951Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:31.951Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:31.952Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:31.953Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:31.953Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:31.954Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:31.955Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:31.955Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:31.956Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:31.957Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:31.957Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:31.958Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:31.959Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:31.960Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:31.960Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:31.961Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:31.962Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:31.962Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:31.963Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:31.964Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:31.964Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:31.965Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:31.966Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:31.966Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:31.967Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:31.968Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:31.969Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:31.969Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:31.970Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:31.971Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:31.971Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:31.972Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:31.973Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:31.973Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:31.974Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:31.975Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:31.975Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:31.976Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:31.977Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:31.978Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:31.978Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:31.979Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:31.980Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:31.980Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:31.981Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:31.982Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:31.983Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:31.983Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:31.984Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:31.985Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:31.985Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:31.986Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:31.987Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:31.987Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:31.988Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:31.989Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:31.989Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:31.990Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:31.991Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:31.992Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:31.992Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:31.993Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:31.994Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:31.994Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:31.995Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:31.996Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:31.997Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:31.997Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:31.998Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:31.999Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:31.999Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:32.000Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:32.001Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:32.002Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:32.002Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:32.003Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:32.004Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:32.005Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:32.006Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:32.006Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:32.007Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:32.008Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:32.008Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:32.009Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:32.010Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:32.010Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:32.011Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:32.012Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:32.012Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:32.013Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:32.014Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:32.015Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:32.015Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:32.016Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:32.017Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:32.017Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:32.018Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:32.019Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:32.020Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:32.020Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:32.021Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:32.022Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:32.022Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:32.023Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:32.024Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:32.025Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:32.025Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:32.026Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:32.027Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:32.027Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:32.028Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:32.029Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:32.030Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:32.030Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:32.031Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:32.032Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:32.032Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:32.033Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:32.034Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:32.035Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:32.035Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:32.036Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:32.037Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:32.037Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:32.038Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:32.039Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:32.040Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:32.040Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:32.041Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:32.042Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:32.042Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:32.043Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:32.044Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:32.044Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:32.045Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:32.046Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:32.047Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:32.047Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:32.048Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:32.049Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:32.049Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:32.050Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:32.051Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:32.052Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:32.052Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:32.053Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:32.054Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:32.054Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:32.055Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:32.056Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:32.056Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:32.057Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:32.058Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:32.058Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:32.059Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:32.060Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:32.061Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:32.061Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:32.062Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:32.063Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:32.063Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:32.064Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:32.065Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:32.066Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:32.067Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:32.068Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:32.069Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:32.070Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:32.071Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:32.072Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:32.073Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:32.075Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:32.076Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:32.077Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:32.078Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:32.080Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:32.081Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:32.082Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:32.083Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:32.084Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:32.086Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:32.087Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:32.088Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:32.089Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:32.089Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:32.090Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:32.091Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:32.092Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:32.093Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:32.093Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:32.094Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:32.095Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:32.096Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:32.096Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:32.097Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:32.098Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:32.098Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:32.099Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:32.100Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:32.101Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:32.101Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:32.102Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:32.103Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:32.104Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:32.105Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:32.105Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:32.106Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:32.107Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:32.107Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:32.108Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:32.109Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:32.110Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:32.110Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
+{"t":"2026-10-28T20:04:32.111Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='tick'"}
