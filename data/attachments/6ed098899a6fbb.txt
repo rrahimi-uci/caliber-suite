@@ -1,1 +1,0 @@
-{"t":"2026-10-28T12:10:08.953Z","severity":"WARNING","logger":"caliber.assistant.anthropic_engine","message":"Anthropic API key is not configured. Assistant engine calls will fail until a valid key is set."}

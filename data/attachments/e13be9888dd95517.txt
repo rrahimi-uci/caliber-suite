@@ -1,4 +1,0 @@
-{"t":"2026-10-28T12:07:38.887Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: GET http://testserver/document-requests?idempotency_key=k1 \"HTTP/1.1 404 Not Found\""}
-{"t":"2026-10-28T12:07:38.893Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/cases/MORT-2026-000184/document-requests \"HTTP/1.1 201 Created\""}
-{"t":"2026-10-28T12:07:38.898Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: GET http://testserver/document-requests?idempotency_key=k1 \"HTTP/1.1 200 OK\""}
-{"t":"2026-10-28T12:07:38.903Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: GET http://testserver/document-requests \"HTTP/1.1 400 Bad Request\""}

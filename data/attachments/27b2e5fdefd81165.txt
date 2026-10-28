@@ -1,5 +1,0 @@
-{"t":"2026-10-28T12:07:42.902Z","severity":"INFO","logger":"httpx","message":"HTTP Request: POST http://127.0.0.1:42995/_test/reset \"HTTP/1.1 200 OK\""}
-{"t":"2026-10-28T12:07:42.914Z","severity":"INFO","logger":"httpx","message":"HTTP Request: POST http://127.0.0.1:42995/_test/faults \"HTTP/1.1 200 OK\""}
-{"t":"2026-10-28T12:07:43.247Z","severity":"INFO","logger":"httpx","message":"HTTP Request: GET http://127.0.0.1:42995/_test/mutations \"HTTP/1.1 200 OK\""}
-{"t":"2026-10-28T12:07:43.271Z","severity":"INFO","logger":"httpx","message":"HTTP Request: GET http://127.0.0.1:42995/document-requests?idempotency_key=180d074a56e0f60275c2843761748ff4884eb6ee8ac35d9bc6a8a646cb96dcfb \"HTTP/1.1 200 OK\""}
-{"t":"2026-10-28T12:07:43.276Z","severity":"INFO","logger":"httpx","message":"HTTP Request: GET http://127.0.0.1:42995/_test/mutations \"HTTP/1.1 200 OK\""}
