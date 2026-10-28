@@ -929,6 +929,26 @@ an `error_boundary` does not absorb the refusal), the run ends `context_denied` 
 that says "ignore all previous instructions" is therefore recorded as data and reaches the agent as input, never as part of
 its instructions (scenario V03).
 
+**Caps and redaction (B07.4, #719).** `caliber.context.manifest.pack_context(segments, caps=..., redactor=...)` is the one pure
+function that decides what an agent step's context may contain, and `build_context_manifest` records its result
+(`omitted`, `redacted` and `sections=`). It redacts every `data`-tier segment with the PII redactor (the same one the audit
+log uses, `CALIBER_PII_REDACTION_*`; an `instruction` is the operator's own text and is never altered) **before** the digest is
+taken, so the manifest hashes what the provider is given and the matched text is never recorded: a changed segment gets one
+`redacted` entry (`fields: ["content"]`, `reason: "redactor:pattern-1,pattern-3"`, naming which rules fired); a segment that
+is nothing but the replacement marker is dropped and listed in `omitted` as `redacted`. It caps the `retrieved` and `history`
+sections at `CALIBER_CONTEXT_SECTION_CAPS` (JSON, default `{"retrieved": 4000, "history": 2000}`; only those two names are
+accepted and each cap is a positive integer, else the service refuses to start; a section left out is uncapped): chunks are kept in order while
+they fit, and the first chunk that does not fit and every later one in that section (they rank below it) is dropped and listed
+in `omitted` with reason `token_budget` and its tokens. The manifest's `token_allocation.sections` records each capped
+section's `cap_tokens` and `used_tokens`, and the manifest refuses a record where they do not add up to its segments. Example:
+with a cap of 10 and three retrieved chunks of 8 tokens, the manifest keeps the first chunk and lists two as `token_budget`;
+a chunk containing `alice@example.com` is hashed and recorded as `... [REDACTED] ...`.
+**Not yet applied to a live step:** the agent-step adapters (B08) call `pack_context` to decide what the provider receives. The
+recorder above (B07.3b) records the context as the runtime passes it and does not pack it, so until B08 consumes it no
+provider input is capped or redacted and the manifests it writes carry no `sections`; a manifest never claims a cap or a
+redaction that was not applied. The issue's draft names (`allocation`, `redactions`, `budget`) map onto the shipped v1 record
+(`token_allocation.sections`, `redacted`, `token_budget`), which is kept so manifests already written stay valid.
+
 What this does not cover, so it is not claimed: the tool specifications, the structured-output suffix and the results of tool
 calls made *during* a step are not in the manifest; a registry prompt is loaded when the step is assembled and again by the
 provider adapter, so an alias moved in between is not detected; session memory loaded for the step is recorded as `history`
