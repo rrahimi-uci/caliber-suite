@@ -754,7 +754,7 @@ with session_factory() as session:
 
 A run that asks to change something outside CALIBER first records a **proposal** (B05.1, #700, ADR 0003;
 `caliber/src/caliber/effects/records.py`, table `caliber_effect_proposals`, migration 0123). Nothing writes one yet: the
-dispatcher that does arrives with the rest of B05 (#705 onwards). What exists is the record and the rules it keeps.
+dispatcher that does arrives with the rest of B05 (#711 onwards). What exists is the record and the rules it keeps.
 
 - **Two separate things.** The **logical key** `(deployment, run, node, occurrence_id)` says *which* effect: a retry presents
   the same occurrence and finds the same proposal, a legitimate repeat (a loop that notifies the same endpoint twice)
@@ -775,7 +775,7 @@ dispatcher that does arrives with the rest of B05 (#705 onwards). What exists is
   different intents, and a retry that respells one gets a conflict, never a silent match.
 - **Immutable.** Database triggers refuse a change to any column but `state`, refuse `DELETE` (and `TRUNCATE` on PostgreSQL),
   and the ORM refuses the same. On SQLite (development) raw SQL can still bypass them with `INSERT OR REPLACE` or by deleting a
-  run with foreign keys off; PostgreSQL has no such path. `state` is recorded as `proposed`; its transition rules are B05.2 (#705). A workflow whose
+  run with foreign keys off; PostgreSQL has no such path. `state` moves only through the transition table below. A workflow whose
   runs have proposals cannot be deleted (409, "immutable effect proposals"), and retention never prunes such a run.
 - **Reading is checked.** `read_proposal` rebuilds the ADR 0003 `proposal` v1 record (with the optional `occurrence_id`,
   `connector_version` and `intent_algorithm`) and recomputes the intent from the stored columns: an edited row is
@@ -802,9 +802,38 @@ with session_factory() as session:
         session.rollback()  # answer 409: conflict.stored_intent_hash is the one on record
 ```
 
+- **States and compare-and-set (B05.2, #705).** `caliber.effects.records.transition(session, proposal_id, to_state, expected_version=...)`
+  moves a proposal along `TRANSITIONS` and nowhere else: `proposed` to `approved` or `failed`; `approved` to `dispatched` or
+  `failed`; `dispatched` to `committed`, `failed` or `unknown`; `unknown` to `reconciled`; `reconciled` to `committed` or
+  `failed`; `committed` and `failed` are final. Nothing is skipped (even a policy-approved read is `approved` before it is
+  `dispatched`) and there is **no way from `unknown` back to `dispatched`**: recovery is a question to the downstream, never a
+  second dispatch. The caller passes the `version` it read (`proposal_state`), the UPDATE is conditioned on it, and a caller
+  that read an old version gets `StaleVersion` (code `stale_version`) instead of overwriting a newer state; the same actor
+  repeating a move that was already recorded gets `applied=False` and no second write. Each move records its evidence:
+  `approved` needs an `Approval("policy_decision", <decision id>)` that is an *allow* of `resource.execute` on
+  `effect:<proposal id>` for this run, and only a `read` can be approved this way (any other class needs an exact-intent
+  approval, B06, so it is refused as `approval_refused` until then); `dispatched` records `owner_id`, `attempt` and
+  `dispatched_at`; a move out of `dispatched` must present the same owner and attempt or it is `stale_owner` and records
+  nothing; `failed`, `unknown` and `reconciled` record a short `reason` code (never a payload) and `unknown_at` / `settled_at`
+  are stamped. The database enforces the same table: a trigger refuses an illegal edge, a state change that does not advance
+  the version by exactly one, a change to the evidence columns without a state change, and any change to a `committed` or
+  `failed` row (a test keeps the trigger's list identical to `TRANSITIONS`). Refusals: `illegal_transition`,
+  `stale_version`, `stale_owner`, `evidence_required`, `approval_refused`, `bad_field`.
+
+```python
+from caliber.effects.records import StaleVersion, proposal_state, transition
+
+state = proposal_state(session, proposal_id)
+try:
+    transition(session, proposal_id, "dispatched", expected_version=state.version, owner_id="worker-1", attempt=1)
+    session.commit()
+except StaleVersion as stale:
+    session.rollback()  # someone else moved it: re-read stale.current_state and decide again
+```
+
 - **Limits.** The occurrence id is allocated and persisted by the caller before the effect is attempted; this module records
   it and cannot tell whether a caller reused one wrongly. `deployment` is this installation's one configured organization
-  (ADR 0001). Receipts, the transition table and the dispatcher are not here (B05.2 to B05.5).
+  (ADR 0001). Receipts and the dispatcher are not here (B05.3 to B05.5).
 
 ## Approved context sources
 

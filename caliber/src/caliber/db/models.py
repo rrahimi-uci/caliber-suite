@@ -2252,7 +2252,8 @@ class CaliberEffectProposal(Base):
     connector identity and version, effect class, target resource, arguments and expected resource version,
     ``intent_algorithm`` names how it was built and ``intent_hash`` is ``sha256:`` plus its digest (checked on insert by
     the ORM and, on PostgreSQL, by a CHECK). Every column but ``state`` is frozen by database triggers (migration 0123)
-    and by ``ImmutableRecordError``; ``state`` moves only through the transition rules of B05.2 (#705).
+    and by ``ImmutableRecordError``; ``state`` (with ``version`` and the evidence that moves with it) changes only through
+    the transition table of B05.2 (#705, migration 0124), which the database enforces too.
     """
 
     __tablename__ = "caliber_effect_proposals"
@@ -2302,10 +2303,40 @@ class CaliberEffectProposal(Base):
     intent_bytes: Mapped[bytes] = mapped_column(LargeBinary)
     intent_hash: Mapped[str] = mapped_column(String(71))
     state: Mapped[str] = mapped_column(String(16), default="proposed", server_default="proposed")
+    #: Compare-and-set: starts at 1 and advances by exactly one with every state change (B05.2, #705).
+    version: Mapped[int] = mapped_column(Integer, default=1, server_default="1")
+    #: Who dispatched it and which attempt, recorded when it moves to ``dispatched``; later transitions out of
+    #: ``dispatched`` must present the same pair.
+    attempt: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    owner_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    dispatched_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    unknown_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    settled_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    #: A short code for why it failed, became unknown or was reconciled (never a payload).
+    reason: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    #: What approved it: ``policy_decision`` and the decision id (see ``caliber.effects.records.approve_with``).
+    approval_kind: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    approval_ref: Mapped[str | None] = mapped_column(String(128), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
 
-guard_immutable(CaliberEffectProposal, mutable=frozenset({"state"}))
+guard_immutable(
+    CaliberEffectProposal,
+    mutable=frozenset(
+        {
+            "state",
+            "version",
+            "attempt",
+            "owner_id",
+            "dispatched_at",
+            "unknown_at",
+            "settled_at",
+            "reason",
+            "approval_kind",
+            "approval_ref",
+        }
+    ),
+)
 
 
 @event.listens_for(CaliberEffectProposal, "before_insert")
