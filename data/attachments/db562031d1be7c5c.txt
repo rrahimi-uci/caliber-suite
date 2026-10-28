@@ -1,3 +1,0 @@
-{"t":"2026-10-28T10:46:21.826Z","severity":"INFO","logger":"httpx","message":"HTTP Request: POST http://127.0.0.1:48283/_test/faults \"HTTP/1.1 200 OK\""}
-{"t":"2026-10-28T10:46:21.835Z","severity":"INFO","logger":"httpx","message":"HTTP Request: GET http://127.0.0.1:48283/_test/mutations \"HTTP/1.1 200 OK\""}
-{"t":"2026-10-28T10:46:21.837Z","severity":"INFO","logger":"httpx","message":"HTTP Request: GET http://127.0.0.1:48283/document-requests?idempotency_key=k1 \"HTTP/1.1 200 OK\""}

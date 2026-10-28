@@ -1,1 +1,0 @@
-{"t":"2026-10-28T10:47:55.293Z","severity":"WARNING","logger":"caliber.assistant.service","message":"assistant draft turn returned an error: anthropic package not installed"}

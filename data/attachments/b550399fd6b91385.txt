@@ -1,0 +1,4 @@
+{"t":"2026-10-28T12:07:33.250Z","severity":"INFO","logger":"httpx","message":"HTTP Request: POST http://127.0.0.1:47173/_test/reset \"HTTP/1.1 200 OK\""}
+{"t":"2026-10-28T12:07:33.254Z","severity":"INFO","logger":"httpx","message":"HTTP Request: GET http://127.0.0.1:47173/openapi.json \"HTTP/1.1 200 OK\""}
+{"t":"2026-10-28T12:07:33.257Z","severity":"INFO","logger":"httpx","message":"HTTP Request: POST http://127.0.0.1:47173/_test/faults \"HTTP/1.1 200 OK\""}
+{"t":"2026-10-28T12:07:33.288Z","severity":"INFO","logger":"httpx","message":"HTTP Request: GET http://127.0.0.1:47173/_test/mutations \"HTTP/1.1 200 OK\""}
