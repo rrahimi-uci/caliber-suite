@@ -76,6 +76,71 @@ def test_duplicate_name_version_409(client: TestClient) -> None:
     assert r.status_code == 409
 
 
+@pytest.mark.parametrize(
+    "name",
+    [
+        "grep_files",
+        "read_text_file",
+        "sandbox_python",
+        "memory_add",
+        "Grep_Files",
+        "tool.grep_files.v2",
+    ],
+)
+def test_a_built_in_tool_name_is_refused_with_the_recovery_in_the_message(
+    client: TestClient, name: str
+) -> None:
+    before = {row["tool_id"] for row in client.get(f"{PREFIX}/tools").json()["data"]}
+    r = client.post(f"{PREFIX}/tools", json=make_tool_payload(name, version="9.9"))
+    assert r.status_code == 409, r.text
+    detail = r.json()["detail"]
+    assert "reserved_tool_name" in detail
+    assert "different name" in detail
+    after = {row["tool_id"] for row in client.get(f"{PREFIX}/tools").json()["data"]}
+    assert after == before, "a refused registration creates no row"
+
+
+def test_a_built_in_name_is_refused_whatever_the_owner_module_or_version(
+    client: TestClient,
+) -> None:
+    for version in ("1.0", "2.0"):
+        r = client.post(
+            f"{PREFIX}/tools",
+            json=make_tool_payload(
+                "write_workdir_file",
+                version=version,
+                owner="@caliber",
+                module_path="caliber.workflows.demo_tools",
+                side_effect_level="write",
+            ),
+        )
+        assert r.status_code == 409, (version, r.text)
+
+
+def test_the_reservation_does_not_replace_the_admin_check(client: TestClient) -> None:
+    r = client.post(
+        f"{PREFIX}/tools",
+        json=make_tool_payload("grep_files"),
+        headers={"X-CALIBER-User": "@viewer"},
+    )
+    assert r.status_code == 403
+
+
+def test_a_name_that_only_resembles_a_built_in_still_registers(client: TestClient) -> None:
+    for name in ("grep_files_v2", "my_grep_files", "grep-files"):
+        r = client.post(f"{PREFIX}/tools", json=make_tool_payload(name))
+        assert r.status_code == 201, (name, r.text)
+
+
+def test_the_seeded_built_ins_survive_a_refused_registration(client: TestClient) -> None:
+    client.post(f"{PREFIX}/tools", json=make_tool_payload("grep_files"))
+    rows = client.get(f"{PREFIX}/tools").json()["data"]
+    grep = [r for r in rows if r["name"] == "grep_files"]
+    assert len(grep) == 1
+    assert grep[0]["builtin"] is True
+    assert grep[0]["owner"] == "@caliber"
+
+
 def test_get_tool(client: TestClient) -> None:
     tid = client.post(f"{PREFIX}/tools", json=make_tool_payload("gettable")).json()["data"][
         "tool_id"

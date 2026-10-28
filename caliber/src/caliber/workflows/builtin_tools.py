@@ -207,6 +207,40 @@ def is_builtin_tool(*, name: str, owner: str, module_path: str) -> bool:
     )
 
 
+#: The refusal code a registration path reports when a tool is named like a built-in.
+RESERVED_TOOL_NAME_CODE = "reserved_tool_name"
+
+
+def reserved_tool_name(name: str) -> str | None:
+    """The built-in ``name`` is reserved for, or ``None`` when a tool may take it.
+
+    The protected-effect inventory classifies a built-in by its *name*, and the registry is unique only
+    on (name, version), so a tool registered as ``grep_files`` would be indistinguishable by name from the
+    one CALIBER seeds. Registration therefore refuses every name a built-in owns, whoever the owner is
+    (``owner`` is free text, so :func:`is_builtin_tool` is the check for a row that exists, not a gate for
+    a row about to be written). The comparison is the one the resolver makes: surrounding whitespace and
+    case are ignored, and so are the ``tool.`` prefix and the ``.vN`` suffix a manifest reference adds
+    (:func:`caliber.workflows.tools.family_name`), so ``Grep_Files`` and ``tool.grep_files.v2`` are the
+    built-in's name too. CALIBER's own seeding writes rows directly and never calls this.
+    """
+    from caliber.workflows.tools import family_name  # noqa: PLC0415
+
+    folded = name.strip().casefold()
+    for candidate in (folded, family_name(folded)):
+        if candidate in BUILTIN_TOOL_NAMES:
+            return candidate
+    return None
+
+
+def reserved_tool_name_message(name: str, builtin: str) -> str:
+    """The sentence a refusal carries: what is reserved, why, and what to do instead."""
+    return (
+        f"{RESERVED_TOOL_NAME_CODE}: tool name {name!r} is reserved for the built-in CALIBER tool "
+        f"{builtin!r}, which the protected-effect inventory classifies by name; register your tool "
+        "under a different name"
+    )
+
+
 def tool_availability(
     *, name: str, owner: str, module_path: str, memory_enabled: bool
 ) -> tuple[str, str | None]:
@@ -236,7 +270,10 @@ __all__ = [
     "MEMORY_TOOL_MODULE",
     "MEMORY_TOOL_NAMES",
     "MEMORY_UNAVAILABLE_REASON",
+    "RESERVED_TOOL_NAME_CODE",
     "is_builtin_tool",
     "register_builtin_tools",
+    "reserved_tool_name",
+    "reserved_tool_name_message",
     "tool_availability",
 ]

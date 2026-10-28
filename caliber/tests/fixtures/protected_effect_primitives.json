@@ -1,0 +1,457 @@
+{
+ "version": 1,
+ "pins": [
+  {
+   "file": "caliber/src/caliber/assistant/ollama_engine.py",
+   "symbol": "OllamaAssistantEngine.run_turn",
+   "row": "EP-113",
+   "primitives": {
+    "urlopen(": 1
+   }
+  },
+  {
+   "file": "caliber/src/caliber/eval/dataset_sync.py",
+   "symbol": "MLflowDatasetSyncClient._get_or_create",
+   "row": "EP-117",
+   "via": "helper of sync_dataset: creates the MLflow dataset the sync then fills",
+   "primitives": {
+    "datasets.create_dataset(": 1
+   }
+  },
+  {
+   "file": "caliber/src/caliber/eval/dataset_sync.py",
+   "symbol": "MLflowDatasetSyncClient.sync_dataset",
+   "row": "EP-117",
+   "primitives": {
+    "merge_records(": 1
+   }
+  },
+  {
+   "file": "caliber/src/caliber/eval/mlflow_runner.py",
+   "symbol": "MLflowEvalProvider._run_eval_pass",
+   "row": "EP-120",
+   "primitives": {
+    "mlflow.genai.evaluate(": 1
+   }
+  },
+  {
+   "file": "caliber/src/caliber/events/nats_bus.py",
+   "symbol": "NatsEventBus._publish_to_nats",
+   "row": "EP-123",
+   "via": "the NATS publish that _publish_remote performs",
+   "primitives": {
+    "self._nc.publish": 1
+   }
+  },
+  {
+   "file": "caliber/src/caliber/events/redis_bus.py",
+   "symbol": "RedisEventBus._publish_to_redis",
+   "row": "EP-122",
+   "via": "the Redis publish that _publish_remote performs",
+   "primitives": {
+    "self._redis.publish": 1
+   }
+  },
+  {
+   "file": "caliber/src/caliber/extensibility/entrypoints.py",
+   "symbol": "_load",
+   "row": "EP-121",
+   "primitives": {
+    "entry.load(": 1
+   }
+  },
+  {
+   "file": "caliber/src/caliber/integrations/openapi/executor.py",
+   "symbol": "_oauth_access_token",
+   "row": "EP-032",
+   "primitives": {
+    "client.post": 1
+   }
+  },
+  {
+   "file": "caliber/src/caliber/knowledge/service.py",
+   "symbol": "KnowledgeBaseService._best_effort_delete_output_prefix",
+   "row": "EP-061",
+   "primitives": {
+    "client.delete": 1,
+    "delete_object": 1
+   }
+  },
+  {
+   "file": "caliber/src/caliber/knowledge/service.py",
+   "symbol": "KnowledgeBaseService._put_json",
+   "row": "EP-060",
+   "primitives": {
+    "client.put": 1,
+    "put_object": 1
+   }
+  },
+  {
+   "file": "caliber/src/caliber/knowledge/service.py",
+   "symbol": "KnowledgeBaseService._put_jsonl",
+   "row": "EP-060",
+   "via": "sibling of _put_json: put_object of build artifacts (the row's notes name it)",
+   "primitives": {
+    "client.put": 1,
+    "put_object": 1
+   }
+  },
+  {
+   "file": "caliber/src/caliber/llm/openai_agents.py",
+   "symbol": "OpenAIAgentsLLMProvider._generate_candidate_gepa",
+   "row": "EP-118",
+   "primitives": {
+    "optimize_prompts(\n": 1,
+    "register_prompt(": 1
+   }
+  },
+  {
+   "file": "caliber/src/caliber/mcp_gateway.py",
+   "symbol": "<module>",
+   "row": "EP-035",
+   "via": "an import or a name in the module, not a call",
+   "primitives": {
+    "invoke_tool": 3
+   }
+  },
+  {
+   "file": "caliber/src/caliber/mcp_gateway.py",
+   "symbol": "_invoke_tool_async",
+   "row": "EP-035",
+   "via": "the async body that invoke_tool and its sync wrappers run",
+   "primitives": {
+    "invoke_tool": 2
+   }
+  },
+  {
+   "file": "caliber/src/caliber/mcp_gateway.py",
+   "symbol": "invoke_tool",
+   "row": "EP-035",
+   "primitives": {
+    "invoke_tool": 1
+   }
+  },
+  {
+   "file": "caliber/src/caliber/mcp_gateway.py",
+   "symbol": "invoke_tool_by_server_id_sync",
+   "row": "EP-037",
+   "primitives": {
+    "invoke_tool": 2
+   }
+  },
+  {
+   "file": "caliber/src/caliber/mcp_gateway.py",
+   "symbol": "invoke_tool_sync",
+   "row": "EP-036",
+   "primitives": {
+    "invoke_tool": 3
+   }
+  },
+  {
+   "file": "caliber/src/caliber/observability/logging.py",
+   "symbol": "S3LogHandler.flush",
+   "row": "EP-101",
+   "primitives": {
+    "client.put": 1,
+    "put_object": 1
+   }
+  },
+  {
+   "file": "caliber/src/caliber/orchestrator/candidate.py",
+   "symbol": "_register_candidate_prompt_draft",
+   "row": "EP-119",
+   "primitives": {
+    "register_prompt(": 1
+   }
+  },
+  {
+   "file": "caliber/src/caliber/orchestrator/workflow_run_worker.py",
+   "symbol": "WorkflowRunWorker._persist_run_artifacts",
+   "row": "EP-018",
+   "primitives": {
+    "client.put": 1,
+    "put_object": 1
+   }
+  },
+  {
+   "file": "caliber/src/caliber/promoter.py",
+   "symbol": "MLflowPromoter.promote",
+   "row": "EP-066",
+   "primitives": {
+    "register_prompt(": 1
+   }
+  },
+  {
+   "file": "caliber/src/caliber/review/writeback.py",
+   "symbol": "MLflowReviewWriteBackClient.write_answers",
+   "row": "EP-115",
+   "primitives": {
+    "mlflow.log_expectation(": 1,
+    "mlflow.log_feedback(": 1
+   }
+  },
+  {
+   "file": "caliber/src/caliber/routes/assistant.py",
+   "symbol": "_list_ollama_models",
+   "row": "EP-128",
+   "primitives": {
+    "urlopen(": 1
+   }
+  },
+  {
+   "file": "caliber/src/caliber/routes/assistant.py",
+   "symbol": "upload_attachment",
+   "row": "EP-100",
+   "primitives": {
+    "put_object": 1
+   }
+  },
+  {
+   "file": "caliber/src/caliber/routes/mcp_servers.py",
+   "symbol": "<module>",
+   "row": "EP-039",
+   "via": "an import or a name in the module, not a call",
+   "primitives": {
+    "invoke_tool": 2
+   }
+  },
+  {
+   "file": "caliber/src/caliber/routes/mcp_servers.py",
+   "symbol": "_invoke_mcp_tool",
+   "row": "EP-039",
+   "via": "the helper both invoke_tool and calibrate_mcp_tool call",
+   "primitives": {
+    "invoke_tool": 1
+   }
+  },
+  {
+   "file": "caliber/src/caliber/routes/mcp_servers.py",
+   "symbol": "invoke_tool",
+   "row": "EP-039",
+   "primitives": {
+    "invoke_tool": 1
+   }
+  },
+  {
+   "file": "caliber/src/caliber/routes/mcp_servers.py",
+   "symbol": "register",
+   "row": "EP-039",
+   "via": "route registration naming the invoke-tool handler, not a call",
+   "primitives": {
+    "invoke_tool": 1
+   }
+  },
+  {
+   "file": "caliber/src/caliber/routes/object_store.py",
+   "symbol": "create_folder",
+   "row": "EP-097",
+   "primitives": {
+    "client.put": 1,
+    "put_object": 1
+   }
+  },
+  {
+   "file": "caliber/src/caliber/routes/object_store.py",
+   "symbol": "delete_object",
+   "row": "EP-095",
+   "primitives": {
+    "delete_object": 2
+   }
+  },
+  {
+   "file": "caliber/src/caliber/routes/object_store.py",
+   "symbol": "delete_objects_batch",
+   "row": "EP-096",
+   "primitives": {
+    "client.delete": 1,
+    "delete_object": 2
+   }
+  },
+  {
+   "file": "caliber/src/caliber/routes/object_store.py",
+   "symbol": "register",
+   "row": "EP-095",
+   "via": "route registration naming the delete_object handler, not a call",
+   "primitives": {
+    "delete_object": 2
+   }
+  },
+  {
+   "file": "caliber/src/caliber/routes/object_store.py",
+   "symbol": "upload_object",
+   "row": "EP-094",
+   "primitives": {
+    "put_object": 1
+   }
+  },
+  {
+   "file": "caliber/src/caliber/routes/observability.py",
+   "symbol": "post_feedback",
+   "row": "EP-116",
+   "primitives": {
+    "mlflow.log_feedback(": 1
+   }
+  },
+  {
+   "file": "caliber/src/caliber/routes/prompts.py",
+   "symbol": "delete_prompt",
+   "row": "EP-074",
+   "primitives": {
+    "client.delete": 4
+   }
+  },
+  {
+   "file": "caliber/src/caliber/routes/prompts.py",
+   "symbol": "register_prompt_version",
+   "row": "EP-071",
+   "primitives": {
+    "register_prompt(": 1
+   }
+  },
+  {
+   "file": "caliber/src/caliber/routes/tools.py",
+   "symbol": "_invoke_tool_under_preview_policy",
+   "row": "EP-104",
+   "primitives": {
+    "invoke_tool": 1
+   }
+  },
+  {
+   "file": "caliber/src/caliber/routes/tools.py",
+   "symbol": "_score_tool_cases",
+   "row": "EP-104",
+   "via": "calibration scoring runs the preview-policy invocation the row describes",
+   "primitives": {
+    "invoke_tool": 1
+   }
+  },
+  {
+   "file": "caliber/src/caliber/routes/tools.py",
+   "symbol": "test_run_tool",
+   "row": "EP-105",
+   "primitives": {
+    "invoke_tool": 1
+   }
+  },
+  {
+   "file": "caliber/src/caliber/storage/s3.py",
+   "symbol": "S3StorageBackend.delete",
+   "row": "EP-052",
+   "primitives": {
+    "client.delete": 1,
+    "delete_object": 1
+   }
+  },
+  {
+   "file": "caliber/src/caliber/storage/s3.py",
+   "symbol": "S3StorageBackend.signed_url",
+   "row": "EP-053",
+   "primitives": {
+    "generate_presigned_url(": 1,
+    "put_object": 1
+   }
+  },
+  {
+   "file": "caliber/src/caliber/storage/s3.py",
+   "symbol": "S3StorageBackend.write_bytes",
+   "row": "EP-051",
+   "primitives": {
+    "client.put": 1,
+    "put_object": 1
+   }
+  },
+  {
+   "file": "caliber/src/caliber/tool_sandbox/service.py",
+   "symbol": "LocalSubprocessToolSandbox._communicate_bounded",
+   "row": "EP-023",
+   "via": "reads the child the spawn in _run_payload started",
+   "primitives": {
+    "subprocess.": 2
+   }
+  },
+  {
+   "file": "caliber/src/caliber/tool_sandbox/service.py",
+   "symbol": "LocalSubprocessToolSandbox._run_payload",
+   "row": "EP-023",
+   "primitives": {
+    "subprocess.": 4
+   }
+  },
+  {
+   "file": "caliber/src/caliber/tool_sandbox/service.py",
+   "symbol": "LocalSubprocessToolSandbox._terminate_process_tree",
+   "row": "EP-023",
+   "via": "stops the child the spawn in _run_payload started",
+   "primitives": {
+    "subprocess.": 1
+   }
+  },
+  {
+   "file": "caliber/src/caliber/workflows/compiler.py",
+   "symbol": "generate_python",
+   "row": "EP-043",
+   "primitives": {
+    "invoke_tool": 2
+   }
+  },
+  {
+   "file": "caliber/src/caliber/workflows/demo_tools.py",
+   "symbol": "sandbox_python",
+   "row": "EP-054",
+   "primitives": {
+    "subprocess.": 2
+   }
+  },
+  {
+   "file": "caliber/src/caliber/workflows/ingestion_tools.py",
+   "symbol": "_ocr_pdf",
+   "row": "EP-056",
+   "primitives": {
+    "subprocess.": 1
+   }
+  },
+  {
+   "file": "caliber/src/caliber/workflows/runtime.py",
+   "symbol": "<module>",
+   "row": "EP-004",
+   "via": "an import of the MCP invoke call, not a call",
+   "primitives": {
+    "invoke_tool": 1
+   }
+  },
+  {
+   "file": "caliber/src/caliber/workflows/runtime.py",
+   "symbol": "OpenAIAgentsWorkflowExecutor.run_agent",
+   "row": "EP-004",
+   "via": "the model tool-call loop that reaches _execute_model_tool_call",
+   "primitives": {
+    "invoke_tool": 3
+   }
+  },
+  {
+   "file": "caliber/src/caliber/workflows/runtime.py",
+   "symbol": "_bind_mcp_tool",
+   "row": "EP-008",
+   "primitives": {
+    "invoke_tool": 1
+   }
+  },
+  {
+   "file": "caliber/src/caliber/workflows/runtime.py",
+   "symbol": "_perform_guarded_effect",
+   "row": "EP-001",
+   "primitives": {
+    "_perform_guarded_effect": 1
+   }
+  },
+  {
+   "file": "caliber/src/caliber/workflows/runtime.py",
+   "symbol": "_run_node",
+   "row": "EP-006",
+   "primitives": {
+    "_perform_guarded_effect": 2,
+    "invoke_tool": 1
+   }
+  }
+ ]
+}

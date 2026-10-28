@@ -82,6 +82,8 @@ from caliber.schemas import (
 from caliber.workflows.builtin_tools import (
     is_builtin_tool,
     register_builtin_tools,
+    reserved_tool_name,
+    reserved_tool_name_message,
     tool_availability,
 )
 from caliber.workflows.ir import IRToolBinding
@@ -457,6 +459,13 @@ async def register_tool(request: Request) -> JSONResponse:
     payload = ToolRegisterRequest.model_validate(body)
     actor = require_scopes(request, [SCOPE_ADMIN])
     identity = resolve_identity(request)
+    # A built-in's name is how the protected-effect inventory recognises it, so no registered tool may take
+    # one (any owner, any version); this is checked before the registry is read.
+    reserved = reserved_tool_name(payload.name)
+    if reserved is not None:
+        raise HTTPException(
+            status_code=409, detail=reserved_tool_name_message(payload.name, reserved)
+        )
     factory = get_session_factory(request)
     with factory() as session:
         existing = (
