@@ -6,7 +6,7 @@ CALIBER session; its only admission control is a signature over everything that 
 
 ``X-Caliber-Signature: v1=<hex>`` is ``HMAC-SHA256(secret, "v1\\n<connector>\\n<project>\\n<timestamp>\\n<delivery>\\n<sha256 of the
 body, hex>")``, with the connector, project, timestamp and delivery id carried in ``X-Caliber-Connector``, ``X-Caliber-Project``,
-``X-Caliber-Timestamp`` (whole seconds since the epoch) and ``X-Caliber-Delivery`` (a unique id of 1 to 128 printable
+``X-Caliber-Timestamp`` (whole seconds since the epoch, no leading zeros) and ``X-Caliber-Delivery`` (a unique id of 1 to 128 printable
 characters). Because the connector and the project are *inside* the signed string, a signature made for one connector or
 project is useless for another, and a captured message cannot be replayed outside the timestamp window
 (:data:`TOLERANCE_SECONDS`); within it a replay is harmless, because the callback only ever triggers the platform's own query
@@ -29,6 +29,8 @@ from urllib.parse import urlsplit
 
 TOLERANCE_SECONDS: Final = 300
 _MAX_TIMESTAMP_DIGITS: Final = 12
+#: A signing secret shorter than this is refused (fail closed) rather than trusted.
+MIN_SECRET_CHARS: Final = 16
 SIGNATURE_VERSION: Final = "v1"
 _PRINTABLE = re.compile(r"[\x21-\x7e]{1,128}")
 _NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}")
@@ -140,6 +142,8 @@ def check_signature(
         timestamp.isascii() and timestamp.isdigit() and len(timestamp) <= _MAX_TIMESTAMP_DIGITS
     ):
         return False
+    if timestamp != str(int(timestamp)):  # the canonical spelling only: no leading zeros
+        return False
     if abs(now - int(timestamp)) > TOLERANCE_SECONDS:
         return False
     expected = sign(secret, connector, project_id, int(timestamp), delivery, body)
@@ -152,6 +156,7 @@ def describe(bindings: tuple[CallbackBinding, ...]) -> list[dict[str, Any]]:
 
 
 __all__ = [
+    "MIN_SECRET_CHARS",
     "SIGNATURE_VERSION",
     "TOLERANCE_SECONDS",
     "CallbackBinding",

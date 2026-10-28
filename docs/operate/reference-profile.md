@@ -988,9 +988,12 @@ caller) and its only admission control is a signature. The body is exactly `{"id
 - **Who may call.** `CALIBER_EFFECT_CALLBACK_CONNECTORS` is a JSON array of bindings, each `{connector, project_id, secret_source, base_url}`:
   the connector, the one project it may act in, where its signing secret is read from (never the secret itself) and the base URL of its
   downstream. Empty (the default) accepts no callback; a malformed list stops the service at startup; the settings page shows only a count.
-  One connector in one project has one secret; a connector bound to two projects has two.
-- **The signature.** Headers `X-Caliber-Connector`, `X-Caliber-Project`, `X-Caliber-Timestamp` (whole seconds), `X-Caliber-Delivery` (a unique
-  id, 1 to 128 printable characters) and `X-Caliber-Signature: v1=<hex>`, the HMAC-SHA256 of `v1\n<connector>\n<project>\n<timestamp>\n<delivery>\n<hex
+  One connector in one project has one secret; a connector bound to two projects has two. A secret shorter than 16 characters is refused (fail closed).
+  The lookup the platform runs is the connector's plain GET by key (the binding has no authentication field yet, so it suits a downstream that
+  allows it), goes through the egress policy (an internal downstream's host must be in `CALIBER_EGRESS_ALLOWED_HOSTS`) and is bounded: at most 4
+  lookups per connector and project at a time (`503 busy`, retryable).
+- **The signature.** Headers `X-Caliber-Connector`, `X-Caliber-Project`, `X-Caliber-Timestamp` (whole seconds, canonical: no leading zeros), `X-Caliber-Delivery` (an
+  id unique per connector and project, 1 to 128 printable characters) and `X-Caliber-Signature: v1=<hex>`, the HMAC-SHA256 of `v1\n<connector>\n<project>\n<timestamp>\n<delivery>\n<hex
   sha256 of the body>` under the binding's secret. The connector, project, timestamp, delivery id and body are all inside the signed string, so a
   signature made for one connector, project or message is useless for another. A timestamp more than 300 seconds from the server's clock is refused;
   a captured message replayed inside the window can only make the platform ask the downstream again, and a receipt is recorded once.
@@ -1006,7 +1009,10 @@ caller) and its only admission control is a signature. The body is exactly `{"id
   `reconciled` to `committed` and audits it: `200 committed` with the `receipt_id`.
 - **Retryable, never half-consumed.** The delivery id is consumed only together with the receipt and the commit; if any of it is refused (`409` with the
   reason code, for example `receipt_conflict` or `stale_version`) the transaction rolls back and the same delivery can be sent again. The same delivery id
-  with a different body is `409 inbox_payload_mismatch`; the same delivery repeated after success is `200 already_committed`.
+  with a different body is `409 inbox_payload_mismatch`; the same delivery repeated after success is `200 duplicate` (answered from the inbox before any query);
+  a *new* delivery for an already committed proposal is `200 already_committed`. Delivery ids are scoped to the binding (a digest of connector and project), so
+  two projects' connectors never collide or burn each other's ids. A callback that loses a race to the commit is told `already_committed`, not a failure. Success
+  bodies use the platform's `{"data": ...}` envelope.
 
 ```python
 import json

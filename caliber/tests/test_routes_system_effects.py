@@ -593,7 +593,10 @@ def test_callback_is_idempotent(
     other = _call(callback_client, key, delivery="delivery-B")  # another delivery of the same news
     assert [r.status_code for r in (first, again, other)] == [200, 200, 200]
     assert first.json()["data"]["status"] == "committed"
-    assert again.json()["data"]["status"] == other.json()["data"]["status"] == "already_committed"
+    assert again.json()["data"]["status"] == "duplicate", (
+        "the same delivery: answered from the inbox, without a query"
+    )
+    assert other.json()["data"]["status"] == "already_committed"
     assert _count(session_factory, CaliberEffectReceipt) == 1
     assert _count(session_factory, CaliberInboxEvent) == 1, "one delivery consumed, once"
 
@@ -964,19 +967,344 @@ def test_a_failed_transaction_is_retryable_and_never_marks_the_delivery_consumed
     assert retried.status_code == 200 and retried.json()["data"]["status"] == "committed"
 
 
-def test_the_callback_needs_no_session_and_no_csrf_token_and_the_settings_page_hides_its_secrets(
+def test_the_callback_needs_no_session_and_the_settings_page_hides_its_secrets(
     callback_client: TestClient,
 ) -> None:
+    from tests.conftest import DEFAULT_TEST_USER
     from tests.workflow_helpers import PREFIX
 
     assert callback_client.get(f"{PREFIX}/system/effects").status_code == 401, (
         "no CALIBER identity here"
     )
-    response = callback_client.get(f"{PREFIX}/settings", headers={"X-CALIBER-User": "admin"})
-    if response.status_code == 200:
-        text = response.text
-        assert (
-            "EFFECT_CALLBACK_TEST_SECRET" not in text
-            and "127.0.0.1" not in text
-            and SECRET not in text
+    response = callback_client.get(
+        f"{PREFIX}/settings/runtime", headers={"X-CALIBER-User": DEFAULT_TEST_USER}
+    )
+    assert response.status_code == 200, response.text
+    text = response.text
+    assert "1 connector binding(s)" in text
+    for secret in (SECRET_ENV, "127.0.0.1", SECRET, "env://"):
+        assert secret not in text
+
+
+def test_the_callback_is_exempt_from_csrf_and_rate_limiting(
+    tmp_path: Any,
+    engine: Any,
+    session_factory: sessionmaker[Session],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """With CSRF and a one-request-a-minute rate limit genuinely on, a signed call with no CSRF token and no CALIBER identity
+    still reaches the handler (here: refused as unsigned, a 401 from the handler, not a 403 or 429 from a middleware)."""
+    monkeypatch.setenv("CALIBER_DATABASE_URL", f"sqlite+pysqlite:///{tmp_path / 'csrf.db'}")
+    monkeypatch.setenv("CALIBER_CSRF_ENABLED", "true")
+    monkeypatch.setenv("CALIBER_CSRF_SIGNING_SECRET_ENV", "CSRF_TEST_KEY")
+    monkeypatch.setenv("CSRF_TEST_KEY", "csrf-test-secret")
+    monkeypatch.setenv("CALIBER_RATE_LIMIT_ENABLED", "true")
+    monkeypatch.setenv("CALIBER_RATE_LIMIT_REQUESTS_PER_MINUTE", "1")
+    monkeypatch.setenv("CALIBER_RATE_LIMIT_BURST", "1")
+    app = create_app(config=CaliberConfig.load())
+    app.state.engine = engine
+    app.state.session_factory = session_factory
+    with TestClient(app) as client:
+        statuses = {client.post(RECEIPT_CALLBACK_PATH, content=b"{}").status_code for _ in range(5)}
+        other = client.post(
+            "/ajax-api/2.0/mlflow/caliber/system/effects/x/resolve", json={}
+        ).status_code
+    assert statuses == {401}, "the handler answered every time"
+    assert other in (403, 429), (
+        "an ordinary POST is stopped by the middleware that exempts the callback"
+    )
+
+
+def test_a_delivery_id_belongs_to_one_binding_and_never_collides_across_projects(
+    callback_client: TestClient, session_factory: sessionmaker[Session], downstream: Any
+) -> None:
+    from caliber.effects.callbacks import CallbackBinding
+    from caliber.events.inbox import process_once
+    from caliber.routes import system_effects
+
+    _seed_run(session_factory)
+    _, key = _unknown_proposal(session_factory, downstream)
+    elsewhere = CallbackBinding(CONNECTOR, "PRJ-another", "env://X", "http://x.example.com")
+    here = CallbackBinding(CONNECTOR, PROJECT, "env://X", "http://x.example.com")
+    assert system_effects._inbox_source(elsewhere) != system_effects._inbox_source(here)
+    assert len(system_effects._inbox_source(here)) == 32
+    with (
+        session_factory() as session
+    ):  # another project's connector already consumed delivery id "1" for its own key
+        process_once(
+            session,
+            consumer="effect-callback",
+            source=system_effects._inbox_source(elsewhere),
+            event_id="1",
+            payload_hash=system_effects._callback_payload_hash(elsewhere, "some-other-key"),
+            apply=lambda: None,
         )
+        session.commit()
+    response = _call(callback_client, key, delivery="1")
+    assert response.status_code == 200 and response.json()["data"]["status"] == "committed"
+
+
+def test_a_timestamp_that_is_not_spelled_canonically_is_refused(
+    callback_client: TestClient, session_factory: sessionmaker[Session], downstream: Any
+) -> None:
+    _seed_run(session_factory)
+    _, key = _unknown_proposal(session_factory, downstream)
+    now = int(time.time())
+    padded = "0" + str(now)
+    response = _call(callback_client, key, timestamp=now, headers={"X-Caliber-Timestamp": padded})
+    assert response.status_code == 401
+
+
+def test_a_secret_that_is_too_short_to_trust_is_refused(
+    app_config: CaliberConfig,
+    engine: Any,
+    session_factory: sessionmaker[Session],
+    downstream: Any,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _seed_run(session_factory)
+    _, key = _unknown_proposal(session_factory, downstream)
+    binding = {
+        "connector": CONNECTOR,
+        "project_id": PROJECT,
+        "secret_source": f"env://{SECRET_ENV}",
+        "base_url": downstream.base_url,
+    }
+    for client in _callback_app(app_config, engine, session_factory, monkeypatch, [binding]):
+        monkeypatch.setenv(SECRET_ENV, "short")
+        response = _call(client, key, secret="short")
+        assert response.status_code == 401 and _count(session_factory, CaliberEffectReceipt) == 0
+
+
+def test_a_project_id_that_differs_only_in_case_or_a_run_with_no_project_is_not_found(
+    app_config: CaliberConfig,
+    engine: Any,
+    session_factory: sessionmaker[Session],
+    downstream: Any,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from caliber.db.models import CaliberWorkflowRun
+
+    _seed_run(session_factory)
+    _, key = _unknown_proposal(session_factory, downstream)
+    upper = {
+        "connector": CONNECTOR,
+        "project_id": PROJECT.upper(),
+        "secret_source": f"env://{SECRET_ENV}",
+        "base_url": downstream.base_url,
+    }
+    for client in _callback_app(app_config, engine, session_factory, monkeypatch, [upper]):
+        assert _call(client, key, project=PROJECT.upper()).status_code == 404
+    with session_factory() as session:
+        session.get(CaliberWorkflowRun, "RUN-ep").project_id = None  # type: ignore[union-attr]
+        session.commit()
+    bound = {**upper, "project_id": PROJECT}
+    for client in _callback_app(app_config, engine, session_factory, monkeypatch, [bound]):
+        assert _call(client, key).status_code == 404, "a run with no project belongs to no binding"
+
+
+def test_a_downstream_answer_that_cannot_be_digested_is_not_a_server_error(
+    callback_client: TestClient,
+    session_factory: sessionmaker[Session],
+    downstream: Any,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from caliber.routes import system_effects
+
+    _seed_run(session_factory)
+    proposal_id, key = _unknown_proposal(session_factory, downstream)
+    real = system_effects.execute_openapi_http_tool
+
+    def with_nan(**kwargs: Any) -> Any:
+        found = real(**kwargs)
+        found["json"] = {
+            **found["json"],
+            "latency": float("nan"),
+        }  # Python parses NaN; it is not JSON
+        return found
+
+    monkeypatch.setattr(system_effects, "execute_openapi_http_tool", with_nan)
+    response = _call(callback_client, key)
+    assert response.status_code == 202 and response.json()["data"]["status"] == "unknown"
+    with session_factory() as session:
+        assert proposal_state(session, proposal_id).state == UNKNOWN
+
+
+def test_a_callback_that_loses_a_race_to_the_commit_is_told_the_effect_is_committed(
+    callback_client: TestClient,
+    session_factory: sessionmaker[Session],
+    downstream: Any,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from caliber.effects.receipts import RECEIPT_STATE
+    from caliber.effects.records import ProposalError
+    from caliber.routes import system_effects
+
+    _seed_run(session_factory)
+    _, key = _unknown_proposal(session_factory, downstream)
+    with session_factory() as session:
+        view = system_effects._resolve_callback_proposal(
+            session,
+            system_effects.parse_bindings(
+                callback_client.app.state.config.effect_callback_connectors
+            )[0],
+            key,  # type: ignore[attr-defined]
+        )
+    assert view is not None and view.state == UNKNOWN, (
+        "the loser read it before the winner committed"
+    )
+    assert _call(callback_client, key, delivery="delivery-1").status_code == 200  # the winner
+    monkeypatch.setattr(
+        system_effects, "_resolve_callback_proposal", lambda *a, **k: view
+    )  # the loser read it unknown
+
+    reached: list[bool] = []
+
+    def lost(*args: Any, **kwargs: Any) -> Any:
+        reached.append(True)
+        raise ProposalError(RECEIPT_STATE, "committed meanwhile")
+
+    monkeypatch.setattr(system_effects, "_commit_from_callback", lost)
+    response = _call(callback_client, key, delivery="delivery-2")
+    assert reached, "the refused commit path was exercised, not an earlier already-committed answer"
+    assert (response.status_code, response.json()["data"]["status"]) == (200, "already_committed")
+    assert _count(session_factory, CaliberEffectReceipt) == 1
+
+
+def test_a_binding_has_a_bounded_number_of_lookups_in_flight(
+    callback_client: TestClient,
+    session_factory: sessionmaker[Session],
+    downstream: Any,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from caliber.effects.callbacks import CallbackBinding
+    from caliber.routes import system_effects
+
+    _seed_run(session_factory)
+    proposal_id, key = _unknown_proposal(session_factory, downstream)
+    binding = CallbackBinding(CONNECTOR, PROJECT, f"env://{SECRET_ENV}", downstream.base_url)
+    slot = system_effects._lookup_slot(binding)
+    held = [slot.acquire(blocking=False) for _ in range(system_effects._MAX_CONCURRENT_LOOKUPS)]
+    assert all(held)
+    try:
+        busy = _call(callback_client, key)
+        assert (busy.status_code, busy.json()) == (503, {"status": "busy"})
+        with session_factory() as session:
+            assert proposal_state(session, proposal_id).state == UNKNOWN
+    finally:
+        for _ in held:
+            slot.release()
+    assert _call(callback_client, key).status_code == 200, "and the slots are free again"
+
+
+def test_the_slot_is_released_when_the_downstream_cannot_be_asked(
+    app_config: CaliberConfig,
+    engine: Any,
+    session_factory: sessionmaker[Session],
+    downstream: Any,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import socket
+
+    from caliber.effects.callbacks import CallbackBinding
+    from caliber.routes import system_effects
+
+    with socket.socket() as probe:
+        probe.bind(("127.0.0.1", 0))
+        closed = probe.getsockname()[1]
+    _seed_run(session_factory)
+    _, key = _unknown_proposal(session_factory, downstream)
+    base = f"http://127.0.0.1:{closed}"
+    binding = {
+        "connector": CONNECTOR,
+        "project_id": PROJECT,
+        "secret_source": f"env://{SECRET_ENV}",
+        "base_url": base,
+    }
+    for client in _callback_app(app_config, engine, session_factory, monkeypatch, [binding]):
+        for _ in range(system_effects._MAX_CONCURRENT_LOOKUPS + 2):
+            assert _call(client, key).status_code == 502, "every failure gives its slot back"
+    assert system_effects._lookup_slot(CallbackBinding(CONNECTOR, PROJECT, "x", base)).acquire(
+        blocking=False
+    )
+
+
+def _race_callbacks(
+    factory: sessionmaker[Session], config: CaliberConfig, key: str, *, shared_delivery: bool
+) -> list[tuple[int, Any]]:
+    """Eight callbacks for one key, released together; each answer as ``(status code, body)``."""
+    import threading
+
+    from caliber.routes import system_effects
+
+    barrier = threading.Barrier(8)
+    answers: list[tuple[int, Any]] = []
+    lock = threading.Lock()
+
+    def call(index: int) -> None:
+        delivery = "delivery-shared" if shared_delivery else f"delivery-{index}"
+        raw = json.dumps({"idempotency_key": key}).encode()
+        stamp = int(time.time())
+        headers = {
+            "x-caliber-connector": CONNECTOR,
+            "x-caliber-project": PROJECT,
+            "x-caliber-timestamp": str(stamp),
+            "x-caliber-delivery": delivery,
+            "x-caliber-signature": sign(SECRET, CONNECTOR, PROJECT, stamp, delivery, raw),
+        }
+        barrier.wait(10)
+        response = system_effects._process_receipt_callback(factory, config, headers, raw)
+        with lock:
+            answers.append((response.status_code, json.loads(bytes(response.body))))
+
+    threads = [threading.Thread(target=call, args=(i,), daemon=True) for i in range(8)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(60)
+    return answers
+
+
+def test_concurrent_callbacks_commit_a_proposal_once_on_postgresql(
+    tmp_path: Any, monkeypatch: pytest.MonkeyPatch, downstream: Any
+) -> None:
+    """Eight callbacks race for one ``unknown`` proposal on PostgreSQL (READ COMMITTED): one commit, one receipt, and every
+    caller is told the truth (never a failure for an effect that committed; the callers over the per-binding lookup bound are
+    told to come back, which is not a wrong answer)."""
+    from tests.dialect_helpers import POSTGRES_TEST_URL
+    from tests.test_event_outbox import _database
+
+    if not POSTGRES_TEST_URL:
+        pytest.skip("the race needs PostgreSQL")
+    monkeypatch.setenv(SECRET_ENV, SECRET)
+    binding = {
+        "connector": CONNECTOR,
+        "project_id": PROJECT,
+        "secret_source": f"env://{SECRET_ENV}",
+        "base_url": downstream.base_url,
+    }
+    config = CaliberConfig.load(
+        environ={
+            "CALIBER_EFFECT_CALLBACK_CONNECTORS": json.dumps([binding]),
+            "CALIBER_EGRESS_ALLOWED_HOSTS": "127.0.0.1",
+        }
+    )
+    for shared_delivery in (True, False):
+        with _database("postgresql", tmp_path, monkeypatch) as (_, factory):
+            _seed_run(factory)
+            downstream.reset()
+            proposal_id, key = _unknown_proposal(factory, downstream)
+            answers = _race_callbacks(factory, config, key, shared_delivery=shared_delivery)
+            assert len(answers) == 8
+            for code, body in answers:
+                busy = (code, body.get("status")) == (503, "busy")
+                told_the_truth = code == 200 and body["data"]["status"] in {
+                    "committed",
+                    "duplicate",
+                    "already_committed",
+                }
+                assert busy or told_the_truth, answers
+            assert any(code == 200 for code, _ in answers)
+            with factory() as session:
+                assert proposal_state(session, proposal_id).state == COMMITTED
+            assert _count(factory, CaliberEffectReceipt) == 1

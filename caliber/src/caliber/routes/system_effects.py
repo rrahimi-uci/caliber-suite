@@ -34,7 +34,9 @@ release-relevant evidence, not a convenience toggle.
 
 from __future__ import annotations
 
+import hashlib
 import json
+import threading
 import time
 from datetime import datetime, timezone
 from typing import Any, cast
@@ -52,8 +54,18 @@ from starlette.routing import Route
 from caliber.audit import record as audit_record
 from caliber.auth import SCOPE_ADMIN, SCOPE_OPERATOR, require_scopes
 from caliber.config import CaliberConfig
-from caliber.db.models import CaliberEffectProposal, CaliberWebhookDeadLetter, CaliberWorkflowRun
-from caliber.effects.callbacks import CallbackBinding, check_signature, parse_bindings
+from caliber.db.models import (
+    CaliberEffectProposal,
+    CaliberInboxEvent,
+    CaliberWebhookDeadLetter,
+    CaliberWorkflowRun,
+)
+from caliber.effects.callbacks import (
+    MIN_SECRET_CHARS,
+    CallbackBinding,
+    check_signature,
+    parse_bindings,
+)
 from caliber.effects.connectors.document_request import (
     CONNECTOR as DOCUMENT_REQUEST,
 )
@@ -62,12 +74,13 @@ from caliber.effects.connectors.document_request import (
     lookup_config,
     lookup_input,
 )
-from caliber.effects.receipts import ReceiptFacts, record_receipt
+from caliber.effects.receipts import RECEIPT_STATE, ReceiptFacts, record_receipt
 from caliber.effects.records import (
     COMMITTED,
     DISPATCHED,
     FAILED,
     RECONCILED,
+    STALE_VERSION,
     UNKNOWN,
     ProposalError,
     ProposalView,
@@ -107,6 +120,10 @@ RECEIPT_CALLBACK_PATH = "/ajax-api/2.0/mlflow/caliber/effects/callbacks/receipt"
 _CALLBACK_MAX_BODY_BYTES = 4096
 _CALLBACK_CONSUMER = "effect-callback"
 _MAX_KEY_CHARS = 255
+#: How many lookups one connector in one project may have in flight: a signed caller cannot tie up the whole worker pool.
+_MAX_CONCURRENT_LOOKUPS = 4
+_LOOKUP_SLOTS: dict[tuple[str, str], threading.BoundedSemaphore] = {}
+_LOOKUP_SLOTS_LOCK = threading.Lock()
 _FIRST_ERROR_STATUS = 400
 #: The connectors whose lookup the platform knows how to run and verify (one today).
 _CALLBACK_CONNECTORS = frozenset({DOCUMENT_REQUEST})
@@ -444,15 +461,19 @@ def _authenticated_binding(
         return None
     secret = resolve_secret(binding.secret_source)
     delivery = headers.get("x-caliber-delivery", "")
-    if not secret or not check_signature(
-        secret,
-        connector=connector,
-        project_id=project_id,
-        timestamp=headers.get("x-caliber-timestamp", ""),
-        delivery=delivery,
-        signature=headers.get("x-caliber-signature", ""),
-        body=raw,
-        now=now,
+    if (
+        not secret
+        or len(secret) < MIN_SECRET_CHARS
+        or not check_signature(
+            secret,
+            connector=connector,
+            project_id=project_id,
+            timestamp=headers.get("x-caliber-timestamp", ""),
+            delivery=delivery,
+            signature=headers.get("x-caliber-signature", ""),
+            body=raw,
+            now=now,
+        )
     ):
         return None
     return binding, delivery
@@ -500,11 +521,16 @@ def _resolve_callback_proposal(
     return None if proposal_id is None else proposal_view(session, proposal_id)
 
 
-def _commit_from_callback(session: Session, proposal_id: str, facts: ReceiptFacts) -> str:
-    """Record the verified receipt and commit (``unknown`` goes through ``reconciled`` first); the receipt id."""
+def _commit_from_callback(
+    session: Session, proposal_id: str, facts: ReceiptFacts
+) -> tuple[str, bool]:
+    """Record the verified receipt and commit (``unknown`` goes through ``reconciled`` first).
+
+    Returns the receipt id and whether *this* call did the commit (``False`` if another delivery already had).
+    """
     state = proposal_state(session, proposal_id)
     if state.state == COMMITTED and state.receipt_id is not None:
-        return state.receipt_id
+        return state.receipt_id, False
     receipt = record_receipt(session, proposal_id, facts)
     version = state.version
     if state.state == UNKNOWN:
@@ -514,7 +540,7 @@ def _commit_from_callback(session: Session, proposal_id: str, facts: ReceiptFact
     transition(
         session, proposal_id, COMMITTED, expected_version=version, receipt_id=receipt.receipt_id
     )
-    return receipt.receipt_id
+    return receipt.receipt_id, True
 
 
 def _callback_state_reply(view: ProposalView) -> JSONResponse | None:
@@ -532,6 +558,70 @@ def _callback_state_reply(view: ProposalView) -> JSONResponse | None:
     return None
 
 
+def _inbox_source(binding: CallbackBinding) -> str:
+    """The inbox source of one connector *in one project* (a digest, so the two names fit its length limit): delivery ids
+    are unique per binding, never across projects."""
+    return hashlib.sha256(f"{binding.connector}\n{binding.project_id}".encode()).hexdigest()[:32]
+
+
+def _consumed_reply(
+    session: Session, binding: CallbackBinding, delivery: str, key: str
+) -> JSONResponse | None:
+    """``duplicate`` (or an ``inbox_payload_mismatch``) if this delivery id was already consumed by this binding."""
+    row = session.get(CaliberInboxEvent, (_CALLBACK_CONSUMER, _inbox_source(binding), delivery))
+    if row is None:
+        return None
+    if row.payload_hash != _callback_payload_hash(binding, key):
+        return _callback_reply(409, reason="inbox_payload_mismatch")
+    return _callback_reply(200, status="duplicate")
+
+
+def _callback_payload_hash(binding: CallbackBinding, key: str) -> str:
+    return payload_hash({"project_id": binding.project_id, "idempotency_key": key})
+
+
+def _lookup_slot(binding: CallbackBinding) -> threading.BoundedSemaphore:
+    with _LOOKUP_SLOTS_LOCK:
+        return _LOOKUP_SLOTS.setdefault(
+            (binding.connector, binding.project_id),
+            threading.BoundedSemaphore(_MAX_CONCURRENT_LOOKUPS),
+        )
+
+
+def _lookup_facts(
+    binding: CallbackBinding, view: ProposalView, key: str
+) -> ReceiptFacts | JSONResponse | None:
+    """Ask the downstream (outside any transaction, with a bounded number in flight per binding) and verify its answer.
+
+    The facts if it confirms, ``None`` if it holds nothing or something else, or the retryable refusal if it could not be
+    asked (or this binding already has its share of lookups in flight)."""
+    slot = _lookup_slot(binding)
+    if not slot.acquire(blocking=False):
+        return _callback_reply(503, status="busy")
+    try:
+        found = execute_openapi_http_tool(
+            execution_config=lookup_config(binding.base_url),
+            input_schema=None,
+            input_data=lookup_input(key),
+        )
+    except OpenApiExecutionError:
+        return _callback_reply(502, status="lookup_failed")
+    finally:
+        slot.release()
+    return facts_from_lookup(view, lookup_status=found["status_code"], lookup_body=found["json"])
+
+
+def _after_a_refused_commit(
+    factory: sessionmaker[Session], proposal_id: str, exc: ProposalError
+) -> JSONResponse:
+    """A refused commit is a retryable 409, except when it lost a race to a commit: then the effect *is* committed."""
+    if exc.code in (RECEIPT_STATE, STALE_VERSION):
+        with factory() as fresh:
+            if proposal_state(fresh, proposal_id).state == COMMITTED:
+                return _callback_reply(200, status="already_committed")
+    return _callback_reply(409, reason=exc.code)
+
+
 def _process_receipt_callback(  # noqa: PLR0911 - one distinct, documented answer per refusal
     factory: sessionmaker[Session], config: CaliberConfig, headers: dict[str, str], raw: bytes
 ) -> JSONResponse:
@@ -543,22 +633,18 @@ def _process_receipt_callback(  # noqa: PLR0911 - one distinct, documented answe
     if key is None:
         return _callback_reply(400, detail='the body must be exactly {"idempotency_key": <key>}')
     with factory() as session:
-        view = _resolve_callback_proposal(session, binding, key)
+        replay = _consumed_reply(session, binding, delivery, key)
+        view = None if replay is not None else _resolve_callback_proposal(session, binding, key)
+    if replay is not None:
+        return replay
     if view is None:
         return _callback_reply(404, detail="no such proposal")
     refused = _callback_state_reply(view)
     if refused is not None:
         return refused
-    # The authoritative query runs outside any transaction: nothing is held open across the network call.
-    try:
-        found = execute_openapi_http_tool(
-            execution_config=lookup_config(binding.base_url),
-            input_schema=None,
-            input_data=lookup_input(key),
-        )
-    except OpenApiExecutionError:
-        return _callback_reply(502, status="lookup_failed")
-    facts = facts_from_lookup(view, lookup_status=found["status_code"], lookup_body=found["json"])
+    facts = _lookup_facts(binding, view, key)
+    if isinstance(facts, JSONResponse):
+        return facts
     if facts is None:
         # The downstream does not (yet) hold this effect, or holds something else: not a receipt, and not a failure. The
         # delivery is not consumed, so the connector can call again.
@@ -568,21 +654,20 @@ def _process_receipt_callback(  # noqa: PLR0911 - one distinct, documented answe
             outcome = process_once(
                 session,
                 consumer=_CALLBACK_CONSUMER,
-                source=binding.connector,
+                source=_inbox_source(binding),
                 event_id=delivery,
-                payload_hash=payload_hash(
-                    {"project_id": binding.project_id, "idempotency_key": key}
-                ),
+                payload_hash=_callback_payload_hash(binding, key),
                 apply=lambda: _commit_from_callback(session, view.proposal_id, facts),
             )
-            if outcome.applied:
+            receipt_id, performed = outcome.value if outcome.value is not None else (None, False)
+            if outcome.applied and performed:
                 audit_record(
                     session,
                     actor=f"connector:{binding.connector}",
                     action="effect_receipt_callback",
                     entity_type="effect_proposal",
                     entity_id=view.proposal_id,
-                    details={"delivery": delivery, "receipt_id": outcome.value},
+                    details={"delivery": delivery, "receipt_id": receipt_id},
                 )
             session.commit()
         except InboxPayloadMismatch:
@@ -590,10 +675,10 @@ def _process_receipt_callback(  # noqa: PLR0911 - one distinct, documented answe
             return _callback_reply(409, reason="inbox_payload_mismatch")
         except ProposalError as exc:
             session.rollback()  # the reservation went with it: the delivery is not consumed and can be retried
-            return _callback_reply(409, reason=exc.code)
+            return _after_a_refused_commit(factory, view.proposal_id, exc)
     if outcome.outcome == "duplicate":
         return _callback_reply(200, status="duplicate")
-    return _callback_reply(200, status="committed", receipt_id=outcome.value)
+    return _callback_reply(200, status="committed", receipt_id=receipt_id)
 
 
 async def receive_effect_receipt(request: Request) -> JSONResponse:
