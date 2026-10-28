@@ -72,6 +72,18 @@
       "reason": "pii"
     }
   ],
+  "rule_bundle": {
+    "bundle_id": "support-rules",
+    "version": "2026-10-01",
+    "sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+    "rules": [
+      {
+        "rule_id": "refund-window",
+        "source_ref": "policy/refunds#section-2",
+        "text_digest": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+      }
+    ]
+  },
   "token_allocation": {
     "budget": 2000,
     "used": 550,
