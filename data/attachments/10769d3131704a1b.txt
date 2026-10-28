@@ -1,0 +1,145 @@
+{"t":"2026-10-28T20:37:47.983Z","severity":"INFO","logger":"httpx","message":"HTTP Request: POST http://127.0.0.1:45755/_test/reset \"HTTP/1.1 200 OK\""}
+{"t":"2026-10-28T20:37:47.989Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Context impl SQLiteImpl."}
+{"t":"2026-10-28T20:37:47.991Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Will assume non-transactional DDL."}
+{"t":"2026-10-28T20:37:48.061Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade  -> 0001, initial: caliber_agent_config and caliber_verification_queue"}
+{"t":"2026-10-28T20:37:48.074Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0001 -> 0002, jobs and audit log"}
+{"t":"2026-10-28T20:37:48.097Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0002 -> 0003, runtime locks"}
+{"t":"2026-10-28T20:37:48.101Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0003 -> 0004, job diagnosis column"}
+{"t":"2026-10-28T20:37:48.105Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0004 -> 0005, job candidate column"}
+{"t":"2026-10-28T20:37:48.109Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0005 -> 0006, eval results column + approval requests table"}
+{"t":"2026-10-28T20:37:48.128Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0006 -> 0007, retry semantics + multi-approver votes"}
+{"t":"2026-10-28T20:37:48.140Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0007 -> 0008, approval comments + rollback checkpoints"}
+{"t":"2026-10-28T20:37:48.151Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0008 -> 0009, job heartbeat column"}
+{"t":"2026-10-28T20:37:48.155Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0009 -> 0010, skills table"}
+{"t":"2026-10-28T20:37:48.165Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0010 -> 0011, eval datasets"}
+{"t":"2026-10-28T20:37:48.175Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0011 -> 0012, conversation policies"}
+{"t":"2026-10-28T20:37:48.179Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0012 -> 0013, regression replay runs"}
+{"t":"2026-10-28T20:37:48.189Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0013 -> 0014, skill standard fields"}
+{"t":"2026-10-28T20:37:48.199Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0014 -> 0015, Add skill_name to refinement_jobs for skill-targeted optimization."}
+{"t":"2026-10-28T20:37:48.202Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0015 -> 0016, workflow studio tables"}
+{"t":"2026-10-28T20:37:48.240Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0016 -> 0017, workflow promotion requests"}
+{"t":"2026-10-28T20:37:48.247Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0017 -> 0018, workflow compiled bundle"}
+{"t":"2026-10-28T20:37:48.252Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0018 -> 0019, assistant authoring"}
+{"t":"2026-10-28T20:37:48.286Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0019 -> 0020, mcp servers"}
+{"t":"2026-10-28T20:37:48.296Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0020 -> 0021, assistant session metadata"}
+{"t":"2026-10-28T20:37:48.300Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0021 -> 0022, workflow calibration spec on refinement jobs"}
+{"t":"2026-10-28T20:37:48.310Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0022 -> 0023, workflow file/workspace storage tables"}
+{"t":"2026-10-28T20:37:48.327Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0023 -> 0024, eval dataset file join table"}
+{"t":"2026-10-28T20:37:48.335Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0024 -> 0025, projects (workspaces) table"}
+{"t":"2026-10-28T20:37:48.340Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0025 -> 0026, project scoping columns on user-facing resources"}
+{"t":"2026-10-28T20:37:48.361Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0026 -> 0027, project storage backend selection"}
+{"t":"2026-10-28T20:37:48.366Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0027 -> 0028, workflow run queue foundation tables and lifecycle columns"}
+{"t":"2026-10-28T20:37:48.402Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0028 -> 0029, mcp tool policies"}
+{"t":"2026-10-28T20:37:48.407Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0029 -> 0030, drop queued workflow-run started_at default"}
+{"t":"2026-10-28T20:37:48.434Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0030 -> 0031, add refine_iteration to refinement jobs"}
+{"t":"2026-10-28T20:37:48.440Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0031 -> 0032, add input_payload to workflow runs"}
+{"t":"2026-10-28T20:37:48.446Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0032 -> 0033, knowledge bases for chunking, embeddings, and RAG"}
+{"t":"2026-10-28T20:37:48.497Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0033 -> 0034, knowledge graph artifacts and queued knowledge-base builds"}
+{"t":"2026-10-28T20:37:48.539Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0034 -> 0035, knowledge graph config and Apache AGE retrieval"}
+{"t":"2026-10-28T20:37:48.544Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0035 -> 0036, workflow session memory"}
+{"t":"2026-10-28T20:37:48.550Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0036 -> 0037, database live event bus"}
+{"t":"2026-10-28T20:37:48.562Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0037 -> 0038, add manifest_snapshot to workflow runs"}
+{"t":"2026-10-28T20:37:48.566Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0038 -> 0039, drop conversation_policies"}
+{"t":"2026-10-28T20:37:48.570Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0039 -> 0040, workflow benchmark reports"}
+{"t":"2026-10-28T20:37:48.579Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0040 -> 0041, workflow services"}
+{"t":"2026-10-28T20:37:48.592Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0041 -> 0042, drop approval governance tables"}
+{"t":"2026-10-28T20:37:48.599Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0042 -> 0043, component calibration test cases"}
+{"t":"2026-10-28T20:37:48.614Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0043 -> 0044, eval example superseded_version"}
+{"t":"2026-10-28T20:37:48.618Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0044 -> 0045, prompt test runs"}
+{"t":"2026-10-28T20:37:48.629Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0045 -> 0046, tool test runs"}
+{"t":"2026-10-28T20:37:48.644Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0046 -> 0047, skill test runs"}
+{"t":"2026-10-28T20:37:48.656Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0047 -> 0048, knowledge base test runs"}
+{"t":"2026-10-28T20:37:48.679Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0048 -> 0049, eval runs (scorecard)"}
+{"t":"2026-10-28T20:37:48.691Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0049 -> 0050, assistant context attachments"}
+{"t":"2026-10-28T20:37:48.700Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0050 -> 0051, assistant queued / steer messages"}
+{"t":"2026-10-28T20:37:48.707Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0051 -> 0052, eval dataset \u2192 MLflow GenAI dataset sync linkage"}
+{"t":"2026-10-28T20:37:48.725Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0052 -> 0053, custom LLM judges (MLflow 3.14 make_judge)"}
+{"t":"2026-10-28T20:37:48.731Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0053 -> 0054, structured human-review queues"}
+{"t":"2026-10-28T20:37:48.741Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0054 -> 0055, Aria goal-plans (agentic orchestration, Phase 1)"}
+{"t":"2026-10-28T20:37:48.750Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0055 -> 0056, Aria mid-run interactions (agentic orchestration, Phase 2)"}
+{"t":"2026-10-28T20:37:48.765Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0056 -> 0057, Aria plan-step quality gate (self-correction)"}
+{"t":"2026-10-28T20:37:48.770Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0057 -> 0058, Aria plan task-context persistence"}
+{"t":"2026-10-28T20:37:48.782Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0058 -> 0059, Eval run subject_ref (artifact-target scoring)"}
+{"t":"2026-10-28T20:37:48.788Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0059 -> 0060, Knowledge chunk pgvector column + HNSW index for ANN retrieval"}
+{"t":"2026-10-28T20:37:48.790Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0060 -> 0061, per-model LLM token pricing (gateway cost config)"}
+{"t":"2026-10-28T20:37:48.798Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0061 -> 0062, per-version advisory eval-gate verdicts"}
+{"t":"2026-10-28T20:37:48.804Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0062 -> 0063, immutable per-version skill content snapshots"}
+{"t":"2026-10-28T20:37:48.815Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0063 -> 0064, immutable evidence bundle on an evaluation run"}
+{"t":"2026-10-28T20:37:48.821Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0064 -> 0065, at-most-once external effect ledger"}
+{"t":"2026-10-28T20:37:48.827Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0065 -> 0066, server-validated password accounts and revocable sessions"}
+{"t":"2026-10-28T20:37:48.837Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0066 -> 0067, encrypted-at-rest secret store with versions, rotation, and revocation"}
+{"t":"2026-10-28T20:37:48.845Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0067 -> 0068, record who started a workflow run"}
+{"t":"2026-10-28T20:37:48.850Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0068 -> 0069, worker self-reported liveness"}
+{"t":"2026-10-28T20:37:48.861Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0069 -> 0070, durable webhook dead letters"}
+{"t":"2026-10-28T20:37:48.869Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0070 -> 0071, per-service rate limit and CORS policy"}
+{"t":"2026-10-28T20:37:48.878Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0071 -> 0072, shared per-service rate-limit accounting"}
+{"t":"2026-10-28T20:37:48.884Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0072 -> 0073, durable accept record so abrupt process loss does not lose webhook events"}
+{"t":"2026-10-28T20:37:48.890Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0073 -> 0074, incident history for SLO objectives"}
+{"t":"2026-10-28T20:37:48.898Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0074 -> 0075, durable calibration jobs, so a long calibration is not one long HTTP request"}
+{"t":"2026-10-28T20:37:48.910Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0075 -> 0076, snapshot the executable tool definition for durable calibration jobs"}
+{"t":"2026-10-28T20:37:48.915Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0076 -> 0077, lease accepted webhook deliveries to one live dispatcher replica"}
+{"t":"2026-10-28T20:37:48.924Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0077 -> 0078, fence calibration attribution with a monotonic tool revision"}
+{"t":"2026-10-28T20:37:48.929Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0078 -> 0079, arbitrate one open incident per objective in the database"}
+{"t":"2026-10-28T20:37:48.934Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0079 -> 0080, track and retry incident resolution notifications"}
+{"t":"2026-10-28T20:37:48.938Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0080 -> 0081, backfill current immutable skill snapshots"}
+{"t":"2026-10-28T20:37:48.941Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0081 -> 0082, add durable release operations"}
+{"t":"2026-10-28T20:37:48.953Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0082 -> 0083, add explicit operator resolution and retry lineage for calibration jobs"}
+{"t":"2026-10-28T20:37:48.983Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0083 -> 0084, add independent assistant reviewer decisions"}
+{"t":"2026-10-28T20:37:48.999Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0084 -> 0085, add release candidates, signoffs, and report jobs"}
+{"t":"2026-10-28T20:37:49.020Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0085 -> 0086, add personal access tokens for automation"}
+{"t":"2026-10-28T20:37:49.030Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0086 -> 0087, add governed openapi integration drafts"}
+{"t":"2026-10-28T20:37:49.053Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0087 -> 0088, add openapi tool drafts and declarative tool backends"}
+{"t":"2026-10-28T20:37:49.076Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0088 -> 0089, add openapi operation dependencies, graph snapshot, and tool packs"}
+{"t":"2026-10-28T20:37:49.096Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0089 -> 0090, add project memberships and resource access roles"}
+{"t":"2026-10-28T20:37:49.114Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0090 -> 0091, add rework tasks"}
+{"t":"2026-10-28T20:37:49.123Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0091 -> 0092, add quality reviews"}
+{"t":"2026-10-28T20:37:49.130Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0092 -> 0093, add workspace schema foundation: project slug/source-mode/archive/accepted-revision\nfields, project-member deactivation fields, audit-log environment correlation, and\nthe caliber_workspace_environments table"}
+{"t":"2026-10-28T20:37:49.167Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0093 -> 0094, add optional project_id to caliber_personal_access_tokens (PAT project binding)"}
+{"t":"2026-10-28T20:37:49.176Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0094 -> 0095, add project-scoping lookup indexes (isolation closure, item 3)"}
+{"t":"2026-10-28T20:37:49.205Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0095 -> 0096, add project visibility to MCP server registry"}
+{"t":"2026-10-28T20:37:49.218Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0096 -> 0097, persist the assistant session project context"}
+{"t":"2026-10-28T20:37:49.227Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0097 -> 0098, add dormant Workspace source/import/revision persistence"}
+{"t":"2026-10-28T20:37:49.286Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0098 -> 0099, add bounded Workspace import attempt budgets"}
+{"t":"2026-10-28T20:37:49.344Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0099 -> 0100, add Workspace Change Request and review history"}
+{"t":"2026-10-28T20:37:49.415Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0100 -> 0101, add Workspace source webhook inbox and actor links"}
+{"t":"2026-10-28T20:37:49.433Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0101 -> 0102, add Workspace release and operation foundation"}
+{"t":"2026-10-28T20:37:49.492Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0102 -> 0103, add Workspace release governance bindings and audit severity"}
+{"t":"2026-10-28T20:37:49.594Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0103 -> 0104, add durable Workspace environment operation pointers"}
+{"t":"2026-10-28T20:37:49.663Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0104 -> 0105, add immutable Workspace runtime lineage coordinates"}
+{"t":"2026-10-28T20:37:50.161Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0105 -> 0106, add the nullable rework-task Workspace-release FK and exactly-one-source check"}
+{"t":"2026-10-28T20:37:50.203Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0106 -> 0107, add a first-class scope/role authorization snapshot to Aria plans/steps"}
+{"t":"2026-10-28T20:37:50.227Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0107 -> 0108, add encrypted GitHub App connection storage for Workspace sources"}
+{"t":"2026-10-28T20:37:50.235Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0108 -> 0109, enforce one active GitHub App connection per installation"}
+{"t":"2026-10-28T20:37:50.239Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0109 -> 0110, add DB-level name-uniqueness constraints for 4 root resources with no constraint at all"}
+{"t":"2026-10-28T20:37:50.278Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0110 -> 0111, add ``source_kind`` discriminator to Workspace revisions for managed snapshots"}
+{"t":"2026-10-28T20:37:50.323Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0111 -> 0112, add nullable project_id to caliber_release_operations and backfill it"}
+{"t":"2026-10-28T20:37:50.405Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0112 -> 0113, add nullable project_id to caliber_verification_queue and backfill it"}
+{"t":"2026-10-28T20:37:50.436Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0113 -> 0114, persist immutable run manifests (one row per run) and mark pre-manifest runs as legacy"}
+{"t":"2026-10-28T20:37:50.450Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0114 -> 0115, persist run-bound grants, immutable except for revocation"}
+{"t":"2026-10-28T20:37:50.467Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0115 -> 0116, add the single-owner execution lease table"}
+{"t":"2026-10-28T20:37:50.472Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0116 -> 0117, persist policy decisions, immutable"}
+{"t":"2026-10-28T20:37:50.483Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0117 -> 0118, add the exclusive experiment owner registry"}
+{"t":"2026-10-28T20:37:50.489Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0118 -> 0119, add the event outbox and the consumer inbox"}
+{"t":"2026-10-28T20:37:50.501Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0119 -> 0120, add the approved context source inventory"}
+{"t":"2026-10-28T20:37:50.508Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0120 -> 0121, persist immutable context manifests"}
+{"t":"2026-10-28T20:37:50.520Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0121 -> 0122, add the consumer/source/event-id inbox"}
+{"t":"2026-10-28T20:37:50.527Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0122 -> 0123, persist effect proposals with an immutable intent and a durable occurrence"}
+{"t":"2026-10-28T20:37:50.538Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0123 -> 0124, add compare-and-set versioning and the seven-state transition table to effect proposals"}
+{"t":"2026-10-28T20:37:50.584Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0124 -> 0125, persist immutable verified effect receipts; a proposal commits only with one"}
+{"t":"2026-10-28T20:37:50.617Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0125 -> 0126, record the fencing token an effect proposal was dispatched under"}
+{"t":"2026-10-28T20:37:50.631Z","severity":"INFO","logger":"alembic.runtime.migration","message":"Running upgrade 0126 -> 0127, bind a runtime approval request to the exact effect proposal it approves"}
+{"t":"2026-10-28T20:37:50.750Z","severity":"INFO","logger":"caliber","message":"CALIBER plugin starting (log_level=INFO, log_sink=s3)"}
+{"t":"2026-10-28T20:37:50.765Z","severity":"INFO","logger":"caliber.observability.mlflow_tracing","message":"CALIBER tracing: autolog enabled for openai"}
+{"t":"2026-10-28T20:37:50.766Z","severity":"INFO","logger":"caliber","message":"encrypted secret store disabled (CALIBER_SECRET_ENCRYPTION_KEY_SOURCE unset); secret:// references will not resolve"}
+{"t":"2026-10-28T20:37:50.768Z","severity":"INFO","logger":"caliber","message":"CALIBER assistant engine: fake (configured=fake)"}
+{"t":"2026-10-28T20:37:50.802Z","severity":"INFO","logger":"caliber","message":"CALIBER plugin starting (log_level=INFO, log_sink=s3)"}
+{"t":"2026-10-28T20:37:50.818Z","severity":"INFO","logger":"caliber.observability.mlflow_tracing","message":"CALIBER tracing: autolog enabled for openai"}
+{"t":"2026-10-28T20:37:50.819Z","severity":"INFO","logger":"caliber","message":"encrypted secret store disabled (CALIBER_SECRET_ENCRYPTION_KEY_SOURCE unset); secret:// references will not resolve"}
+{"t":"2026-10-28T20:37:50.820Z","severity":"INFO","logger":"caliber","message":"CALIBER assistant engine: fake (configured=fake)"}
+{"t":"2026-10-28T20:37:50.901Z","severity":"INFO","logger":"httpx","message":"HTTP Request: POST http://127.0.0.1:45755/cases/MORT-2026-000184/document-requests \"HTTP/1.1 201 Created\""}
+{"t":"2026-10-28T20:37:50.937Z","severity":"INFO","logger":"httpx","message":"HTTP Request: GET http://127.0.0.1:45755/document-requests?idempotency_key=7d18127bd8e57aa4d9f946bbd27f7995cfcb0b0d5992cac0f16ea8c7806b275d \"HTTP/1.1 200 OK\"","trace_id":"855df630185f5866"}
+{"t":"2026-10-28T20:37:50.960Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/effects/callbacks/receipt \"HTTP/1.1 200 OK\""}
+{"t":"2026-10-28T20:37:52.188Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/effects/callbacks/receipt \"HTTP/1.1 200 OK\""}
+{"t":"2026-10-28T20:37:52.197Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/effects/callbacks/receipt \"HTTP/1.1 409 Conflict\""}
+{"t":"2026-10-28T20:37:52.358Z","severity":"INFO","logger":"httpx","message":"HTTP Request: GET http://127.0.0.1:45755/health \"HTTP/1.1 200 OK\""}
+{"t":"2026-10-28T20:37:52.361Z","severity":"INFO","logger":"httpx","message":"HTTP Request: GET http://127.0.0.1:45755/_test/mutations \"HTTP/1.1 200 OK\""}

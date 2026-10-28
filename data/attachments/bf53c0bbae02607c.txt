@@ -1,3 +1,0 @@
-{"t":"2026-10-28T20:03:50.287Z","severity":"INFO","logger":"httpx","message":"HTTP Request: POST http://127.0.0.1:55501/_test/reset \"HTTP/1.1 200 OK\""}
-{"t":"2026-10-28T20:03:50.292Z","severity":"INFO","logger":"httpx","message":"HTTP Request: GET http://127.0.0.1:55501/_test/mutations \"HTTP/1.1 200 OK\""}
-{"t":"2026-10-28T20:03:50.295Z","severity":"INFO","logger":"httpx","message":"HTTP Request: GET http://127.0.0.1:55501/cases/MORT-2026-000184 \"HTTP/1.1 200 OK\""}

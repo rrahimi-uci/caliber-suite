@@ -1,0 +1,6 @@
+INFO     httpx:_client.py:1025 HTTP Request: POST http://127.0.0.1:45755/_test/reset "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: GET http://127.0.0.1:45755/openapi.json "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: GET http://127.0.0.1:45755/openapi.json "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: POST http://127.0.0.1:45755/cases/MORT-2026-000184/document-requests "HTTP/1.1 201 Created"
+INFO     httpx:_client.py:1025 HTTP Request: GET http://127.0.0.1:45755/document-requests?idempotency_key=key-q "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: GET http://127.0.0.1:45755/document-requests?idempotency_key=never-sent "HTTP/1.1 404 Not Found"

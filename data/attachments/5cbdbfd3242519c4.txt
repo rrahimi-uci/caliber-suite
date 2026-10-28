@@ -1,0 +1,6 @@
+{"t":"2026-10-28T20:36:55.577Z","severity":"INFO","logger":"httpx","message":"HTTP Request: POST http://127.0.0.1:45755/_test/reset \"HTTP/1.1 200 OK\""}
+{"t":"2026-10-28T20:36:55.582Z","severity":"INFO","logger":"httpx","message":"HTTP Request: GET http://127.0.0.1:45755/openapi.json \"HTTP/1.1 200 OK\""}
+{"t":"2026-10-28T20:36:55.586Z","severity":"INFO","logger":"httpx","message":"HTTP Request: GET http://127.0.0.1:45755/openapi.json \"HTTP/1.1 200 OK\""}
+{"t":"2026-10-28T20:36:55.627Z","severity":"INFO","logger":"httpx","message":"HTTP Request: POST http://127.0.0.1:45755/cases/MORT-2026-000184/document-requests \"HTTP/1.1 201 Created\""}
+{"t":"2026-10-28T20:36:55.669Z","severity":"INFO","logger":"httpx","message":"HTTP Request: GET http://127.0.0.1:45755/document-requests?idempotency_key=key-q \"HTTP/1.1 200 OK\""}
+{"t":"2026-10-28T20:36:55.696Z","severity":"INFO","logger":"httpx","message":"HTTP Request: GET http://127.0.0.1:45755/document-requests?idempotency_key=never-sent \"HTTP/1.1 404 Not Found\""}

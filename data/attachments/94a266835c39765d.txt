@@ -1,0 +1,10 @@
+{"t":"2026-10-28T20:37:09.483Z","severity":"INFO","logger":"httpx","message":"HTTP Request: POST http://127.0.0.1:38401/_test/reset \"HTTP/1.1 200 OK\""}
+{"t":"2026-10-28T20:37:09.489Z","severity":"INFO","logger":"httpx","message":"HTTP Request: POST http://127.0.0.1:38401/cases/MORT-2026-000184/document-requests \"HTTP/1.1 201 Created\""}
+{"t":"2026-10-28T20:37:09.493Z","severity":"INFO","logger":"httpx","message":"HTTP Request: GET http://127.0.0.1:38401/_test/mutations \"HTTP/1.1 200 OK\""}
+{"t":"2026-10-28T20:37:09.794Z","severity":"INFO","logger":"httpx","message":"HTTP Request: GET http://127.0.0.1:56635/health \"HTTP/1.1 200 OK\""}
+{"t":"2026-10-28T20:37:09.816Z","severity":"INFO","logger":"httpx","message":"HTTP Request: GET http://127.0.0.1:56635/barrier/after_outbox_commit \"HTTP/1.1 200 OK\""}
+{"t":"2026-10-28T20:37:10.140Z","severity":"INFO","logger":"httpx","message":"HTTP Request: GET http://127.0.0.1:56635/health \"HTTP/1.1 200 OK\""}
+{"t":"2026-10-28T20:37:10.162Z","severity":"INFO","logger":"httpx","message":"HTTP Request: GET http://127.0.0.1:56635/health \"HTTP/1.1 200 OK\""}
+{"t":"2026-10-28T20:37:10.184Z","severity":"INFO","logger":"httpx","message":"HTTP Request: GET http://127.0.0.1:56635/barrier/before_dispatch \"HTTP/1.1 200 OK\""}
+{"t":"2026-10-28T20:37:10.190Z","severity":"INFO","logger":"httpx","message":"HTTP Request: GET http://127.0.0.1:38401/_test/mutations \"HTTP/1.1 200 OK\""}
+{"t":"2026-10-28T20:37:10.194Z","severity":"INFO","logger":"httpx","message":"HTTP Request: GET http://127.0.0.1:38401/document-requests?idempotency_key=harness-1 \"HTTP/1.1 200 OK\""}
