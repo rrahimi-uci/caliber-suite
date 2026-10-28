@@ -80,6 +80,7 @@ from caliber.schemas import (
     require_approval_for_side_effect,
 )
 from caliber.workflows.builtin_tools import (
+    BUILTIN_TOOL_OWNER,
     is_builtin_tool,
     register_builtin_tools,
     reserved_tool_name,
@@ -560,6 +561,16 @@ async def update_tool(request: Request) -> JSONResponse:
         require_project_access_if_scoped(
             session, identity, tool.project_id, "resource.write.runtime"
         )
+        # ``owner`` is free text and part of what makes a row a built-in (``is_builtin_tool``), so a
+        # registered tool may not be handed the built-ins' owner, whatever its name or module.
+        if changes.get("owner") == BUILTIN_TOOL_OWNER and tool.owner != BUILTIN_TOOL_OWNER:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    f"reserved_tool_owner: owner {BUILTIN_TOOL_OWNER!r} is reserved for the tools "
+                    "CALIBER seeds; choose another owner"
+                ),
+            )
         diff: dict[str, dict[str, object]] = {}
         for field in _UPDATABLE_FIELDS:
             if field not in changes:

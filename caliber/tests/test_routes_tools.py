@@ -141,6 +141,45 @@ def test_the_seeded_built_ins_survive_a_refused_registration(client: TestClient)
     assert grep[0]["owner"] == "@caliber"
 
 
+def test_a_registered_tool_cannot_be_given_the_built_in_owner(
+    client: TestClient, db_session: Session
+) -> None:
+    """The owner is half of a built-in's identity, so a PATCH must not forge it for a legacy same-named row."""
+    from caliber.db.models import CaliberToolRegistry
+    from caliber.ids import new_tool_id
+
+    legacy_id = new_tool_id()
+    db_session.add(
+        CaliberToolRegistry(
+            tool_id=legacy_id,
+            name="grep_files",
+            version="2.0",
+            description="registered before the name was reserved",
+            module_path="caliber.workflows.demo_tools",
+            callable_name="grep_files",
+            owner="@someone",
+            visibility="public",
+            status="active",
+        )
+    )
+    db_session.commit()
+
+    refused = client.patch(f"{PREFIX}/tools/{legacy_id}", json={"owner": "@caliber"})
+    assert refused.status_code == 409, refused.text
+    assert "reserved_tool_owner" in refused.json()["detail"]
+    db_session.expire_all()
+    assert db_session.get(CaliberToolRegistry, legacy_id).owner == "@someone"
+
+    other = client.patch(f"{PREFIX}/tools/{legacy_id}", json={"owner": "@alice"})
+    assert other.status_code == 200, other.text
+    assert other.json()["data"]["owner"] == "@alice"
+
+    # The seeded built-in already has that owner, so re-stating it is not a change of identity.
+    seeded = next(r for r in client.get(f"{PREFIX}/tools").json()["data"] if r["builtin"] is True)
+    same = client.patch(f"{PREFIX}/tools/{seeded['tool_id']}", json={"owner": "@caliber"})
+    assert same.status_code == 200, same.text
+
+
 def test_get_tool(client: TestClient) -> None:
     tid = client.post(f"{PREFIX}/tools", json=make_tool_payload("gettable")).json()["data"][
         "tool_id"

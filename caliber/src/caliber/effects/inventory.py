@@ -154,8 +154,9 @@ def effect_class(tool_name: str, *, caliber_defined: bool = False) -> str:
     answering: callers must treat an exception as a refusal.
 
     Never pass ``caliber_defined=True`` as a literal: derive it from the tool's registry identity, which
-    :func:`effect_class_for_registry_tool` does for a registry row. ``tests/test_protected_effect_inventory.py``
-    fails when a production call passes a literal.
+    :func:`effect_class_for_registry_tool` does for a registry row (and
+    :func:`tool_disposition_for_registry_tool` for the disposition). ``tests/test_protected_effect_inventory.py``
+    fails when a production call passes a constant.
     """
     if not caliber_defined:
         return FAIL_CLOSED
@@ -179,11 +180,19 @@ def effect_class_for_registry_tool(*, name: str, owner: str, module_path: str) -
     return effect_class(name, caliber_defined=trusted)
 
 
+def tool_disposition_for_registry_tool(*, name: str, owner: str, module_path: str) -> str:
+    """:func:`tool_disposition` for a tool row of the registry, trusting the table only for a built-in."""
+    from caliber.workflows.builtin_tools import is_builtin_tool  # noqa: PLC0415
+
+    trusted = is_builtin_tool(name=name, owner=owner, module_path=module_path)
+    return tool_disposition(name, caliber_defined=trusted)
+
+
 def tool_disposition(tool_name: str, *, caliber_defined: bool = False) -> str:
     """What D3 does with ``tool_name``: ``refuse`` or :data:`DEFAULT_DISPOSITION`.
 
     ``refuse`` when a row that lists the tool says so, which the reference profile turns into a refusal
-    (the dispatcher raises it, ADR 0001). The same trust rule as :func:`effect_class` applies: a tool that
+    (the dispatcher raises it, ADR 0001; it does not exist yet, #774). The same trust rule as :func:`effect_class` applies: a tool that
     is not CALIBER's own is never matched by name, so a registered tool called ``read_text_file`` is routed
     through the dispatcher at the fail-closed class instead of inheriting, or escaping, a built-in's row.
     An unlisted tool is routed too, never waved through. Only rows that list tool names can answer here: a

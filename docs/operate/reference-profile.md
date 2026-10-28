@@ -1294,7 +1294,7 @@ trusts a tool's name only when the tool really is CALIBER's own.
 **Reserved names.** The sixteen tools CALIBER seeds: `read_text_file`, `list_folder_files`, `grep_files`,
 `regex_search`, `grok_parse`, `sandbox_python`, `list_workdir_files`, `read_workdir_file`, `get_file_metadata`,
 `write_workdir_file`, `create_artifact`, `extract_document`, `memory_search`, `memory_list`, `list_entities` and
-`memory_add`. The comparison is the one the resolver makes: case and surrounding spaces are ignored, and so are a
+`memory_add`. The comparison is stricter than the resolver's exact match: case and surrounding spaces are ignored, and so are a
 `tool.` prefix and a `.vN` suffix, so `Grep_Files`, ` grep_files ` and `tool.grep_files.v2` are all reserved. A name
 that merely contains one (`grep_files_v2`, `my_grep_files`) is free. The rule applies in every profile, to every
 owner, module and version.
@@ -1318,8 +1318,7 @@ message. Recover by asking Aria for a new tool draft under a different name and 
 A tool registered under a built-in's name **before** this rule is left as it is, and it is not trusted: the
 registry row counts as CALIBER's own only when its name, its owner (`@caliber`) and its module all match what the
 seed writes (`workflows.builtin_tools.is_builtin_tool`), and `effects.inventory.effect_class_for_registry_tool`
-classifies every other row as `irreversible_write`, the fail-closed class. Rename such a tool by registering it
-again under a new name and archiving the old one.
+classifies every other row as `irreversible_write`, the fail-closed class. The owner is part of that identity, so `PATCH /tools/{id}` refuses to give a registered tool the owner `@caliber` (`409 reserved_tool_owner`). To rename such a tool, register it again under a new name, point the workflows that use it at the new name, then archive the old one (a registered tool cannot be renamed in place).
 
 **Refused until explicitly supported.** The inventory now marks two paths `refuse` for the reference profile, so
 the dispatcher (B04.7, #774) will refuse them with `unsupported_in_reference_profile`:

@@ -43,6 +43,7 @@ from caliber.effects.inventory import (
     load_inventory,
     parse_inventory,
     tool_disposition,
+    tool_disposition_for_registry_tool,
 )
 
 REPO = Path(__file__).resolve().parents[2]
@@ -750,7 +751,9 @@ def db_mcp_write_tools() -> set[str]:
     for alias, name in registered:
         tree = ast.parse((package / modules[alias]).read_text(encoding="utf-8"))
         function = next(
-            node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name == name
+            node
+            for node in tree.body
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == name
         )
         calls = {
             call.func.attr
@@ -765,6 +768,7 @@ def db_mcp_write_tools() -> set[str]:
     return writes
 
 
+@needs_repo
 def test_the_db_mcp_scan_finds_the_write_tools_and_not_the_read_tools() -> None:
     writes = db_mcp_write_tools()
     assert {
@@ -784,6 +788,7 @@ def test_ep_055_and_ep_114_are_refused_in_the_reference_profile() -> None:
     assert set(by_id["EP-055"].tool_names) == set(HOST_FILE_TOOLS)
 
 
+@needs_repo
 def test_every_db_mcp_write_tool_is_listed_on_ep_114_and_refused() -> None:
     """A new write tool in the DB MCP server fails here until someone classifies it."""
     writes = db_mcp_write_tools()
@@ -859,6 +864,14 @@ def test_a_registry_row_is_trusted_only_when_name_owner_and_module_all_match() -
     )
 
 
+def test_the_registry_disposition_trusts_only_a_built_in() -> None:
+    assert tool_disposition_for_registry_tool(name="grep_files", **_BUILTIN_IDENTITY) == "refuse"
+    assert tool_disposition_for_registry_tool(name="grok_parse", **_BUILTIN_IDENTITY) == "dispatch"
+    spoofed = {**_BUILTIN_IDENTITY, "owner": "@mallory"}
+    assert tool_disposition_for_registry_tool(name="grep_files", **spoofed) == "dispatch"
+    assert effect_class_for_registry_tool(name="grep_files", **spoofed) == FAIL_CLOSED
+
+
 def test_every_seeded_registry_row_gets_its_inventory_class(
     db_session: Session,
 ) -> None:
@@ -882,7 +895,7 @@ def test_every_seeded_registry_row_gets_its_inventory_class(
 
 
 def literal_trust_calls(root: Path) -> list[str]:
-    """Calls to ``effect_class`` under ``root`` that hard-code trust instead of deriving it."""
+    """Calls to ``effect_class`` or ``tool_disposition`` that hard-code trust instead of deriving it."""
     found: list[str] = []
     for path in sorted(root.rglob("*.py")):
         for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
@@ -895,12 +908,12 @@ def literal_trust_calls(root: Path) -> list[str]:
                 if isinstance(node.func, ast.Attribute)
                 else ""
             )
-            if name != "effect_class":
+            if name not in {"effect_class", "tool_disposition"}:
                 continue
             literal = any(
                 keyword.arg == "caliber_defined"
                 and isinstance(keyword.value, ast.Constant)
-                and keyword.value.value is True
+                and bool(keyword.value.value)
                 for keyword in node.keywords
             )
             if literal or len(node.args) > 1:
@@ -908,6 +921,7 @@ def literal_trust_calls(root: Path) -> list[str]:
     return found
 
 
+@needs_repo
 def test_no_production_call_hard_codes_that_a_tool_is_calibers_own() -> None:
     assert literal_trust_calls(SOURCE) == [], (
         "derive caliber_defined from the tool's registry identity "
@@ -918,13 +932,15 @@ def test_no_production_call_hard_codes_that_a_tool_is_calibers_own() -> None:
 def test_the_literal_trust_scan_sees_each_way_to_hard_code_it(tmp_path: Path) -> None:
     (tmp_path / "bad.py").write_text(
         "effect_class('a', caliber_defined=True)\n"
+        "tool_disposition('f', caliber_defined=1)\n"
         "inventory.effect_class('b', True)\n"
         "ok = effect_class('c', caliber_defined=trusted)\n"
+        "ok2 = tool_disposition('g', caliber_defined=False)\n"
         "other = effect_class('d')\n"
         "noise = len('e')\n",
         encoding="utf-8",
     )
-    assert literal_trust_calls(tmp_path) == ["bad.py:1", "bad.py:2"]
+    assert literal_trust_calls(tmp_path) == ["bad.py:1", "bad.py:2", "bad.py:3"]
 
 
 # ---------------------------------------------------------------- no undecided rows, no stale summary

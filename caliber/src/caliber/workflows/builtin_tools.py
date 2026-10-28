@@ -218,10 +218,10 @@ def reserved_tool_name(name: str) -> str | None:
     on (name, version), so a tool registered as ``grep_files`` would be indistinguishable by name from the
     one CALIBER seeds. Registration therefore refuses every name a built-in owns, whoever the owner is
     (``owner`` is free text, so :func:`is_builtin_tool` is the check for a row that exists, not a gate for
-    a row about to be written). The comparison is the one the resolver makes: surrounding whitespace and
-    case are ignored, and so are the ``tool.`` prefix and the ``.vN`` suffix a manifest reference adds
-    (:func:`caliber.workflows.tools.family_name`), so ``Grep_Files`` and ``tool.grep_files.v2`` are the
-    built-in's name too. CALIBER's own seeding writes rows directly and never calls this.
+    a row about to be written). The comparison is deliberately stricter than the resolver's exact match:
+    surrounding whitespace and case are ignored, and so are the ``tool.`` prefix and the ``.vN`` suffix a
+    manifest reference adds (:func:`caliber.workflows.tools.family_name`), so ``Grep_Files`` and
+    ``tool.grep_files.v2`` are the built-in's name too. CALIBER's own seeding writes rows directly and never calls this.
     """
     from caliber.workflows.tools import family_name  # noqa: PLC0415
 
