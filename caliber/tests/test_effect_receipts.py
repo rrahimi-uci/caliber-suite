@@ -69,6 +69,7 @@ from caliber.effects.records import (
 )
 from caliber.integrations.openapi.executor import OpenApiExecutionError, execute_openapi_http_tool
 from tests.dialect_helpers import DIALECTS, POSTGRES_TEST_URL
+from tests.effect_helpers import leased
 from tests.test_effect_proposals import _seed_run
 from tests.test_effect_records import AT, ATTEMPT, NAIVE_AT, OWNER, _decision, _move
 from tests.test_event_outbox import ALEMBIC_INI, _count, _database
@@ -544,6 +545,7 @@ def test_committed_requires_verified_receipt(
                     expected_version=version,
                     owner_id=OWNER,
                     attempt=ATTEMPT,
+                    lease=leased(session, OWNER),
                     now=AT,
                     **evidence,
                 )
@@ -585,6 +587,7 @@ def test_a_repeated_commit_with_the_same_receipt_is_recorded_once_and_without_it
                     expected_version=version,
                     owner_id=OWNER,
                     attempt=ATTEMPT,
+                    lease=leased(session, OWNER),
                     now=AT,
                     **evidence,
                 )
@@ -728,6 +731,7 @@ def test_a_stale_settle_is_refused_before_a_query_is_made_and_records_nothing(
                     "expected_version": version,
                     "owner_id": OWNER,
                     "attempt": ATTEMPT,
+                    "lease": leased(session, OWNER),
                     "outcome": claim,
                     "verify": verify,
                     "now": AT,
@@ -757,6 +761,7 @@ def test_a_stale_settle_is_refused_before_a_query_is_made_and_records_nothing(
                     expected_version=proposal_state(session, unknown).version,
                     owner_id=OWNER,
                     attempt=ATTEMPT,
+                    lease=leased(session, OWNER),
                     outcome=claim,
                     verify=verify,
                 )
@@ -791,6 +796,7 @@ def test_the_receipt_is_not_kept_when_the_commit_is_refused_and_a_failing_query_
                     expected_version=version,
                     owner_id=OWNER,
                     attempt=ATTEMPT,
+                    lease=leased(session, OWNER),
                     outcome=claim,
                     verify=raising,
                 )
@@ -812,6 +818,7 @@ def test_the_receipt_is_not_kept_when_the_commit_is_refused_and_a_failing_query_
                     expected_version=version,
                     owner_id=OWNER,
                     attempt=ATTEMPT,
+                    lease=leased(session, OWNER),
                     outcome=claim,
                     verify=lambda: _facts(session, proposal_id),
                 )
@@ -894,6 +901,7 @@ def _settle(
         expected_version=proposal_state(session, proposal_id).version,
         owner_id=OWNER,
         attempt=ATTEMPT,
+        lease=leased(session, OWNER),
         outcome=outcome,
         verify=verify,
         now=AT,
@@ -1033,6 +1041,7 @@ def test_a_dispatch_the_downstream_confirms_by_query_is_committed_with_a_receipt
                 expected_version=proposal_state(session, proposal_id).version,
                 owner_id=OWNER,
                 attempt=ATTEMPT,
+                lease=leased(session, OWNER),
                 outcome=outcome,
                 verify=verify,
                 now=AT,
@@ -1067,6 +1076,7 @@ def test_a_lost_response_stays_unknown_until_a_lookup_confirms_it_and_only_then_
                 expected_version=proposal_state(session, proposal_id).version,
                 owner_id=OWNER,
                 attempt=ATTEMPT,
+                lease=leased(session, OWNER),
                 outcome=classify_error(lost.value),
                 verify=lambda: None,
                 now=AT,

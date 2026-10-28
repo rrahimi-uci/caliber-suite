@@ -15,14 +15,15 @@ from typing import Any
 import pytest
 from alembic import command
 from alembic.config import Config
-from sqlalchemy import inspect, text, update
+from sqlalchemy import inspect, select, text, update
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.orm import Session, sessionmaker
 
 from caliber.db.immutable import ImmutableRecordError
-from caliber.db.models import CaliberEffectProposal, CaliberPolicyDecision
+from caliber.db.models import CaliberEffectProposal, CaliberEffectReceipt, CaliberPolicyDecision
 from caliber.effects import records
-from caliber.effects.receipts import ReceiptFacts, record_receipt
+from caliber.effects.connectors import Classified, TransportOutcome
+from caliber.effects.receipts import ReceiptFacts, record_receipt, settle_dispatch
 from caliber.effects.records import (
     APPROVAL_REFUSED,
     APPROVED,
@@ -33,6 +34,7 @@ from caliber.effects.records import (
     EVIDENCE_REQUIRED,
     FAILED,
     ILLEGAL_TRANSITION,
+    LEASE_LOST,
     POLICY_DECISION,
     PROPOSED,
     RECONCILED,
@@ -50,7 +52,9 @@ from caliber.effects.records import (
     read_proposal,
     transition,
 )
+from caliber.ownership import Lease, acquire, release
 from tests.dialect_helpers import DIALECTS, POSTGRES_TEST_URL
+from tests.effect_helpers import TTL_SECONDS, leased
 from tests.test_effect_proposals import _record, _seed_run
 from tests.test_event_outbox import ALEMBIC_INI, _database
 
@@ -95,8 +99,10 @@ def _new(session: Session, *, effect_class: str = "read", occurrence: str = "occ
 
 
 def _move(session: Session, proposal_id: str, to: str, **evidence: Any) -> Any:
-    version = proposal_state(session, proposal_id).version
-    return transition(session, proposal_id, to, expected_version=version, now=AT, **evidence)
+    state = proposal_state(session, proposal_id)
+    if evidence.get("owner_id") and "lease" not in evidence and DISPATCHED in (to, state.state):
+        evidence["lease"] = leased(session, evidence["owner_id"])  # the lease the owner captured
+    return transition(session, proposal_id, to, expected_version=state.version, now=AT, **evidence)
 
 
 def _receipt(session: Session, proposal_id: str) -> str:
@@ -228,6 +234,8 @@ def test_transition_table(
             proposal_id = _at(session, from_state)
             before = proposal_state(session, proposal_id)
             evidence = _evidence_for(session, proposal_id, from_state, to_state)
+            if "owner_id" in evidence:
+                evidence["lease"] = leased(session, OWNER)
             if to_state in TRANSITIONS[from_state]:
                 moved = transition(
                     session,
@@ -314,6 +322,7 @@ def test_a_stale_read_cannot_overwrite_a_newer_state(
                 expected_version=read_first,
                 owner_id="w-1",
                 attempt=1,
+                lease=leased(first, "w-1"),
                 now=AT,
             )
             first.commit()
@@ -352,6 +361,7 @@ def test_the_same_move_repeated_by_the_same_actor_is_recorded_once(
                 expected_version=version,
                 owner_id=OWNER,
                 attempt=1,
+                lease=leased(session, OWNER),
                 now=AT,
             )
             again = transition(
@@ -437,7 +447,13 @@ def test_the_timestamps_default_to_now_and_a_naive_time_is_taken_as_utc(
             proposal_id = _at(session, APPROVED)
             before = datetime.now(timezone.utc).replace(tzinfo=None)
             transition(
-                session, proposal_id, DISPATCHED, expected_version=2, owner_id=OWNER, attempt=1
+                session,
+                proposal_id,
+                DISPATCHED,
+                expected_version=2,
+                owner_id=OWNER,
+                attempt=1,
+                lease=leased(session, OWNER),
             )
             stamped = proposal_state(session, proposal_id).dispatched_at
             assert stamped is not None and before <= stamped <= datetime.now(timezone.utc).replace(
@@ -451,6 +467,7 @@ def test_the_timestamps_default_to_now_and_a_naive_time_is_taken_as_utc(
                 owner_id=OWNER,
                 attempt=1,
                 receipt_id=_receipt(session, proposal_id),
+                lease=leased(session, OWNER),
                 now=NAIVE_AT,
             )
             assert proposal_state(session, proposal_id).settled_at == NAIVE_AT
@@ -1066,7 +1083,13 @@ def test_a_move_that_loses_the_update_race_is_classified_from_what_won(
             monkeypatch.setattr(session, "execute", racing)
             if same_move:
                 lost = transition(
-                    session, proposal_id, DISPATCHED, expected_version=2, owner_id=OWNER, attempt=1
+                    session,
+                    proposal_id,
+                    DISPATCHED,
+                    expected_version=2,
+                    owner_id=OWNER,
+                    attempt=1,
+                    lease=leased(session, OWNER),
                 )
                 assert (lost.applied, lost.version) == (False, 3)
             else:
@@ -1078,9 +1101,280 @@ def test_a_move_that_loses_the_update_race_is_classified_from_what_won(
                         expected_version=2,
                         owner_id=OWNER,
                         attempt=1,
+                        lease=leased(session, OWNER),
                     )
                 assert (stale.value.current_version, stale.value.current_state) == (3, DISPATCHED)
             assert state["fired"]
+
+
+# ---------------------------------------------------------------- fencing by the captured lease (B05.5a, #734)
+
+
+def _count_receipt_rows(session: Session) -> int:
+    return len(session.execute(select(CaliberEffectReceipt.receipt_id)).all())
+
+
+def _taken_over(session: Session, stale: Lease, by: str = "worker-new") -> Lease:
+    """The lease lapses and ``by`` acquires it: a new token, so everything ``stale`` captured is no longer the row's."""
+    assert release(session, stale)
+    taken = acquire(session, by, ttl_seconds=TTL_SECONDS)
+    assert taken is not None and taken.fencing_token == stale.fencing_token + 1
+    return taken
+
+
+def _settle_with(session: Session, proposal_id: str, lease: Lease, outcome: Any) -> Any:
+    queried: list[bool] = []
+
+    def verify() -> ReceiptFacts | None:
+        queried.append(True)
+        view = proposal_view(session, proposal_id)
+        return ReceiptFacts(
+            attempt=view.attempt or 1,
+            idempotency_key=view.logical_key,
+            connector=view.connector,
+            connector_version=view.connector_version,
+            resource=view.resource,
+            intent_hash=view.intent_hash,
+            downstream_request_id=f"DR-{proposal_id}",
+            response_digest="sha256:" + "a" * 64,
+            resource_version="2",
+        )
+
+    try:
+        return settle_dispatch(
+            session,
+            proposal_id,
+            expected_version=proposal_state(session, proposal_id).version,
+            owner_id=OWNER,
+            attempt=ATTEMPT,
+            lease=lease,
+            outcome=outcome,
+            verify=verify,
+            now=AT,
+        )
+    finally:
+        session.info["queried"] = len(queried)
+
+
+_CLAIM = Classified(TransportOutcome.COMMITTED_RECEIPT, "http_201", 201, 1)
+_AMBIGUOUS = Classified(TransportOutcome.AMBIGUOUS, "timeout", None, 1)
+_REJECTED = Classified(TransportOutcome.DEFINITIVE_REJECTION, "http_422", 422, 1)
+_NOT_SENT = Classified(TransportOutcome.PROVEN_NOT_SENT, "refused", None, 1)
+
+
+@pytest.mark.parametrize("dialect", DIALECTS)
+@pytest.mark.parametrize(
+    ("outcome", "what"),
+    [
+        (_CLAIM, "commit"),
+        (_AMBIGUOUS, "mark unknown"),
+        (_REJECTED, "fail"),
+        (_NOT_SENT, "fail (not sent)"),
+    ],
+)
+def test_stale_fencing_token_leaves_unknown(
+    dialect: str, outcome: Classified, what: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A worker whose lease was taken over cannot ``what``: nothing is recorded, not even ``unknown``, and its receipt is
+    rolled back with the refused move. The attempt stays ``dispatched`` and what the downstream did is left unknown to
+    the platform until the reconciler (B05.5b) asks it by key under the new lease."""
+    with _database(dialect, tmp_path, monkeypatch) as (_, factory):
+        _seed_run(factory)
+        with factory() as session:
+            proposal_id = _at(session, DISPATCHED)
+            captured = leased(session, OWNER)
+            before = proposal_state(session, proposal_id)
+            _taken_over(session, captured)
+            with pytest.raises(ProposalError) as refused:
+                _settle_with(session, proposal_id, captured, outcome)
+            assert refused.value.code == LEASE_LOST, what
+            after = proposal_state(session, proposal_id)
+            assert (after.state, after.version, after.owner_id, after.attempt) == (
+                DISPATCHED,
+                before.version,
+                OWNER,
+                ATTEMPT,
+            )
+            assert after.reason is None and after.receipt_id is None and after.unknown_at is None
+            assert _count_receipt_rows(session) == 0, "the receipt went with the refused move"
+            session.commit()
+        with factory() as session:
+            assert proposal_state(session, proposal_id).state == DISPATCHED
+
+
+@pytest.mark.parametrize("dialect", DIALECTS)
+def test_a_lease_that_is_not_the_rows_is_lease_lost_whatever_the_reason(
+    dialect: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Expired (by the database's clock), taken over, a token nobody was issued yet, another lease name: each is refused,
+    for the dispatch and for the way out of it, and each leaves the proposal exactly where it was."""
+    with _database(dialect, tmp_path, monkeypatch) as (_, factory):
+        _seed_run(factory)
+        with factory() as session:
+            approved = _at(session, APPROVED, occurrence="o-approved")
+            dispatched = _at(session, DISPATCHED, occurrence="o-dispatched")
+            held = leased(session, OWNER)
+            expired = Lease(held.name, OWNER, held.fencing_token, held.expires_at)
+            assert release(session, held), "released: expired by the database's own clock"
+            lapsed = _refused(
+                LEASE_LOST,
+                session,
+                approved,
+                DISPATCHED,
+                owner_id=OWNER,
+                attempt=1,
+                lease=expired,
+            )
+            assert "nothing recorded" in str(lapsed)
+            fresh = leased(session, OWNER)
+            assert fresh.fencing_token == held.fencing_token + 1
+            for label, lease in {
+                "an old token": expired,
+                "a future token": Lease(
+                    fresh.name, OWNER, fresh.fencing_token + 1, fresh.expires_at
+                ),
+                "another lease name": Lease("some-other-lease", OWNER, 1, fresh.expires_at),
+                "another owner's": Lease(
+                    fresh.name, "worker-other", fresh.fencing_token, fresh.expires_at
+                ),
+            }.items():
+                for target, evidence in (
+                    (approved, {"to": DISPATCHED}),
+                    (dispatched, {"to": UNKNOWN, "reason": "timeout"}),
+                    (dispatched, {"to": FAILED, "reason": "rejected"}),
+                ):
+                    kwargs = dict(evidence)
+                    to = kwargs.pop("to")
+                    # An owner mismatch is refused as a stale owner; every other lease is not the row's.
+                    code = STALE_OWNER if label == "another owner's" else LEASE_LOST
+                    _refused(
+                        code,
+                        session,
+                        target,
+                        to,
+                        owner_id=OWNER,
+                        attempt=ATTEMPT if target == dispatched else 1,
+                        lease=lease,
+                        **kwargs,
+                    )
+            for target, state in ((approved, APPROVED), (dispatched, DISPATCHED)):
+                assert proposal_state(session, target).state == state
+            moved = transition(
+                session,
+                approved,
+                DISPATCHED,
+                expected_version=proposal_state(session, approved).version,
+                owner_id=OWNER,
+                attempt=1,
+                lease=fresh,
+                now=AT,
+            )
+            assert moved.applied, "and the exact, held lease does move it"
+            session.commit()
+
+
+@pytest.mark.parametrize("dialect", DIALECTS)
+def test_a_move_into_or_out_of_dispatched_needs_the_lease(
+    dialect: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    with _database(dialect, tmp_path, monkeypatch) as (_, factory):
+        _seed_run(factory)
+        with factory() as session:
+            approved = _at(session, APPROVED, occurrence="o-a")
+            dispatched = _at(session, DISPATCHED, occurrence="o-d")
+            _refused(EVIDENCE_REQUIRED, session, approved, DISPATCHED, owner_id=OWNER, attempt=1)
+            for to in (FAILED, UNKNOWN):
+                _refused(
+                    EVIDENCE_REQUIRED,
+                    session,
+                    dispatched,
+                    to,
+                    owner_id=OWNER,
+                    attempt=ATTEMPT,
+                    reason="r",
+                )
+            _refused(
+                EVIDENCE_REQUIRED,
+                session,
+                dispatched,
+                COMMITTED,
+                owner_id=OWNER,
+                attempt=ATTEMPT,
+                receipt_id=_receipt(session, dispatched),
+            )
+            assert proposal_state(session, approved).state == APPROVED
+            assert proposal_state(session, dispatched).state == DISPATCHED
+            # Moves that are not the owner's keep needing no lease.
+            _move(session, dispatched, UNKNOWN, owner_id=OWNER, attempt=ATTEMPT, reason="timeout")
+            assert _move(session, dispatched, RECONCILED, reason="found by key").applied
+            session.commit()
+
+
+@pytest.mark.parametrize("dialect", DIALECTS)
+def test_the_new_owner_cannot_settle_what_the_previous_one_dispatched(
+    dialect: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A valid lease is not a licence to settle another owner's attempt: that is the reconciler's question to the
+    downstream. The old owner, with the lease it captured, is refused as well."""
+    with _database(dialect, tmp_path, monkeypatch) as (_, factory):
+        _seed_run(factory)
+        with factory() as session:
+            proposal_id = _at(session, DISPATCHED)
+            old = leased(session, OWNER)
+            new = _taken_over(session, old)
+            version = proposal_state(session, proposal_id).version
+            with pytest.raises(ProposalError) as other_owner:
+                settle_dispatch(
+                    session,
+                    proposal_id,
+                    expected_version=version,
+                    owner_id=new.owner_id,
+                    attempt=ATTEMPT,
+                    lease=new,
+                    outcome=_CLAIM,
+                    verify=lambda: pytest.fail("a settle by another owner must not query"),
+                )
+            assert other_owner.value.code == STALE_OWNER
+            with pytest.raises(
+                ProposalError
+            ) as borrowed:  # the dispatcher's name on someone else's lease
+                settle_dispatch(
+                    session,
+                    proposal_id,
+                    expected_version=version,
+                    owner_id=OWNER,
+                    attempt=ATTEMPT,
+                    lease=new,
+                    outcome=_CLAIM,
+                    verify=lambda: pytest.fail(
+                        "a settle under another owner's lease must not query"
+                    ),
+                )
+            assert borrowed.value.code == STALE_OWNER
+            with pytest.raises(ProposalError) as old_owner:
+                _settle_with(session, proposal_id, old, _CLAIM)
+            assert old_owner.value.code == LEASE_LOST
+            assert proposal_state(session, proposal_id).state == DISPATCHED
+            assert session.info["queried"] == 1, (
+                "the stale owner's query is read-only and records nothing"
+            )
+            assert _count_receipt_rows(session) == 0
+            session.commit()
+
+
+@pytest.mark.parametrize("dialect", DIALECTS)
+def test_a_settle_under_the_exact_held_lease_commits_with_its_receipt(
+    dialect: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    with _database(dialect, tmp_path, monkeypatch) as (_, factory):
+        _seed_run(factory)
+        with factory() as session:
+            proposal_id = _at(session, DISPATCHED)
+            held = leased(session, OWNER)
+            settled = _settle_with(session, proposal_id, held, _CLAIM)
+            assert settled.state == COMMITTED and settled.receipt_id and settled.applied
+            assert _count_receipt_rows(session) == 1
+            session.commit()
 
 
 # ---------------------------------------------------------------- concurrency (PostgreSQL)
@@ -1091,7 +1385,13 @@ def _need_postgresql() -> None:
         pytest.skip("the race needs PostgreSQL")
 
 
-def _race(factory: sessionmaker[Session], proposal_id: str, workers: int, owner: Any) -> list[str]:
+def _race(
+    factory: sessionmaker[Session],
+    proposal_id: str,
+    workers: int,
+    owner: Any,
+    lease: Any,
+) -> list[str]:
     barrier = threading.Barrier(workers)
     outcomes: list[str] = []
     errors: list[BaseException] = []
@@ -1110,12 +1410,16 @@ def _race(factory: sessionmaker[Session], proposal_id: str, workers: int, owner:
                         expected_version=version,
                         owner_id=owner(index),
                         attempt=1,
+                        lease=lease(index),
                     )
                     session.commit()
                     outcome = "applied" if moved.applied else "duplicate"
                 except StaleVersion:
                     session.rollback()
                     outcome = "stale"
+                except ProposalError as exc:
+                    session.rollback()
+                    outcome = exc.code
             with lock:
                 outcomes.append(outcome)
         except BaseException as exc:
@@ -1131,7 +1435,7 @@ def _race(factory: sessionmaker[Session], proposal_id: str, workers: int, owner:
     return outcomes
 
 
-def test_concurrent_dispatchers_with_different_owners_leave_exactly_one_winner_on_postgresql(
+def test_concurrent_dispatchers_leave_exactly_one_holder_of_the_lease_the_winner_on_postgresql(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     _need_postgresql()
@@ -1140,12 +1444,27 @@ def test_concurrent_dispatchers_with_different_owners_leave_exactly_one_winner_o
         with factory() as session:
             proposal_id = _at(session, APPROVED)
             session.commit()
-        outcomes = _race(factory, proposal_id, 8, lambda index: f"worker-{index}")
-        assert sorted(outcomes) == ["applied"] + ["stale"] * 7
+        with factory() as session:
+            held = leased(session, "worker-0")
+            session.commit()
+
+        def lease(
+            index: int,
+        ) -> Lease:  # worker-0 holds it; the others captured a lease that is not the row's
+            return (
+                held
+                if index == 0
+                else Lease(
+                    held.name, f"worker-{index}", held.fencing_token + index, held.expires_at
+                )
+            )
+
+        outcomes = _race(factory, proposal_id, 8, lambda index: f"worker-{index}", lease)
+        assert sorted(outcomes) == ["applied"] + [LEASE_LOST] * 7
         with factory() as session:
             state = proposal_state(session, proposal_id)
             assert (state.state, state.version, state.attempt) == (DISPATCHED, 3, 1)
-            assert str(state.owner_id).startswith("worker-")
+            assert state.owner_id == "worker-0"
 
 
 def test_concurrent_repeats_of_one_move_apply_it_once_on_postgresql(
@@ -1157,10 +1476,46 @@ def test_concurrent_repeats_of_one_move_apply_it_once_on_postgresql(
         with factory() as session:
             proposal_id = _at(session, APPROVED)
             session.commit()
-        outcomes = _race(factory, proposal_id, 8, lambda index: "same-worker")
+        with factory() as session:
+            held = leased(session, "same-worker")
+            session.commit()
+        outcomes = _race(factory, proposal_id, 8, lambda index: "same-worker", lambda index: held)
         assert sorted(outcomes) == ["applied"] + ["duplicate"] * 7
         with factory() as session:
             assert proposal_state(session, proposal_id).version == 3
+
+
+def test_a_takeover_waits_for_a_settle_in_flight_and_then_the_old_lease_is_refused_on_postgresql(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The settle holds the lease row until its transaction ends: a takeover cannot overtake it, so the work is done under
+    a lease that was valid or not done at all. (``lock_timeout`` stands in for waiting, so nothing sleeps.)"""
+    _need_postgresql()
+    from caliber.ownership import LeaseLost
+
+    with _database("postgresql", tmp_path, monkeypatch) as (_, factory):
+        _seed_run(factory)
+        with factory() as session:
+            proposal_id = _at(session, DISPATCHED)
+            held = leased(session, OWNER)
+            session.commit()
+        with factory() as worker, factory() as successor:
+            settled = _settle_with(
+                worker, proposal_id, held, _CLAIM
+            )  # not committed yet: the lease row is locked
+            assert settled.state == COMMITTED
+            successor.execute(text("SET LOCAL lock_timeout = '200ms'"))
+            with pytest.raises(LeaseLost):
+                release(successor, held)  # the takeover has to wait for the settle's transaction
+            successor.rollback()
+            worker.commit()
+        with factory() as successor:
+            assert release(successor, held), "and gets the lease once the settle is committed"
+            taken = acquire(successor, "worker-new", ttl_seconds=TTL_SECONDS)
+            assert taken is not None and taken.fencing_token == held.fencing_token + 1
+            successor.commit()
+        with factory() as session:
+            assert proposal_state(session, proposal_id).state == COMMITTED
 
 
 def test_records_module_exports_the_transition_api() -> None:
@@ -1315,6 +1670,7 @@ def test_200_without_query_match_is_unknown() -> None:
                     expected_version=proposal_state(session, proposal_id).version,
                     owner_id=OWNER,
                     attempt=ATTEMPT,
+                    lease=leased(session, OWNER),
                     outcome=Classified(TransportOutcome.COMMITTED_RECEIPT, "http_200", 200, 1),
                     verify=lambda: None,
                     now=AT,

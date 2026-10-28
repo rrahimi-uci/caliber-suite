@@ -60,6 +60,7 @@ from caliber.effects.records import (
     proposal_state,
     transition,
 )
+from caliber.ownership import Lease
 from caliber.run_manifest import canonical_bytes
 
 RECEIPT_MISMATCH: Final = "receipt_mismatch"
@@ -373,6 +374,7 @@ def settle_dispatch(
     expected_version: int,
     owner_id: str,
     attempt: int,
+    lease: Lease,
     outcome: Classified,
     verify: Callable[[], ReceiptFacts | None],
     now: datetime | None = None,
@@ -391,8 +393,14 @@ def settle_dispatch(
     records nothing, receipt included; a repeat of a settle that already happened is ``stale_version``, so read the state). If
     ``verify`` raises, the exception propagates and the proposal stays ``dispatched``. The receipt and the commit are one unit:
     if the transition is refused, the receipt is not kept. Nothing is committed to the database (the caller's transaction).
+
+    ``lease`` is the execution-owner lease ``owner_id`` captured when it acquired (B05.5a, #734). Every write here, the receipt
+    and the state move together, is made in one transaction after the lease is compared (exact owner and fencing token, database
+    clock, :func:`caliber.effects.records.transition`): a worker whose lease expired or was taken over gets ``lease_lost``, the
+    receipt is rolled back with the refused move, and the proposal stays ``dispatched``. Not even ``unknown`` is recorded by a
+    stale worker: what the downstream did is for the reconciler, which asks it by key under the new lease.
     """
-    _precheck(session, proposal_id, expected_version, owner_id, attempt)
+    _precheck(session, proposal_id, expected_version, owner_id, attempt, lease)
     if outcome.outcome is TransportOutcome.COMMITTED_RECEIPT:
         facts = verify()
         if facts is not None:
@@ -406,6 +414,7 @@ def settle_dispatch(
                     owner_id=owner_id,
                     attempt=attempt,
                     receipt_id=receipt.receipt_id,
+                    lease=lease,
                     now=now,
                 )
             return Settled(COMMITTED, moved.version, receipt.receipt_id, None, moved.applied)
@@ -417,6 +426,7 @@ def settle_dispatch(
             expected_version,
             owner_id,
             attempt,
+            lease,
             now,
         )
     if outcome.outcome is TransportOutcome.DEFINITIVE_REJECTION:
@@ -428,11 +438,20 @@ def settle_dispatch(
             expected_version,
             owner_id,
             attempt,
+            lease,
             now,
         )
     if outcome.outcome is TransportOutcome.PROVEN_NOT_SENT:
         return _settle(
-            session, proposal_id, FAILED, "not_sent", expected_version, owner_id, attempt, now
+            session,
+            proposal_id,
+            FAILED,
+            "not_sent",
+            expected_version,
+            owner_id,
+            attempt,
+            lease,
+            now,
         )
     return _settle(
         session,
@@ -442,12 +461,18 @@ def settle_dispatch(
         expected_version,
         owner_id,
         attempt,
+        lease,
         now,
     )
 
 
 def _precheck(
-    session: Session, proposal_id: str, expected_version: int, owner_id: str, attempt: int
+    session: Session,
+    proposal_id: str,
+    expected_version: int,
+    owner_id: str,
+    attempt: int,
+    lease: Lease,
 ) -> None:
     """Refuse a settle that could not succeed (stale version, not dispatched, another owner) before any query is made."""
     state = proposal_state(session, proposal_id)
@@ -458,7 +483,7 @@ def _precheck(
             ILLEGAL_TRANSITION,
             f"proposal {proposal_id} is {state.state}: only a dispatched proposal is settled here",
         )
-    if state.owner_id != owner_id or state.attempt != attempt:
+    if state.owner_id != owner_id or state.attempt != attempt or lease.owner_id != owner_id:
         raise ProposalError(
             STALE_OWNER,
             f"proposal {proposal_id} was dispatched by another owner or attempt: nothing recorded",
@@ -473,6 +498,7 @@ def _settle(
     expected_version: int,
     owner_id: str,
     attempt: int,
+    lease: Lease,
     now: datetime | None,
 ) -> Settled:
     moved: Transitioned = transition(
@@ -483,6 +509,7 @@ def _settle(
         owner_id=owner_id,
         attempt=attempt,
         reason=reason[:128],
+        lease=lease,
         now=now,
     )
     return Settled(state, moved.version, None, reason[:128], moved.applied)

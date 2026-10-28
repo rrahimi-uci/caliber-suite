@@ -61,6 +61,7 @@ from caliber.db.models import (
 )
 from caliber.db.transactions import begin_sqlite_transaction
 from caliber.effects.inventory import EFFECT_CLASSES
+from caliber.ownership import Lease, LeaseLost, assert_fenced
 from caliber.run_manifest import FIXED_REGION, FIXED_TENANT_ID, canonical_bytes
 
 INTENT_ALGORITHM: Final = "intent-v1"
@@ -76,6 +77,7 @@ STORE_FAILED: Final = "store_failed"
 ILLEGAL_TRANSITION: Final = "illegal_transition"
 STALE_VERSION: Final = "stale_version"
 STALE_OWNER: Final = "stale_owner"
+LEASE_LOST: Final = "lease_lost"
 EVIDENCE_REQUIRED: Final = "evidence_required"
 APPROVAL_REFUSED: Final = "approval_refused"
 RECEIPT_REFUSED: Final = "receipt_refused"
@@ -526,6 +528,7 @@ def transition(
     attempt: int | None = None,
     reason: str | None = None,
     receipt_id: str | None = None,
+    lease: Lease | None = None,
     now: datetime | None = None,
 ) -> Transitioned:
     """Move a proposal to ``to_state`` if ``expected_version`` is still current, in the caller's transaction (never commits).
@@ -545,6 +548,13 @@ def transition(
     * ``dispatched``: ``owner_id`` and ``attempt`` (recorded with ``dispatched_at``).
     * out of ``dispatched`` (``committed``, ``failed``, ``unknown``): the same ``owner_id`` and ``attempt`` that dispatched
       it; a stale worker is ``stale_owner`` and records nothing. ``failed`` and ``unknown`` also need a ``reason``.
+    * into and out of ``dispatched`` (B05.5a, #734): the ``lease`` the owner captured when it acquired the execution-owner
+      lease, whose owner is ``owner_id``. It is compared, by equality on the persisted owner and fencing token and against
+      the database's clock, in this transaction and before the write (:func:`caliber.ownership.assert_fenced`; on
+      PostgreSQL the lease row stays locked until the transaction ends, so a takeover waits for the write instead of
+      overtaking it). A lease that is expired, taken over (a newer token) or never issued (a future token) is
+      ``lease_lost`` and nothing is recorded: a stale worker cannot commit, fail or mark ``unknown`` itself. The proposal
+      stays ``dispatched`` for the reconciler, which asks the downstream by key. No lease is ``evidence_required``.
     * ``failed`` (from any state), ``unknown`` and ``reconciled``: a short ``reason`` code (never a payload).
     * ``committed``: ``receipt_id``, a verified receipt (:mod:`caliber.effects.receipts`) recorded for *this* proposal and
       dispatch attempt, read back from the downstream and matching the proposal's key and intent. A proposal never
@@ -554,8 +564,7 @@ def transition(
     REPEATABLE READ or SERIALIZABLE PostgreSQL itself refuses an UPDATE of a row another transaction changed after the
     snapshot (a serialization failure): the caller rolls back and retries from a fresh read, as with the grants.
     A repeat is only recognised while the proposal is still where the move left it: once it has moved on, the retry is
-    :class:`StaleVersion` and the caller reads ``current_state``. The owner check here is equality of the recorded
-    ``(owner_id, attempt)``; fencing by the lease token and expiry inside the transaction is B05.5a (#734).
+    :class:`StaleVersion` and the caller reads ``current_state``. A repeat writes nothing, so it needs no lease.
     """
     if type(expected_version) is not int or expected_version < 1:
         raise ProposalError(BAD_FIELD, "expected_version must be a positive integer")
@@ -585,6 +594,8 @@ def transition(
         )
     evidence = _evidence(session, row, to_state, approval, owner, tries, why, receipt_id)
     _check_owner(row, owner, tries)
+    if DISPATCHED in (row.state, to_state):
+        _fence(session, row, owner, lease)
     values: dict[str, Any] = {"state": to_state, "version": expected_version + 1, **evidence}
     moment = _naive_utc(now)
     for state, column in ((DISPATCHED, "dispatched_at"), (UNKNOWN, "unknown_at")):
@@ -755,6 +766,29 @@ def _check_owner(row: CaliberEffectProposal, owner: str | None, attempt: int | N
         )
 
 
+def _fence(
+    session: Session, row: CaliberEffectProposal, owner: str | None, lease: Lease | None
+) -> None:
+    """The write is made under the exact lease the owner captured, still held, or it is not made (B05.5a, #734)."""
+    if lease is None:
+        raise ProposalError(
+            EVIDENCE_REQUIRED,
+            "a move into or out of dispatched needs the lease the owner captured when it acquired",
+        )
+    if lease.owner_id != owner:
+        raise ProposalError(
+            STALE_OWNER,
+            f"the lease belongs to {lease.owner_id!r}, not to the owner {owner!r} of this move: nothing recorded",
+        )
+    try:
+        assert_fenced(session, lease)
+    except LeaseLost as exc:
+        raise ProposalError(
+            LEASE_LOST,
+            f"proposal {row.proposal_id}: {exc.reason}; nothing recorded, the reconciler asks the downstream",
+        ) from exc
+
+
 def _verify_receipt(session: Session, row: CaliberEffectProposal, receipt_id: str) -> None:
     """The receipt exists, was read back from the downstream (``query``) and answers *this* proposal's attempt."""
     receipt = session.get(CaliberEffectReceipt, receipt_id)
@@ -874,6 +908,7 @@ __all__ = [
     "ILLEGAL_TRANSITION",
     "INTENT_ALGORITHM",
     "INTENT_CONFLICT",
+    "LEASE_LOST",
     "MAX_ARGS_DEPTH",
     "MAX_INTENT_BYTES",
     "POLICY_DECISION",
