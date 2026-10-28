@@ -489,6 +489,34 @@ def test_missing_rule_bundle_denies(
     assert _counts(db_session)[CaliberRunManifest.__tablename__] == 1
 
 
+def test_a_bundle_whose_context_citation_is_too_large_is_refused_at_admission(
+    client: TestClient, db_session: Session, tmp_path: Path
+) -> None:
+    """Every step would cite the bundle in a 1 MiB-bounded context manifest, so admission refuses a bundle whose
+    citation is over 256 KiB (here 200 rules with 512-character CJK source_refs: ~340 KB of a 360 KB file)."""
+    workflow_id, _ = _project_workflow(client, db_session)
+    cjk = "漢" * 512
+    rules = "".join(
+        f'  - id: r{number:04d}\n    text: "t"\n    source_ref: "{cjk}"\n    applies_to: [x]\n'
+        for number in range(200)
+    )
+    big = tmp_path / "big.yaml"
+    big.write_text(
+        f'schema_version: v1\nbundle_id: big\nversion: "1"\nrules:\n{rules}', encoding="utf-8"
+    )
+    _enable(
+        client,
+        rule_bundle_path=str(big),
+        rule_bundle_sha256=hashlib.sha256(big.read_bytes()).hexdigest(),
+    )
+    refused = _run(client, workflow_id, idempotency_key="k-too-big")
+    assert refused.status_code == 409, refused.text
+    detail = refused.json()["detail"]
+    assert "rule_bundle_refused" in detail and "262144" in detail
+    assert cjk[:8] not in detail and "r0001" not in detail, "no payload in the message"
+    _nothing(db_session)
+
+
 def test_a_workflow_without_a_project_is_not_admitted(
     client: TestClient, db_session: Session
 ) -> None:

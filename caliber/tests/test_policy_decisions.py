@@ -555,8 +555,8 @@ def test_initial_transaction_rollback_leaves_no_run_grant_or_decision(
     only after an allow, and a denial rolls all of it back."""
     with _migrated(dialect, tmp_path, monkeypatch) as (engine, _):
         _seed(engine)  # the project and the member
-        run_id = f"run-{uuid.uuid4().hex[:8]}"
-        grant_id = f"grant-{uuid.uuid4().hex[:8]}"
+        run_id = f"run-a{uuid.uuid4().hex[:8]}"
+        grant_id = f"grant-a{uuid.uuid4().hex[:8]}"
 
         def admit(session: Session, action: str) -> decisions.PolicyDecision:
             session.add(
