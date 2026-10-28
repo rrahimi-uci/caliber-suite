@@ -1396,10 +1396,31 @@ request body. A tool draft Aria publishes under a reserved name is not registere
 `publish_failed` and the publish report carries `"success": false`, `"code": "reserved_tool_name"` and the same
 message. Recover by asking Aria for a new tool draft under a different name and publishing that one.
 
-A tool registered under a built-in's name **before** this rule is left as it is, and it is not trusted: the
-registry row counts as CALIBER's own only when its name, its owner (`@caliber`) and its module all match what the
-seed writes (`workflows.builtin_tools.is_builtin_tool`), and `effects.inventory.effect_class_for_registry_tool`
-classifies every other row as `irreversible_write`, the fail-closed class. The owner is part of that identity, so `PATCH /tools/{id}` refuses to give a registered tool the owner `@caliber` (`409 reserved_tool_owner`). To rename such a tool, register it again under a new name, point the workflows that use it at the new name, then archive the old one (a registered tool cannot be renamed in place).
+A tool registered under a built-in's name **before** this rule is not migrated or rewritten. It is neutralised by
+two things only: the identity check and an audit. A registry row counts as CALIBER's own only when every field the
+seed writes matches (`workflows.builtin_tools.is_builtin_tool`): the name, the owner `@caliber`, the version `1.0`, a
+callable named like the tool, and that tool's own module (`BUILTIN_TOOL_MODULE_BY_NAME`, which the seed also reads, so
+the two cannot drift). `effects.inventory.effect_class_for_registry_tool` classifies every other row as
+`irreversible_write`, the fail-closed class, and `tool_disposition_for_registry_tool` routes it through the dispatcher
+instead of trusting it. The audit: every time the tool list seeds the built-ins, each row that holds a reserved name
+without being the seed's own row is logged once per process at `ERROR` and gets one audit record (action
+`flag_reserved_tool_name`, entity type `tool`, severity `high`, with `blocks_seed`). `blocks_seed: true` means the row is
+at version `1.0` under the exact built-in name, so the registry (unique on name and version) cannot hold the real
+built-in: it was never seeded and is missing from the list until the squatter is archived and renamed, or deleted
+by an operator. To rename such a tool, register it again under a new name, point the workflows that use it at the new
+name, then archive the old one (a registered tool cannot be renamed in place).
+
+The owner is part of that identity, so `PATCH /tools/{id}` refuses (`409 reserved_tool_owner`) to give a registered
+tool the owner `@caliber`, unless the row already matches the seed in every other field. That exception exists to repair
+a built-in whose owner was edited away: until it is set back the row is untrusted (fail-closed) and the audit flags it;
+a row that differs from the seed in name, version, module or callable can never be made trusted by editing its owner.
+
+**Where trust comes from at run time.** The dispatch call sites (B07 #524, B08 #526, the B04 tasks) must pass the
+registry row's own name, owner, module, callable and version, read from the database for the tool being run. They
+must never pass a manifest binding's `local_name` or `resolved_name`, and `IRToolBinding` and `ToolRegistryEntry`
+carry no owner on purpose: the IR is written into generated exports field by field, so an owner there would be data an
+export author controls. A test fails when production code passes a constant or a `**kwargs` expansion to these
+lookups.
 
 **Refused until explicitly supported.** The inventory now marks two paths `refuse` for the reference profile, so
 the dispatcher (B04.7, #774) will refuse them with `unsupported_in_reference_profile`:
@@ -1410,7 +1431,9 @@ the dispatcher (B04.7, #774) will refuse them with `unsupported_in_reference_pro
 | EP-114 | the write tools of the first-party PostgreSQL MCP server (`create_table`, `insert_rows`, `update_rows`, `delete_rows`, `execute_sql`, `create_vector_table`, `upsert_vectors`, `create_graph`, `drop_graph`, `create_vertex`, `create_edge`, `cypher_query`) | they create tables and write rows with no guard of their own; its read tools (`list_tables`, `describe_table`, `run_query`, `similarity_search`) run in a read-only transaction and are not refused |
 
 `effects.inventory.tool_disposition(name, caliber_defined=...)` answers `refuse` or `dispatch` for a tool, on the same
-trust rule as `effect_class`. **This change records the decision and the lookup; the dispatcher that raises the refusal
+trust rule as `effect_class`. The DB MCP write tools are not registry rows, so `tool_disposition_for_registry_tool`
+answers `dispatch` for those names today; their refusal rests on the MCP server's identity, which #759 and #774
+establish. **This change records the decision and the lookup; the dispatcher that raises the refusal
 at run time is #774.** Until it lands a reference deployment still runs these tools if a workflow uses them, so do
 not register the first-party DB MCP server and do not wire the four host-file tools into a reference workflow.
 

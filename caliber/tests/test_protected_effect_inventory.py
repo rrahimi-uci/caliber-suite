@@ -77,7 +77,7 @@ EFFECT_PRIMITIVES = (
     "mlflow.log_feedback(",
     "mlflow.log_expectation(",
     "mlflow.genai.evaluate(",
-    "optimize_prompts(\n",  # a call split over lines; a docstring mention is not a call
+    "optimize_prompts(",
     "register_prompt(",
     "datasets.create_dataset(",
     "merge_records(",
@@ -87,15 +87,29 @@ EFFECT_PRIMITIVES = (
     "subprocess.",
     "urlopen(",
     "generate_presigned_url(",  # mints a capability URL (EP-053)
+    # Holes found in review: object copies, uploads, shell and async subprocess spawns, a urllib opener,
+    # and a direct import of subprocess's spawn functions. ``send_message`` was considered and left out: in
+    # this tree it is the Aria assistant service's own method (assistant/service.py), not a messaging call.
+    "copy_object",
+    "upload_file(",
+    "os.system(",
+    "create_subprocess",
+    "opener.open(",
+    "from subprocess import",
 )
 
 
 def files_with_effect_primitives(root: Path) -> dict[Path, list[str]]:
-    """Every ``*.py`` under ``root`` containing an effect primitive, with the primitives found."""
+    """Every ``*.py`` under ``root`` containing an effect primitive in code, with the primitives found.
+
+    Comments and docstrings are blanked first (the same rule the pins use): a docstring that mentions
+    ``optimize_prompts(...)`` is prose, not a call.
+    """
     found: dict[Path, list[str]] = {}
     for path in sorted(root.rglob("*.py")):
         text = path.read_text(encoding="utf-8", errors="replace")
-        hits = [primitive for primitive in EFFECT_PRIMITIVES if primitive in text]
+        code = code_only(text, ast.parse(text))
+        hits = [primitive for primitive in EFFECT_PRIMITIVES if primitive in code]
         if hits:
             found[path] = hits
     return found
@@ -362,6 +376,37 @@ def test_unlisted_call_site_fails(tmp_path: Path) -> None:
         assert_every_effect_file_is_listed(tmp_path, load_inventory(), base=tmp_path)
     assert "rogue_effect.py" in str(failure.value)
     assert "httpx.post" in str(failure.value)
+
+
+def test_a_docstring_or_comment_naming_a_primitive_needs_no_row_but_a_call_does(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "prose.py").write_text(
+        '"""Calls mlflow.genai.optimize_prompts(...) elsewhere."""\n# requests.post(url)\n',
+        encoding="utf-8",
+    )
+    assert_every_effect_file_is_listed(tmp_path, [], base=tmp_path)
+    (tmp_path / "call.py").write_text("def f():\n    os.system('x')\n", encoding="utf-8")
+    with pytest.raises(AssertionError, match=r"call\.py \(os\.system\(\)"):
+        assert_every_effect_file_is_listed(tmp_path, [], base=tmp_path)
+
+
+@pytest.mark.parametrize(
+    ("source", "primitive"),
+    [
+        ("def f():\n    s3.copy_object(Bucket=b)\n", "copy_object"),
+        ("def f():\n    s3.upload_file(a, b, c)\n", "upload_file("),
+        ("def f():\n    os.system('x')\n", "os.system("),
+        ("async def f():\n    await asyncio.create_subprocess_exec('x')\n", "create_subprocess"),
+        ("def f():\n    opener.open(req)\n", "opener.open("),
+        ("def f():\n    from subprocess import run\n    run(['x'])\n", "from subprocess import"),
+        ("def f():\n    mlflow.genai.optimize_prompts(a, b)\n", "optimize_prompts("),
+    ],
+)
+def test_each_widened_primitive_is_found_in_the_function_that_holds_it(
+    tmp_path: Path, source: str, primitive: str
+) -> None:
+    assert _scan(tmp_path, source) == {("m.py", "f"): {primitive: 1}}
 
 
 def test_a_listed_file_and_a_listed_directory_pass(tmp_path: Path) -> None:
@@ -650,7 +695,7 @@ def test_a_call_split_over_lines_is_counted_and_its_docstring_mention_is_not(
         "        x,\n"
         "    )\n",
     )
-    assert found == {("m.py", "tune"): {"optimize_prompts(\n": 1}}
+    assert found == {("m.py", "tune"): {"optimize_prompts(": 1}}
 
 
 def test_ast_byte_columns_are_converted_to_character_columns() -> None:
@@ -846,30 +891,65 @@ def test_an_unlisted_trusted_tool_is_routed_and_fail_closed(
 
 # ---------------------------------------------------------------- trusted identity for effect_class
 
-_BUILTIN_IDENTITY = {"owner": "@caliber", "module_path": "caliber.workflows.demo_tools"}
+
+def _seed(name: str, **overrides: str) -> dict[str, str]:
+    """Every field the seed writes for the built-in ``name``, with ``overrides`` applied."""
+    from caliber.workflows.builtin_tools import BUILTIN_TOOL_MODULE_BY_NAME, BUILTIN_TOOL_VERSION
+
+    fields = {
+        "owner": "@caliber",
+        "module_path": BUILTIN_TOOL_MODULE_BY_NAME[name],
+        "callable_name": name,
+        "version": BUILTIN_TOOL_VERSION,
+    }
+    return {**fields, **overrides}
 
 
-def test_a_registry_row_is_trusted_only_when_name_owner_and_module_all_match() -> None:
-    assert effect_class_for_registry_tool(name="grep_files", **_BUILTIN_IDENTITY) == "export"
-    assert effect_class_for_registry_tool(name="write_workdir_file", **_BUILTIN_IDENTITY) == (
-        "reversible_write"
-    )
-    assert effect_class_for_registry_tool(name="never_listed", **_BUILTIN_IDENTITY) == FAIL_CLOSED
-    spoofed_owner = {**_BUILTIN_IDENTITY, "owner": "@mallory"}
-    assert effect_class_for_registry_tool(name="grep_files", **spoofed_owner) == FAIL_CLOSED
-    spoofed_module = {**_BUILTIN_IDENTITY, "module_path": "mallory.tools"}
-    assert effect_class_for_registry_tool(name="grep_files", **spoofed_module) == FAIL_CLOSED
-    assert effect_class_for_registry_tool(name="grep_files", owner="", module_path="") == (
-        FAIL_CLOSED
-    )
+def test_a_registry_row_is_trusted_only_when_every_seeded_field_matches() -> None:
+    assert effect_class_for_registry_tool(name="grep_files", **_seed("grep_files")) == "export"
+    assert effect_class_for_registry_tool(
+        name="write_workdir_file", **_seed("write_workdir_file")
+    ) == ("reversible_write")
+    assert effect_class_for_registry_tool(name="never_listed", **_seed("grep_files")) == FAIL_CLOSED
+    for override in (
+        {"owner": "@mallory"},
+        {"owner": "@caliber", "module_path": "mallory.tools"},
+        {"module_path": "caliber.workflows.memory_tools"},
+        {"callable_name": "lookup_policy"},
+        {"version": "2.0"},
+        {"owner": "", "module_path": "", "callable_name": "", "version": ""},
+    ):
+        assert (
+            effect_class_for_registry_tool(name="grep_files", **_seed("grep_files", **override))
+            == FAIL_CLOSED
+        ), override
 
 
 def test_the_registry_disposition_trusts_only_a_built_in() -> None:
-    assert tool_disposition_for_registry_tool(name="grep_files", **_BUILTIN_IDENTITY) == "refuse"
-    assert tool_disposition_for_registry_tool(name="grok_parse", **_BUILTIN_IDENTITY) == "dispatch"
-    spoofed = {**_BUILTIN_IDENTITY, "owner": "@mallory"}
+    assert tool_disposition_for_registry_tool(name="grep_files", **_seed("grep_files")) == "refuse"
+    assert (
+        tool_disposition_for_registry_tool(name="grok_parse", **_seed("grok_parse")) == "dispatch"
+    )
+    spoofed = _seed("grep_files", owner="@mallory")
     assert tool_disposition_for_registry_tool(name="grep_files", **spoofed) == "dispatch"
     assert effect_class_for_registry_tool(name="grep_files", **spoofed) == FAIL_CLOSED
+
+
+def test_the_db_mcp_write_tools_are_not_refused_through_the_registry_helper() -> None:
+    """Their trust comes from the MCP server's identity (#774/#759), not from a registry row: no registry row
+    can be the first-party server's tool, so the registry helper never trusts these names."""
+    from caliber.workflows.builtin_tools import BUILTIN_TOOL_MODULE_BY_NAME
+
+    assert "insert_rows" not in BUILTIN_TOOL_MODULE_BY_NAME
+    row = {
+        "owner": "@caliber",
+        "module_path": "caliber.mcp_servers.db",
+        "callable_name": "insert_rows",
+    }
+    assert (
+        tool_disposition_for_registry_tool(name="insert_rows", version="1.0", **row) == "dispatch"
+    )
+    assert effect_class_for_registry_tool(name="insert_rows", version="1.0", **row) == FAIL_CLOSED
 
 
 def test_every_seeded_registry_row_gets_its_inventory_class(
@@ -884,41 +964,88 @@ def test_every_seeded_registry_row_gets_its_inventory_class(
     assert {row.name for row in rows} == BUILTIN_TOOL_NAMES
     for row in rows:
         trusted = effect_class(row.name, caliber_defined=True)
-        got = effect_class_for_registry_tool(
-            name=row.name, owner=row.owner, module_path=row.module_path
-        )
-        assert got == trusted, row.name
+        identity = {
+            "owner": row.owner,
+            "module_path": row.module_path,
+            "callable_name": row.callable_name,
+            "version": row.version,
+        }
+        assert effect_class_for_registry_tool(name=row.name, **identity) == trusted, row.name
         impostor = effect_class_for_registry_tool(
-            name=row.name, owner="@someone", module_path=row.module_path
+            name=row.name, **{**identity, "owner": "@someone"}
         )
         assert impostor == FAIL_CLOSED, row.name
 
 
+def test_the_ir_and_the_resolver_entry_carry_no_owner() -> None:
+    """Trust comes from the registry row read at dispatch, so the IR must not carry an owner to forge.
+
+    The IR is written into generated exports field by field, so an owner there would be data an export
+    author controls (and adding the field would change every export). If a later design needs one, it must
+    also say how it stays out of exports and how the dispatcher re-reads the row; update the docs with it.
+    """
+    import dataclasses
+
+    from caliber.workflows.ir import IRToolBinding
+    from caliber.workflows.tools import ToolRegistryEntry
+
+    for cls in (IRToolBinding, ToolRegistryEntry):
+        assert "owner" not in {field.name for field in dataclasses.fields(cls)}, cls.__name__
+
+
+#: The lookups that take a trust flag, and the helpers that derive it from a registry row's identity.
+_TRUST_FLAG_LOOKUPS = {"effect_class", "tool_disposition"}
+_REGISTRY_HELPERS = {"effect_class_for_registry_tool", "tool_disposition_for_registry_tool"}
+#: The identity a registry helper must read from the row, never spell out.
+_IDENTITY_FIELDS = {"name", "owner", "module_path", "callable_name", "version"}
+
+
+def _called_name(node: ast.expr) -> str:
+    if isinstance(node, ast.Name):
+        return node.id
+    if isinstance(node, ast.Attribute):
+        return node.attr
+    return ""
+
+
 def literal_trust_calls(root: Path) -> list[str]:
-    """Calls to ``effect_class`` or ``tool_disposition`` that hard-code trust instead of deriving it."""
-    found: list[str] = []
+    """Calls under ``root`` that hard-code trust in a tool instead of deriving it from its registry row.
+
+    Flagged: a constant ``caliber_defined`` (or a second positional argument) to ``effect_class`` or
+    ``tool_disposition``; a string constant for any identity field of the ``*_for_registry_tool`` helpers
+    (``owner="@caliber"``); a ``**kwargs`` expansion into any of the four, which hides what is passed;
+    and ``functools.partial`` of any of the four, which can pre-bind a constant out of sight.
+    """
+    found: list[tuple[str, int]] = []
+    lookups = _TRUST_FLAG_LOOKUPS | _REGISTRY_HELPERS
     for path in sorted(root.rglob("*.py")):
         for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
             if not isinstance(node, ast.Call):
                 continue
-            name = (
-                node.func.id
-                if isinstance(node.func, ast.Name)
-                else node.func.attr
-                if isinstance(node.func, ast.Attribute)
-                else ""
-            )
-            if name not in {"effect_class", "tool_disposition"}:
-                continue
-            literal = any(
-                keyword.arg == "caliber_defined"
-                and isinstance(keyword.value, ast.Constant)
-                and bool(keyword.value.value)
-                for keyword in node.keywords
-            )
-            if literal or len(node.args) > 1:
-                found.append(f"{path.name}:{node.lineno}")
-    return found
+            name = _called_name(node.func)
+            flagged = False
+            if name == "partial" and node.args:
+                flagged = _called_name(node.args[0]) in lookups
+            elif name in lookups:
+                flagged = any(keyword.arg is None for keyword in node.keywords)
+                if name in _TRUST_FLAG_LOOKUPS:
+                    flagged = flagged or len(node.args) > 1
+                    flagged = flagged or any(
+                        keyword.arg == "caliber_defined"
+                        and isinstance(keyword.value, ast.Constant)
+                        and bool(keyword.value.value)
+                        for keyword in node.keywords
+                    )
+                else:
+                    flagged = flagged or any(
+                        keyword.arg in _IDENTITY_FIELDS
+                        and isinstance(keyword.value, ast.Constant)
+                        and isinstance(keyword.value.value, str)
+                        for keyword in node.keywords
+                    )
+            if flagged:
+                found.append((path.name, node.lineno))
+    return [f"{file}:{line}" for file, line in sorted(found)]
 
 
 @needs_repo
@@ -931,16 +1058,36 @@ def test_no_production_call_hard_codes_that_a_tool_is_calibers_own() -> None:
 
 def test_the_literal_trust_scan_sees_each_way_to_hard_code_it(tmp_path: Path) -> None:
     (tmp_path / "bad.py").write_text(
-        "effect_class('a', caliber_defined=True)\n"
-        "tool_disposition('f', caliber_defined=1)\n"
-        "inventory.effect_class('b', True)\n"
-        "ok = effect_class('c', caliber_defined=trusted)\n"
-        "ok2 = tool_disposition('g', caliber_defined=False)\n"
-        "other = effect_class('d')\n"
-        "noise = len('e')\n",
+        "effect_class('a', caliber_defined=True)\n"  # 1
+        "tool_disposition('f', caliber_defined=1)\n"  # 2
+        "inventory.effect_class('b', True)\n"  # 3
+        "effect_class_for_registry_tool(name=n, owner='@caliber', module_path=m)\n"  # 4
+        "tool_disposition_for_registry_tool(name=n, owner=o, module_path='caliber.x')\n"  # 5
+        "effect_class_for_registry_tool(**identity)\n"  # 6
+        "effect_class('c', **flags)\n"  # 7
+        "functools.partial(effect_class, caliber_defined=True)('d')\n"  # 8
+        "partial(tool_disposition_for_registry_tool, owner='@caliber')\n"  # 9
+        "effect_class_for_registry_tool(name=n, owner=o, module_path=m, callable_name='x')\n",  # 10
         encoding="utf-8",
     )
-    assert literal_trust_calls(tmp_path) == ["bad.py:1", "bad.py:2", "bad.py:3"]
+    assert literal_trust_calls(tmp_path) == [f"bad.py:{n}" for n in range(1, 11)]
+
+
+def test_the_literal_trust_scan_leaves_derived_trust_alone(tmp_path: Path) -> None:
+    (tmp_path / "ok.py").write_text(
+        "ok = effect_class('c', caliber_defined=trusted)\n"
+        "ok2 = tool_disposition('g', caliber_defined=False)\n"
+        "ok3 = effect_class('d')\n"
+        "ok4 = effect_class_for_registry_tool(\n"
+        "    name=row.name, owner=row.owner, module_path=row.module_path,\n"
+        "    callable_name=row.callable_name, version=row.version)\n"
+        "ok5 = tool_disposition_for_registry_tool(name=row.name, owner=row.owner, module_path=m,\n"
+        "    callable_name=c, version=v)\n"
+        "noise = len('e')\n"
+        "other = functools.partial(print, 'x')\n",
+        encoding="utf-8",
+    )
+    assert literal_trust_calls(tmp_path) == []
 
 
 # ---------------------------------------------------------------- no undecided rows, no stale summary

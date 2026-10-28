@@ -166,25 +166,49 @@ def effect_class(tool_name: str, *, caliber_defined: bool = False) -> str:
     return max(classes, key=EFFECT_CLASSES.index)
 
 
-def effect_class_for_registry_tool(*, name: str, owner: str, module_path: str) -> str:
+def effect_class_for_registry_tool(
+    *, name: str, owner: str, module_path: str, callable_name: str, version: str
+) -> str:
     """:func:`effect_class` for a tool row of the registry, trusting the table only for a built-in.
 
-    A registry row is a built-in only when its name, owner and module all match what CALIBER seeds
-    (``workflows.builtin_tools.is_builtin_tool``); the name alone is not an identity. Registration also
+    A registry row is a built-in only when every field the seed writes matches (name, owner, version, module and
+    callable; ``workflows.builtin_tools.is_builtin_tool``); the name alone is not an identity. Pass the **registry
+    row's own** fields, read from the database for the tool being run: never a manifest binding's ``local_name``
+    or ``resolved_name``, and never constants (``tests/test_protected_effect_inventory.py`` rejects those). The IR
+    (``IRToolBinding``) and ``ToolRegistryEntry`` carry no owner on purpose. Registration also
     refuses a built-in's name (``reserved_tool_name``), so a row that reuses one is a tool registered before
     that rule, and it is still classified :data:`FAIL_CLOSED`.
     """
     from caliber.workflows.builtin_tools import is_builtin_tool  # noqa: PLC0415
 
-    trusted = is_builtin_tool(name=name, owner=owner, module_path=module_path)
+    trusted = is_builtin_tool(
+        name=name,
+        owner=owner,
+        module_path=module_path,
+        callable_name=callable_name,
+        version=version,
+    )
     return effect_class(name, caliber_defined=trusted)
 
 
-def tool_disposition_for_registry_tool(*, name: str, owner: str, module_path: str) -> str:
-    """:func:`tool_disposition` for a tool row of the registry, trusting the table only for a built-in."""
+def tool_disposition_for_registry_tool(
+    *, name: str, owner: str, module_path: str, callable_name: str, version: str
+) -> str:
+    """:func:`tool_disposition` for a tool row of the registry, trusting the table only for a built-in.
+
+    The same rule and the same caution as :func:`effect_class_for_registry_tool`. It answers ``dispatch`` for the
+    first-party DB MCP server's tools (EP-114): they are not registry rows, so no row can be trusted as one of
+    them. Refusing them rests on the MCP server's identity, which the MCP caller must establish (#759, #774).
+    """
     from caliber.workflows.builtin_tools import is_builtin_tool  # noqa: PLC0415
 
-    trusted = is_builtin_tool(name=name, owner=owner, module_path=module_path)
+    trusted = is_builtin_tool(
+        name=name,
+        owner=owner,
+        module_path=module_path,
+        callable_name=callable_name,
+        version=version,
+    )
     return tool_disposition(name, caliber_defined=trusted)
 
 

@@ -101,7 +101,7 @@
    "symbol": "OpenAIAgentsLLMProvider._generate_candidate_gepa",
    "row": "EP-118",
    "primitives": {
-    "optimize_prompts(\n": 1,
+    "optimize_prompts(": 1,
     "register_prompt(": 1
    }
   },
@@ -331,6 +331,14 @@
    "row": "EP-105",
    "primitives": {
     "invoke_tool": 1
+   }
+  },
+  {
+   "file": "caliber/src/caliber/storage/s3.py",
+   "symbol": "S3StorageBackend.copy",
+   "row": "EP-129",
+   "primitives": {
+    "copy_object": 1
    }
   },
   {

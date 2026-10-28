@@ -11,7 +11,7 @@ Four things today have no single owner. (1) Control records the EGI program adds
 envelope, policy decision, approval, effect record, receipt, acceptance decision, evidence package, outbox) have
 no agreed writer: two modules could each persist "the" receipt. (2) Ten background workers and an event bus are
 started by the server lifespan, and nothing says which process may run them when two processes share a database (a second
-active owner doubles effects). (3) 127 code paths can change an external system (the inventory); some run through
+active owner doubles effects). (3) many code paths can change an external system (the inventory lists them all); some run through
 the effect ledger, most run through nothing. (4) Packages B02–B06 each need to answer "which module writes this
 record" before they can be built independently.
 
@@ -197,6 +197,7 @@ and `exempt` rows stay with the module the row names.
 | EP-126 | `caliber/src/caliber/workflows/file_tools.py::read_workdir_file` | `caliber/src/caliber/effects/` dispatcher (#520) | routed through the dispatcher: a recorded policy decision only, no EffectRecord or Receipt (ADR 0001) |
 | EP-127 | `caliber/src/caliber/workflows/demo_tools.py::grok_parse` | `caliber/src/caliber/effects/` dispatcher (#520) | routed through the dispatcher: a recorded policy decision only, no EffectRecord or Receipt (ADR 0001) |
 | EP-128 | `caliber/src/caliber/routes/assistant.py::_list_ollama_models` | `caliber/src/caliber/routes/assistant.py` (unchanged) | exempt: see the inventory note for why no model proposal or workflow node reaches it |
+| EP-129 | `caliber/src/caliber/storage/s3.py::S3StorageBackend.copy` | `caliber/src/caliber/storage/s3.py` (unchanged) | exempt: see the inventory note for why no model proposal or workflow node reaches it |
 
 ## Consequences
 
