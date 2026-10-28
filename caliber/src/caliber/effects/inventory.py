@@ -8,7 +8,9 @@ Later work reads it here: the dispatcher's path matrix is parametrized from the 
 asks :func:`effect_class` how risky a model-proposed tool is. An unknown tool is treated as the riskiest
 class, so a tool nobody classified can never be waved through. A tool *name* is not an identity (a
 registered tool can reuse a built-in's name), so the table is trusted for a name only when the caller says
-the tool is one CALIBER ships.
+the tool is one CALIBER ships. A caller with a registry row does not say it by hand:
+:func:`effect_class_for_registry_tool` derives it from the row's name, owner and module, and registration
+refuses a built-in's name in the first place (``workflows.builtin_tools.reserved_tool_name``).
 """
 
 from __future__ import annotations
@@ -37,6 +39,8 @@ GUARDS = ("egress", "ledger", "approval", "none")
 DISPOSITIONS = ("dispatch", "refuse", "exempt")
 #: What an unclassified tool is treated as.
 FAIL_CLOSED = "irreversible_write"
+#: What an untrusted or unlisted tool is routed as: through the dispatcher, at :data:`FAIL_CLOSED`.
+DEFAULT_DISPOSITION = "dispatch"
 #: A table needs a header, a separator and at least one row.
 _MIN_TABLE_LINES = 3
 #: An ``exempt`` row must say why in more than a word; this is the shortest note that can.
@@ -148,6 +152,11 @@ def effect_class(tool_name: str, *, caliber_defined: bool = False) -> str:
     consulted and the answer is :data:`FAIL_CLOSED`. A name no row lists is :data:`FAIL_CLOSED` too, never
     ``read``. A table that cannot be loaded raises :class:`InventoryError` (or ``OSError``) rather than
     answering: callers must treat an exception as a refusal.
+
+    Never pass ``caliber_defined=True`` as a literal: derive it from the tool's registry identity, which
+    :func:`effect_class_for_registry_tool` does for a registry row (and
+    :func:`tool_disposition_for_registry_tool` for the disposition). ``tests/test_protected_effect_inventory.py``
+    fails when a production call passes a constant.
     """
     if not caliber_defined:
         return FAIL_CLOSED
@@ -155,3 +164,66 @@ def effect_class(tool_name: str, *, caliber_defined: bool = False) -> str:
     if not classes:
         return FAIL_CLOSED
     return max(classes, key=EFFECT_CLASSES.index)
+
+
+def effect_class_for_registry_tool(
+    *, name: str, owner: str, module_path: str, callable_name: str, version: str
+) -> str:
+    """:func:`effect_class` for a tool row of the registry, trusting the table only for a built-in.
+
+    A registry row is a built-in only when every field the seed writes matches (name, owner, version, module and
+    callable; ``workflows.builtin_tools.is_builtin_tool``); the name alone is not an identity. Pass the **registry
+    row's own** fields, read from the database for the tool being run: never a manifest binding's ``local_name``
+    or ``resolved_name``, and never constants (``tests/test_protected_effect_inventory.py`` rejects those). The IR
+    (``IRToolBinding``) and ``ToolRegistryEntry`` carry no owner on purpose. Registration also
+    refuses a built-in's name (``reserved_tool_name``), so a row that reuses one is a tool registered before
+    that rule, and it is still classified :data:`FAIL_CLOSED`.
+    """
+    from caliber.workflows.builtin_tools import is_builtin_tool  # noqa: PLC0415
+
+    trusted = is_builtin_tool(
+        name=name,
+        owner=owner,
+        module_path=module_path,
+        callable_name=callable_name,
+        version=version,
+    )
+    return effect_class(name, caliber_defined=trusted)
+
+
+def tool_disposition_for_registry_tool(
+    *, name: str, owner: str, module_path: str, callable_name: str, version: str
+) -> str:
+    """:func:`tool_disposition` for a tool row of the registry, trusting the table only for a built-in.
+
+    The same rule and the same caution as :func:`effect_class_for_registry_tool`. It answers ``dispatch`` for the
+    first-party DB MCP server's tools (EP-114): they are not registry rows, so no row can be trusted as one of
+    them. Refusing them rests on the MCP server's identity, which the MCP caller must establish (#759, #774).
+    """
+    from caliber.workflows.builtin_tools import is_builtin_tool  # noqa: PLC0415
+
+    trusted = is_builtin_tool(
+        name=name,
+        owner=owner,
+        module_path=module_path,
+        callable_name=callable_name,
+        version=version,
+    )
+    return tool_disposition(name, caliber_defined=trusted)
+
+
+def tool_disposition(tool_name: str, *, caliber_defined: bool = False) -> str:
+    """What D3 does with ``tool_name``: ``refuse`` or :data:`DEFAULT_DISPOSITION`.
+
+    ``refuse`` when a row that lists the tool says so, which the reference profile turns into a refusal
+    (the dispatcher raises it, ADR 0001; it does not exist yet, #774). The same trust rule as :func:`effect_class` applies: a tool that
+    is not CALIBER's own is never matched by name, so a registered tool called ``read_text_file`` is routed
+    through the dispatcher at the fail-closed class instead of inheriting, or escaping, a built-in's row.
+    An unlisted tool is routed too, never waved through. Only rows that list tool names can answer here: a
+    row reached by dynamic names (a registered Python callable, EP-015 and EP-019) is matched by its entry
+    point, which is the dispatcher's job.
+    """
+    if not caliber_defined:
+        return DEFAULT_DISPOSITION
+    dispositions = {row.disposition for row in load_inventory() if tool_name in row.tool_names}
+    return "refuse" if "refuse" in dispositions else DEFAULT_DISPOSITION

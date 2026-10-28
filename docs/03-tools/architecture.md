@@ -165,7 +165,7 @@ string column would give).
 are not stored on the row: `builtin`, `availability`, and `availability_reason`. A
 built-in is a tool CALIBER seeded itself, recognised only when the name, the owner
 (`@caliber`) and the module (`caliber.workflows.demo_tools`, `ingestion_tools` or
-`memory_tools`) all match, so a registered tool cannot pass itself off as one. The four
+`memory_tools`) all match, so a registered tool cannot pass itself off as one. Registration also refuses the names themselves: `POST /tools`, the OpenAPI tool-draft publish route and the Aria publisher answer `409` (or a `publish_failed` draft) with `reserved_tool_name` for any built-in name, compared without regard to case, spaces, a `tool.` prefix or a `.vN` suffix, because the protected-effect inventory classifies a built-in by name (see [Reference profile](../operate/reference-profile.md)). The four
 agent-memory tools (`memory_search`, `memory_list`, `list_entities`, `memory_add`) are
 seeded as `active` regardless, but report `availability: "unavailable"` with a reason
 while `CALIBER_MEMORY_ENABLED` is off (the default; agent memory is not part of the alpha), because they only return an error in that state.

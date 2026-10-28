@@ -54,6 +54,10 @@ agent-memory tools (`memory_search`, `memory_list`, `list_entities`, `memory_add
 off (`CALIBER_MEMORY_ENABLED` is not `true`) they are labelled **Unavailable**, with the reason on the
 row, because wiring one into a workflow would only make it return an error at run time.
 
+The names of the sixteen built-in tools are reserved. Registering a tool under one of them (even in another case,
+or as `tool.grep_files.v2`) is refused with `409 reserved_tool_name`; pick a different name. The same applies when
+you publish an OpenAPI tool draft or an Aria tool draft.
+
 ## Who is trusted to write tools
 
 Read this before you let anyone register a tool.

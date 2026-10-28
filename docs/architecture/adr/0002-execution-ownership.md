@@ -11,7 +11,7 @@ Four things today have no single owner. (1) Control records the EGI program adds
 envelope, policy decision, approval, effect record, receipt, acceptance decision, evidence package, outbox) have
 no agreed writer: two modules could each persist "the" receipt. (2) Eleven background workers and an event bus are
 started by the server lifespan, and nothing says which process may run them when two processes share a database (a second
-active owner doubles effects). (3) 127 code paths can change an external system (the inventory); some run through
+active owner doubles effects). (3) many code paths can change an external system (the inventory lists them all); some run through
 the effect ledger, most run through nothing. (4) Packages B02–B06 each need to answer "which module writes this
 record" before they can be built independently.
 
@@ -153,7 +153,7 @@ and `exempt` rows stay with the module the row names.
 | EP-052 | `caliber/src/caliber/storage/s3.py::S3StorageBackend.delete` | `caliber/src/caliber/storage/s3.py` (unchanged) | exempt: see the inventory note for why no model proposal or workflow node reaches it |
 | EP-053 | `caliber/src/caliber/storage/s3.py::S3StorageBackend.signed_url` | `caliber/src/caliber/storage/s3.py` (unchanged) | exempt: see the inventory note for why no model proposal or workflow node reaches it |
 | EP-054 | `caliber/src/caliber/workflows/demo_tools.py::sandbox_python` | `caliber/src/caliber/effects/` dispatcher (#520); switch: `profile.py` | refused in the reference profile with `unsupported_in_reference_profile` |
-| EP-055 | `caliber/src/caliber/workflows/demo_tools.py::read_text_file` | `caliber/src/caliber/effects/` dispatcher (#520, #522) | routed through the dispatcher, which writes the EffectRecord and Receipt; an entry point reached only through another row is covered by that row (see the inventory note) |
+| EP-055 | `caliber/src/caliber/workflows/demo_tools.py::read_text_file` | `caliber/src/caliber/effects/` dispatcher (#520); switch: `profile.py` | refused in the reference profile with `unsupported_in_reference_profile` |
 | EP-056 | `caliber/src/caliber/workflows/ingestion_tools.py::_ocr_pdf` | `caliber/src/caliber/effects/` dispatcher (#520) | routed through the dispatcher: a recorded policy decision only, no EffectRecord or Receipt (ADR 0001) |
 | EP-057 | `caliber/src/caliber/memory/service.py::MemoryService.add` | `caliber/src/caliber/effects/` dispatcher (#520, #522) | routed through the dispatcher, which writes the EffectRecord and Receipt; an entry point reached only through another row is covered by that row (see the inventory note) |
 | EP-058 | `caliber/src/caliber/memory/service.py::MemoryService.delete_all` | `caliber/src/caliber/memory/service.py` (unchanged) | exempt: see the inventory note for why no model proposal or workflow node reaches it |
@@ -212,7 +212,7 @@ and `exempt` rows stay with the module the row names.
 | EP-111 | `caliber/src/caliber/routes/system_services.py::_probe_http` | `caliber/src/caliber/routes/system_services.py` (unchanged) | exempt: see the inventory note for why no model proposal or workflow node reaches it |
 | EP-112 | `caliber/src/caliber/resolver.py::PromptResolver.resolve` | `caliber/src/caliber/resolver.py` (unchanged) | exempt: see the inventory note for why no model proposal or workflow node reaches it |
 | EP-113 | `caliber/src/caliber/assistant/ollama_engine.py::OllamaAssistantEngine.run_turn` | `caliber/src/caliber/assistant/ollama_engine.py` (unchanged) | exempt: see the inventory note for why no model proposal or workflow node reaches it |
-| EP-114 | `caliber/src/caliber/mcp_servers/db/connection.py::execute` | `caliber/src/caliber/effects/` dispatcher (#520, #522) | routed through the dispatcher, which writes the EffectRecord and Receipt; an entry point reached only through another row is covered by that row (see the inventory note) |
+| EP-114 | `caliber/src/caliber/mcp_servers/db/connection.py::execute` | `caliber/src/caliber/effects/` dispatcher (#520); switch: `profile.py` | refused in the reference profile with `unsupported_in_reference_profile` |
 | EP-115 | `caliber/src/caliber/review/writeback.py::MLflowReviewWriteBackClient.write_answers` | `caliber/src/caliber/review/writeback.py` (unchanged) | exempt: see the inventory note for why no model proposal or workflow node reaches it |
 | EP-116 | `caliber/src/caliber/routes/observability.py::post_feedback` | `caliber/src/caliber/routes/observability.py` (unchanged) | exempt: see the inventory note for why no model proposal or workflow node reaches it |
 | EP-117 | `caliber/src/caliber/eval/dataset_sync.py::MLflowDatasetSyncClient.sync_dataset` | `caliber/src/caliber/eval/dataset_sync.py` (unchanged) | exempt: see the inventory note for why no model proposal or workflow node reaches it |
@@ -226,6 +226,8 @@ and `exempt` rows stay with the module the row names.
 | EP-125 | `caliber/src/caliber/workflows/memory_tools.py::memory_search` | `caliber/src/caliber/effects/` dispatcher (#520) | routed through the dispatcher: a recorded policy decision only, no EffectRecord or Receipt (ADR 0001) |
 | EP-126 | `caliber/src/caliber/workflows/file_tools.py::read_workdir_file` | `caliber/src/caliber/effects/` dispatcher (#520) | routed through the dispatcher: a recorded policy decision only, no EffectRecord or Receipt (ADR 0001) |
 | EP-127 | `caliber/src/caliber/workflows/demo_tools.py::grok_parse` | `caliber/src/caliber/effects/` dispatcher (#520) | routed through the dispatcher: a recorded policy decision only, no EffectRecord or Receipt (ADR 0001) |
+| EP-128 | `caliber/src/caliber/routes/assistant.py::_list_ollama_models` | `caliber/src/caliber/routes/assistant.py` (unchanged) | exempt: see the inventory note for why no model proposal or workflow node reaches it |
+| EP-129 | `caliber/src/caliber/storage/s3.py::S3StorageBackend.copy` | `caliber/src/caliber/storage/s3.py` (unchanged) | exempt: see the inventory note for why no model proposal or workflow node reaches it |
 
 ## Consequences
 
