@@ -272,6 +272,10 @@ class _ChattyS3Client(_FakeS3Client):
             raise AssertionError("delivery re-entered the handler without end")
 
 
+def _is_pytest_handler(handler: logging.Handler) -> bool:
+    return type(handler).__module__.startswith("_pytest.logging")
+
+
 def test_s3_log_handler_does_not_log_about_its_own_delivery_at_debug() -> None:
     """With the root logger at DEBUG the S3 client's own records came back into the handler, and each delivery
     caused another, forever (``CALIBER_LOG_LEVEL=DEBUG`` with the default S3 sink)."""
@@ -282,6 +286,12 @@ def test_s3_log_handler_does_not_log_about_its_own_delivery_at_debug() -> None:
     handler.setFormatter(JsonFormatter())
     root = logging.getLogger()
     previous = root.level
+    # Any ``create_app`` earlier in the process leaves its own S3 sink on the root logger, and that
+    # sink's real botocore DEBUG records would reach this handler: detach everything but pytest's
+    # capture handlers so the test sees only its own delivery.
+    leaked = [h for h in root.handlers if not _is_pytest_handler(h)]
+    for other in leaked:
+        root.removeHandler(other)
     root.addHandler(handler)
     root.setLevel(logging.DEBUG)
     try:
@@ -289,6 +299,8 @@ def test_s3_log_handler_does_not_log_about_its_own_delivery_at_debug() -> None:
     finally:
         root.removeHandler(handler)
         root.setLevel(previous)
+        for other in leaked:
+            root.addHandler(other)
     assert len(client.put_object_calls) == 1
     body = client.put_object_calls[0]["Body"].decode("utf-8")
     assert "one real record" in body
