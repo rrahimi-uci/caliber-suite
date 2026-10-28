@@ -33,7 +33,7 @@ import logging
 import re
 import textwrap
 import time
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Collection, Iterator
 from concurrent.futures import ThreadPoolExecutor
 from concurrent.futures import TimeoutError as FuturesTimeout
 from dataclasses import dataclass, field
@@ -47,6 +47,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from caliber.auth import CaliberIdentity
 from caliber.config import provider_request_timeout
 from caliber.context.authorize import ContextDenied
+from caliber.effects.reconcile import UnknownEffectError
 from caliber.integrations.openapi.executor import bind_openapi_http_tool
 from caliber.llm.models import (
     DEFAULT_OPENAI_REASONING_EFFORT,
@@ -2284,6 +2285,10 @@ class RuntimePlan:
     # outright, so there is nothing to deduplicate. Set by the queued run worker,
     # which is the only path that can be restarted after a lease expiry.
     effect_ledger: Any | None = None
+    #: Called with the ids of a node and of everything upstream of it before the node runs, outside its retries (B05.5b,
+    #: #742). Raises ``caliber.effects.reconcile.UnknownEffectError`` while an effect those nodes asked for has no final
+    #: outcome, so no step that depends on an effect nobody can vouch for runs. ``None`` where nothing records effects.
+    effect_gate: Callable[[Collection[str]], None] | None = None
     # ``package.module:callable`` entrypoints an ``external_app`` node may invoke,
     # from ``config.external_app_entrypoint_allowlist``. Empty means none: this node
     # imports and calls installed Python in the control-plane process, and every
@@ -5621,8 +5626,8 @@ def _run_node(  # noqa: PLR0911, PLR0912, PLR0915 - per-node-type dispatch
                     if child_artifacts:
                         record["artifacts"] = sorted(child_artifacts)
                     return toks, record, namespaced_artifacts
-                except ContextDenied:
-                    raise  # a refused context fails the node: it is not an item's own error to isolate
+                except (ContextDenied, UnknownEffectError):
+                    raise  # a refused context, or an effect nobody can vouch for, fails the node: not an item's own error
                 except Exception as exc:  # per-item isolation for fan-out
                     logger.warning("for_each agent item failed: %s", exc, exc_info=True)
                     return (
@@ -5703,7 +5708,7 @@ def _run_node(  # noqa: PLR0911, PLR0912, PLR0915 - per-node-type dispatch
                             for name, content in child_artifacts.items()
                         }
                     )
-                except ContextDenied:
+                except (ContextDenied, UnknownEffectError):
                     raise
                 except Exception as exc:
                     logger.warning("for_each target item failed: %s", exc, exc_info=True)
@@ -5901,8 +5906,8 @@ def _run_node(  # noqa: PLR0911, PLR0912, PLR0915 - per-node-type dispatch
                     tool_calls=target_step.tool_calls,
                     detail=target_step.detail,
                 )
-            except ContextDenied:
-                raise  # a refused context is not an error a boundary may absorb
+            except (ContextDenied, UnknownEffectError):
+                raise  # a refused context, or an effect nobody can vouch for, is not an error a boundary may absorb
             except Exception as exc:
                 compensation_tokens = 0
                 compensation_tool_calls: list[dict[str, Any]] = []
@@ -5925,7 +5930,7 @@ def _run_node(  # noqa: PLR0911, PLR0912, PLR0915 - per-node-type dispatch
                                 extra_tools=extra_tools,
                             )
                         )
-                    except ContextDenied:
+                    except (ContextDenied, UnknownEffectError):
                         raise
                     except Exception as compensation_exc:
                         raise ToolExecutionError(
@@ -7062,6 +7067,42 @@ def _run_node_traced(
         return tokens, step
 
 
+def _inline_children(node: IRNode) -> tuple[str, ...]:
+    """The nodes ``node`` runs itself, with no edge to them: a fan-out, loop or boundary's target (and compensation) and an
+    agent's handoff targets. Their effects are the node's effects."""
+    if isinstance(node, IRForEach | IRLoop):
+        return (node.target_node_id,) if node.target_node_id else ()
+    if isinstance(node, IRErrorBoundary):
+        return tuple(n for n in (node.target_node_id, node.compensate_with) if n)
+    if isinstance(node, IRAgent):
+        return tuple(h.target_node_id for h in node.handoffs)
+    return ()
+
+
+def _upstream_node_ids(ir: IRWorkflow, node_id: str) -> frozenset[str]:
+    """``node_id`` and everything whose effects it may depend on: every node that feeds it, directly or through others, and
+    the inline children (targets, compensations, handoffs) of each of those, which have no edges of their own."""
+    feeders: dict[str, set[str]] = {}
+    for edge in ir.edges:
+        feeders.setdefault(edge.to_node, set()).add(edge.from_node)
+    seen = {node_id}
+    pending = [node_id]
+    while pending:
+        current = pending.pop()
+        node = ir.nodes.get(current)
+        reached = set(feeders.get(current, ())) | set(_inline_children(node) if node else ())
+        for other in reached - seen:
+            seen.add(other)
+            pending.append(other)
+    return frozenset(seen)
+
+
+def _check_effect_gate(plan: RuntimePlan, ir: IRWorkflow, node_id: str) -> None:
+    """Refuse to run ``node_id`` while an effect it may depend on has no final outcome (B05.5b, #742)."""
+    if plan.effect_gate is not None:
+        plan.effect_gate(_upstream_node_ids(ir, node_id))
+
+
 def _run_node_with_policy(
     node: IRNode,
     ir: IRWorkflow,
@@ -7093,6 +7134,8 @@ def _run_node_with_policy(
         )
         timeout = node.execution_policy.timeout_seconds
         try:
+            # Asked at the top of every attempt: an earlier attempt may have left this node's own effect unknown.
+            _check_effect_gate(plan, ir, node.node_id)
             with scope:
 
                 def _execute() -> tuple[int, NodeStep]:
@@ -7150,6 +7193,8 @@ def _run_node_with_policy(
                     finally:
                         pool.shutdown(wait=not timed_out, cancel_futures=timed_out)
             return tokens, step
+        except UnknownEffectError:
+            raise  # a retry cannot make an effect nobody can vouch for known
         except Exception as exc:
             last_exc = exc
             if attempt + 1 >= attempts:
@@ -7199,6 +7244,7 @@ def _retry_blocked_guardrail(
     for _attempt in range(node.max_retries):
         # Re-run each upstream agent to regenerate the guardrail's input.
         for agent in upstream_agents:
+            _check_effect_gate(plan, ir, agent.node_id)
             tokens, agent_step = _run_node(
                 agent,
                 ir,

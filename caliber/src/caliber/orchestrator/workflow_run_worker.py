@@ -29,6 +29,7 @@ from caliber.db.models import (
     CaliberWorkflowVersion,
 )
 from caliber.db.scoping import synthetic_identity
+from caliber.effects.reconcile import effect_gate
 from caliber.events.bus import EventBus
 from caliber.ids import new_runtime_approval_id, new_workflow_run_checkpoint_id
 from caliber.mcp_policy import deployment_blockers
@@ -1715,6 +1716,9 @@ class WorkflowRunWorker:
             plan.effect_ledger = SqlEffectLedger(
                 self._session_factory, workflow_run_id=run.workflow_run_id
             )
+            # And no step runs on top of an effect nobody can vouch for: while an effect this node or anything upstream of it
+            # asked for is dispatched, unknown or reconciled, the node does not run (B05.5b, #742).
+            plan.effect_gate = effect_gate(self._session_factory, run.workflow_run_id)
             preflight_error = _resume_checkpoint_preflight_error(plan, resume_checkpoint)
             if preflight_error is not None:
                 source_run_id = run_summary.get("resume_checkpoint_run_id")
