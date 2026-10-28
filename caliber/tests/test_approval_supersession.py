@@ -606,6 +606,7 @@ def test_creators_for_different_proposals_of_one_node_serialize_on_the_run_on_po
 def test_racing_creators_for_one_node_leave_exactly_one_live_request_on_postgresql(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    _need_postgresql()
     workers = 6
     with _database("postgresql", tmp_path, monkeypatch) as (_, factory):
         proposal_ids = _node_proposals(factory, workers)
