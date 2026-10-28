@@ -42,6 +42,113 @@ class TestPublishTool:
         assert result["registry_id"].startswith("TL-")
         assert result["type"] == "tool"
 
+    @pytest.mark.parametrize(
+        "name",
+        [
+            "grep_files",
+            "read_text_file",
+            "sandbox_python",
+            "write_workdir_file",
+            "memory_add",
+            "extract_document",
+            "Grep_Files",
+            "  grep_files  ",
+            "tool.grep_files.v2",
+            "grep_files.v3",
+        ],
+    )
+    def test_a_built_in_tool_name_is_refused_and_nothing_is_registered(
+        self,
+        publisher: AssistantPublisher,
+        session_factory: sessionmaker[Session],
+        name: str,
+    ) -> None:
+        from caliber.db.models import CaliberToolRegistry
+
+        result = publisher.publish(
+            artifact_type="tool",
+            artifact={"name": name, "module_path": "caliber.workflows.demo_tools"},
+            draft_id="ADRF-reserved",
+            session_factory=session_factory,
+            user=USER,
+        )
+        assert result["success"] is False
+        assert result["code"] == "reserved_tool_name"
+        assert "reserved_tool_name:" in result["error"]
+        assert "built-in CALIBER tool" in result["error"]
+        assert "different name" in result["error"], "the refusal says how to recover"
+        assert "registry_id" not in result
+        with session_factory() as db:
+            assert db.query(CaliberToolRegistry).count() == 0
+
+    def test_the_refusal_names_the_built_in_the_name_collides_with(
+        self,
+        publisher: AssistantPublisher,
+        session_factory: sessionmaker[Session],
+    ) -> None:
+        result = publisher.publish(
+            artifact_type="tool",
+            artifact={"name": "tool.Grep_Files.v2"},
+            draft_id="ADRF-reserved-name",
+            session_factory=session_factory,
+            user=USER,
+        )
+        assert "'tool.Grep_Files.v2'" in result["error"]
+        assert "'grep_files'" in result["error"]
+
+    def test_a_built_in_name_is_refused_for_an_identity_owned_publish_too(
+        self,
+        publisher: AssistantPublisher,
+        session_factory: sessionmaker[Session],
+    ) -> None:
+        """Even a publisher whose user id is ``@caliber`` (the built-ins' owner) cannot take the name."""
+        identity = CaliberIdentity(user_id="@caliber", scopes=frozenset({"caliber.admin"}))
+        result = publisher.publish(
+            artifact_type="tool",
+            artifact={"name": "grep_files", "module_path": "caliber.workflows.demo_tools"},
+            draft_id="ADRF-spoof",
+            session_factory=session_factory,
+            user="@caliber",
+            identity=identity,
+        )
+        assert result["success"] is False
+        assert result["code"] == "reserved_tool_name"
+
+    @pytest.mark.parametrize("name", ["grep_files_v2", "my_grep_files", "grep-files", "greet"])
+    def test_a_name_that_only_resembles_a_built_in_is_published(
+        self,
+        publisher: AssistantPublisher,
+        session_factory: sessionmaker[Session],
+        name: str,
+    ) -> None:
+        result = publisher.publish(
+            artifact_type="tool",
+            artifact={"name": name},
+            draft_id="ADRF-near",
+            session_factory=session_factory,
+            user=USER,
+        )
+        assert result["success"] is True
+        with session_factory() as db:
+            from caliber.db.models import CaliberToolRegistry
+
+            assert db.get(CaliberToolRegistry, result["registry_id"]).name == name
+
+    def test_other_artifact_types_may_use_a_built_in_tool_name(
+        self,
+        publisher: AssistantPublisher,
+        session_factory: sessionmaker[Session],
+    ) -> None:
+        """The reservation is for the tool registry, where the name is an identity."""
+        result = publisher.publish(
+            artifact_type="skill",
+            artifact={"name": "grep_files", "prompt": "Use carefully."},
+            draft_id="ADRF-skill",
+            session_factory=session_factory,
+            user=USER,
+        )
+        assert result["success"] is True
+
 
 class TestPublishSkill:
     def test_publish_creates_skill_row(

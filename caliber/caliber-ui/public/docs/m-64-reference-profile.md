@@ -126,6 +126,50 @@ missing differs, and neither case is a profile refusal:
 
 The database must be migrated (`caliber-migrate`) before the first start.
 
+## Migrations that shipped in the alpha never change
+
+An alpha database sits at the head of the migrations that `caliber-v0.1.0a1` shipped; upgrading it means running
+the migrations after that head. That is only safe while the migrations up to that head are exactly the ones the
+alpha ran, so they are frozen (B16-Upgrade.1, #702). `caliber/tests/fixtures/alpha_0_1_0a1_migration_checksums.json`
+records the SHA-256 of every migration file in the tag, read from the tag's objects, together with the tag's commit,
+the alpha head and the alembic version table (`caliber_alembic_version`). The head is derived from those files (the
+one revision nothing revises), never written in by hand.
+
+Two checks guard it, because each alone can be defeated:
+
+- `caliber/tests/test_upgrade_from_alpha.py::test_shipped_migrations_unchanged` compares the working tree with the
+  manifest. It needs no history, so it runs everywhere and never skips. It fails if a migration is edited (a
+  line-ending change counts), renamed or removed, or if one is inserted into or branched off the shipped history.
+  A change that edits a migration *and* its manifest entry passes it.
+- `test_the_manifest_matches_the_release_tag` (and `python caliber/tests/migration_checksums.py generate --check`)
+  regenerates the manifest from the tag and compares, which fails that change. The backend-core CI job fetches the
+  tag and sets `CALIBER_REQUIRE_ALPHA_TAG=1`, so there a missing tag is a failure, not a skip; elsewhere the test
+  skips when neither the tag nor its commit is in the checkout. `.github/CODEOWNERS` also sends any change to the
+  migrations directory or the manifest to the owner.
+
+Migrations added after the alpha are fine as long as they descend from the alpha head, and they need no manifest
+update. Each failure names the file and the way out, for example:
+
+```text
+0050_assistant_attachments.py: changed since caliber-v0.1.0a1 (sha256 6c27..., shipped 4306...). Restore it from the
+shipped commit (`git show 3f3b562...:caliber/src/caliber/db/migrations/versions/0050_assistant_attachments.py > ...`,
+from the repository root) and put the change in a new migration that revises the current head.
+```
+
+A changed or missing file is restored from the recorded commit (the command is in the message and does not depend on
+the tag name being present). A new migration that revises a shipped revision is re-parented onto the current head
+(`alembic heads`). `python caliber/tests/migration_checksums.py verify` runs the working-tree check from the command
+line. Regenerate the manifest (`... migration_checksums.py generate`, with the tag fetched) only if the fixture itself
+was wrong.
+
+`.gitattributes` marks the migrations `-text`, so a Windows checkout with `core.autocrlf=true` cannot rewrite their
+line endings (the checksums are of exact bytes).
+
+For the alpha-upgrade tests that follow (#708, #715): create the alpha database by running `alembic upgrade
+<alpha head>` through the working-tree migrations directory, with the manifest's `version_table`. That reproduces the
+alpha schema only because those files are frozen, which the never-skipping check enforces. Never read the migrations
+from the tag in CI; it is not in the checkout.
+
 ## A stored secret never leaves the platform
 
 `caliber/tests/test_secret_canary.py` (B12.5b, #666) stores `EGI_CANARY_<uuid4>` as `egi-canary` through the
@@ -1685,13 +1729,88 @@ means the action cannot be done by a run (use the human-approval path or a perso
 policy lacks a risk for the action and must be extended; `subject_mismatch` and `workload_mismatch` are always a bug
 or an attack: fix the caller.
 
+## Reserved tool names and refused paths (#641)
+
+The protected-effect inventory (`docs/architecture/protected-effect-paths.md`) classifies a built-in tool by its
+**name**, and the tool registry is unique only on (name, version). So a tool someone registers as `grep_files`
+could be taken for the built-in. Registration therefore refuses every name a built-in owns, and the inventory
+trusts a tool's name only when the tool really is CALIBER's own.
+
+**Reserved names.** The sixteen tools CALIBER seeds: `read_text_file`, `list_folder_files`, `grep_files`,
+`regex_search`, `grok_parse`, `sandbox_python`, `list_workdir_files`, `read_workdir_file`, `get_file_metadata`,
+`write_workdir_file`, `create_artifact`, `extract_document`, `memory_search`, `memory_list`, `list_entities` and
+`memory_add`. The comparison is stricter than the resolver's exact match: case and surrounding spaces are ignored, and so are a
+`tool.` prefix and a `.vN` suffix, so `Grep_Files`, ` grep_files ` and `tool.grep_files.v2` are all reserved. A name
+that merely contains one (`grep_files_v2`, `my_grep_files`) is free. The rule applies in every profile, to every
+owner, module and version.
+
+**Where it is enforced.** `POST /tools`, `POST /openapi-integrations/{id}/tool-drafts/{draft_id}/publish` and the
+Aria publisher (`AssistantPublisher`, for a tool draft). Nothing is written when a name is refused. CALIBER's own
+seeding is unaffected.
+
+```text
+POST /ajax-api/2.0/mlflow/caliber/tools   {"name": "grep_files", "version": "1.0", ...}
+409 {"detail": "reserved_tool_name: tool name 'grep_files' is reserved for the built-in CALIBER tool
+     'grep_files', which the protected-effect inventory classifies by name; register your tool under a
+     different name", "status_code": 409}
+```
+
+The OpenAPI publish route answers the same `409`; recover by publishing the draft again with another `name` in the
+request body. A tool draft Aria publishes under a reserved name is not registered: the draft ends as
+`publish_failed` and the publish report carries `"success": false`, `"code": "reserved_tool_name"` and the same
+message. Recover by asking Aria for a new tool draft under a different name and publishing that one.
+
+A tool registered under a built-in's name **before** this rule is not migrated or rewritten. It is neutralised by
+two things only: the identity check and an audit. A registry row counts as CALIBER's own only when every field the
+seed writes matches (`workflows.builtin_tools.is_builtin_tool`): the name, the owner `@caliber`, the version `1.0`, a
+callable named like the tool, and that tool's own module (`BUILTIN_TOOL_MODULE_BY_NAME`, which the seed also reads, so
+the two cannot drift). `effects.inventory.effect_class_for_registry_tool` classifies every other row as
+`irreversible_write`, the fail-closed class, and `tool_disposition_for_registry_tool` routes it through the dispatcher
+instead of trusting it. The audit: every time the tool list seeds the built-ins, each row that holds a reserved name
+without being the seed's own row is logged once per process at `ERROR` and gets one audit record (action
+`flag_reserved_tool_name`, entity type `tool`, severity `high`, with `blocks_seed`). `blocks_seed: true` means the row is
+at version `1.0` under the exact built-in name, so the registry (unique on name and version) cannot hold the real
+built-in: it was never seeded and is missing from the list until the squatter is archived and renamed, or deleted
+by an operator. To rename such a tool, register it again under a new name, point the workflows that use it at the new
+name, then archive the old one (a registered tool cannot be renamed in place).
+
+The owner is part of that identity, so `PATCH /tools/{id}` refuses (`409 reserved_tool_owner`) to give a registered
+tool the owner `@caliber`, unless the row already matches the seed in every other field. That exception exists to repair
+a built-in whose owner was edited away: until it is set back the row is untrusted (fail-closed) and the audit flags it;
+a row that differs from the seed in name, version, module or callable can never be made trusted by editing its owner.
+
+**Where trust comes from at run time.** The dispatch call sites (B07 #524, B08 #526, the B04 tasks) must pass the
+registry row's own name, owner, module, callable and version, read from the database for the tool being run. They
+must never pass a manifest binding's `local_name` or `resolved_name`, and `IRToolBinding` and `ToolRegistryEntry`
+carry no owner on purpose: the IR is written into generated exports field by field, so an owner there would be data an
+export author controls. A test fails when production code passes a constant or a `**kwargs` expansion to these
+lookups.
+
+**Refused until explicitly supported.** The inventory now marks two paths `refuse` for the reference profile, so
+the dispatcher (B04.7, #774) will refuse them with `unsupported_in_reference_profile`:
+
+| inventory row | path | why |
+| --- | --- | --- |
+| EP-055 | the host-file tools `read_text_file`, `list_folder_files`, `grep_files`, `regex_search` | they read any host path, with no `confine_to_file_root`, and return what they read to the model provider (an `export`) |
+| EP-114 | the write tools of the first-party PostgreSQL MCP server (`create_table`, `insert_rows`, `update_rows`, `delete_rows`, `execute_sql`, `create_vector_table`, `upsert_vectors`, `create_graph`, `drop_graph`, `create_vertex`, `create_edge`, `cypher_query`) | they create tables and write rows with no guard of their own; its read tools (`list_tables`, `describe_table`, `run_query`, `similarity_search`) run in a read-only transaction and are not refused |
+
+`effects.inventory.tool_disposition(name, caliber_defined=...)` answers `refuse` or `dispatch` for a tool, on the same
+trust rule as `effect_class`. The DB MCP write tools are not registry rows, so `tool_disposition_for_registry_tool`
+answers `dispatch` for those names today; their refusal rests on the MCP server's identity, which #759 and #774
+establish. **This change records the decision and the lookup; the dispatcher that raises the refusal
+at run time is #774.** Until it lands a reference deployment still runs these tools if a workflow uses them, so do
+not register the first-party DB MCP server and do not wire the four host-file tools into a reference workflow.
+
+**Configuration, migration and rollback.** No new setting, no migration and no stored data change. Rolling back is
+reverting the change; rows already refused were never written.
+
 ## Not enforced yet
 
 ADR 0001 describes the whole reference shape; this table is what the *process* checks today. Not checked:
 
 - **The shape itself:** one tenant and region, MLflow addressed by `MLFLOW_TRACKING_URI`, an S3-compatible object store, at least two projects, and one real model provider next to the scripted adapter. Readiness reporting for MLflow and the object store is #535. The PostgreSQL version and the `pgvector` extension are checked by the migrations (migration `0060`) and the migration-parity CI job, not by the profile.
 - **Origin rules** (#533). ADR 0001 names them, but #533 has no allowed-origins task yet; that rule is not scheduled.
-- **The trusted-connector set** (#534), **refusing code-execution paths and the full attack pack** (#535), **a single execution owner** (#536) and **the Apply separation-of-duties flag** (#589).
+- **Run-time refusal of the `refuse` inventory rows**, including the host-file tools and the DB MCP write tools (#774; see "Reserved tool names and refused paths"), **the trusted-connector set** (#534), **the full attack pack** (#535), **a single execution owner** (#536) and **the Apply separation-of-duties flag** (#589).
 - **Cookie flags:** `auth_session_cookie_secure` is not checked.
 - **The database role:** whether the application connects as a role without `UPDATE`, `DELETE` or `TRUNCATE` on `caliber_run_manifests` (see "Run manifests are written once").
 
