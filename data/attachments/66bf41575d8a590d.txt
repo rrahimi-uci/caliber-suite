@@ -1,5 +1,0 @@
-{"t":"2026-10-28T04:25:19.914Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/cases/MORT-2026-000184/document-requests \"HTTP/1.1 201 Created\""}
-{"t":"2026-10-28T04:25:19.916Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/_test/faults \"HTTP/1.1 200 OK\""}
-{"t":"2026-10-28T04:25:19.918Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/cases/MORT-2026-000184/document-requests \"HTTP/1.1 422 Unprocessable Content\""}
-{"t":"2026-10-28T04:25:19.920Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: GET http://testserver/_test/faults \"HTTP/1.1 200 OK\""}
-{"t":"2026-10-28T04:25:19.922Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/cases/MORT-2026-000184/document-requests \"HTTP/1.1 500 Internal Server Error\""}

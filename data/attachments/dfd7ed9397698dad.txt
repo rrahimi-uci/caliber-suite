@@ -1,0 +1,2 @@
+{"t":"2026-10-28T05:05:54.534Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/cases/MORT-2026-000184/document-requests \"HTTP/1.1 400 Bad Request\""}
+{"t":"2026-10-28T05:05:54.539Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: GET http://testserver/_test/mutations \"HTTP/1.1 200 OK\""}

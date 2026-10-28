@@ -1,0 +1,14 @@
+{"t":"2026-10-28T05:05:36.243Z","severity":"INFO","logger":"caliber","message":"CALIBER plugin starting (log_level=INFO, log_sink=s3)"}
+{"t":"2026-10-28T05:05:36.259Z","severity":"INFO","logger":"caliber.observability.mlflow_tracing","message":"CALIBER tracing: autolog enabled for openai"}
+{"t":"2026-10-28T05:05:36.261Z","severity":"INFO","logger":"caliber","message":"encrypted secret store disabled (CALIBER_SECRET_ENCRYPTION_KEY_SOURCE unset); secret:// references will not resolve"}
+{"t":"2026-10-28T05:05:36.262Z","severity":"INFO","logger":"caliber","message":"CALIBER assistant engine: fake (configured=fake)"}
+{"t":"2026-10-28T05:05:36.293Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/csrf \"HTTP/1.1 200 OK\""}
+{"t":"2026-10-28T05:05:36.318Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/workflows \"HTTP/1.1 201 Created\""}
+{"t":"2026-10-28T05:05:36.323Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/csrf \"HTTP/1.1 200 OK\""}
+{"t":"2026-10-28T05:05:36.345Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/workflows/WF-df022ac8/versions \"HTTP/1.1 201 Created\""}
+{"t":"2026-10-28T05:05:36.351Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/csrf \"HTTP/1.1 200 OK\""}
+{"t":"2026-10-28T05:05:36.384Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/workflow-versions/WFV-bd8e44ef/publish \"HTTP/1.1 200 OK\""}
+{"t":"2026-10-28T05:05:36.406Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/csrf \"HTTP/1.1 200 OK\""}
+{"t":"2026-10-28T05:05:36.467Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/workflow-runs \"HTTP/1.1 202 Accepted\""}
+{"t":"2026-10-28T05:05:36.475Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/csrf \"HTTP/1.1 200 OK\""}
+{"t":"2026-10-28T05:05:36.518Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/workflow-runs \"HTTP/1.1 202 Accepted\""}
