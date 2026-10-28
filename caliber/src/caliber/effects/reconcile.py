@@ -1,0 +1,459 @@
+"""The reconciler: only the execution owner asks the downstream about unknown and abandoned effects (B05.5b, #742; ADR 0003).
+
+An effect whose outcome nobody recorded is ``unknown``, and an attempt whose dispatcher died (or lost its lease) while it was
+``dispatched`` is *abandoned*: it may have been sent, and the process that knew is gone. Neither is ever dispatched again.
+They are settled the one way ADR 0003 allows, by asking the downstream by the **original logical key** and believing only
+what it can prove:
+
+* **Owner-only.** Every pass needs the :class:`~caliber.ownership.Lease` the owner captured, and every write it makes
+  re-compares that lease (exact owner and fencing token, the database's clock) in the transaction that writes
+  (:func:`caliber.effects.records.fence_owner`). A reconciler whose lease was taken over records nothing; the new owner's pass
+  picks the same proposals up.
+* **Abandoned means a prior lease.** A ``dispatched`` proposal is abandoned exactly when its ``dispatch_token`` (the fencing
+  token it was dispatched under, migration 0126) is lower than the token of the lease the reconciler holds now: the lease that
+  dispatched it has been taken over. One dispatched under the current token is in flight in this very process and is left
+  alone (``in_flight``); one with no recorded token proves nothing and is never abandoned. An abandoned attempt becomes
+  ``unknown`` (:func:`caliber.effects.records.abandon_dispatch`) and is then handled like any other unknown one.
+* **Only authoritative terminal evidence moves it.** The lookup runs outside any transaction, by the proposal's original
+  logical key (the idempotency key the dispatch emitted), against the connector's own query, and its answer is read by the
+  connector's capability record (:func:`caliber.effects.connectors.interpret_lookup`):
+
+  - a stored request that is *this proposal's effect* (key, intent, target, expected version: the same check as a receipt
+    callback) becomes a verified receipt and the proposal ``committed`` (``unknown`` goes through ``reconciled``);
+  - a 404 is ``failed`` only for a connector that **proves absence is final** (a tombstone or a cancel it honours, and a
+    lookup that reads its own writes). For every other connector, the document-request one included, a 404 is delayed
+    visibility as far as anyone can tell and the proposal stays ``unknown``;
+  - anything else (a 5xx, an unreadable or mismatching body, a downstream that cannot be reached, a connector with no
+    binding) leaves it ``unknown``, retried on the next pass.
+* **No blind redrive.** Nothing here sends the effect: there is no edge from ``unknown`` back to ``dispatched``, so a crash
+  before the send, after the downstream committed, or before the receipt was persisted all end the same way: a lookup by key,
+  never a second request.
+* **Unknown blocks what depends on it.** :func:`effect_gate` is the check the runtime makes before it runs a node: while an
+  effect the node (or anything upstream of it) asked for is ``dispatched``, ``unknown`` or ``reconciled``, the node does not
+  run (:class:`UnknownEffectError`, naming what to reconcile), so no write that depends on an effect nobody can vouch for
+  is made.
+
+Where the connector lives is the callback binding's ``base_url`` (``CALIBER_EFFECT_CALLBACK_CONNECTORS``): the same
+``(connector, project)`` that may report a receipt is the one the reconciler asks. Scheduling a pass (the owner loop that
+holds the lease and calls :func:`reconcile_pass`) belongs with the dispatcher (B04.1, #724), which also owns the dispatch
+itself.
+"""
+
+from __future__ import annotations
+
+import logging
+from collections.abc import Callable, Collection, Mapping, Sequence
+from dataclasses import dataclass
+from datetime import datetime
+from typing import Any, Final
+
+from sqlalchemy import or_, select
+from sqlalchemy.orm import Session, sessionmaker
+
+from caliber.audit import record as audit_record
+from caliber.db.models import CaliberEffectProposal, CaliberWorkflowRun
+from caliber.effects.callbacks import CallbackBinding
+from caliber.effects.connectors import ConnectorCapability, interpret_lookup
+from caliber.effects.connectors import document_request as _document_request
+from caliber.effects.receipts import ReceiptFacts, record_receipt
+from caliber.effects.records import (
+    COMMITTED,
+    DISPATCHED,
+    FAILED,
+    LEASE_LOST,
+    NOT_ABANDONED,
+    RECONCILED,
+    UNKNOWN,
+    ProposalError,
+    ProposalView,
+    StaleVersion,
+    abandon_dispatch,
+    fence_owner,
+    proposal_state,
+    proposal_view,
+    transition,
+)
+from caliber.integrations.openapi.executor import OpenApiExecutionError, execute_openapi_http_tool
+from caliber.ownership import Lease
+
+logger = logging.getLogger("caliber.effects.reconcile")
+
+#: Outcomes of reconciling one proposal.
+RECONCILED_COMMITTED: Final = "committed"
+RECONCILED_FAILED: Final = "failed"
+STILL_UNKNOWN: Final = "unknown"
+UNVERIFIED: Final = "unverified"
+LOOKUP_FAILED: Final = "lookup_failed"
+NOT_BOUND: Final = "not_bound"
+IN_FLIGHT: Final = "in_flight"
+MOVED: Final = "moved"
+
+#: The reason recorded when a connector proved absence final.
+ABSENCE_PROVEN_REASON: Final = "absence_proven"
+#: The reason recorded on the ``reconciled`` move the reconciler makes.
+RECONCILER_REASON: Final = "reconciler"
+#: The states in which an effect has been (or may have been) asked for and nobody has the final word.
+OPEN_STATES: Final = (DISPATCHED, UNKNOWN, RECONCILED)
+DEFAULT_PASS_LIMIT: Final = 50
+_PROOF_REASON: Final = f"{RECONCILER_REASON}:proof"
+
+
+class UnknownEffectError(RuntimeError):
+    """An effect this node depends on (or asked for earlier) has no final outcome yet: reconcile it first."""
+
+    def __init__(self, open_effects: Sequence[tuple[str, str, str]]) -> None:
+        self.open_effects = tuple(open_effects)
+        listing = ", ".join(
+            f"{pid} (node {node}, {state})" for pid, node, state in self.open_effects
+        )
+        super().__init__(
+            f"effect {listing} has no final outcome: reconcile it (a lookup by its key) before any step that depends on it runs"
+        )
+
+
+@dataclass(frozen=True)
+class ConnectorLookup:
+    """What the reconciler needs to ask one connector and read its answer."""
+
+    capability: ConnectorCapability
+    config: Callable[[str], dict[str, Any]]
+    arguments: Callable[[str], dict[str, Any]]
+    facts: Callable[..., ReceiptFacts | None]
+
+
+#: The connectors the platform can reconcile (one today).
+CONNECTORS: Final[Mapping[str, ConnectorLookup]] = {
+    _document_request.CONNECTOR: ConnectorLookup(
+        capability=_document_request.CAPABILITY,
+        config=_document_request.lookup_config,
+        arguments=_document_request.lookup_input,
+        facts=_document_request.facts_from_lookup,
+    )
+}
+
+
+@dataclass(frozen=True)
+class Answer:
+    """What the downstream said to a lookup by key."""
+
+    status_code: int
+    body: Any
+
+
+Lookup = Callable[[ConnectorLookup, str, str], Answer]
+Targets = Mapping[tuple[str, str], str]
+
+
+@dataclass(frozen=True)
+class Reconciliation:
+    """What one proposal's reconciliation did."""
+
+    proposal_id: str
+    outcome: str
+    state: str
+    detail: str | None = None
+
+
+def targets_from_bindings(bindings: Sequence[CallbackBinding]) -> Targets:
+    """``(connector, project)`` to the base URL the downstream is asked at."""
+    return {(b.connector, b.project_id): b.base_url for b in bindings}
+
+
+def ask_downstream(connector: ConnectorLookup, base_url: str, key: str) -> Answer:
+    """The lookup by key through the connector's own query (the OpenAPI executor, so egress policy applies)."""
+    found = execute_openapi_http_tool(
+        execution_config=connector.config(base_url),
+        input_schema=None,
+        input_data=connector.arguments(key),
+    )
+    return Answer(found["status_code"], found["json"])
+
+
+def commit_found(
+    session: Session,
+    proposal_id: str,
+    facts: ReceiptFacts,
+    *,
+    reason: str,
+    now: datetime | None = None,
+) -> tuple[str, bool]:
+    """Record the verified receipt and commit (``unknown`` goes through ``reconciled`` first), in the caller's transaction.
+
+    Returns the receipt id and whether *this* call did the commit (``False`` if another actor already had).
+    """
+    state = proposal_state(session, proposal_id)
+    if state.state == COMMITTED and state.receipt_id is not None:
+        return state.receipt_id, False
+    receipt = record_receipt(session, proposal_id, facts, now=now)
+    version = state.version
+    if state.state == UNKNOWN:
+        version = transition(
+            session, proposal_id, RECONCILED, expected_version=version, reason=reason, now=now
+        ).version
+    transition(
+        session,
+        proposal_id,
+        COMMITTED,
+        expected_version=version,
+        receipt_id=receipt.receipt_id,
+        now=now,
+    )
+    return receipt.receipt_id, True
+
+
+def candidates(session: Session, lease: Lease, *, limit: int = DEFAULT_PASS_LIMIT) -> list[str]:
+    """The proposals this owner should look at: ``unknown`` and ``reconciled`` ones, and ``dispatched`` ones whose dispatching
+    lease has been taken over (a lower ``dispatch_token``), oldest first."""
+    if type(limit) is not int or limit < 1:
+        raise ValueError("limit must be a positive integer")
+    return list(
+        session.execute(
+            select(CaliberEffectProposal.proposal_id)
+            .where(
+                or_(
+                    CaliberEffectProposal.state.in_((UNKNOWN, RECONCILED)),
+                    (CaliberEffectProposal.state == DISPATCHED)
+                    & (CaliberEffectProposal.dispatch_token < lease.fencing_token),
+                )
+            )
+            .order_by(CaliberEffectProposal.created_at, CaliberEffectProposal.proposal_id)
+            .limit(limit)
+        ).scalars()
+    )
+
+
+def _project_of(session: Session, proposal_id: str) -> str | None:
+    return session.execute(
+        select(CaliberWorkflowRun.project_id)
+        .join(
+            CaliberEffectProposal,
+            CaliberEffectProposal.workflow_run_id == CaliberWorkflowRun.workflow_run_id,
+        )
+        .where(CaliberEffectProposal.proposal_id == proposal_id)
+    ).scalar_one_or_none()
+
+
+def _take_over(
+    factory: sessionmaker[Session], proposal_id: str, lease: Lease, now: datetime | None
+) -> Reconciliation | None:
+    """Abandon a dispatch whose lease is gone (``unknown`` from here on), or say why it is left alone; ``None`` to go on."""
+    with factory() as session:
+        state = proposal_state(session, proposal_id)
+        if state.state in (COMMITTED, FAILED):
+            return Reconciliation(proposal_id, MOVED, state.state)
+        if state.state != DISPATCHED:
+            return None
+        try:
+            abandon_dispatch(
+                session, proposal_id, expected_version=state.version, lease=lease, now=now
+            )
+            session.commit()
+        except StaleVersion:  # (a ProposalError too: it is caught first)
+            session.rollback()
+            return Reconciliation(proposal_id, MOVED, proposal_state(session, proposal_id).state)
+        except ProposalError as exc:
+            session.rollback()
+            if exc.code != NOT_ABANDONED:
+                raise
+            return Reconciliation(proposal_id, IN_FLIGHT, DISPATCHED)
+    return None
+
+
+def reconcile_one(
+    factory: sessionmaker[Session],
+    proposal_id: str,
+    *,
+    lease: Lease,
+    targets: Targets,
+    lookup: Lookup = ask_downstream,
+    now: datetime | None = None,
+) -> Reconciliation:
+    """Settle one proposal if the downstream can prove its outcome, under ``lease``, or leave it ``unknown`` and say why.
+
+    ``ProposalError`` ``lease_lost`` (the lease was taken over) is raised, not reported: the pass is over. Everything else a
+    downstream can do is an outcome (see the module docstring).
+    """
+    over = _take_over(factory, proposal_id, lease, now)
+    if over is not None:
+        return over
+    with factory() as session:
+        # no questions are asked on a lease that is gone
+        fence_owner(session, proposal_id, lease.owner_id, lease)
+        view = proposal_view(session, proposal_id)
+        seen = proposal_state(session, proposal_id)
+        project_id = _project_of(session, proposal_id)
+    if seen.state not in (UNKNOWN, RECONCILED):
+        return Reconciliation(proposal_id, MOVED, seen.state)
+    connector = CONNECTORS.get(view.connector)
+    base_url = targets.get((view.connector, project_id or ""))
+    if connector is None or base_url is None:
+        return Reconciliation(proposal_id, NOT_BOUND, seen.state, view.connector)
+    try:
+        answer = lookup(connector, base_url, view.logical_key)
+    except OpenApiExecutionError as exc:
+        return Reconciliation(proposal_id, LOOKUP_FAILED, seen.state, type(exc).__name__)
+    return _settle(factory, view, seen.version, connector, answer, lease, now)
+
+
+def _settle(
+    factory: sessionmaker[Session],
+    view: ProposalView,
+    seen_version: int,
+    connector: ConnectorLookup,
+    answer: Answer,
+    lease: Lease,
+    now: datetime | None,
+) -> Reconciliation:
+    verdict = interpret_lookup(connector.capability, answer.status_code)
+    with factory() as session:
+        # compared in the transaction that writes
+        fence_owner(session, view.proposal_id, lease.owner_id, lease)
+        state = proposal_state(session, view.proposal_id)
+        if state.version != seen_version or state.state not in (UNKNOWN, RECONCILED):
+            return Reconciliation(view.proposal_id, MOVED, state.state)
+        if verdict == "answered":
+            facts = connector.facts(view, lookup_status=answer.status_code, lookup_body=answer.body)
+            if facts is None:
+                # a stored request that is not this effect (or none at all) is not a receipt
+                return Reconciliation(view.proposal_id, UNVERIFIED, state.state)
+            receipt_id, performed = commit_found(
+                session, view.proposal_id, facts, reason=RECONCILER_REASON, now=now
+            )
+            if performed:
+                _audit(session, lease, view.proposal_id, COMMITTED, {"receipt_id": receipt_id})
+            session.commit()
+            return Reconciliation(view.proposal_id, RECONCILED_COMMITTED, COMMITTED, receipt_id)
+        if verdict == "not_committed":
+            version = state.version
+            if state.state == UNKNOWN:
+                version = transition(
+                    session,
+                    view.proposal_id,
+                    RECONCILED,
+                    expected_version=version,
+                    reason=_PROOF_REASON,
+                    now=now,
+                ).version
+            transition(
+                session,
+                view.proposal_id,
+                FAILED,
+                expected_version=version,
+                reason=ABSENCE_PROVEN_REASON,
+                now=now,
+            )
+            _audit(session, lease, view.proposal_id, FAILED, {"reason": ABSENCE_PROVEN_REASON})
+            session.commit()
+            return Reconciliation(
+                view.proposal_id, RECONCILED_FAILED, FAILED, ABSENCE_PROVEN_REASON
+            )
+    return Reconciliation(
+        view.proposal_id, STILL_UNKNOWN, state.state, f"http_{answer.status_code}"
+    )
+
+
+def _audit(
+    session: Session, lease: Lease, proposal_id: str, state: str, details: dict[str, Any]
+) -> None:
+    audit_record(
+        session,
+        actor=f"reconciler:{lease.owner_id}",
+        action="effect_reconciled",
+        entity_type="effect_proposal",
+        entity_id=proposal_id,
+        details={"state": state, **details},
+    )
+
+
+def reconcile_pass(
+    factory: sessionmaker[Session],
+    *,
+    lease: Lease,
+    targets: Targets,
+    lookup: Lookup = ask_downstream,
+    limit: int = DEFAULT_PASS_LIMIT,
+    now: datetime | None = None,
+) -> list[Reconciliation]:
+    """One pass over :func:`candidates`, under ``lease``. Stops (raising ``ProposalError`` ``lease_lost``) the moment the lease
+    is not this owner's: whatever is left is the next owner's."""
+    with factory() as session:
+        fence_owner(session, "pass", lease.owner_id, lease)
+        found = candidates(session, lease, limit=limit)
+    results: list[Reconciliation] = []
+    for proposal_id in found:
+        try:
+            results.append(
+                reconcile_one(
+                    factory, proposal_id, lease=lease, targets=targets, lookup=lookup, now=now
+                )
+            )
+        except ProposalError as exc:
+            if exc.code == LEASE_LOST:
+                raise
+            logger.warning("reconcile %s: %s", proposal_id, exc.code)
+            results.append(Reconciliation(proposal_id, STILL_UNKNOWN, UNKNOWN, exc.code))
+    return results
+
+
+def unresolved_effects(
+    session: Session, workflow_run_id: str, node_ids: Collection[str]
+) -> list[tuple[str, str, str]]:
+    """``(proposal id, node id, state)`` of the effects of ``node_ids`` in this run that have no final outcome."""
+    if not node_ids:
+        return []
+    rows = session.execute(
+        select(
+            CaliberEffectProposal.proposal_id,
+            CaliberEffectProposal.node_id,
+            CaliberEffectProposal.state,
+        )
+        .where(
+            CaliberEffectProposal.workflow_run_id == workflow_run_id,
+            CaliberEffectProposal.node_id.in_(sorted(node_ids)),
+            CaliberEffectProposal.state.in_(OPEN_STATES),
+        )
+        .order_by(CaliberEffectProposal.node_id, CaliberEffectProposal.proposal_id)
+    ).all()
+    return [(str(r[0]), str(r[1]), str(r[2])) for r in rows]
+
+
+def effect_gate(
+    factory: sessionmaker[Session], workflow_run_id: str
+) -> Callable[[Collection[str]], None]:
+    """The check the runtime makes before a node runs: ``UnknownEffectError`` while an effect of any of ``node_ids`` (the node
+    and everything upstream of it) in this run has no final outcome."""
+
+    def gate(node_ids: Collection[str]) -> None:
+        with factory() as session:
+            open_effects = unresolved_effects(session, workflow_run_id, node_ids)
+        if open_effects:
+            raise UnknownEffectError(open_effects)
+
+    return gate
+
+
+__all__ = [
+    "ABSENCE_PROVEN_REASON",
+    "CONNECTORS",
+    "IN_FLIGHT",
+    "LOOKUP_FAILED",
+    "MOVED",
+    "NOT_BOUND",
+    "OPEN_STATES",
+    "RECONCILED_COMMITTED",
+    "RECONCILED_FAILED",
+    "STILL_UNKNOWN",
+    "UNVERIFIED",
+    "Answer",
+    "ConnectorLookup",
+    "Reconciliation",
+    "UnknownEffectError",
+    "ask_downstream",
+    "candidates",
+    "commit_found",
+    "effect_gate",
+    "reconcile_one",
+    "reconcile_pass",
+    "targets_from_bindings",
+    "unresolved_effects",
+]

@@ -33,7 +33,7 @@ import logging
 import re
 import textwrap
 import time
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Collection, Iterator
 from concurrent.futures import ThreadPoolExecutor
 from concurrent.futures import TimeoutError as FuturesTimeout
 from dataclasses import dataclass, field
@@ -2284,6 +2284,10 @@ class RuntimePlan:
     # outright, so there is nothing to deduplicate. Set by the queued run worker,
     # which is the only path that can be restarted after a lease expiry.
     effect_ledger: Any | None = None
+    #: Called with the ids of a node and of everything upstream of it before the node runs, outside its retries (B05.5b,
+    #: #742). Raises ``caliber.effects.reconcile.UnknownEffectError`` while an effect those nodes asked for has no final
+    #: outcome, so no step that depends on an effect nobody can vouch for runs. ``None`` where nothing records effects.
+    effect_gate: Callable[[Collection[str]], None] | None = None
     # ``package.module:callable`` entrypoints an ``external_app`` node may invoke,
     # from ``config.external_app_entrypoint_allowlist``. Empty means none: this node
     # imports and calls installed Python in the control-plane process, and every
@@ -7062,6 +7066,21 @@ def _run_node_traced(
         return tokens, step
 
 
+def _upstream_node_ids(ir: IRWorkflow, node_id: str) -> frozenset[str]:
+    """``node_id`` and every node that feeds it, directly or through others."""
+    feeders: dict[str, set[str]] = {}
+    for edge in ir.edges:
+        feeders.setdefault(edge.to_node, set()).add(edge.from_node)
+    seen = {node_id}
+    pending = [node_id]
+    while pending:
+        for upstream in feeders.get(pending.pop(), ()):
+            if upstream not in seen:
+                seen.add(upstream)
+                pending.append(upstream)
+    return frozenset(seen)
+
+
 def _run_node_with_policy(
     node: IRNode,
     ir: IRWorkflow,
@@ -7077,6 +7096,8 @@ def _run_node_with_policy(
     runtime_approvals_enabled: bool = False,
     approved_human_approval_nodes: set[str] | None = None,
 ) -> tuple[int, NodeStep]:
+    if plan.effect_gate is not None:
+        plan.effect_gate(_upstream_node_ids(ir, node.node_id))
     attempts = max(1, node.execution_policy.max_retries + 1)
     last_exc: Exception | None = None
     ledger = plan.effect_ledger

@@ -2489,6 +2489,64 @@ def test_worker_executes_queued_run_to_completion(client) -> None:
         )
 
 
+def test_worker_does_not_run_a_node_whose_effect_has_no_final_outcome(client) -> None:
+    """B05.5b (#742): an effect left ``unknown`` blocks the node that asked for it until the reconciler settles it."""
+    from caliber.effects.connectors.document_request import build_intent
+    from caliber.effects.records import (
+        APPROVED,
+        DISPATCHED,
+        POLICY_DECISION,
+        UNKNOWN,
+        Approval,
+        record_proposal,
+    )
+    from tests.test_effect_records import ATTEMPT, OWNER, _decision, _move
+
+    _enable_queue(client)
+    _wid, vid = create_and_publish(client)
+    created = client.post(
+        f"{PREFIX}/workflow-runs",
+        json={"workflow_version_id": vid, "input": "hello"},
+    )
+    assert created.status_code == 202
+    run_id = created.json()["data"]["workflow_run_id"]
+    with client.app.state.session_factory() as session:
+        proposal = record_proposal(
+            session,
+            workflow_run_id=run_id,
+            node_id="support_agent",
+            occurrence_id="occ-1",
+            intent=build_intent(
+                case_id="MORT-1",
+                document_type="pay_statement",
+                expected_resource_version=1,
+                effect_class="read",
+            ),
+        ).proposal_id
+        decision = _decision(session, proposal, decision_id="pd-w", run=run_id)
+        _move(session, proposal, APPROVED, approval=Approval(POLICY_DECISION, decision))
+        _move(session, proposal, DISPATCHED, owner_id=OWNER, attempt=ATTEMPT)
+        _move(session, proposal, UNKNOWN, owner_id=OWNER, attempt=ATTEMPT, reason="timeout")
+        session.commit()
+
+    _build_worker(client)._tick()
+
+    with client.app.state.session_factory() as session:
+        run = session.get(CaliberWorkflowRun, run_id)
+        assert run is not None and run.status != "completed"
+        assert "UnknownEffectError" in str(run.error_summary or "") + str(run.summary or "")
+        steps = (
+            session.query(CaliberWorkflowRunEvent)
+            .filter(
+                CaliberWorkflowRunEvent.workflow_run_id == run_id,
+                CaliberWorkflowRunEvent.event_type == "workflow.run.step",
+                CaliberWorkflowRunEvent.node_id == "support_agent",
+            )
+            .count()
+        )
+        assert steps == 0, "the agent did not run on top of an effect nobody can vouch for"
+
+
 def test_worker_executes_start_to_output_passthrough_run(client) -> None:
     _enable_queue(client)
     workflow_id = "passthrough-worker-wf"
