@@ -1,7 +1,0 @@
-{"t":"2026-10-28T18:40:32.862Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/cases/MORT-2026-000184/document-requests \"HTTP/1.1 201 Created\""}
-{"t":"2026-10-28T18:40:32.867Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/_test/faults \"HTTP/1.1 200 OK\""}
-{"t":"2026-10-28T18:40:32.877Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/_test/reset \"HTTP/1.1 200 OK\""}
-{"t":"2026-10-28T18:40:32.883Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: GET http://testserver/_test/mutations \"HTTP/1.1 200 OK\""}
-{"t":"2026-10-28T18:40:32.888Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: GET http://testserver/cases/MORT-2026-000184 \"HTTP/1.1 200 OK\""}
-{"t":"2026-10-28T18:40:32.893Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: GET http://testserver/document-requests?idempotency_key=k1 \"HTTP/1.1 404 Not Found\""}
-{"t":"2026-10-28T18:40:32.899Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/cases/MORT-2026-000184/document-requests \"HTTP/1.1 201 Created\""}

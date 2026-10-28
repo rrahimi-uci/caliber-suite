@@ -1,2 +1,0 @@
-{"t":"2026-10-28T18:40:41.206Z","severity":"INFO","logger":"httpx","message":"HTTP Request: GET http://127.0.0.1:51485/health \"HTTP/1.1 200 OK\""}
-{"t":"2026-10-28T18:40:41.519Z","severity":"INFO","logger":"httpx","message":"HTTP Request: GET http://127.0.0.1:51485/health \"HTTP/1.1 200 OK\""}

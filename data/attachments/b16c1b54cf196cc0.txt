@@ -1,0 +1,8 @@
+{"t":"2026-10-28T19:45:43.911Z","severity":"INFO","logger":"httpx","message":"HTTP Request: POST http://127.0.0.1:35495/_test/reset \"HTTP/1.1 200 OK\""}
+{"t":"2026-10-28T19:45:43.916Z","severity":"INFO","logger":"httpx","message":"HTTP Request: POST http://127.0.0.1:35495/_test/faults \"HTTP/1.1 200 OK\""}
+{"t":"2026-10-28T19:45:43.920Z","severity":"INFO","logger":"httpx","message":"HTTP Request: GET http://127.0.0.1:35495/_test/mutations \"HTTP/1.1 200 OK\""}
+{"t":"2026-10-28T19:45:43.943Z","severity":"INFO","logger":"httpx","message":"HTTP Request: GET http://127.0.0.1:35495/_test/mutations \"HTTP/1.1 200 OK\""}
+{"t":"2026-10-28T19:45:43.946Z","severity":"INFO","logger":"httpx","message":"HTTP Request: GET http://127.0.0.1:35495/_test/mutations \"HTTP/1.1 200 OK\""}
+{"t":"2026-10-28T19:45:45.116Z","severity":"INFO","logger":"httpx","message":"HTTP Request: POST http://127.0.0.1:35495/cases/MORT-2026-000184/document-requests \"HTTP/1.1 500 Internal Server Error\""}
+{"t":"2026-10-28T19:45:45.320Z","severity":"INFO","logger":"httpx","message":"HTTP Request: GET http://127.0.0.1:35495/health \"HTTP/1.1 200 OK\""}
+{"t":"2026-10-28T19:45:45.324Z","severity":"INFO","logger":"httpx","message":"HTTP Request: GET http://127.0.0.1:35495/_test/mutations \"HTTP/1.1 200 OK\""}

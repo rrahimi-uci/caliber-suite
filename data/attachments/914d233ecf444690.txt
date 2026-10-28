@@ -1,0 +1,15 @@
+{"t":"2026-10-28T19:45:46.576Z","severity":"INFO","logger":"httpx","message":"HTTP Request: POST http://127.0.0.1:35333/_test/reset \"HTTP/1.1 200 OK\""}
+{"t":"2026-10-28T19:45:46.588Z","severity":"INFO","logger":"httpx","message":"HTTP Request: POST http://127.0.0.1:35333/_test/faults \"HTTP/1.1 200 OK\""}
+{"t":"2026-10-28T19:45:46.592Z","severity":"INFO","logger":"httpx","message":"HTTP Request: GET http://127.0.0.1:35333/_test/mutations \"HTTP/1.1 200 OK\""}
+{"t":"2026-10-28T19:45:46.645Z","severity":"INFO","logger":"httpx","message":"HTTP Request: GET http://127.0.0.1:35333/_test/mutations \"HTTP/1.1 200 OK\""}
+{"t":"2026-10-28T19:45:46.699Z","severity":"INFO","logger":"httpx","message":"HTTP Request: GET http://127.0.0.1:35333/_test/mutations \"HTTP/1.1 200 OK\""}
+{"t":"2026-10-28T19:45:46.754Z","severity":"INFO","logger":"httpx","message":"HTTP Request: GET http://127.0.0.1:35333/_test/mutations \"HTTP/1.1 200 OK\""}
+{"t":"2026-10-28T19:45:46.809Z","severity":"INFO","logger":"httpx","message":"HTTP Request: GET http://127.0.0.1:35333/_test/mutations \"HTTP/1.1 200 OK\""}
+{"t":"2026-10-28T19:45:46.864Z","severity":"INFO","logger":"httpx","message":"HTTP Request: GET http://127.0.0.1:35333/_test/mutations \"HTTP/1.1 200 OK\""}
+{"t":"2026-10-28T19:45:46.918Z","severity":"INFO","logger":"httpx","message":"HTTP Request: GET http://127.0.0.1:35333/_test/mutations \"HTTP/1.1 200 OK\""}
+{"t":"2026-10-28T19:45:46.973Z","severity":"INFO","logger":"httpx","message":"HTTP Request: GET http://127.0.0.1:35333/_test/mutations \"HTTP/1.1 200 OK\""}
+{"t":"2026-10-28T19:45:47.027Z","severity":"INFO","logger":"httpx","message":"HTTP Request: GET http://127.0.0.1:35333/_test/mutations \"HTTP/1.1 200 OK\""}
+{"t":"2026-10-28T19:45:47.081Z","severity":"INFO","logger":"httpx","message":"HTTP Request: GET http://127.0.0.1:35333/_test/mutations \"HTTP/1.1 200 OK\""}
+{"t":"2026-10-28T19:45:47.114Z","severity":"INFO","logger":"httpx","message":"HTTP Request: GET http://127.0.0.1:35333/document-requests?idempotency_key=180d074a56e0f60275c2843761748ff4884eb6ee8ac35d9bc6a8a646cb96dcfb \"HTTP/1.1 200 OK\""}
+{"t":"2026-10-28T19:45:47.121Z","severity":"INFO","logger":"httpx","message":"HTTP Request: GET http://127.0.0.1:35333/_test/mutations \"HTTP/1.1 200 OK\""}
+{"t":"2026-10-28T19:45:47.125Z","severity":"INFO","logger":"httpx","message":"HTTP Request: GET http://127.0.0.1:35333/document-requests?idempotency_key=180d074a56e0f60275c2843761748ff4884eb6ee8ac35d9bc6a8a646cb96dcfb \"HTTP/1.1 200 OK\""}

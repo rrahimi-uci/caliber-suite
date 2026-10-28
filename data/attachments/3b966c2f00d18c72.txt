@@ -1,1 +1,0 @@
-{"t":"2026-10-28T18:40:32.286Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: GET http://testserver/openapi.json \"HTTP/1.1 200 OK\""}
