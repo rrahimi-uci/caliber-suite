@@ -18,7 +18,7 @@ from caliber.memory import (
     MemoryService,
     build_mem0_config,
 )
-from caliber.memory.service import _scope
+from caliber.memory.service import _normalize_entity_rows, _scope
 from caliber.routes.settings import _runtime_groups
 
 
@@ -135,10 +135,14 @@ class _FakeMemory:
         return {"results": []}
 
     def search(self, *args: Any, **kwargs: Any) -> dict:
+        if any(key in kwargs for key in ("agent_id", "user_id", "run_id")):
+            raise AssertionError("mem0 2.x requires entity identifiers inside filters")
         self.calls.append(("search", args, kwargs))
         return {"results": []}
 
     def get_all(self, *args: Any, **kwargs: Any) -> dict:
+        if any(key in kwargs for key in ("agent_id", "user_id", "run_id")):
+            raise AssertionError("mem0 2.x requires entity identifiers inside filters")
         self.calls.append(("get_all", args, kwargs))
         return {"results": []}
 
@@ -208,7 +212,7 @@ def test_search_passes_scope_and_top_k() -> None:
     MemoryService(fake).search("query", agent_id="support", top_k=5)
     _name, args, kwargs = fake.calls[0]
     assert args == ("query",)
-    assert kwargs == {"top_k": 5, "agent_id": "support"}
+    assert kwargs == {"top_k": 5, "filters": {"agent_id": "support"}}
 
 
 def test_delete_all_requires_scope() -> None:
@@ -221,7 +225,39 @@ def test_get_all_passes_scope_and_top_k() -> None:
     MemoryService(fake).get_all(agent_id="support", top_k=12)
     _name, args, kwargs = fake.calls[0]
     assert args == ()
-    assert kwargs == {"top_k": 12, "agent_id": "support"}
+    assert kwargs == {"top_k": 12, "filters": {"agent_id": "support"}}
+
+
+def test_installed_mem0_v2_accepts_entity_scope_only_inside_filters(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Exercise mem0's real 2.x argument validation without a live vector store."""
+    mem0 = pytest.importorskip("mem0")
+    from mem0.memory import main as mem0_main
+
+    memory = mem0.Memory.__new__(mem0.Memory)
+    memory.api_version = "2.0.15"
+    memory.reranker = None
+    memory._has_advanced_operators = lambda _filters: False
+    seen: dict[str, Any] = {}
+    memory._search_vector_store = lambda query, filters, limit, threshold, **kwargs: (
+        seen.update(search=(query, filters, limit, threshold, kwargs)) or []
+    )
+    memory._get_all_from_vector_store = lambda filters, limit, show_expired, output_limit: (
+        seen.update(get_all=(filters, limit, show_expired, output_limit)) or []
+    )
+    monkeypatch.setattr(mem0_main, "capture_event", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(mem0_main, "display_first_run_notice", lambda *_args, **_kwargs: None)
+
+    with pytest.raises(ValueError, match="Top-level entity parameters"):
+        memory.search("query", agent_id="support")
+    with pytest.raises(ValueError, match="Top-level entity parameters"):
+        memory.get_all(agent_id="support")
+
+    assert memory.search("query", filters={"agent_id": "support"}, top_k=5) == {"results": []}
+    assert seen["search"][1:3] == ({"agent_id": "support"}, 5)
+    assert memory.get_all(filters={"agent_id": "support"}, top_k=12) == {"results": []}
+    assert seen["get_all"] == ({"agent_id": "support"}, 60, False, 12)
 
 
 def test_list_entities_passes_scope_and_normalizes_rows() -> None:
@@ -245,6 +281,30 @@ def test_list_entities_passes_scope_and_normalizes_rows() -> None:
 def test_list_entities_requires_scope() -> None:
     with pytest.raises(ValueError, match="agent_id"):
         MemoryService(_FakeMemory()).list_entities()
+
+
+def test_normalize_entity_rows_handles_mem0_tuple_none_and_dict_shapes() -> None:
+    assert _normalize_entity_rows(()) == []
+    assert _normalize_entity_rows(None) == []
+    assert _normalize_entity_rows(
+        (
+            [
+                {
+                    "id": "e2",
+                    "payload": {"data": 42, "linked_memory_ids": "not-a-list"},
+                }
+            ],
+            {"backend": "metadata"},
+        )
+    ) == [
+        {
+            "id": "e2",
+            "entity": "42",
+            "entity_type": None,
+            "linked_memory_ids": [],
+            "memory_count": 0,
+        }
+    ]
 
 
 # ---------------------------------------------------------------------------

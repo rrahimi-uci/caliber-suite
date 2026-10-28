@@ -261,7 +261,8 @@
       "children": [
         659,
         666,
-        667
+        667,
+        947
       ]
     },
     {
@@ -7594,6 +7595,30 @@
       "tests": "caliber/tests/test_memory_reference_scope.py",
       "acceptance": "Refuse free-form client partitions and unsupported durable-memory operations under reference profile until M20 owned lifecycle is available. Derive enabled session namespace from authenticated project/principal, authorize every search/read/write/delete, and deny foreign partition without revealing IDs. Preserve explicit development compatibility only; no direct mem0 bypass.",
       "documentation": "docs/operate/reference-profile.md and the affected API/SDK/cookbook page; add exact refusal/recovery examples."
+    },
+    {
+      "number": 947,
+      "key": "533:mem0-filters",
+      "parent": 533,
+      "package": "B12",
+      "title": "[D2] B12.mem0 · Use mem0 2.x filters for scoped search and list",
+      "milestone": "D2",
+      "stage": "Beta",
+      "gaps": [
+        "G12",
+        "G15"
+      ],
+      "priority": "P1",
+      "lane": "P1",
+      "execution_order": 2003,
+      "blocked_by": [
+        667
+      ],
+      "scope": "Use the installed mem0 2.x contract for scoped search and list: pass agent_id, user_id and run_id through filters= for Memory.search and Memory.get_all. Keep add/delete_all on their supported entity-keyword API and keep list_entities on the filters contract. Test that top-level entity arguments are rejected by the real mem0 API and that the service reaches a stubbed store with the exact filters mapping.",
+      "files": "modify `caliber/src/caliber/memory/service.py`, `caliber/tests/test_memory_service.py`, `caliber/tests/test_memory_reference_scope.py`, `docs/operate/reference-profile.md`; regenerate `docs-site/` and `caliber/caliber-ui/public/docs/`",
+      "tests": "`caliber/tests/test_memory_service.py::test_installed_mem0_v2_accepts_entity_scope_only_inside_filters`, `::test_search_passes_scope_and_top_k`, `::test_get_all_passes_scope_and_top_k`, and the affected `test_memory_reference_scope.py` routes/tools",
+      "acceptance": "With the supported mem0 2.x dependency installed, MemoryService.search and get_all complete without ValueError, pass the exact scope under filters, and preserve top_k. Direct top-level entity arguments are rejected by the real mem0 API in a deterministic stub-store test; add/delete_all/list_entities retain their verified contracts. No scope or authorization behavior changes.",
+      "documentation": "Update docs/operate/reference-profile.md to document the mem0 2.x filters boundary and the unchanged add/delete_all/list_entities contracts; regenerate committed docs copies and indexes."
     },
     {
       "number": 851,
