@@ -188,12 +188,33 @@ def _feature_for(stem: str) -> str:
     return cleaned.title() or "Other"
 
 
-def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
-    """Tag each collected test with an Allure epic + feature for the report.
+def lone_surrogate_in(value: object) -> bool:
+    """Whether ``value`` is a string with a lone surrogate.
 
-    No-op when allure-pytest isn't active (normal ``make test`` runs without
-    ``--alluredir``) — the markers are harmless either way.
+    Only a parameter that *is* a string: allure-pytest writes a string parameter verbatim to its UTF-8 JSON report (and aborts
+    the run on a lone surrogate), while it writes any other value as its ``repr``, which escapes the surrogate.
     """
+    return isinstance(value, str) and any(0xD800 <= ord(char) <= 0xDFFF for char in value)
+
+
+def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
+    """Refuse a lone-surrogate parameter value, and tag each collected test with an Allure epic + feature for the report.
+
+    The Allure listener (enabled only in the push-to-main full suite) writes every parameter value to UTF-8 JSON, so a lone
+    surrogate used as a pytest parameter aborts the whole run with an INTERNALERROR (it reached ``main`` three times). Building
+    the value inside the test is the fix; failing at collection makes the mistake visible on the PR instead.
+
+    The Allure markers are a no-op when allure-pytest isn't active (normal ``make test`` runs without ``--alluredir``) — they
+    are harmless either way.
+    """
+    for item in items:
+        callspec = getattr(item, "callspec", None)
+        for name, value in callspec.params.items() if callspec is not None else ():
+            if lone_surrogate_in(value):
+                raise pytest.UsageError(
+                    f"{item.nodeid}: parameter {name!r} is a string with a lone surrogate; build it inside the test "
+                    "(the Allure listener cannot write it and aborts the full run)"
+                )
     try:
         import allure
     except Exception:
