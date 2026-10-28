@@ -24,6 +24,7 @@ from caliber.events.inbox import (
     DUPLICATE,
     IGNORED,
     PROCESSED,
+    InboxContractError,
     InboxIgnored,
     InboxPayloadMismatch,
     process_once,
@@ -181,11 +182,12 @@ def test_a_transition_that_hits_a_database_constraint_is_retryable(
             session.add(CaliberProject(project_id="PRJ-taken", name="PRJ-taken", owner="@t"))
             session.commit()
 
-        def collide() -> None:
-            session.add(CaliberProject(project_id="PRJ-again", name="PRJ-taken", owner="@t"))
-            session.flush()
-
         with factory() as session:
+
+            def collide() -> None:
+                session.add(CaliberProject(project_id="PRJ-again", name="PRJ-taken", owner="@t"))
+                session.flush()
+
             with pytest.raises(IntegrityError):
                 _take(session, apply=collide)
             assert _take(session).outcome == PROCESSED, (
@@ -193,6 +195,43 @@ def test_a_transition_that_hits_a_database_constraint_is_retryable(
             )
             session.commit()
         assert _count(factory, CaliberInboxEvent) == 1
+
+
+@pytest.mark.parametrize("dialect", DIALECTS)
+@pytest.mark.parametrize("escape", [KeyboardInterrupt, SystemExit, GeneratorExit])
+def test_an_interrupt_in_the_transition_also_leaves_no_reservation(
+    dialect: str, escape: type[BaseException], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    with _database(dialect, tmp_path, monkeypatch) as (_, factory), factory() as session:
+
+        def interrupted() -> None:
+            raise escape
+
+        with pytest.raises(escape):
+            _take(session, apply=interrupted)
+        assert _take(session).outcome == PROCESSED, "the session is usable and nothing was recorded"
+        session.commit()
+        assert _count(factory, CaliberInboxEvent) == 1
+
+
+@pytest.mark.parametrize("dialect", DIALECTS)
+@pytest.mark.parametrize("finish", ["commit", "rollback"])
+def test_a_transition_that_ends_the_transaction_itself_is_refused_loudly(
+    dialect: str, finish: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    with _database(dialect, tmp_path, monkeypatch) as (_, factory), factory() as session:
+
+        def ends_the_transaction() -> None:
+            session.add(CaliberProject(project_id="PRJ-own", name="PRJ-own", owner="@t"))
+            getattr(session, finish)()
+
+        with pytest.raises(InboxContractError, match="leave the transaction to the caller"):
+            _take(session, apply=ends_the_transaction)
+        session.rollback()
+        # What apply committed stays committed; the reservation, if it was committed with it, is still ``received``.
+        stuck = _count(factory, CaliberInboxEvent, CaliberInboxEvent.status == "received")
+        assert stuck == (1 if finish == "commit" else 0)
+        assert _count(factory, CaliberInboxEvent, CaliberInboxEvent.status == PROCESSED) == 0
 
 
 @pytest.mark.parametrize("dialect", DIALECTS)
@@ -278,6 +317,14 @@ def test_handing_the_event_to_a_durable_work_item_commits_with_the_reservation(
         ("billing", "github", "e", "sha256:" + "A" * 64, "payload_hash"),
         ("billing", "github", "e", "sha256:abc", "payload_hash"),
         ("billing", "github", "e", "md5:" + "a" * 64, "payload_hash"),
+        ("billing", "github", "a\x00b", HASH_A, "event_id"),
+        ("billing", "github", "a\nb", HASH_A, "event_id"),
+        ("billing", "gi\x7fthub", "e", HASH_A, "source"),
+        ("bill\x85ing", "github", "e", HASH_A, "consumer"),
+        ("billing", "github", "a\ud800b", HASH_A, "event_id"),
+        ("billing", b"github", "e", HASH_A, "source"),
+        ("billing", "github", 5, HASH_A, "event_id"),
+        ("billing", "github", "e", None, "payload_hash"),
     ],
 )
 def test_a_malformed_identity_or_hash_is_refused_before_the_database_is_touched(
@@ -538,3 +585,55 @@ def test_a_duplicate_waits_for_a_delivery_in_flight_and_takes_over_if_it_fails_o
         assert results["second"] == PROCESSED, "the failed delivery left no reservation behind"
         assert _count(factory, CaliberProject) == 1
         assert _count(factory, CaliberInboxEvent) == 1
+
+
+def test_a_different_payload_arriving_while_the_first_is_in_flight_is_refused_after_it_commits_on_postgresql(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _need_postgresql()
+    with _database("postgresql", tmp_path, monkeypatch) as (engine, factory):
+        entered = threading.Event()
+        release = threading.Event()
+        results: dict[str, Any] = {}
+
+        def first() -> None:
+            with factory() as session:
+
+                def slow() -> str:
+                    session.add(CaliberProject(project_id="PRJ-slow", name="PRJ-slow", owner="@t"))
+                    entered.set()
+                    release.wait(30)
+                    return "applied"
+
+                results["first"] = _take(session, apply=slow).outcome
+                session.commit()
+
+        def second() -> None:
+            with factory() as session:
+                try:
+                    _take(session, digest=HASH_B)
+                except InboxPayloadMismatch:
+                    results["second"] = "mismatch"
+                session.rollback()
+
+        a = threading.Thread(target=first, daemon=True)
+        a.start()
+        assert entered.wait(10)
+        b = threading.Thread(target=second, daemon=True)
+        b.start()
+        deadline = time.monotonic() + 15
+        waiting = 0
+        while time.monotonic() < deadline and not waiting:
+            with engine.connect() as probe:
+                waiting = probe.execute(
+                    text("SELECT count(*) FROM pg_stat_activity WHERE wait_event_type = 'Lock'")
+                ).scalar_one()
+            time.sleep(0.05)
+        assert waiting and "second" not in results
+        release.set()
+        a.join(30)
+        b.join(30)
+        assert results == {"first": PROCESSED, "second": "mismatch"}
+        assert _count(factory, CaliberProject) == 1
+        with factory() as session:
+            assert session.execute(select(CaliberInboxEvent.payload_hash)).scalar_one() == HASH_A

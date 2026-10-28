@@ -6,11 +6,12 @@ or after the process died half way through. Three things must hold together, so 
 1. **The reservation.** ``(consumer, source, event_id)`` is the primary key of ``caliber_inbox_events``; inserting the
    row is claiming the event. On PostgreSQL a second transaction inserting the same key waits for the first to finish
    (the unique index is the lock): if the first committed it is a duplicate, if it rolled back the second proceeds.
-   SQLite serialises writers, with the same outcome.
+   SQLite allows one writer at a time: a concurrent duplicate fails at once with a lock error (never applied twice) and
+   the sender's retry is then a ``duplicate``.
 2. **The business transition**, run by the caller's ``apply`` callback in the caller's session.
 3. **The processed marker**, set on the reservation row.
 
-:func:`process_once` does all three inside one savepoint and never commits: the caller commits (or rolls back) the
+:func:`process_once` does all three inside savepoints and never commits: the caller commits (or rolls back) the
 transaction it owns, so the reservation, the transition and the marker stand or fall together. If ``apply`` raises, the
 reservation is removed with it, and the sender's retry finds no trace and is processed: **a failed transaction is
 retryable, never treated as already processed.** If the process dies before the commit, the database discards the whole
@@ -45,7 +46,7 @@ from datetime import datetime, timezone
 from typing import Any, Final, Generic, Literal, TypeVar
 
 from sqlalchemy import delete
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import IntegrityError, ResourceClosedError
 from sqlalchemy.orm import Session
 
 from caliber.db.models import CaliberInboxEvent
@@ -61,6 +62,7 @@ DUPLICATE: Final = "duplicate"
 Outcome = Literal["processed", "ignored", "duplicate"]
 
 _HASH = re.compile(r"sha256:[0-9a-f]{64}")
+_TEXT = re.compile(r"[^\x00-\x1f\x7f-\x9f\ud800-\udfff]+")
 _MAX_CONSUMER = 64
 _MAX_SOURCE = 64
 _MAX_EVENT_ID = 160
@@ -76,6 +78,15 @@ class InboxPayloadMismatch(ValueError):  # noqa: N818 - a refusal, named for wha
         self.consumer = consumer
         self.source = source
         self.event_id = event_id
+
+
+class InboxContractError(RuntimeError):
+    """``apply`` committed or rolled back the session it was given, which it must not do.
+
+    Its writes may already be committed together with a reservation still marked ``received``; such a row is a
+    duplicate to every later delivery and needs an operator. The error is raised so the caller's own commit is not
+    what hides it.
+    """
 
 
 class InboxIgnored(Exception):  # noqa: N818 - a signal from ``apply``, not an error
@@ -111,9 +122,18 @@ def _validate(consumer: str, source: str, event_id: str, payload_hash: str) -> N
         ("source", source, _MAX_SOURCE),
         ("event_id", event_id, _MAX_EVENT_ID),
     ):
-        if not value or not value.strip() or len(value) > limit:
-            raise ValueError(f"inbox {label} must be 1..{limit} characters and not blank")
-    if not _HASH.fullmatch(payload_hash):
+        # Ids arrive from the outside: reject what the database cannot store (NUL, unpaired surrogates) here, as a
+        # ValueError the caller can answer with a 4xx, rather than as a driver error half way through the reservation.
+        if (
+            not isinstance(value, str)
+            or not value.strip()
+            or len(value) > limit
+            or not _TEXT.fullmatch(value)
+        ):
+            raise ValueError(
+                f"inbox {label} must be 1..{limit} printable characters, not blank, with no control characters"
+            )
+    if not isinstance(payload_hash, str) or not _HASH.fullmatch(payload_hash):
         raise ValueError("inbox payload_hash must be 'sha256:' and 64 lowercase hex digits")
 
 
@@ -173,6 +193,10 @@ def process_once(
         row.processed_at = _naive(_utc(now))
         session.flush()
         reservation.commit()
+    except ResourceClosedError as exc:
+        raise InboxContractError(
+            "apply committed or rolled back the session; it must leave the transaction to the caller"
+        ) from exc
     except BaseException:
         if reservation.is_active:
             reservation.rollback()
