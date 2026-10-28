@@ -1046,15 +1046,44 @@ for result in reconcile_pass(session_factory, lease=lease, targets=targets):
     print(result.proposal_id, result.outcome, result.state)  # committed | failed | unknown | unverified | lookup_failed | not_bound | in_flight | moved
 ```
 
+- **Timeout example (V08).** The connector's timeout fires after the request went out (`ambiguous`, recorded `unknown` with reason `ambiguous:may_have_been_sent`; not `failed`,
+  the downstream may have committed, and not `committed`, nobody read a receipt). A retry from the node layer is refused (`UnknownEffectError`, the run ends `failed`), nothing
+  can dispatch the proposal again (`illegal_transition` from `unknown` to `dispatched`), and the next reconciler pass finds the stored request by the original key and commits it
+  with a verified receipt: one downstream mutation throughout (`tests/egi_scenarios/test_v08_timeout_retry.py`).
 - **Refusals and recovery.** `lease_lost`: you are no longer the owner, stop and let the new owner reconcile. `store_failed`: roll back and retry. `unknown` after a
   pass: nothing proves the outcome yet (delayed visibility looks like absence); the next pass asks again, the effect is never re-sent, and dependents stay blocked.
-  There is no operator action that fails an `unknown` effect without the downstream's evidence yet (the operator reconciliation view is B05.6, #751); a connector that
+  There is no operator action that fails an `unknown` effect without the downstream's evidence yet (the operator view below lists them; an audited action is #997); a connector that
   can prove absence should set `absence_proves_noncommit`.
 - **Limits.** A pass looks at every candidate (a backlog that stays `unknown` cannot hide a newer one) and does not renew the lease: the caller bounds it with
   `budget_seconds` and renews or stops in `on_progress`. A `dispatched` row under the *current* lease is `in_flight` and is the dispatcher's to settle (it must record
   `unknown` on any error that is not a lost lease; the reconciler never abandons it). A `dispatched` row with no recorded token (none exist in shipped code; a
   downgrade through 0125 drops the column) is never abandoned. One connector (document-request) can be reconciled; another needs a verifier and capability record in `reconcile.CONNECTORS`. The gate runs where
   the runtime does (the queued-run worker, not preview or evaluation, which refuse effect nodes). A subworkflow's child plan is built separately and is not gated (the legacy effect ledger is not installed there either).
+
+## Operator reconciliation view: legacy claims and proposals, labelled apart (B05.6, #751)
+
+`GET /caliber/system/effects` (operator scope) lists **two different records** of an effect that may need a person, and never mixes them:
+
+| | `effects` (`source: legacy_ledger`, `source_version: ledger-v0`) | `proposals` (`source: effect_proposal`, `source_version: proposal-v1`) |
+| --- | --- | --- |
+| What it is | the queued-run worker's claim ledger (`caliber_effect_ledger`) | the ADR 0003 proposal ledger (`caliber_effect_proposals`) |
+| Listed by default | `status=in_progress` (`status=any` or another status widens it) | the open states `dispatched`, `unknown`, `reconciled` (`proposal_state=any` or one state) |
+| Settled by | an operator: `POST .../system/effects/{effect_key}/resolve` (admin, audited: `skip` or `retry`) | the reconciler's lookup by key; no operator action yet (`safe_actions` is empty) |
+| `safe_actions` | `resolve:skip`, `resolve:retry` on an `in_progress` claim, none otherwise | none |
+
+Every row carries `source`, `source_version` and its own `safe_actions`, so a client cannot apply the legacy `resolve` to a proposal (it is refused, `400`, and changes
+nothing) or read a proposal as a ledger claim. Legacy rows keep exactly the fields they always had (plus the label); the migrations that created the proposal tables
+leave them untouched and invent no receipt for them. A proposal row has identifiers, state, `version`, `attempt`, `owner_id`, `dispatch_token`, `reason`, `receipt_id`,
+timestamps, `blocks_dependents` (true while it is `dispatched`, `unknown` or `reconciled`: nothing that depends on it will run) and `abandoned` (for a `dispatched` attempt:
+`true` when a newer lease has replaced its dispatching lease and the reconciler will pick it up; `false` when no newer lease has been acquired, which is the dispatcher's own
+lease *or* one that lapsed with nobody to replace it yet; `null` for any other state, a row with no recorded token, or no lease at all). The proposal response therefore also
+carries `lease` (the stored execution-owner lease: `owner_id`, `fencing_token`, `expires_at`, `expired`, or `null`), so an operator can tell those two `false` cases apart. **No row carries a
+payload**: no arguments, intent bytes or recorded result (the query selects only the listed columns). The view is **operator-scoped and system-wide**: it shows every
+project's rows (each with its `project_id`, `connector`, `resource` and `owner_id`), like the rest of `/system/*`; `reason` is a short code by convention and must never carry a
+payload (recorders pass fixed codes). Known limit: no index on proposal `state`/`created_at` yet, so a very large ledger lists by scan (a follow-up if it grows). Query parameters: `source` (`all` by default, `legacy` or `proposal`), `status`, `proposal_state`,
+`workflow_run_id`, `limit` (1 to 1000, applied to each list; the proposal list reports `proposals_truncated` when more matched, newest first); `proposal_state` is only checked when proposals are asked for, and an
+unknown `source` or `proposal_state` is `400`. The response also carries `sources`, a description of each kind
+(`settled_by`, `safe_actions`). SDK: `client.system.effects(source="proposal", proposal_state="unknown")`.
 
 ## Receipt callback: a connector tells the platform it is done (B05.4b, #725)
 
