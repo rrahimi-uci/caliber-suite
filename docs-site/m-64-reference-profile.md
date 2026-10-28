@@ -1266,42 +1266,69 @@ configured one and the total); enforcing a budget on a provider call is B08. Leg
 
 ## Approval requests: bound to the exact intent (B06.1, #706)
 
-A protected effect is approved by a person, and the approval has to say *what* was approved. `create_approval_request`
-(`caliber/src/caliber/workflows/approval_policy.py`) records a `pending` row in `caliber_runtime_approval_requests` that is bound to one
+A protected effect is approved by a person, and the approval has to say *what* it approves. `create_approval_request`
+(`caliber/src/caliber/workflows/approval_requests.py`) records a `pending` row in `caliber_runtime_approval_requests` that is bound to one
 effect proposal and to what the approver is shown (ADR 0003 `approval_request`; migration `0127`). It runs in the caller's transaction and
-never commits.
+never commits. **The route does not decide such a request yet** (see "Not wired yet" below): this is the recorded question, not yet an
+answerable approval.
 
 - **What is bound.** `proposal_id`, the proposal's full `intent_hash` (`sha256:` and 64 hex digits, the digest every consumer reuses),
   its `expected_resource_version` (the downstream version the approval is valid for, or `NULL`), the `evidence_hash` of what the approver
-  is shown, the `policy_digest` in force, `requested_by` and `expires_at` (`now + ttl_seconds`, UTC). The record is validated against
+  is shown, the `policy_digest`, `requested_by` and `expires_at` (`now + ttl_seconds`, UTC). The record is validated against
   `approval_request.v1.json` before the row is stored (`risk_class` is the proposal's effect class; every response is allowed:
   `approve`, `reject`, `request_changes`). Values are read from the stored proposal, never from the object the caller holds.
+- **The node's own policy.** The caller passes the node's `ApprovalPolicy` (required). It is stored as the request's `policy_snapshot`
+  exactly as the decision route reads it back (`ApprovalPolicy.from_snapshot`), so a node that needs `caliber.admin` with a quorum of two, or a
+  deployment that allows self-approval, is enforced as configured. `policy_digest` is **computed** (`policy_digest(policy)`: `sha256:` and the
+  SHA-256 of the canonical JSON of the snapshot) and cannot be supplied. It pins the policy as requested, not the approvers a quorum
+  accumulates in the same snapshot afterwards. A policy the runtime cannot honour (unknown role, a count below 1, `escalate` or
+  `auto_reject`, a non-boolean flag) is `bad_field`.
 - **Only a `proposed` proposal.** Any other state (already approved, dispatched, committed, failed, unknown or reconciled) raises
   `ApprovalRequestError("proposal_not_proposed")`, a `ValueError` whose message is that code; nothing is stored. A proposal that does not
-  exist is `proposal_not_found`. A malformed `evidence_hash` or `policy_digest` (not `sha256:` and 64 lowercase hex digits), a blank,
-  control-character or over-256-character `requested_by`, or a `ttl_seconds` that is not an integer from 1 to 31 536 000 (one year) is
-  `bad_field`, and the message names the field.
-- **Legacy rows stay valid.** A node-level approval that guards no proposal keeps `NULL` in every new column and is decided exactly as
-  before. The database refuses a half-bound row: one with a `proposal_id` must also carry its intent hash, evidence hash, policy digest,
-  expiry and requester (`ck_runtime_approval_bound`), and the proposal must exist (a foreign key, enforced by PostgreSQL).
-- **Not here yet.** `superseded_by` (a newer request for the same node replaces an older one, B06.2) and `consumed_at` (the dispatcher
-  consumes the decision in the transaction that claims the effect, B06.4) are added empty; the decision route does not read any of the new
-  columns yet, and an approval that is expired or superseded is not refused until B06.2. Recheck at commit is B06.3.
-- **Migration.** `0127` adds nine nullable columns, a foreign key, a check and an index; no backfill, no trigger. Downgrade drops them; a
-  legacy request is untouched and a bound one is lost. It needs `0126` (B05.5b) to be applied first.
-- **Distinct actors.** The separation-of-duties rule of `record_approval` is now `assert_distinct_actor(actor, initiated_by, *, allow_self)`:
-  it raises `ApprovalPolicyError` ("the account that triggered this run cannot approve it; a second person must decide ...") when the
-  actor is the initiator, unless `allow_self` (`CALIBER_APPROVAL_ALLOW_SELF_APPROVAL`) is set; an unknown initiator is not compared.
+  exist is `proposal_not_found`. A malformed `evidence_hash` (not `sha256:` and 64 lowercase hex digits), a `requested_by` that is blank,
+  has leading or trailing whitespace, is over 256 characters or holds a control, zero-width or bidirectional character, a `ttl_seconds` that is
+  not an integer from 1 to 31 536 000, or a `now` the expiry cannot be computed from (a date at the end of year 9999, not a datetime) is
+  `bad_field`, and the message names the field. The one-year ceiling is a policy choice (a request open longer is a caller's mistake), not
+  a configuration value or a storage limit.
+- **Locking.** The proposal row is read `FOR UPDATE` (a no-op on SQLite, whose write transaction is exclusive). Creators for one proposal
+  serialize, and so do they against the proposal's own state transition: a proposal moving to `approved` either commits before the creator
+  reads it (the creator refuses) or waits for the creator's transaction. Two creators for one `proposed` proposal both succeed, one after the
+  other, and leave two `pending` rows: there is deliberately no unique index, and replacing the older request by the newer (`superseded_by`)
+  is B06.2, which should take the same lock in the transaction that supersedes. The lock lasts until the caller commits or rolls back.
+- **The binding is a database fact.** A row is either legacy (every binding column `NULL`) or fully bound, never half-bound in either
+  direction (`ck_runtime_approval_bound`); the three hash and digest columns are exactly 71 characters (`ck_runtime_approval_digest_length`);
+  and a BEFORE UPDATE trigger (SQLite and PostgreSQL) refuses any change to `proposal_id`, `intent_hash`, `evidence_hash`, `policy_digest`,
+  `expected_resource_version`, `expires_at` and `requested_by`: a request cannot be re-bound to another intent, nor a legacy row bound after
+  the fact. `status`, the decision columns, `policy_snapshot`, `superseded_by` and `consumed_at` still move. PostgreSQL also enforces
+  the proposal foreign key (SQLite does not enforce foreign keys in this repository).
+- **Not wired yet.** The decision routes refuse to decide a request that has a `proposal_id`: `409` with `reason_code`
+  `approval_bound_not_wired` and a message that carries no id, hash or requester, for both approve and reject, and nothing is written. The
+  default selection (no `runtime_approval_id`) ignores bound rows, so a legacy node-level request is never shadowed by a newer bound one. The
+  list endpoint still shows bound rows. Until B06.2 (expiry and supersession) and B06.3 (recheck at commit) replace this refusal, an expired
+  or superseded request is not refused either, because it cannot be decided at all. Known gaps for B06.3: the route's separation-of-duties
+  check compares the approver with `run.created_by`, not with the bound `requested_by`; and it must also check that the proposal's run is
+  still active before an approval is consumed.
+- **Legacy rows stay valid.** A node-level approval that guards no proposal keeps `NULL` in every new column and is decided exactly as before.
+- **Migration.** `0127` adds nine nullable columns, a foreign key, two checks, an index and the trigger (on PostgreSQL a function pinned to
+  the schema); no backfill. Downgrade drops the trigger and function, the checks, the index and the columns; a legacy request is untouched and a
+  bound one is lost. It needs `0126` (B05.5b) to be applied first.
+- **Distinct actors.** The separation-of-duties rule of `record_approval` is now `assert_distinct_actor(actor, initiated_by, *, allow_self)`
+  (`approval_policy.py`): it raises `ApprovalPolicyError` ("the account that triggered this run cannot approve it; a second person must decide
+  ...") when the actor is the initiator, unless `allow_self` (`CALIBER_APPROVAL_ALLOW_SELF_APPROVAL`) is set; an unknown initiator is not
+  compared. `actor_provenance.require_distinct_actors` and the assistant service's author/reviewer checks are not delegated to it: they raise
+  another error type, compare objects or other parties and have no `allow_self`, so sharing one function would change behaviour their callers
+  pin.
 
 ```python
-from caliber.workflows.approval_policy import ApprovalRequestError, create_approval_request
+from caliber.workflows.approval_policy import ApprovalPolicy
+from caliber.workflows.approval_requests import ApprovalRequestError, create_approval_request
 
 try:
     request = create_approval_request(
         session,
         proposal=proposal,
+        policy=node_policy,  # the node's ApprovalPolicy; stored as the snapshot, digested into policy_digest
         evidence_hash=evidence_digest,  # "sha256:" + 64 hex digits
-        policy_digest=policy_digest,
         requested_by="editor_a",
         ttl_seconds=86400,
     )
@@ -1309,7 +1336,15 @@ except ApprovalRequestError as refused:
     # refused.code is "proposal_not_proposed", "proposal_not_found" or "bad_field". For proposal_not_proposed the proposal has already
     # moved on: read its state, do not ask again for the same intent. Nothing was stored, so there is nothing to undo.
     ...
-session.commit()  # the caller owns the transaction
+session.commit()  # the caller owns the transaction; the proposal row stays locked until then
+```
+
+Deciding such a request through the API today:
+
+```text
+POST /ajax-api/2.0/mlflow/caliber/workflow-runs/{run_id}/approval/approve   {"runtime_approval_id": "<bound request>"}
+409 {"detail": "this approval request is bound to an effect proposal and cannot be decided here yet: exact-intent approval is not wired",
+     "status_code": 409, "reason_code": "approval_bound_not_wired"}
 ```
 
 ## Policy decisions

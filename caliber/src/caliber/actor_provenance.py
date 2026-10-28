@@ -9,19 +9,27 @@ technical review, QA sign-off, and Admin final approval must each be a
 decided on -- and today only one such check exists anywhere in this
 codebase, hand-written and workflow-run-specific
 (:func:`caliber.workflows.approval_policy.record_approval`'s bare
-``actor == initiated_by`` comparison). This module extracts the general
+``actor == initiated_by`` comparison, now ``assert_distinct_actor``). This module extracts the general
 shape of that check into a primitive Phase 5's Change-Request/QA/release
 records can share, without wiring it onto anything yet -- none of those
 records exist in this codebase today, so there is nothing to enforce this
 against until Phase 5 builds them (`P5-B`).
 
-This module deliberately does **not** touch
-:mod:`caliber.workflows.approval_policy`: that module's own self-approval
-rule is already shipped, tested, and configurable
-(``CALIBER_APPROVAL_ALLOW_SELF_APPROVAL``) for a real, live enforcement
-path -- refactoring it to share this primitive is a behavior-preserving
-cleanup with no test coverage benefit today, not something this slice
-needs to do to satisfy item 14's own ask.
+This module deliberately does **not** delegate
+:mod:`caliber.workflows.approval_policy` to this primitive, nor the reverse:
+that module's self-approval rule (now
+:func:`caliber.workflows.approval_policy.assert_distinct_actor`, extracted from
+``record_approval`` by B06.1, #706) is shipped, tested and configurable
+(``CALIBER_APPROVAL_ALLOW_SELF_APPROVAL``) for a live enforcement path. It
+compares plain user-id strings, raises ``ApprovalPolicyError`` (a 403 in the
+decision route) with its own message, passes when the initiator is unknown and
+can be switched off with ``allow_self``; this module compares
+:class:`ActorProvenance` objects, raises :class:`DistinctActorError` with a
+caller-supplied ``context``, has no escape hatch and has no notion of an
+unknown originator. The assistant service's author/reviewer/release checks
+likewise return their own messages. Merging them would change an error type
+or a message that callers and tests pin, so they stay separate primitives with
+the same intent.
 """
 
 from __future__ import annotations

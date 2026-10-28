@@ -2586,19 +2586,36 @@ class CaliberWorkflowRunCheckpoint(Base):
 
 
 class CaliberRuntimeApprovalRequest(Base):
-    """In-run human approval request created by runtime approval gates."""
+    """In-run human approval request created by runtime approval gates.
+
+    Two kinds of row. A *legacy* row (the worker's node-level approval) guards no effect proposal and has ``NULL`` in every
+    binding column. A *bound* row (B06.1, #706; ``caliber.workflows.approval_requests.create_approval_request``) names one
+    proposal and carries its ``intent_hash``, the ``evidence_hash`` shown, the ``policy_digest`` of the policy snapshot,
+    the expected resource version, ``expires_at`` and ``requested_by``. Migration 0127 makes that distinction a database
+    fact: a CHECK allows only all-``NULL`` or fully bound, hash and digest columns are exactly 71 characters, and a BEFORE
+    UPDATE trigger (SQLite and PostgreSQL) refuses any change to the binding columns, so an UPDATE or raw SQL cannot
+    re-bind a request to another intent. ``status``, ``consumed_at`` and ``superseded_by`` and the decision columns may
+    still move. The decision route does not decide a bound row yet (it answers ``409 approval_bound_not_wired``).
+    """
 
     __tablename__ = "caliber_runtime_approval_requests"
     __table_args__ = (
         Index("ix_runtime_approvals_run_status", "workflow_run_id", "status"),
         Index("ix_runtime_approvals_project_status", "project_id", "status"),
         Index("ix_runtime_approvals_proposal", "proposal_id"),
-        # A request bound to a proposal is bound completely: the exact intent, the evidence shown, the policy in force and
-        # the deadline. Only a legacy row (no proposal) may lack them.
+        # Legacy (every binding column NULL) or bound completely; never half-bound, in either direction.
         CheckConstraint(
-            "proposal_id IS NULL OR (intent_hash IS NOT NULL AND evidence_hash IS NOT NULL "
+            "(proposal_id IS NULL AND intent_hash IS NULL AND evidence_hash IS NULL AND policy_digest IS NULL "
+            "AND expected_resource_version IS NULL AND expires_at IS NULL AND requested_by IS NULL) "
+            "OR (proposal_id IS NOT NULL AND intent_hash IS NOT NULL AND evidence_hash IS NOT NULL "
             "AND policy_digest IS NOT NULL AND expires_at IS NOT NULL AND requested_by IS NOT NULL)",
             name="ck_runtime_approval_bound",
+        ),
+        CheckConstraint(
+            "(intent_hash IS NULL OR length(intent_hash) = 71) "
+            "AND (evidence_hash IS NULL OR length(evidence_hash) = 71) "
+            "AND (policy_digest IS NULL OR length(policy_digest) = 71)",
+            name="ck_runtime_approval_digest_length",
         ),
     )
 
