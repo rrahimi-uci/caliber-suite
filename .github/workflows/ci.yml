@@ -425,7 +425,19 @@ jobs:
           uv pip install --system -e sdk/caliber-sdk
           uv pip install --system -e sdk/caliber-cli
           uv pip install --system -e sdk/caliber-plugin-sdk
+      - name: Verify the alpha migration manifest against the release tag
+        # The checkout is one commit without tags, so the tag is fetched here. A change that edits a
+        # shipped migration AND its manifest entry passes the working-tree check in
+        # tests/test_upgrade_from_alpha.py; only this comparison with the tag's own objects fails it.
+        # scripts/ci-local.sh::job_backend_core runs the same two commands.
+        working-directory: .
+        run: |
+          git fetch --no-tags --depth=1 origin tag caliber-v0.1.0a1
+          python caliber/tests/migration_checksums.py generate --check
       - name: Run the core-journey and contract tests
+        # CALIBER_REQUIRE_ALPHA_TAG: the tag was fetched above, so the tag-match test must fail, not skip.
+        env:
+          CALIBER_REQUIRE_ALPHA_TAG: "1"
         run: >-
           pytest -n auto --dist loadgroup --no-cov -q
           tests/test_routes_jobs_apply.py
@@ -509,6 +521,8 @@ jobs:
           tests/test_worker_inventory.py
           tests/test_workspace_release_evaluator.py
           tests/test_request_limits.py
+          tests/test_upgrade_from_alpha.py
+          tests/test_migration_checksums.py
       - name: Run the SDK cookbook example tests against their stateful stand-ins
         # Every cookbook lab has an SDK example script that is replayed here against a
         # stateful stand-in server (the labs themselves run for real in cookbook-labs.yml).

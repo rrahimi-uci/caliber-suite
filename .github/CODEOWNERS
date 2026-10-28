@@ -21,3 +21,10 @@ SECURITY.md @rrahimi-uci
 pyproject.toml          @rrahimi-uci
 /.github/               @rrahimi-uci
 .pre-commit-config.yaml @rrahimi-uci
+
+# Migrations that shipped in caliber-v0.1.0a1 are frozen and checksummed; any change to the migrations
+# directory or to the manifest that guards it needs the owner (B16-Upgrade.1, #702).
+/caliber/src/caliber/db/migrations/versions/                          @rrahimi-uci
+/caliber/tests/fixtures/alpha_0_1_0a1_migration_checksums.json       @rrahimi-uci
+/caliber/tests/migration_checksums.py                                @rrahimi-uci
+/.gitattributes                                                      @rrahimi-uci
