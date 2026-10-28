@@ -321,7 +321,7 @@ def test_handing_the_event_to_a_durable_work_item_commits_with_the_reservation(
         ("billing", "github", "a\nb", HASH_A, "event_id"),
         ("billing", "gi\x7fthub", "e", HASH_A, "source"),
         ("bill\x85ing", "github", "e", HASH_A, "consumer"),
-        ("billing", "github", "a\ud800b", HASH_A, "event_id"),
+        ("billing", "github", "a<lone-surrogate>b", HASH_A, "event_id"),
         ("billing", b"github", "e", HASH_A, "source"),
         ("billing", "github", 5, HASH_A, "event_id"),
         ("billing", "github", "e", None, "payload_hash"),
@@ -334,6 +334,9 @@ def test_a_malformed_identity_or_hash_is_refused_before_the_database_is_touched(
         def __getattr__(self, name: str) -> Any:
             raise AssertionError(f"the session was used ({name})")
 
+    # A lone surrogate cannot be a parameter value: the Allure plugin writes it to its UTF-8 JSON report and aborts the run.
+    if isinstance(event_id, str):
+        event_id = event_id.replace("<lone-surrogate>", "\ud800")
     with pytest.raises(ValueError, match=needle):
         process_once(
             Untouched(),  # type: ignore[arg-type]
