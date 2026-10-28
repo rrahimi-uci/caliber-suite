@@ -54,9 +54,11 @@ _MESSAGE: Final = "this run may not read that context source"
 class ContextDenied(PermissionError):  # noqa: N818 - a refusal, named for what it says
     """The run may not read the source; nothing was loaded. ``code`` is stable, ``reasons`` the policy's."""
 
-    def __init__(self, code: str, reasons: tuple[str, ...] = ()) -> None:
+    def __init__(
+        self, code: str, reasons: tuple[str, ...] = (), *, message: str = _MESSAGE
+    ) -> None:
         detail = f" ({', '.join(reasons)})" if reasons else ""
-        super().__init__(f"{code}{detail}: {_MESSAGE}")
+        super().__init__(f"{code}{detail}: {message}")
         self.code = code
         self.reasons = reasons
 
