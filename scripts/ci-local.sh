@@ -212,6 +212,7 @@ BACKEND_CORE_TESTS=(
   tests/test_effect_records.py
   tests/test_effect_receipts.py
   tests/test_approval_binding.py
+  tests/test_approval_supersession.py
   tests/test_routes_system_effects.py
   tests/test_effect_reconcile.py
   tests/test_context_sources.py
@@ -292,6 +293,7 @@ job_migration_parity_postgres() {
         tests/test_effect_records.py \
         tests/test_effect_receipts.py \
         tests/test_approval_binding.py \
+        tests/test_approval_supersession.py \
         tests/test_routes_system_effects.py \
         tests/test_effect_reconcile.py \
         tests/test_context_sources.py \
