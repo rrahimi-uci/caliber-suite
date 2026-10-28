@@ -859,6 +859,30 @@ class CaliberConfig(BaseModel):
             "workspace_imports.DEFAULT_IMPORT_LEASE_SECONDS."
         ),
     )
+    workspace_release_evaluator_enabled: bool = Field(
+        default=False,
+        description=(
+            "Opt in to the Workspace release evaluator (B10.1). When true and the "
+            "release_candidates feature is on, it starts with the owner-only loops and claims "
+            "queued CaliberWorkspaceReleaseEvaluation rows, oldest first. Off by default: it "
+            "only claims (running the plan is B10.2), so a claimed evaluation would stay "
+            "running instead of queued. Never starts while "
+            "CALIBER_FEATURE_RELEASE_CANDIDATES is off."
+        ),
+    )
+    workspace_release_evaluator_interval_seconds: float = Field(
+        default=5.0,
+        gt=0,
+        description="Polling interval for Workspace release evaluator claim ticks.",
+    )
+    workspace_release_evaluator_lease_seconds: float = Field(
+        default=300.0,
+        gt=0,
+        description=(
+            "Claim-lease duration for a running Workspace release evaluation attempt before "
+            "another attempt may reclaim it."
+        ),
+    )
     github_source_control_enabled: bool = Field(
         default=False,
         description=(
@@ -2219,6 +2243,21 @@ _ENV_VAR_TABLE: list[tuple[str, str, Any]] = [
         float,
     ),
     ("CALIBER_WORKSPACE_IMPORT_LEASE_SECONDS", "workspace_import_lease_seconds", float),
+    (
+        "CALIBER_WORKSPACE_RELEASE_EVALUATOR_ENABLED",
+        "workspace_release_evaluator_enabled",
+        _flag,
+    ),
+    (
+        "CALIBER_WORKSPACE_RELEASE_EVALUATOR_INTERVAL_SECONDS",
+        "workspace_release_evaluator_interval_seconds",
+        float,
+    ),
+    (
+        "CALIBER_WORKSPACE_RELEASE_EVALUATOR_LEASE_SECONDS",
+        "workspace_release_evaluator_lease_seconds",
+        float,
+    ),
     (
         "CALIBER_GITHUB_SOURCE_CONTROL_ENABLED",
         "github_source_control_enabled",

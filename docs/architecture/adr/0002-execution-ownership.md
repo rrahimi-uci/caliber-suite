@@ -35,7 +35,7 @@ is not the writer reads the record and never updates it.**
 
 ### Background loops
 
-Started in `caliber/src/caliber/server.py::create_app`'s lifespan. The ten workers are listed by
+Started in `caliber/src/caliber/server.py::create_app`'s lifespan. The twelve workers are listed by
 `caliber/src/caliber/observability/worker_inventory.py`; the event bus (`start_bus()`) is started in the same
 lifespan but is invisible to that inventory, so it has its own row. **The decision:** in the reference profile
 exactly one process holds the execution-owner lease at a time and only the holder runs the workers; the others
@@ -57,6 +57,7 @@ transition with the token arrives with the outbox (#685). This record fixes who 
 | `WebhookDispatcher` | execution-owner lease (B13, #536) | Delivers accepted outbound webhook events; retries into the dead-letter queue. |
 | `OutboxPublisher` | execution-owner lease (B13, #536) | Hands recorded business events (the transactional outbox) to each consumer's inbox, with retry and backoff; delivery is at-least-once and consumers deduplicate on the event id. |
 | `WorkspaceImportWorker` | execution-owner lease (B13, #536) | Claims queued push-mode Workspace import jobs and materializes each into an immutable WorkspaceRevision. |
+| `WorkspaceReleaseEvaluator` | execution-owner lease (B13, #536) | Claims queued Workspace release evaluations, oldest first, fenced by the lease; resolving and running the plan arrives with B10.2. |
 | `EventBus` (database, Redis or NATS) | every process (fans events out; takes no effect) | publisher and poll tasks (database bus) or consumer tasks (Redis, NATS) deliver platform events to subscribers; publishing becomes idempotent through the outbox (#536) |
 
 ### Protected paths
@@ -211,11 +212,11 @@ and `exempt` rows stay with the module the row names.
 
 ## Appendix: worker ownership classification (B13.1, #660)
 
-The same ten loops, classified for the lease: `owner_only` means only the execution-owner lease holder runs the
+The same twelve loops, classified for the lease: `owner_only` means only the execution-owner lease holder runs the
 loop and it stops claiming when the lease is lost; every other replica serves requests only. `any_process` would
 mean the loop is safe on every replica at once. The classification is the `ownership` field of
 `caliber/src/caliber/observability/worker_inventory.py`, and `caliber/tests/test_worker_inventory.py` fails if this
-table and the inventory disagree. All ten are `owner_only`: the claim in the last column makes an overlap harmless today
+table and the inventory disagree. All twelve are `owner_only`: the claim in the last column makes an overlap harmless today
 but does not fence a stale process whose lease expired mid-transition, and two loops (`AriaPlanWorker`,
 `ReleaseReconcilerTask`) have no per-row claim at all. A loop moves to `any_process` only by an amendment to this record that shows it safe under fencing.
 
@@ -232,6 +233,7 @@ but does not fence a stale process whose lease expired mid-transition, and two l
 | `WebhookDispatcher` | `owner_only` | accept lease (at least 60 s, covering the retry window) plus an in-process in-flight claim |
 | `OutboxPublisher` | `owner_only` | per-row lease (`claimed_by`, `lease_expires_at`): a conditional UPDATE claims each row (exclusive on SQLite too; `FOR UPDATE SKIP LOCKED` on PostgreSQL avoids the contention) and only the claimer can settle it; redelivery is deduplicated by the consumer's inbox key `(consumer, event_id)` |
 | `WorkspaceImportWorker` | `owner_only` | per-job lease (`workspace_import_lease_seconds`) |
+| `WorkspaceReleaseEvaluator` | `owner_only` | conditional `UPDATE ... WHERE status = 'queued'` claim (`claim_workspace_release_evaluation`) with a per-attempt lease (`workspace_release_evaluator_lease_seconds`), made inside a transaction fenced by `assert_fenced` |
 
 The event bus is not in the worker inventory and is classified by its own row in the table above.
 

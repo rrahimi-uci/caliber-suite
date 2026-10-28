@@ -221,9 +221,11 @@ curl -s -H "$AUTH" "$API/projects/$PID/releases/$RID/evaluations" | python3 -m j
 
 ## The trust boundary, honestly
 
-- **Workspace release evaluations never execute in the alpha.** The claim/complete/settle
-  functions exist in the service layer with no caller; the lab's backend test pins that fact so
-  the lab fails loudly the day an executor lands. Everything downstream of evaluation evidence —
+- **Workspace release evaluations never execute in the alpha.** The complete/settle
+  functions exist in the service layer with no caller, and the only caller of the claim is the
+  opt-in `WorkspaceReleaseEvaluator` (`CALIBER_WORKSPACE_RELEASE_EVALUATOR_ENABLED`, off by
+  default, claims only); the lab's backend test pins that fact so the lab fails loudly the day
+  an executor lands. Everything downstream of evaluation evidence —
   quality signoff, CR accept, version tags, apply — is unreachable on a live server and is
   demonstrated as the refusal it is.
 - **This is a different feature from cookbook 11.** Lab 11's *release candidates* are a

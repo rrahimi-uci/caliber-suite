@@ -1340,6 +1340,45 @@ means the action cannot be done by a run (use the human-approval path or a perso
 policy lacks a risk for the action and must be extended; `subject_mismatch` and `workload_mismatch` are always a bug
 or an attack: fix the caller.
 
+## Release evaluation: the evaluator claims queued attempts (B10.1, #701)
+
+`POST /projects/{project_id}/releases/{release_id}/evaluate` queues one `caliber_workspace_release_evaluations` row
+(`queued`) per attempt. `WorkspaceReleaseEvaluator` (`caliber/src/caliber/orchestrator/workspace_release_evaluator.py`)
+is the owner-only loop that picks them up. It reuses the service's own queue and lease
+(`claim_workspace_release_evaluation`); there is no second queue.
+
+- **One claim per tick, oldest first.** Every `CALIBER_WORKSPACE_RELEASE_EVALUATOR_INTERVAL_SECONDS` (default 5) it
+  claims the `queued` row with the oldest `requested_at` (ties by id). The row becomes `running` with `claimed_by` set to
+  the evaluator's worker id (`workspace-release-evaluator-<pid>-<id>`), `started_by`, `started_at` and a lease of
+  `CALIBER_WORKSPACE_RELEASE_EVALUATOR_LEASE_SECONDS` (default 300, at least 1). `GET .../evaluations/{evaluation_id}`
+  shows it. A row that is not `queued` (running under another claimer, `succeeded`, `failed`) is never touched.
+- **Owner-only and fenced.** It runs only in the process holding the execution-owner lease (see above), and in the
+  reference profile each claim is made in a transaction that first runs `assert_fenced` with the exact lease the owner
+  captured. A process whose lease was taken over, expired or cannot be checked claims nothing and records nothing; the log
+  says `workspace release evaluator is no longer the execution owner (<reason>); nothing claimed`. On PostgreSQL the
+  claim waits at most a third of `CALIBER_EXECUTION_LEASE_SECONDS` (at least 100 ms) for the lease row. Two claimers
+  racing for one row cannot both win (a conditional `UPDATE ... WHERE status = 'queued'`); the loser claims nothing that
+  tick and the next tick takes the next row.
+- **Opt-in, and dormant while the feature is off.** The evaluator is built only when
+  `CALIBER_FEATURE_RELEASE_CANDIDATES=true` *and* `CALIBER_WORKSPACE_RELEASE_EVALUATOR_ENABLED=true` (default **false**
+  until B10.2 executes the plan). With the feature off the release routes keep answering `404 feature_disabled` and
+  nothing is claimed. `CALIBER_BACKGROUND_TASKS_ENABLED=false` stops it like every loop.
+- **Liveness.** Every tick, idle ones included, writes a `caliber_worker_heartbeats` row of kind
+  `workspace_release_evaluator`; a clean stop removes it and an unclean one leaves it to go stale, as for the run worker.
+  `/readiness` queue health reads the `workflow_run` kind only, so this row does not change it.
+- **No row content in logs or errors.** The log carries evaluation and release ids, the attempt number and the lease
+  refusal reason, never the plan or input digests.
+
+**Not done yet, so a claimed attempt is not finished by anything:** resolving the evaluation plan and running it
+(B10.2, #707), recording the gate digest (B10.3, #714) and heartbeating the attempt's own lease and reclaiming an
+expired one (B10.4, #721). Until then a claimed row stays `running`, its release stays `evaluating`, and a second
+`evaluate` call is refused with `409 release already has an active evaluation attempt`. That is why the evaluator is
+off by default: with it off an attempt stays `queued` (what cookbook 21 teaches), and only an operator who sets
+`CALIBER_WORKSPACE_RELEASE_EVALUATOR_ENABLED=true` sees `running`.
+
+Rollback: unset `CALIBER_WORKSPACE_RELEASE_EVALUATOR_ENABLED` (or set it false) and restart. There is no migration, and
+`running` rows the evaluator already claimed are left as they are.
+
 ## Not enforced yet
 
 ADR 0001 describes the whole reference shape; this table is what the *process* checks today. Not checked:
