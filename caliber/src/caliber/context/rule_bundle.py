@@ -69,9 +69,13 @@ MAX_BUNDLE_BYTES: Final = 1_048_576
 MAX_RULES: Final = 1000
 MAX_RULE_TEXT: Final = 8000
 MAX_FIELD: Final = 512
+#: The most canonical-JSON bytes the ``rule_bundle`` entry a context manifest cites may take (B07.5b, #736). A context
+#: manifest is bounded to 1 MiB; this leaves its segments headroom. Admission refuses a bundle whose citation is larger.
+MAX_CITATION_BYTES: Final = 262_144
 
 _ID = re.compile(r"[a-z0-9][a-z0-9._-]{0,127}")
 _DIGEST = re.compile(r"[0-9a-f]{64}")
+_OPEN_FLAGS: Final = ("O_NONBLOCK", "O_NOCTTY", "O_CLOEXEC")
 _TOP_KEYS: Final = frozenset({"schema_version", "bundle_id", "version", "rules"})
 _RULE_KEYS: Final = frozenset({"id", "text", "source_ref", "applies_to"})
 
@@ -116,6 +120,24 @@ class RuleBundle:
         return tuple(rule for rule in self.rules if topic in rule.applies_to)
 
 
+def rule_bundle_record(bundle: RuleBundle) -> dict[str, Any]:
+    """The ``rule_bundle`` entry of a context manifest for a verified ``bundle``: its identity and every rule's id,
+    provenance (``source_ref``) and text digest. The rule text itself is not recorded."""
+    return {
+        "bundle_id": bundle.bundle_id,
+        "version": bundle.version,
+        "sha256": bundle.sha256,
+        "rules": [
+            {
+                "rule_id": rule.id,
+                "source_ref": rule.source_ref,
+                "text_digest": hashlib.sha256(rule.text.encode("utf-8")).hexdigest(),
+            }
+            for rule in bundle.rules
+        ],
+    }
+
+
 def sha256_of(data: bytes) -> str:
     """The lowercase hex SHA-256 of ``data``."""
     return hashlib.sha256(data).hexdigest()
@@ -151,6 +173,13 @@ def load_rule_bundle(path: str | Path, expected_sha256: str) -> RuleBundle:
     return parse_rule_bundle(_read(Path(path)), expected_sha256)
 
 
+def read_rule_bundle_bytes(path: str | Path) -> bytes:
+    """The bytes of ``path`` exactly as :func:`load_rule_bundle` reads them (a regular file, read once, bounded), for
+    a caller that verifies the digest itself before parsing (:func:`parse_rule_bundle`). Raises
+    :class:`RuleBundleError` ``missing_bytes`` or ``too_large``."""
+    return _read(Path(path))
+
+
 def parse_rule_bundle(data: bytes, expected_sha256: str) -> RuleBundle:
     """Verify ``data`` against ``expected_sha256`` and only then parse and validate it.
 
@@ -180,8 +209,11 @@ def _read(path: Path) -> bytes:
     growing or endless file cannot exhaust memory and there is no gap between a size check and the read.
     """
     try:
-        # ``O_NONBLOCK`` so that opening a FIFO with no writer returns at once instead of blocking forever.
-        descriptor = os.open(path, os.O_RDONLY | getattr(os, "O_NONBLOCK", 0))
+        # ``O_NONBLOCK`` so that opening a FIFO with no writer returns at once instead of blocking forever;
+        # ``O_NOCTTY`` so that a terminal device is never made the process's controlling terminal and ``O_CLOEXEC``
+        # so that the descriptor is not inherited by a child process.
+        flags = os.O_RDONLY | sum(getattr(os, name, 0) for name in _OPEN_FLAGS)
+        descriptor = os.open(path, flags)
     except OSError:
         raise RuleBundleError(MISSING_BYTES, "the bundle file cannot be read") from None
     try:
@@ -311,6 +343,7 @@ __all__ = [
     "INVALID_YAML",
     "MALFORMED",
     "MAX_BUNDLE_BYTES",
+    "MAX_CITATION_BYTES",
     "MISSING_BYTES",
     "SCHEMA_VERSION",
     "TOO_LARGE",
@@ -322,5 +355,7 @@ __all__ = [
     "RuleBundleError",
     "load_rule_bundle",
     "parse_rule_bundle",
+    "read_rule_bundle_bytes",
+    "rule_bundle_record",
     "sha256_of",
 ]
