@@ -11,12 +11,15 @@ import os
 import stat
 from collections.abc import Iterator
 from contextlib import contextmanager
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 import pytest
 
 from caliber.context import rule_bundle
+from caliber.context import rules as context_rules
+from caliber.context.manifest import ContextManifestError
 from caliber.context.rule_bundle import (
     BAD_EXPECTED_DIGEST,
     CODES,
@@ -36,6 +39,16 @@ from caliber.context.rule_bundle import (
     parse_rule_bundle,
     sha256_of,
 )
+from caliber.context.rules import (
+    RULE_BUNDLE_CHANGED,
+    RULE_BUNDLE_MISMATCH,
+    RULE_BUNDLE_UNAVAILABLE,
+    RULE_BUNDLE_UNPINNED,
+    rule_bundle_record,
+    rule_bundle_reference,
+)
+from caliber.policy.principal import Subject, Workload
+from caliber.run_manifest import DeploymentScope, ResolvedPins, build_run_manifest, pin_rule_bundle
 
 FIXTURE = Path(__file__).parent / "fixtures" / "rule_bundles" / "support_rules.v1.yaml"
 #: Pinned: the fixture's bytes must hash to this, so the hash is deterministic and a changed fixture is noticed.
@@ -534,3 +547,194 @@ def test_the_loader_imports_no_database_provider_run_or_context_manifest_code() 
         "typing",
         "yaml",
     }
+
+
+# ---------------------------------------------------------------- B07.5b (#736): the pinned bundle at context use
+
+
+def _pinned_run(tmp_path: Path, text: str = GOOD) -> tuple[Path, str, dict[str, Any]]:
+    """A bundle pinned the way admission pins it: the run manifest's own ``rule_bundle_path`` / ``rule_bundle_sha256``."""
+    path, digest = _write(tmp_path, text)
+    pinned = pin_rule_bundle(path, digest)
+    built = build_run_manifest(
+        manifest_id="mf-rules",
+        workflow_run_id="run-rules",
+        pins=ResolvedPins(
+            workflow_version="wfv-1",
+            bundle_digest=hashlib.sha256(b"compiled").hexdigest(),
+            prompt_versions=[],
+            tool_versions=[],
+            skill_versions=[],
+            knowledge_base_versions=[],
+            model_routes=["scripted"],
+            policy_version="pol-1",
+        ),
+        subject=Subject("alice", "session", "proj-1"),
+        workload=Workload.for_workflow("rules", hashlib.sha256(b"wf").hexdigest()),
+        purpose="answer",
+        scope=DeploymentScope.fixed("proj-1"),
+        created_at=datetime(2026, 10, 28, 9, 0, 0, tzinfo=timezone.utc),
+        rule_bundle=pinned,
+        rule_bundles_enabled=True,
+    )
+    return path, digest, built.record
+
+
+def test_context_references_pinned_hash(tmp_path: Path) -> None:
+    path, digest, record = _pinned_run(tmp_path)
+    reference = rule_bundle_reference(record)
+    assert reference == {
+        "bundle_id": "b1",
+        "version": "1",
+        "sha256": digest,
+        "rules": [
+            {
+                "rule_id": "r1",
+                "source_ref": "src#1",
+                "text_digest": hashlib.sha256(b"Say hello.").hexdigest(),
+            }
+        ],
+    }
+    assert record["rule_bundle_sha256"] == digest
+    assert record["rule_bundle_path"] == str(path.resolve())
+    assert "Say hello." not in repr(reference), "the rule text is not recorded, only its digest"
+    assert reference == rule_bundle_reference(record), "the same pin gives the same reference"
+
+
+def test_the_whole_fixture_bundle_is_selected_in_bundle_order_with_provenance() -> None:
+    record = {"rule_bundle_path": str(FIXTURE), "rule_bundle_sha256": FIXTURE_SHA256}
+    reference = rule_bundle_reference(record)
+    assert reference is not None
+    assert [(r["rule_id"], r["source_ref"]) for r in reference["rules"]] == [
+        ("refund-window", "scripted/policy#refunds"),
+        ("escalate-fraud", "scripted/policy#fraud"),
+        ("tone", "scripted/style#tone"),
+    ]
+    assert reference["bundle_id"] == "scripted-support-rules"
+
+
+def test_a_run_admitted_without_a_bundle_gets_no_reference_even_if_one_is_enabled_later() -> None:
+    assert rule_bundle_reference({"rule_bundle_path": None, "rule_bundle_sha256": None}) is None
+    assert rule_bundle_reference({}) is None
+
+
+def test_admitted_hash_unchanged(tmp_path: Path) -> None:
+    path, digest, record = _pinned_run(tmp_path)
+    before = dict(record)
+    rule_bundle_reference(record)
+    path.write_text(GOOD.replace("Say hello.", "Say goodbye."), encoding="utf-8")
+    with pytest.raises(ContextManifestError):
+        rule_bundle_reference(record)
+    assert record == before, "the manifest the pin was read from is never rewritten or backfilled"
+    assert record["rule_bundle_sha256"] == digest
+
+
+def test_changed_bytes_refused_at_use(tmp_path: Path) -> None:
+    path, digest, record = _pinned_run(tmp_path)
+    # the same values, one more comment: the YAML reads the same, the bytes are not the pinned bytes
+    path.write_text(GOOD + "# edited after admission\n", encoding="utf-8")
+    with pytest.raises(ContextManifestError) as comment:
+        rule_bundle_reference(record)
+    assert comment.value.code == RULE_BUNDLE_CHANGED == "rule_bundle_changed"
+    assert "edited after admission" not in str(comment.value), "the message never quotes the file"
+    path.write_bytes(b"x" * (MAX_BUNDLE_BYTES + 1))
+    with pytest.raises(ContextManifestError) as large:
+        rule_bundle_reference(record)
+    assert large.value.code == RULE_BUNDLE_CHANGED
+    # the original bytes restored: the pin is honoured again, with nothing re-admitted
+    path.write_text(GOOD, encoding="utf-8")
+    reference = rule_bundle_reference(record)
+    assert reference is not None and reference["sha256"] == digest
+
+
+def test_an_unreadable_pinned_bundle_is_unavailable_not_changed(tmp_path: Path) -> None:
+    path, _, record = _pinned_run(tmp_path)
+    path.unlink()
+    for pin in (
+        record,  # the file is gone
+        {**record, "rule_bundle_path": str(tmp_path)},  # a directory
+        {**record, "rule_bundle_path": "relative-and-absent.yaml"},
+        {**record, "rule_bundle_path": "bad\x00path"},  # an embedded NUL
+        {**record, "rule_bundle_sha256": "ABC"},  # not a lowercase 64-hex digest
+    ):
+        with pytest.raises(ContextManifestError) as refused:
+            rule_bundle_reference(pin)
+        assert refused.value.code == RULE_BUNDLE_UNAVAILABLE == "rule_bundle_unavailable"
+    path.write_bytes(b"")
+    with pytest.raises(ContextManifestError) as empty:
+        rule_bundle_reference(record)
+    assert empty.value.code == RULE_BUNDLE_UNAVAILABLE
+
+
+def test_a_half_pinned_or_malformed_pin_fails_closed(tmp_path: Path) -> None:
+    _, digest, _ = _pinned_run(tmp_path)
+    where = str(tmp_path / "bundle.yaml")
+    for pin in (
+        {"rule_bundle_path": where, "rule_bundle_sha256": None},
+        {"rule_bundle_path": None, "rule_bundle_sha256": digest},
+        {"rule_bundle_path": "", "rule_bundle_sha256": digest},
+        {"rule_bundle_path": 5, "rule_bundle_sha256": digest},
+        {"rule_bundle_path": where, "rule_bundle_sha256": 5},
+    ):
+        with pytest.raises(ContextManifestError) as refused:
+            rule_bundle_reference(pin)
+        assert refused.value.code == RULE_BUNDLE_UNAVAILABLE, pin
+
+
+def test_hostile_bytes_at_the_pinned_path_are_refused_without_leaking_them(tmp_path: Path) -> None:
+    path, _, record = _pinned_run(tmp_path)
+    secret = "TOP-SECRET-PAYLOAD"
+    for hostile in (
+        f"!!python/object/apply:os.system ['{secret}']\n".encode(),
+        f"{secret}: *loop\n".encode(),
+        b"\xff\xfe" + secret.encode(),
+        secret.encode() * 4096,
+    ):
+        path.write_bytes(hostile)
+        with pytest.raises(ContextManifestError) as refused:
+            rule_bundle_reference(record)
+        assert refused.value.code == RULE_BUNDLE_CHANGED
+        assert secret not in str(refused.value)
+
+
+def test_a_repointed_path_after_admission_cannot_change_the_run_pin(tmp_path: Path) -> None:
+    original, digest = _write(tmp_path, GOOD, "v1.yaml")
+    other, other_digest = _write(tmp_path, GOOD.replace("b1", "b2"), "v2.yaml")
+    alias = tmp_path / "current.yaml"
+    alias.symlink_to(original)
+    pinned = pin_rule_bundle(alias, digest)
+    record = {"rule_bundle_path": pinned.path, "rule_bundle_sha256": digest}
+    assert pinned.path == str(original.resolve()), (
+        "admission records the resolved file, not the alias"
+    )
+    alias.unlink()
+    alias.symlink_to(other)  # the alias now means a different, perfectly valid bundle
+    reference = rule_bundle_reference(record)
+    assert reference is not None
+    assert (reference["bundle_id"], reference["sha256"]) == ("b1", digest)
+    assert reference["sha256"] != other_digest
+
+
+def test_the_reference_builder_is_pure_over_a_verified_bundle() -> None:
+    bundle = parse_rule_bundle(GOOD.encode(), sha256_of(GOOD.encode()))
+    assert rule_bundle_record(bundle)["rules"][0]["rule_id"] == "r1"
+    assert RULE_BUNDLE_MISMATCH == "rule_bundle_mismatch"
+    assert RULE_BUNDLE_UNPINNED == "rule_bundle_unpinned"
+
+
+def test_the_context_reference_module_reads_only_the_pinned_file() -> None:
+    tree = ast.parse(Path(context_rules.__file__).read_text(encoding="utf-8"))
+    imported: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom):
+            imported.add(node.module or "")
+        elif isinstance(node, ast.Import):
+            imported |= {alias.name for alias in node.names}
+    assert imported <= {
+        "__future__",
+        "hashlib",
+        "collections.abc",
+        "typing",
+        "caliber.context.manifest",
+        "caliber.context.rule_bundle",
+    }, imported

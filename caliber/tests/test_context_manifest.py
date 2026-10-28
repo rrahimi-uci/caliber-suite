@@ -21,7 +21,7 @@ from typing import Any
 import pytest
 from alembic import command
 from alembic.config import Config
-from sqlalchemy import create_engine, func, inspect, select, text
+from sqlalchemy import create_engine, event, func, inspect, select, text
 from sqlalchemy.engine import Engine
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.orm import Session, sessionmaker
@@ -32,6 +32,8 @@ from caliber.context.manifest import (
     INVALID,
     ORDERING,
     REVISION_GAP,
+    RULE_BUNDLE_MISMATCH,
+    RULE_BUNDLE_UNPINNED,
     SECTION_KINDS,
     TIER_VIOLATION,
     TOKENS,
@@ -48,17 +50,28 @@ from caliber.context.manifest import (
     read_context_manifest,
     store_context_manifest,
 )
+from caliber.context.rules import rule_bundle_reference
 from caliber.context.sources import source_resource
 from caliber.db.immutable import ImmutableRecordError
 from caliber.db.models import (
     CaliberContextManifest,
     CaliberPolicyDecision,
     CaliberProject,
+    CaliberRunManifest,
     CaliberWorkflow,
     CaliberWorkflowRun,
 )
+from caliber.policy.principal import Subject, Workload
 from caliber.redaction import DEFAULT_PATTERNS, IDENTITY_REDACTOR, Redactor
-from caliber.run_manifest import DeploymentScope, canonical_bytes, digest_of
+from caliber.run_manifest import (
+    DeploymentScope,
+    PinnedRuleBundle,
+    ResolvedPins,
+    build_run_manifest,
+    canonical_bytes,
+    digest_of,
+    pin_rule_bundle,
+)
 from tests.dialect_helpers import DIALECTS, dialect_database_url
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -290,7 +303,11 @@ def _seed(factory: sessionmaker[Session]) -> None:
         for run_id in ("WR-cm", "WR-other"):
             session.add(
                 CaliberWorkflowRun(
-                    workflow_run_id=run_id, workflow_id="wf-cm", project_id="P-cm", status="running"
+                    workflow_run_id=run_id,
+                    workflow_id="wf-cm",
+                    project_id="P-cm",
+                    status="running",
+                    manifest_legacy=False,  # an admitted run: only such a run may hold a run manifest
                 )
             )
         session.commit()
@@ -1031,3 +1048,270 @@ def test_a_packed_manifest_with_sections_is_stored_and_loaded_unchanged(
         assert loaded is not None and loaded.manifest_bytes == built.manifest_bytes
         assert loaded.record["redacted"][0]["position"] == 1
         assert b"carol@example.com" not in loaded.manifest_bytes
+
+
+# ---------------------------------------------------------------- the pinned rule bundle (B07.5b, #736)
+
+BUNDLE_TEXT = """\
+schema_version: v1
+bundle_id: scripted-rules
+version: "1"
+rules:
+  - id: refund-window
+    text: "Refunds are allowed within 30 days of delivery."
+    source_ref: "scripted/policy#refunds"
+    applies_to: [refund]
+  - id: tone
+    text: "Answer politely."
+    source_ref: "scripted/style#tone"
+    applies_to: [refund]
+"""
+
+
+def _bundle_reference(tmp_path: Path, text: str = BUNDLE_TEXT) -> tuple[dict[str, Any], Path, str]:
+    """``(the manifest's rule_bundle entry, the pinned file, its digest)`` for a scripted bundle."""
+    path = tmp_path / "rules.yaml"
+    path.write_text(text, encoding="utf-8")
+    digest = hashlib.sha256(text.encode()).hexdigest()
+    reference = rule_bundle_reference({"rule_bundle_path": str(path), "rule_bundle_sha256": digest})
+    assert reference is not None
+    return reference, path, digest
+
+
+def _admit(
+    factory: sessionmaker[Session],
+    run_id: str,
+    *,
+    pinned: PinnedRuleBundle | None = None,
+    enabled: bool | None = None,
+) -> CaliberRunManifest:
+    """Store the run manifest admission would have stored for ``run_id`` (with ``pinned`` when there is a bundle)."""
+    built = build_run_manifest(
+        manifest_id=f"mf-{run_id}",
+        workflow_run_id=run_id,
+        pins=ResolvedPins(
+            workflow_version="wfv-1",
+            bundle_digest=hashlib.sha256(b"compiled").hexdigest(),
+            prompt_versions=[],
+            tool_versions=[],
+            skill_versions=[],
+            knowledge_base_versions=[],
+            model_routes=["scripted"],
+            policy_version="pol-1",
+        ),
+        subject=Subject("@t", "session", "P-cm"),
+        workload=Workload.for_workflow("cm", hashlib.sha256(b"wf").hexdigest()),
+        purpose="answer",
+        scope=DeploymentScope.fixed("P-cm"),
+        created_at=NOW,
+        rule_bundle=pinned,
+        rule_bundles_enabled=pinned is not None if enabled is None else enabled,
+    )
+    with factory() as session:
+        row = CaliberRunManifest(**built.row_values())
+        session.add(row)
+        session.commit()
+    return row
+
+
+def _admit_with_bundle(
+    factory: sessionmaker[Session], tmp_path: Path, run_id: str = "WR-cm"
+) -> tuple[dict[str, Any], Path, str]:
+    reference, path, digest = _bundle_reference(tmp_path)
+    _admit(factory, run_id, pinned=pin_rule_bundle(path, digest))
+    return reference, path, digest
+
+
+def _run_manifest_state(factory: sessionmaker[Session]) -> list[tuple[str, str, bytes]]:
+    with factory() as session:
+        return [
+            (row.manifest_id, row.manifest_digest, bytes(row.manifest_bytes))
+            for row in session.execute(
+                select(CaliberRunManifest).order_by(CaliberRunManifest.manifest_id)
+            ).scalars()
+        ]
+
+
+def test_the_manifest_cites_the_pinned_bundle_and_never_stores_a_rule_text(tmp_path: Path) -> None:
+    reference, _, digest = _bundle_reference(tmp_path)
+    built = _build(rule_bundle=reference)
+    record = read_context_manifest(built.manifest_bytes, built.manifest_digest)
+    assert record["rule_bundle"]["sha256"] == digest
+    assert [r["rule_id"] for r in record["rule_bundle"]["rules"]] == ["refund-window", "tone"]
+    assert record["rule_bundle"]["rules"][0]["source_ref"] == "scripted/policy#refunds"
+    assert b"Refunds are allowed" not in built.manifest_bytes
+    assert "rule_bundle" not in _build().record, "a run without a bundle cites none"
+    reference["rules"][0]["rule_id"] = "changed-afterwards"
+    assert built.record["rule_bundle"]["rules"][0]["rule_id"] == "refund-window", (
+        "the manifest holds its own copy of the entry"
+    )
+
+
+def test_context_references_pinned_hash_and_a_tampered_citation_is_refused(tmp_path: Path) -> None:
+    reference, _, _ = _bundle_reference(tmp_path)
+    built = _build(rule_bundle=reference)
+    for mutate in (
+        lambda r: r["rule_bundle"].__setitem__("sha256", "abc"),
+        lambda r: r["rule_bundle"].__setitem__("sha256", "A" * 64),
+        lambda r: r["rule_bundle"].__setitem__("bundle_id", "Not An Id"),
+        lambda r: r["rule_bundle"].__setitem__("version", ""),
+        lambda r: r["rule_bundle"].__setitem__("rules", []),
+        lambda r: r["rule_bundle"].__setitem__("surprise", 1),
+        lambda r: r["rule_bundle"]["rules"][0].pop("source_ref"),
+        lambda r: r["rule_bundle"]["rules"][0].__setitem__("text_digest", "xyz"),
+        lambda r: r["rule_bundle"]["rules"][0].__setitem__("rule_id", "a\n"),
+        lambda r: r["rule_bundle"]["rules"][0].__setitem__("rule_id", "x" * 129),
+        lambda r: r["rule_bundle"]["rules"][0].__setitem__("text", "smuggled"),
+        lambda r: r["rule_bundle"].pop("sha256"),
+    ):
+        broken = copy.deepcopy(built.record)
+        mutate(broken)
+        with pytest.raises(ContextManifestError) as refused:
+            read_context_manifest(canonical_bytes(broken))
+        assert refused.value.code == INVALID
+        with pytest.raises(ContextManifestError):
+            _build(rule_bundle=broken["rule_bundle"])
+
+
+def test_a_rule_cannot_be_selected_twice_and_an_oversized_citation_fails_closed(
+    tmp_path: Path,
+) -> None:
+    reference, _, _ = _bundle_reference(tmp_path)
+    twice = copy.deepcopy(reference)
+    twice["rules"].append(dict(twice["rules"][0]))
+    _refused(INVALID, rule_bundle=twice)
+    # the longest possible entries at the most rules a bundle may hold still fit the manifest's 1 MiB bound with room for
+    # its segments (about three quarters of it), and one rule more than a bundle may hold is refused by the schema
+    huge = copy.deepcopy(reference)
+    huge["rules"] = [
+        {"rule_id": f"r{number:0>127}", "source_ref": "s" * 512, "text_digest": "e" * 64}
+        for number in range(1000)
+    ]
+    built = _build(rule_bundle=huge)
+    assert 600_000 < len(built.manifest_bytes) < (1 << 20) - 200_000
+    huge["rules"].append({"rule_id": "one-too-many", "source_ref": "s", "text_digest": "e" * 64})
+    _refused(INVALID, rule_bundle=huge)
+
+
+@pytest.mark.parametrize("dialect", DIALECTS)
+def test_a_step_cites_the_bundle_the_run_was_admitted_with_and_no_run_manifest_is_updated(
+    dialect: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    with _database(dialect, tmp_path, monkeypatch) as (engine, factory):
+        _seed(factory)
+        _decision(factory)
+        reference, _, digest = _admit_with_bundle(factory, tmp_path)
+        before = _run_manifest_state(factory)
+        statements: list[str] = []
+
+        def watch(_c: Any, _cur: Any, statement: str, *_a: Any) -> None:
+            statements.append(statement)
+
+        event.listen(engine, "before_cursor_execute", watch)
+        try:
+            with factory() as session:
+                row = store_context_manifest(session, _build(rule_bundle=reference))
+                session.commit()
+                assert row.revision == 1
+                again = store_context_manifest(
+                    session,
+                    _build(context_manifest_id="cm-2", revision=2, rule_bundle=reference),
+                )
+                session.commit()
+                loaded = load_context_manifest(session, "WR-cm", "sr-1", revision=2)
+        finally:
+            event.remove(engine, "before_cursor_execute", watch)
+        assert again.revision == 2
+        assert loaded is not None and loaded.record["rule_bundle"]["sha256"] == digest
+        written = [
+            s
+            for s in statements
+            if s.lstrip().split(None, 1)[0].upper() in {"INSERT", "UPDATE", "DELETE"}
+        ]
+        assert written and all("caliber_context_manifests" in s for s in written), written
+        assert not any("caliber_run_manifests" in s for s in written), (
+            "the admission manifest is read, never written"
+        )
+        assert _run_manifest_state(factory) == before, "the admitted manifest is byte-identical"
+
+
+@pytest.mark.parametrize("dialect", DIALECTS)
+def test_a_step_that_does_not_cite_the_admitted_bundle_is_not_stored(
+    dialect: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    with _database(dialect, tmp_path, monkeypatch) as (_, factory):
+        _seed(factory)
+        _decision(factory)
+        reference, _, digest = _admit_with_bundle(factory, tmp_path)
+        other = copy.deepcopy(reference)
+        other["sha256"] = "f" * 64  # a different bundle than the one the run pinned
+        with factory() as session:
+            for citation in (None, other):
+                with pytest.raises(ContextManifestError) as refused:
+                    store_context_manifest(session, _build(rule_bundle=citation))
+                assert refused.value.code == RULE_BUNDLE_MISMATCH
+            session.rollback()
+        assert _count(factory) == 0
+        assert reference["sha256"] == digest
+
+
+@pytest.mark.parametrize("dialect", DIALECTS)
+def test_a_run_admitted_without_a_bundle_cannot_cite_one_and_a_legacy_run_cites_none(
+    dialect: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    with _database(dialect, tmp_path, monkeypatch) as (_, factory):
+        _seed(factory)
+        _decision(factory)
+        reference, _, _ = _bundle_reference(tmp_path)
+        _admit(
+            factory, "WR-cm"
+        )  # admitted with rule bundles disabled: a bundle enabled later never applies
+        with factory() as session:
+            with pytest.raises(ContextManifestError) as refused:
+                store_context_manifest(session, _build(rule_bundle=reference))
+            assert refused.value.code == RULE_BUNDLE_UNPINNED
+            session.rollback()
+            store_context_manifest(session, _build())
+            session.commit()
+        # a legacy run has no run manifest at all: no pin to cite, so a citation is refused too
+        with factory() as session:
+            with pytest.raises(ContextManifestError) as legacy:
+                store_context_manifest(
+                    session,
+                    _build(
+                        context_manifest_id="cm-legacy",
+                        workflow_run_id="WR-other",
+                        step_request_id="sr-legacy",
+                        rule_bundle=reference,
+                    ),
+                )
+            assert legacy.value.code == RULE_BUNDLE_UNPINNED
+            session.rollback()
+        assert _count(factory) == 1
+
+
+@pytest.mark.parametrize("dialect", DIALECTS)
+def test_a_run_manifest_that_does_not_read_back_stores_nothing(
+    dialect: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    with _database(dialect, tmp_path, monkeypatch) as (_, factory):
+        _seed(factory)
+        _decision(factory)
+        junk = b'{"schema_version": "v1", "workflow_run_id": "WR-cm"}'
+        with factory() as session:
+            session.add(
+                CaliberRunManifest(
+                    manifest_id="mf-junk",
+                    workflow_run_id="WR-cm",
+                    schema_version="v1",
+                    manifest_bytes=junk,
+                    manifest_digest=digest_of(junk),
+                )
+            )
+            session.commit()
+        with factory() as session:
+            with pytest.raises(ContextManifestError) as refused:
+                store_context_manifest(session, _build())
+            assert refused.value.code == INVALID
+            session.rollback()
+        assert _count(factory) == 0

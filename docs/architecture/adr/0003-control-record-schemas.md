@@ -102,6 +102,7 @@ before the provider sees any of it; stored as canonical bytes with their SHA-256
 | `segments` | array of objects | yes | in the order the provider sees them: `position` (0-based, contiguous), `tier` (`instruction` or `data`), `kind` (`system_instruction`, `workflow_instruction`, `user_input`, `retrieved_text`, `tool_output`, `history`, `memory`), `source` (`kind` of `prompt`, `input`, `knowledge_base`, `tool`, `memory`, `history`, with `knowledge_base_id`, `version_id` or `reference`), `content_digest`, `tokens`, optional `retrieval` (`mode`, `index_version`), `transform` (`name`, `version`) and `authorization_decision_id`. The content itself is not stored here, only its digest. |
 | `omitted` | array of objects | no | what was left out: `source`, `reason` (`token_budget`, `unauthorized`, `redacted`, `filtered`, `duplicate`) and `tokens` |
 | `redacted` | array of objects | no | segments changed for a policy reason: `position`, `fields`, `reason` |
+| `rule_bundle` | object | no | the operator-pinned rule bundle the run was admitted with, cited by the step (B07.5b, #736): `bundle_id`, `version`, `sha256` (the digest the run manifest pinned at admission) and `rules`, one `{rule_id, source_ref, text_digest}` per selected rule (its provenance and the SHA-256 of its text; the text itself is not stored). Absent when the run was admitted without a bundle, and on a manifest written before it |
 | `token_allocation` | object | yes | `budget`, `used`, `instruction`, `data`, and optionally `sections`: one `{section, cap_tokens, used_tokens}` per capped section (`retrieved`, `history`), where `used_tokens` equals the tokens of that section's segments and does not exceed `cap_tokens` (B07.4, #719; absent on a manifest written before it) |
 | `created_at` | string (RFC 3339 date-time) | yes | when the manifest was written |
 
@@ -114,7 +115,9 @@ and anything loaded from a knowledge base or memory carries the `authorization_d
 allow that let it be loaded. `caliber.context.manifest` also enforces: `position` equals the segment's index (reordering a
 stored record is detectable twice, by the digest and by the positions); `used` is the sum of the segments' tokens and
 equals `instruction` plus `data`, within `budget`; a segment is redacted once; and an `omitted` source refused as
-`unauthorized` is recorded by `kind` only, never by identifier. Stored records are canonical JSON (one record, one byte
+`unauthorized` is recorded by `kind` only, never by identifier; a rule is selected once; and, when the manifest is stored, a
+`rule_bundle` it cites carries the digest the run manifest's `rule_bundle_sha256` pinned at admission (a run admitted with a
+bundle cites it in every step's manifest, a run admitted without one cites none; the run manifest is read, never written). Stored records are canonical JSON (one record, one byte
 form, one digest) with integer counts.
 
 ### proposal

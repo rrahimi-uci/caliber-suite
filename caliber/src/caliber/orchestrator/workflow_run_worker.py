@@ -1626,8 +1626,14 @@ class WorkflowRunWorker:
                         admitted_identity.grant_id,
                         policy=admission_settings.policy,
                     )
-                    # ...and every agent step's context is recorded as a validated, authorized manifest before the
-                    # provider sees any of it (B07.3b).
+                # ...and every agent step's context is recorded as a validated, authorized manifest before the
+                # provider sees any of it (B07.3b). A run admitted with a rule bundle is recorded even without a
+                # source guard: each step re-verifies the bundle's bytes against the admitted digest and cites it
+                # (B07.5b); the pin comes from the run's own manifest, never from the current configuration.
+                if source_guard is not None or any(
+                    pinned.record.get(key) is not None
+                    for key in ("rule_bundle_path", "rule_bundle_sha256")
+                ):
                     context_recorder = context_recorder_for(
                         self._session_factory, pinned.record, source_guard
                     )

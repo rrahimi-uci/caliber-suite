@@ -43,6 +43,7 @@ from caliber.context.manifest import (
     next_revision,
     store_context_manifest,
 )
+from caliber.context.rules import rule_bundle_reference
 from caliber.db.models import CaliberKnowledgeBaseVersion
 from caliber.policy.grants import AUTHORITY_UNAVAILABLE
 from caliber.run_manifest import DeploymentScope
@@ -84,9 +85,11 @@ def _instruction_segments(assembly: AgentContextAssembly) -> list[ContextSegment
 
 
 def _input_segments(
-    session: Session, item: AgentContextInput, guard: SourceGuard, node_id: str
+    session: Session, item: AgentContextInput, guard: SourceGuard | None, node_id: str
 ) -> list[ContextSegment]:
-    if item.origin_node_type == "knowledge_query":
+    # Without a guard the run authorized no source, so a query's text is not labelled as retrieved from one: it is the
+    # output of the node that delivered it, which is still data.
+    if item.origin_node_type == "knowledge_query" and guard is not None:
         result = item.origin_result or {}
         # A query that does not publish its ``result`` still read the versions the guard authorized for this run.
         versions = [str(v) for v in result.get("resolved_version_ids") or []] or list(
@@ -137,17 +140,26 @@ def _input_segments(
 def context_recorder_for(
     session_factory: Callable[[], Session],
     run_manifest: dict[str, Any],
-    guard: SourceGuard,
+    guard: SourceGuard | None,
     *,
     token_budget: int = DEFAULT_TOKEN_BUDGET,
 ) -> Callable[[AgentContextAssembly], None]:
-    """The recorder the worker hands ``build_plan`` for one admitted run (see the module docstring)."""
+    """The recorder the worker hands ``build_plan`` for one admitted run (see the module docstring).
+
+    ``guard`` is ``None`` for a run admitted without context sources whose manifest pins a rule bundle: its steps are
+    still recorded (with the verified bundle cited) but no knowledge-base text is labelled as retrieved.
+    """
     run_id = str(run_manifest["workflow_run_id"])
     project_id = run_manifest.get("project_id")
 
     def record(assembly: AgentContextAssembly) -> None:
         # the node id is cut so the random suffix is never truncated: it is what keeps two steps of one node apart
         step_request_id = f"{assembly.node_id[:90]}-{uuid.uuid4().hex[:24]}"
+        try:
+            # The pinned rule bundle's bytes are verified against the admitted digest now, at use, for every step.
+            rule_bundle = rule_bundle_reference(run_manifest)
+        except ContextManifestError as exc:
+            raise ContextDenied(exc.code, message=str(exc)) from None
         try:
             with session_factory() as session:
                 segments = _instruction_segments(assembly)
@@ -176,6 +188,7 @@ def context_recorder_for(
                         segments=segments,
                         token_budget=max(token_budget, sum(s.tokens for s in segments)),
                         created_at=datetime.now(timezone.utc),
+                        rule_bundle=rule_bundle,
                     )
                     store_context_manifest(session, built)
                     session.commit()

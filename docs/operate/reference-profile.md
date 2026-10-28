@@ -263,7 +263,8 @@ built = build_run_manifest(
   missing, oversized, changed or malformed file is `rule_bundle_refused` and no manifest is built; a verified bundle's
   absolute path and SHA-256 are recorded (make one `PinnedRuleBundle` per admission: it is a snapshot, not a handle on the file). Enabled without one is `rule_bundle_required`; one given while disabled is
   `rule_bundle_unexpected`. The digest in the manifest is the digest of the bytes that were verified, so editing the
-  file afterwards changes nothing about this run (the context code re-verifies the bytes when it uses them, #736).
+  file afterwards changes nothing about this run (the context code re-verifies the bytes when it uses them, #736: see
+  "The context manifest", "The rule bundle at context use").
 - **The request digest.** `request_digest` (optional, 64 lowercase hex) is the SHA-256 of the canonical admission
   intent (see "Admitting a run"). A malformed one is `bad_pin`. It is part of the sealed bytes, so it cannot change
   after admission.
@@ -1173,11 +1174,12 @@ platform administrators, and do not expose it more widely without a keyed digest
 Reading a manifest back (`read_context_manifest`) re-checks the digest, the schema (an unknown `schema_version` is
 `unknown_version`, never read as the nearest) and every rule above, so a reordered or relabelled record is caught twice,
 by its digest and by its positions. Refusals carry a stable code: `invalid_manifest`, `unknown_version`, `tier_violation`,
-`unauthorized_payload`, `ordering`, `tokens`, `authorization_rejected`, `duplicate_revision`, `revision_gap`. Nothing here
+`unauthorized_payload`, `ordering`, `tokens`, `authorization_rejected`, `duplicate_revision`, `revision_gap`,
+`rule_bundle_changed`, `rule_bundle_unavailable`, `rule_bundle_mismatch`, `rule_bundle_unpinned`. Nothing here
 talks to a provider.
 
 **Recorded for every agent step (B07.3b, #710).** For an admitted run in the reference profile the worker hands the runtime a
-recorder (`caliber.context.assembly.context_recorder_for`, built together with the source guard), and the runtime calls it
+recorder (`caliber.context.assembly.context_recorder_for`, built together with the source guard, or alone for a run whose manifest pins a rule bundle), and the runtime calls it
 with each agent step's *initial* context (the step's instructions as resolved when it is assembled, its skills, its history
 and the one input the provider is sent, with the node whose edge delivered it) **before any of it reaches the provider**, for
 every agent, every handoff target (a native Agents SDK handoff runs inside the provider call, so every agent the step may
@@ -1212,6 +1214,35 @@ recorder above (B07.3b) records the context as the runtime passes it and does no
 provider input is capped or redacted and the manifests it writes carry no `sections`; a manifest never claims a cap or a
 redaction that was not applied. The issue's draft names (`allocation`, `redactions`, `budget`) map onto the shipped v1 record
 (`token_allocation.sections`, `redacted`, `token_budget`), which is kept so manifests already written stay valid.
+
+**The rule bundle at context use (B07.5b, #736).** A run admitted with a rule bundle has its path and SHA-256 in the run manifest
+(see "Admitting a run"); the run manifest is immutable and nothing here writes it. For every agent step the recorder reads
+the pin **from that manifest, never from the current configuration**, re-reads the bytes at the recorded (absolute, resolved)
+path, verifies the raw bytes against the recorded digest and only then parses them (`caliber.context.rules.rule_bundle_reference`).
+The step's context manifest then carries a `rule_bundle` entry: the bundle's `bundle_id`, `version` and `sha256`, and for each
+selected rule its `rule_id`, its `source_ref` (provenance) and the SHA-256 of its text (the rule text itself is not stored). Every
+rule of the operator-pinned bundle is selected, in bundle order. Storing the manifest checks again, against the run manifest
+read from the database, that the cited digest is the admitted one: a run admitted with a bundle cites it in every step, a run
+admitted without one cites none (a bundle enabled later is never applied to it, and no pin is backfilled). A
+run that has a rule bundle is recorded even when it has no source guard (no approved sources required, no `context.read`
+grant); in that case no knowledge-base text is labelled `retrieved_text` (no source was authorized) and a query's text is
+`tool_output` of its node. So a path or configuration change after admission cannot alter what the run uses: the run uses
+the admitted bytes or is refused.
+
+| run error | meaning and recovery |
+| --- | --- |
+| `context_denied` with `rule_bundle_changed` | the bytes at the pinned path are no longer the admitted bytes (an edit, even a comment or whitespace; a replaced file; a file larger than 1 MiB): the step did not run and no context manifest was written. Restore the original file (the run's pin is unchanged and works again) or resubmit the run, which is admitted against the current configuration |
+| `context_denied` with `rule_bundle_unavailable` | the pinned file is missing, not a regular file, unreadable, or the run manifest's pin is unusable: restore the file at the recorded path, or resubmit the run |
+| `context_denied` with `rule_bundle_mismatch` / `rule_bundle_unpinned` | a context manifest cited another bundle than the run's admitted one, or a bundle for a run admitted without one (the store refuses it; this indicates a defect, not an operator action) |
+
+Example. A run is admitted with `CALIBER_RULE_BUNDLE_PATH=/etc/caliber/rules.yaml`; an operator then appends a comment to the file.
+The worker's next agent step ends the run `failed` with error code `context_denied` and the summary
+`rule_bundle_changed: the run's pinned rule bundle cannot be used now (digest_mismatch)`; the provider was never called and the run's
+manifest is untouched. Deleting the comment makes the same run's next attempt succeed; pointing `CALIBER_RULE_BUNDLE_PATH` at another
+bundle changes only runs admitted afterwards. The entry records provenance and digests, not the rule text: delivering rule text to the
+provider is the agent-step adapters' job (B08), as for caps and redaction, so a manifest never claims text was given that was not.
+Bundle size: a bundle of the most rules (1000) with the longest `source_ref` and id fits the manifest's 1 MiB bound with room for its
+segments.
 
 What this does not cover, so it is not claimed: the tool specifications, the structured-output suffix and the results of tool
 calls made *during* a step are not in the manifest; a registry prompt is loaded when the step is assembled and again by the

@@ -13,7 +13,11 @@ provider sees them, every segment of an agent step's context with:
   decision** that allowed it (:mod:`caliber.context.authorize`): a segment that names a source but no decision is
   refused, and :func:`store_context_manifest` checks each id against the recorded decision (an allow, for this run,
   of that exact source);
-* its **position**, the **omitted** and **redacted** items and the **token allocation**.
+* its **position**, the **omitted** and **redacted** items and the **token allocation**;
+* when the run was admitted with a rule bundle, a **rule_bundle** reference (B07.5b, #736): the bundle's id, version and
+  SHA-256 and, per selected rule, its id, provenance (``source_ref``) and text digest (:mod:`caliber.context.rules`).
+  :func:`store_context_manifest` checks the cited digest against the one the run manifest pinned at admission, and
+  never writes the run manifest.
 
 The record is stored once as canonical JSON with its SHA-256 (it has no digest field: the digest excludes itself), unique
 per ``(run, step request, revision)``: re-assembling a step is a new revision, never an edit. Reading it back
@@ -24,6 +28,7 @@ Nothing here talks to a provider: B08 consumes the record.
 
 from __future__ import annotations
 
+import copy
 import dataclasses
 import hashlib
 import json
@@ -38,7 +43,12 @@ from sqlalchemy.orm import Session
 
 from caliber.context.sources import memory_resource, source_resource
 from caliber.contracts import ContractValidationError, UnsupportedSchemaVersion, validate_record
-from caliber.db.models import CaliberContextManifest, CaliberPolicyDecision, CaliberWorkflowRun
+from caliber.db.models import (
+    CaliberContextManifest,
+    CaliberPolicyDecision,
+    CaliberRunManifest,
+    CaliberWorkflowRun,
+)
 from caliber.db.transactions import begin_sqlite_transaction
 from caliber.redaction import Redactor
 from caliber.run_manifest import (
@@ -46,8 +56,10 @@ from caliber.run_manifest import (
     FIXED_RESIDENCY,
     FIXED_TENANT_ID,
     DeploymentScope,
+    ManifestError,
     canonical_bytes,
     digest_of,
+    read_manifest,
 )
 
 KIND: Final = "context_manifest"
@@ -72,6 +84,14 @@ TOKENS: Final = "tokens"
 AUTHORIZATION_REJECTED: Final = "authorization_rejected"
 DUPLICATE: Final = "duplicate_revision"
 REVISION_GAP: Final = "revision_gap"
+#: The pinned rule bundle's bytes are no longer the admitted bytes (B07.5b, #736).
+RULE_BUNDLE_CHANGED: Final = "rule_bundle_changed"
+#: The pinned rule bundle cannot be read, or the run manifest's pin cannot be used.
+RULE_BUNDLE_UNAVAILABLE: Final = "rule_bundle_unavailable"
+#: A context manifest cites a rule bundle other than the one the run was admitted with, or omits it.
+RULE_BUNDLE_MISMATCH: Final = "rule_bundle_mismatch"
+#: A context manifest cites a rule bundle for a run that was admitted without one.
+RULE_BUNDLE_UNPINNED: Final = "rule_bundle_unpinned"
 _MAX_BYTES: Final = 1 << 20
 
 
@@ -140,6 +160,9 @@ def _check_rules(record: Mapping[str, Any]) -> None:
                 INVALID,
                 "a source the run was refused is recorded by kind only, never by identifier",
             )
+    rule_ids = [rule["rule_id"] for rule in record.get("rule_bundle", {}).get("rules", [])]
+    if len(set(rule_ids)) != len(rule_ids):
+        raise ContextManifestError(INVALID, "a rule is selected twice")
     allocation = record["token_allocation"]
     total = sum(int(segment["tokens"]) for segment in segments)
     by_tier = {
@@ -417,12 +440,14 @@ def build_context_manifest(
     omitted: Sequence[Mapping[str, Any]] = (),
     redacted: Sequence[Mapping[str, Any]] = (),
     sections: Sequence[Mapping[str, Any]] = (),
+    rule_bundle: Mapping[str, Any] | None = None,
 ) -> BuiltContextManifest:
     """Build and validate the manifest of one agent step. Pure: raises :class:`ContextManifestError`.
 
     The segments are numbered in the order given (so the order is the assembler's, recorded once). ``scope`` is the
     deployment's fixed one (no organization switching). ``sections`` is :attr:`PackedContext.sections`: the per-section
-    caps and what each section used.
+    caps and what each section used. ``rule_bundle`` is :func:`caliber.context.rules.rule_bundle_reference`'s entry
+    for a run admitted with a rule bundle (``None`` otherwise).
     """
     if not isinstance(scope, DeploymentScope) or scope != DeploymentScope.fixed(scope.project_id):
         raise ContextManifestError(
@@ -469,6 +494,8 @@ def build_context_manifest(
         record["omitted"] = [dict(item) for item in omitted]
     if redacted:
         record["redacted"] = [dict(item) for item in redacted]
+    if rule_bundle is not None:
+        record["rule_bundle"] = copy.deepcopy(dict(rule_bundle))
     _validate(record)
     data = _canonical(record)
     return BuiltContextManifest(manifest_bytes=data, manifest_digest=digest_of(data))
@@ -583,15 +610,50 @@ def _verify_run(session: Session, record: Mapping[str, Any]) -> None:
         raise ContextManifestError(INVALID, "the manifest's scope is not the run's")
 
 
+def _verify_rule_bundle(session: Session, record: Mapping[str, Any]) -> None:
+    """The rule bundle the manifest cites is the one the run was admitted with, by digest.
+
+    The admitted digest is read from the run's stored manifest (immutable, and never written here). A run admitted with a
+    bundle must cite exactly that digest in every step's manifest; a run admitted without one must cite none, so a
+    bundle enabled after admission is never applied to it.
+    """
+    row = session.execute(
+        select(CaliberRunManifest).where(
+            CaliberRunManifest.workflow_run_id == record["workflow_run_id"]
+        )
+    ).scalar_one_or_none()
+    admitted: object = None
+    if row is not None:
+        try:
+            admitted = read_manifest(bytes(row.manifest_bytes), row.manifest_digest).get(
+                "rule_bundle_sha256"
+            )
+        except ManifestError:
+            raise ContextManifestError(INVALID, "the run's manifest does not read back") from None
+    cited = record.get("rule_bundle")
+    if admitted is None:
+        if cited is not None:
+            raise ContextManifestError(
+                RULE_BUNDLE_UNPINNED, "the run was admitted without a rule bundle"
+            )
+        return
+    if cited is None or cited["sha256"] != admitted:
+        raise ContextManifestError(
+            RULE_BUNDLE_MISMATCH,
+            "the manifest does not cite the rule bundle the run was admitted with",
+        )
+
+
 def store_context_manifest(session: Session, built: BuiltContextManifest) -> CaliberContextManifest:
     """Insert the manifest once. Flushes, never commits.
 
-    Checks the run, the scope and project, and every segment's authorization decision against the recorded decisions,
-    and that the revision follows the step's latest (a gap or a repeat is refused). A concurrent insert of the same
-    revision is :data:`DUPLICATE`.
+    Checks the run, the scope and project, the cited rule bundle against the run's admitted pin, and every segment's
+    authorization decision against the recorded decisions, and that the revision follows the step's latest (a gap or a
+    repeat is refused). A concurrent insert of the same revision is :data:`DUPLICATE`.
     """
     record = built.record
     _verify_run(session, record)
+    _verify_rule_bundle(session, record)
     _verify_authorizations(session, record)
     expected = next_revision(session, built.workflow_run_id, built.step_request_id)
     if built.revision != expected:
@@ -650,6 +712,10 @@ __all__ = [
     "INVALID",
     "ORDERING",
     "REVISION_GAP",
+    "RULE_BUNDLE_CHANGED",
+    "RULE_BUNDLE_MISMATCH",
+    "RULE_BUNDLE_UNAVAILABLE",
+    "RULE_BUNDLE_UNPINNED",
     "SECTION_KINDS",
     "TIER_VIOLATION",
     "TOKENS",

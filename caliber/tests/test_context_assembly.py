@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import hashlib
 from dataclasses import replace
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -17,6 +19,7 @@ from caliber.db.models import (
     CaliberContextManifest,
     CaliberKnowledgeBase,
     CaliberKnowledgeBaseVersion,
+    CaliberRunManifest,
     CaliberWorkflowRun,
 )
 from caliber.knowledge.service import KnowledgeBaseService
@@ -95,13 +98,26 @@ def _make_world(
     *,
     two_agents: bool = False,
     answer: str = INJECTION,
+    rules: Path | None = None,
+    sources_required: bool = True,
 ) -> AgentWorld:
-    _enable(client)
+    """Admit one run. ``rules`` is the rule bundle file the deployment pins at admission (none by default);
+    ``sources_required=False`` is a deployment without approved sources, so the run has no source guard."""
+    if rules is None:
+        _enable(client)
+    else:
+        _enable(
+            client,
+            rule_bundle_path=str(rules),
+            rule_bundle_sha256=hashlib.sha256(rules.read_bytes()).hexdigest(),
+        )
     real = AdmissionSettings.from_config
     monkeypatch.setattr(
         AdmissionSettings,
         "from_config",
-        classmethod(lambda cls, config: replace(real(config), approved_sources_required=True)),
+        classmethod(
+            lambda cls, config: replace(real(config), approved_sources_required=sources_required)
+        ),
     )
 
     class Answer:
@@ -196,8 +212,6 @@ def test_retrieved_instruction_stays_data(
     assert retrieved[0]["authorization_decision_id"], (
         "cited, and checked against the recorded decision"
     )
-    import hashlib
-
     assert retrieved[0]["content_digest"] == hashlib.sha256(INJECTION.encode()).hexdigest()
     assert INJECTION not in row.manifest_bytes.decode(), "the text is never stored in the manifest"
     assert [s["position"] for s in segments] == list(range(len(segments)))
@@ -473,3 +487,186 @@ def test_only_a_context_denied_error_gets_the_context_denied_code(
     world.tick()
     run = world.run()
     assert (run.status, run.error_code) == ("failed", "runtime_error")
+
+
+# ---------------------------------------------------------------- the pinned rule bundle at context use (B07.5b, #736)
+
+RULES_FIXTURE = Path(__file__).parent / "fixtures" / "rule_bundles" / "support_rules.v1.yaml"
+OTHER_RULES = RULES_FIXTURE.read_text(encoding="utf-8").replace(
+    "scripted-support-rules", "scripted-other-rules"
+)
+
+
+def _rules_copy(tmp_path: Path, text: str | None = None) -> Path:
+    path = tmp_path / "rules.yaml"
+    path.write_text(text or RULES_FIXTURE.read_text(encoding="utf-8"), encoding="utf-8")
+    return path
+
+
+def _run_manifest_rows(world: AgentWorld) -> list[tuple[str, str, bytes]]:
+    world.db.expire_all()
+    return [
+        (r.manifest_id, r.manifest_digest, bytes(r.manifest_bytes))
+        for r in world.db.execute(select(CaliberRunManifest)).scalars()
+    ]
+
+
+def _provider_calls(monkeypatch: pytest.MonkeyPatch) -> list[Any]:
+    calls: list[Any] = []
+    real = runtime_module._run_agent_traced
+    monkeypatch.setattr(
+        runtime_module, "_run_agent_traced", lambda *a, **k: calls.append(1) or real(*a, **k)
+    )
+    return calls
+
+
+def test_every_step_cites_the_rule_bundle_the_run_was_admitted_with(
+    client: TestClient, db_session: Session, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    path = _rules_copy(tmp_path)
+    digest = hashlib.sha256(path.read_bytes()).hexdigest()
+    world = _make_world(client, db_session, monkeypatch, two_agents=True, rules=path)
+    admitted = _run_manifest_rows(world)
+    world.tick()
+    assert world.run().status == "completed", (world.run().error_code, world.run().error_summary)
+    rows = world.manifests()
+    assert len(rows) == 2
+    for row in rows:
+        built = load_context_manifest(db_session, world.run_id, row.step_request_id)
+        assert built is not None
+        cited = built.record["rule_bundle"]
+        assert cited["sha256"] == digest and cited["bundle_id"] == "scripted-support-rules"
+        assert [(r["rule_id"], r["source_ref"]) for r in cited["rules"]] == [
+            ("refund-window", "scripted/policy#refunds"),
+            ("escalate-fraud", "scripted/policy#fraud"),
+            ("tone", "scripted/style#tone"),
+        ]
+        assert "Refunds are allowed" not in row.manifest_bytes.decode()
+    assert _run_manifest_rows(world) == admitted, "the admission manifest is never rewritten"
+
+
+def test_changed_bytes_are_refused_when_the_context_is_used_and_the_provider_never_runs(
+    client: TestClient, db_session: Session, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    path = _rules_copy(tmp_path)
+    world = _make_world(client, db_session, monkeypatch, rules=path)
+    admitted = _run_manifest_rows(world)
+    calls = _provider_calls(monkeypatch)
+    # one more comment after admission: the rules read the same, the bytes are no longer the admitted bytes
+    path.write_text(
+        path.read_text(encoding="utf-8") + "# edited after admission\n", encoding="utf-8"
+    )
+    world.tick()
+    run = world.run()
+    assert (run.status, run.error_code) == ("failed", "context_denied")
+    assert "rule_bundle_changed" in (run.error_summary or "")
+    assert "edited after admission" not in (run.error_summary or "")
+    assert calls == [], "the provider was never called"
+    assert world.manifests() == [], "no manifest cites bytes that were not admitted"
+    assert _run_manifest_rows(world) == admitted, "no pin was rewritten or backfilled"
+
+
+def test_a_missing_pinned_bundle_is_refused_as_unavailable(
+    client: TestClient, db_session: Session, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    path = _rules_copy(tmp_path)
+    world = _make_world(client, db_session, monkeypatch, rules=path)
+    calls = _provider_calls(monkeypatch)
+    path.unlink()
+    world.tick()
+    run = world.run()
+    assert (run.status, run.error_code) == ("failed", "context_denied")
+    assert "rule_bundle_unavailable" in (run.error_summary or "")
+    assert calls == [] and world.manifests() == []
+
+
+def test_changing_the_configured_bundle_after_admission_does_not_change_the_run_pin(
+    client: TestClient, db_session: Session, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    path = _rules_copy(tmp_path)
+    digest = hashlib.sha256(path.read_bytes()).hexdigest()
+    world = _make_world(client, db_session, monkeypatch, rules=path)
+    other = tmp_path / "other.yaml"
+    other.write_text(OTHER_RULES, encoding="utf-8")
+    client.app.state.config = client.app.state.config.model_copy(
+        update={
+            "rule_bundle_path": str(other),
+            "rule_bundle_sha256": hashlib.sha256(other.read_bytes()).hexdigest(),
+        }
+    )
+    world.tick()
+    assert world.run().status == "completed", world.run().error_summary
+    (row,) = world.manifests()
+    cited = load_context_manifest(db_session, world.run_id, row.step_request_id).record[  # type: ignore[union-attr]
+        "rule_bundle"
+    ]
+    assert cited["sha256"] == digest and cited["bundle_id"] == "scripted-support-rules"
+
+
+def test_a_bundle_enabled_after_admission_is_never_applied_to_an_unpinned_run(
+    client: TestClient, db_session: Session, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    world = _make_world(client, db_session, monkeypatch)  # admitted with no rule bundle
+    path = _rules_copy(tmp_path)
+    client.app.state.config = client.app.state.config.model_copy(
+        update={
+            "rule_bundle_path": str(path),
+            "rule_bundle_sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+        }
+    )
+    admitted = _run_manifest_rows(world)
+    world.tick()
+    assert world.run().status == "completed", world.run().error_summary
+    (row,) = world.manifests()
+    record = load_context_manifest(db_session, world.run_id, row.step_request_id).record  # type: ignore[union-attr]
+    assert "rule_bundle" not in record
+    assert _run_manifest_rows(world) == admitted
+
+
+def test_a_run_without_sources_but_with_a_bundle_is_still_recorded_and_verified(
+    client: TestClient, db_session: Session, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    path = _rules_copy(tmp_path)
+    world = _make_world(client, db_session, monkeypatch, rules=path, sources_required=False)
+    world.tick()
+    assert world.run().status == "completed", (world.run().error_code, world.run().error_summary)
+    (row,) = world.manifests()
+    record = load_context_manifest(db_session, world.run_id, row.step_request_id).record  # type: ignore[union-attr]
+    assert record["rule_bundle"]["sha256"] == hashlib.sha256(path.read_bytes()).hexdigest()
+    # no source was authorized, so the knowledge query's text is not labelled as retrieved from one
+    kinds = [(s["kind"], s["tier"]) for s in record["segments"]]
+    assert ("retrieved_text", "data") not in kinds
+    assert ("tool_output", "data") in kinds
+    assert not any("authorization_decision_id" in s for s in record["segments"])
+
+
+def test_changed_bytes_stop_a_run_that_has_no_source_guard_too(
+    client: TestClient, db_session: Session, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    path = _rules_copy(tmp_path)
+    world = _make_world(client, db_session, monkeypatch, rules=path, sources_required=False)
+    calls = _provider_calls(monkeypatch)
+    path.write_text("changed: true\n", encoding="utf-8")
+    world.tick()
+    run = world.run()
+    assert (run.status, run.error_code) == ("failed", "context_denied")
+    assert "rule_bundle_changed" in (run.error_summary or "") and calls == []
+
+
+def test_a_run_with_neither_sources_nor_a_bundle_has_no_recorder_as_before(
+    client: TestClient, db_session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    world = _make_world(client, db_session, monkeypatch, sources_required=False)
+    world.tick()
+    assert world.run().status == "completed", world.run().error_summary
+    assert world.manifests() == []
+
+
+def test_a_refused_bundle_message_names_the_bundle_not_a_context_source() -> None:
+    from caliber.context.authorize import ContextDenied
+
+    default = ContextDenied("source_not_approved")
+    assert str(default) == "source_not_approved: this run may not read that context source"
+    custom = ContextDenied("rule_bundle_changed", message="the pinned bundle changed")
+    assert str(custom) == "rule_bundle_changed: the pinned bundle changed"
+    assert custom.code == "rule_bundle_changed" and custom.reasons == ()
