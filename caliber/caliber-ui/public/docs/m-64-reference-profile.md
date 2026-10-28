@@ -1034,6 +1034,10 @@ for result in reconcile_pass(session_factory, lease=lease, targets=targets):
     print(result.proposal_id, result.outcome, result.state)  # committed | failed | unknown | unverified | lookup_failed | not_bound | in_flight | moved
 ```
 
+- **Timeout example (V08).** The connector's timeout fires after the request went out (`ambiguous`, recorded `unknown` with reason `ambiguous:may_have_been_sent`; not `failed`,
+  the downstream may have committed, and not `committed`, nobody read a receipt). A retry from the node layer is refused (`UnknownEffectError`, the run ends `failed`), nothing
+  can dispatch the proposal again (`illegal_transition` from `unknown` to `dispatched`), and the next reconciler pass finds the stored request by the original key and commits it
+  with a verified receipt: one downstream mutation throughout (`tests/egi_scenarios/test_v08_timeout_retry.py`).
 - **Refusals and recovery.** `lease_lost`: you are no longer the owner, stop and let the new owner reconcile. `store_failed`: roll back and retry. `unknown` after a
   pass: nothing proves the outcome yet (delayed visibility looks like absence); the next pass asks again, the effect is never re-sent, and dependents stay blocked.
   There is no operator action that fails an `unknown` effect without the downstream's evidence yet (the operator view below lists them; an audited action is #997); a connector that
@@ -1357,6 +1361,92 @@ decision for it and is refused; a manifest is not linked to the `NodeStep` it de
 revision-1 manifest; other model calls (a knowledge query's own answer synthesis, guardrail judges) are not agent steps and are
 not recorded. Token counts are an accounting estimate (four characters a token, and the recorded budget is the larger of the
 configured one and the total); enforcing a budget on a provider call is B08. Legacy runs and development have no recorder.
+
+## Agent steps: a request, a result, and no effects (B08.1a, #713)
+
+An agent step is one bounded unit of model work in a workflow node. Two control records (ADR 0003) describe it, and
+`caliber.contracts.agent_step` is the gate in front of both: it validates a record and refuses it **before anything is
+dispatched**. This page is the contract; the adapters that produce results (B08.1b onwards) and the limit and budget
+enforcement (B08.3, B08.4) build on it and are not part of it.
+
+- **`agent_step_request` v1** names the step (`step_request_id`, `workflow_run_id`, `node_id`, the durable `occurrence_id`
+  and the `attempt`), what it was given (`run_manifest_digest` and `context_manifest_digest`, each 64 lowercase hex digits),
+  the one `grant_id` it runs under and its `limits`: `max_turns`, `max_tool_calls`, `max_tokens` (integers, zero allowed) and a
+  `deadline` (RFC 3339 with an offset, ASCII digits, at most nine fractional digits, no leap second;
+  `StepLimits.deadline_at` is the aware `datetime`, and nothing reads the clock). The platform enforces the limits, not the
+  adapter. Every identifier is not blank and has no control character or lone surrogate, the rule the effect proposal applies.
+- **The step and its id.** The platform allocates one `step_request_id` for one `(run, node, occurrence, attempt)` tuple; the
+  context manifest of the step carries the same id. A result must repeat the id *and* the tuple: one whose tuple matches but
+  whose id differs, or whose id matches but whose tuple differs, is refused.
+- **`agent_step_result` v1** answers it: the same five identifying fields, a `stop_reason` (`completed`, `proposed_action`,
+  `max_turns`, `max_tool_calls`, `max_tokens`, `deadline`, `refused`, `error`), the provider's `usage` and at most one
+  `proposed_actions` element, present exactly when the `stop_reason` is `proposed_action`. Optional: `usage_source`
+  (`provider` when absent, `estimated`, `unknown`) and `error_code` (a short lowercase token, only with `error` or `refused`).
+- **One proposed action per step, in v1.** A logical effect is keyed by `(run, node, occurrence)`, so a second action would
+  share the first's key. The array stays so a later version can carry more, but only after it adds a per-action identity.
+- **A step proposes; it never says anything happened.** The result has no `state`, `receipt` or `approval` field and every
+  schema is closed, so a result that claims a commit (`state: committed`, a `receipt_id`, `stop_reason: committed`) is
+  refused like any other unknown field or value. An action becomes a recorded proposal only through
+  `caliber.effects.records`, and `committed` there still needs a verified receipt.
+- **What the model says is a claim, not a fact.** Everything in a result is model output. In particular a proposed action's
+  `effect_class` and `connector_version` are **untrusted**: a model can call an irreversible write `read`, and a `read` can be
+  approved by policy alone. `ProposedAction.bound_to(inventory_effect_class)` returns the action carrying the platform's class
+  (from the protected-effect inventory) and raises `ClaimMismatch` (code `claim_mismatch`) when the claim differs; B08.2 calls it
+  before `record_proposal`, and an action that is not `platform_bound` is never recorded.
+- **One action shape for the step and the proposal.** A proposed action is `effect_class` (`read`, `reversible_write`,
+  `irreversible_write`, `export`), `target` (`connector` and `resource`), `connector_version`, `args` and
+  `expected_resource_version`: the names and meaning they have in the `proposal` record. `ProposedAction.intent` is the very
+  `caliber.effects.records.Intent` of that proposal and `ProposedAction.intent_hash` its `sha256:` digest, so what a step
+  proposed, what an approver is shown and what a receipt answers are one digest. An action is immutable (`args` is a read-only
+  deep view; `intent` and `record()` are fresh copies, so nothing handed out can make the stored arguments disagree with the
+  digest) and equal to another exactly when their canonical intents are (`{"a": True}` is not `{"a": 1}`). Parsing builds each
+  intent, so `args` that are too deep (more than 64 levels), too large (the intent is at most 256 KiB) or not plain JSON are
+  refused here too, not later at the store.
+- **Usage and the token reservation.** `usage.total_tokens` is what a budget settles against: it may not be less than
+  `prompt_tokens + completion_tokens`, and `cached_prompt_tokens` may not exceed `prompt_tokens`. When a call failed or the
+  provider gave no usage, report `usage_source` `estimated` or `unknown` rather than figures that look genuine. **A refused or
+  malformed result does not release the step's token reservation**: B08.4 keeps a conservative charge for it.
+- **Integers are integers.** `1.0` is not an integer for these two kinds; `attempt: 1.0` is refused, not coerced.
+
+```python
+from caliber.contracts import ContractValidationError, UnsupportedSchemaVersion
+from caliber.contracts.agent_step import parse_step_request, parse_step_result
+
+request = parse_step_request(request_record)  # raises before any provider or tool is touched
+try:
+    result = parse_step_result(result_record, request)  # the request is required: a result is read as its answer
+except UnsupportedSchemaVersion:
+    ...  # a newer writer: refuse the step and upgrade this reader first, never read it as v1
+except ContractValidationError as refusal:
+    print(refusal.errors)  # the violations, by path and rule; nothing was dispatched
+else:
+    for action in result.proposed_actions:
+        bound = action.bound_to(inventory_effect_class)  # the platform's class, or ClaimMismatch
+        print(bound.intent_hash)  # submit as a proposal; the effect is still unperformed
+```
+
+**Refusals are quiet.** For these two kinds a refusal names the field and the rule, never the offending value, an unexpected
+property name or an unbounded amount of text: at most 20 violations are listed, an unsupported version is named only when it is a
+short plain token (else by its type), and a record of more than 1 MiB of JSON text (1048576 characters) is refused before it is
+validated. Other record kinds keep their messages. Refusals and what to do (`ContractValidationError.errors`, sorted by path):
+
+| the record has | refused as | recover by |
+| --- | --- | --- |
+| `schema_version: "v2"` (or anything but `v1`) | `UnsupportedSchemaVersion`: `agent_step_result schema_version v2 is not supported; supported: v1` | upgrading the reader before the writer (ADR 0003, readers before writers) |
+| a field it does not define (`state`, `receipt_id`, a typo) | `<record>: additional properties are not allowed` (`proposed_actions/0: ...` inside an action; the property is not named) | removing the field; a step reports no state |
+| `stop_reason: "committed"` | `stop_reason: is not one of ['completed', 'proposed_action', ...]` | reporting `completed` or `proposed_action`; a commit is the proposal's, with a receipt |
+| `effect_class: "write"` | `proposed_actions/0/effect_class: is not one of ['read', 'reversible_write', 'irreversible_write', 'export']` | using one of the four classes of the connector inventory |
+| an action with no `target` | `proposed_actions/0: 'target' is a required property` | naming the connector and the resource |
+| two or more actions | `proposed_actions: violates maxItems 1` | proposing one effect per step; the next is the next occurrence |
+| proposals with `stop_reason: "completed"`, or `proposed_action` with none | `proposed_actions: must equal []` or `proposed_actions: violates minItems 1` | stopping with `proposed_action` exactly when there is a proposal |
+| `attempt: 1.0`, a blank or control-character identifier | `attempt: must be of type integer`, `node_id: does not match the required pattern` | integers and printable identifiers |
+| a total below the parts | `usage/total_tokens: is less than prompt_tokens + completion_tokens` | reporting the provider's total (or `usage_source: "estimated"`) |
+| a result for another step | `step_request_id: names another step than the request's, although run, node, occurrence and attempt are the same` (or `<field>: differs from the request's, although step_request_id is the same`) | applying only the result of the request that was asked |
+| an action whose class the platform does not hold | `ClaimMismatch`: `the step claimed effect_class 'read'; the platform's is 'irreversible_write'` | proposing nothing: the step's claim is discarded, the platform's class governs |
+
+A result that is refused is the end of that step's use of it: nothing was proposed, recorded or dispatched, and the retry is
+the same `occurrence_id` with the next `attempt`. A `parse_*` call is pure: it does not read the clock, so the deadline and
+the other limits are checked by the platform around the provider call (B08.3), not here.
 
 ## Policy decisions
 

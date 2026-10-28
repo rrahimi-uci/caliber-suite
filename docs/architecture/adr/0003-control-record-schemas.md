@@ -240,6 +240,64 @@ EventEnvelope: a CloudEvents 1.0 envelope; the payload is referenced, never inli
 | `dataref` | string or null | no | where the payload is stored |
 | `datahash` | string or null | no | digest of the payload at `dataref` |
 
+### agent_step_request
+
+AgentStepRequest (B08.1a, #713): one bounded agent step, asked of an adapter. Built by the platform, never by the provider.
+Every identifier below (`step_request_id`, `workflow_run_id`, `node_id`, `occurrence_id`, `grant_id`) follows the rule
+`caliber.effects.records` applies to the same fields: not blank, no control characters, no lone surrogates.
+
+| field | type | required | note |
+| --- | --- | --- | --- |
+| `schema_version` | const `v1` | yes | the schema version of this record |
+| `step_request_id` | string (1 to 128) | yes | names one step: the one `(run, node, occurrence, attempt)` it was allocated for, bound to that tuple when the request is made; the `context_manifest` assembled for the step carries the same id |
+| `workflow_run_id` | string (1 to 64) | yes | the run the step belongs to |
+| `node_id` | string (1 to 128) | yes | the workflow node |
+| `occurrence_id` | string (1 to 128) | yes | the durable occurrence of the node (B05.1): allocated and persisted by the caller before the step runs; a retry presents the same one |
+| `attempt` | integer (at least 1) | yes | the attempt of this occurrence; the token reservation (B08.4) is keyed by run, node, occurrence and attempt |
+| `run_manifest_digest` | string (64 lowercase hex) | yes | SHA-256 of the run's `run_manifest` bytes |
+| `context_manifest_digest` | string (64 lowercase hex) | yes | SHA-256 of the `context_manifest` bytes the provider is given |
+| `grant_id` | string (1 to 64) | yes | the one grant admission issued to the run (`run_manifest.grant_id`) |
+| `limits` | object | yes | `max_turns`, `max_tool_calls` and `max_tokens` (integers from 0 to 2147483647, zero allowed: a step that may not start that work) and `deadline` (RFC 3339 date-time, ASCII digits, at most nine fractional digits, an offset, and no leap second `:60`); all required. The platform enforces them before work and against the usage the provider returns; `caliber.contracts.agent_step.StepLimits.deadline_at` is the deadline as an aware `datetime` (no clock is read) |
+
+### agent_step_result
+
+AgentStepResult (B08.1a, #713): what one step proposed and used. It never claims that an effect happened: there is no `state`,
+`receipt` or `approval` field, and an unknown field is a violation. **Everything in it is model output.** Its `effect_class` and
+`connector_version` are claims, not facts: a model can call an irreversible write `read`, and a `read` can be approved by policy
+alone. The platform's class comes from the protected-effect inventory, and `ProposedAction.bound_to(inventory_effect_class)`
+returns the action carrying that class and refuses a differing claim (`ClaimMismatch`, code `claim_mismatch`); B08.2 must call it
+before `record_proposal` and must not record an action that is not `platform_bound`.
+
+| field | type | required | note |
+| --- | --- | --- | --- |
+| `schema_version` | const `v1` | yes | the schema version of this record |
+| `step_request_id` | string | yes | repeats the request's. The step is that id and the tuple below together: `check_result_answers_request` refuses a result whose tuple matches but whose id differs, and one whose id matches but whose tuple differs |
+| `workflow_run_id` | string | yes | repeats the request's |
+| `node_id` | string | yes | repeats the request's |
+| `occurrence_id` | string | yes | repeats the request's |
+| `attempt` | integer (at least 1) | yes | repeats the request's |
+| `stop_reason` | enum | yes | `completed`, `proposed_action`, `max_turns`, `max_tool_calls`, `max_tokens`, `deadline`, `refused`, `error` |
+| `proposed_actions` | array of object (at most 1) | yes | the effect the step asks to perform: one element exactly when `stop_reason` is `proposed_action`, none otherwise. **v1 carries at most one proposed action per step.** A logical effect is keyed by `(run, node, occurrence)`, so a second action would share the first's key; the array stays so a later version can carry several, but only after it adds a per-action identity. Each is a ProposedAction (below) |
+| `usage` | object | yes | `prompt_tokens`, `completion_tokens`, `total_tokens`, `turns`, `tool_calls` (integers, at least 0; all required) and optionally `cached_prompt_tokens`. `total_tokens` is the figure a budget settles against: it may not be less than `prompt_tokens` plus `completion_tokens` and `cached_prompt_tokens` may not exceed `prompt_tokens` (`caliber.contracts.agent_step` checks both; a schema cannot) |
+| `usage_source` | enum | no | `provider` (when absent), `estimated`, `unknown`: where the usage figures come from, so a failed or ambiguous call does not need figures that look genuine. A refused or malformed result is not a release of the step's token reservation: B08.4 keeps a conservative charge |
+| `error_code` | string (1 to 64) | no | a short stable lowercase token (`[a-z][a-z0-9_.-]*`); only with `stop_reason` `error` or `refused` |
+
+A **ProposedAction** is the one action shape shared with the `proposal` record: its fields carry the names and meaning they have there, and
+`caliber.contracts.agent_step.ProposedAction.intent` is the very `caliber.effects.records.Intent` behind a proposal, so the digest of what a
+step proposed is the `intent_hash` every approval and receipt reuses. Its fields: `effect_class` (`read`, `reversible_write`, `irreversible_write`,
+`export`; required), `target` (`connector` and `resource`, both required, no other field), `connector_version`, `args` (an object) and
+`expected_resource_version` (string or null), all required. A step has no `state`: the proposal that records an action starts `proposed`.
+Beyond the `proposal` record, the step contract also bounds sizes (`connector` 128, `connector_version` 64, `resource` 512,
+`expected_resource_version` 256 characters) and applies the identifier rule above, as `caliber.effects.records.Intent` does; `proposal` v1
+stays as shipped. A `ProposedAction` is immutable (`args` is a read-only deep view, `intent` and `record()` are fresh copies), and two are
+equal exactly when their canonical intents are.
+
+**Quiet refusals.** Both agent-step kinds take model-influenced input, so `validate_record` refuses them without echoing it: a message
+names the field and the rule it broke (`proposed_actions/0/effect_class: is not one of [...]`), never the offending value, an unexpected
+property name or an unbounded amount of text; at most 20 violations are listed, an unsupported version is named only when it is a short
+plain token (otherwise by its type), and a record of more than 1 MiB of JSON text (1048576 characters) is refused before it is
+validated. An integer field accepts only an integer: `1.0` is not one. No other kind changes.
+
 ## Consequences
 
 - #517 (run_manifest), #518 (policy_decision), #522 and #625 (proposal, receipt), #523 and #571 (approval_request,
