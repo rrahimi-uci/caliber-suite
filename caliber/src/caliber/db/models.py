@@ -2318,6 +2318,8 @@ class CaliberEffectProposal(Base):
     #: What approved it: ``policy_decision`` and the decision id (see ``caliber.effects.records.approve_with``).
     approval_kind: Mapped[str | None] = mapped_column(String(32), nullable=True)
     approval_ref: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    #: The verified receipt that justified ``committed`` (B05.4a, #717); required for a move to ``committed``.
+    receipt_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
 
@@ -2332,6 +2334,60 @@ def _effect_proposal_hash_matches_bytes(_mapper: Any, _connection: Any, target: 
     actual = "sha256:" + hashlib.sha256(target.intent_bytes or b"").hexdigest()
     if target.intent_hash != actual:
         raise ValueError("intent_hash must be 'sha256:' and the SHA-256 of intent_bytes")
+
+
+class CaliberEffectReceipt(Base):
+    """What the downstream said about a performed effect, after the platform read it back, as immutable bytes (B05.4a, #717).
+
+    One authoritative receipt per ``(proposal_id, attempt)`` and one proposal per downstream request id
+    (``(connector, downstream_request_id)`` is unique). It carries the proposal's ``logical_key`` (the idempotency key that
+    was emitted), ``intent_hash``, connector identity and target, and only exists once the downstream's own query answered
+    (``verified_by`` is ``query``). ``receipt_bytes`` is the canonical JSON of the ``receipt`` v1 record (ADR 0003) and
+    ``receipt_digest`` its lowercase SHA-256 (checked on insert by the ORM and, on PostgreSQL, by a CHECK). UPDATE and DELETE
+    are refused by database triggers (migration 0125) and by ``ImmutableRecordError``.
+    """
+
+    __tablename__ = "caliber_effect_receipts"
+    __table_args__ = (
+        Index("ix_effect_receipts_proposal", "proposal_id"),
+        UniqueConstraint("proposal_id", "attempt", name="uq_effect_receipt_attempt"),
+        UniqueConstraint("connector", "downstream_request_id", name="uq_effect_receipt_request"),
+        CheckConstraint("verified_by = 'query'", name="ck_effect_receipt_verified"),
+        CheckConstraint("attempt >= 1", name="ck_effect_receipt_attempt"),
+        CheckConstraint("length(receipt_digest) = 64", name="ck_effect_receipt_digest_length"),
+        CheckConstraint("length(receipt_bytes) > 0", name="ck_effect_receipt_bytes_present"),
+        CheckConstraint("length(response_digest) = 71", name="ck_effect_receipt_response_digest"),
+        CheckConstraint("length(intent_hash) = 71", name="ck_effect_receipt_intent_hash"),
+    )
+
+    receipt_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    proposal_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("caliber_effect_proposals.proposal_id")
+    )
+    attempt: Mapped[int] = mapped_column(Integer)
+    logical_key: Mapped[str] = mapped_column(String(64))
+    intent_hash: Mapped[str] = mapped_column(String(71))
+    connector: Mapped[str] = mapped_column(String(128))
+    connector_version: Mapped[str] = mapped_column(String(64))
+    resource: Mapped[str] = mapped_column(String(512))
+    downstream_request_id: Mapped[str] = mapped_column(String(256))
+    resource_version: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    response_digest: Mapped[str] = mapped_column(String(71))
+    verified_by: Mapped[str] = mapped_column(String(8), default="query")
+    verified_at: Mapped[datetime] = mapped_column(DateTime)
+    receipt_bytes: Mapped[bytes] = mapped_column(LargeBinary)
+    receipt_digest: Mapped[str] = mapped_column(String(64))
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+
+guard_immutable(CaliberEffectReceipt)
+
+
+@event.listens_for(CaliberEffectReceipt, "before_insert")
+def _effect_receipt_digest_matches_bytes(_mapper: Any, _connection: Any, target: Any) -> None:
+    """Refuse a receipt whose digest is not the SHA-256 of its own bytes, on every dialect."""
+    if target.receipt_digest != hashlib.sha256(target.receipt_bytes or b"").hexdigest():
+        raise ValueError("receipt_digest must be the lowercase SHA-256 of receipt_bytes")
 
 
 class CaliberRunGrant(Base):

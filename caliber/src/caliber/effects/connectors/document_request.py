@@ -23,10 +23,14 @@ someone has confirmed.
 
 from __future__ import annotations
 
+import hashlib
 import re
 from typing import Any, Final
 
 from caliber.effects.connectors import ConnectorCapability
+from caliber.effects.receipts import ReceiptFacts
+from caliber.effects.records import Intent, ProposalError, ProposalView
+from caliber.run_manifest import canonical_bytes
 
 CONNECTOR: Final = "document-request"
 VERSION: Final = "1"
@@ -128,6 +132,65 @@ def lookup_input(idempotency_key: str) -> dict[str, Any]:
     return {"query_params": {"idempotency_key": _key(idempotency_key)}}
 
 
+def facts_from_lookup(
+    view: ProposalView, *, lookup_status: int, lookup_body: Any
+) -> ReceiptFacts | None:
+    """What the lookup by key says about ``view``'s dispatch, as receipt facts, or ``None`` if it does not confirm it.
+
+    ``None`` is *not* a failure: it is a lookup that answered something other than this proposal's effect (a 404, a 5xx, a
+    body that is not a stored request, a request under a different case or document type, a stored version that is not the
+    one this effect should have produced). The proposal stays ``unknown``.
+
+    The stored request must carry the proposal's logical key as its idempotency key; rebuilt as an intent (this connector's
+    identity and version, the proposal's effect class and expected version, the case's resource and the stored document type
+    as the arguments) it must hash to the proposal's ``intent_hash``; and when the proposal expected a case version, the
+    stored ``case_version`` must be exactly one more (the version this effect produces).
+    """
+    if lookup_status != 200 or not isinstance(lookup_body, dict) or view.attempt is None:  # noqa: PLR2004 - HTTP status
+        return None
+    request_id, key = lookup_body.get("request_id"), lookup_body.get("idempotency_key")
+    case_id, document_type = lookup_body.get("case_id"), lookup_body.get("document_type")
+    version = lookup_body.get("case_version")
+    if (
+        key != view.logical_key
+        or not isinstance(request_id, str)
+        or not request_id.strip()
+        or not isinstance(case_id, str)
+        or not isinstance(document_type, str)
+        or type(version) is not int
+    ):
+        return None
+    if view.expected_resource_version is not None:
+        try:
+            if version != int(view.expected_resource_version) + 1:
+                return None
+        except ValueError:
+            return None
+    try:
+        stored = Intent(
+            connector=CONNECTOR,
+            connector_version=VERSION,
+            effect_class=view.effect_class,
+            resource=f"cases/{case_id}/document-requests",
+            args={"document_type": document_type},
+            expected_resource_version=view.expected_resource_version,
+        )
+        facts = ReceiptFacts(
+            attempt=view.attempt,
+            idempotency_key=str(key),
+            connector=CONNECTOR,
+            connector_version=VERSION,
+            resource=stored.resource,
+            intent_hash=stored.digest,
+            downstream_request_id=request_id,
+            response_digest="sha256:" + hashlib.sha256(canonical_bytes(lookup_body)).hexdigest(),
+            resource_version=str(version),
+        )
+    except ProposalError:
+        return None  # a stored value this connector cannot represent is not this proposal's effect
+    return facts if stored.digest == view.intent_hash else None
+
+
 __all__ = [
     "CAPABILITY",
     "CONNECTOR",
@@ -136,6 +199,7 @@ __all__ = [
     "PRECONDITION_HEADER",
     "SUBMIT_PATH",
     "VERSION",
+    "facts_from_lookup",
     "lookup_config",
     "lookup_input",
     "submit_config",

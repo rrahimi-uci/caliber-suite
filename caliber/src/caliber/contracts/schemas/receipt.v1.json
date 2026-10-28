@@ -37,6 +37,37 @@
       ],
       "format": "date-time",
       "pattern": "^\\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\\d|3[01])T([01]\\d|2[0-3]):[0-5]\\d:([0-5]\\d|60)(\\.\\d+)?(Z|[+-]([01]\\d|2[0-3]):[0-5]\\d)\\Z"
+    },
+    "attempt": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "logical_key": {
+      "type": "string",
+      "minLength": 1
+    },
+    "intent_hash": {
+      "type": "string",
+      "minLength": 1
+    },
+    "connector": {
+      "type": "string",
+      "minLength": 1
+    },
+    "connector_version": {
+      "type": "string",
+      "minLength": 1
+    },
+    "resource": {
+      "type": "string",
+      "minLength": 1
+    },
+    "resource_version": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "minLength": 1
     }
   },
   "required": [

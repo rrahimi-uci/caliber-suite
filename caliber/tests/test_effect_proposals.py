@@ -721,6 +721,7 @@ def test_every_intent_column_is_frozen_by_the_database(
         "reason",
         "approval_kind",
         "approval_ref",
+        "receipt_id",
     }
     columns = [c.name for c in CaliberEffectProposal.__table__.columns if c.name not in mutable]
     with _database(dialect, tmp_path, monkeypatch) as (engine, factory):
@@ -1049,7 +1050,7 @@ def test_truncate_is_refused_postgresql(tmp_path: Path, monkeypatch: pytest.Monk
             _record(session)
             session.commit()
         with (
-            pytest.raises(DBAPIError, match="DELETE refused|immutable"),
+            pytest.raises(DBAPIError, match="DELETE refused|immutable|cannot truncate"),
             engine.begin() as connection,
         ):
             connection.execute(text("TRUNCATE caliber_effect_proposals"))

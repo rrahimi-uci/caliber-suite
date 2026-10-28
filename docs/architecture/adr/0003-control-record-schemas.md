@@ -155,6 +155,15 @@ Receipt: what the downstream said about a performed effect.
 | `response_digest` | string | yes | digest of the downstream response |
 | `verified_by` | enum | yes | `query` when the platform read the downstream back, `none` otherwise |
 | `verified_at` | string (date-time) or null | yes | null when `verified_by` is `none` |
+| `attempt` | integer | no | the dispatch attempt it answers (B05.4a, #717); absent on a record written before it |
+| `logical_key` | string | no | the proposal's logical key: the idempotency key that was emitted, echoed by the downstream |
+| `intent_hash` | string | no | the proposal's `intent_hash`, matched against the intent rebuilt from what the downstream stored |
+| `connector` | string | no | the connector's identity |
+| `connector_version` | string | no | the connector's version |
+| `resource` | string | no | the target resource |
+| `resource_version` | string or null | no | the resource version the effect produced, as the downstream reports it |
+
+`caliber.effects.receipts` stores a receipt in `caliber_effect_receipts` (B05.4a, #717) only once the platform has read the effect back through the downstream's own query (`verified_by` is `query` for every stored receipt); a claim nobody could confirm is not a receipt and leaves the proposal `unknown`. There is one authoritative receipt per `(proposal, attempt)`, a downstream request id belongs to one proposal only, and a proposal moves to `committed` only with such a receipt (`receipt_id` on the proposal).
 
 ### policy_decision
 
