@@ -225,6 +225,12 @@ _PUBLIC_ROUTES: dict[str, str] = {
     "caliber.routes.services.get_service_run_status": (
         "Same per-service token gate as service_openapi."
     ),
+    "caliber.routes.system_effects.receive_effect_receipt": (
+        "A downstream connector is the caller, with no CALIBER session/PAT to hold a scope check against; its HMAC signature "
+        "over connector, project, timestamp, delivery id and body, checked in-handler against the connector's configured "
+        "secret (caliber.effects.callbacks), is the admission control -- the same 'external caller, own auth' shape as "
+        "the GitHub webhook."
+    ),
     "caliber.routes.github_webhooks.github_webhook": (
         "GitHub itself is the caller, with no CALIBER session/PAT to hold a "
         "scope check against -- the same 'external caller, own auth' shape "

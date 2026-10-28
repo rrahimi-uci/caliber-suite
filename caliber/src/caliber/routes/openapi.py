@@ -134,6 +134,8 @@ _STABILITY: dict[str, str] = {
     "gate-verdicts": STABILITY_INTERNAL,
     "llm-pricing": STABILITY_INTERNAL,
     "system": STABILITY_INTERNAL,
+    # B05.4b (#725): the signed receipt callback a downstream connector calls; never an SDK-client resource.
+    "effects": STABILITY_INTERNAL,
     # `P1-F`: `GET /admin/platform-admins` -- a metadata-only, `caliber.admin`-
     # only operational/support inventory, not a resource a typical SDK
     # consumer builds against.
