@@ -80,8 +80,12 @@ from caliber.schemas import (
     require_approval_for_side_effect,
 )
 from caliber.workflows.builtin_tools import (
+    BUILTIN_TOOL_OWNER,
     is_builtin_tool,
     register_builtin_tools,
+    reserved_tool_name,
+    reserved_tool_name_message,
+    reserved_tool_owner_message,
     tool_availability,
 )
 from caliber.workflows.ir import IRToolBinding
@@ -142,9 +146,9 @@ async def list_tools(request: Request) -> JSONResponse:
     factory = get_session_factory(request)
     with factory() as session:
         try:
-            created = register_builtin_tools(session)
-            if created:
-                session.commit()
+            register_builtin_tools(session)
+            # Commits the seeded rows and the audit records of any reserved-name squatter; a no-op otherwise.
+            session.commit()
         except IntegrityError:
             # Another first-load request may have inserted the same built-ins.
             session.rollback()
@@ -172,12 +176,18 @@ def _with_availability(schema: ToolSchema, memory_enabled: bool) -> ToolSchema:
         name=schema.name,
         owner=schema.owner,
         module_path=schema.module_path,
+        callable_name=schema.callable_name,
+        version=schema.version,
         memory_enabled=memory_enabled,
     )
     return schema.model_copy(
         update={
             "builtin": is_builtin_tool(
-                name=schema.name, owner=schema.owner, module_path=schema.module_path
+                name=schema.name,
+                owner=schema.owner,
+                module_path=schema.module_path,
+                callable_name=schema.callable_name,
+                version=schema.version,
             ),
             "availability": availability,
             "availability_reason": reason,
@@ -457,6 +467,13 @@ async def register_tool(request: Request) -> JSONResponse:
     payload = ToolRegisterRequest.model_validate(body)
     actor = require_scopes(request, [SCOPE_ADMIN])
     identity = resolve_identity(request)
+    # A built-in's name is how the protected-effect inventory recognises it, so no registered tool may take
+    # one (any owner, any version); this is checked before the registry is read.
+    reserved = reserved_tool_name(payload.name)
+    if reserved is not None:
+        raise HTTPException(
+            status_code=409, detail=reserved_tool_name_message(payload.name, reserved)
+        )
     factory = get_session_factory(request)
     with factory() as session:
         existing = (
@@ -551,6 +568,18 @@ async def update_tool(request: Request) -> JSONResponse:
         require_project_access_if_scoped(
             session, identity, tool.project_id, "resource.write.runtime"
         )
+        # ``owner`` is free text and half of what makes a row a built-in (``is_builtin_tool``). A tool may be
+        # handed the built-ins' owner only when the row already is the seed's own in every other respect
+        # (name, version, module, callable), which is how an accidental edit of a built-in's owner is
+        # repaired; anything else would let a same-named tool become trusted.
+        if changes.get("owner") == BUILTIN_TOOL_OWNER and not is_builtin_tool(
+            name=tool.name,
+            owner=BUILTIN_TOOL_OWNER,
+            module_path=tool.module_path,
+            callable_name=tool.callable_name,
+            version=tool.version,
+        ):
+            raise HTTPException(status_code=409, detail=reserved_tool_owner_message())
         diff: dict[str, dict[str, object]] = {}
         for field in _UPDATABLE_FIELDS:
             if field not in changes:
