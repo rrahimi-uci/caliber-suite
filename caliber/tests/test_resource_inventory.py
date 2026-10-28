@@ -63,7 +63,10 @@ _EXPECTED_COUNTS = {
     # +1 (`B05.1`): CaliberEffectProposal is an immutable child of a workflow run (FK `workflow_run_id`) with no project
     # column of its own, like CaliberRunManifest: the run supplies the project boundary. Confirmed by direct look; it is
     # written and read only through `caliber.effects.records`, never listed through a route.
-    SCOPING_UNSCOPED: 57,
+    # +1 (`B05.4a`): CaliberEffectReceipt is an immutable child of an effect proposal (FK `proposal_id`) with no project
+    # column of its own: the proposal, and through it the run, supplies the boundary. Confirmed by direct look; it is
+    # written and read only through `caliber.effects.receipts`, never listed through a route.
+    SCOPING_UNSCOPED: 58,
     # -1 (`P1-E`): CaliberPersonalAccessToken gained project_id (optional
     # PAT project binding) and moves from owned_catalog to project_only --
     # see below.

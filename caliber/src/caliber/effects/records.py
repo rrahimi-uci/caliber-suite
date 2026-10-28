@@ -53,7 +53,12 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from caliber.contracts import validate_record
-from caliber.db.models import CaliberEffectProposal, CaliberPolicyDecision, CaliberWorkflowRun
+from caliber.db.models import (
+    CaliberEffectProposal,
+    CaliberEffectReceipt,
+    CaliberPolicyDecision,
+    CaliberWorkflowRun,
+)
 from caliber.db.transactions import begin_sqlite_transaction
 from caliber.effects.inventory import EFFECT_CLASSES
 from caliber.run_manifest import FIXED_REGION, FIXED_TENANT_ID, canonical_bytes
@@ -73,6 +78,8 @@ STALE_VERSION: Final = "stale_version"
 STALE_OWNER: Final = "stale_owner"
 EVIDENCE_REQUIRED: Final = "evidence_required"
 APPROVAL_REFUSED: Final = "approval_refused"
+RECEIPT_REFUSED: Final = "receipt_refused"
+RECEIPT_EXISTS: Final = "receipt_exists"
 
 APPROVED: Final = "approved"
 DISPATCHED: Final = "dispatched"
@@ -116,6 +123,7 @@ _LIMITS: Final = {
     "owner_id": 128,
     "reason": 128,
     "approval_ref": 128,
+    "receipt_id": 64,
 }
 
 
@@ -410,6 +418,7 @@ class ProposalState:
     reason: str | None
     approval_kind: str | None
     approval_ref: str | None
+    receipt_id: str | None
     dispatched_at: datetime | None
     unknown_at: datetime | None
     settled_at: datetime | None
@@ -423,6 +432,41 @@ class Transitioned:
     state: str
     version: int
     applied: bool
+
+
+@dataclass(frozen=True)
+class ProposalView:
+    """What a connector needs to check a downstream's stored request against a proposal."""
+
+    proposal_id: str
+    logical_key: str
+    connector: str
+    connector_version: str
+    effect_class: str
+    resource: str
+    expected_resource_version: str | None
+    intent_hash: str
+    attempt: int | None
+    state: str
+
+
+def proposal_view(session: Session, proposal_id: str) -> ProposalView:
+    """The identity and intent of ``proposal_id`` (``KeyError`` for an unknown id)."""
+    row = session.get(CaliberEffectProposal, proposal_id, populate_existing=True)
+    if row is None:
+        raise KeyError(proposal_id)
+    return ProposalView(
+        proposal_id=row.proposal_id,
+        logical_key=row.logical_key,
+        connector=row.connector,
+        connector_version=row.connector_version,
+        effect_class=row.effect_class,
+        resource=row.resource,
+        expected_resource_version=row.expected_resource_version,
+        intent_hash=row.intent_hash,
+        attempt=row.attempt,
+        state=row.state,
+    )
 
 
 def effect_resource(proposal_id: str) -> str:
@@ -445,6 +489,7 @@ def proposal_state(session: Session, proposal_id: str) -> ProposalState:
         reason=row.reason,
         approval_kind=row.approval_kind,
         approval_ref=row.approval_ref,
+        receipt_id=row.receipt_id,
         dispatched_at=row.dispatched_at,
         unknown_at=row.unknown_at,
         settled_at=row.settled_at,
@@ -480,6 +525,7 @@ def transition(
     owner_id: str | None = None,
     attempt: int | None = None,
     reason: str | None = None,
+    receipt_id: str | None = None,
     now: datetime | None = None,
 ) -> Transitioned:
     """Move a proposal to ``to_state`` if ``expected_version`` is still current, in the caller's transaction (never commits).
@@ -500,6 +546,9 @@ def transition(
     * out of ``dispatched`` (``committed``, ``failed``, ``unknown``): the same ``owner_id`` and ``attempt`` that dispatched
       it; a stale worker is ``stale_owner`` and records nothing. ``failed`` and ``unknown`` also need a ``reason``.
     * ``failed`` (from any state), ``unknown`` and ``reconciled``: a short ``reason`` code (never a payload).
+    * ``committed``: ``receipt_id``, a verified receipt (:mod:`caliber.effects.receipts`) recorded for *this* proposal and
+      dispatch attempt, read back from the downstream and matching the proposal's key and intent. A proposal never
+      becomes ``committed`` on the strength of a 2xx alone: with no receipt it stays ``unknown``.
 
     Under READ COMMITTED a conflicting move is :class:`StaleVersion` (or ``applied=False`` for a repeat). Under
     REPEATABLE READ or SERIALIZABLE PostgreSQL itself refuses an UPDATE of a row another transaction changed after the
@@ -519,7 +568,7 @@ def transition(
     row = session.get(CaliberEffectProposal, proposal_id, populate_existing=True)
     if row is None:
         raise KeyError(proposal_id)
-    offered = _offered(approval, owner, tries, why)
+    offered = _offered(approval, owner, tries, why, _text("receipt_id", receipt_id, nullable=True))
     if (
         row.version == expected_version + 1
         and row.state == to_state
@@ -534,7 +583,7 @@ def transition(
             ILLEGAL_TRANSITION,
             f"proposal {row.proposal_id} cannot move from {row.state} to {to_state}",
         )
-    evidence = _evidence(session, row, to_state, approval, owner, tries, why)
+    evidence = _evidence(session, row, to_state, approval, owner, tries, why, receipt_id)
     _check_owner(row, owner, tries)
     values: dict[str, Any] = {"state": to_state, "version": expected_version + 1, **evidence}
     moment = _naive_utc(now)
@@ -572,7 +621,11 @@ def transition(
 
 
 def _offered(
-    approval: Approval | None, owner: str | None, attempt: int | None, reason: str | None
+    approval: Approval | None,
+    owner: str | None,
+    attempt: int | None,
+    reason: str | None,
+    receipt: str | None = None,
 ) -> dict[str, Any]:
     """The evidence the caller put forward, as the columns it would be recorded in (nothing verified)."""
     offered: dict[str, Any] = {}
@@ -582,6 +635,8 @@ def _offered(
         offered["attempt"] = attempt
     if reason is not None:
         offered["reason"] = reason
+    if receipt is not None:
+        offered["receipt_id"] = receipt
     if isinstance(approval, Approval):
         offered["approval_kind"] = approval.kind
         offered["approval_ref"] = approval.ref
@@ -601,6 +656,8 @@ def _complete(row: CaliberEffectProposal, offered: Mapping[str, Any]) -> bool:
         needed |= {"approval_kind", "approval_ref"}
     if row.state in (FAILED, UNKNOWN, RECONCILED):
         needed.add("reason")
+    if row.state == COMMITTED:
+        needed.add("receipt_id")
     from_dispatched = (
         row.state == DISPATCHED
         or (
@@ -627,6 +684,7 @@ def _evidence(
     owner: str | None,
     attempt: int | None,
     reason: str | None,
+    receipt_id: str | None = None,
 ) -> dict[str, Any]:
     """The evidence columns this move writes; refuses a move without its evidence and evidence that is not its own."""
     values: dict[str, Any] = {}
@@ -648,6 +706,26 @@ def _evidence(
         values["reason"] = reason
     elif reason is not None:
         values["reason"] = reason
+    if (
+        to_state == FAILED
+        and session.execute(
+            select(CaliberEffectReceipt.receipt_id)
+            .where(CaliberEffectReceipt.proposal_id == row.proposal_id)
+            .limit(1)
+        ).first()
+    ):
+        raise ProposalError(
+            RECEIPT_EXISTS,
+            f"proposal {row.proposal_id} has a verified receipt: the downstream says it committed, so it cannot be failed",
+        )
+    if (receipt_id is not None) != (to_state == COMMITTED):
+        raise ProposalError(
+            EVIDENCE_REQUIRED if to_state == COMMITTED else BAD_FIELD,
+            "a verified receipt is required to commit a proposal and belongs to no other move",
+        )
+    if receipt_id is not None:
+        _verify_receipt(session, row, receipt_id)
+        values["receipt_id"] = receipt_id
     if approval is not None:
         _verify_approval(session, row, approval)
         values["approval_kind"] = approval.kind
@@ -674,6 +752,23 @@ def _check_owner(row: CaliberEffectProposal, owner: str | None, attempt: int | N
         raise ProposalError(
             STALE_OWNER,
             f"proposal {row.proposal_id} was dispatched by another owner or attempt: nothing recorded",
+        )
+
+
+def _verify_receipt(session: Session, row: CaliberEffectProposal, receipt_id: str) -> None:
+    """The receipt exists, was read back from the downstream (``query``) and answers *this* proposal's attempt."""
+    receipt = session.get(CaliberEffectReceipt, receipt_id)
+    if (
+        receipt is None
+        or receipt.proposal_id != row.proposal_id
+        or receipt.attempt != row.attempt
+        or receipt.logical_key != row.logical_key
+        or receipt.intent_hash != row.intent_hash
+        or receipt.verified_by != "query"
+    ):
+        raise ProposalError(
+            RECEIPT_REFUSED,
+            f"receipt {receipt_id!r} is not a verified receipt for this proposal and attempt",
         )
 
 
@@ -783,6 +878,8 @@ __all__ = [
     "MAX_INTENT_BYTES",
     "POLICY_DECISION",
     "PROPOSED",
+    "RECEIPT_EXISTS",
+    "RECEIPT_REFUSED",
     "RECONCILED",
     "RUN_NOT_FOUND",
     "SETTLED",
@@ -798,6 +895,7 @@ __all__ = [
     "ProposalConflict",
     "ProposalError",
     "ProposalState",
+    "ProposalView",
     "RecordedProposal",
     "StaleVersion",
     "Transitioned",
@@ -806,6 +904,7 @@ __all__ = [
     "logical_key",
     "new_proposal_id",
     "proposal_state",
+    "proposal_view",
     "read_proposal",
     "record_proposal",
     "transition",

@@ -22,6 +22,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from caliber.db.immutable import ImmutableRecordError
 from caliber.db.models import CaliberEffectProposal, CaliberPolicyDecision
 from caliber.effects import records
+from caliber.effects.receipts import ReceiptFacts, record_receipt
 from caliber.effects.records import (
     APPROVAL_REFUSED,
     APPROVED,
@@ -45,6 +46,7 @@ from caliber.effects.records import (
     StaleVersion,
     effect_resource,
     proposal_state,
+    proposal_view,
     read_proposal,
     transition,
 )
@@ -97,6 +99,23 @@ def _move(session: Session, proposal_id: str, to: str, **evidence: Any) -> Any:
     return transition(session, proposal_id, to, expected_version=version, now=AT, **evidence)
 
 
+def _receipt(session: Session, proposal_id: str) -> str:
+    """The verified receipt of this proposal's dispatch (recorded once; asking again returns it)."""
+    view = proposal_view(session, proposal_id)
+    facts = ReceiptFacts(
+        attempt=view.attempt or 1,
+        idempotency_key=view.logical_key,
+        connector=view.connector,
+        connector_version=view.connector_version,
+        resource=view.resource,
+        intent_hash=view.intent_hash,
+        downstream_request_id=f"DR-{proposal_id}",
+        response_digest="sha256:" + "a" * 64,
+        resource_version="2",
+    )
+    return record_receipt(session, proposal_id, facts, now=AT).receipt_id
+
+
 def _evidence_for(session: Session, proposal_id: str, from_state: str, to: str) -> dict[str, Any]:
     """The evidence that makes ``from_state -> to`` a well-formed move (not necessarily a legal one)."""
     if to == APPROVED:
@@ -106,6 +125,9 @@ def _evidence_for(session: Session, proposal_id: str, from_state: str, to: str) 
     if to == DISPATCHED:
         return {"owner_id": OWNER, "attempt": ATTEMPT}
     evidence: dict[str, Any] = {}
+    if to == COMMITTED:
+        open_now = proposal_state(session, proposal_id).state in (DISPATCHED, UNKNOWN, RECONCILED)
+        evidence["receipt_id"] = _receipt(session, proposal_id) if open_now else "rcpt-none"
     if from_state == DISPATCHED:
         evidence.update(owner_id=OWNER, attempt=ATTEMPT)
     if to in (FAILED, UNKNOWN, RECONCILED):
@@ -396,7 +418,7 @@ def test_every_state_change_advances_the_version_by_one_and_records_its_evidence
             assert (unknown.version, unknown.reason, unknown.unknown_at) == (4, "timeout", NAIVE_AT)
             assert (unknown.owner_id, unknown.attempt) == ("w-9", 3), "attempt and owner are kept"
             _move(session, proposal_id, RECONCILED, reason="found by key")
-            _move(session, proposal_id, COMMITTED)
+            _move(session, proposal_id, COMMITTED, receipt_id=_receipt(session, proposal_id))
             settled = proposal_state(session, proposal_id)
             assert (settled.state, settled.version, settled.settled_at) == (COMMITTED, 6, NAIVE_AT)
             assert (settled.reason, settled.owner_id, settled.attempt) == ("found by key", "w-9", 3)
@@ -428,6 +450,7 @@ def test_the_timestamps_default_to_now_and_a_naive_time_is_taken_as_utc(
                 expected_version=3,
                 owner_id=OWNER,
                 attempt=1,
+                receipt_id=_receipt(session, proposal_id),
                 now=NAIVE_AT,
             )
             assert proposal_state(session, proposal_id).settled_at == NAIVE_AT
@@ -446,7 +469,11 @@ def test_a_stale_owner_cannot_record_a_move_out_of_dispatched(
         _seed_run(factory)
         with factory() as session:
             proposal_id = _at(session, DISPATCHED)
-            reason = {"reason": "why"} if to_state != COMMITTED else {}
+            reason = (
+                {"reason": "why"}
+                if to_state != COMMITTED
+                else {"receipt_id": _receipt(session, proposal_id)}
+            )
             for owner, attempt in (("worker-2", ATTEMPT), (OWNER, 2), ("worker-2", 2)):
                 _refused(
                     STALE_OWNER,
@@ -617,7 +644,13 @@ def test_each_move_needs_its_own_evidence_and_refuses_evidence_that_is_not_its_o
                 approval=decision,
             )
             # a reason on a commit is allowed (and kept)
-            assert _move(session, reconciled, COMMITTED, reason="verified").applied
+            assert _move(
+                session,
+                reconciled,
+                COMMITTED,
+                reason="verified",
+                receipt_id=_receipt(session, reconciled),
+            ).applied
             assert proposal_state(session, reconciled).reason == "verified"
             session.rollback()
 
@@ -728,15 +761,21 @@ def test_raw_sql_cannot_make_a_move_the_application_would_refuse(
                 "illegal",
             ),
             (
-                "state = 'committed', settled_at = CURRENT_TIMESTAMP",
+                "state = 'unknown', unknown_at = CURRENT_TIMESTAMP, reason = 'r'",
                 "version",
             ),  # does not advance the version
             (
-                "state = 'committed', version = 5, settled_at = CURRENT_TIMESTAMP",
+                "state = 'unknown', version = 5, unknown_at = CURRENT_TIMESTAMP, reason = 'r'",
                 "version",
             ),  # advances by two
-            ("state = 'committed', version = 3, settled_at = CURRENT_TIMESTAMP", "version"),
-            ("state = 'committed', version = 4", "evidence"),  # a commit that records no time
+            (
+                "state = 'unknown', version = 3, unknown_at = CURRENT_TIMESTAMP, reason = 'r'",
+                "version",
+            ),
+            (
+                "state = 'committed', version = 4",
+                "evidence|needs a receipt",
+            ),  # a commit that records no time
             (
                 "state = 'failed', version = 4, settled_at = CURRENT_TIMESTAMP",
                 "evidence",
@@ -916,12 +955,12 @@ def test_the_triggers_and_the_model_agree_on_which_columns_move_with_the_state()
         return module
 
     frozen = set(migration("0123_effect_proposals")._FROZEN)
-    moving = set(migration("0124_effect_proposal_transitions")._EVIDENCE) | {"state"}
+    moving = set(migration("0125_effect_receipts")._EVIDENCE_0125) | {"state"}
     assert frozen.isdisjoint(moving)
     assert {c.name for c in Model.__table__.columns} == frozen | moving, (
         "every column is frozen or moves with state"
     )
-    required = migration("0124_effect_proposal_transitions")._REQUIRED
+    required = migration("0125_effect_receipts")._REQUIRED_0125
     assert set(required) <= set(STATES) and all(set(cols) <= moving for cols in required.values())
 
 
@@ -1211,3 +1250,78 @@ def test_stale_version_fails_without_mutation(downstream: Any) -> None:
     assert _connector_call(downstream, "stale-key-2", 1)["status_code"] == 201, (
         "the current version is accepted"
     )
+
+
+# ---------------------------------------------------------------- the named receipt tests (B05.4a, #717)
+
+
+def test_committed_requires_verified_receipt() -> None:
+    """A proposal moves to ``committed`` only with a verified receipt of its own dispatch (the fuller cases, the
+    downstream fixture and the database rules are in ``test_effect_receipts.py``)."""
+    import tempfile
+
+    from caliber.effects.records import RECEIPT_REFUSED
+
+    with tempfile.TemporaryDirectory() as tmp, pytest.MonkeyPatch.context() as monkeypatch:
+        with _database("sqlite", Path(tmp), monkeypatch) as (_, factory):
+            _seed_run(factory)
+            with factory() as session:
+                proposal_id = _at(session, DISPATCHED)
+                other = _new(session, occurrence="occ-other")
+                _move(session, other, APPROVED, **_evidence_for(session, other, PROPOSED, APPROVED))
+                _move(session, other, DISPATCHED, owner_id=OWNER, attempt=ATTEMPT)
+                foreign = _receipt(session, other)
+                _refused(
+                    EVIDENCE_REQUIRED,
+                    session,
+                    proposal_id,
+                    COMMITTED,
+                    owner_id=OWNER,
+                    attempt=ATTEMPT,
+                )
+                for bad in ("rcpt-missing", foreign):
+                    _refused(
+                        RECEIPT_REFUSED,
+                        session,
+                        proposal_id,
+                        COMMITTED,
+                        owner_id=OWNER,
+                        attempt=ATTEMPT,
+                        receipt_id=bad,
+                    )
+                own = _receipt(session, proposal_id)
+                assert _move(
+                    session, proposal_id, COMMITTED, owner_id=OWNER, attempt=ATTEMPT, receipt_id=own
+                ).applied
+                assert proposal_state(session, proposal_id).receipt_id == own
+
+
+def test_200_without_query_match_is_unknown() -> None:
+    """A 2xx claim whose authoritative query does not confirm it leaves the proposal ``unknown``: not committed, and not
+    failed either."""
+    import tempfile
+
+    from caliber.effects.connectors import Classified, TransportOutcome
+    from caliber.effects.receipts import settle_dispatch
+
+    with tempfile.TemporaryDirectory() as tmp, pytest.MonkeyPatch.context() as monkeypatch:
+        with _database("sqlite", Path(tmp), monkeypatch) as (_, factory):
+            _seed_run(factory)
+            with factory() as session:
+                proposal_id = _at(session, DISPATCHED)
+                settled = settle_dispatch(
+                    session,
+                    proposal_id,
+                    expected_version=proposal_state(session, proposal_id).version,
+                    owner_id=OWNER,
+                    attempt=ATTEMPT,
+                    outcome=Classified(TransportOutcome.COMMITTED_RECEIPT, "http_200", 200, 1),
+                    verify=lambda: None,
+                    now=AT,
+                )
+                assert (settled.state, settled.reason, settled.receipt_id) == (
+                    UNKNOWN,
+                    "receipt_unverified",
+                    None,
+                )
+                assert proposal_state(session, proposal_id).state == UNKNOWN

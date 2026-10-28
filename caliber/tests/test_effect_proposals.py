@@ -721,6 +721,7 @@ def test_every_intent_column_is_frozen_by_the_database(
         "reason",
         "approval_kind",
         "approval_ref",
+        "receipt_id",
     }
     columns = [c.name for c in CaliberEffectProposal.__table__.columns if c.name not in mutable]
     with _database(dialect, tmp_path, monkeypatch) as (engine, factory):
@@ -1052,5 +1053,6 @@ def test_truncate_is_refused_postgresql(tmp_path: Path, monkeypatch: pytest.Monk
             pytest.raises(DBAPIError, match="DELETE refused|immutable"),
             engine.begin() as connection,
         ):
-            connection.execute(text("TRUNCATE caliber_effect_proposals"))
+            # both tables in one statement: no foreign-key refusal, so it is the table's own trigger that refuses
+            connection.execute(text("TRUNCATE caliber_effect_proposals, caliber_effect_receipts"))
         assert _count(factory, CaliberEffectProposal) == 1
