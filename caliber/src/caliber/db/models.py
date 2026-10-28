@@ -2586,12 +2586,37 @@ class CaliberWorkflowRunCheckpoint(Base):
 
 
 class CaliberRuntimeApprovalRequest(Base):
-    """In-run human approval request created by runtime approval gates."""
+    """In-run human approval request created by runtime approval gates.
+
+    Two kinds of row. A *legacy* row (the worker's node-level approval) guards no effect proposal and has ``NULL`` in every
+    binding column. A *bound* row (B06.1, #706; ``caliber.workflows.approval_requests.create_approval_request``) names one
+    proposal and carries its ``intent_hash``, the ``evidence_hash`` shown, the ``policy_digest`` of the policy snapshot,
+    the expected resource version, ``expires_at`` and ``requested_by``. Migration 0127 makes that distinction a database
+    fact: a CHECK allows only all-``NULL`` or fully bound, hash and digest columns are exactly 71 characters, and a BEFORE
+    UPDATE trigger (SQLite and PostgreSQL) refuses any change to the binding columns, so an UPDATE or raw SQL cannot
+    re-bind a request to another intent. ``status``, ``consumed_at`` and ``superseded_by`` and the decision columns may
+    still move. The decision route does not decide a bound row yet (it answers ``409 approval_bound_not_wired``).
+    """
 
     __tablename__ = "caliber_runtime_approval_requests"
     __table_args__ = (
         Index("ix_runtime_approvals_run_status", "workflow_run_id", "status"),
         Index("ix_runtime_approvals_project_status", "project_id", "status"),
+        Index("ix_runtime_approvals_proposal", "proposal_id"),
+        # Legacy (every binding column NULL) or bound completely; never half-bound, in either direction.
+        CheckConstraint(
+            "(proposal_id IS NULL AND intent_hash IS NULL AND evidence_hash IS NULL AND policy_digest IS NULL "
+            "AND expected_resource_version IS NULL AND expires_at IS NULL AND requested_by IS NULL) "
+            "OR (proposal_id IS NOT NULL AND intent_hash IS NOT NULL AND evidence_hash IS NOT NULL "
+            "AND policy_digest IS NOT NULL AND expires_at IS NOT NULL AND requested_by IS NOT NULL)",
+            name="ck_runtime_approval_bound",
+        ),
+        CheckConstraint(
+            "(intent_hash IS NULL OR length(intent_hash) = 71) "
+            "AND (evidence_hash IS NULL OR length(evidence_hash) = 71) "
+            "AND (policy_digest IS NULL OR length(policy_digest) = 71)",
+            name="ck_runtime_approval_digest_length",
+        ),
     )
 
     runtime_approval_id: Mapped[str] = mapped_column(String(64), primary_key=True)
@@ -2606,6 +2631,28 @@ class CaliberRuntimeApprovalRequest(Base):
     decided_by: Mapped[str | None] = mapped_column(String(256), nullable=True)
     decision_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     policy_snapshot: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+    # Exact-intent binding (B06.1, #706; ADR 0003 ``approval_request``). All NULL on a legacy row (a node-level approval
+    # that guards no effect proposal) and all set on a request made by ``create_approval_request``. The hash and digest
+    # columns hold ``sha256:`` plus 64 hex digits, as ``CaliberEffectProposal.intent_hash`` does (71 characters).
+    proposal_id: Mapped[str | None] = mapped_column(
+        String(64), ForeignKey("caliber_effect_proposals.proposal_id"), nullable=True
+    )
+    #: The proposal's ``intent_hash`` at request time; an approval of any other intent is void.
+    intent_hash: Mapped[str | None] = mapped_column(String(71), nullable=True)
+    #: Digest of the evidence shown to the approver.
+    evidence_hash: Mapped[str | None] = mapped_column(String(71), nullable=True)
+    #: Digest of the policy in force when the approval was requested.
+    policy_digest: Mapped[str | None] = mapped_column(String(71), nullable=True)
+    #: The downstream version the approval is valid for (the proposal's ``expected_resource_version``, 256 characters).
+    expected_resource_version: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    #: After this the request cannot be approved (UTC, stored naive like every timestamp here).
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    #: The request that replaced this one (set by the supersession step, B06.2); ``NULL`` while it stands.
+    superseded_by: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    #: When the dispatcher consumed the decision (B06.4); ``NULL`` until then. This task only adds the column.
+    consumed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    #: The principal that requested it (``approval_request.requested_by``).
+    requested_by: Mapped[str | None] = mapped_column(String(256), nullable=True)
 
 
 class CaliberProject(Base):

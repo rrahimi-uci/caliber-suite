@@ -1859,12 +1859,23 @@ async def retry_workflow_run(request: Request) -> JSONResponse:  # noqa: PLR0912
     return envelope_response(data, status_code=202)
 
 
+#: ``reason_code`` of the 409 for a request that is bound to an effect proposal (B06.1, #706).
+APPROVAL_BOUND_NOT_WIRED = "approval_bound_not_wired"
+
+
 def _select_pending_runtime_approval(
     session: Session,
     *,
     run: CaliberWorkflowRun,
     runtime_approval_id: str | None,
 ) -> CaliberRuntimeApprovalRequest:
+    """The pending legacy (node-level) approval this decision is about.
+
+    A request bound to an effect proposal (``proposal_id`` set, B06.1) is not decided here: this route checks none of its
+    binding, expiry, supersession or expected version, so deciding it would approve an intent nothing re-verified. Naming one
+    is ``409 approval_bound_not_wired`` (payload-free), and the default selection ignores bound rows so a legacy request is
+    never shadowed by a newer bound one. B06.2 and B06.3 replace this refusal with the real checks.
+    """
     if runtime_approval_id:
         row = session.get(CaliberRuntimeApprovalRequest, runtime_approval_id)
         if row is None or row.workflow_run_id != run.workflow_run_id:
@@ -1874,6 +1885,15 @@ def _select_pending_runtime_approval(
                     "runtime approval "
                     f"{runtime_approval_id!r} not found for workflow run {run.workflow_run_id!r}"
                 ),
+            )
+        if row.proposal_id is not None:
+            raise CaliberHTTPException(
+                status_code=409,
+                detail=(
+                    "this approval request is bound to an effect proposal and cannot be decided "
+                    "here yet: exact-intent approval is not wired"
+                ),
+                reason_code=APPROVAL_BOUND_NOT_WIRED,
             )
         if row.status != "pending":
             raise HTTPException(
@@ -1885,6 +1905,7 @@ def _select_pending_runtime_approval(
         select(CaliberRuntimeApprovalRequest)
         .where(CaliberRuntimeApprovalRequest.workflow_run_id == run.workflow_run_id)
         .where(CaliberRuntimeApprovalRequest.status == "pending")
+        .where(CaliberRuntimeApprovalRequest.proposal_id.is_(None))
         .order_by(CaliberRuntimeApprovalRequest.requested_at.desc())
     )
     if run.current_node_id:
