@@ -1,0 +1,916 @@
+{
+  "schema_version": 1,
+  "release_tag": "caliber-v0.1.0a1",
+  "tag_commit": "3f3b562babf6391d13e176c1bd56da5033ace507",
+  "migrations_path": "caliber/src/caliber/db/migrations/versions",
+  "version_table": "caliber_alembic_version",
+  "algorithm": "sha256",
+  "generated_by": "python caliber/tests/migration_checksums.py generate (from the repository root)",
+  "base_revision": "0001",
+  "head_revision": "0113",
+  "migration_count": 113,
+  "migrations": [
+    {
+      "file": "0001_initial.py",
+      "revision": "0001",
+      "down_revisions": [],
+      "sha256": "169623f44134162788a6d329190072749d0751a7141a859693d44803c908bee7"
+    },
+    {
+      "file": "0002_jobs_and_audit.py",
+      "revision": "0002",
+      "down_revisions": [
+        "0001"
+      ],
+      "sha256": "46b7aa088dbe0b6a20d5b18dda661cecdb6a111991b136b5f5ae7b553aeec95d"
+    },
+    {
+      "file": "0003_runtime_locks.py",
+      "revision": "0003",
+      "down_revisions": [
+        "0002"
+      ],
+      "sha256": "0f4a677cfd9ab48a08144ed48ea86d107342135894e317b61700c8f1c8b8da0e"
+    },
+    {
+      "file": "0004_job_diagnosis.py",
+      "revision": "0004",
+      "down_revisions": [
+        "0003"
+      ],
+      "sha256": "b39a9b5880b1d939050cdf5996d622898cf90dab8e7dcbd9aceea2ce4cf9efdb"
+    },
+    {
+      "file": "0005_job_candidate.py",
+      "revision": "0005",
+      "down_revisions": [
+        "0004"
+      ],
+      "sha256": "a747cee90b363a0636b1343f1b94f199fae23eea1d487a8151ae118df60b4c15"
+    },
+    {
+      "file": "0006_eval_and_approvals.py",
+      "revision": "0006",
+      "down_revisions": [
+        "0005"
+      ],
+      "sha256": "d624758ec3617208354947e36af40b787c274c90f8715f0de81799e8dd39cbb6"
+    },
+    {
+      "file": "0007_retry_and_votes.py",
+      "revision": "0007",
+      "down_revisions": [
+        "0006"
+      ],
+      "sha256": "66755622ad050ecfe459e7421c1ec6fb36957ea8fbeee59852f88502b57c929a"
+    },
+    {
+      "file": "0008_comments_and_rollback.py",
+      "revision": "0008",
+      "down_revisions": [
+        "0007"
+      ],
+      "sha256": "9f2b84ef36ddabcb6c98cf16ae622b86d7eccdd2e09666bc8762cc24b50231e6"
+    },
+    {
+      "file": "0009_job_heartbeat.py",
+      "revision": "0009",
+      "down_revisions": [
+        "0008"
+      ],
+      "sha256": "779641c24f31b4bce3938a029f3f1aad9a8564a347e838b7915c30afa5b653aa"
+    },
+    {
+      "file": "0010_skills.py",
+      "revision": "0010",
+      "down_revisions": [
+        "0009"
+      ],
+      "sha256": "61455b817157ee9470b0187a3e307d45d93ef85cc009a27bdfaca18fe60c2758"
+    },
+    {
+      "file": "0011_eval_datasets.py",
+      "revision": "0011",
+      "down_revisions": [
+        "0010"
+      ],
+      "sha256": "878b936b6a9c3f47320c0325c4570ee85d9737483c01ebf4a45ab45ddcc12687"
+    },
+    {
+      "file": "0012_conversation_policies.py",
+      "revision": "0012",
+      "down_revisions": [
+        "0011"
+      ],
+      "sha256": "a6a33cfd724d675a8104cfe7b404b56e22a1b2d6b6561a828345412db42ad980"
+    },
+    {
+      "file": "0013_regression_runs.py",
+      "revision": "0013",
+      "down_revisions": [
+        "0012"
+      ],
+      "sha256": "dc13da9195de863933ba89f3e6b69a1b87f555ec0e4f15efc00c15b67e68be56"
+    },
+    {
+      "file": "0014_skill_standard_fields.py",
+      "revision": "0014",
+      "down_revisions": [
+        "0013"
+      ],
+      "sha256": "4cff3cad2b4e7198e16366aa8e04fb65205078034f94cef1652e74f4b8dd1f79"
+    },
+    {
+      "file": "0015_refinement_skill_name.py",
+      "revision": "0015",
+      "down_revisions": [
+        "0014"
+      ],
+      "sha256": "f3659a08468607d230931a26fccaf9a974723791359a93826dc39723b0fba6de"
+    },
+    {
+      "file": "0016_workflow_studio.py",
+      "revision": "0016",
+      "down_revisions": [
+        "0015"
+      ],
+      "sha256": "e2457023635fc620799d778188b76ad45a9008146f58590e14ec745b0dfb2c32"
+    },
+    {
+      "file": "0017_workflow_promotions.py",
+      "revision": "0017",
+      "down_revisions": [
+        "0016"
+      ],
+      "sha256": "3c8acc3a0123e2d6d4fe027e50d84b539d83d79fc99a6d2f7eeb106167b50625"
+    },
+    {
+      "file": "0018_workflow_compiled_bundle.py",
+      "revision": "0018",
+      "down_revisions": [
+        "0017"
+      ],
+      "sha256": "6165ee08fbb4da176408a0081eed3e21e028edfad52c4994e11437da5d75c3f1"
+    },
+    {
+      "file": "0019_assistant_authoring.py",
+      "revision": "0019",
+      "down_revisions": [
+        "0018"
+      ],
+      "sha256": "ba95296694f4ce98a7c14953ef81e41c1af79e2f4c49f4c936be8d73f22dac32"
+    },
+    {
+      "file": "0020_mcp_servers.py",
+      "revision": "0020",
+      "down_revisions": [
+        "0019"
+      ],
+      "sha256": "8b9f562ddccca7b9feb1e3fde2f00fa460cdc1d88a8f3e1eede62a5df67afee8"
+    },
+    {
+      "file": "0021_assistant_session_metadata.py",
+      "revision": "0021",
+      "down_revisions": [
+        "0020"
+      ],
+      "sha256": "c18418b07e9b5717c06627f84adeae123a36f734c5341fb26d89ff8270bfa5aa"
+    },
+    {
+      "file": "0022_workflow_calibration_spec.py",
+      "revision": "0022",
+      "down_revisions": [
+        "0021"
+      ],
+      "sha256": "c96bee4365398f82af7f97cd0a94b260e0ab5b1da553a8b506030d155056bd65"
+    },
+    {
+      "file": "0023_workflow_files.py",
+      "revision": "0023",
+      "down_revisions": [
+        "0022"
+      ],
+      "sha256": "0a10ca60ba2d6796acd2db974ef66463b628e9333085c80fc9f01a49c151d068"
+    },
+    {
+      "file": "0024_eval_dataset_files.py",
+      "revision": "0024",
+      "down_revisions": [
+        "0023"
+      ],
+      "sha256": "c9902234a2eb27f03db65f4e9cd3f4d2bd445e4c9b2ad33490bc002dbd810587"
+    },
+    {
+      "file": "0025_projects.py",
+      "revision": "0025",
+      "down_revisions": [
+        "0024"
+      ],
+      "sha256": "3107ff4345e1f0177f0e28222357caa82f79bc306d4892e2f3c06272036ba66f"
+    },
+    {
+      "file": "0026_project_scoping.py",
+      "revision": "0026",
+      "down_revisions": [
+        "0025"
+      ],
+      "sha256": "62f6d34d85b97da71f56782498b4ba98a2bf51bc00e16038697963f69ae02a6b"
+    },
+    {
+      "file": "0027_project_storage_backend.py",
+      "revision": "0027",
+      "down_revisions": [
+        "0026"
+      ],
+      "sha256": "a6716bbff156658bf8bd45103475407193cb4b44e2d5ea58f49a90a73874e236"
+    },
+    {
+      "file": "0028_workflow_run_queue_foundation.py",
+      "revision": "0028",
+      "down_revisions": [
+        "0027"
+      ],
+      "sha256": "1fe1a8e8d7012eab8dad90f6192a616db76d109a48466f9c22e89d7d66c15991"
+    },
+    {
+      "file": "0029_mcp_tool_policies.py",
+      "revision": "0029",
+      "down_revisions": [
+        "0028"
+      ],
+      "sha256": "0f323d813c54b8999dc184c4334fe8a3e828690c89de95d69ad193f0687b84cf"
+    },
+    {
+      "file": "0030_workflow_run_started_at_default.py",
+      "revision": "0030",
+      "down_revisions": [
+        "0029"
+      ],
+      "sha256": "b0f090a7b4ad58da32577706c091772f883c15c49d658158015f7237320a8953"
+    },
+    {
+      "file": "0031_refinement_refine_iteration.py",
+      "revision": "0031",
+      "down_revisions": [
+        "0030"
+      ],
+      "sha256": "b41afab93575b6130e0d296a8fc8f2adfba01a0cf6d7f212ce520f76c958497c"
+    },
+    {
+      "file": "0032_workflow_run_input_payload.py",
+      "revision": "0032",
+      "down_revisions": [
+        "0031"
+      ],
+      "sha256": "869c30c4f3dadcf446e909791d05958bee81e57bca688799e5c4eac6dd0dd312"
+    },
+    {
+      "file": "0033_knowledge_bases.py",
+      "revision": "0033",
+      "down_revisions": [
+        "0032"
+      ],
+      "sha256": "ea08295bcacfd4895bbe76e9ecac8645071e826d84097cba6ec0cfa45d259c66"
+    },
+    {
+      "file": "0034_knowledge_graph_queue.py",
+      "revision": "0034",
+      "down_revisions": [
+        "0033"
+      ],
+      "sha256": "cef9e1be45bbf000ef2f68b70ffa4421b42ce370011906c3ddda5fd095aef7fd"
+    },
+    {
+      "file": "0035_knowledge_graph_config_and_age.py",
+      "revision": "0035",
+      "down_revisions": [
+        "0034"
+      ],
+      "sha256": "40c4f60143610f70cff55ed482977ac532640549d83870bf6aecf4bb5de869e2"
+    },
+    {
+      "file": "0036_workflow_session_memory.py",
+      "revision": "0036",
+      "down_revisions": [
+        "0035"
+      ],
+      "sha256": "0138ba0589166c01941b7a9d31883aa4fcad8916a965de5417f9fab4c774ebdf"
+    },
+    {
+      "file": "0037_live_event_bus.py",
+      "revision": "0037",
+      "down_revisions": [
+        "0036"
+      ],
+      "sha256": "da9f90af563f27e19ff6c09ab88964f628eee9d33a09b0c53fa6b3e12b517c52"
+    },
+    {
+      "file": "0038_workflow_run_manifest_snapshot.py",
+      "revision": "0038",
+      "down_revisions": [
+        "0037"
+      ],
+      "sha256": "5e690a0df281cc2ebaae3b699f75e63c3668f22ea1e9b11622522390b552582c"
+    },
+    {
+      "file": "0039_drop_conversation_policies.py",
+      "revision": "0039",
+      "down_revisions": [
+        "0038"
+      ],
+      "sha256": "225ba99d4a714f3d552165a3ef38ed91f83218e51c0938f71689ece446956b98"
+    },
+    {
+      "file": "0040_workflow_benchmark_reports.py",
+      "revision": "0040",
+      "down_revisions": [
+        "0039"
+      ],
+      "sha256": "309e0d6010586227b0dfb7a37a4281f3241ca4469965c2198c276af8c1e92d40"
+    },
+    {
+      "file": "0041_workflow_services.py",
+      "revision": "0041",
+      "down_revisions": [
+        "0040"
+      ],
+      "sha256": "0e2481489caeffa927d6ccef54137b0e729a3aa3664314bf8af8f117991bcd09"
+    },
+    {
+      "file": "0042_drop_approval_governance.py",
+      "revision": "0042",
+      "down_revisions": [
+        "0041"
+      ],
+      "sha256": "9975a18a26cfe303b21eb4f02f17cfeb8285bfb8f1fa41498c27e439871871d2"
+    },
+    {
+      "file": "0043_component_calibration.py",
+      "revision": "0043",
+      "down_revisions": [
+        "0042"
+      ],
+      "sha256": "e9a9d7b873db80193fa5249cd718e03b7fc6258d757483af7626f6d5020e2a6e"
+    },
+    {
+      "file": "0044_eval_example_superseded_version.py",
+      "revision": "0044",
+      "down_revisions": [
+        "0043"
+      ],
+      "sha256": "fc4e8d36b2a5634e8ba418f21a50e554d2248c40649b2f022dcbc8666a86f238"
+    },
+    {
+      "file": "0045_prompt_test_runs.py",
+      "revision": "0045",
+      "down_revisions": [
+        "0044"
+      ],
+      "sha256": "e390014b9d2d0969b490ce293b0bec57a1398238816dbed8e3a07eb6d2dea173"
+    },
+    {
+      "file": "0046_tool_test_runs.py",
+      "revision": "0046",
+      "down_revisions": [
+        "0045"
+      ],
+      "sha256": "4474379a9ddb0714f445206da6240cf0391dba9f38470ec1183391c2ac2db9d7"
+    },
+    {
+      "file": "0047_skill_test_runs.py",
+      "revision": "0047",
+      "down_revisions": [
+        "0046"
+      ],
+      "sha256": "bfc28d26c5bae3e9b4ba291dc06b253cfa4232915b5dd20c77cbf5ee9babe99e"
+    },
+    {
+      "file": "0048_knowledge_base_test_runs.py",
+      "revision": "0048",
+      "down_revisions": [
+        "0047"
+      ],
+      "sha256": "ba5e453eeb7e8821ab259514f6d29ca5c1c6fe635c069ddd61a2dd647c823e03"
+    },
+    {
+      "file": "0049_eval_runs.py",
+      "revision": "0049",
+      "down_revisions": [
+        "0048"
+      ],
+      "sha256": "09e69c66a0dd8a57fd976876fe39fa75283e9e4f7e4990d2ddcd10ab3e74b423"
+    },
+    {
+      "file": "0050_assistant_attachments.py",
+      "revision": "0050",
+      "down_revisions": [
+        "0049"
+      ],
+      "sha256": "4306fb6c5b0675a12eed185e778c4bc1b3aa23b4d00348d860ae6b1822a159c2"
+    },
+    {
+      "file": "0051_assistant_queued_messages.py",
+      "revision": "0051",
+      "down_revisions": [
+        "0050"
+      ],
+      "sha256": "5c9f4497764f4903b4dacb779e89a703566c7d6c50bd7997c8f8fb753493403e"
+    },
+    {
+      "file": "0052_eval_dataset_mlflow_sync.py",
+      "revision": "0052",
+      "down_revisions": [
+        "0051"
+      ],
+      "sha256": "5c6e060efe5009ec51e4909137db7d44d84e51bc86f23ee37e26c732f58de4d6"
+    },
+    {
+      "file": "0053_judges.py",
+      "revision": "0053",
+      "down_revisions": [
+        "0052"
+      ],
+      "sha256": "8725e1c20876e3411cc0ddf9b6164f79a03d5f0cb54965bd16a296945bbf4b5c"
+    },
+    {
+      "file": "0054_review_queues.py",
+      "revision": "0054",
+      "down_revisions": [
+        "0053"
+      ],
+      "sha256": "7a9be78b41f0bedc66babc7a99cebec0de04a29057b0ecf5de8e2e36c2e6bd8f"
+    },
+    {
+      "file": "0055_aria_plans.py",
+      "revision": "0055",
+      "down_revisions": [
+        "0054"
+      ],
+      "sha256": "9a8e8dc0047428d49e31f89034c6c64c1746187a72049632d01d00c55a5e2790"
+    },
+    {
+      "file": "0056_aria_interactions.py",
+      "revision": "0056",
+      "down_revisions": [
+        "0055"
+      ],
+      "sha256": "0834208b9eba3432d96d73e3398467fe5b695d24faf7b20c6da9931c41cf3515"
+    },
+    {
+      "file": "0057_aria_step_gate.py",
+      "revision": "0057",
+      "down_revisions": [
+        "0056"
+      ],
+      "sha256": "18f82df1e6c44c26c3ae5e94edab433aacc7f6212eddfb59d924d7ee1f7179de"
+    },
+    {
+      "file": "0058_aria_plan_task_context.py",
+      "revision": "0058",
+      "down_revisions": [
+        "0057"
+      ],
+      "sha256": "ca58832b243bf1ae9ff54c6c3b7d5781f70620cd0d5081a4f313de8b38a9d2e4"
+    },
+    {
+      "file": "0059_eval_run_subject_ref.py",
+      "revision": "0059",
+      "down_revisions": [
+        "0058"
+      ],
+      "sha256": "f1d7ed4d2b8f723e12296abbd04e2ff769f6c12626bb3361207884039bb3771e"
+    },
+    {
+      "file": "0060_knowledge_chunk_pgvector.py",
+      "revision": "0060",
+      "down_revisions": [
+        "0059"
+      ],
+      "sha256": "664705a9924a9e76b48b2fd6688e4445f991c6bfe7b1180735f1241d05bba8dd"
+    },
+    {
+      "file": "0061_llm_model_pricing.py",
+      "revision": "0061",
+      "down_revisions": [
+        "0060"
+      ],
+      "sha256": "880b8c04a0fd2af38640ce23b19a24ed12fe6e580e5722bff7faa67df2f07677"
+    },
+    {
+      "file": "0062_gate_verdicts.py",
+      "revision": "0062",
+      "down_revisions": [
+        "0061"
+      ],
+      "sha256": "c4213a69687d550e0f6690fd3809eef2afed4105048d0d9669fe13dd59525faa"
+    },
+    {
+      "file": "0063_skill_versions.py",
+      "revision": "0063",
+      "down_revisions": [
+        "0062"
+      ],
+      "sha256": "b69056e68347fc9441e923fcfa0d52d7ed8e38d0b44558272de73e13bfe3532e"
+    },
+    {
+      "file": "0064_eval_run_evidence.py",
+      "revision": "0064",
+      "down_revisions": [
+        "0063"
+      ],
+      "sha256": "6dfe7fd9753095495e0ecd25dd181f660f9d299ce474d00a7cfee4bc54ba7b0c"
+    },
+    {
+      "file": "0065_effect_ledger.py",
+      "revision": "0065",
+      "down_revisions": [
+        "0064"
+      ],
+      "sha256": "c8a28ec7a79bcbeb4b97333f0f4f5a3708fec61a9008fe53095ff4156adcc11e"
+    },
+    {
+      "file": "0066_user_accounts_sessions.py",
+      "revision": "0066",
+      "down_revisions": [
+        "0065"
+      ],
+      "sha256": "6226cfa75b56610404c1717e0dccaf00db10dff819fe5ef70118a248bdc6aaa4"
+    },
+    {
+      "file": "0067_secret_store.py",
+      "revision": "0067",
+      "down_revisions": [
+        "0066"
+      ],
+      "sha256": "856adba80f131a16d29a5cce2bbbb84b2269244ec7907bc5ff0995a4e752f553"
+    },
+    {
+      "file": "0068_run_created_by.py",
+      "revision": "0068",
+      "down_revisions": [
+        "0067"
+      ],
+      "sha256": "a7490317094d55a5aa628627aa1dfba0a20ee1803028b5725b261c1d7e14d715"
+    },
+    {
+      "file": "0069_worker_heartbeats.py",
+      "revision": "0069",
+      "down_revisions": [
+        "0068"
+      ],
+      "sha256": "467132b22e465c44c0b3a6397edb42f9693e4ea0a258c5e17705e91685487c08"
+    },
+    {
+      "file": "0070_webhook_dead_letters.py",
+      "revision": "0070",
+      "down_revisions": [
+        "0069"
+      ],
+      "sha256": "4da3f392191bc3518f2efe64ec9a2310365d976d7b3dfa1d926dfc68b90524f3"
+    },
+    {
+      "file": "0071_service_quota_cors.py",
+      "revision": "0071",
+      "down_revisions": [
+        "0070"
+      ],
+      "sha256": "6ba1b2e3bed3a67e801251bd3c1920d01cceffd033ff379d26f101e043bf6f25"
+    },
+    {
+      "file": "0072_service_rate_calls.py",
+      "revision": "0072",
+      "down_revisions": [
+        "0071"
+      ],
+      "sha256": "7189c4ee3e49116314b4aa70c3dd2e3b33b2b512b105cf33dde5372949758baf"
+    },
+    {
+      "file": "0073_webhook_accepted_events.py",
+      "revision": "0073",
+      "down_revisions": [
+        "0072"
+      ],
+      "sha256": "46dad506ef18f25ece40a62354d56cf49a81e7024c6112dce9ba9efe3e61a1d5"
+    },
+    {
+      "file": "0074_incidents.py",
+      "revision": "0074",
+      "down_revisions": [
+        "0073"
+      ],
+      "sha256": "e94f74941a8e88ad06abaa887f0086d4d92af8a3302c46eadfce73677b025c53"
+    },
+    {
+      "file": "0075_calibration_jobs.py",
+      "revision": "0075",
+      "down_revisions": [
+        "0074"
+      ],
+      "sha256": "f9f7aa95f404ec5426e5d151249b10c4d7eb5d336dc2b8b569e5927b8e8eb1c0"
+    },
+    {
+      "file": "0076_calibration_tool_snapshots.py",
+      "revision": "0076",
+      "down_revisions": [
+        "0075"
+      ],
+      "sha256": "f7f8719d834e5a151d66b5635122a58a7826b206675aa1515f190606bcd3aa91"
+    },
+    {
+      "file": "0077_webhook_accept_leases.py",
+      "revision": "0077",
+      "down_revisions": [
+        "0076"
+      ],
+      "sha256": "4def8da53b9c840d0358a57ef17c7be279419fa677e33378f277a3672b8394dc"
+    },
+    {
+      "file": "0078_tool_calibration_revision.py",
+      "revision": "0078",
+      "down_revisions": [
+        "0077"
+      ],
+      "sha256": "856a6aa81aedbc81305bbb8c2ec69947fbf0e2659831d7d8c3327443c8a506bf"
+    },
+    {
+      "file": "0079_unique_open_incident.py",
+      "revision": "0079",
+      "down_revisions": [
+        "0078"
+      ],
+      "sha256": "dd6a5450ef75263c4d3f881285a7d679b7b950bd4650c852fefccfa0b8f5b673"
+    },
+    {
+      "file": "0080_incident_resolution_notifications.py",
+      "revision": "0080",
+      "down_revisions": [
+        "0079"
+      ],
+      "sha256": "2a44f42d9c011e3b239e4e8e316f97c28406820c3a1c34aa9cb86cf2637a6148"
+    },
+    {
+      "file": "0081_backfill_current_skill_versions.py",
+      "revision": "0081",
+      "down_revisions": [
+        "0080"
+      ],
+      "sha256": "cff1942c6bda8280545f4c3cf205d212424d2443747af01c77db1d730b651515"
+    },
+    {
+      "file": "0082_release_operations.py",
+      "revision": "0082",
+      "down_revisions": [
+        "0081"
+      ],
+      "sha256": "32dd711c233727c98f40bcda16c7a29c9692b2b646a20e638e8a18ac99ad4ed9"
+    },
+    {
+      "file": "0083_calibration_job_resolution.py",
+      "revision": "0083",
+      "down_revisions": [
+        "0082"
+      ],
+      "sha256": "bbee5aaf592cfba62de149ad9059e42b2a13a30210228da4dab8b5cf9f258f75"
+    },
+    {
+      "file": "0084_assistant_autonomy_reviews.py",
+      "revision": "0084",
+      "down_revisions": [
+        "0083"
+      ],
+      "sha256": "996864743bae09475b162a3fe251ec100b3b432999cfe7fe9aa069f6a83e8cb0"
+    },
+    {
+      "file": "0085_release_signoff_domain.py",
+      "revision": "0085",
+      "down_revisions": [
+        "0084"
+      ],
+      "sha256": "5090c57e3f15c0a56793e3f611361e20daa3f5ccf6d01ea34bb5a681c600a700"
+    },
+    {
+      "file": "0086_personal_access_tokens.py",
+      "revision": "0086",
+      "down_revisions": [
+        "0085"
+      ],
+      "sha256": "b73b0f8ef6b66cd06d8bcfba7c076c55ec60cc1ceb2d704218ad133a4d67da9f"
+    },
+    {
+      "file": "0087_openapi_integrations.py",
+      "revision": "0087",
+      "down_revisions": [
+        "0086"
+      ],
+      "sha256": "38df9642cad77a06de6727add699646f50918021918d7040b1b5a76b6741b66a"
+    },
+    {
+      "file": "0088_openapi_tool_drafts_and_tool_backends.py",
+      "revision": "0088",
+      "down_revisions": [
+        "0087"
+      ],
+      "sha256": "1c9223e0c2f055ba44b05542516a8f14f0e192908c5e63545630b65bde5187b7"
+    },
+    {
+      "file": "0089_openapi_dependencies_and_graph.py",
+      "revision": "0089",
+      "down_revisions": [
+        "0088"
+      ],
+      "sha256": "9a7e0a69e42b5d53ee11d2727a7648396ac2e5673dbab6f02351cf0a391a8ac8"
+    },
+    {
+      "file": "0090_project_resource_access.py",
+      "revision": "0090",
+      "down_revisions": [
+        "0089"
+      ],
+      "sha256": "0989fac4ee2a36d51de4ed9cb1730c1969febf6f1137d759148c877fc8b5f185"
+    },
+    {
+      "file": "0091_rework_tasks.py",
+      "revision": "0091",
+      "down_revisions": [
+        "0090"
+      ],
+      "sha256": "0b93b926607ce66e449b0ae9e66ddac2e2ef10c6bbf2c008442da77b9015bd4d"
+    },
+    {
+      "file": "0092_quality_reviews.py",
+      "revision": "0092",
+      "down_revisions": [
+        "0091"
+      ],
+      "sha256": "8151903a2693c6abb483d1ce33191b815d5b4de26a8c85a3ae05252fd8d9c340"
+    },
+    {
+      "file": "0093_workspace_environments.py",
+      "revision": "0093",
+      "down_revisions": [
+        "0092"
+      ],
+      "sha256": "014cfb951ae97243988b8fa9d7e47bfebbd88e6570154ddf25c59f6818be448d"
+    },
+    {
+      "file": "0094_pat_project_binding.py",
+      "revision": "0094",
+      "down_revisions": [
+        "0093"
+      ],
+      "sha256": "4d8eb4a1a863b448bdc4fccbf297075ac354a25c6ac5961ef9d8f3e3251fe0f6"
+    },
+    {
+      "file": "0095_project_scoping_indexes.py",
+      "revision": "0095",
+      "down_revisions": [
+        "0094"
+      ],
+      "sha256": "3b921d4438a048a9203ff9d73db6287c0150d58d5be686ce90d5c667d13dfd7c"
+    },
+    {
+      "file": "0096_mcp_server_visibility.py",
+      "revision": "0096",
+      "down_revisions": [
+        "0095"
+      ],
+      "sha256": "4c3a39ca1815616890c244a4e0ff0dbbbac388c82e74bd9b702674daa51a30d3"
+    },
+    {
+      "file": "0097_assistant_session_project_context.py",
+      "revision": "0097",
+      "down_revisions": [
+        "0096"
+      ],
+      "sha256": "a34911aa3607e380160079ab0faca90002100c215ee7099c50da658b842f537a"
+    },
+    {
+      "file": "0098_workspace_revision_foundation.py",
+      "revision": "0098",
+      "down_revisions": [
+        "0097"
+      ],
+      "sha256": "f3fe340631f98e0a145022b773896469980db99dab0289bc8e686f1beaca83cc"
+    },
+    {
+      "file": "0099_workspace_import_attempt_budget.py",
+      "revision": "0099",
+      "down_revisions": [
+        "0098"
+      ],
+      "sha256": "f8f4a63178e29ccbf3e9d5989112c2b9f78802f45ef9b20a506aa1f8963444ba"
+    },
+    {
+      "file": "0100_workspace_change_requests.py",
+      "revision": "0100",
+      "down_revisions": [
+        "0099"
+      ],
+      "sha256": "f4ccbf4768ac68640f543dbf0cf393b7b095ebcb179e765fc82ee1a0d2cf362b"
+    },
+    {
+      "file": "0101_workspace_source_events.py",
+      "revision": "0101",
+      "down_revisions": [
+        "0100"
+      ],
+      "sha256": "03dfdf723a46eb8f09f0239f38862dc4ff3a4bf32e99e8a43995fcafc583a883"
+    },
+    {
+      "file": "0102_workspace_release_foundation.py",
+      "revision": "0102",
+      "down_revisions": [
+        "0101"
+      ],
+      "sha256": "1fa2db0e8404ff39f27a361616bc4f433d2b0421a5385a6acb070eff00b628bc"
+    },
+    {
+      "file": "0103_workspace_release_governance.py",
+      "revision": "0103",
+      "down_revisions": [
+        "0102"
+      ],
+      "sha256": "a6245b91e6d0eb5fb58d761d33897cae025b8849ce9aebfd065364f29cbe730b"
+    },
+    {
+      "file": "0104_workspace_release_operations.py",
+      "revision": "0104",
+      "down_revisions": [
+        "0103"
+      ],
+      "sha256": "12bf559aa7f2a89c4a803dd2264b99252414f0482d882023089d4ff29f552fb3"
+    },
+    {
+      "file": "0105_workspace_runtime_lineage.py",
+      "revision": "0105",
+      "down_revisions": [
+        "0104"
+      ],
+      "sha256": "69a7f2e20c21ec2a8ed7729b9c25788c02b5f7ed6a26909c6a3ed3d57cad07dd"
+    },
+    {
+      "file": "0106_rework_task_release_fk.py",
+      "revision": "0106",
+      "down_revisions": [
+        "0105"
+      ],
+      "sha256": "116a871cf7b51b410d7949b0c141df5363a4bc031c54d8f065cc9f69418efb0a"
+    },
+    {
+      "file": "0107_aria_plan_authorization_snapshot.py",
+      "revision": "0107",
+      "down_revisions": [
+        "0106"
+      ],
+      "sha256": "c7a6b62708c6779c3c0c1bc44a658359a0fe5b54b759e0963c3047a51d445b1f"
+    },
+    {
+      "file": "0108_workspace_source_connections.py",
+      "revision": "0108",
+      "down_revisions": [
+        "0107"
+      ],
+      "sha256": "fc863b176c7d2a9b0510dea0e30991671b6a975d5655917f5d87dac648f8b5ed"
+    },
+    {
+      "file": "0109_workspace_source_connection_installation_uniqueness.py",
+      "revision": "0109",
+      "down_revisions": [
+        "0108"
+      ],
+      "sha256": "eff99c49a0db92eef121ec8fa16b366abd3c8c4a55845e5a28c216de520d0836"
+    },
+    {
+      "file": "0110_root_resource_name_uniqueness.py",
+      "revision": "0110",
+      "down_revisions": [
+        "0109"
+      ],
+      "sha256": "66230aed700b25b2630e1e78c512b81821c56838ddeb98e734ba0fc4a45aed34"
+    },
+    {
+      "file": "0111_workspace_revision_source_kind.py",
+      "revision": "0111",
+      "down_revisions": [
+        "0110"
+      ],
+      "sha256": "208d6b59bd31f3d501f35debce13e20861f75879a4483c99c97fe4e994e2eaa1"
+    },
+    {
+      "file": "0112_release_operation_project_scoping.py",
+      "revision": "0112",
+      "down_revisions": [
+        "0111"
+      ],
+      "sha256": "b8629bdb13c5035ca2811eeb187f382cb4164df7bac2d090e3492f5c62f45dd7"
+    },
+    {
+      "file": "0113_verification_item_project_scoping.py",
+      "revision": "0113",
+      "down_revisions": [
+        "0112"
+      ],
+      "sha256": "55059931b4a67726702c89dfb07f609086616fd102189fe40d2c92dbd1f28131"
+    }
+  ]
+}
