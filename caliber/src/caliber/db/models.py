@@ -4008,6 +4008,38 @@ class CaliberEventInbox(Base):
     processed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
 
+class CaliberInboxEvent(Base):
+    """One inbound event a consumer has taken from one source: the dedup reservation and its processed marker (B13.5a, #689).
+
+    ``(consumer, source, event_id)`` is the primary key, so a redelivery of an event already taken is a no-op, and
+    ``payload_hash`` (``sha256:<hex>`` of the payload it arrived with) tells a redelivery from a different message
+    reusing the id. The row is inserted, and moved from ``received`` to ``processed`` (or ``ignored``), in the
+    transaction of the business transition it guards (``caliber.events.inbox``); it is distinct from
+    ``CaliberEventInbox``, the acknowledged end of an outbox handoff between our own components.
+    """
+
+    __tablename__ = "caliber_inbox_events"
+    __table_args__ = (
+        Index("ix_inbox_events_received", "received_at"),
+        CheckConstraint(
+            "status IN ('received', 'processed', 'ignored')", name="ck_inbox_events_status"
+        ),
+        CheckConstraint(
+            "length(consumer) > 0 AND length(source) > 0 AND length(event_id) > 0",
+            name="ck_inbox_events_identity_present",
+        ),
+        CheckConstraint("length(payload_hash) = 71", name="ck_inbox_events_hash_length"),
+    )
+
+    consumer: Mapped[str] = mapped_column(String(64), primary_key=True)
+    source: Mapped[str] = mapped_column(String(64), primary_key=True)
+    event_id: Mapped[str] = mapped_column(String(160), primary_key=True)
+    payload_hash: Mapped[str] = mapped_column(String(71))
+    status: Mapped[str] = mapped_column(String(16), default="received", server_default="received")
+    received_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    processed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+
 class CaliberKnowledgeBase(Base):
     """Versioned document corpus prepared for chunking, embeddings, and RAG."""
 
