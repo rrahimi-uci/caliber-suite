@@ -33,6 +33,12 @@ separation of duties
 Every rule is evaluated here rather than in the route so it is testable without a
 request, and so the worker's snapshot and the route's enforcement read the same
 definitions.
+
+Separation of duties is :func:`assert_distinct_actor` (B06.1, #706), extracted from
+:func:`record_approval` so every approval path applies one rule with one message. The request
+that binds an approval to one effect proposal is ``caliber.workflows.approval_requests``, kept in
+its own module so this one stays a cheap, database-free import (manifest validation imports it
+lazily).
 """
 
 from __future__ import annotations
@@ -155,6 +161,27 @@ class QuorumState:
         return max(0, self.required - len(self.approvals))
 
 
+def assert_distinct_actor(actor: str, initiated_by: str | None, *, allow_self: bool) -> None:
+    """Refuse a decision by the account that initiated what is being decided (separation of duties).
+
+    ``initiated_by`` is whoever triggered the run (or authored the change); an unknown initiator (``None`` or empty, a
+    legacy run) cannot be compared and passes. With ``allow_self`` (a single-operator install) nothing is refused.
+    Raises :class:`ApprovalPolicyError` with the message the decision route has always returned.
+
+    Not shared with :func:`caliber.actor_provenance.require_distinct_actors` or the assistant service's reviewer and
+    release identity checks (``assistant/service.py``): those take :class:`~caliber.actor_provenance.ActorProvenance`
+    objects or return their own message, raise a different error type (``DistinctActorError``) or none, have no
+    ``allow_self`` escape and compare against an author and a reviewer, so delegating would change behaviour their callers
+    and tests pin.
+    """
+    if not allow_self and initiated_by and actor == initiated_by:
+        raise ApprovalPolicyError(
+            "the account that triggered this run cannot approve it; a second person "
+            "must decide (set CALIBER_APPROVAL_ALLOW_SELF_APPROVAL=true for a "
+            "single-operator install)"
+        )
+
+
 def record_approval(
     *,
     policy: ApprovalPolicy,
@@ -174,12 +201,7 @@ def record_approval(
             f"this approval requires the {policy.required_role!r} scope; "
             f"you hold {sorted(actor_scopes)}"
         )
-    if not policy.allow_self_approval and initiated_by and actor == initiated_by:
-        raise ApprovalPolicyError(
-            "the account that triggered this run cannot approve it; a second person "
-            "must decide (set CALIBER_APPROVAL_ALLOW_SELF_APPROVAL=true for a "
-            "single-operator install)"
-        )
+    assert_distinct_actor(actor, initiated_by, allow_self=policy.allow_self_approval)
     approvals = list(existing_approvals or [])
     if actor in approvals:
         raise ApprovalPolicyError(
@@ -197,6 +219,7 @@ __all__ = [
     "ApprovalPolicy",
     "ApprovalPolicyError",
     "QuorumState",
+    "assert_distinct_actor",
     "record_approval",
     "validate_timeout_behavior",
 ]
