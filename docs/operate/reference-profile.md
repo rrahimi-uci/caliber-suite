@@ -978,6 +978,56 @@ settled = settle_dispatch(
 - **Not here.** The callback that delivers receipts (B05.4b, #725), the lease-token fencing of the commit (B05.5a), the reconciler that
   asks about `unknown` proposals (B05.5b) and the dispatcher itself.
 
+## Receipt callback: a connector tells the platform it is done (B05.4b, #725)
+
+`POST /ajax-api/2.0/mlflow/caliber/effects/callbacks/receipt` (`caliber/src/caliber/routes/system_effects.py`) lets a connector say "the effect
+for this idempotency key is done". It is **not** a CALIBER session (no identity, no CSRF token, no rate-limit bucket: the connector is the
+caller) and its only admission control is a signature. The body is exactly `{"idempotency_key": "<key>"}` and nothing else: the callback is a
+**notification**, and the platform asks the downstream itself (the connector's lookup by key) before it records anything.
+
+- **Who may call.** `CALIBER_EFFECT_CALLBACK_CONNECTORS` is a JSON array of bindings, each `{connector, project_id, secret_source, base_url}`:
+  the connector, the one project it may act in, where its signing secret is read from (never the secret itself) and the base URL of its
+  downstream. Empty (the default) accepts no callback; a malformed list stops the service at startup; the settings page shows only a count.
+  One connector in one project has one secret; a connector bound to two projects has two.
+- **The signature.** Headers `X-Caliber-Connector`, `X-Caliber-Project`, `X-Caliber-Timestamp` (whole seconds), `X-Caliber-Delivery` (a unique
+  id, 1 to 128 printable characters) and `X-Caliber-Signature: v1=<hex>`, the HMAC-SHA256 of `v1\n<connector>\n<project>\n<timestamp>\n<delivery>\n<hex
+  sha256 of the body>` under the binding's secret. The connector, project, timestamp, delivery id and body are all inside the signed string, so a
+  signature made for one connector, project or message is useless for another. A timestamp more than 300 seconds from the server's clock is refused;
+  a captured message replayed inside the window can only make the platform ask the downstream again, and a receipt is recorded once.
+- **One refusal.** An unknown connector or project, a secret that cannot be read, a bad or malformed signature and a stale timestamp are all the same
+  `401 {"detail": "callback rejected"}`: a probe cannot tell them apart. After that, a body that is not exactly the key is `400`, and a body over 4 KiB is `413`.
+- **Scope without leaks.** The key is resolved to a proposal of *this connector in this project*; anything else (a key in another project, another
+  connector's key, a key nobody has) is the same `404 {"detail": "no such proposal"}`.
+- **What happens.** `committed` already: `200 already_committed`. `failed`: `409 proposal_failed`. Not yet dispatched: `409 not_dispatched`.
+  `dispatched`: `202 in_flight` (the dispatcher, or the reconciler once the dispatch is abandoned, still owns it). `unknown` or `reconciled`: the
+  platform runs the lookup outside any transaction. If the downstream cannot be asked: `502 lookup_failed`. If it holds nothing under the key, or
+  something that is not this proposal's effect: `202 unknown`, the proposal stays `unknown` (a missing record is not a failure) and **nothing is consumed**.
+  If it confirms, one transaction deduplicates the delivery (the inbox of B13.5a), records the verified receipt (B05.4a), moves `unknown` through
+  `reconciled` to `committed` and audits it: `200 committed` with the `receipt_id`.
+- **Retryable, never half-consumed.** The delivery id is consumed only together with the receipt and the commit; if any of it is refused (`409` with the
+  reason code, for example `receipt_conflict` or `stale_version`) the transaction rolls back and the same delivery can be sent again. The same delivery id
+  with a different body is `409 inbox_payload_mismatch`; the same delivery repeated after success is `200 already_committed`.
+
+```python
+import json
+import time
+
+from caliber.effects.callbacks import sign
+
+body = json.dumps({"idempotency_key": proposal_key}).encode()
+timestamp = int(time.time())
+headers = {
+    "X-Caliber-Connector": "document-request",
+    "X-Caliber-Project": project_id,
+    "X-Caliber-Timestamp": str(timestamp),
+    "X-Caliber-Delivery": delivery_id,
+    "X-Caliber-Signature": sign(secret, "document-request", project_id, timestamp, delivery_id, body),
+}
+```
+
+- **Not here.** The lease-token fencing of the commit (B05.5a, #734) and the reconciler that asks about `unknown` proposals on its own (B05.5b); the
+  callback commits an `unknown` or `reconciled` proposal only, never one a dispatcher still holds.
+
 ## Approved context sources
 
 A run's context may only come from sources its project has approved (B07, #692). The inventory is
