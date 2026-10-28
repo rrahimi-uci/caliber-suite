@@ -1,4 +1,4 @@
-"""The control-record contracts: eight kinds, versioned schemas, typed rejection.
+"""The control-record contracts: ten kinds, versioned schemas, typed rejection.
 
 Fixtures under ``tests/fixtures/contracts/<kind>/`` are discovered by file-name prefix, so a package that adds
 a record field or a kind adds fixtures and does not edit this test:
@@ -121,7 +121,7 @@ def test_every_kind_has_the_three_required_fixtures() -> None:
             "invalid_missing_field.json",
             "invalid_unknown_version.json",
         } <= names, kind
-    assert len(fixture_files()) >= 21
+    assert len(fixture_files()) >= 30
 
 
 @pytest.mark.parametrize("path", fixture_files(), ids=lambda p: f"{p.parent.name}/{p.stem}")
@@ -529,6 +529,15 @@ NESTED_REQUIRED: dict[tuple[str, tuple[str, ...]], set[str]] = {
     ("run_manifest", ("subject",)): {"user_id", "auth_method"},
     ("run_manifest", ("workload",)): {"workload_id", "name", "workflow_version_digest"},
     ("proposal", ("target",)): {"connector", "resource"},
+    ("agent_step_request", ("limits",)): {"max_turns", "max_tool_calls", "max_tokens", "deadline"},
+    ("agent_step_result", ("proposed_actions", "[]")): {
+        "effect_class",
+        "target",
+        "connector_version",
+        "args",
+        "expected_resource_version",
+    },
+    ("agent_step_result", ("proposed_actions", "[]", "target")): {"connector", "resource"},
 }
 
 

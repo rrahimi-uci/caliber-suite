@@ -1,6 +1,6 @@
 """Load and apply the JSON Schemas of the control records.
 
-Eight kinds, each with a schema per supported version in ``schemas/<kind>.<version>.json``. A record names its
+Ten kinds, each with a schema per supported version in ``schemas/<kind>.<version>.json``. A record names its
 version in ``schema_version``. The CloudEvents envelope (``event_envelope``) cannot: its ``specversion`` is
 CloudEvents' own and stays ``1.0``, so it names its schema version in the extension attribute ``schemaversion``,
 which defaults to ``v1`` when absent. Adding an optional field to a schema keeps its version; removing or
@@ -30,6 +30,8 @@ KINDS = (
     "approval_request",
     "approval_decision",
     "event_envelope",
+    "agent_step_request",
+    "agent_step_result",
 )
 #: Versions a record of each kind may carry. ``event_envelope`` carries CloudEvents' ``specversion``.
 SUPPORTED_VERSIONS: dict[str, tuple[str, ...]] = {
@@ -41,6 +43,8 @@ SUPPORTED_VERSIONS: dict[str, tuple[str, ...]] = {
     "approval_request": ("v1",),
     "approval_decision": ("v1",),
     "event_envelope": ("v1",),
+    "agent_step_request": ("v1",),
+    "agent_step_result": ("v1",),
 }
 #: Which field of a record names its version, and the version assumed when a kind allows the field to be absent.
 _VERSION_FIELD: dict[str, tuple[str, str | None]] = {"event_envelope": ("schemaversion", "v1")}
@@ -153,9 +157,10 @@ def validate_record(kind: str, payload: Mapping[str, Any]) -> None:
     if not isinstance(payload, Mapping):
         raise ContractValidationError(kind, [f"expected an object, got {type(payload).__name__}"])
     try:
-        # A JSON round trip makes nested mappings and tuples plain, and refuses what no JSON store can hold.
+        # A JSON round trip makes nested mappings and tuples plain, and refuses what no JSON store can hold
+        # (a set, bytes, NaN, or a value nested so deep that Python cannot serialise it).
         record: dict[str, Any] = json.loads(json.dumps(payload, allow_nan=False, default=_as_plain))
-    except (TypeError, ValueError) as exc:
+    except (TypeError, ValueError, RecursionError) as exc:
         raise ContractValidationError(kind, [f"not plain JSON: {exc}"]) from exc
     field, default = _VERSION_FIELD.get(kind, _DEFAULT_VERSION_FIELD)
     if field not in record and default is None:

@@ -1222,6 +1222,68 @@ revision-1 manifest; other model calls (a knowledge query's own answer synthesis
 not recorded. Token counts are an accounting estimate (four characters a token, and the recorded budget is the larger of the
 configured one and the total); enforcing a budget on a provider call is B08. Legacy runs and development have no recorder.
 
+## Agent steps: a request, a result, and no effects (B08.1a, #713)
+
+An agent step is one bounded unit of model work in a workflow node. Two control records (ADR 0003) describe it, and
+`caliber.contracts.agent_step` is the gate in front of both: it validates a record and refuses it **before anything is
+dispatched**. This page is the contract; the adapters that produce results (B08.1b onwards) and the limit and budget
+enforcement (B08.3, B08.4) build on it and are not part of it.
+
+- **`agent_step_request` v1** names the step (`step_request_id`, `workflow_run_id`, `node_id`, the durable `occurrence_id`
+  and the `attempt`), what it was given (`run_manifest_digest` and `context_manifest_digest`, each 64 lowercase hex digits),
+  the one `grant_id` it runs under and its `limits`: `max_turns`, `max_tool_calls`, `max_tokens` (integers, zero allowed) and a
+  `deadline` (RFC 3339 with an offset). The platform enforces the limits, not the adapter. The `step_request_id` is the id the
+  context manifest of the step carries.
+- **`agent_step_result` v1** answers it: the same five identifying fields, a `stop_reason` (`completed`, `proposed_action`,
+  `max_turns`, `max_tool_calls`, `max_tokens`, `deadline`, `refused`, `error`), the provider's `usage` (`prompt_tokens`,
+  `completion_tokens`, `total_tokens`, `turns`, `tool_calls`, optionally `cached_prompt_tokens`) and up to 16
+  `proposed_actions`, non-empty exactly when the `stop_reason` is `proposed_action`.
+- **A step proposes; it never says anything happened.** The result has no `state`, `receipt` or `approval` field and every
+  schema is closed, so a result that claims a commit (`state: committed`, a `receipt_id`, `stop_reason: committed`) is
+  refused like any other unknown field or value. An action becomes a recorded proposal only through
+  `caliber.effects.records`, and `committed` there still needs a verified receipt.
+- **One action shape for the step and the proposal.** A proposed action is `effect_class` (`read`, `reversible_write`,
+  `irreversible_write`, `export`), `target` (`connector` and `resource`), `connector_version`, `args` and
+  `expected_resource_version`: the names and meaning they have in the `proposal` record. `ProposedAction.intent` is the very
+  `caliber.effects.records.Intent` of that proposal and `ProposedAction.intent_hash` its `sha256:` digest, so what a step
+  proposed, what an approver is shown and what a receipt answers are one digest. Parsing builds each intent, so `args` that
+  are too deep (more than 64 levels), too large (the intent is at most 256 KiB), not plain JSON, or an identifier with a
+  control character or an unpaired surrogate are refused here too, not later at the store.
+
+```python
+from caliber.contracts import ContractValidationError, UnsupportedSchemaVersion
+from caliber.contracts.agent_step import parse_step_request, parse_step_result
+
+request = parse_step_request(request_record)  # raises before any provider or tool is touched
+try:
+    result = parse_step_result(result_record, request=request)
+except UnsupportedSchemaVersion:
+    ...  # a newer writer: refuse the step and upgrade this reader first, never read it as v1
+except ContractValidationError as refusal:
+    print(refusal.errors)  # every violation, by path; nothing was dispatched
+else:
+    for action in result.proposed_actions:
+        print(action.intent_hash)  # submit as a proposal; the effect is still unperformed
+```
+
+Refusals and what to do (`ContractValidationError.errors` lists every violation by path, sorted). A schema message can quote the
+offending value (an invalid `effect_class`, an `args` that is not an object), so treat refusal text as you treat the record;
+the messages of the intent checks (`proposed_actions/<index>:`) and of the stop-reason rule never repeat an argument's value:
+
+| the record has | refused as | recover by |
+| --- | --- | --- |
+| `schema_version: "v2"` (or anything but `v1`) | `UnsupportedSchemaVersion`: `agent_step_result schema_version v2 is not supported; supported: v1` | upgrading the reader before the writer (ADR 0003, readers before writers) |
+| a field it does not define (`state`, `receipt_id`, a typo) | `surprise: Additional properties are not allowed ('surprise' was unexpected)` | removing the field; a step reports no state |
+| `stop_reason: "committed"` | `stop_reason: 'committed' is not one of [...]` | reporting `completed` or `proposed_action`; a commit is the proposal's, with a receipt |
+| `effect_class: "write"` | `proposed_actions/0/effect_class: 'write' is not one of ['read', 'reversible_write', 'irreversible_write', 'export']` | using one of the four classes of the connector inventory |
+| an action with no `target` | `proposed_actions/0: 'target' is a required property` | naming the connector and the resource |
+| proposals with `stop_reason: "completed"`, or `proposed_action` with none | `proposed_actions: [] was expected` (completed with proposals) or `proposed_actions: [] should be non-empty` (`proposed_action` with none) | stopping with `proposed_action` exactly when there are proposals |
+| a result for another step | `attempt: 2 is not the request's 1` (and likewise for the other four identifying fields) | applying only the result of the request that was asked |
+
+A result that is refused is the end of that step's use of it: nothing was proposed, recorded or dispatched, and the retry is
+the same `occurrence_id` with the next `attempt`. A `parse_*` call is pure: it does not read the clock, so the deadline and
+the other limits are checked by the platform around the provider call (B08.3), not here.
+
 ## Policy decisions
 
 `caliber.policy.decisions.decide(...)` (B03.3, #671; migration `0117`, table `caliber_policy_decisions`) answers "may

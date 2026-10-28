@@ -1,0 +1,212 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://caliber.dev/schemas/agent_step_result.v1.json",
+  "title": "AgentStepResult: what one agent step proposed and used; it never claims an effect happened",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "step_request_id",
+    "workflow_run_id",
+    "node_id",
+    "occurrence_id",
+    "attempt",
+    "stop_reason",
+    "proposed_actions",
+    "usage"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "v1"
+    },
+    "step_request_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "description": "Names the step; the ContextManifest assembled for it carries the same id."
+    },
+    "workflow_run_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64
+    },
+    "node_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "occurrence_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "description": "The durable occurrence of this node, allocated and persisted by the caller before the step runs; a retry presents the same one."
+    },
+    "attempt": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 2147483647,
+      "description": "The attempt of this occurrence; the token reservation is keyed by run, node, occurrence and attempt."
+    },
+    "stop_reason": {
+      "type": "string",
+      "enum": [
+        "completed",
+        "proposed_action",
+        "max_turns",
+        "max_tool_calls",
+        "max_tokens",
+        "deadline",
+        "refused",
+        "error"
+      ]
+    },
+    "proposed_actions": {
+      "type": "array",
+      "maxItems": 16,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "effect_class",
+          "target",
+          "connector_version",
+          "args",
+          "expected_resource_version"
+        ],
+        "properties": {
+          "effect_class": {
+            "type": "string",
+            "enum": [
+              "read",
+              "reversible_write",
+              "irreversible_write",
+              "export"
+            ]
+          },
+          "target": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "connector",
+              "resource"
+            ],
+            "properties": {
+              "connector": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 128
+              },
+              "resource": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 512
+              }
+            }
+          },
+          "connector_version": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "args": {
+            "type": "object"
+          },
+          "expected_resource_version": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "minLength": 1,
+            "maxLength": 256
+          }
+        },
+        "description": "ProposedAction: one effect the step asks to perform. The shape of the Intent in the proposal v1 record (caliber.effects.records.Intent, ADR 0003) and nothing more: a step never reports a state, a receipt or an approval."
+      }
+    },
+    "usage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "prompt_tokens",
+        "completion_tokens",
+        "total_tokens",
+        "turns",
+        "tool_calls"
+      ],
+      "properties": {
+        "prompt_tokens": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 2147483647
+        },
+        "completion_tokens": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 2147483647
+        },
+        "total_tokens": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 2147483647
+        },
+        "turns": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 2147483647
+        },
+        "tool_calls": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 2147483647
+        },
+        "cached_prompt_tokens": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 2147483647
+        }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "stop_reason": {
+            "const": "proposed_action"
+          }
+        },
+        "required": [
+          "stop_reason"
+        ]
+      },
+      "then": {
+        "properties": {
+          "proposed_actions": {
+            "minItems": 1
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "stop_reason": {
+            "not": {
+              "const": "proposed_action"
+            }
+          }
+        },
+        "required": [
+          "stop_reason"
+        ]
+      },
+      "then": {
+        "properties": {
+          "proposed_actions": {
+            "const": []
+          }
+        }
+      }
+    }
+  ]
+}
