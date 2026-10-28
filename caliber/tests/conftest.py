@@ -188,15 +188,13 @@ def _feature_for(stem: str) -> str:
     return cleaned.title() or "Other"
 
 
-def lone_surrogate_in(value: object, _depth: int = 0) -> bool:
-    """Whether ``value`` is (or, in a shallow container, holds) a string with a lone surrogate."""
-    if isinstance(value, str):
-        return any(0xD800 <= ord(char) <= 0xDFFF for char in value)
-    if _depth < 3 and isinstance(value, list | tuple | set | frozenset):
-        return any(lone_surrogate_in(item, _depth + 1) for item in value)
-    if _depth < 3 and isinstance(value, dict):
-        return any(lone_surrogate_in(item, _depth + 1) for pair in value.items() for item in pair)
-    return False
+def lone_surrogate_in(value: object) -> bool:
+    """Whether ``value`` is a string with a lone surrogate.
+
+    Only a parameter that *is* a string: allure-pytest writes a string parameter verbatim to its UTF-8 JSON report (and aborts
+    the run on a lone surrogate), while it writes any other value as its ``repr``, which escapes the surrogate.
+    """
+    return isinstance(value, str) and any(0xD800 <= ord(char) <= 0xDFFF for char in value)
 
 
 def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
@@ -214,7 +212,7 @@ def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
         for name, value in callspec.params.items() if callspec is not None else ():
             if lone_surrogate_in(value):
                 raise pytest.UsageError(
-                    f"{item.nodeid}: parameter {name!r} holds a lone surrogate; build it inside the test "
+                    f"{item.nodeid}: parameter {name!r} is a string with a lone surrogate; build it inside the test "
                     "(the Allure listener cannot write it and aborts the full run)"
                 )
     try:
