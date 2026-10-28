@@ -195,13 +195,16 @@ def test_a_null_expected_version_and_the_string_null_are_different_intents() -> 
         {"args": {"a": {1, 2}}},
         {"args": {"a": b"bytes"}},
         {"args": {"deep": _nested(MAX_ARGS_DEPTH + 1)}},
-        {"args": {"deep": _nested(100000)}},
+        lambda: {
+            "args": {"deep": _nested(100000)}
+        },  # built when run: Allure reprs every parameter value
         {"args": {"big": "x" * MAX_INTENT_BYTES}},
     ],
 )
-def test_a_malformed_intent_is_refused(change: dict[str, Any]) -> None:
+def test_a_malformed_intent_is_refused(change: Any) -> None:
+    fields = change() if callable(change) else change
     with pytest.raises(ProposalError) as refused:
-        _intent(**change)
+        _intent(**fields)
     assert refused.value.code == BAD_FIELD
 
 
