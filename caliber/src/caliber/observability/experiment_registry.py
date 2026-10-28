@@ -339,16 +339,6 @@ def registry_hidden_ids(session: Session, identity: Any) -> set[str]:
     return hidden
 
 
-def registry_owned_ids(session: Session, identity: Any) -> set[str]:
-    """Canonical ids the registry gives to a scope ``identity`` acts as: visible to it whatever the text claims say."""
-    allowed = _allowed_scopes(identity)
-    return {
-        str(row.experiment_id)
-        for row in _rows(session)
-        if row.status == ACTIVE and (row.scope_kind, row.scope_id) in allowed
-    }
-
-
 def registry_row(session: Session, experiment_id: str) -> CaliberExperimentOwner | None:
     """The registry row of the canonical ``experiment_id`` on the configured backend, of any status."""
     return session.get(
@@ -513,7 +503,6 @@ __all__ = [
     "migrate_legacy_claims",
     "registry_active_ids",
     "registry_hidden_ids",
-    "registry_owned_ids",
     "registry_quarantined",
     "registry_row",
     "registry_view",
