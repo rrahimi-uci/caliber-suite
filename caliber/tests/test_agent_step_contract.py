@@ -495,10 +495,17 @@ ID_BATTERY = [
     "a\x00b",
     "a\x7fb",
     "a\x85b",
-    "a" + chr(0xD800),
-    chr(0xDFFF),
+    "<surrogate:a+D800>",
+    "<surrogate:DFFF>",
     "",
 ]
+_SURROGATES = {"<surrogate:a+D800>": "a" + chr(0xD800), "<surrogate:DFFF>": chr(0xDFFF)}
+
+
+def battery_value(case: str) -> str:
+    """A lone surrogate must not be a pytest parameter value (the Allure listener writes parameters to UTF-8 JSON and aborts the
+    whole run), so the battery names it and the test builds it."""
+    return _SURROGATES.get(case, case)
 
 
 def id_pattern() -> str:
@@ -520,8 +527,9 @@ def test_the_identifier_pattern_is_the_one_the_intent_uses() -> None:
         assert item["target"]["properties"][name]["pattern"] == id_pattern()
 
 
-@pytest.mark.parametrize("value", ID_BATTERY)
-def test_the_schema_accepts_an_identifier_exactly_when_the_intent_does(value: str) -> None:
+@pytest.mark.parametrize("case", ID_BATTERY)
+def test_the_schema_accepts_an_identifier_exactly_when_the_intent_does(case: str) -> None:
+    value = battery_value(case)
     try:
         _text("node_id", value)
         intent_ok = True
@@ -534,8 +542,9 @@ def test_the_schema_accepts_an_identifier_exactly_when_the_intent_does(value: st
     assert schema_ok == intent_ok, repr(value)
 
 
-@pytest.mark.parametrize("value", [v for v in ID_BATTERY if v and len(v) <= 64])
-def test_an_identifier_the_intent_would_refuse_is_refused_at_the_contract(value: str) -> None:
+@pytest.mark.parametrize("case", [v for v in ID_BATTERY if v and len(v) <= 64])
+def test_an_identifier_the_intent_would_refuse_is_refused_at_the_contract(case: str) -> None:
+    value = battery_value(case)
     valid = bool(re.search(id_pattern(), value))
     for kind, make in ((REQUEST_KIND, request_record), (RESULT_KIND, result_record)):
         for name in ("step_request_id", "workflow_run_id", "node_id", "occurrence_id"):

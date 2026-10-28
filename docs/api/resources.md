@@ -34,7 +34,7 @@ does this capability live?" before you drop into per-route details.
 | Route family | Purpose |
 | --- | --- |
 | `/prompts` | Prompt registry, aliases, versions (each version row carries the `provenance` Apply recorded: job, dataset, evaluation provider, simulated or not), and refinement-related authoring |
-| `/tools` | Tool registry, tests, calibration, and policy; list and detail responses add `builtin` (seeded by CALIBER), `availability` and `availability_reason` (for example the agent-memory tools while memory is off) |
+| `/tools` | Tool registry, tests, calibration, and policy; list and detail responses add `builtin` (seeded by CALIBER), `availability` and `availability_reason` (for example the agent-memory tools while memory is off); registering a tool under a built-in's name is refused with `409 reserved_tool_name` |
 | `/skills` | Skill registry, versions, packaging, tests, and calibration |
 | `/mcp-servers` | Managed MCP definitions, inventories, connection tests, and governed tool invocation. Preview: off by default (`CALIBER_FEATURE_INTEGRATIONS`) |
 | `/workflows`, `/workflow-components`, `/workflow-templates` | Workflow registry, composition, and templates; `/workflow-components` lists each node type with its `requires` ids and `requirements` (`id`, `label`, `met`), resolved against the running configuration |

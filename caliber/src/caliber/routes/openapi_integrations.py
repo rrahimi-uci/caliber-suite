@@ -100,6 +100,7 @@ from caliber.schemas import (
     ToolSchema,
 )
 from caliber.secrets import resolve_secret
+from caliber.workflows.builtin_tools import reserved_tool_name, reserved_tool_name_message
 
 PREFIX = "/ajax-api/2.0/mlflow/caliber"
 LIST_PATH = PREFIX + "/openapi-integrations"
@@ -1715,6 +1716,13 @@ async def publish_openapi_tool_draft(request: Request) -> JSONResponse:
                 ),
             )
         tool_name = payload.name or draft.name
+        # The same reservation as POST /tools: a built-in's name is how the protected-effect inventory
+        # recognises it, so an imported operation cannot be published under one.
+        reserved = reserved_tool_name(tool_name)
+        if reserved is not None:
+            raise HTTPException(
+                status_code=409, detail=reserved_tool_name_message(tool_name, reserved)
+            )
         existing = (
             session.execute(
                 select(CaliberToolRegistry).where(

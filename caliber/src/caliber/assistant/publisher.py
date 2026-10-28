@@ -96,12 +96,28 @@ class AssistantPublisher:
     ) -> dict[str, Any]:
         from caliber.db.models import CaliberToolRegistry  # noqa: PLC0415
         from caliber.ids import new_tool_id  # noqa: PLC0415
+        from caliber.workflows.builtin_tools import (  # noqa: PLC0415
+            RESERVED_TOOL_NAME_CODE,
+            reserved_tool_name,
+            reserved_tool_name_message,
+        )
 
+        # A draft carries whatever name the model or user typed, and the registry is unique only on
+        # (name, version): refuse a built-in's name here, before any row exists, because the
+        # protected-effect inventory recognises a built-in by that name.
+        name = artifact.get("name", "")
+        reserved = reserved_tool_name(str(name))
+        if reserved is not None:
+            return {
+                "success": False,
+                "code": RESERVED_TOOL_NAME_CODE,
+                "error": reserved_tool_name_message(str(name), reserved),
+            }
         tool_id = new_tool_id()
         with session_factory() as db:
             tool = CaliberToolRegistry(
                 tool_id=tool_id,
-                name=artifact.get("name", ""),
+                name=name,
                 version="1.0.0",
                 description=artifact.get("description", ""),
                 module_path=artifact.get("module_path", f"assistant.drafts.{draft_id}"),
