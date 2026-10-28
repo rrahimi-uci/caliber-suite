@@ -2243,6 +2243,79 @@ def _context_manifest_digest_matches_bytes(_mapper: Any, _connection: Any, targe
         raise ValueError("manifest_digest must be the lowercase SHA-256 of manifest_bytes")
 
 
+class CaliberEffectProposal(Base):
+    """One logical effect a run asks to perform, with its immutable intent (B05.1, #700, ADR 0003).
+
+    The logical identity is ``(tenant_id, workflow_run_id, node_id, occurrence_id)``, also unique as ``logical_key``
+    (the SHA-256 of those four): a retry reuses the occurrence, a legitimate repeat of the same call (a loop iteration)
+    gets the next one. The *intent* is separate from that identity: ``intent_bytes`` is the canonical JSON over the
+    connector identity and version, effect class, target resource, arguments and expected resource version,
+    ``intent_algorithm`` names how it was built and ``intent_hash`` is ``sha256:`` plus its digest (checked on insert by
+    the ORM and, on PostgreSQL, by a CHECK). Every column but ``state`` is frozen by database triggers (migration 0123)
+    and by ``ImmutableRecordError``; ``state`` moves only through the transition rules of B05.2 (#705).
+    """
+
+    __tablename__ = "caliber_effect_proposals"
+    __table_args__ = (
+        Index("ix_effect_proposals_run", "workflow_run_id"),
+        UniqueConstraint(
+            "tenant_id",
+            "workflow_run_id",
+            "node_id",
+            "occurrence_id",
+            name="uq_effect_proposal_occurrence",
+        ),
+        UniqueConstraint("logical_key", name="uq_effect_proposal_logical_key"),
+        CheckConstraint(
+            "effect_class IN ('read', 'reversible_write', 'irreversible_write', 'export')",
+            name="ck_effect_proposal_class",
+        ),
+        CheckConstraint(
+            "state IN ('proposed', 'approved', 'dispatched', 'committed', 'failed', 'unknown', 'reconciled')",
+            name="ck_effect_proposal_state",
+        ),
+        CheckConstraint("length(logical_key) = 64", name="ck_effect_proposal_key_length"),
+        CheckConstraint("length(intent_hash) = 71", name="ck_effect_proposal_hash_length"),
+        CheckConstraint("length(intent_bytes) > 0", name="ck_effect_proposal_intent_present"),
+        CheckConstraint(
+            "length(node_id) > 0 AND length(occurrence_id) > 0 AND length(connector) > 0 "
+            "AND length(connector_version) > 0 AND length(resource) > 0",
+            name="ck_effect_proposal_identity_present",
+        ),
+    )
+
+    proposal_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    tenant_id: Mapped[str] = mapped_column(String(64))
+    workflow_run_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("caliber_workflow_runs.workflow_run_id")
+    )
+    node_id: Mapped[str] = mapped_column(String(128))
+    occurrence_id: Mapped[str] = mapped_column(String(128))
+    logical_key: Mapped[str] = mapped_column(String(64))
+    connector: Mapped[str] = mapped_column(String(128))
+    connector_version: Mapped[str] = mapped_column(String(64))
+    effect_class: Mapped[str] = mapped_column(String(32))
+    resource: Mapped[str] = mapped_column(String(512))
+    args: Mapped[dict[str, Any]] = mapped_column(JSON)
+    expected_resource_version: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    intent_algorithm: Mapped[str] = mapped_column(String(16))
+    intent_bytes: Mapped[bytes] = mapped_column(LargeBinary)
+    intent_hash: Mapped[str] = mapped_column(String(71))
+    state: Mapped[str] = mapped_column(String(16), default="proposed", server_default="proposed")
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+
+guard_immutable(CaliberEffectProposal, mutable=frozenset({"state"}))
+
+
+@event.listens_for(CaliberEffectProposal, "before_insert")
+def _effect_proposal_hash_matches_bytes(_mapper: Any, _connection: Any, target: Any) -> None:
+    """Refuse a proposal whose ``intent_hash`` is not ``sha256:`` plus the SHA-256 of its own bytes, on every dialect."""
+    actual = "sha256:" + hashlib.sha256(target.intent_bytes or b"").hexdigest()
+    if target.intent_hash != actual:
+        raise ValueError("intent_hash must be 'sha256:' and the SHA-256 of intent_bytes")
+
+
 class CaliberRunGrant(Base):
     """What one workflow run may do, for whom, in which project, until when (B03.2, #664).
 

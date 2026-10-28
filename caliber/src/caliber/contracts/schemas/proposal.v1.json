@@ -83,6 +83,18 @@
     "region": {
       "type": "string",
       "minLength": 1
+    },
+    "occurrence_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "connector_version": {
+      "type": "string",
+      "minLength": 1
+    },
+    "intent_algorithm": {
+      "type": "string",
+      "minLength": 1
     }
   },
   "required": [

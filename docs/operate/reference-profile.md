@@ -750,6 +750,62 @@ with session_factory() as session:
   forgets them; use a cutoff older than the sender's longest redelivery window, because a forgotten id is applied again.
   Nothing calls `process_once` yet: wiring the GitHub webhook and the connector callback is B13.5b (#693).
 
+## Effect proposals
+
+A run that asks to change something outside CALIBER first records a **proposal** (B05.1, #700, ADR 0003;
+`caliber/src/caliber/effects/records.py`, table `caliber_effect_proposals`, migration 0123). Nothing writes one yet: the
+dispatcher that does arrives with the rest of B05 (#705 onwards). What exists is the record and the rules it keeps.
+
+- **Two separate things.** The **logical key** `(deployment, run, node, occurrence_id)` says *which* effect: a retry presents
+  the same occurrence and finds the same proposal, a legitimate repeat (a loop that notifies the same endpoint twice)
+  presents the next occurrence and gets its own. The **intent** says *what exactly*: `Intent(connector, connector_version,
+  effect_class, resource, args, expected_resource_version)`, stored as canonical JSON (`intent_bytes`) with its algorithm
+  (`intent-v1`) and its digest `intent_hash` (`sha256:` plus 64 hex digits; on PostgreSQL a CHECK ties the digest to the
+  bytes). Changing the connector version, the effect class or any other intent field changes the digest.
+- **One digest, reused.** Approvals and receipts compare against `Intent.digest` (equivalently the stored `intent_hash`) and
+  never compute a hash over fewer fields, so an approval of one intent cannot cover another.
+- **Same key, same intent: idempotent. Same key, different intent: refused.** `record_proposal` returns the existing
+  proposal (`created=False`) for a retry and raises `ProposalConflict` (code `intent_conflict`; the calling route answers
+  409) for a different intent; the stored intent stands and the error carries the key and both digests, never the arguments.
+  A malformed field (blank, over-long or control-character-bearing text, non-JSON arguments, an unknown effect class, an
+  intent over 256 KiB) raises `ProposalError` with code `bad_field`; an unknown run, `run_not_found`; a constraint failure that is not the key,
+  `store_failed` (without the driver's text, which would carry the arguments). `args` must be plain JSON of exact Python types
+  (string-keyed `dict`, `list`, `str`, `int`, finite `float`, `bool`, `None`, nested at most 64 deep) so two different Python values
+  never share a digest; the converse is not promised (`intent-v1` is not RFC 8785): `1` and `1.0`, or NFC and NFD spellings, are
+  different intents, and a retry that respells one gets a conflict, never a silent match.
+- **Immutable.** Database triggers refuse a change to any column but `state`, refuse `DELETE` (and `TRUNCATE` on PostgreSQL),
+  and the ORM refuses the same. On SQLite (development) raw SQL can still bypass them with `INSERT OR REPLACE` or by deleting a
+  run with foreign keys off; PostgreSQL has no such path. `state` is recorded as `proposed`; its transition rules are B05.2 (#705). A workflow whose
+  runs have proposals cannot be deleted (409, "immutable effect proposals"), and retention never prunes such a run.
+- **Reading is checked.** `read_proposal` rebuilds the ADR 0003 `proposal` v1 record (with the optional `occurrence_id`,
+  `connector_version` and `intent_algorithm`) and recomputes the intent from the stored columns: an edited row is
+  `corrupt`, and an intent algorithm this build does not know is `unsupported_algorithm`, never read as the nearest.
+
+```python
+from caliber.effects.records import Intent, ProposalConflict, record_proposal
+
+intent = Intent(
+    connector="document-request",
+    connector_version="1.0.0",
+    effect_class="irreversible_write",
+    resource="cases/MORT-1/document-requests",
+    args={"document_type": "pay_statement"},
+    expected_resource_version="7",
+)
+with session_factory() as session:
+    try:
+        recorded = record_proposal(
+            session, workflow_run_id=run_id, node_id="ask", occurrence_id=occurrence_id, intent=intent
+        )
+        session.commit()  # recorded.created is False when this effect was already recorded
+    except ProposalConflict as conflict:
+        session.rollback()  # answer 409: conflict.stored_intent_hash is the one on record
+```
+
+- **Limits.** The occurrence id is allocated and persisted by the caller before the effect is attempted; this module records
+  it and cannot tell whether a caller reused one wrongly. `deployment` is this installation's one configured organization
+  (ADR 0001). Receipts, the transition table and the dispatcher are not here (B05.2 to B05.5).
+
 ## Approved context sources
 
 A run's context may only come from sources its project has approved (B07, #692). The inventory is
