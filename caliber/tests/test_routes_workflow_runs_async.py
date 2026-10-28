@@ -4,10 +4,12 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
+import pytest
 from starlette.testclient import TestClient
 
 import caliber.routes.workflow_runs as workflow_runs_routes
 from caliber.db.models import (
+    CaliberEffectProposal,
     CaliberRuntimeApprovalRequest,
     CaliberWorkflowRun,
     CaliberWorkflowRunCheckpoint,
@@ -2210,6 +2212,188 @@ def test_runtime_approval_reject_marks_run_failed(client: TestClient, monkeypatc
     assert published[0]["reason"] == "safety policy"
     assert published[1]["workflow_run_id"] == run_id
     assert published[1]["error"] == "safety policy"
+
+
+def _seed_bound_approval(
+    client: TestClient, run_id: str, *, node_id: str = "human_gate"
+) -> tuple[str, str]:
+    """A pending approval request bound to an effect proposal (B06.1), newer than any legacy request already seeded.
+
+    Returns ``(runtime_approval_id, proposal_id)``. It is made through the real writer, so the row is exactly what
+    ``create_approval_request`` stores.
+    """
+    from datetime import timedelta
+
+    from caliber.effects.records import Intent, record_proposal
+    from caliber.workflows.approval_policy import ApprovalPolicy
+    from caliber.workflows.approval_requests import create_approval_request
+
+    with client.app.state.session_factory() as session:
+        recorded = record_proposal(
+            session,
+            workflow_run_id=run_id,
+            node_id=node_id,
+            occurrence_id="occ-bound",
+            intent=Intent(
+                connector="document-request",
+                connector_version="1.0.0",
+                effect_class="irreversible_write",
+                resource="cases/MORT-1/document-requests",
+                args={"document_type": "pay_statement"},
+                expected_resource_version="7",
+            ),
+        )
+        proposal = session.get(CaliberEffectProposal, recorded.proposal_id)
+        assert proposal is not None
+        request = create_approval_request(
+            session,
+            proposal=proposal,
+            policy=ApprovalPolicy(allow_self_approval=True),
+            evidence_hash="sha256:" + "e" * 64,
+            requested_by="editor_a",
+            ttl_seconds=3600,
+            now=datetime.now(timezone.utc) + timedelta(minutes=5),
+        )
+        session.commit()
+        return request.runtime_approval_id, proposal.proposal_id
+
+
+def _approval_row(client: TestClient, approval_id: str) -> CaliberRuntimeApprovalRequest:
+    with client.app.state.session_factory() as session:
+        row: CaliberRuntimeApprovalRequest | None = session.get(
+            CaliberRuntimeApprovalRequest, approval_id
+        )
+        assert row is not None
+        session.expunge(row)
+        return row
+
+
+@pytest.mark.parametrize("action", ["approve", "reject"])
+def test_a_request_bound_to_a_proposal_is_not_decided_by_the_route_yet(
+    client: TestClient, action: str
+) -> None:
+    """B06.1 records the binding but nothing re-verifies it at decision time (expiry, supersession, version: B06.2/B06.3), so
+    the route refuses, with a stable code and a message that carries no payload, and changes nothing."""
+    _enable_runtime_approvals(client)
+    _wid, vid = create_and_publish(client)
+    created = client.post(
+        f"{PREFIX}/workflow-runs", json={"workflow_version_id": vid, "input": "hello"}
+    )
+    run_id = created.json()["data"]["workflow_run_id"]
+    _seed_waiting_approval(
+        client, run_id, approval_status="approved", checkpoint_input_by_port={"input": "hello"}
+    )
+    bound_id, proposal_id = _seed_bound_approval(client, run_id)
+    before = _approval_row(client, bound_id)
+
+    response = client.post(
+        f"{PREFIX}/workflow-runs/{run_id}/approval/{action}",
+        json={"runtime_approval_id": bound_id, "reason": "ship it"},
+    )
+    assert response.status_code == 409, response.text
+    body = response.json()
+    assert body["reason_code"] == "approval_bound_not_wired"
+    assert body["status_code"] == 409
+    for secret in (
+        bound_id,
+        proposal_id,
+        before.intent_hash,
+        before.evidence_hash,
+        before.policy_digest,
+        "editor_a",
+    ):
+        assert (
+            secret and secret not in body["detail"]
+        )  # payload-free: no id, hash or requester in the message
+    after = _approval_row(client, bound_id)
+    assert (after.status, after.decided_by, after.decided_at, after.consumed_at) == (
+        "pending",
+        None,
+        None,
+        None,
+    )
+    assert (
+        after.policy_snapshot == before.policy_snapshot
+    )  # no partial approval was recorded either
+    with client.app.state.session_factory() as session:
+        run = session.get(CaliberWorkflowRun, run_id)
+        assert run is not None and run.status == "waiting_approval"
+
+
+def test_a_bound_request_never_shadows_a_legacy_node_level_request(client: TestClient) -> None:
+    """The default selection is the newest pending request of the node. A bound one created later must not be picked."""
+    _enable_runtime_approvals(client)
+    _wid, vid = create_and_publish(client)
+    created = client.post(
+        f"{PREFIX}/workflow-runs", json={"workflow_version_id": vid, "input": "hello"}
+    )
+    run_id = created.json()["data"]["workflow_run_id"]
+    legacy_id = _seed_waiting_approval(
+        client, run_id, approval_status="pending", checkpoint_input_by_port={"input": "hello"}
+    )
+    bound_id, _proposal_id = _seed_bound_approval(client, run_id)  # newer, same node
+
+    approved = client.post(
+        f"{PREFIX}/workflow-runs/{run_id}/approval/approve", json={"reason": "legacy"}
+    )
+    assert approved.status_code == 200, approved.text
+    assert _approval_row(client, legacy_id).status == "approved"
+    bound = _approval_row(client, bound_id)
+    assert bound.policy_snapshot is not None
+    assert (bound.status, bound.decided_by, bound.policy_snapshot.get("approvals")) == (
+        "pending",
+        None,
+        None,
+    )
+
+
+def test_a_legacy_request_is_still_selected_by_its_id_and_refused_when_not_pending(
+    client: TestClient,
+) -> None:
+    """The explicit-id path is unchanged for a legacy request: decided once, then ``not pending``; unknown ids are 404."""
+    _enable_runtime_approvals(client)
+    _wid, vid = create_and_publish(client)
+    created = client.post(
+        f"{PREFIX}/workflow-runs", json={"workflow_version_id": vid, "input": "hello"}
+    )
+    run_id = created.json()["data"]["workflow_run_id"]
+    legacy_id = _seed_waiting_approval(
+        client, run_id, approval_status="pending", checkpoint_input_by_port={"input": "hello"}
+    )
+    path = f"{PREFIX}/workflow-runs/{run_id}/approval/approve"
+
+    assert client.post(path, json={"runtime_approval_id": legacy_id}).status_code == 200
+    again = client.post(path, json={"runtime_approval_id": legacy_id})
+    assert again.status_code == 409 and "is not pending" in again.json()["detail"]
+    assert "reason_code" not in again.json()
+    missing = client.post(path, json={"runtime_approval_id": "RAP-nope"})
+    assert missing.status_code == 404
+
+
+def test_with_only_a_bound_request_pending_the_default_selection_finds_nothing(
+    client: TestClient,
+) -> None:
+    _enable_runtime_approvals(client)
+    _wid, vid = create_and_publish(client)
+    created = client.post(
+        f"{PREFIX}/workflow-runs", json={"workflow_version_id": vid, "input": "hello"}
+    )
+    run_id = created.json()["data"]["workflow_run_id"]
+    _seed_waiting_approval(
+        client, run_id, approval_status="approved", checkpoint_input_by_port={"input": "hello"}
+    )
+    bound_id, _proposal_id = _seed_bound_approval(client, run_id)
+
+    for action in ("approve", "reject"):
+        response = client.post(f"{PREFIX}/workflow-runs/{run_id}/approval/{action}", json={})
+        assert response.status_code == 409, response.text
+        assert "no pending runtime approvals" in response.json()["detail"]
+        assert "reason_code" not in response.json()
+    assert _approval_row(client, bound_id).status == "pending"
+    listed = client.get(f"{PREFIX}/workflow-runs/{run_id}/approvals").json()["data"]
+    assert bound_id in {
+        row["runtime_approval_id"] for row in listed
+    }  # still listed: the refusal is on deciding
 
 
 def test_resume_requires_approved_decision(client: TestClient) -> None:
