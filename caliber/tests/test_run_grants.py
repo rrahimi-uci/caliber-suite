@@ -119,6 +119,12 @@ def _seed(
     return run_id
 
 
+def _new_grant_id() -> str:
+    """A fresh test grant id. The letter keeps a run of ten hex digits from reading as a phone number: the audit log's
+    default redaction would turn ``grant-4543565950`` into ``grant[REDACTED]`` and fail a comparison on that row."""
+    return f"grant-g{uuid.uuid4().hex[:9]}"
+
+
 def _issue(
     engine: Engine,
     run_id: str,
@@ -127,7 +133,7 @@ def _issue(
     expires: datetime | None = None,
     **overrides: Any,
 ) -> str:
-    grant_id = grant_id or f"grant-{uuid.uuid4().hex[:10]}"
+    grant_id = grant_id or _new_grant_id()
     arguments: dict[str, Any] = {
         "grant_id": grant_id,
         "run_id": run_id,
@@ -1109,3 +1115,18 @@ def test_assigning_a_frozen_column_its_own_value_is_not_an_update(
             row = session.get(CaliberRunGrant, grant_id)
             row.policy_version = row.policy_version  # type: ignore[union-attr]
         assert _check(engine, run_id, grant_id)
+
+
+def test_a_generated_grant_id_is_never_redacted_as_a_phone_number(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from caliber.redaction import DEFAULT_PATTERNS, Redactor
+
+    class AllDigits:
+        hex = "4543565950abcdef"
+
+    monkeypatch.setattr(uuid, "uuid4", lambda: AllDigits())
+    grant_id = _new_grant_id()
+    assert Redactor.from_patterns(DEFAULT_PATTERNS).redact_value({"grant_id": grant_id}) == {
+        "grant_id": grant_id
+    }
