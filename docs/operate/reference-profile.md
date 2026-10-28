@@ -842,6 +842,64 @@ except StaleVersion as stale:
   it and cannot tell whether a caller reused one wrongly. `deployment` is this installation's one configured organization
   (ADR 0001). Receipts and the dispatcher are not here (B05.3 to B05.5).
 
+## Connectors: what they promise and what an answer proves
+
+Before the dispatcher (B05.5) sends an effect it needs two things that are not guesses (B05.3, #711;
+`caliber/src/caliber/effects/connectors/`): a **capability record** saying what the connector has been *shown* to do, and a
+**typed outcome** for each request that is never more optimistic than the evidence.
+
+- **The capability record** (`ConnectorCapability`): the stable-key header and its scope and retention, what the connector
+  answers when a key is reused for a different request, the precondition header and what it answers when it fails, whether
+  the connector can be asked "did my key commit?" and how consistent that is, and whether a "not found" proves the effect can
+  never happen (`absence_proves_noncommit`). A contradictory record is refused when it is built. `carries_a_write_exactly_once`
+  is true only for a connector with a key, a lookup by key and a precondition. The document-request connector's record
+  (`effects/connectors/document_request.py::CAPABILITY`) is what its fixture shows, through the real executor: the key header is
+  `Idempotency-Key`, one namespace for the whole downstream; the same key replays (201 then 200) and commits once; the same key
+  for a different request is 422 and commits nothing; `If-Match` carries the case's integer version and a stale one is 412 and
+  commits nothing; the lookup (`GET /document-requests?idempotency_key=`) reads its own writes; **key retention is
+  unconfirmed** (the fixture never expires a key), so it is recorded as unbounded and must not be relied on past a retention
+  someone has confirmed; and **a 404 does not prove non-commit** (a request in flight at the downstream may still commit; there
+  is no tombstone and no cancel), so `absence_proves_noncommit` is false.
+- **The four outcomes** (`TransportOutcome`): `proven_not_sent` (the request never reached the downstream: refused before it was
+  built, blocked by the egress policy, or every attempt failed to connect; recorded as not happened), `definitive_rejection` (a 4xx
+  that refuses this request: it committed nothing; recorded as `failed`), `committed_receipt` (a 2xx: the downstream *says* it
+  committed or replayed a commit; a claim that becomes `committed` only when its receipt is verified, B05.4) and `ambiguous`
+  (everything else: a dropped connection or a timeout after the request may have left, a 5xx, a 408, a redirect, an error nobody
+  classified; the proposal becomes `unknown`). A 4xx on a retry (`attempts > 1`) is `ambiguous`: the first attempt may have
+  committed, and a stale precondition on the retry is then *caused* by that commit. `classify_result` takes what
+  `execute_openapi_http_tool` returns and `classify_error` what it raises; `interpret_lookup(capability, status)` returns
+  `found`, `not_committed` (only for a connector that proves absence) or `unknown`.
+- **What the OpenAPI executor now reports** (`integrations/openapi/executor.py`): `OpenApiExecutionError` carries `never_sent`
+  and `attempts`. `never_sent` is true only if the request is known never to have reached the downstream (a refusal before any
+  attempt, the egress policy, or every attempt failing to connect or being malformed locally), and false if *any* attempt may
+  have (a dropped read, a read or write timeout, a 5xx that was then retried into a connection failure). And **a POST is
+  retried only if its request really carries the bound idempotency key**, whether it came from `idempotency_key` or from
+  `header_params` (the header name is matched case-insensitively); a bound header with no key behind it no longer turns on
+  retries (that was a duplicate create against a downstream that does not deduplicate).
+
+```python
+from caliber.effects.connectors import TransportOutcome, classify_error, classify_result
+from caliber.effects.connectors.document_request import submit_config, submit_input
+from caliber.integrations.openapi.executor import OpenApiExecutionError, execute_openapi_http_tool
+
+try:
+    result = execute_openapi_http_tool(
+        execution_config=submit_config(server_url),
+        input_schema=None,
+        input_data=submit_input(
+            case_id=case_id, idempotency_key=proposal_key, expected_resource_version=7, body={"document_type": "pay_statement"}
+        ),
+    )
+    outcome = classify_result(result).outcome  # committed_receipt (201/200), definitive_rejection (412/422) or ambiguous (5xx)
+except OpenApiExecutionError as error:
+    outcome = classify_error(error).outcome  # proven_not_sent, or ambiguous: the effect may have happened
+```
+
+- **Not done here.** The D1 report's remaining executor changes are not part of this task: a dedicated `idempotency_key` input
+  in the derived tool schema, the expected version as a first-class input, binding the key and retries in what an import
+  produces, and a per-attempt log. The connector's `submit_input` puts the key and the version on the request itself, so the
+  dispatcher does not depend on them. The dispatcher, receipts and the reconciler are B05.4 and B05.5.
+
 ## Approved context sources
 
 A run's context may only come from sources its project has approved (B07, #692). The inventory is

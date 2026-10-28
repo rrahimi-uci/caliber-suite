@@ -1134,3 +1134,74 @@ def test_records_module_exports_the_transition_api() -> None:
         "effect_resource",
     ):
         assert name in records.__all__
+
+
+# ---------------------------------------------------------------- the connector sends a stable key (B05.3, #711)
+
+
+@pytest.fixture(scope="module")
+def _downstream_process(tmp_path_factory: pytest.TempPathFactory) -> Any:
+    from tests.egi_scenarios.conftest import Downstream
+
+    handle = Downstream(tmp_path_factory.mktemp("downstream"))
+    try:
+        handle.start()
+        yield handle
+    finally:
+        handle.close()
+
+
+@pytest.fixture
+def downstream(_downstream_process: Any) -> Any:
+    from caliber.egress import EgressPolicy
+    from caliber.integrations.openapi.executor import bind_egress_policy
+
+    _downstream_process.reset()
+    bind_egress_policy(EgressPolicy(allowed_hosts=frozenset({"127.0.0.1"})))
+    yield _downstream_process
+    bind_egress_policy(None)
+
+
+def _connector_call(downstream: Any, key: str, version: int | None) -> dict[str, Any]:
+    from caliber.effects.connectors.document_request import submit_config, submit_input
+    from caliber.integrations.openapi.executor import execute_openapi_http_tool
+
+    return execute_openapi_http_tool(
+        execution_config=submit_config(downstream.base_url),
+        input_schema=None,
+        input_data=submit_input(
+            case_id="MORT-2026-000184",
+            idempotency_key=key,
+            expected_resource_version=version,
+            body={"document_type": "pay_statement"},
+        ),
+    )
+
+
+def test_connector_sends_stable_key(downstream: Any) -> None:
+    """The connector puts the proposal's key on the request, so sending it twice commits once and both answers are the
+    same committed receipt claim."""
+    from caliber.effects.connectors import TransportOutcome, classify_result
+
+    first = _connector_call(downstream, "stable-key-1", 1)
+    again = _connector_call(downstream, "stable-key-1", 1)
+    assert (first["status_code"], again["status_code"]) == (201, 200)
+    assert first["json"] == again["json"]
+    assert downstream.mutations() == 1
+    assert {classify_result(first).outcome, classify_result(again).outcome} == {
+        TransportOutcome.COMMITTED_RECEIPT
+    }
+
+
+def test_stale_version_fails_without_mutation(downstream: Any) -> None:
+    """The connector sends the proposal's expected version as ``If-Match``; a stale one is a definitive rejection and the
+    downstream commits nothing."""
+    from caliber.effects.connectors import TransportOutcome, classify_result
+
+    refused = _connector_call(downstream, "stale-key-1", 999)
+    assert refused["status_code"] == 412
+    assert classify_result(refused).outcome is TransportOutcome.DEFINITIVE_REJECTION
+    assert downstream.mutations() == 0
+    assert _connector_call(downstream, "stale-key-2", 1)["status_code"] == 201, (
+        "the current version is accepted"
+    )
