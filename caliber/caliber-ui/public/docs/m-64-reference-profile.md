@@ -126,6 +126,50 @@ missing differs, and neither case is a profile refusal:
 
 The database must be migrated (`caliber-migrate`) before the first start.
 
+## Migrations that shipped in the alpha never change
+
+An alpha database sits at the head of the migrations that `caliber-v0.1.0a1` shipped; upgrading it means running
+the migrations after that head. That is only safe while the migrations up to that head are exactly the ones the
+alpha ran, so they are frozen (B16-Upgrade.1, #702). `caliber/tests/fixtures/alpha_0_1_0a1_migration_checksums.json`
+records the SHA-256 of every migration file in the tag, read from the tag's objects, together with the tag's commit,
+the alpha head and the alembic version table (`caliber_alembic_version`). The head is derived from those files (the
+one revision nothing revises), never written in by hand.
+
+Two checks guard it, because each alone can be defeated:
+
+- `caliber/tests/test_upgrade_from_alpha.py::test_shipped_migrations_unchanged` compares the working tree with the
+  manifest. It needs no history, so it runs everywhere and never skips. It fails if a migration is edited (a
+  line-ending change counts), renamed or removed, or if one is inserted into or branched off the shipped history.
+  A change that edits a migration *and* its manifest entry passes it.
+- `test_the_manifest_matches_the_release_tag` (and `python caliber/tests/migration_checksums.py generate --check`)
+  regenerates the manifest from the tag and compares, which fails that change. The backend-core CI job fetches the
+  tag and sets `CALIBER_REQUIRE_ALPHA_TAG=1`, so there a missing tag is a failure, not a skip; elsewhere the test
+  skips when neither the tag nor its commit is in the checkout. `.github/CODEOWNERS` also sends any change to the
+  migrations directory or the manifest to the owner.
+
+Migrations added after the alpha are fine as long as they descend from the alpha head, and they need no manifest
+update. Each failure names the file and the way out, for example:
+
+```text
+0050_assistant_attachments.py: changed since caliber-v0.1.0a1 (sha256 6c27..., shipped 4306...). Restore it from the
+shipped commit (`git show 3f3b562...:caliber/src/caliber/db/migrations/versions/0050_assistant_attachments.py > ...`,
+from the repository root) and put the change in a new migration that revises the current head.
+```
+
+A changed or missing file is restored from the recorded commit (the command is in the message and does not depend on
+the tag name being present). A new migration that revises a shipped revision is re-parented onto the current head
+(`alembic heads`). `python caliber/tests/migration_checksums.py verify` runs the working-tree check from the command
+line. Regenerate the manifest (`... migration_checksums.py generate`, with the tag fetched) only if the fixture itself
+was wrong.
+
+`.gitattributes` marks the migrations `-text`, so a Windows checkout with `core.autocrlf=true` cannot rewrite their
+line endings (the checksums are of exact bytes).
+
+For the alpha-upgrade tests that follow (#708, #715): create the alpha database by running `alembic upgrade
+<alpha head>` through the working-tree migrations directory, with the manifest's `version_table`. That reproduces the
+alpha schema only because those files are frozen, which the never-skipping check enforces. Never read the migrations
+from the tag in CI; it is not in the checkout.
+
 ## A stored secret never leaves the platform
 
 `caliber/tests/test_secret_canary.py` (B12.5b, #666) stores `EGI_CANARY_<uuid4>` as `egi-canary` through the
@@ -189,7 +233,7 @@ one; that needs write access to runs and is not guarded here.
 (`CALIBER_WORKFLOW_RUN_RETENTION_DAYS`) skips it, and `DELETE /workflows/{id}` answers `409`
 (`cannot delete workflow: its runs have immutable run manifests`) while any of its runs has one, because removing
 the run would either violate the manifest's foreign key (PostgreSQL) or orphan it (SQLite). Legacy and
-manifest-less runs are pruned and deleted as before. A rollback (`caliber-migrate downgrade 0113`) drops the table
+manifest-less runs are pruned and deleted as before. Rolling the schema back past 0113 drops the table
 and therefore the manifests, never the runs; upgrading again starts with no manifests and marks every existing run
 legacy.
 
@@ -490,8 +534,8 @@ Issuing refuses (`GrantError`): an empty or oversized set, an action outside the
 role, a subject who is not a current member, a run that does not exist or belongs to another project, a naive datetime,
 and an expiry that is not in the future.
 
-This task stores and checks grants; it makes no policy decision and records none (B03.3 and B03.5). A rollback
-(`caliber-migrate downgrade 0114`) drops the table and therefore the grants, never the runs.
+This task stores and checks grants; it makes no policy decision and records none (B03.3 and B03.5). Rolling the
+schema back past 0114 drops the table and therefore the grants, never the runs.
 
 ## Experiment ownership
 
@@ -611,7 +655,7 @@ minus the renewal interval (a fenced transaction blocks the owner's own renewal 
 give fenced and acquiring transactions a `SET LOCAL lock_timeout`, since a stuck session holding the row would block
 failover (`idle_in_transaction_session_timeout` bounds it too).
 
-A rollback (`caliber-migrate downgrade 0115`) drops the table; the next acquirer starts at token 1.
+Rolling the schema back past 0116 drops the table; the next acquirer starts at token 1.
 
 ### Who runs the loops (B13.3, #673)
 
@@ -1019,7 +1063,7 @@ them the one way ADR 0003 allows: by asking the downstream by the **original log
 - **Owner-only.** `reconcile_pass(factory, lease=..., targets=..., lookup=...)` needs the `Lease` the execution owner captured, and every write re-compares it
   in the transaction that writes (`fence_owner`: exact owner and fencing token, database clock). No question is asked on a lease that is gone. A pass
   whose lease is taken over stops with `ProposalError` `lease_lost`; what it already settled stays settled and the new owner's pass takes the rest. Which
-  process runs the pass, and when, belongs with the dispatcher's owner loop (B04.1); until then the pass is called by the code that holds the lease.
+  process runs the pass, and when, belongs with the dispatcher's owner loop (B04.1, tracked in #997); until then the pass is called by the code that holds the lease.
 - **Abandoned means a prior lease.** Migration 0126 records `dispatch_token` (the fencing token the owner held) with every dispatch. A `dispatched` proposal is
   abandoned exactly when its token is lower than the token of the lease the reconciler holds; `abandon_dispatch` then records `unknown` with reason
   `abandoned_dispatch` (under the *reconciler's* lease; `not_abandoned` for a dispatch under the current lease, which is in flight in this very process and is
@@ -1033,7 +1077,8 @@ them the one way ADR 0003 allows: by asking the downstream by the **original log
   | a stored request that is this proposal's effect (key, intent, target, expected version) | verified receipt, `reconciled`, `committed`; one audit entry | `committed` |
   | 404 from a connector that proves absence final (tombstone or honoured cancel, reads its own writes) | `reconciled`, `failed` (`absence_proven`) | `failed` |
   | 404 from any other connector (document-request included): delayed visibility, or a request still in flight | nothing | `unknown` |
-  | 5xx, 401, an unreadable body, another request under the key | nothing | `unknown` / `unverified` |
+  | 5xx, 401 or any other status | nothing | `unknown` (detail `http_<code>`) |
+  | a 2xx whose body is not this proposal's effect (unreadable, or another request under the key) | nothing | `unverified` |
   | cannot be reached, or no binding for this connector and project | nothing | `lookup_failed` / `not_bound` |
 
   A proposal that another actor moved while the downstream was asked is `moved` and is not overwritten (the write is conditioned on the version that was read).

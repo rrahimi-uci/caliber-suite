@@ -55,7 +55,7 @@ flowchart LR
     TRI -->|effects owed?| E["/caliber/system/effects\n/caliber/system/webhook-dead-letters"]:::ctrl
 
     H --> DB[(Metadata DB)]:::store
-    Q --> LOOPS[Up to ten in-process loops]:::async
+    Q --> LOOPS[Up to eleven in-process loops]:::async
     R --> MLF[MLflow Prompt Registry]:::ext
     E --> EXT[Outbound webhooks\nand external effects]:::ext
 
@@ -199,13 +199,16 @@ distinct condition rather than making you infer it:
 | Reason | What it means | Act |
 | --- | --- | --- |
 | `no workflow-run worker has registered a heartbeat` | A deployment that never started a worker | Check the process actually runs background tasks |
-| `no workflow-run worker is reporting a fresh heartbeat` | A worker that died | Restart; the janitor requeues the abandoned runs |
+| `no workflow-run worker is reporting a fresh heartbeat` | A worker that died | Restart; the `WorkflowRunWorker` on the owner requeues the abandoned runs once their lease lapses |
 | `N registered worker(s) stopped reporting` | Named workers went stale | The names are the actionable part — investigate those |
-| `N running run(s) past lease with no fresh heartbeat` | Abandoned claims | The janitor requeues; confirm it is running |
+| `N running run(s) past lease with no fresh heartbeat` | Abandoned claims | The `WorkflowRunWorker` requeues them (only the execution owner runs it); confirm one process reports `execution_role: owner` |
 | `oldest queued run has waited Ns` | Capacity, not liveness | Scale, or accept the lag |
 
 **Decide.** Distinguish *dead worker* from *slow worker*. A dead worker's runs are
-recoverable: lease expiry requeues them and they resume from their last checkpoint. A
+recoverable: lease expiry requeues them and they start again from the beginning (a run
+that was itself resumed from an approval or wait checkpoint resumes from that checkpoint
+again); work between checkpoints is not kept, and the effect ledger suppresses repeats of
+ledgered webhook and API effects only. A
 slow worker's are not stuck, just late — requeueing them buys nothing and burns the
 effect ledger's suppression budget.
 
@@ -339,7 +342,7 @@ one number for "the queue".
 | Loop | Lease | Recovery after owner death | Delivery |
 | --- | --- | --- | --- |
 | Refinement | heartbeat | Janitor marks `failed`; **not** requeued | At-most-once; needs operator action |
-| WorkflowRun | lease + heartbeat | Lease expiry requeues; resumes from last checkpoint | At-least-once at the step boundary; effect ledger suppresses repeats |
+| WorkflowRun | lease + heartbeat | Lease expiry requeues; restarts from the beginning (or from the checkpoint it was resumed from) | At-least-once at the step boundary; effect ledger suppresses repeats |
 | CalibrationDrain | — | None automatic; stays `running` | At-most-once per job; retries are explicit new jobs |
 | KnowledgeBase | claim | Re-ingest is idempotent per source | At-least-once, idempotent |
 | WebhookDispatcher | claim | Redelivery with settlement and a dead-letter path | At-least-once, by design |

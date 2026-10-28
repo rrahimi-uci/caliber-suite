@@ -43,7 +43,7 @@ Read this first: it decides which sections you will meet in practice.
 | Outbox, inbox, `process_once` | merged (B13.4, B13.5a) | Backlog and redelivery sections apply as written |
 | Receipt callback | merged (B05.4b, B13.5b) | The one consumer of the inbound inbox |
 | Effect proposals, receipts, reconciler, operator view | merged as modules and a read-only view (B05.1 to B05.6) | Rows appear in the view only once something writes proposals |
-| The dispatcher that writes and dispatches proposals, and a loop that schedules the reconciler | **not merged** (B04.1, #724) | No production path creates proposal rows today and no loop runs `reconcile_pass`; a real run's effects go through the **legacy effect ledger** |
+| The dispatcher that writes and dispatches proposals, and the owner loop that schedules the reconciler | **not merged** (dispatcher B04.1, #724; the owner loop, same-token stuck dispatches and operator resolution are tracked in #997) | No production path creates proposal rows today and no loop runs `reconcile_pass`; a real run's effects go through the **legacy effect ledger** |
 | An audited operator action for an `unknown` proposal | **not merged** (#997) | The view offers none (`safe_actions` is empty) |
 | Parking a gated run and resuming it after reconciliation | **not merged** | A gated run ends `failed` and stays failed |
 
@@ -57,14 +57,17 @@ that the first `unknown` proposal is not the first time anyone reads them.
    effect may already have happened. The only way back from `unknown` is a question to the downstream by the original key
    (there is no transition from `unknown` to `dispatched`).
 2. **Never mark an effect failed, skipped or reconciled without the downstream's own evidence.** The platform records
-   `failed` for an `unknown` effect only when the connector proves absence final (`absence_proven`), or on a definitive
-   rejection it can classify. A missing record is delayed visibility until proven otherwise. For a legacy claim, `skip`
+   `failed` for an `unknown` effect only by moving it through `reconciled` first, and only when the connector proves
+   absence final (`absence_proven`); a definitive rejection is recorded `failed` only from `dispatched`, on the first and
+   only dispatch. A missing record is delayed visibility until proven otherwise. For a legacy claim, `skip`
    and `retry` are statements about the outside world: make them only after you looked at the remote system.
 3. **Never edit or delete ledger, proposal, receipt, manifest, outbox or inbox rows.** They are the evidence. On
    PostgreSQL the immutable tables refuse it; on SQLite (development only) they do not, which is a reason to stay off it,
    not a way around.
-4. **Never edit a shipped migration**, and never roll a migration back to "fix" a stuck row. Schema changes are a new
-   revision; `caliber-migrate downgrade 0115` drops the lease table and the next acquirer starts at token 1.
+4. **Never edit a shipped migration**, and never downgrade the schema to fix a stuck row: a downgrade drops tables
+   together with their rows (0116 drops `caliber_execution_owner`, 0119 the outbox and its inbox, 0122 the inbound inbox,
+   0123 the proposals, 0125 the receipts; 0126 and 0127 drop the dispatch token and the approval binding columns), and
+   the evidence goes with them. Schema changes are a new revision.
 5. **Never start a second owner by hand.** Do not write the `caliber_execution_owner` row and do not run loops outside the
    lease. A secondary acquires the lease by itself when the old one lapses.
 6. **Capture before you act.** Save the output of the first-look commands below with the time; a restart destroys some of
@@ -73,8 +76,8 @@ that the first `unknown` proposal is not the first time anyone reads them.
 ## First look
 
 ```bash
-# Is this replica ready, which profile is it under, and is it the owner or a secondary?
-curl -s -H "Authorization: Bearer $CALIBER_TOKEN" "$CALIBER_BASE_URL/ajax-api/2.0/mlflow/caliber/readiness"
+# Is this replica ready, which profile is it under, and is it the owner or a secondary? (the body is wrapped in "data")
+curl -s -H "Authorization: Bearer $CALIBER_TOKEN" "$CALIBER_BASE_URL/ajax-api/2.0/mlflow/caliber/readiness" | jq '.data | {ready, profile, execution_role}'
 
 # Is the workflow-run queue draining, and are workers alive?
 curl -s -H "Authorization: Bearer $CALIBER_TOKEN" "$CALIBER_BASE_URL/ajax-api/2.0/mlflow/caliber/system/queue"
@@ -86,15 +89,23 @@ curl -s -H "Authorization: Bearer $CALIBER_TOKEN" "$CALIBER_BASE_URL/ajax-api/2.
 curl -s -H "Authorization: Bearer $CALIBER_TOKEN" "$CALIBER_BASE_URL/ajax-api/2.0/mlflow/caliber/system/webhook-dead-letters"
 ```
 
-The readiness body carries `profile` and `execution_role`. Ask **every** replica: exactly one should answer `owner` and
-the rest `secondary`. The read-only database queries used below:
+The readiness body (under `data`; `curl` does not unwrap it, and neither does it unwrap the 2xx answers of the callback)
+carries `profile` and `execution_role`. Ask **every** replica: exactly one should answer `owner` and the rest
+`secondary`. The lease owner's id is `host:pid:random`, one per process incarnation, so it names the machine that holds
+it. The read-only queries used below (PostgreSQL; `expires_at` is naive UTC database time):
 
 ```sql
--- the execution-owner lease: who holds it, which fencing token, when it lapses (database time)
-SELECT lease_name, owner_id, fencing_token, expires_at, renewed_at FROM caliber_execution_owner;
+-- the execution-owner lease: who holds it, which fencing token, when it lapses, and whether it already has
+SELECT lease_name, owner_id, fencing_token, acquired_at, renewed_at, expires_at,
+       expires_at <= timezone('utc', clock_timestamp()) AS lapsed
+FROM caliber_execution_owner;
 
 -- outbox depth: pending, delivered and dead rows
 SELECT status, count(*) AS n, min(created_at) AS oldest FROM caliber_event_outbox GROUP BY status;
+
+-- outbox rows that ran out of attempts, with the consumer and exception class that failed (never a payload)
+SELECT event_id, event_type, attempts, last_error, created_at
+FROM caliber_event_outbox WHERE status = 'dead' ORDER BY created_at;
 
 -- inbound inbox reservations that never reached processed
 SELECT consumer, source, event_id, status, received_at FROM caliber_inbox_events WHERE status = 'received';
@@ -109,7 +120,7 @@ SELECT consumer, source, event_id, status, received_at FROM caliber_inbox_events
 | A run `failed` with `UnknownEffectError` or an effect that "was claimed but never recorded an outcome" | [A gated or failed run](#a-gated-or-failed-run) |
 | A callback or webhook delivered twice, `inbox_payload_mismatch`, an inbox row stuck at `received` | [Callback and webhook redelivery](#callback-and-webhook-redelivery) |
 | Events not arriving, dead outbox rows, dead letters | [Outbox backlog and dead letters](#outbox-backlog-and-dead-letters) |
-| A run `failed` with `pins_changed`, `rule_bundle_changed`, `bundle_unavailable` | [A run refused for its pins or its rule bundle](#a-run-refused-for-its-pins-or-its-rule-bundle) |
+| An admission refusal (`bundle_unavailable`, `rule_bundle_refused`), or a run `failed` with `pins_changed` or `context_denied` | [A run refused for its pins or its rule bundle](#a-run-refused-for-its-pins-or-its-rule-bundle) |
 | A restore | [After a restore](#after-a-restore) |
 
 ## Owner crash and failover
@@ -126,7 +137,9 @@ losing the lease fails closed.
 
 **Steps.**
 
-1. Read the lease row (query above) and `/readiness` on every replica. Note `fencing_token` and `expires_at`.
+1. Read the lease row (query above) and `/readiness` on every replica. Note `fencing_token` and `expires_at`. The process
+   logs (`caliber.execution_role`) say `execution-owner lease acquired (owner=... token=N)` on a takeover and
+   `execution-owner lease lost (...); stopping the owner-only loops` on a loss; grep them to see a failover.
 2. If the holder is dead and `expires_at` is in the past or within one lease: **wait** one lease plus a tick and read again.
    `fencing_token` should have grown by one and exactly one replica should say `owner`. Do nothing else.
 3. After the takeover, work left behind is picked up by the loops themselves, each by its own rule. The per-loop table is
@@ -135,16 +148,19 @@ losing the lease fails closed.
 
    | Left behind | What happens | When |
    | --- | --- | --- |
-   | A workflow run `running` | requeued (`error_code` `lease_recovered`, event `workflow.run.recovered`) and run again, from the start unless it was parked at an approval or wait checkpoint | when its run lease lapses (`CALIBER_WORKFLOW_RUN_LEASE_SECONDS`, 60 s) |
+   | A workflow run `running` | requeued (`error_code` `lease_recovered`, event `workflow.run.recovered`) and run again **from the beginning**, unless its summary already carries a resume checkpoint (then from that same checkpoint); a run parked at an approval or wait is not `running` and is never recovered this way | when its run lease lapses (`CALIBER_WORKFLOW_RUN_LEASE_SECONDS`, 60 s) |
    | Webhooks accepted but not delivered | become dead letters of kind `shutdown`; replay them (below) | when their accept lease lapses (at least 60 s) |
    | Outbox rows claimed by the dead publisher | delivered again by the new publisher; the consumer's inbox drops a repeat | at lease expiry (30 s) |
    | A refinement job `running` | marked `failed` by the janitor, **not** requeued | heartbeat older than `CALIBER_JANITOR_STALE_THRESHOLD_SECONDS` (300 s) |
    | A calibration job `running` | nothing, on purpose: abandon it or submit a new linked job | see [P4](../runbook.md#p4-a-refinement-or-calibration-job-vanished) |
-   | A workspace import `running` | moved to `reconcile_required`; an operator decides the retry | after `CALIBER_WORKSPACE_IMPORT_LEASE_SECONDS` (300 s) |
+   | A workspace import `running` | moved to `reconcile_required` (not retryable; queue a new import job for the same content, which is safe by digest) | after `CALIBER_WORKSPACE_IMPORT_LEASE_SECONDS` (300 s) |
    | An effect `dispatched` under the old lease | becomes **abandoned**; see the next section | once the new owner holds a higher token |
 
-4. An external effect that was in flight is **not** retried by any of this. A re-run run meets its own ledger claim and
-   stops (see [A gated or failed run](#a-gated-or-failed-run)).
+4. **A recovered run is not a safe run.** It starts again from the beginning. Only webhook and API-request nodes go through
+   the effect ledger: an effect of those nodes that it already claimed is not repeated (the ledger replays it, or reports
+   the claim `indeterminate`). Effects of other nodes (MCP tools, OpenAPI tools, knowledge builds, output buckets) are not
+   ledgered and can happen again. Before you let a recovered run proceed, or retry it, read its `workflow.run.recovered`
+   event and check the downstream for any non-ledgered effect it could already have made.
 
 **No owner after two leases.** Every process is a secondary when the lease store is unreachable (the lease calls fail closed
 and `/readiness` reports the database), or when the loops fail to start after an acquisition (the error is logged by
@@ -179,7 +195,7 @@ client = CaliberClient()  # CALIBER_BASE_URL and CALIBER_TOKEN come from the env
 view = client.system.effects(source="proposal", proposal_state="unknown")
 for row in view["proposals"]:
     print(row["proposal_id"], row["state"], row["reason"], row["abandoned"], row["blocks_dependents"])
-print(view["lease"])  # the stored execution-owner lease, or None
+print(view["lease"])  # the stored execution-owner lease (also returned when source is "all"), or None
 ```
 
 ### A proposal (`source: effect_proposal`)
@@ -190,11 +206,11 @@ what depends on them, are `dispatched`, `unknown` and `reconciled`.
 | You see | It means | Do |
 | --- | --- | --- |
 | `dispatched`, `abandoned: true` | the lease that dispatched it was replaced; the attempt may have been sent | Nothing by hand. A reconciler pass under the new lease records `unknown` (`abandoned_dispatch`) and asks the downstream by key; until a loop schedules that pass (not merged), it stays `dispatched` and keeps blocking its dependents |
-| `dispatched`, `abandoned: false` | the dispatcher's own attempt in flight, **or** its lease lapsed and nobody has taken over yet | Read `lease` in the same response: `expired: true` means failover has not completed, go to [Owner crash](#owner-crash-and-failover). Otherwise wait |
+| `dispatched`, `abandoned: false` | the dispatcher's own attempt in flight, **or** its lease lapsed and nobody has taken over yet | Read `lease` in the same response: `expired: true` means failover has not completed, go to [Owner crash](#owner-crash-and-failover). Otherwise wait, but see the next paragraph if it does not clear |
 | `dispatched`, `abandoned: null` | no recorded token or no lease to compare | Treat as unknown; never abandon it by hand |
 | `unknown` | no recorded outcome (a timeout after the send, an ambiguous answer, an abandoned dispatch) | Wait for the reconciler or a verified callback. It is never sent again |
 | `reconciled` | the reconciler began settling it and has not finished | Wait; the next pass or the callback finishes it |
-| `committed` | a verified receipt exists | Nothing: the effect happened once |
+| `committed` | a verified receipt exists | Do not repeat it. (The platform makes at most one local claim per effect and verifies a receipt; it does not promise exactly-once delivery by the downstream) |
 | `failed` | a definitive rejection, not sent, or proven absence | Final. A new run is a new effect |
 
 **How an unknown effect gets settled.** Only the owner's reconciler asks, by the original logical key, through the
@@ -206,8 +222,15 @@ project. What comes back:
 | a stored request that is this proposal's effect | verified receipt, `committed` |
 | 404 from a connector that proves absence final | `failed` (`absence_proven`) |
 | 404 from any other connector (document-request included) | still `unknown`: **delayed visibility** or a request still in flight |
-| 5xx, 401, an unreadable body, another request under the key | still `unknown` (`unverified`) |
+| 5xx, 401 or any other status | still `unknown` (detail `http_<code>`) |
+| a 2xx whose body is not this proposal's effect (unreadable, or another request under the key) | still `unknown`, reported `unverified` |
 | cannot be reached, or no binding for the connector and project | still `unknown` (`lookup_failed`, `not_bound`) |
+
+**A `dispatched` row that does not clear.** A row that is old, with `abandoned: false` and `lease.expired: false`, is
+dispatched under the lease the owner still holds. The reconciler never abandons such a row (it is the dispatcher's own
+attempt), so if the dispatcher's settle failed while it kept its lease, waiting does not clear it until the lease turns
+over (#997). Do **not** resend. Capture the row (`proposal_id`, `logical_key`, `owner_id`, `dispatch_token`, `dispatched_at`)
+and the lease, ask the downstream by key, and escalate.
 
 **When to wait, and for how long.** An `unknown` that survives a pass is not an error: a request that is still in flight, or a
 read that does not yet see its own write, looks exactly like a request that never arrived. Wait while the downstream's own
@@ -222,8 +245,10 @@ commit it, with the downstream counting one mutation throughout.
 - Ask the connector to **redeliver its receipt callback** (see [Callback and webhook redelivery](#callback-and-webhook-redelivery)).
   The platform asks the downstream itself before it records anything, so a callback can only confirm what the downstream
   confirms. This is today's way to settle an `unknown` proposal, since no loop schedules the reconciler.
-- If you are an engineer holding the lease, call `reconcile_pass` with it (see the example in
-  [Reconciler](reference-profile.md#reconciler-only-the-owner-asks-about-unknown-and-abandoned-effects-b055b-742)).
+- Nothing else. No operator procedure runs the reconciler today (#997): `reconcile_pass` is called only by code inside the
+  owner process that holds the lease (see
+  [Reconciler](reference-profile.md#reconciler-only-the-owner-asks-about-unknown-and-abandoned-effects-b055b-742)). Do not
+  acquire the lease yourself to call it.
 
 **What is never safe.** Re-sending the request; creating the same effect from a new run; editing the proposal row;
 deleting it; moving it with SQL. There is no operator action that fails an `unknown` proposal without the downstream's
@@ -279,8 +304,10 @@ the same thing again.
      is a design question for the workflow owner, not a button.
    - effect `failed` with proof (or legacy `retry`): a retry is safe with respect to this effect.
    - effect still `unknown`: do not retry. A retry would ask for the effect again.
-4. A run that lease recovery requeued is run again by the loops, meets its own ledger claim and ends `failed` there; it
-   does not need a manual retry and a manual retry does not help it.
+4. A run that lease recovery requeued runs again from the beginning. If an effect it claimed is still `in_progress` (or a
+   proposal of it is open), it ends `failed` at that node; it needs no manual retry, and a manual retry does not help it
+   (that is a new run, see above). Read its `workflow.run.recovered` event (`GET /caliber/workflow-runs/{run_id}/events`)
+   and apply step 3 before anything else.
 
 **Never.** Retry the run "to see whether it works now" while its effect is open.
 
@@ -329,10 +356,18 @@ caused them, then delivered by `OutboxPublisher`, an owner-only loop. Delivery i
 `(consumer, event_id)`. Read the depth with the query above, or from Python:
 
 ```python
+import os
+
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+
 from caliber.events.outbox import outbox_depth
 
-with session_factory() as session:
-    print(outbox_depth(session))  # {"pending": ..., "delivered": ..., "dead": ..., "oldest_pending": ...}
+factory = sessionmaker(create_engine(os.environ["CALIBER_DATABASE_URL"]))
+with factory() as session:
+    # {"pending": ..., "delivered": ..., "dead": ..., "oldest_pending": ...}: the last is the creation time of the
+    # oldest row that is still pending, the lag of the slowest undelivered event
+    print(outbox_depth(session))
 ```
 
 | You see | Cause | Do |
@@ -360,17 +395,25 @@ Nothing redelivers a dead letter by itself, and a replay is a new send: do it on
 
 ## A run refused for its pins or its rule bundle
 
-A run admitted in the reference profile executes exactly what its manifest pinned, and fails closed with a named code
-when that is no longer true. These are explained, with every code and its recovery, in
-[Reference profile](reference-profile.md); the short version for the operator:
+A run admitted in the reference profile executes exactly what its manifest pinned, and fails closed when that is no longer
+true. Two different things happen, and they are told apart by where you see them. These are explained, with every code
+and its recovery, in [Reference profile](reference-profile.md); the short version for the operator.
 
-| Where | Code | Recovery |
-| --- | --- | --- |
-| admission, `409` | `bundle_unavailable` | compile and publish the version again |
-| admission, `409 manifest_refused` | `rule_bundle_refused` | restore the bundle file or update the pinned digest deliberately (path and digest together) |
-| run error | `pins_changed`, `pins_mismatch`, `model_route_changed` | the run stays failed; restore what changed or **submit a new run** |
-| run error | `context_denied` with `rule_bundle_changed` or `rule_bundle_unavailable` | the run stays failed even if you restore the file; resubmit |
-| run error | `authority_denied` (`grant_expired`, `grant_revoked`, `not_a_member`) | submit a new run as someone who may |
+**Refused at admission** (no run is created; the HTTP `409` body carries only a message, not a code, so match the message
+text):
+
+| The message | Recovery |
+| --- | --- |
+| "this workflow version has no sealed deployment bundle", "failed its integrity check", or "unresolved dependencies" (internally `bundle_unavailable`) | compile and publish the version again |
+| starts `rule_bundle_refused:` (internally a manifest refusal) | restore the bundle file or update the pinned digest deliberately (path and digest together) |
+
+**A run that ended `failed`** (the run has an error code and a summary):
+
+| The run's error code | Recovery |
+| --- | --- |
+| `pins_changed`, `pins_mismatch`, `model_route_changed` | the run stays failed; restore what changed or **submit a new run** |
+| `context_denied`, the summary naming `rule_bundle_changed` or `rule_bundle_unavailable` | the run stays failed even if you restore the file; resubmit |
+| `authority_denied` (`grant_expired`, `grant_revoked`, `not_a_member`) | submit a new run as someone who may |
 
 The same rule as for effects applies: a refused run is not resumed, and a new run is a new run. For a run that had an
 effect in doubt, settle the effect first ([A gated or failed run](#a-gated-or-failed-run)).
@@ -378,10 +421,21 @@ effect in doubt, settle the effect first ([A gated or failed run](#a-gated-or-fa
 ## After a restore
 
 Backup and restore are in [Backup and recovery](backup-and-recovery.md): back up the CALIBER database and the MLflow
-backend store together, run `caliber-migrate` against the restored database, then verify `/readiness` reports
-`ready: true` including the `schema` check. The effect, receipt, manifest and inbox tables live in the CALIBER database and
-are restored with it. This page documents no further restore procedure for them: do not hand-edit rows to reconcile them
-with the downstream; use the sections above.
+backend store together, restore the secret encryption key separately, run `caliber-migrate` against the restored database,
+then verify `/readiness` reports `ready: true` including the `schema` check, and run **Reconcile releases** on the
+Releases page. The effect, receipt, manifest, outbox and inbox tables live in the CALIBER database and are restored with
+it, back to the snapshot time. What that means for effects, which that page does not cover:
+
+1. Stop every replica before you restore.
+2. Start the restored deployment with `CALIBER_BACKGROUND_TASKS_ENABLED=false`: no loop runs and every replica is a
+   `secondary` (there is no lease to take), so nothing executes yet.
+3. Compare the downstream with the runs and effects created after the snapshot time. An effect made after that point has no
+   ledger or proposal row in the restored database, and a restored `queued` or `running` run will perform it again. The
+   restored lease row and every `dispatch_token` are from snapshot time too, so a restored token can be lower than tokens
+   issued after it.
+4. Only when that comparison is done, enable background tasks again.
+
+Do not hand-edit rows to reconcile them with the downstream; use the sections above.
 
 ## Related
 

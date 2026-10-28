@@ -192,10 +192,30 @@ def test_recovery_rows_are_complete_and_agree_with_the_inventory() -> None:
         expected = "yes" if by_class[loop.strip("`")].ownership == "owner_only" else "no"
         assert owner_only == expected, f"{loop}: owner-only? disagrees with worker_inventory()"
         assert dies and resumes
-        tables = re.findall(r"`([a-z_]+)`", proof)
+        tables = [t for t in re.findall(r"`([a-z_]+)`", proof) if t != "reap_stale_job"]
         assert tables, f"{loop}: the last cell names no table"
-        unknown = [t for t in tables if t not in known_tables and t != "reap_stale_job"]
+        unknown = [t for t in tables if t not in known_tables]
         assert not unknown, f"{loop}: not tables of caliber.db.models: {unknown}"
+        declared = {
+            getattr(models, name).__tablename__ for name in by_class[loop.strip("`")].tables
+        }
+        assert declared & set(tables), (
+            f"{loop}: the last cell names none of the tables the inventory declares for it: {sorted(declared)}"
+        )
+
+
+_COUNT_WORDS = {"ten": 10, "eleven": 11, "twelve": 12, "thirteen": 13}
+
+
+@pytest.mark.skipif(not ADR_PATH.is_file(), reason="docs/ is not part of this installation")
+def test_adr_prose_counts_match_the_inventory() -> None:
+    """The words ADR 0002 uses for the number of loops ("the eleven loops") follow the inventory."""
+    adr = ADR_PATH.read_text(encoding="utf-8")
+    found = re.findall(
+        r"\b(ten|eleven|twelve|thirteen) (?:background )?(?:loops|workers)\b", adr, flags=re.I
+    )
+    assert found, "ADR 0002 no longer states how many loops there are"
+    assert {_COUNT_WORDS[word.lower()] for word in found} == {len(worker_inventory())}
 
 
 def test_recovery_rows_parser_stops_at_the_next_heading() -> None:
