@@ -712,13 +712,22 @@ the inbox for events from outside; `caliber_event_inbox` above is the end of our
   `lock_timeout`), then reports `duplicate` if it committed or takes over if it rolled back. On SQLite a concurrent
   duplicate fails at once with a lock error and the retry is a `duplicate`.
 
-  ```python
-  with session_factory() as session:
-      result = process_once(session, consumer="documents", source="connector", event_id=delivery_id,
-                            payload_hash=payload_hash(body), apply=lambda: advance_run(session, body))
-      session.commit()
-  # result.outcome is "processed", "duplicate" or "ignored"; InboxPayloadMismatch means answer 409
-  ```
+```python
+from caliber.events.inbox import process_once
+from caliber.events.outbox import payload_hash
+
+with session_factory() as session:
+    result = process_once(
+        session,
+        consumer="documents",
+        source="connector",
+        event_id=delivery_id,
+        payload_hash=payload_hash(body),
+        apply=lambda: advance_run(session, body),
+    )
+    session.commit()
+# result.outcome is "processed", "duplicate" or "ignored"; InboxPayloadMismatch means answer 409
+```
 
 - **Limits.** This is at-most-once *application* per key, not exactly-once delivery: the sender may still send it many
   times, and each is acknowledged. `apply` must not commit or roll back the session (if it does, `InboxContractError` is raised; its writes may already
