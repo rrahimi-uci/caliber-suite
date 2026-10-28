@@ -7,10 +7,12 @@ Alembic. The concurrency cases are PostgreSQL's: SQLite serialises writers, so a
 from __future__ import annotations
 
 import dataclasses
+import enum
 import hashlib
 import json
 import threading
 from pathlib import Path
+from types import MappingProxyType
 from typing import Any
 
 import pytest
@@ -31,8 +33,10 @@ from caliber.effects.records import (
     CORRUPT,
     INTENT_ALGORITHM,
     INTENT_CONFLICT,
+    MAX_ARGS_DEPTH,
     MAX_INTENT_BYTES,
     RUN_NOT_FOUND,
+    STORE_FAILED,
     UNSUPPORTED_ALGORITHM,
     Intent,
     ProposalConflict,
@@ -63,6 +67,13 @@ def _seed_run(factory: Any, run_id: str = "RUN-ep") -> str:
         )
         session.commit()
     return run_id
+
+
+def _nested(depth: int) -> Any:
+    value: Any = 0
+    for _ in range(depth):
+        value = [value]
+    return value
 
 
 def _intent(**overrides: Any) -> Intent:
@@ -176,6 +187,15 @@ def test_a_null_expected_version_and_the_string_null_are_different_intents() -> 
         {"args": {"n": float("inf")}},
         {"args": {"o": object()}},
         {"args": {"s": "a\ud800b"}},
+        {"args": {"t": (1, 2)}},
+        {"args": {"outer": {1: "an integer key"}}},
+        {"args": {"outer": {None: "a null key"}}},
+        {"args": {"flag": enum.IntEnum("E", {"A": 1}).A}},
+        {"args": {"s": type("S", (str,), {})("x")}},
+        {"args": {"a": {1, 2}}},
+        {"args": {"a": b"bytes"}},
+        {"args": {"deep": _nested(MAX_ARGS_DEPTH + 1)}},
+        {"args": {"deep": _nested(100000)}},
         {"args": {"big": "x" * MAX_INTENT_BYTES}},
     ],
 )
@@ -183,6 +203,50 @@ def test_a_malformed_intent_is_refused(change: dict[str, Any]) -> None:
     with pytest.raises(ProposalError) as refused:
         _intent(**change)
     assert refused.value.code == BAD_FIELD
+
+
+def test_nesting_up_to_the_cap_is_accepted_and_a_read_only_mapping_is_a_json_object() -> None:
+    assert _intent(args={"deep": _nested(MAX_ARGS_DEPTH - 1)}).digest.startswith("sha256:")
+    proxied = _intent(args=MappingProxyType({"a": 1}))
+    assert proxied == _intent(args={"a": 1}) and hash(proxied) == hash(_intent(args={"a": 1}))
+    assert proxied != _intent(args={"a": 2}) and proxied != "not an intent"
+
+
+def test_values_of_different_python_types_never_share_a_digest() -> None:
+    """``intent-v1`` is exact about types: an int is not a float, a bool is not an int, and neither is a string."""
+    values = [1, 1.0, True, "1", [1], {"a": 1}, None, "null", 0, 0.0, -0.0, False, "", [], {}]
+    digests = {_intent(args={"v": value}).digest for value in values}
+    assert len(digests) == len(values)
+
+
+@pytest.mark.parametrize(
+    "args",
+    [
+        {"n": 7, "f": 1.5, "z": -0.0, "e": 1e22, "t": 5e-324, "i": 2**63, "neg": -(2**200)},
+        {
+            "big": 10**30,
+            "u": "naïve café ☕ \U0001f600",
+            "ctl": "tab\there\nnewline\u0085 nul\x00 done",
+        },
+        {
+            "nested": {"a": [1, [2, {"b": None}], True, False], "": "empty key"},
+            "empty": {},
+            "list": [],
+        },
+    ],
+)
+@pytest.mark.parametrize("dialect", DIALECTS)
+def test_arguments_round_trip_to_the_same_bytes_on_every_dialect(
+    dialect: str, args: dict[str, Any], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    with _database(dialect, tmp_path, monkeypatch) as (_, factory):
+        _seed_run(factory)
+        with factory() as session:
+            recorded = _record(session, args=args)
+            session.commit()
+        with factory() as session:
+            assert read_proposal(session, recorded.proposal_id)["args"] == args
+            assert _record(session, args=args).created is False
 
 
 def test_the_boundary_lengths_are_accepted() -> None:
@@ -428,11 +492,16 @@ def test_an_insert_that_fails_for_another_reason_than_the_key_is_an_error(
                 if not any(isinstance(pending, CaliberEffectProposal) for pending in session.new):
                     return real_flush(*args, **kwargs)
                 monkeypatch.setattr(session, "flush", real_flush)
-                raise IntegrityError("INSERT", {}, Exception("a constraint that is not the key"))
+                raise IntegrityError(
+                    "INSERT", {"args": "SECRET-ARGS"}, Exception("a constraint that is not the key")
+                )
 
             monkeypatch.setattr(session, "flush", failing)
-            with pytest.raises(IntegrityError, match="not the key"):
+            with pytest.raises(ProposalError) as failed:
                 _record(session)
+            assert failed.value.code == STORE_FAILED
+            assert "SECRET-ARGS" not in str(failed.value) and failed.value.__cause__ is None
+            assert failed.value.__suppress_context__, "the driver error is not chained"
         assert _count(factory, CaliberEffectProposal) == 0
 
 
@@ -627,6 +696,36 @@ def test_the_intent_columns_are_frozen_by_the_database(
                 {"p": recorded.proposal_id},
             )
         assert _count(factory, CaliberEffectProposal) == 1
+
+
+@pytest.mark.parametrize("dialect", DIALECTS)
+def test_every_column_but_state_is_frozen_by_the_database(
+    dialect: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Derived from the model, so a column added later is frozen unless this test is changed on purpose."""
+    new_values = {
+        "proposal_id": "'prop-other'",
+        "tenant_id": "'elsewhere'",
+        "created_at": "'2001-01-01 00:00:00'",
+        "intent_bytes": "'\\x01'::bytea" if dialect == "postgresql" else "x'01'",
+        "args": "'[]'::json" if dialect == "postgresql" else "'[]'",
+    }
+    columns = [c.name for c in CaliberEffectProposal.__table__.columns if c.name != "state"]
+    with _database(dialect, tmp_path, monkeypatch) as (engine, factory):
+        _seed_run(factory)
+        with factory() as session:
+            recorded = _record(session)
+            session.commit()
+        for column in columns:
+            value = new_values.get(column, "'changed'")
+            with pytest.raises(DBAPIError, match="immutable"), engine.begin() as connection:
+                connection.execute(
+                    text(
+                        f"UPDATE caliber_effect_proposals SET {column} = {value} WHERE proposal_id = :p"
+                    ),
+                    {"p": recorded.proposal_id},
+                )
+        assert read_proposal(factory(), recorded.proposal_id)["state"] == "proposed"
 
 
 @pytest.mark.parametrize("dialect", DIALECTS)

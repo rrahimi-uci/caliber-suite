@@ -768,9 +768,14 @@ dispatcher that does arrives with the rest of B05 (#705 onwards). What exists is
   proposal (`created=False`) for a retry and raises `ProposalConflict` (code `intent_conflict`; the calling route answers
   409) for a different intent; the stored intent stands and the error carries the key and both digests, never the arguments.
   A malformed field (blank, over-long or control-character-bearing text, non-JSON arguments, an unknown effect class, an
-  intent over 256 KiB) raises `ProposalError` with code `bad_field`; an unknown run, `run_not_found`.
+  intent over 256 KiB) raises `ProposalError` with code `bad_field`; an unknown run, `run_not_found`; a constraint failure that is not the key,
+  `store_failed` (without the driver's text, which would carry the arguments). `args` must be plain JSON of exact Python types
+  (string-keyed `dict`, `list`, `str`, `int`, finite `float`, `bool`, `None`, nested at most 64 deep) so two different Python values
+  never share a digest; the converse is not promised (`intent-v1` is not RFC 8785): `1` and `1.0`, or NFC and NFD spellings, are
+  different intents, and a retry that respells one gets a conflict, never a silent match.
 - **Immutable.** Database triggers refuse a change to any column but `state`, refuse `DELETE` (and `TRUNCATE` on PostgreSQL),
-  and the ORM refuses the same. `state` is recorded as `proposed`; its transition rules are B05.2 (#705). A workflow whose
+  and the ORM refuses the same. On SQLite (development) raw SQL can still bypass them with `INSERT OR REPLACE` or by deleting a
+  run with foreign keys off; PostgreSQL has no such path. `state` is recorded as `proposed`; its transition rules are B05.2 (#705). A workflow whose
   runs have proposals cannot be deleted (409, "immutable effect proposals"), and retention never prunes such a run.
 - **Reading is checked.** `read_proposal` rebuilds the ADR 0003 `proposal` v1 record (with the optional `occurrence_id`,
   `connector_version` and `intent_algorithm`) and recomputes the intent from the stored columns: an edited row is

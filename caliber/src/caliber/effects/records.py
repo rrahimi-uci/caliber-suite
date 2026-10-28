@@ -28,8 +28,10 @@ the dispatcher itself. ``state`` is recorded as ``proposed`` and nothing in this
 
 from __future__ import annotations
 
+import copy
 import hashlib
 import json
+import math
 import re
 import uuid
 from collections.abc import Mapping
@@ -55,8 +57,10 @@ RUN_NOT_FOUND: Final = "run_not_found"
 INTENT_CONFLICT: Final = "intent_conflict"
 CORRUPT: Final = "corrupt"
 UNSUPPORTED_ALGORITHM: Final = "unsupported_algorithm"
+STORE_FAILED: Final = "store_failed"
 
 MAX_INTENT_BYTES: Final = 256 * 1024
+MAX_ARGS_DEPTH: Final = 64
 #: No control characters, NUL or unpaired surrogates: ids reach the database and the digest as they are.
 _PRINTABLE: Final = re.compile(r"[^\x00-\x1f\x7f-\x9f\ud800-\udfff]+")
 _LIMITS: Final = {
@@ -110,12 +114,43 @@ def _text(name: str, value: object, *, nullable: bool = False) -> str | None:
     return value
 
 
-@dataclass(frozen=True)
+def _plain_json(value: object, depth: int = 0) -> Any:
+    """``value`` if it is plain JSON of exact Python types, else :class:`ProposalError`.
+
+    Exact types only, so two different Python values cannot share one canonical form: a tuple is not a list, an
+    integer key is not its string, a ``bool`` or ``str`` subclass is not the plain value. Nesting is capped so the
+    outcome does not depend on the interpreter's recursion limit.
+    """
+    if depth > MAX_ARGS_DEPTH:
+        raise ProposalError(BAD_FIELD, f"args nest deeper than {MAX_ARGS_DEPTH} levels")
+    kind = type(value)
+    if value is None or kind in (bool, str, int):
+        return value
+    if kind is float:
+        if not math.isfinite(value):  # type: ignore[arg-type]
+            raise ProposalError(BAD_FIELD, "args must be plain JSON (no NaN or Infinity)")
+        return value
+    if kind is list:
+        return [_plain_json(item, depth + 1) for item in value]  # type: ignore[attr-defined]
+    if kind is dict:
+        if any(type(key) is not str for key in value):  # type: ignore[attr-defined]
+            raise ProposalError(BAD_FIELD, "args object keys must be strings")
+        return {key: _plain_json(item, depth + 1) for key, item in value.items()}  # type: ignore[attr-defined]
+    raise ProposalError(
+        BAD_FIELD, "args must be plain JSON: objects, arrays, strings, numbers, booleans and null"
+    )
+
+
+@dataclass(frozen=True, eq=False)
 class Intent:
     """What exactly is to be done, in one canonical form; its digest is the ``intent_hash`` every consumer reuses.
 
     The canonical bytes are computed at construction, so a later change to the ``args`` mapping the caller passed in
-    cannot change what is recorded or digested.
+    cannot change what is recorded or digested. ``args`` must be plain JSON of exact Python types (``dict`` with string
+    keys, ``list``, ``str``, ``int``, finite ``float``, ``bool``, ``None``), so two different Python values never share
+    a digest. The converse is not promised: ``intent-v1`` is not RFC 8785, so ``1`` and ``1.0``, ``0.0`` and ``-0.0``,
+    and NFC and NFD spellings of a string are different intents (a retry that changes how it spells one gets a conflict,
+    never a silent match). Two intents are equal when their canonical bytes are.
     """
 
     connector: str
@@ -125,7 +160,14 @@ class Intent:
     args: Mapping[str, Any]
     expected_resource_version: str | None = None
     algorithm: str = field(default=INTENT_ALGORITHM, init=False)
-    canonical: bytes = field(init=False, repr=False, compare=False)
+    canonical: bytes = field(init=False, repr=False)
+    plain_args: dict[str, Any] = field(init=False, repr=False)
+
+    def __eq__(self, other: object) -> bool:
+        return isinstance(other, Intent) and self.canonical == other.canonical
+
+    def __hash__(self) -> int:
+        return hash(self.canonical)
 
     def __post_init__(self) -> None:
         _text("connector", self.connector)
@@ -136,8 +178,9 @@ class Intent:
             raise ProposalError(
                 BAD_FIELD, f"effect_class must be one of {', '.join(EFFECT_CLASSES)}"
             )
-        if not isinstance(self.args, Mapping) or not all(isinstance(key, str) for key in self.args):
+        if not isinstance(self.args, Mapping):
             raise ProposalError(BAD_FIELD, "args must be a JSON object")
+        args = _plain_json(dict(self.args))
         try:
             data = canonical_bytes(
                 {
@@ -145,17 +188,17 @@ class Intent:
                     "connector": {"name": self.connector, "version": self.connector_version},
                     "effect_class": self.effect_class,
                     "target": {"resource": self.resource},
-                    "args": self.args,
+                    "args": args,
                     "expected_resource_version": self.expected_resource_version,
                 }
             )
-        except (TypeError, ValueError) as exc:
-            raise ProposalError(
-                BAD_FIELD, "args must be plain JSON (no NaN, no non-JSON types)"
-            ) from exc
+            plain = json.loads(data)["args"]
+        except (TypeError, ValueError, RecursionError) as exc:
+            raise ProposalError(BAD_FIELD, "args must be plain JSON") from exc
         if len(data) > MAX_INTENT_BYTES:
             raise ProposalError(BAD_FIELD, f"the intent exceeds {MAX_INTENT_BYTES} bytes")
         object.__setattr__(self, "canonical", data)
+        object.__setattr__(self, "plain_args", plain)
 
     @property
     def digest(self) -> str:
@@ -242,7 +285,7 @@ def record_proposal(
         connector_version=intent.connector_version,
         effect_class=intent.effect_class,
         resource=intent.resource,
-        args=json.loads(intent.canonical)["args"],
+        args=copy.deepcopy(intent.plain_args),
         expected_resource_version=intent.expected_resource_version,
         intent_algorithm=intent.algorithm,
         intent_bytes=intent.canonical,
@@ -257,7 +300,9 @@ def record_proposal(
         # the caller must see: reporting it as an existing proposal would acknowledge an effect nobody recorded.
         winner = _by_key(session, key, refresh=True)
         if winner is None:
-            raise
+            # Not the key: a constraint the caller cannot fix by retrying. The driver's error text carries the
+            # statement's parameters (the arguments), so it is not passed on.
+            raise ProposalError(STORE_FAILED, "the proposal could not be stored") from None
         return _same_or_conflict(winner, intent)
     return RecordedProposal(row.proposal_id, key, row.intent_hash, row.state, created=True)
 
@@ -331,7 +376,7 @@ def read_proposal(session: Session, proposal_id: str) -> dict[str, Any]:
         "intent_hash": row.intent_hash,
         "effect_class": row.effect_class,
         "target": {"connector": row.connector, "resource": row.resource},
-        "args": json.loads(rebuilt.canonical)["args"],
+        "args": copy.deepcopy(rebuilt.plain_args),
         "expected_resource_version": row.expected_resource_version,
         "state": row.state,
         "tenant_id": row.tenant_id,
@@ -349,9 +394,11 @@ __all__ = [
     "CORRUPT",
     "INTENT_ALGORITHM",
     "INTENT_CONFLICT",
+    "MAX_ARGS_DEPTH",
     "MAX_INTENT_BYTES",
     "PROPOSED",
     "RUN_NOT_FOUND",
+    "STORE_FAILED",
     "UNSUPPORTED_ALGORITHM",
     "Intent",
     "ProposalConflict",

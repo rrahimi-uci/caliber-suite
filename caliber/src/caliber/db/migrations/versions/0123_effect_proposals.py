@@ -6,7 +6,9 @@
 stored as canonical JSON (``intent_bytes``) with its algorithm version and its ``sha256:`` digest (on PostgreSQL a CHECK
 pins the digest to the bytes), and is immutable: a BEFORE UPDATE trigger refuses a change to any column but ``state``
 (SQLite and PostgreSQL), a BEFORE DELETE trigger refuses deletion, and PostgreSQL adds a BEFORE TRUNCATE trigger (the
-trigger functions are pinned to the migration's schema with ``pg_temp`` last in ``search_path``). ``state`` is the only
+trigger functions are pinned to the migration's schema with ``pg_temp`` last in ``search_path``). On SQLite (the development
+dialect) the triggers refuse UPDATE and DELETE statements, but ``INSERT OR REPLACE`` and unenforced foreign keys can still be
+used from raw SQL; the ORM guard covers the supported paths. ``state`` is the only
 column that may change; the transition rules arrive with B05.2 (#705). Nothing writes the table until a dispatcher does.
 Downgrade drops the table and the functions and loses the proposals (it never runs where they matter).
 
