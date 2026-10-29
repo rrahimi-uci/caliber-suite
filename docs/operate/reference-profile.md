@@ -1490,8 +1490,8 @@ configured one and the total); enforcing a budget on a provider call is B08. Leg
 A protected effect is approved by a person, and the approval has to say *what* it approves. `create_approval_request`
 (`caliber/src/caliber/workflows/approval_requests.py`) records a `pending` row in `caliber_runtime_approval_requests` that is bound to one
 effect proposal and to what the approver is shown (ADR 0003 `approval_request`; migration `0127`). It runs in the caller's transaction and
-never commits. **The route does not decide such a request yet** (see "Not wired yet" below): this is the recorded question, not yet an
-answerable approval.
+never commits. **The route does not decide a live such request yet** (see "Not wired yet" below): this is the recorded question, not yet an
+answerable approval. A request has a lifetime and is replaced by a newer one for the same step (see "Expiry" and "Supersession", B06.2, #712).
 
 - **What is bound.** `proposal_id`, the proposal's full `intent_hash` (`sha256:` and 64 hex digits, the digest every consumer reuses),
   its `expected_resource_version` (the downstream version the approval is valid for, or `NULL`), the `evidence_hash` of what the approver
@@ -1511,28 +1511,60 @@ answerable approval.
   not an integer from 1 to 31 536 000, or a `now` the expiry cannot be computed from (a date at the end of year 9999, not a datetime) is
   `bad_field`, and the message names the field. The one-year ceiling is a policy choice (a request open longer is a caller's mistake), not
   a configuration value or a storage limit.
-- **Locking.** The proposal row is read `FOR UPDATE` (a no-op on SQLite, whose write transaction is exclusive). Creators for one proposal
-  serialize, and so do they against the proposal's own state transition: a proposal moving to `approved` either commits before the creator
-  reads it (the creator refuses) or waits for the creator's transaction. Two creators for one `proposed` proposal both succeed, one after the
-  other, and leave two `pending` rows: there is deliberately no unique index, and replacing the older request by the newer (`superseded_by`)
-  is B06.2, which should take the same lock in the transaction that supersedes. The lock lasts until the caller commits or rolls back.
+- **Expiry (B06.2, #712).** `expires_at = requested_at + ttl_seconds`. The ttl is the caller's argument; a deployment's default is
+  `CALIBER_APPROVAL_TTL_SECONDS` (`approval_ttl_seconds`, default 86400, 1 to 31 536 000), which the caller reads with
+  `configured_ttl_seconds(config)`. A change affects only requests created afterwards. Expiry is **computed, never stored**: nothing sweeps a
+  request into an `expired` status, so a request that expires stays `pending` (or `approved`) in the list, and refusing it writes nothing.
+  The rule is `approval_refusal(status=, superseded_by=, expires_at=, now=)` (`approval_policy.py`, database-free). **The clock is the
+  application's** (`datetime.now(timezone.utc)`, the same clock that wrote `expires_at`), not the database's: one request is never judged by
+  two clocks, and a test can fix it. The window is half open, `[requested_at, expires_at)`: **at `expires_at` itself the request is already
+  expired**, so it is never usable one tick longer than its ttl (one microsecond earlier it is not). Servers that share a database need
+  synchronized clocks, as for every other deadline here; a clock that runs behind lets a request live that long past its expiry. A request with no `expires_at` (a legacy,
+  node-level one) never expires.
+- **Supersession (B06.2, #712).** In the transaction that inserts a request, every other *live* bound request for the same
+  `(workflow_run_id, node_id)` becomes `status = "superseded"` with `superseded_by` set to the new request's id: a request that is `pending`,
+  or `approved` and not yet consumed (`consumed_at` unset), whether it names the same proposal or a later one of the node (a changed intent or
+  version). It is atomic with the new request: if the caller rolls back, the older one is live again. **Left alone:** a request for another
+  node or another run, a legacy request (it binds no intent a change could void), a rejected one, a consumed one, and one already superseded
+  (its `superseded_by` is never rewritten, so superseded requests form a chain). Only `status` and `superseded_by` move; the binding the
+  approver saw and any decision already recorded stay on the row, unusable. The requests a call replaced are those whose `superseded_by` is the
+  returned request's id. The newer request is the one whose creator took the run lock later (commit order), not the one with the later
+  `requested_at`.
+- **Refusal codes** (`reason_code` of the 409; the vocabulary of `docs/architecture/approval-ux-contract.md`, which replaces the `approval_expired` and
+  `approval_superseded` the plan named). `superseded` when the request was replaced (`status` is `superseded` or `superseded_by` is set), `expired`
+  when the clock is at or past `expires_at`. Superseded is reported first, so a replaced request that is also expired says it was replaced
+  (the current request is the thing to decide).
+- **Locking.** Creators take the *run* row, then the proposal row, both `FOR UPDATE` (a no-op on SQLite, whose write transaction is
+  exclusive), in that order. The run lock is what makes supersession safe: creators for different proposals of one node lock different
+  proposal rows, so without it each would read the other's request as absent and leave two live ones. Creators for one proposal and the
+  proposal's own state transition serialize on the proposal row: a proposal moving to `approved` either commits before the creator reads
+  it (the creator refuses) or waits for the creator's transaction. The requests being superseded are read `FOR UPDATE`, predicate included, so
+  a decider or a consumer that holds one finishes first and a request it consumed is not overwritten. Whatever decides or consumes a request
+  must lock *that request's row* `FOR UPDATE` and re-run `approval_refusal` on what it read before writing (taking the run row first if it
+  takes both). All locks last until the caller commits or rolls back, so a caller keeps its transaction short; the run lock also briefly
+  holds up other writers of that run's row.
 - **The binding is a database fact.** A row is either legacy (every binding column `NULL`) or fully bound, never half-bound in either
   direction (`ck_runtime_approval_bound`); the three hash and digest columns are exactly 71 characters (`ck_runtime_approval_digest_length`);
   and a BEFORE UPDATE trigger (SQLite and PostgreSQL) refuses any change to `proposal_id`, `intent_hash`, `evidence_hash`, `policy_digest`,
   `expected_resource_version`, `expires_at` and `requested_by`: a request cannot be re-bound to another intent, nor a legacy row bound after
   the fact. `status`, the decision columns, `policy_snapshot`, `superseded_by` and `consumed_at` still move. PostgreSQL also enforces
   the proposal foreign key (SQLite does not enforce foreign keys in this repository).
-- **Not wired yet.** The decision routes refuse to decide a request that has a `proposal_id`: `409` with `reason_code`
-  `approval_bound_not_wired` and a message that carries no id, hash or requester, for both approve and reject, and nothing is written. The
-  default selection (no `runtime_approval_id`) ignores bound rows, so a legacy node-level request is never shadowed by a newer bound one. The
-  list endpoint still shows bound rows. Until B06.2 (expiry and supersession) and B06.3 (recheck at commit) replace this refusal, an expired
-  or superseded request is not refused either, because it cannot be decided at all. Known gaps for B06.3: the route's separation-of-duties
-  check compares the approver with `run.created_by`, not with the bound `requested_by`; and it must also check that the proposal's run is
-  still active before an approval is consumed.
+- **Not wired yet.** The decision routes (`approve` and `reject`) never decide a request that has a `proposal_id`; they answer `409` with a
+  `reason_code` and a static message that carries no id, hash or requester, and write nothing: `superseded` or `expired`
+  (B06.2, above), and for a request that is live, `approval_bound_not_wired`. **This task does not lift that last refusal; the recheck at commit
+  (B06.3, #718) does**, because only there are the exact intent, the evidence and policy pins, the downstream version and the approving
+  principal's authority re-verified (and #735 then moves consumption into the dispatcher's claim). Deciding a live bound request earlier would
+  record an approval nothing re-checked. The default selection (no `runtime_approval_id`) ignores bound rows, so a legacy node-level request is
+  never shadowed by a newer bound one. The list endpoint still shows bound rows (with their `status`; it does not yet expose `expires_at` or
+  `superseded_by`, which the approvals UI, #743, adds). Known gaps for B06.3: the route's separation-of-duties check compares the approver with
+  `run.created_by`, not with the bound `requested_by`; it must also check that the proposal's run is still active before an approval is consumed;
+  and a request that expires is not turned into a proposal state (the proposal stays `proposed`, so ask again).
 - **Legacy rows stay valid.** A node-level approval that guards no proposal keeps `NULL` in every new column and is decided exactly as before.
 - **Migration.** `0127` adds nine nullable columns, a foreign key, two checks, an index and the trigger (on PostgreSQL a function pinned to
   the schema); no backfill. Downgrade drops the trigger and function, the checks, the index and the columns; a legacy request is untouched and a
-  bound one is lost. It needs `0126` (B05.5b) to be applied first.
+  bound one is lost. It needs `0126` (B05.5b) to be applied first. **B06.2 adds no migration:** `expires_at`, `superseded_by` and `consumed_at` are
+  already in `0127` (the trigger lets `status` and `superseded_by` move), so there is no schema change, rollback or deployment step beyond the
+  new optional setting `CALIBER_APPROVAL_TTL_SECONDS`.
 - **Distinct actors.** The separation-of-duties rule of `record_approval` is now `assert_distinct_actor(actor, initiated_by, *, allow_self)`
   (`approval_policy.py`): it raises `ApprovalPolicyError` ("the account that triggered this run cannot approve it; a second person must decide
   ...") when the actor is the initiator, unless `allow_self` (`CALIBER_APPROVAL_ALLOW_SELF_APPROVAL`) is set; an unknown initiator is not
@@ -1560,12 +1592,50 @@ except ApprovalRequestError as refused:
 session.commit()  # the caller owns the transaction; the proposal row stays locked until then
 ```
 
-Deciding such a request through the API today:
+Deciding such a request through the API today (the same three answers for `approve` and `reject`; none of them writes anything):
 
 ```text
 POST /ajax-api/2.0/mlflow/caliber/workflow-runs/{run_id}/approval/approve   {"runtime_approval_id": "<bound request>"}
+
+# replaced by a newer request for the step (B06.2). Recovery: decide the current request of the step; list the run's approvals and take the
+# newest one that is `pending`.
+409 {"detail": "this approval request was replaced by a newer request and can no longer be decided; decide the current request for this step",
+     "status_code": 409, "reason_code": "superseded"}
+
+# at or past expires_at (B06.2). Recovery: ask for a new approval of the step (create a new request, which also replaces this one); the
+# proposal is unchanged and still `proposed`.
+409 {"detail": "this approval request has expired and can no longer be decided; ask for a new approval of the step",
+     "status_code": 409, "reason_code": "expired"}
+
+# live and not yet decidable here (until B06.3).
 409 {"detail": "this approval request is bound to an effect proposal and cannot be decided here yet: exact-intent approval is not wired",
      "status_code": 409, "reason_code": "approval_bound_not_wired"}
+```
+
+Creating a replacement, with the deployment's window:
+
+```python
+from caliber.workflows.approval_requests import configured_ttl_seconds, create_approval_request
+
+request = create_approval_request(
+    session,
+    proposal=changed_proposal,  # a later proposal of the same node; the older live request becomes superseded
+    policy=node_policy,
+    evidence_hash=evidence_digest,
+    requested_by="editor_a",
+    ttl_seconds=configured_ttl_seconds(config),  # CALIBER_APPROVAL_TTL_SECONDS, default 86400
+)
+session.commit()  # the older request's status and superseded_by are written in the same transaction
+```
+
+For the recheck at commit (B06.3) and the dispatcher's consumption (B06.4), the rule is one function:
+
+```python
+from caliber.workflows.approval_policy import approval_refusal
+
+code = approval_refusal(
+    status=row.status, superseded_by=row.superseded_by, expires_at=row.expires_at, now=datetime.now(timezone.utc)
+)  # "superseded", "expired" or None; call it on the row read FOR UPDATE, in the transaction that acts on it
 ```
 
 ## Agent steps: a request, a result, and no effects (B08.1a, #713)
