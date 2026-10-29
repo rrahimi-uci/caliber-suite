@@ -67,11 +67,12 @@ if job.awaits_human:
 > routes (releases and their operations) answer 404 with `reason_code: feature_disabled`. Importing,
 > revisions and Change Requests are not behind the flag.
 
-> **Experimental in the alpha.** Nothing in this build executes Workspace release evaluations, so an
-> evaluation you start stays `queued`. The API, SDK and `caliberctl workspace` are complete and tested, but
-> a Workspace release does not govern anything yet. The release path that works end to end is Apply and
-> Rollback on a prompt. The same applies to the release-candidate signoff on the Releases page and
-> `caliberctl release sign`: they record a decision and deploy or roll back nothing.
+> **Experimental in the alpha.** Workspace release evaluation is now executed by the opt-in owner-only worker when
+> `CALIBER_FEATURE_RELEASE_CANDIDATES=true` and `CALIBER_WORKSPACE_RELEASE_EVALUATOR_ENABLED=true`. The worker
+> evaluates only the release revision's pinned candidate, dataset, judge and configuration; missing or changed pins
+> block the release. The evaluator does not yet reclaim an expired attempt (B10.4), and first-class evidence rows and
+> verdicts arrive in B10.3. The release-candidate signoff on the Releases page and `caliberctl release sign` remain
+> record-only and deploy or roll back nothing.
 
 A Workspace revision moves from reviewed to live only through explicit,
 typed governance steps: open a Change Request, evaluate the release against

@@ -12,7 +12,7 @@ golden_cases:
     expected: {status: technically_approved}
   - id: release-queued
     call: "POST /projects/{id}/releases/{rid}/evaluate"
-    expected: {release_status: evaluating, evaluation_status: queued, note: "stays queued -- no executor in the alpha, and the claim-only evaluator is off by default"}
+    expected: {release_status: evaluating, evaluation_status: queued, note: "stays queued because this lab leaves the evaluator off; enabled execution requires complete digest-matching pins"}
 edge_cases:
   - id: unsupported-pin
     call: "snapshot with resource_type knowledge_base"

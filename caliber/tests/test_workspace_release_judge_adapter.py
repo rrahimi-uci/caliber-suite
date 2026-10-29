@@ -129,6 +129,30 @@ def test_resolve_rejects_a_version_ref_other_than_current(db_session: Session) -
         )
 
 
+def test_resolve_accepts_a_content_digest_and_rejects_drift(db_session: Session) -> None:
+    _seed_project(db_session)
+    judge = _seed_judge(db_session, judge_id="JDG-digest", project_id=PROJECT_ID, owner="@caller")
+    digest = _content_sha256(judge.name, judge.instructions, judge.model, judge.feedback_value_type)
+    identity = _identity("@caller", active_project_id=PROJECT_ID)
+    resolved = ADAPTER.resolve(
+        db_session,
+        None,
+        {"resource_id": judge.judge_id, "version_ref": digest},
+        identity,
+    )
+    assert resolved.judge_id == judge.judge_id
+
+    judge.instructions = "changed grading instructions"
+    db_session.flush()
+    with pytest.raises(WorkspaceReleaseAdapterError, match="content no longer matches"):
+        ADAPTER.resolve(
+            db_session,
+            None,
+            {"resource_id": judge.judge_id, "version_ref": digest},
+            identity,
+        )
+
+
 def test_resolve_raises_when_the_judge_does_not_exist(db_session: Session) -> None:
     with pytest.raises(WorkspaceReleaseAdapterError, match="not found"):
         ADAPTER.resolve(

@@ -24,4 +24,4 @@ success_criteria:
   - A snapshot returns a managed, ready revision; the identical request returns the identical revision; a changed pin makes a new one.
   - The diff between two revisions names exactly the changed pin.
   - The change request reaches technically_approved through a second person, and accept refuses with qa_go_decision_required.
-  - The release reaches evaluating with its evaluation queued, and stays there; signoff and apply refuse with the documented reasons.
+  - The release reaches evaluating with its evaluation queued while the evaluator flag is off; signoff and apply refuse with the documented reasons.

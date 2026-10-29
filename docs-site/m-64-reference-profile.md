@@ -1955,17 +1955,17 @@ means the action cannot be done by a run (use the human-approval path or a perso
 policy lacks a risk for the action and must be extended; `subject_mismatch` and `workload_mismatch` are always a bug
 or an attack: fix the caller.
 
-## Release evaluation: the evaluator claims queued attempts (B10.1, #701)
+## Release evaluation: the evaluator executes queued attempts (B10.2, #707)
 
 `POST /projects/{project_id}/releases/{release_id}/evaluate` queues one `caliber_workspace_release_evaluations` row
 (`queued`) per attempt. `WorkspaceReleaseEvaluator` (`caliber/src/caliber/orchestrator/workspace_release_evaluator.py`)
 is the owner-only loop that picks them up. It reuses the service's own queue and lease
 (`claim_workspace_release_evaluation`); there is no second queue.
 
-> **Do not enable it in a deployment until B10.2 (#707) lands.** It only *claims*. Nothing runs the evaluation, nothing
-> finishes it, and nothing acts when its claim lease lapses (reclaiming an expired attempt is B10.4, #721). A claimed
-> attempt therefore stays `running`, its release stays `evaluating`, and every later `evaluate` call answers
-> `409 release already has an active evaluation attempt`, until the row is given back (below).
+> It is still opt-in. With the feature and worker flags enabled, the evaluator claims a row, resolves the release's
+> own immutable revision pins, runs the configured EvalProvider, and completes the attempt. It does not reclaim an
+> expired attempt yet (B10.4, #721); a live evaluation therefore remains protected by its lease until that recovery
+> slice lands.
 
 - **One claim per tick, oldest first.** Every `CALIBER_WORKSPACE_RELEASE_EVALUATOR_INTERVAL_SECONDS` (default 5, from 0.5
   to 3600) it claims the `queued` row with the oldest `requested_at` (ties by id). The row becomes `running` with
@@ -1977,6 +1977,18 @@ is the owner-only loop that picks them up. It reuses the service's own queue and
   outside the reference profile). That is how the token is kept without a migration: an attempt claimed by owner 1 reads
   `...:t1`, one claimed after a takeover `...:t2`. B10.4 (#721) must pass this identity, not the bare worker id, to the
   service's heartbeat and complete (it is the `worker_id` of `ClaimedEvaluation`), and may read the token back from the row.
+- **Pinned execution.** Before the provider call the worker loads only the release's `revision_id` and its
+  `CaliberWorkspaceRevisionResource` rows. It requires one `candidate`, one `evaluation` dataset, and one `evaluation`
+  judge pin; optional `baseline` pins are also revision-local. Each registered adapter resolves and snapshots its
+  exact resource again, and a changed resource digest, missing adapter, missing pin, provider mismatch, or digest
+  mismatch blocks the release without calling the provider. The request carries the exact dataset version and judge
+  configuration; it never follows an unrelated workflow/run manifest or a mutable alias.
+- **Result provenance and settlement.** The provider result records a SHA-256 evidence digest containing the plan and
+  input digests, candidate/baseline scores, example count, thresholds, and `provider`/`simulated` provenance. A score
+  below the pinned aggregate threshold becomes `no_go`; an unavailable plan/provider or invalid result becomes a
+  retryable `blocked` outcome. Completion uses the same release lock version captured before provider work, so a
+  concurrent transition cannot be overwritten. B10.3 (#714) adds first-class evidence rows and verdict records; this
+  result digest is the B10.2 completion anchor.
 - **Owner-only and fenced.** It runs only in the process holding the execution-owner lease (see above), and in the
   reference profile each claim is made in a transaction that first runs `assert_fenced` with the exact lease the owner
   captured. A process whose lease was taken over, expired or cannot be checked claims nothing and records nothing; the
@@ -1986,11 +1998,12 @@ is the owner-only loop that picks them up. It reuses the service's own queue and
   (`FOR UPDATE SKIP LOCKED` on PostgreSQL and a conditional `UPDATE ... WHERE status = 'queued'`); the loser claims
   nothing that tick and the next tick takes the next row.
 - **Opt-in, and dormant while the feature is off.** The evaluator is built only when
-  `CALIBER_FEATURE_RELEASE_CANDIDATES=true` *and* `CALIBER_WORKSPACE_RELEASE_EVALUATOR_ENABLED=true` (default **false**
-  until B10.2 executes the plan). Setting the second without the first logs a warning at startup and does nothing; with
+  `CALIBER_FEATURE_RELEASE_CANDIDATES=true` *and* `CALIBER_WORKSPACE_RELEASE_EVALUATOR_ENABLED=true` (default **false**).
+  Setting the second without the first logs a warning at startup and does nothing; with
   the feature off the release routes keep answering `404 feature_disabled`. When it does start it logs a WARNING that
-  attempts are claimed but not executed, and a WARNING for every claim. `CALIBER_BACKGROUND_TASKS_ENABLED=false` stops it
-  like every loop.
+  the worker is enabled and an INFO for each completed evaluation. `CALIBER_BACKGROUND_TASKS_ENABLED=false` stops it like
+  every loop. A manually constructed worker without its provider and adapter registry is claim-only test/dry-run mode;
+  the server always supplies both dependencies.
 - **A clean stop gives the claims back.** On shutdown or when the lease is lost the controller stops the loops;
   `stop()` then sets this process's own still-`running` claims back to `queued` and clears `claimed_by`, `started_by`,
   `started_at`, `heartbeat_at` and `lease_expires_at` (the attempt number is kept) in one compare-and-set statement on
@@ -2007,9 +2020,8 @@ is the owner-only loop that picks them up. It reuses the service's own queue and
 stop grace ends is abandoned (a thread cannot be cancelled) and can claim a row after the requeue. A queued row whose
 claim keeps failing with an unexpected error is retried first on every tick, so it holds up the rows behind it.
 
-**Recovering stranded rows** (a crashed or killed process, or an expired stop grace, left an attempt `running` that nothing
-will finish). List them, then give them back; this is safe **only while B10.2 (#707) is not merged**, because after it a
-`running` row may be a live evaluation:
+**Recovering stranded rows** (a crashed or killed process, or an expired stop grace, left an attempt `running`). List
+them, then give them back only after confirming `lease_expires_at` is in the past; B10.4 will make this automatic:
 
 ```sql
 SELECT evaluation_id, workspace_release_id, claimed_by, lease_expires_at
@@ -2023,8 +2035,8 @@ WHERE status = 'running' AND claimed_by LIKE 'workspace-release-evaluator-%';
 ```
 
 **Rollback.** Unset `CALIBER_WORKSPACE_RELEASE_EVALUATOR_ENABLED` (or set it false) and restart: a clean stop of the old
-process requeues its claims, and a new process claims nothing. If the old process did not stop cleanly, run the recovery
-SQL above, otherwise those releases keep answering 409. There is no migration and nothing else to undo.
+process requeues its claims, and a new process claims nothing. If the old process did not stop cleanly, recover only
+expired rows with the SQL above. There is no migration and nothing else to undo.
 ## Reserved tool names and refused paths (#641)
 
 The protected-effect inventory (`docs/architecture/protected-effect-paths.md`) classifies a built-in tool by its
