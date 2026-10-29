@@ -169,6 +169,14 @@ _WORKER_NOTES: dict[str, WorkerNote] = {
         ),
         ownership="owner_only",
     ),
+    "WorkspaceReleaseEvaluator": WorkerNote(
+        description=(
+            "Claims queued Workspace release evaluations, oldest first, fenced by the "
+            "execution-owner lease; resolving and running the plan arrives with B10.2."
+        ),
+        tables=("CaliberWorkspaceReleaseEvaluation", "CaliberWorkerHeartbeat"),
+        ownership="owner_only",
+    ),
 }
 
 
@@ -301,6 +309,7 @@ _WORKER_MODULE_NAMES = (
     "caliber.orchestrator.scheduler",
     "caliber.orchestrator.janitor",
     "caliber.orchestrator.release_reconciler",
+    "caliber.orchestrator.workspace_release_evaluator",
     "caliber.orchestrator.calibration_drain",
     "caliber.events.webhooks",
     "caliber.events.outbox",
