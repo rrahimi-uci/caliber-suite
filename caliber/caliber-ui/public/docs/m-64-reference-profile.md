@@ -89,9 +89,11 @@ free-form durable memory (B12 memory, #667). The `/memory` API and the in-run me
   partition keys in `metadata` (`MemoryLifecycleUnavailableError`). It does not itself check that an `agent_id` or
   `user_id` belongs to the caller: the route and the in-run tool binding do that and are the only callers.
 
-The development profile keeps the previous behaviour. **Known limitation:** the installed mem0 2.x rejects entity ids
-passed as top-level search/list arguments, which the service does today (also in development); until that is
-fixed (tracked separately) search and list through the memory service return an error.
+The development profile keeps the previous behaviour. The service uses mem0 2.x's supported scope contract for
+search and list: entity identifiers are passed in the `filters` mapping, not as top-level arguments. `add` and
+`delete_all` retain mem0's entity-keyword API, while `list_entities` already passes its scope as `filters`. This
+keeps the installed mem0 release and the service wrapper on the same boundary without changing the reference
+profile's ownership or lifecycle refusals.
 
 ## Trace payload visibility in review surfaces
 
