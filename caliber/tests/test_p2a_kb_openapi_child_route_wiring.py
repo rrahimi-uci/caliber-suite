@@ -539,6 +539,25 @@ def test_calibrate_knowledge_base_denies_a_project_viewer(
     assert resp.status_code == 403, resp.text
 
 
+def test_calibrate_knowledge_base_reference_profile_refuses_before_retrieval(
+    client: TestClient, db_session: Session
+) -> None:
+    _seed_project(db_session)
+    _add_member(db_session, "@editor-user", ROLE_EDITOR)
+    _grant_operator(client, "@editor-user")
+    _seed_kb(db_session, kb_id="KB-p2a-reference-calibrate")
+    client.app.state.config = client.app.state.config.model_copy(update={"profile": "reference"})
+
+    resp = client.post(
+        CALIBRATE_PATH.replace("{knowledge_base_id}", "KB-p2a-reference-calibrate"),
+        json={"version_id": "dummy-version", "eval_dataset_id": "dummy-dataset"},
+        headers=EDITOR_HEADERS,
+    )
+
+    assert resp.status_code == 409, resp.text
+    assert "governed_run_required" in resp.text
+
+
 @mock_aws
 def test_calibrate_knowledge_base_allows_a_project_editor(
     client: TestClient,

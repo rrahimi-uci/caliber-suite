@@ -20,6 +20,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from caliber.auth import SCOPE_VIEWER, CaliberIdentity
 from caliber.config import CaliberConfig
+from caliber.context.authorize import GOVERNED_RUN_REQUIRED, ContextDenied
 from caliber.workflows import promoter
 from caliber.workflows.promoter import PublishError, build_knowledge_runtime_runners
 
@@ -609,3 +610,84 @@ def test_build_defaults_config_and_actor_to_identity(
     # create_version records (knowledge_base_id, actor).
     assert create_call[1][1] == "@runner"
     assert out["status"] == "completed"
+
+
+def test_reference_profile_query_refuses_before_retrieval(
+    db_session: Session,
+    session_factory: sessionmaker[Session],
+    install_fake_service: Any,
+) -> None:
+    fake = install_fake_service()
+    query, _build = build_knowledge_runtime_runners(
+        db_session,
+        identity=_identity(),
+        config=CaliberConfig(profile="reference"),
+        session_factory=session_factory,
+        require_source_guard=True,
+    )
+
+    with pytest.raises(ContextDenied) as error:
+        query({"version_ids": ["KBV-foreign"], "question": "secret?"})
+
+    assert error.value.code == GOVERNED_RUN_REQUIRED
+    assert "admitted workflow run" in str(error.value)
+    assert not any(name == "query" for name, _args in fake.last().calls)
+
+
+def test_reference_profile_query_authorizes_each_version_before_retrieval(
+    db_session: Session,
+    session_factory: sessionmaker[Session],
+    install_fake_service: Any,
+) -> None:
+    fake = install_fake_service()
+    guarded: list[str] = []
+
+    def source_guard(version_id: str) -> None:
+        guarded.append(version_id)
+
+    query, _build = build_knowledge_runtime_runners(
+        db_session,
+        identity=_identity(),
+        config=CaliberConfig(profile="reference"),
+        session_factory=session_factory,
+        source_guard=source_guard,
+        require_source_guard=True,
+    )
+
+    result = query(
+        {
+            "version_ids": ["KBV-1", "KBV-1", "KBV-2"],
+            "question": "approved?",
+        }
+    )
+
+    assert guarded == ["KBV-1", "KBV-2"]
+    assert result["answer"] == "ok"
+    assert [name for name, _args in fake.last().calls] == ["query"]
+
+
+def test_reference_profile_build_refuses_before_version_creation(
+    db_session: Session,
+    session_factory: sessionmaker[Session],
+    install_fake_service: Any,
+) -> None:
+    fake = install_fake_service()
+    _query, build = build_knowledge_runtime_runners(
+        db_session,
+        identity=_identity(),
+        config=CaliberConfig(profile="reference"),
+        session_factory=session_factory,
+        require_source_guard=True,
+    )
+
+    with pytest.raises(ContextDenied) as error:
+        build(
+            {
+                "knowledge_base_id": "KB-1",
+                "chunking_strategy": "recursive",
+                "embedding_model": "m",
+            }
+        )
+
+    assert error.value.code == GOVERNED_RUN_REQUIRED
+    assert not any(name == "create_version" for name, _args in fake.last().calls)

@@ -1368,9 +1368,32 @@ required (resubmit it). A grant holds at most 256 resources, so a run with 256 o
 (`grant_refused`). The check is point-in-time: a withdrawal landing between the guard and the query does not stop that
 one read. Outputs a run already produced (replayed on a resume from a checkpoint) are not re-authorized. Each version
 queried costs one decision and one audit row (a query naming several versions authorizes each before any is read).
-Legacy runs have no guard. **Not covered, tracked in #973:** preview runs, evaluations, deploy gates, refinement and
-calibration, the assistant's knowledge tools, runtime export and `knowledge_build` nodes still read knowledge-base
-bytes without this check.
+
+### Knowledge reads outside an admitted run (B07.6, #973)
+
+The reference profile has one governed knowledge-read path. An admitted workflow run supplies the typed run principal,
+its immutable manifest and its exact grant; the worker passes a `SourceGuard` to every knowledge-query node, including
+child workflows. The guard records an explicit `context.read` decision for each exact knowledge-base version before the
+retrieval service is called. Foreign projects, revoked memberships or grants, withdrawn approvals, and versions not in
+the grant therefore fail closed without a retrieval call.
+
+Other paths do not have a run-bound principal and cannot turn a manifest override or an ambient project-visible identity
+into authority. In `CALIBER_PROFILE=reference` they refuse before loading knowledge bytes:
+
+| surface | reference-profile behavior | required principal/authorization |
+| --- | --- | --- |
+| preview, including assistant draft preview | `governed_run_required` | an admitted workflow run; preview is not a run and has no `context.read` grant |
+| evaluations and deploy gates | `governed_run_required` | an admitted workflow run; offline replay is not an authorization boundary |
+| refinement and calibration | `governed_run_required` | an admitted workflow run; the stage/job identity alone is insufficient |
+| assistant `query_knowledge_base` | `governed_run_required` | an admitted workflow run, not the assistant's project visibility |
+| direct `POST /knowledge/query` | `governed_run_required` | an admitted workflow run, not the caller's project visibility |
+| exported runtime query and child-workflow query | the default runtime uses the caller-supplied admitted-run `SourceGuard`; unwrapped custom callbacks return `governed_run_required` | the exact run principal, manifest, grant and `context.read` decision |
+| `knowledge_build` workflow nodes | `governed_run_required` | no current workflow-node contract authorizes the source bytes used to build a new version |
+
+The refusal is raised before the retrieval or build service is reached. Development and legacy profiles retain their
+historical behavior; that compatibility is not a reference-profile authorization guarantee. Knowledge-base listing,
+metadata, build and version-management APIs remain resource-scoped operations; this matrix covers operations that load
+knowledge content for retrieval or workflow execution.
 
 ## The context manifest
 

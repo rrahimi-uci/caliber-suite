@@ -104,7 +104,7 @@ Open and visible; none blocks D2's exit criteria, each is owned by an issue.
 | issue | what is not covered |
 | --- | --- |
 | #968 | The console cannot start runs in the reference profile until the Run and Trigger actions can name a release and environment. |
-| #973 | Knowledge-base reads outside an admitted run (preview, evaluations, gates, refinement, assistant, export, `knowledge_build`) are not guarded by `context.read`. |
+| #973 | **Resolved on the next Beta candidate, pending its PR/CI/merge:** reference-profile preview, evaluations, gates, refinement/calibration, assistant reads, direct `/knowledge/query`, export, child-workflow reads and `knowledge_build` now either use the admitted run's `SourceGuard` or refuse before the knowledge service is reached. |
 | #976 | The context manifest records the step's initial context only: session memory is recorded as history without a memory authorization, manifests are not linked to the step, tool specifications and tool-loop results are not recorded, a registry prompt is resolved twice, retrieved text that passes through another node loses its provenance, a resumed run that replays a recorded knowledge-query output is refused, and other model calls (query answer synthesis, guardrail judges) are not recorded. |
 | #960 | Trace payloads in review-queue items and example-from-trace are not governed. |
 | #978 | `test_s3_log_handler_does_not_log_about_its_own_delivery_at_debug` depends on the environment (see above). |

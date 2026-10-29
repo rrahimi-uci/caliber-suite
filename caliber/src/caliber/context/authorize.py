@@ -48,17 +48,22 @@ IDENTITY_MISMATCH: Final = "identity_mismatch"
 MANIFEST_INVALID: Final = "manifest_invalid"
 AUTHORITY_DENIED: Final = "authority_denied"
 SOURCE_NOT_APPROVED: Final = "source_not_approved"
+GOVERNED_RUN_REQUIRED: Final = "governed_run_required"
 _MESSAGE: Final = "this run may not read that context source"
+_GOVERNED_RUN_MESSAGE: Final = "this knowledge operation requires an admitted workflow run"
 
 
 class ContextDenied(PermissionError):  # noqa: N818 - a refusal, named for what it says
     """The run may not read the source; nothing was loaded. ``code`` is stable, ``reasons`` the policy's."""
 
     def __init__(
-        self, code: str, reasons: tuple[str, ...] = (), *, message: str = _MESSAGE
+        self, code: str, reasons: tuple[str, ...] = (), *, message: str | None = None
     ) -> None:
+        resolved_message = (
+            _GOVERNED_RUN_MESSAGE if code == GOVERNED_RUN_REQUIRED else message or _MESSAGE
+        )
         detail = f" ({', '.join(reasons)})" if reasons else ""
-        super().__init__(f"{code}{detail}: {message}")
+        super().__init__(f"{code}{detail}: {resolved_message}")
         self.code = code
         self.reasons = reasons
 
@@ -226,6 +231,7 @@ def source_guard_for(
 __all__ = [
     "AUTHORITY_DENIED",
     "CONTEXT_READ",
+    "GOVERNED_RUN_REQUIRED",
     "IDENTITY_MISMATCH",
     "MANIFEST_INVALID",
     "SOURCE_NOT_APPROVED",

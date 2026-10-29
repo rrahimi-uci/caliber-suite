@@ -279,7 +279,12 @@ def _build_workflow_predict(
             )
     try:
         resolved_config = config or CaliberConfig()
-        plan = build_plan(session, version, config=resolved_config)
+        plan = build_plan(
+            session,
+            version,
+            config=resolved_config,
+            require_source_guard=resolved_config.profile == "reference",
+        )
         executor = build_executor(resolved_config, ir=plan.ir)
         workflow = session.get(CaliberWorkflow, version.workflow_id)
         managed_snapshots = [

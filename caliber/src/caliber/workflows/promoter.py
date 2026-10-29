@@ -40,6 +40,7 @@ from caliber.audit import get_redactor
 from caliber.audit import record as audit_record
 from caliber.auth import SCOPE_VIEWER, CaliberIdentity
 from caliber.config import CaliberConfig
+from caliber.context.authorize import GOVERNED_RUN_REQUIRED, ContextDenied
 from caliber.db.models import (
     CaliberAgentConfig,
     CaliberEffectProposal,
@@ -492,6 +493,8 @@ def build_knowledge_runtime_runners(  # noqa: PLR0915 - wires several runtime he
     config: CaliberConfig | None = None,
     session_factory: sessionmaker[Session] | None = None,
     actor: str | None = None,
+    source_guard: Callable[[str], None] | None = None,
+    require_source_guard: bool = False,
 ) -> tuple[
     Callable[[dict[str, Any]], dict[str, Any]],
     Callable[[dict[str, Any]], dict[str, Any]],
@@ -535,6 +538,8 @@ def build_knowledge_runtime_runners(  # noqa: PLR0915 - wires several runtime he
         return [mode]
 
     def _run_knowledge_query(payload: dict[str, Any]) -> dict[str, Any]:
+        if require_source_guard and source_guard is None:
+            raise ContextDenied(GOVERNED_RUN_REQUIRED)
         raw = dict(payload)
         version_ids = [
             str(item).strip() for item in list(raw.get("version_ids") or []) if str(item).strip()
@@ -552,6 +557,9 @@ def build_knowledge_runtime_runners(  # noqa: PLR0915 - wires several runtime he
             raise PublishError(
                 "knowledge_query node requires at least one version_id or knowledge_base_id"
             )
+        if source_guard is not None:
+            for version_id in dict.fromkeys(version_ids):
+                source_guard(version_id)
         raw_retrieval_modes = _normalize_retrieval_modes(raw.get("retrieval_modes"))
         retrieval_modes = (
             _resolve_default_retrieval_modes(resolved_version_ids=version_ids)
@@ -581,6 +589,8 @@ def build_knowledge_runtime_runners(  # noqa: PLR0915 - wires several runtime he
         return result
 
     def _run_knowledge_build(payload: dict[str, Any]) -> dict[str, Any]:
+        if require_source_guard:
+            raise ContextDenied(GOVERNED_RUN_REQUIRED)
         raw = dict(payload)
         knowledge_base_id = str(raw.get("knowledge_base_id") or "").strip()
         if not knowledge_base_id:
@@ -843,6 +853,7 @@ def build_plan(  # noqa: PLR0915 - central workflow plan assembler
     session_factory: sessionmaker[Session] | None = None,
     pinned_bundle: dict[str, Any] | None = None,
     source_guard: Callable[[str], None] | None = None,
+    require_source_guard: bool = False,
     context_recorder: Callable[[AgentContextAssembly], None] | None = None,
 ) -> RuntimePlan:
     """Compile and wrap a version into an executable :class:`RuntimePlan`.
@@ -854,6 +865,10 @@ def build_plan(  # noqa: PLR0915 - central workflow plan assembler
     ``source_guard`` (B07.2) is called with each knowledge-base ``version_id`` a knowledge query is about to read,
     *before* the retrieval service is touched, and raises to refuse (the node then fails and nothing was loaded). It is
     passed down to child workflows. The worker supplies it for admitted runs in the reference profile.
+
+    ``require_source_guard`` is set by reference-profile callers that do not have an admitted run identity. Such
+    callers fail closed before a knowledge query or build can reach the knowledge service. Development/legacy
+    callers keep their historical behavior when this flag is false.
 
     ``context_recorder`` (B07.3b) is called with each agent step's context before the provider sees any of it and
     raises to refuse the step; it is passed down to child workflows. The worker supplies it with ``source_guard``.
@@ -1053,6 +1068,7 @@ def build_plan(  # noqa: PLR0915 - central workflow plan assembler
             config=config,
             session_factory=runtime_session_factory,
             source_guard=source_guard,
+            require_source_guard=require_source_guard,
             context_recorder=context_recorder,
         )
         run_ctx = current_run_context()
@@ -1076,6 +1092,8 @@ def build_plan(  # noqa: PLR0915 - central workflow plan assembler
         }
 
     def _run_knowledge_query(payload: dict[str, Any]) -> dict[str, Any]:
+        if require_source_guard and source_guard is None:
+            raise ContextDenied(GOVERNED_RUN_REQUIRED)
         raw = dict(payload)
         version_ids = [
             str(item).strip() for item in list(raw.get("version_ids") or []) if str(item).strip()
@@ -1130,6 +1148,8 @@ def build_plan(  # noqa: PLR0915 - central workflow plan assembler
         return result
 
     def _run_knowledge_build(payload: dict[str, Any]) -> dict[str, Any]:
+        if require_source_guard:
+            raise ContextDenied(GOVERNED_RUN_REQUIRED)
         raw = dict(payload)
         knowledge_base_id = str(raw.get("knowledge_base_id") or "").strip()
         if not knowledge_base_id:
@@ -1331,6 +1351,7 @@ def run_preview(
         version,
         manifest_override=manifest_override,
         config=resolved_config,
+        require_source_guard=resolved_config.profile == "reference",
     )
     executor = build_executor(resolved_config, ir=plan.ir)
     workflow = session.get(CaliberWorkflow, version.workflow_id)
@@ -1769,6 +1790,8 @@ def evaluate_deploy_gates(
     knowledge_query_runner, knowledge_build_runner = build_knowledge_runtime_runners(
         session,
         identity=workflow_identity,
+        config=resolved_config,
+        require_source_guard=resolved_config.profile == "reference",
     )
     workflow = session.get(CaliberWorkflow, manifest.workflow_id)
     managed_snapshots = [
@@ -2067,7 +2090,10 @@ def _baseline_overall(
         )
         workflow_identity = build_workflow_identity(session, workflow_id)
         knowledge_query_runner, knowledge_build_runner = build_knowledge_runtime_runners(
-            session, identity=workflow_identity
+            session,
+            identity=workflow_identity,
+            config=config,
+            require_source_guard=getattr(config, "profile", "") == "reference",
         )
         workflow = session.get(CaliberWorkflow, workflow_id)
         baseline_snapshots = [
