@@ -253,7 +253,9 @@ class MemoryService:
         """Semantic-search memories in the given scope."""
         scope = _scope(agent_id, user_id, run_id)
         self._require_owned(scope)
-        return self._memory.search(query, top_k=top_k, **scope)
+        # mem0 2.x accepts entity identifiers through ``filters`` only.  Passing
+        # them as top-level kwargs is rejected before the vector-store call.
+        return self._memory.search(query, top_k=top_k, filters=scope)
 
     def get_all(
         self,
@@ -266,7 +268,8 @@ class MemoryService:
         """List memories in the given scope."""
         scope = _scope(agent_id, user_id, run_id)
         self._require_owned(scope)
-        return self._memory.get_all(top_k=top_k, **scope)
+        # Keep the same mem0 2.x filter contract as ``search``.
+        return self._memory.get_all(top_k=top_k, filters=scope)
 
     def list_entities(
         self,

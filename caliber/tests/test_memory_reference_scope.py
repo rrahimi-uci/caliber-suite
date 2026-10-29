@@ -133,7 +133,10 @@ def test_a_visible_agent_is_usable_and_the_partition_reaches_mem0_unchanged(
     resp = reference_client.post(SEARCH, json={"query": "q", "agent_id": "AG-mine"}, headers=OTHER)
     assert resp.status_code == 200
     assert mem0.calls == [
-        ("search", {"query": "q", "top_k": 10, "agent_id": "AG-mine", "user_id": "@notadmin"})
+        (
+            "search",
+            {"query": "q", "top_k": 10, "filters": {"agent_id": "AG-mine", "user_id": "@notadmin"}},
+        )
     ], "the caller's own memory within the agent: user_id is added server-side"
 
 
@@ -188,7 +191,10 @@ def test_a_run_id_must_be_a_visible_run(
     assert mem0.calls == [
         (
             "get_all",
-            {"top_k": 50, "agent_id": "AG-mine", "run_id": "RUN-mine", "user_id": "@notadmin"},
+            {
+                "top_k": 50,
+                "filters": {"agent_id": "AG-mine", "run_id": "RUN-mine", "user_id": "@notadmin"},
+            },
         )
     ]
 
@@ -210,7 +216,7 @@ def test_a_request_that_names_no_partition_acts_on_the_callers_own(
     assert reference_client.get(BASE, headers=OTHER).status_code == 200
     written = reference_client.post(BASE, json={"text": "remember", "infer": False})
     assert written.status_code == 201
-    assert [(name, call["user_id"]) for name, call in mem0.calls] == [
+    assert [(name, call.get("filters", call)["user_id"]) for name, call in mem0.calls] == [
         ("search", "@notadmin"),
         ("get_all", "@notadmin"),
         ("add", "@test"),
@@ -241,7 +247,7 @@ def test_the_bare_user_namespace_is_qualified_by_the_active_project(
             SEARCH, json={"query": "q"}, headers={**OTHER, "X-CALIBER-Project": project}
         )
         assert resp.status_code == 200, resp.text
-    reached = [call["user_id"] for name, call in mem0.calls if name == "search"]
+    reached = [call["filters"]["user_id"] for name, call in mem0.calls if name == "search"]
     assert reached == ["P-a:@notadmin", "P-b:@notadmin"]
 
 
@@ -290,7 +296,7 @@ def test_top_k_is_capped_in_the_reference_profile(
 ) -> None:
     assert reference_client.post(SEARCH, json={"query": "q", "top_k": 10**9}).status_code == 200
     assert reference_client.get(BASE, params={"top_k": "999999"}).status_code == 200
-    assert [call["top_k"] for _, call in mem0.calls] == [100, 100]
+    assert [call.get("top_k") for _, call in mem0.calls] == [100, 100]
 
 
 def test_user_id_must_be_the_callers_own_even_for_an_admin(
@@ -305,7 +311,7 @@ def test_user_id_must_be_the_callers_own_even_for_an_admin(
     assert stranger.status_code == 404 and stranger.json()["detail"] == NOT_FOUND
     own = reference_client.post(SEARCH, json={"query": "q", "user_id": "@notadmin"}, headers=OTHER)
     assert own.status_code == 200
-    assert mem0.calls[-1][1]["user_id"] == "@notadmin"
+    assert mem0.calls[-1][1]["filters"]["user_id"] == "@notadmin"
     assert len(mem0.calls) == 1
 
 
