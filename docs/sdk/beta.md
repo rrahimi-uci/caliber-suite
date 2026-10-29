@@ -84,9 +84,9 @@ if job.awaits_human:
 > **Experimental in the alpha.** Workspace release evaluation is now executed by the opt-in owner-only worker when
 > `CALIBER_FEATURE_RELEASE_CANDIDATES=true` and `CALIBER_WORKSPACE_RELEASE_EVALUATOR_ENABLED=true`. The worker
 > evaluates only the release revision's pinned candidate, dataset, judge and configuration; missing or changed pins
-> block the release. The evaluator does not yet reclaim an expired attempt (B10.4), and first-class evidence rows and
-> verdicts arrive in B10.3. The release-candidate signoff on the Releases page and `caliberctl release sign` remain
-> record-only and deploy or roll back nothing.
+> block the release. Successful and no-go evaluations persist the exact per-example gate evidence and recomputable
+> digest (B10.3); expired-attempt recovery remains B10.4. The release-candidate signoff on the Releases page and
+> `caliberctl release sign` remain record-only and deploy or roll back nothing.
 
 A Workspace revision moves from reviewed to live only through explicit,
 typed governance steps: open a Change Request, evaluate the release against

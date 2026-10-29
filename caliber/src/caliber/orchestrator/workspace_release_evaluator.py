@@ -43,7 +43,6 @@ Errors carry identifiers and exception classes, never row content.
 from __future__ import annotations
 
 import asyncio
-import hashlib
 import logging
 import math
 import time
@@ -57,6 +56,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from caliber.auth import CaliberIdentity
 from caliber.db.models import CaliberWorkspaceRelease, CaliberWorkspaceReleaseEvaluation
+from caliber.eval.evidence import build_release_gate_evidence
 from caliber.eval.provider import EvalComparison, EvalProvider
 from caliber.observability.trace import bind_trace_id
 from caliber.observability.worker_registry import (
@@ -68,7 +68,6 @@ from caliber.observability.worker_registry import (
     stale_after_seconds,
 )
 from caliber.ownership import Lease, LeaseLost, assert_fenced
-from caliber.workflows.manifest import canonical_json
 from caliber.workspace_release_adapters import WorkspaceResourceAdapterRegistry
 from caliber.workspace_release_evaluation_plan import (
     WorkspaceReleaseEvaluationPlan,
@@ -329,7 +328,7 @@ class WorkspaceReleaseEvaluator:
         assert self._eval_provider is not None
         try:
             comparison = self._eval_provider.evaluate(plan.request)
-            result, evidence_sha256 = self._gate_result(plan, comparison, claim)
+            result, evidence_sha256, gate_evidence = self._gate_result(plan, comparison, claim)
         except Exception as exc:
             self._complete_blocked(
                 claim,
@@ -342,6 +341,7 @@ class WorkspaceReleaseEvaluator:
             expected_lock_version=expected_lock_version,
             result=result,
             evidence_sha256=evidence_sha256,
+            gate_evidence=gate_evidence,
         )
 
     def _gate_result(
@@ -349,7 +349,7 @@ class WorkspaceReleaseEvaluator:
         plan: WorkspaceReleaseEvaluationPlan,
         comparison: EvalComparison,
         claim: ClaimedEvaluation,
-    ) -> tuple[str, str]:
+    ) -> tuple[str, str, dict[str, Any]]:
         if comparison.eval_dataset_id != plan.request.eval_dataset_id or comparison.n_examples < 1:
             raise ValueError("provider returned an invalid pinned dataset result")
         overall = float(comparison.candidate.overall)
@@ -366,17 +366,19 @@ class WorkspaceReleaseEvaluator:
         passes = overall >= plan.min_aggregate_score
         if plan.min_aggregate_delta is not None:
             passes = passes and delta is not None and delta >= plan.min_aggregate_delta
-        evidence = {
-            "schema": "workspace-release-evaluation-result/v1",
-            "evaluation_id": claim.evaluation_id,
-            "plan_sha256": plan.plan_digest,
-            "input_sha256": plan.input_digest,
-            "provider": plan.provider_info,
-            "candidate": {
+        gate_evidence, evidence_sha256 = build_release_gate_evidence(
+            scored_rows=comparison.evidence_rows,
+            dataset_id=plan.request.eval_dataset_id,
+            dataset_version=plan.request.eval_dataset_version,
+            plan_sha256=plan.plan_digest,
+            input_sha256=plan.input_digest,
+            evaluation_id=claim.evaluation_id,
+            provider=plan.provider_info,
+            candidate={
                 "overall": overall,
                 "dimensions": dict(comparison.candidate.dimensions),
             },
-            "baseline": (
+            baseline=(
                 {
                     "overall": comparison.baseline.overall,
                     "dimensions": dict(comparison.baseline.dimensions),
@@ -384,16 +386,13 @@ class WorkspaceReleaseEvaluator:
                 if comparison.baseline is not None
                 else None
             ),
-            "deltas": dict(comparison.deltas),
-            "n_examples": comparison.n_examples,
-            "min_aggregate_score": plan.min_aggregate_score,
-            "min_aggregate_delta": plan.min_aggregate_delta,
-            "result": "pass" if passes else "no_go",
-        }
-        return (
-            "pass" if passes else "no_go",
-            hashlib.sha256(canonical_json(evidence).encode("utf-8")).hexdigest(),
+            deltas=comparison.deltas,
+            n_examples=comparison.n_examples,
+            min_aggregate_score=plan.min_aggregate_score,
+            min_aggregate_delta=plan.min_aggregate_delta,
+            result="pass" if passes else "no_go",
         )
+        return "pass" if passes else "no_go", evidence_sha256, gate_evidence
 
     def _complete_blocked(
         self,
@@ -424,6 +423,7 @@ class WorkspaceReleaseEvaluator:
         expected_lock_version: int,
         result: str,
         evidence_sha256: str | None = None,
+        gate_evidence: dict[str, Any] | None = None,
         error_code: str | None = None,
         error_summary: str | None = None,
     ) -> None:
@@ -444,6 +444,7 @@ class WorkspaceReleaseEvaluator:
                     result=result,  # type: ignore[arg-type]
                     expected_release_lock_version=expected_lock_version,
                     evidence_sha256=evidence_sha256,
+                    gate_evidence=gate_evidence,
                     error_code=error_code,
                     error_summary=error_summary,
                 )

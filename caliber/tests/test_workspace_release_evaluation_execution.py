@@ -22,6 +22,7 @@ from caliber.db.models import (
     CaliberWorkspaceRevision,
     CaliberWorkspaceRevisionResource,
 )
+from caliber.eval.evidence import build_release_gate_evidence
 from caliber.eval.fake import FakeEvalProvider
 from caliber.eval.provider import EvalComparison, ScoreSet
 from caliber.orchestrator import workspace_release_evaluator as evaluator_module
@@ -294,6 +295,46 @@ def test_uses_pinned_digests_and_completes_the_release(tmp_path: Any) -> None:
         assert release.evaluation_evidence_sha256 and len(release.evaluation_evidence_sha256) == 64
 
 
+def test_gate_digest_persisted(tmp_path: Any) -> None:
+    """The persisted release digest is reproducible from stored evidence rows."""
+    factory = _factory(tmp_path)
+    registry, provider = _seed(factory)
+    worker = WorkspaceReleaseEvaluator(
+        factory,
+        SimpleNamespace(workspace_release_evaluator_lease_seconds=300, execution_lease_seconds=30),
+        eval_provider=provider,
+        adapter_registry=registry,
+    )
+    claimed = worker.tick()
+    assert claimed is not None
+    with factory() as session:
+        evaluation = session.get(CaliberWorkspaceReleaseEvaluation, claimed.evaluation_id)
+        release = session.get(CaliberWorkspaceRelease, claimed.workspace_release_id)
+        assert evaluation is not None and release is not None
+        stored = evaluation.gate_evidence
+        assert stored is not None
+        _, recomputed = build_release_gate_evidence(
+            scored_rows=stored["results"]["rows"],
+            dataset_id=stored["dataset"]["id"],
+            dataset_version=stored["dataset"]["version"],
+            plan_sha256=stored["plan_sha256"],
+            input_sha256=stored["input_sha256"],
+            evaluation_id=stored["evaluation_id"],
+            provider=stored["provider"],
+            candidate=stored["candidate"],
+            baseline=stored["baseline"],
+            deltas=stored["deltas"],
+            n_examples=stored["results"]["n_examples"],
+            min_aggregate_score=stored["gate"]["min_aggregate_score"],
+            min_aggregate_delta=stored["gate"]["min_aggregate_delta"],
+            result=stored["gate"]["result"],
+        )
+        assert recomputed == release.evaluation_evidence_sha256
+        assert stored["results"]["scorer_denominators"] == {
+            "Judge.pinned": {"valid_rows": 3, "weight_sum": 3.0}
+        }
+
+
 def test_digest_mismatch_blocks_without_calling_provider(tmp_path: Any) -> None:
     factory = _factory(tmp_path)
     registry, provider = _seed(factory)
@@ -318,6 +359,35 @@ def test_digest_mismatch_blocks_without_calling_provider(tmp_path: Any) -> None:
         assert evaluation.status == EVALUATION_FAILED
         assert evaluation.error_code == "evaluation_input_digest_mismatch"
         assert release.status == "blocked"
+
+
+def test_missing_gate_rows_block_without_fabricated_evidence(tmp_path: Any) -> None:
+    factory = _factory(tmp_path)
+    registry, provider = _seed(factory)
+    provider.eval_callable = lambda request: EvalComparison(
+        candidate=ScoreSet(overall=0.95, dimensions={"Judge.pinned": 0.95}),
+        baseline=None,
+        eval_dataset_id=request.eval_dataset_id,
+        n_examples=1,
+    )
+    worker = WorkspaceReleaseEvaluator(
+        factory,
+        SimpleNamespace(workspace_release_evaluator_lease_seconds=300, execution_lease_seconds=30),
+        eval_provider=provider,
+        adapter_registry=registry,
+    )
+
+    claimed = worker.tick()
+    assert claimed is not None
+    with factory() as session:
+        evaluation = session.get(CaliberWorkspaceReleaseEvaluation, claimed.evaluation_id)
+        release = session.get(CaliberWorkspaceRelease, claimed.workspace_release_id)
+        assert evaluation is not None and release is not None
+        assert evaluation.status == EVALUATION_FAILED
+        assert evaluation.error_code == "evaluation_execution_failed"
+        assert evaluation.gate_evidence is None
+        assert release.status == "blocked"
+        assert release.evaluation_evidence_sha256 is None
 
 
 def _plan_rows(
@@ -690,17 +760,28 @@ def test_worker_fences_execution_completion_and_gate_failure_paths(
             claim,
         )
     delta_plan = replace(plan, min_aggregate_delta=0.05)
-    result, evidence = worker._gate_result(
+    result, evidence, gate_evidence = worker._gate_result(
         delta_plan,
         EvalComparison(
             candidate=ScoreSet(overall=0.9),
             baseline=ScoreSet(overall=0.8),
             eval_dataset_id=plan.request.eval_dataset_id,
             n_examples=1,
+            evidence_rows=(
+                {
+                    "example_id": "delta-1",
+                    "input": {"q": "q"},
+                    "expected": {"a": "a"},
+                    "scores": {"Judge.pinned": 0.9},
+                    "score": 0.9,
+                    "passed": True,
+                },
+            ),
         ),
         claim,
     )
     assert result == "pass" and len(evidence) == 64
+    assert gate_evidence["results"]["n_examples"] == 1
 
     missing_plan, missing_lock, missing_error = worker._prepare_claim(claim)
     assert missing_plan is None and missing_lock is None and missing_error is not None
