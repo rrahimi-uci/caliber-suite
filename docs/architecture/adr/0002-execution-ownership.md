@@ -9,7 +9,7 @@ Accepted, 2026-10-26. Cites ADR 0001 (the reference profile) and `docs/architect
 
 Four things today have no single owner. (1) Control records the EGI program adds (run manifest, capability
 envelope, policy decision, approval, effect record, receipt, acceptance decision, evidence package, outbox) have
-no agreed writer: two modules could each persist "the" receipt. (2) Ten background workers and an event bus are
+no agreed writer: two modules could each persist "the" receipt. (2) Twelve background workers and an event bus are
 started by the server lifespan, and nothing says which process may run them when two processes share a database (a second
 active owner doubles effects). (3) many code paths can change an external system (the inventory lists them all); some run through
 the effect ledger, most run through nothing. (4) Packages B02–B06 each need to answer "which module writes this
@@ -59,6 +59,37 @@ transition with the token arrives with the outbox (#685). This record fixes who 
 | `WorkspaceImportWorker` | execution-owner lease (B13, #536) | Claims queued push-mode Workspace import jobs and materializes each into an immutable WorkspaceRevision. |
 | `WorkspaceReleaseEvaluator` | execution-owner lease (B13, #536) | Claims and executes queued Workspace release evaluations from the release revision's immutable candidate, dataset and judge pins, oldest first and fenced by the lease; independent evidence rows arrive with B10.3 and expired-attempt recovery with B10.4. |
 | `EventBus` (database, Redis or NATS) | every process (fans events out; takes no effect) | publisher and poll tasks (database bus) or consumer tasks (Redis, NATS) deliver platform events to subscribers; publishing becomes idempotent through the outbox (#536) |
+
+### Recovery by stage
+
+What each loop leaves behind when its owner dies in the middle of a tick, who picks it up, and which table shows it. The
+rows are the twelve loops of `worker_inventory()` (the event bus is not a loop and has no row), and
+`caliber/tests/test_worker_inventory.py` fails if a loop has no row here or a row names a loop that is gone. (This record is
+not a page of the published docs site, so "ADR 0002, Recovery by stage" is a repository path, not a link there.) Every loop is
+`owner_only`, so the "next owner" is whichever process acquires the lease after the old one lapses
+(`CALIBER_EXECUTION_LEASE_SECONDS`, default 30 s, plus one tick); a secondary never recovers anything. The loops are not
+yet fenced per transition (see "Background loops"), so recovery rests on the per-row claims below, not on the fencing
+token. The operator steps are in `docs/operate/recovery-runbook.md`.
+
+| background loop | owner-only? | owner dies mid-tick | next owner resumes by | table that proves it |
+| --- | --- | --- | --- | --- |
+| `RefinementWorker` | yes | the job stays `running` and its `last_heartbeat_at` stops moving | the `JanitorTask` marks it `failed` once the heartbeat is older than `CALIBER_JANITOR_STALE_THRESHOLD_SECONDS` (300 s); it is **not** requeued, the refinement is run again by a person | `caliber_refinement_jobs`; `caliber_audit_log` (`reap_stale_job`) |
+| `JanitorTask` | yes | a sweep is cut short; each reap is its own conditional `UPDATE`, so nothing is half-applied | the next owner's first sweep (every `CALIBER_JANITOR_INTERVAL_SECONDS`, 60 s) repeats it; a repeated retention prune deletes nothing more. Its second, fixed sweep returns a refinement job stuck in `applying` for 1800 s with no release operation to `candidate_ready` (`revert_stale_applying`) | `caliber_refinement_jobs`; `caliber_audit_log`; `caliber_workflow_runs` |
+| `ReleaseReconcilerTask` | yes | an operation is left `applying` or `reconcile_required` (the provider alias may or may not have moved); there is no per-row claim | the next owner's sweep (60 s) compares the live alias with the intent's recorded before and after versions and settles it, and moves the refinement job from `applying` to `applied` when the release landed; a `prepared` operation is never settled by the loop (no provider call started: an operator decides) | `caliber_release_operations` |
+| `CalibrationDrain` | yes | the job stays `running` with its claim; a tool may already have run | nothing, on purpose: a re-run could repeat a tool's side effect, so an operator abandons it or submits a new lineage-linked job | `caliber_calibration_jobs` |
+| `WebhookDispatcher` | yes | events the owner had accepted and not yet delivered keep an accept row whose lease (at least 60 s) is no longer renewed | when the lease has lapsed, the next owner's start sweep and its recurring lease sweep turn each accepted row into a dead letter of kind `shutdown` (one transaction); an operator replays it, nothing redelivers by itself | `caliber_webhook_accepted_events`; `caliber_webhook_dead_letters` |
+| `WorkflowRunWorker` | yes | the run stays `running` until its lease (`CALIBER_WORKFLOW_RUN_LEASE_SECONDS`, 60 s) lapses | `_recover_expired_leases` requeues it (`error_code` `lease_recovered`, event `workflow.run.recovered`) and a worker runs it again from the beginning, unless its summary already carries a resume checkpoint (a parked run is not `running`, so lease recovery never sees it); a webhook or API-request effect already claimed is not repeated (the ledger replays it or reports it `indeterminate`, and a non-final proposal gates the node); effects of other node types are not ledgered and can happen again | `caliber_workflow_runs`; `caliber_workflow_run_checkpoints`; `caliber_effect_ledger`; `caliber_effect_proposals` |
+| `AriaPlanWorker` | yes | there is no claim: a step stays at the status its last commit left | the next owner's tick polls the steps still `waiting_job` and resumes their plans | `caliber_aria_plan_steps` |
+| `KnowledgeBaseWorker` | yes | the build run stays `running` until its lease (`CALIBER_KNOWLEDGE_BUILD_LEASE_SECONDS`, 120 s) lapses | `_recover_expired_leases` sets it `queued` again ("worker lease expired; build re-queued for recovery", event `build_requeued`) | `caliber_knowledge_base_runs`; `caliber_knowledge_base_run_events` |
+| `WorkspaceImportWorker` | yes | nothing was persisted (the revision and the job's `succeeded` commit together); the job stays `running` until its lease (`CALIBER_WORKSPACE_IMPORT_LEASE_SECONDS`, 300 s) lapses | `reconcile_expired_import_jobs` moves it to `reconcile_required`; it is not requeued, `retry_failed_import_job` refuses that state (it accepts only `failed`), and no operator action on the job exists yet: an operator queues a new import job for the same content, which is safe by digest | `caliber_workspace_import_jobs`; `caliber_workspace_revisions` |
+| `WorkspaceReleaseEvaluator` | yes | a claimed evaluation remains `running` and its release remains `evaluating` if the process dies; the claim lease expires but no automatic requeue exists yet | until B10.4 (#721), an operator uses the documented recovery SQL only while B10.2 (#707) is not merged; after B10.2, do not clear a live evaluation attempt without its recovery contract | `caliber_workspace_release_evaluations`; `caliber_workspace_releases` |
+| `WorkflowSchedulerTask` | yes | a tick commits once, so a crash mid-tick persists none of that tick's runs | the unique `(workflow_id, source, idempotency_key)` on `cron:{alias}:{minute}` makes a repeat harmless; a minute that passes with no owner, or whose tick the new owner misses, is not fired later | `caliber_workflow_deployments`; `caliber_workflow_runs` |
+| `OutboxPublisher` | yes | the claimed rows keep a lease (30 s) and the attempt was already counted | at lease expiry the rows are due again and the next owner's publisher redelivers them; the consumer's inbox key `(consumer, event_id)` drops a repeat; a row that runs out of `CALIBER_EVENT_OUTBOX_MAX_ATTEMPTS` is `dead` and kept | `caliber_event_outbox`; `caliber_event_inbox` |
+
+Two things in this chain are not loops yet. The effect reconciler (`caliber/src/caliber/effects/reconcile.py`) is a function
+the lease holder calls with its captured lease; no loop schedules it until the owner loop of the dispatcher (B04.1, #724; tracked with the other open items in #997) lands, so on main
+an `unknown` or abandoned effect is settled only by a connector's receipt callback or by code the holder runs. And the
+effect proposal is never re-dispatched by any recovery: the state table has no edge from `unknown` back to `dispatched`.
 
 ### Protected paths
 
