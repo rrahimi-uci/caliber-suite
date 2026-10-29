@@ -860,7 +860,8 @@ def create_app(config: CaliberConfig | None = None) -> ASGIApp:  # noqa: PLR0915
         session_factory=session_factory,
         config=resolved,
     )
-    # B10.1: claims queued Workspace release evaluations. Dormant while the release feature is off.
+    # B10.2: executes queued Workspace release evaluations from the revision's
+    # immutable pins. Dormant while the release feature is off.
     if (
         resolved.workspace_release_evaluator_enabled
         and not resolved.feature_release_candidates_enabled
@@ -874,6 +875,8 @@ def create_app(config: CaliberConfig | None = None) -> ASGIApp:  # noqa: PLR0915
             session_factory,
             resolved,
             poll_interval_seconds=resolved.workspace_release_evaluator_interval_seconds,
+            eval_provider=eval_provider,
+            adapter_registry=workspace_resource_adapter_registry,
         )
         if resolved.feature_release_candidates_enabled
         and resolved.workspace_release_evaluator_enabled

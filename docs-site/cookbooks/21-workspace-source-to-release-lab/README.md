@@ -15,9 +15,9 @@ exactly where the alpha's boundary is and what every refusal beyond it says.
 "What exactly is running?" needs an answer that survives edits. A **managed snapshot** pins named
 versions of named entities (a prompt at v2, a test set at v1) into a revision with a content hash.
 A **change request** carries that revision through a second person's review. A **release** binds
-it to an environment and demands evaluation evidence — and in the alpha, that is where the line
-is: release evaluations have no executor, so the evaluation stays `queued` and everything beyond
-it refuses with a documented reason. This lab proves the whole chain, including the boundary.
+it to an environment and demands evaluation evidence. The owner-only evaluator is deliberately
+off in this lab, so the evaluation stays `queued`; when enabled it requires an explicit candidate,
+dataset and judge pin and blocks incomplete plans. This lab proves the default-off boundary.
 
 ## What this lab demonstrates
 
@@ -37,7 +37,8 @@ it refuses with a documented reason. This lab proves the whole chain, including 
 - **The release gate, and the alpha's honest boundary.** A draft release into `dev` (digests are
   content addresses; the same idempotency key returns the same release) moves to `evaluating` on
   `evaluate` — and its evaluation stays **`queued`**, because workspace release evaluations have
-  no executor in the alpha (`docs/start/alpha-scope.md`, known limitations). Consequently:
+  disabled. With the evaluator enabled, the same incomplete fixture is blocked rather than silently
+  evaluated. Consequently:
   change-request **accept** → 409 `qa_go_decision_required`; **quality signoff** → 409 *machine
   gate evidence is missing*; **apply** → 409 *only an approved release can be applied*; and
   **version tags stay empty**, because only an accept mints one.
@@ -130,7 +131,7 @@ against a fresh stack:
   ok  replaying the same idempotency key returns the same release
   ok  evaluate moves the release to evaluating
   ok  and the evaluation is queued
-  ok  where it stays: workspace release evaluations have no executor in the alpha (docs/start/alpha-scope.md names this limitation; do not wait on it)
+  ok  where it stays: the lab leaves the owner-only evaluator disabled by default; enabling it requires complete pins
   ok  quality signoff refuses -> HTTP 409
   ok  because machine gate evidence is missing
   ok  and apply refuses: only an approved release can be applied -> HTTP 409
@@ -201,8 +202,9 @@ curl -s -H "$AUTH" "$API/projects/$PID/releases/$RID/evaluations" | python3 -m j
    assigned reviewer's `approve` makes it `technically_approved`.
 9. **Create a draft release into dev and evaluate it.** Replaying the idempotency key returns
    the same release; `evaluate` moves it to `evaluating` with the evaluation `queued` — where it
-   stays. **Do not wait on it** (the SDK's `wait_for_evaluation` would sit its full timeout):
-   workspace release evaluations have no executor in the alpha.
+   stays because this lab leaves the evaluator flag off. To execute a release, provide
+   candidate/dataset/judge pins with matching plan and input digests and enable
+   `CALIBER_WORKSPACE_RELEASE_EVALUATOR_ENABLED`.
 10. **Read the refusals that guard the rest.** CR `:accept` → 409 `qa_go_decision_required`;
     `quality-signoff` → 409 *machine gate evidence is missing*; operations `apply` → 409 *only an
     approved release can be applied*; `GET /version-tags` stays empty. The audit log carries the
@@ -221,15 +223,13 @@ curl -s -H "$AUTH" "$API/projects/$PID/releases/$RID/evaluations" | python3 -m j
 
 ## The trust boundary, honestly
 
-- **Workspace release evaluations never execute in the alpha.** The complete/settle
-  functions exist in the service layer with no caller, and the only caller of the claim is the
-  opt-in `WorkspaceReleaseEvaluator` (`CALIBER_WORKSPACE_RELEASE_EVALUATOR_ENABLED`, off by
-  default, claims only); the lab's backend test pins that fact so the lab fails loudly the day
-  an executor lands. The lab's live "still `queued` after a wait" check assumes that evaluator
-  is off: if an operator enables it, the evaluation becomes `running` and that check fails by
-  design (see the reference-profile page, "Release evaluation"). Everything downstream of evaluation evidence —
-  quality signoff, CR accept, version tags, apply — is unreachable on a live server and is
-  demonstrated as the refusal it is.
+- **Workspace release evaluation is opt-in and pin-bound.** The owner-only
+  `WorkspaceReleaseEvaluator` (`CALIBER_WORKSPACE_RELEASE_EVALUATOR_ENABLED`, off by default)
+  resolves only the revision-local candidate, dataset, judge and configuration. This fixture
+  intentionally leaves the worker off and omits the execution roles, so it remains a durable
+  queued record; an enabled worker blocks it rather than fabricating a plan. Everything downstream
+  of evaluation evidence — quality signoff, CR accept, version tags, apply — is demonstrated as
+  the refusal it is.
 - **This is a different feature from cookbook 11.** Lab 11's *release candidates* are a
   record-only signoff ledger; this lab's *workspace releases* bind a revision to an environment.
   They share one feature flag and nothing else.
@@ -250,7 +250,7 @@ curl -s -H "$AUTH" "$API/projects/$PID/releases/$RID/evaluations" | python3 -m j
 | `403` on `revisions:snapshot` | the caller lacks the operator scope or an owner/editor role | snapshot as the admin/operator; viewers read |
 | `409 reviewer_assignment_required` on `:submit` | the CR has no assigned reviewer | pass `reviewer_user_ids` at creation (or assign one) before submitting |
 | `403 self_review_forbidden` | the reviewer created the head revision | a second person reviews; the author waits |
-| the evaluation never leaves `queued` | expected: no executor in the alpha | do not wait on it; the lab asserts this state deliberately |
+| the evaluation stays `queued` | expected: this lab leaves the evaluator flag off | do not wait on it; an enabled worker executes only a complete, digest-matching plan |
 | `409 qa_go_decision_required` on accept | acceptance needs a QA go decision no alpha server can produce | expected; the refusal is the demonstration |
 | `400` on a release create digest | a digest is not 64 lowercase hex characters | hash something real, or use the lab's placeholder form |
 | `409 workspace_source_not_configured` on `revision-imports` | the Git import path needs a configured source | expected on a caliber-managed workspace; snapshots are the managed path |

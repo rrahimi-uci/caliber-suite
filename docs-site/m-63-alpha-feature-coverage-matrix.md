@@ -62,7 +62,7 @@ docs. Implementation paths are relative to `caliber/src/caliber/` unless noted; 
 | Release-candidate signoff (record-only, off) | `routes/releases.py` (candidates) | lab 11 | candidate section of Releases | lab 11 tests | lab 11 README ("records a decision, deploys nothing") | yes | ✅ Full |
 | Workspace revisions, snapshots, diffs | `routes/workspace.py` | **lab 21** (new) | **no UI exists (API-first, stated)** | lab 21 tests + snapshot suites | lab 21 README | yes (API) | ✅ Full |
 | Workspace change requests + environments | `routes/workspace_change_requests.py`, `routes/projects.py` | **lab 21** | no UI (stated) | lab 21 run + CR suites | lab 21 README | yes (API) | ✅ Full |
-| Workspace releases (experimental, off) | `routes/workspace_releases.py` | **lab 21** — to the documented boundary | no UI (stated) | lab 21 tests incl. the no-executor tripwire | alpha-scope known limitations; lab 21 README | yes, to `evaluating`/`queued` | 📘 Documented exception — release evaluations have no executor in the alpha; the lab demonstrates the boundary and every refusal beyond it |
+| Workspace releases (experimental, off) | `routes/workspace_releases.py`, `orchestrator/workspace_release_evaluator.py` | **lab 21** — default-off boundary; complete pinned plans execute when explicitly enabled | no UI (stated) | lab 21 tests plus evaluator execution/concurrency suites | alpha-scope known limitations; lab 21 README; reference profile | queued → executed only with the opt-in owner worker | 📘 Default-off experimental path — B10.2 executes release-local pinned plans and fails closed on incomplete inputs; evidence rows/recovery remain B10.3/B10.4 |
 | Workspace source connections (GitHub) | `workspace_source_connections.py` | lab 21 shows the managed default and the Git path's 409 | no UI | source suites | lab 21 README ("one-way door" warning) | negative paths only | 📘 Documented exception — `github_source_control` is off by default in the alpha |
 
 ## Intentionally not demonstrated
@@ -72,7 +72,7 @@ docs. Implementation paths are relative to `caliber/src/caliber/` unless noted; 
 | Memory (`/memory`, session memory) | out of the alpha; routes answer 503, `memory_enabled=false` | alpha-scope "Not in the alpha" |
 | Flagged-trace → refinement automation | out of the alpha; nothing watches traces | alpha-scope known limitations; README's loop section disclaimer; lab 16's "Not covered" |
 | Guardrail *enforcement* on the standalone gateway | MLflow's standalone gateway does not load guardrails; enforcement lives in the tracking server's own AI Gateway | lab 20's trust-boundary section |
-| Workspace release execution, QA signoff, version tags, apply | no evaluation executor in this build; everything downstream is unreachable live | alpha-scope; lab 21 (each refusal demonstrated); a backend tripwire fails when an executor lands |
+| Workspace release QA evidence, version tags, apply | B10.2 executes the pinned evaluation when explicitly enabled; evidence rows, recovery and governed apply remain later Beta slices | alpha-scope; lab 21 default-off fixture; reference profile B10.2 notes |
 | Workflow exports / deployment bundles, cron triggers, webhook node; skill Bind; `/events` SSE | exercised by their own unit/route suites but by no cookbook; candidates for extending labs 08/09/02 rather than new labs | this matrix (the 🟡 rows above) |
 
 ## How this was verified

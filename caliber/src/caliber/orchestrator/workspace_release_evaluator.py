@@ -1,4 +1,4 @@
-"""Owner-only worker that claims queued Workspace release evaluations (B10.1, #701).
+"""Owner-only worker that executes queued Workspace release evaluations (B10.2, #707).
 
 ``POST .../releases/{id}/evaluate`` queues one :class:`CaliberWorkspaceReleaseEvaluation` row per attempt
 (``caliber.workspace_release_service.create_workspace_release_evaluation``). This worker is the first consumer of that
@@ -6,11 +6,10 @@ queue. It does **not** add a second queue or a second lease protocol: it calls t
 ``claim_workspace_release_evaluation`` and leaves heartbeat and completion to that service's
 ``heartbeat_workspace_release_evaluation`` / ``complete_workspace_release_evaluation``.
 
-**Do not enable it in a deployment until B10.2 (#707) lands.** Today it only *claims*: nothing runs the evaluation,
-nothing finishes it, and nothing acts when its lease lapses (reclaiming an expired attempt is B10.4, #721). A claimed
-row therefore sits ``running`` and its release ``evaluating``, and every later ``evaluate`` is refused with 409,
-until the row is requeued. A clean :meth:`stop` requeues this process's own claims; a crash does not, and the operator
-recovery is in ``docs/operate/reference-profile.md``. The feature is off by default
+The worker resolves the release's own immutable revision pins, calls the configured evaluation provider, and
+completes the same leased attempt. It still does not reclaim an expired attempt (B10.4, #721). A clean
+:meth:`stop` requeues this process's own claims; a crash does not, and the operator recovery is in
+``docs/operate/reference-profile.md``. The feature is off by default
 (``CALIBER_WORKSPACE_RELEASE_EVALUATOR_ENABLED``) and never built while ``CALIBER_FEATURE_RELEASE_CANDIDATES`` is off.
 
 What one :meth:`WorkspaceReleaseEvaluator.tick` does, in order:
@@ -31,8 +30,8 @@ What one :meth:`WorkspaceReleaseEvaluator.tick` does, in order:
    both win: ``FOR UPDATE SKIP LOCKED`` on PostgreSQL and the service's conditional ``UPDATE ... WHERE status =
    'queued'`` everywhere; the loser claims nothing this tick.
 
-What it deliberately does not do yet: resolve the evaluation plan and run it (B10.2, #707), record gate evidence
-(B10.3, #714), heartbeat the evaluation's own lease and reclaim an expired attempt (B10.4, #721).
+It records a digest of the provider result and its simulated/real provenance. Independent gate-evidence rows and
+verdict records arrive in B10.3; attempt reclamation arrives in B10.4.
 
 Known limits: an idle tick still writes a heartbeat row and runs one indexed SELECT; a tick still running when the stop
 grace ends is abandoned (a thread cannot be cancelled) and may claim a row after the requeue; a queued row whose claim
@@ -44,7 +43,9 @@ Errors carry identifiers and exception classes, never row content.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import logging
+import math
 import time
 from collections.abc import Callable
 from contextlib import suppress
@@ -54,7 +55,9 @@ from typing import Any
 from sqlalchemy import or_, select, text, update
 from sqlalchemy.orm import Session, sessionmaker
 
-from caliber.db.models import CaliberWorkspaceReleaseEvaluation
+from caliber.auth import CaliberIdentity
+from caliber.db.models import CaliberWorkspaceRelease, CaliberWorkspaceReleaseEvaluation
+from caliber.eval.provider import EvalComparison, EvalProvider
 from caliber.observability.trace import bind_trace_id
 from caliber.observability.worker_registry import (
     KIND_WORKSPACE_RELEASE_EVALUATOR,
@@ -65,11 +68,20 @@ from caliber.observability.worker_registry import (
     stale_after_seconds,
 )
 from caliber.ownership import Lease, LeaseLost, assert_fenced
+from caliber.workflows.manifest import canonical_json
+from caliber.workspace_release_adapters import WorkspaceResourceAdapterRegistry
+from caliber.workspace_release_evaluation_plan import (
+    WorkspaceReleaseEvaluationPlan,
+    WorkspaceReleaseEvaluationPlanError,
+    resolve_workspace_release_evaluation_plan,
+)
 from caliber.workspace_release_service import (
     EVALUATION_QUEUED,
     EVALUATION_RUNNING,
     WorkspaceReleaseLeaseError,
     claim_workspace_release_evaluation,
+    complete_workspace_release_evaluation,
+    heartbeat_workspace_release_evaluation,
 )
 
 logger = logging.getLogger("caliber.orchestrator.workspace_release_evaluator")
@@ -114,6 +126,8 @@ class WorkspaceReleaseEvaluator:
         poll_interval_seconds: float = DEFAULT_POLL_INTERVAL_SECONDS,
         *,
         lease_provider: LeaseProvider | None = None,
+        eval_provider: EvalProvider | None = None,
+        adapter_registry: WorkspaceResourceAdapterRegistry | None = None,
     ) -> None:
         if not poll_interval_seconds > 0:
             raise ValueError("poll_interval_seconds must be positive")
@@ -129,6 +143,8 @@ class WorkspaceReleaseEvaluator:
             getattr(config, "execution_lease_seconds", _DEFAULT_EXECUTION_LEASE_SECONDS)
         )
         self._lease_provider = lease_provider
+        self._eval_provider = eval_provider
+        self._adapter_registry = adapter_registry
         self._worker_id = new_worker_id("workspace-release-evaluator", self)
         self._task: asyncio.Task[None] | None = None
         self._stopped = asyncio.Event()
@@ -138,6 +154,11 @@ class WorkspaceReleaseEvaluator:
     def worker_id(self) -> str:
         """The id recorded as ``claimed_by`` on every row this evaluator claims."""
         return self._worker_id
+
+    @property
+    def execution_enabled(self) -> bool:
+        """Whether this instance has the dependencies required to execute plans."""
+        return self._eval_provider is not None and self._adapter_registry is not None
 
     def bind_lease_provider(self, provider: LeaseProvider | None) -> None:
         """Fence every claim with the execution-owner lease ``provider`` returns (``None``: no lease, no fence).
@@ -154,11 +175,16 @@ class WorkspaceReleaseEvaluator:
             raise RuntimeError("WorkspaceReleaseEvaluator.start() called while already running")
         self._stopped.clear()
         self._task = asyncio.create_task(self._run(), name="caliber.workspace_release_evaluator")
-        logger.warning(
-            "workspace release evaluator is enabled: it CLAIMS queued release evaluations but does not execute them "
-            "until B10.2 (#707), and nothing reclaims an expired claim until B10.4 (#721); a claimed attempt stays "
-            "running (a clean stop requeues it) and later evaluate calls answer 409. See docs/operate/reference-profile.md"
-        )
+        if self.execution_enabled:
+            logger.info(
+                "workspace release evaluator executes pinned plans; expired-attempt recovery remains B10.4 (#721)"
+            )
+        else:
+            logger.warning(
+                "workspace release evaluator is enabled: it CLAIMS queued release evaluations but does not "
+                "execute them without an EvalProvider and adapter registry (test/dry-run mode); "
+                "execution is B10.2 (#707) and expired-attempt recovery is B10.4 (#721)"
+            )
         logger.info(
             "workspace release evaluator started (interval=%.1fs lease=%.1fs worker=%s)",
             self._interval_seconds,
@@ -214,16 +240,236 @@ class WorkspaceReleaseEvaluator:
                     logger.debug("workspace release evaluator is not the execution owner; no claim")
                     return None
             claimed = self._claim_oldest(lease)
-            if claimed is not None:
+            if claimed is not None and self.execution_enabled:
+                self._execute_claim(claimed)
+            elif claimed is not None:
                 logger.warning(
-                    "workspace release evaluator claimed %s (release %s, attempt %d) as %s: nothing executes it "
-                    "until B10.2 (#707); it is requeued on a clean stop, otherwise see the recovery SQL in the docs",
+                    "workspace release evaluator claimed %s (release %s, attempt %d) as %s: "
+                    "execution dependencies are not configured; nothing executes it until B10.2 (#707); "
+                    "it is requeued on a clean stop",
                     claimed.evaluation_id,
                     claimed.workspace_release_id,
                     claimed.attempt_number,
                     claimed.worker_id,
                 )
             return claimed
+
+    def _assert_execution_owner(self, session: Session) -> None:
+        """Fence execution and completion with the current owner lease."""
+        if self._lease_provider is None:
+            return
+        lease = self._lease_provider()
+        if lease is None:
+            raise LeaseLost("execution-owner lease is no longer held")
+        assert_fenced(session, lease)
+
+    def _evaluation_identity(
+        self, evaluation: CaliberWorkspaceReleaseEvaluation, project_id: str
+    ) -> CaliberIdentity:
+        # Background work has no request object. Reuse the persisted requester
+        # as the subject and keep the release project as the active scope.
+        from caliber.db.scoping import synthetic_identity  # noqa: PLC0415
+
+        return synthetic_identity(evaluation.requested_by, project_id)
+
+    def _prepare_claim(
+        self, claim: ClaimedEvaluation
+    ) -> tuple[WorkspaceReleaseEvaluationPlan | None, int | None, Exception | None]:
+        """Heartbeat and resolve a claim before making the provider call."""
+        with self._session_factory() as session:
+            evaluation = session.get(CaliberWorkspaceReleaseEvaluation, claim.evaluation_id)
+            release = session.get(CaliberWorkspaceRelease, claim.workspace_release_id)
+            if evaluation is None or release is None:
+                return (
+                    None,
+                    None,
+                    WorkspaceReleaseEvaluationPlanError(
+                        "evaluation_coordinates_unavailable",
+                        "claimed release evaluation disappeared",
+                    ),
+                )
+            try:
+                self._assert_execution_owner(session)
+                heartbeat_workspace_release_evaluation(
+                    session,
+                    evaluation,
+                    worker_id=claim.worker_id,
+                    lease_seconds=int(self._lease_seconds),
+                )
+                assert self._adapter_registry is not None
+                assert self._eval_provider is not None
+                plan = resolve_workspace_release_evaluation_plan(
+                    session,
+                    release=release,
+                    evaluation=evaluation,
+                    identity=self._evaluation_identity(evaluation, release.project_id),
+                    adapter_registry=self._adapter_registry,
+                    provider=self._eval_provider,
+                    config=self._config,
+                )
+                expected_lock_version = release.lock_version
+                session.commit()
+                return plan, expected_lock_version, None
+            except Exception as exc:
+                # Roll back the resolution transaction. Completion below is a
+                # separate fenced CAS and can therefore safely block the
+                # release without leaving an aborted session open.
+                session.rollback()
+                return None, release.lock_version, exc
+
+    def _execute_claim(self, claim: ClaimedEvaluation) -> None:
+        plan, expected_lock_version, preparation_error = self._prepare_claim(claim)
+        if preparation_error is not None or plan is None or expected_lock_version is None:
+            self._complete_blocked(
+                claim,
+                expected_lock_version=expected_lock_version,
+                error=preparation_error or RuntimeError("evaluation plan was not resolved"),
+            )
+            return
+        assert self._eval_provider is not None
+        try:
+            comparison = self._eval_provider.evaluate(plan.request)
+            result, evidence_sha256 = self._gate_result(plan, comparison, claim)
+        except Exception as exc:
+            self._complete_blocked(
+                claim,
+                expected_lock_version=expected_lock_version,
+                error=exc,
+            )
+            return
+        self._complete(
+            claim,
+            expected_lock_version=expected_lock_version,
+            result=result,
+            evidence_sha256=evidence_sha256,
+        )
+
+    def _gate_result(
+        self,
+        plan: WorkspaceReleaseEvaluationPlan,
+        comparison: EvalComparison,
+        claim: ClaimedEvaluation,
+    ) -> tuple[str, str]:
+        if comparison.eval_dataset_id != plan.request.eval_dataset_id or comparison.n_examples < 1:
+            raise ValueError("provider returned an invalid pinned dataset result")
+        overall = float(comparison.candidate.overall)
+        if not math.isfinite(overall) or not 0.0 <= overall <= 1.0:
+            raise ValueError("provider returned an invalid candidate score")
+        delta: float | None = None
+        if comparison.baseline is not None:
+            baseline_overall = float(comparison.baseline.overall)
+            if not math.isfinite(baseline_overall) or not 0.0 <= baseline_overall <= 1.0:
+                raise ValueError("provider returned an invalid baseline score")
+            delta = overall - baseline_overall
+        elif plan.min_aggregate_delta is not None:
+            raise ValueError("a delta gate requires a pinned baseline")
+        passes = overall >= plan.min_aggregate_score
+        if plan.min_aggregate_delta is not None:
+            passes = passes and delta is not None and delta >= plan.min_aggregate_delta
+        evidence = {
+            "schema": "workspace-release-evaluation-result/v1",
+            "evaluation_id": claim.evaluation_id,
+            "plan_sha256": plan.plan_digest,
+            "input_sha256": plan.input_digest,
+            "provider": plan.provider_info,
+            "candidate": {
+                "overall": overall,
+                "dimensions": dict(comparison.candidate.dimensions),
+            },
+            "baseline": (
+                {
+                    "overall": comparison.baseline.overall,
+                    "dimensions": dict(comparison.baseline.dimensions),
+                }
+                if comparison.baseline is not None
+                else None
+            ),
+            "deltas": dict(comparison.deltas),
+            "n_examples": comparison.n_examples,
+            "min_aggregate_score": plan.min_aggregate_score,
+            "min_aggregate_delta": plan.min_aggregate_delta,
+            "result": "pass" if passes else "no_go",
+        }
+        return (
+            "pass" if passes else "no_go",
+            hashlib.sha256(canonical_json(evidence).encode("utf-8")).hexdigest(),
+        )
+
+    def _complete_blocked(
+        self,
+        claim: ClaimedEvaluation,
+        *,
+        expected_lock_version: int | None,
+        error: Exception,
+    ) -> None:
+        if expected_lock_version is None:
+            logger.error(
+                "workspace release evaluation %s could not be resolved: %s",
+                claim.evaluation_id,
+                type(error).__name__,
+            )
+            return
+        self._complete(
+            claim,
+            expected_lock_version=expected_lock_version,
+            result="blocked",
+            error_code=getattr(error, "code", "evaluation_execution_failed"),
+            error_summary="workspace release evaluation could not run",
+        )
+
+    def _complete(
+        self,
+        claim: ClaimedEvaluation,
+        *,
+        expected_lock_version: int,
+        result: str,
+        evidence_sha256: str | None = None,
+        error_code: str | None = None,
+        error_summary: str | None = None,
+    ) -> None:
+        with self._session_factory() as session:
+            evaluation = session.get(CaliberWorkspaceReleaseEvaluation, claim.evaluation_id)
+            if evaluation is None:
+                logger.error(
+                    "workspace release evaluation %s disappeared before completion",
+                    claim.evaluation_id,
+                )
+                return
+            try:
+                self._assert_execution_owner(session)
+                complete_workspace_release_evaluation(
+                    session,
+                    evaluation,
+                    worker_id=claim.worker_id,
+                    result=result,  # type: ignore[arg-type]
+                    expected_release_lock_version=expected_lock_version,
+                    evidence_sha256=evidence_sha256,
+                    error_code=error_code,
+                    error_summary=error_summary,
+                )
+                session.commit()
+                logger.info(
+                    "workspace release evaluation %s completed as %s (provider=%s simulated=%s)",
+                    claim.evaluation_id,
+                    result,
+                    getattr(
+                        self._eval_provider, "provider_name", type(self._eval_provider).__name__
+                    ),
+                    bool(getattr(self._eval_provider, "is_simulated", False)),
+                )
+            except (LeaseLost, WorkspaceReleaseLeaseError) as exc:
+                session.rollback()
+                logger.warning(
+                    "workspace release evaluation %s was not completed because its lease/fence was lost (%s)",
+                    claim.evaluation_id,
+                    type(exc).__name__,
+                )
+            except Exception:
+                session.rollback()
+                logger.exception(
+                    "workspace release evaluation %s failed while completing; lease recovery will handle it",
+                    claim.evaluation_id,
+                )
 
     def _claim_oldest(self, lease: Lease | None) -> ClaimedEvaluation | None:
         with self._session_factory() as session:

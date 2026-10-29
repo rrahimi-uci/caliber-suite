@@ -911,7 +911,7 @@ _RECIPE_STEPS: dict[str, tuple[dict[str, str], ...]] = {
             "route": "/releases",
         },
         {
-            "title": "Create a draft release into dev and evaluate it: the evaluation stays queued (the alpha's boundary)",
+            "title": "Create a draft release into dev: the default-off evaluator requires complete pinned inputs",
             "route": "/releases",
         },
         {

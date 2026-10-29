@@ -55,7 +55,7 @@ restart CALIBER; turning the flag on means you accept their alpha behavior, belo
 | Area | Routes it gates | What it does in this build |
 | --- | --- | --- |
 | Release-candidate signoff (record-only) | `/releases/candidates*` and `/releases/report-jobs*`, and the candidate section of the Releases page | Assembles criteria, evidence and waivers, computes a readiness score on the server, and records a go or no-go signoff with a rationale. A signoff **records a decision** and deploys or rolls back nothing. A waiver's `expires_at` is honoured every time the candidate is evaluated (a lapsed waiver stops clearing its blocker), and a signed candidate cannot be evaluated, waived or signed again. Scores and evidence references are entered by people: CALIBER does not read them from Evaluations or check that the artifact exists |
-| Workspace releases (experimental) | `/projects/{id}/releases*` (and `caliberctl workspace release`) | The API and SDK are complete, but nothing in this build executes a release evaluation, so an evaluation you start stays `queued` |
+| Workspace releases (experimental) | `/projects/{id}/releases*` (and `caliberctl workspace release`) | The default-off owner worker executes a complete release-local pinned evaluation when explicitly enabled; incomplete plans fail closed. First-class evidence rows, expired-attempt recovery and governed apply remain later Beta slices |
 
 While the flag is off, a call to any of those routes answers HTTP 404 with `reason_code: feature_disabled`,
 and the Releases page shows only the live board, the timeline and release operations. Those are core and not

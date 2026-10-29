@@ -53,7 +53,7 @@ on every change, offline, on the simulated defaults; real-model runs are manual 
 | Also in the alpha | Skills, tools (trusted authors), workflows, knowledge bases and the object-store console |
 | Preview | MCP servers and OpenAPI integrations (off by default; enable with `CALIBER_FEATURE_INTEGRATIONS`), cookbooks (off by default; enable with `CALIBER_FEATURE_COOKBOOKS`), the Aria assistant and plans (**on** by default; disable with `CALIBER_FEATURE_ARIA=false`). The app carries no maturity labels, so the flag state is the only signal |
 | Record-only (off by default) | Release-candidate signoff on the Releases page: it records a decision and deploys nothing (off by default; enable with `CALIBER_FEATURE_RELEASE_CANDIDATES`) |
-| Experimental (off by default) | Workspace releases: release evaluation has no executor in this build (off by default; enable with `CALIBER_FEATURE_RELEASE_CANDIDATES`) |
+| Experimental (off by default) | Workspace releases: an opt-in owner-only evaluator executes release-local pinned plans; recovery and first-class evidence remain in progress (off by default; enable with `CALIBER_FEATURE_RELEASE_CANDIDATES` and `CALIBER_WORKSPACE_RELEASE_EVALUATOR_ENABLED`) |
 | Not in the alpha | Memory, and the flagged-trace to refinement loop |
 
 The live board, the release timeline and release operations on the Releases page are core and always on. Only
@@ -83,8 +83,8 @@ Things to know before you turn one on:
 
 - **Turning a flag on means you accept the behavior of that area.** Preview areas may change or be removed
   without notice. A release-candidate signoff records a decision and deploys or rolls back nothing, and a
-  workspace release evaluation stays queued because nothing in this build executes it. Enabling a flag does
-  not move an area into the supported journey.
+  workspace release evaluation is executed only when the release and evaluator flags are enabled and its immutable
+  candidate/dataset/judge pins resolve. Enabling a flag does not move an area into the supported journey.
 - **The areas depend on each other.** The twenty cookbooks build on other areas, so a lab can need more than
   `CALIBER_FEATURE_COOKBOOKS`: labs 12 to 15 need `CALIBER_FEATURE_ARIA`, labs 05 and 19 need
   `CALIBER_FEATURE_INTEGRATIONS`, and labs 11 and 21 need `CALIBER_FEATURE_RELEASE_CANDIDATES`. Each lab's

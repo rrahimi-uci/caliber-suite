@@ -171,8 +171,8 @@ _WORKER_NOTES: dict[str, WorkerNote] = {
     ),
     "WorkspaceReleaseEvaluator": WorkerNote(
         description=(
-            "Claims queued Workspace release evaluations, oldest first, fenced by the "
-            "execution-owner lease; resolving and running the plan arrives with B10.2."
+            "Executes queued Workspace release evaluations from immutable revision pins, oldest first, "
+            "fenced by the execution-owner lease; expired-attempt recovery arrives with B10.4."
         ),
         tables=("CaliberWorkspaceReleaseEvaluation", "CaliberWorkerHeartbeat"),
         ownership="owner_only",

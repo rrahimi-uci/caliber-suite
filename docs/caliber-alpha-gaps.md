@@ -150,7 +150,7 @@ sync Python SDK, do the following with an audit trail and honest failure reporti
 | Sync Python SDK | **IN** | "Equivalently via SDK". The sync client has 0 coverage gaps against the API. |
 | `caliberctl` | **IN (read/ops verbs only)** | Missing apply and rollback verbs are P2; the SDK covers them. |
 | Release-candidate "signoff factory" (Releases page, top) | **LABEL as record-only** | A GO signoff changes nothing `[exec]`. Off by default behind `CALIBER_FEATURE_RELEASE_CANDIDATES` ([P1-25](#p1-25)). |
-| Workspace / Change Requests / environment promotion | **LABEL experimental (API/SDK/CLI)** | No UI. Release evaluation never executes on a live server `[exec]`. Workspace releases (`/projects/{id}/releases*`) are off by default behind `CALIBER_FEATURE_RELEASE_CANDIDATES` ([P1-25](#p1-25)). |
+| Workspace / Change Requests / environment promotion | **LABEL experimental (API/SDK/CLI)** | No UI. The default-off owner worker now executes a release-local pinned evaluation when explicitly enabled; incomplete pins fail closed. Workspace releases (`/projects/{id}/releases*`) remain off by default behind `CALIBER_FEATURE_RELEASE_CANDIDATES` ([P1-25](#p1-25)). |
 | Skills (author, render test, calibrate, apply as new version, rollback) | **IN (extended)** | Works offline; shares the prompt job/promoter/release machinery, so P0-1 and P0-4 cover it. Needs proof and docs ([P1-20](#p1-20)). |
 | Tools and the subprocess sandbox | **IN (extended, trusted authors)** | Works offline; registration is admin-only. The sandbox is a process boundary, not isolation, and the alpha must say so ([P1-21](#p1-21)). |
 | Workflows (design, validate, preview, publish, run, deploy, promote, rollback) | **IN (extended)** | Works live with the fake executor; 1,545 tests. Needs CI proof, runtime-queue docs, node prerequisites and honest calibration ([P1-22](#p1-22)). |
@@ -245,7 +245,7 @@ Status legend:
 | Knowledge bases: ingest, build, activate, query, rollback | ❌ on default install; ☑️ with an object store (tests) | 343 tests (fakes for pgvector/AGE); live default install: 201, then build `NoCredentialsError` after ~82 s | IN (ext., gated) | [P1-12](#p1-12), [P1-23](#p1-23) |
 | MCP servers, OpenAPI integrations, cookbooks | ✅ (tests + live) | 336 / 135 / 47 tests pass; MCP needs reachable servers (loopback blocked) | label | [P1-10](#p1-10), [P1-25](#p1-25) |
 | Aria chat / plans | ❌ on default install | Replies are `OpenAIError`; a 0-step plan "completes" | hide/label | [P1-11](#p1-11), [P1-25](#p1-25) |
-| Workspace releases | ❌ on live server | Evaluation stays `queued` (no executor) | label | [P1-10](#p1-10), [P1-25](#p1-25) |
+| Workspace releases | ⚠️ experimental / default-off | B10.2 executes complete release-local pinned evaluations only when the owner worker and adapters are enabled; evidence/recovery/apply remain incomplete | label | [P1-10](#p1-10), [P1-25](#p1-25) |
 | Release-candidate signoff | ⚠️ (no effect) | Self-signoff GO 201; timeline and operations empty | label | [P1-10](#p1-10), [P1-25](#p1-25) |
 | Sync SDK | ✅ (mocks) / ⚠️ (vs server) | Core-journey methods never run against a server | IN | [P1-19](#p1-19) |
 | SDK/CLI install | ❌ | Docs say `pip install` (PyPI 404); CLI depends on unpinned `caliber-sdk` | IN | [P1-18](#p1-18) |
@@ -790,12 +790,12 @@ deferral.
   - **Nav.** 21 nav entries with no maturity badge. The nav opens with Workflows, Cookbooks, Agents and Plans ahead of Prompts (`components/Sidebar.tsx:198-262`).
   - **Docs chips.** Docs render a GA chip for knowledge bases, object store and assistant, whose API tags are beta or internal (`routes/openapi.py:101-125`).
   - **Signoff factory.** The release-candidate signoff factory sits at the top of the Releases page, and a GO signoff changes nothing (`Releases.tsx:428`, `routes/releases.py:419-487`).
-  - **Workspace releases.** Workspace releases are fully exposed through API, SDK, CLI (`caliberctl workspace …`, 900 s default wait) and docs, but nothing in `src/` executes release evaluations: `claim_/complete_workspace_release_evaluation` have no runtime caller.
+  - **Workspace releases.** Workspace releases are fully exposed through API, SDK, CLI (`caliberctl workspace …`, 900 s default wait) and docs. B10.2 now provides the production caller: `WorkspaceReleaseEvaluator` claims, revalidates and executes the release's own immutable candidate/dataset/judge pins when the feature and provider dependencies are enabled. It remains default-off, and first-class evidence rows, expired-attempt recovery and governed apply are still later Beta work.
 - **Expected:**
   - Preview areas (MCP, OpenAPI integrations, cookbooks, Aria, Workspace, the signoff factory) carry a consistent "Preview" badge in the nav and page header. Extended-tier areas carry no badge once their P1 items close, and the nav leads with the core journey (Prompts, Test Sets, Evaluations, Releases) followed by Skills, Tools, Workflows and Knowledge Bases.
   - Docs chips match the API tiers.
   - The Releases signoff block is removed or bannered "Record-only. Does not deploy or roll back anything".
-  - `caliberctl workspace` and the docs say "Experimental — release evaluation has no executor in this build".
+  - `caliberctl workspace` and the docs say "Experimental" and default-off; they no longer claim that an executor is absent.
 - **Evidence:**
   - `[read]` Sidebar and openapi.
   - `[exec]` A self-signoff GO returned 201 while the timeline and operations stayed `[]`.
@@ -1199,7 +1199,7 @@ deferral.
 - **Gap:** Feature flags for unsupported areas: the areas the alpha labels preview, record-only or experimental are still fully reachable on a default install
 - **Category:** Scope / product honesty / deployment configuration.
 - **Current state:**
-  - [P1-10](#p1-10) labelled MCP servers, OpenAPI integrations, cookbooks, Aria and plans, the release-candidate signoff and Workspace releases, and [P1-11](#p1-11) disabled the Aria toggle when no engine is configured. Labelling does not remove anything: on a default install every one of those areas is still in the navigation, still served by the API, and still a way to reach behaviour the alpha does not stand behind (a signoff that deploys nothing, a Workspace release evaluation that stays `queued`, plans against a simulated engine).
+  - [P1-10](#p1-10) labelled MCP servers, OpenAPI integrations, cookbooks, Aria and plans, the release-candidate signoff and Workspace releases, and [P1-11](#p1-11) disabled the Aria toggle when no engine is configured. Labelling does not remove anything: on a default install every one of those areas is still in the navigation, still served by the API, and still a way to reach behaviour the alpha does not stand behind (a signoff that deploys nothing, a default-off Workspace release evaluator, plans against a simulated engine).
   - The twenty cookbook labs build on those same areas: labs 05 and 19 use the integrations flag, labs 11 and 21 the release-candidates flag, and labs 12 to 15 Aria plans (lab 01 no longer uses the Playground or test generation that call the Aria assistant). The gallery is part of the surface, not a separate one.
   - A tester who opens the alpha cannot tell from the product which areas the release is meant to be judged by, and an operator has no switch to give a team only the supported journey.
 - **Expected alpha state:**

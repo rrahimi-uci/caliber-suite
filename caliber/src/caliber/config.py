@@ -868,11 +868,11 @@ class CaliberConfig(BaseModel):
     workspace_release_evaluator_enabled: bool = Field(
         default=False,
         description=(
-            "Opt in to the Workspace release evaluator (B10.1). When true and the "
-            "release_candidates feature is on, it starts with the owner-only loops and claims "
-            "queued CaliberWorkspaceReleaseEvaluation rows, oldest first. Do not enable it in "
-            "a deployment until B10.2 (#707) lands: it only claims, so a claimed evaluation "
-            "stays running (a clean stop requeues it) and later evaluate calls answer 409. "
+            "Opt in to the Workspace release evaluator (B10.2). When true and the "
+            "release_candidates feature is on, it starts the owner-only loop, resolves each "
+            "release-local immutable plan, and executes it with the configured EvalProvider. "
+            "Missing or drifted pins block the release; expired-attempt recovery arrives in "
+            "B10.4. "
             "Never starts while CALIBER_FEATURE_RELEASE_CANDIDATES is off."
         ),
     )
