@@ -464,13 +464,17 @@ def probe_trace_store() -> None:
         ) from exc
 
 
-def fetch_trace_detail(trace_id: str | None, *, strict: bool = False) -> TraceDetail:
+def fetch_trace_detail(
+    trace_id: str | None, *, strict: bool = False, include_payloads: bool = True
+) -> TraceDetail:
     """Fetch the full in-app trace detail.
 
     Guarded by default: any failure yields an empty detail, which is what the run and test-set
     callers want. ``strict=True`` is for the Observability route, which must not report an empty
     trace for a missing id or an unreachable store: it raises :class:`TraceNotFoundError` or
-    :class:`TraceStoreUnavailableError` instead.
+    :class:`TraceStoreUnavailableError` instead. ``include_payloads=False`` returns trace identity
+    and non-payload metadata without mapping span inputs/outputs or the root request/response. It
+    is used by governed routes to decide payload access before copying payload data.
     """
     if not trace_id:
         return TraceDetail(trace_id=None)
@@ -491,13 +495,21 @@ def fetch_trace_detail(trace_id: str | None, *, strict: bool = False) -> TraceDe
             raise TraceNotFoundError(trace_id)
         return TraceDetail(trace_id=trace_id)
     try:
-        spans = map_trace_to_spans(trace)
+        spans = map_trace_to_spans(trace) if include_payloads else []
         info = getattr(trace, "info", None)
-        data = getattr(trace, "data", None)
+        data = getattr(trace, "data", None) if include_payloads else None
         tags = _trace_tags(info)
         usage = _rollup_usage(spans)
-        request = getattr(data, "request", None) or getattr(info, "request_preview", None)
-        response = getattr(data, "response", None) or getattr(info, "response_preview", None)
+        request = (
+            getattr(data, "request", None) or getattr(info, "request_preview", None)
+            if include_payloads
+            else None
+        )
+        response = (
+            getattr(data, "response", None) or getattr(info, "response_preview", None)
+            if include_payloads
+            else None
+        )
         mlflow_url: str | None = None
         try:
             mlflow_url = _mlflow_trace_url(mlflow, trace_id)
@@ -525,7 +537,7 @@ def fetch_trace_detail(trace_id: str | None, *, strict: bool = False) -> TraceDe
             completion_tokens=usage.completion_tokens,
             cost_usd=usage.cost_usd if usage.cost_usd is not None else trace_metadata_cost(info),
             tags=tags,
-            assessments=_assessments(trace),
+            assessments=_assessments(trace) if include_payloads else [],
         )
     except Exception as exc:
         logger.warning("trace detail mapping failed for %s (%s); empty detail", trace_id, exc)
