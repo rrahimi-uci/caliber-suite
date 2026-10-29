@@ -1300,9 +1300,9 @@ def test_other_kinds_keep_quoting_the_value_the_agent_step_kinds_do_not() -> Non
 
 
 def test_every_executor_implements_run_step(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Every ``WorkflowExecutor`` in the runtime is an ``AgentStepAdapter``; only the scripted fake runs a step so far.
+    """Every ``WorkflowExecutor`` in the runtime is an ``AgentStepAdapter``; the scripted fake and the Anthropic executor run a step so far.
 
-    The four provider executors answer with a ``refused`` result (``adapter_not_integrated``) and touch no provider: their
+    The provider executors not yet integrated answer with a ``refused`` result (``adapter_not_integrated``) and touch no provider: their
     clients are tripwires, and the Agents SDK is never imported. The discovery makes the test fail for an executor that is
     added later without ``run_step``, so it cannot be left out of governed execution by accident.
     """
@@ -1337,6 +1337,9 @@ def test_every_executor_implements_run_step(monkeypatch: pytest.MonkeyPatch) -> 
         assert result.proposed_actions == ()
         if name == "fake":
             assert result.stop_reason == "completed", name
+        elif name == "anthropic":
+            # Integrated (B08.anthropic, #727): it runs the step (here the harness deadline is long past, so it stops).
+            assert result.error_code != ADAPTER_NOT_INTEGRATED, name
         else:
             assert (result.stop_reason, result.error_code) == ("refused", ADAPTER_NOT_INTEGRATED), (
                 name

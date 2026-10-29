@@ -1472,11 +1472,14 @@ class AnthropicChatWorkflowExecutor:
         default_model: str,
         max_tokens: int = 4096,
         client: Any = None,
+        step_clock: Callable[[], datetime] | None = None,
     ) -> None:
         self._api_key = api_key
         self._default_model = default_model
         self._max_tokens = max_tokens
         self._client = client
+        # Reads the time for a governed step's deadline (aware); ``None`` is UTC now. Only :meth:`run_step` uses it.
+        self._step_clock = step_clock
 
     def _get_client(self) -> Any:
         if self._client is not None:
@@ -1494,13 +1497,24 @@ class AnthropicChatWorkflowExecutor:
     def run_step(
         self, request: _agent_step.AgentStepRequest, step_input: _agent_step.AgentStepInput
     ) -> _agent_step.AgentStepResult:
-        """Governed execution is not integrated for this executor yet (B08, #727): refused, no provider is called.
+        """Run one governed agent step through the Anthropic Messages API (B08.anthropic, #727).
 
-        The step is answered with a ``refused`` result (``adapter_not_integrated``) before any client is built or any
-        network is touched; :meth:`run_agent` is unchanged. The task that integrates this adapter replaces this body.
+        The model's read-tool calls run from ``step_input.read_tools`` only; a call of any other tool is never run and
+        becomes the step's one proposed action. The limits, usage, failure and refusal semantics are those of
+        :func:`caliber.workflows.step_adapters.anthropic_chat.run_anthropic_step`; :meth:`run_agent` is unchanged.
         """
-        del step_input
-        return _agent_step.refusal(request, _agent_step.ADAPTER_NOT_INTEGRATED)
+        from caliber.workflows.step_adapters.anthropic_chat import (  # noqa: PLC0415
+            run_anthropic_step,
+        )
+
+        return run_anthropic_step(
+            request,
+            step_input,
+            client_factory=self._get_client,
+            default_model=self._default_model,
+            max_tokens=self._max_tokens,
+            clock=self._step_clock,
+        )
 
     def run_agent(  # noqa: PLR0912, PLR0915 - bounded Anthropic tool loop
         self,

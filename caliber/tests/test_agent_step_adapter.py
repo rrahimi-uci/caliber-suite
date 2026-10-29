@@ -906,7 +906,7 @@ def test_only_a_step_whose_adapter_never_ran_may_release_its_reservation() -> No
         run(FakeWorkflowExecutor(step_script=[RuntimeError("p")]), ctx),
     ]
     assert all(result.error_code not in NOT_CALLED_CODES for result in kept)
-    released = [run(object(), ctx), run(every_executor()["anthropic"], ctx)]
+    released = [run(object(), ctx), run(every_executor()["openai_agents"], ctx)]
     assert {result.error_code for result in released} == NOT_CALLED_CODES
 
 
@@ -1163,7 +1163,7 @@ def test_run_agent_is_unchanged_by_the_step_script() -> None:
 # -------------------------------------------------------------- the four provider executors refuse until integrated
 
 
-@pytest.mark.parametrize("name", ["openai_chat", "openai_responses", "openai_agents", "anthropic"])
+@pytest.mark.parametrize("name", ["openai_chat", "openai_responses", "openai_agents"])
 def test_a_provider_executor_refuses_governed_execution_until_it_is_integrated(name: str) -> None:
     ctx = make_context()
     executor = every_executor()[name]

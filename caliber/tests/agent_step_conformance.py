@@ -137,6 +137,10 @@ class StepContext:
     protected_calls: list[dict[str, Any]] = field(default_factory=list)
     read_calls: list[dict[str, Any]] = field(default_factory=list)
     provider_calls: int = 0
+    #: What the staged provider reports for the scenario, when a driver's adapter counts turns and tool calls itself and the
+    #: default :attr:`staged_usage` cannot be produced by its loop (three turns and no tool call, for a budget stop). A driver
+    #: sets it before its transport answers; the tokens it states are the ones the stub must report. Additive (B08.anthropic).
+    usage_override: StepUsage | None = None
 
     def provider_called(self) -> None:
         """A driver's stubbed transport calls this each time the provider would be called."""
@@ -154,6 +158,8 @@ class StepContext:
     @property
     def staged_usage(self) -> StepUsage:
         """The usage the stubbed provider reports for the scenario; a conformant adapter reports exactly it."""
+        if self.usage_override is not None:
+            return self.usage_override
         if self.scenario is Scenario.BUDGET_EXHAUSTED:
             return StepUsage(900, 100, 1000, 3, 0)
         if self.scenario is Scenario.READ_TOOL_CALL:
