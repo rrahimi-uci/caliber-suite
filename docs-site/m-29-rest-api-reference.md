@@ -48,7 +48,8 @@ GET /ajax-api/2.0/mlflow/caliber/openapi.json
 | Knowledge | `GET/POST /knowledge-bases`, `POST /knowledge/query` | Corpus lifecycle plus retrieval |
 | MCP | `GET/POST /mcp-servers`, tool inventory and invoke routes | Governed external tool connectivity. Preview, off by default (`CALIBER_FEATURE_INTEGRATIONS`) |
 | Releases | `GET/POST /releases/candidates`, `POST /releases/candidates/{id}/signoffs`, `GET /releases/operations` | Signoff, waivers, and reconcile workflows. The candidate routes are record-only and off by default (`CALIBER_FEATURE_RELEASE_CANDIDATES`); `/releases/live`, `/releases/timeline` and `/releases/operations` are core |
-| Observability | `GET /observability/traces`, `GET /metrics`, `GET /events/stream` | Runtime evidence and live telemetry |
+| Observability | `GET /observability/traces`, `GET /observability/traces/{trace_id}`, `GET /metrics`, `GET /events/stream` | Runtime evidence and live telemetry; reference-profile trace payloads are role-gated and redacted |
+| Review queues | `GET/POST /review-queues`, `GET/PATCH /review-queues/{id}`, `POST /review-queues/{id}/items`, `GET /review-queues/{id}/alignment-examples` | Queue metadata remains visible to authorized queue readers; governed request/response values are placeholders without `trace.payload.read` |
 | Projects and access | `GET /projects`, `GET /projects/{id}`, member CRUD under `/projects/{id}/members` | Project responses include `access_role` and `permissions`; membership changes are owner-only and also need `caliber.operator` |
 
 The mutating routes of prompts, skills, tools, workflows, knowledge bases,
@@ -56,6 +57,20 @@ datasets and judges check the caller's project role as well as the token scope: 
 non-member gets 404 and a member whose role is too weak (for example a `viewer`)
 gets 403. The role each action needs is listed in
 [Auth and project scoping](m-31-auth-and-project-scoping.md#3-understand-project-access).
+
+## Trace-backed review and dataset capture
+
+Under the reference profile, `GET /review-queues/{queue_id}/alignment-examples` preserves review answers,
+question identifiers, trace/item identifiers, and assessment provenance for a reviewer who can see the queue, but
+replaces governed request/response values with `[redacted:<field>]` placeholders unless the caller has
+`trace.payload.read`. Project owners and editors can read project-owned payloads; viewers, reviewers, and
+administrators without project membership cannot.
+
+`POST /eval-datasets/{dataset_id}/examples/from-trace` resolves the source trace's identity and visibility before
+copying payloads. A foreign or unknown trace returns non-disclosing `404`; a visible trace without payload permission
+returns `403`, including when explicit `input` or `expected` overrides are supplied. These refusals do not change the
+dataset version or create an example. Authorized captures retain the existing payload shape and add the source
+lineage tags `from-trace` and `trace:{trace_id}`.
 
 ## Feature-flagged areas
 

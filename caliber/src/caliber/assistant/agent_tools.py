@@ -1046,7 +1046,13 @@ class AssistantAgentToolset:
                 manifest=manifest,
                 created_by=self._user,
             )
-            plan = build_plan(db, transient, manifest_override=manifest, config=self._deps.config)
+            plan = build_plan(
+                db,
+                transient,
+                manifest_override=manifest,
+                config=self._deps.config,
+                require_source_guard=getattr(self._deps.config, "profile", "") == "reference",
+            )
             executor = build_executor(self._deps.config, ir=plan.ir)
             result = execute(
                 plan, input_text, executor=executor, session_id=self._session_id, preview=True
@@ -1190,6 +1196,8 @@ class AssistantAgentToolset:
         question = str(a.get("question", ""))
         if not question:
             return _err("question is required")
+        if getattr(self._deps.config, "profile", "") == "reference":
+            return _err("governed_run_required: knowledge reads require an admitted workflow run")
         mode = str(a.get("retrieval_mode") or "dense")
         if mode not in ("dense", "hybrid", "graph_hybrid", "age_graph"):
             return _err(f"unknown retrieval_mode {mode!r}")
@@ -1437,7 +1445,13 @@ class AssistantAgentToolset:
                 manifest=manifest,
                 created_by=self._user,
             )
-            plan = build_plan(db, transient, manifest_override=manifest, config=self._deps.config)
+            plan = build_plan(
+                db,
+                transient,
+                manifest_override=manifest,
+                config=self._deps.config,
+                require_source_guard=getattr(self._deps.config, "profile", "") == "reference",
+            )
             executor = build_executor(self._deps.config, ir=plan.ir)
             totals: dict[str, float] = {}
             counts: dict[str, int] = {}

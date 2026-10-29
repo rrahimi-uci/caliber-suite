@@ -161,7 +161,9 @@ class StepContext:
         if self.usage_override is not None:
             return self.usage_override
         if self.scenario is Scenario.BUDGET_EXHAUSTED:
-            return StepUsage(900, 100, 1000, 3, 0)
+            # One turn that spent the budget: three turns with no tool call is not something a provider transport can stage
+            # under the default limits (a second turn exists only after a tool call, and ``tool_calls`` would not be 0).
+            return StepUsage(900, 100, 1000, 1, 0)
         if self.scenario is Scenario.READ_TOOL_CALL:
             return StepUsage(150, 30, 180, 2, 1)
         return StepUsage(100, 20, 120, 1, 0)

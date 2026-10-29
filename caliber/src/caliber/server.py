@@ -838,10 +838,12 @@ def create_app(config: CaliberConfig | None = None) -> ASGIApp:  # noqa: PLR0915
         storage=working_dir_service,
         provider_registry=workspace_source_registry,
     )
+    admission_settings = AdmissionSettings.from_config(resolved)
     scheduler = WorkflowSchedulerTask(
         session_factory=session_factory,
         interval_seconds=resolved.workflow_scheduler_interval_seconds,
         publish=getattr(event_bus, "publish", None),
+        admission=admission_settings,
     )
     janitor = JanitorTask(
         session_factory=session_factory,
@@ -860,7 +862,8 @@ def create_app(config: CaliberConfig | None = None) -> ASGIApp:  # noqa: PLR0915
         session_factory=session_factory,
         config=resolved,
     )
-    # B10.1: claims queued Workspace release evaluations. Dormant while the release feature is off.
+    # B10.2: executes queued Workspace release evaluations from the revision's
+    # immutable pins. Dormant while the release feature is off.
     if (
         resolved.workspace_release_evaluator_enabled
         and not resolved.feature_release_candidates_enabled
@@ -874,6 +877,8 @@ def create_app(config: CaliberConfig | None = None) -> ASGIApp:  # noqa: PLR0915
             session_factory,
             resolved,
             poll_interval_seconds=resolved.workspace_release_evaluator_interval_seconds,
+            eval_provider=eval_provider,
+            adapter_registry=workspace_resource_adapter_registry,
         )
         if resolved.feature_release_candidates_enabled
         and resolved.workspace_release_evaluator_enabled
@@ -1017,9 +1022,6 @@ def create_app(config: CaliberConfig | None = None) -> ASGIApp:  # noqa: PLR0915
             path_limits={GITHUB_WEBHOOK_PATH: resolved.github_webhook_max_body_bytes},
         )
     app.state.config = resolved
-    AdmissionSettings.from_config(
-        resolved
-    )  # a rule bundle path without its digest (or the reverse) fails startup
     app.state.engine = engine
     app.state.session_factory = session_factory
     app.state.secret_store = secret_store

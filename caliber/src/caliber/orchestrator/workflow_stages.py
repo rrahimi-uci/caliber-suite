@@ -440,6 +440,7 @@ def _run_workflow_calibration_candidate(
             identity=workflow_identity,
             config=config,
             actor=actor,
+            require_source_guard=getattr(config, "profile", "") == "reference",
         )
         result = evaluate_workflow_calibration_candidates(
             base_manifest.to_dict(),
@@ -634,6 +635,7 @@ def run_workflow_eval(
         identity=workflow_identity,
         config=config,
         actor=actor,
+        require_source_guard=getattr(config, "profile", "") == "reference",
     )
     result = evaluate_candidate(
         baseline_manifest,

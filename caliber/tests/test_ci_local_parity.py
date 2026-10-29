@@ -314,3 +314,21 @@ def test_the_alpha_migration_manifest_is_compared_with_the_release_tag_in_ci_and
     assert fetch in script
     assert "migration_checksums.py generate --check" in script
     assert f"{REQUIRE_TAG_ENV}=1" in script
+
+
+def test_the_postgresql_parity_lists_match_and_run_the_alpha_seed_tests() -> None:
+    """``test_seed_at_alpha_head`` has a ``postgresql`` case that only runs where ``CALIBER_TEST_POSTGRES_URL``
+    is set, which is this job (B16-Upgrade.2, #708). CI and the local runner must list the same files."""
+    workflow = yaml.safe_load(WORKFLOW.read_text())
+    steps = workflow["jobs"]["migration-parity-postgres"]["steps"]
+    run = next(step["run"] for step in steps if "CALIBER_TEST_POSTGRES_URL" in step.get("env", {}))
+    in_ci = re.findall(r"tests/[A-Za-z0-9_]+\.py", run)
+
+    script = SCRIPT.read_text()
+    function = script[script.index("job_migration_parity_postgres() {") :]
+    function = function[: function.index("\n}\n")]
+    locally = re.findall(r"tests/[A-Za-z0-9_]+\.py", function)
+
+    assert "tests/test_upgrade_from_alpha.py" in in_ci
+    assert in_ci == locally
+    assert "-k postgresql" in run

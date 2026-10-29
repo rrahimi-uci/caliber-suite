@@ -418,6 +418,44 @@ def test_fetch_trace_detail_handles_non_numeric_time_fields(
     assert detail.execution_time_ms is None
 
 
+def test_fetch_trace_detail_metadata_mode_does_not_map_payloads(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class _PayloadAccessFails:
+        info = SimpleNamespace(
+            state=None,
+            status="OK",
+            tags={},
+            trace_metadata={},
+            request_preview="secret preview",
+            response_preview="secret response",
+            request_time=None,
+            execution_duration=None,
+            assessments=None,
+            trace_location=SimpleNamespace(
+                mlflow_experiment=SimpleNamespace(experiment_id="exp-A")
+            ),
+        )
+
+        @property
+        def data(self) -> Any:
+            raise AssertionError("metadata lookup must not access trace payload data")
+
+    trace = _PayloadAccessFails()
+    fake_mlflow = SimpleNamespace(
+        get_trace=lambda trace_id, silent=True: trace,
+        get_tracking_uri=lambda: "",
+    )
+    monkeypatch.setitem(sys.modules, "mlflow", fake_mlflow)
+
+    detail = fetch_trace_detail("T1", include_payloads=False)
+
+    assert detail.trace_id == "T1"
+    assert detail.experiment_id == "exp-A"
+    assert detail.spans == []
+    assert detail.request is None and detail.response is None
+
+
 # ───────────────────── fetch_trace_spans ─────────────────────
 
 

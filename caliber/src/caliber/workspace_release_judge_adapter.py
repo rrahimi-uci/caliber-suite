@@ -122,12 +122,17 @@ _TARGET_REF_PREFIX = "judge:"
 #: judge pin -- see this module's docstring for why a judge has no numbered
 #: version to be explicit about instead.
 CURRENT_VERSION_REF = "current"
+_DIGEST_LENGTH = 64
 
 #: Bumped whenever this adapter's resolution/snapshot strategy changes in a
 #: way that would make an old pin's ``resolution.adapter_version`` stop
 #: describing how it was produced -- the same convention
 #: ``workspace_release_prompt_adapter.py::PROMPT_ADAPTER_VERSION`` uses.
 JUDGE_ADAPTER_VERSION = "workspace-release-judge-adapter/1"
+
+
+def _is_content_digest(value: str) -> bool:
+    return len(value) == _DIGEST_LENGTH and all(char in "0123456789abcdef" for char in value)
 
 
 @dataclass(frozen=True)
@@ -194,10 +199,11 @@ class JudgeWorkspaceResourceAdapter:
                 "judge declaration requires 'resource_id' and 'version_ref'"
             )
         judge_id = str(judge_id)
-        if str(version_ref) != CURRENT_VERSION_REF:
+        version_ref = str(version_ref)
+        if version_ref != CURRENT_VERSION_REF and not _is_content_digest(version_ref):
             raise WorkspaceReleaseAdapterError(
-                f"judge version_ref must be {CURRENT_VERSION_REF!r} (a judge has no "
-                f"numbered version history to pin an explicit version of); got {version_ref!r}"
+                f"judge version_ref must be {CURRENT_VERSION_REF!r} or a content digest "
+                f"(a judge has no numbered version history to pin); got {version_ref!r}"
             )
 
         judge = get_visible(session, CaliberJudge, CaliberJudge.judge_id, judge_id, identity)
@@ -208,13 +214,25 @@ class JudgeWorkspaceResourceAdapter:
             # can't be used to probe for another user's judge ids.
             raise WorkspaceReleaseAdapterError(f"judge {judge_id!r} not found or not visible")
 
-        return ResolvedJudge(
+        resolved = ResolvedJudge(
             judge_id=judge.judge_id,
             name=judge.name,
             instructions=judge.instructions,
             model=judge.model,
             feedback_value_type=judge.feedback_value_type,
         )
+        if version_ref != CURRENT_VERSION_REF:
+            actual = _content_sha256(
+                resolved.name,
+                resolved.instructions,
+                resolved.model,
+                resolved.feedback_value_type,
+            )
+            if actual != version_ref:
+                raise WorkspaceReleaseAdapterError(
+                    f"judge {judge_id!r} content no longer matches pinned digest"
+                )
+        return resolved
 
     def snapshot(self, _session: object, resolved_pin: object) -> SnapshotPin:
         """Compute a genuine content digest over the judge's grading fields.

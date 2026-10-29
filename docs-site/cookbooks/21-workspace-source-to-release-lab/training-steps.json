@@ -43,7 +43,7 @@
     {
       "where": "API · Releases (flagged)",
       "do": "Create a release of R2 into <code>dev</code> (three 64-hex content digests, an idempotency key), replay the same key, then <code>POST .../evaluate</code>.",
-      "see": "A <code>draft</code> release; the replay returns the same release; evaluate moves it to <strong>evaluating</strong> with the evaluation <strong>queued</strong> -- where it stays. Workspace release evaluations have no executor in the alpha; never wait on one."
+      "see": "A <code>draft</code> release; the replay returns the same release; evaluate moves it to <strong>evaluating</strong> with the evaluation <strong>queued</strong> while this lab leaves the evaluator flag off. An enabled worker requires complete digest-matching pins."
     },
     {
       "where": "API · Releases · Audit Log",

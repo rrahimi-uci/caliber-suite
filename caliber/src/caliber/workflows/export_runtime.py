@@ -21,6 +21,7 @@ from caliber.auth import (
     CaliberIdentity,
 )
 from caliber.config import CaliberConfig
+from caliber.context.authorize import GOVERNED_RUN_REQUIRED, ContextDenied
 from caliber.db.models import CaliberWorkflowDeployment, CaliberWorkflowVersion
 from caliber.db.session import create_engine_from_config, sessionmaker_from_engine
 from caliber.knowledge.schemas import KnowledgeBaseVersionCreateRequest, KnowledgeQueryRequest
@@ -135,6 +136,8 @@ def _default_subworkflow_runner(
     *,
     session_factory: sessionmaker[Session],
     config: CaliberConfig,
+    source_guard: Callable[[str], None] | None = None,
+    require_source_guard: bool = False,
 ) -> Callable[[str, str, str, float, int, WorkflowExecutor, bool], dict[str, Any]]:
     from caliber.workflows.promoter import build_plan  # noqa: PLC0415
 
@@ -198,6 +201,11 @@ def _default_subworkflow_runner(
             }
         with session_factory() as session:
             target_version = _resolve_version(session, workflow_id, run_alias)
+            plan_kwargs: dict[str, Any] = {}
+            if source_guard is not None:
+                plan_kwargs["source_guard"] = source_guard
+            if require_source_guard:
+                plan_kwargs["require_source_guard"] = True
             sub_plan = build_plan(
                 session,
                 target_version,
@@ -205,6 +213,7 @@ def _default_subworkflow_runner(
                 subworkflow_depth=depth,
                 config=config,
                 session_factory=session_factory,
+                **plan_kwargs,
             )
         run_ctx = current_run_context()
         result = execute(
@@ -234,6 +243,8 @@ def _default_knowledge_query_runner(
     session_factory: sessionmaker[Session],
     config: CaliberConfig,
     identity: CaliberIdentity,
+    source_guard: Callable[[str], None] | None = None,
+    require_source_guard: bool = False,
 ) -> Callable[[dict[str, Any]], dict[str, Any]]:
     knowledge_service = KnowledgeBaseService(config=config, session_factory=session_factory)
 
@@ -261,6 +272,8 @@ def _default_knowledge_query_runner(
         return [mode]
 
     def _run_knowledge_query(payload: dict[str, Any]) -> dict[str, Any]:
+        if require_source_guard and source_guard is None:
+            raise ContextDenied(GOVERNED_RUN_REQUIRED)
         raw = dict(payload)
         version_ids = [
             str(item).strip() for item in list(raw.get("version_ids") or []) if str(item).strip()
@@ -278,6 +291,9 @@ def _default_knowledge_query_runner(
             raise RuntimeError(
                 "knowledge_query node requires at least one version_id or knowledge_base_id"
             )
+        if source_guard is not None:
+            for version_id in dict.fromkeys(version_ids):
+                source_guard(version_id)
         raw_retrieval_modes = _normalize_retrieval_modes(raw.get("retrieval_modes"))
         retrieval_modes = (
             _resolve_default_retrieval_modes(resolved_version_ids=version_ids)
@@ -315,10 +331,13 @@ def _default_knowledge_build_runner(
     session_factory: sessionmaker[Session],
     config: CaliberConfig,
     identity: CaliberIdentity,
+    require_source_guard: bool = False,
 ) -> Callable[[dict[str, Any]], dict[str, Any]]:
     knowledge_service = KnowledgeBaseService(config=config, session_factory=session_factory)
 
     def _run_knowledge_build(payload: dict[str, Any]) -> dict[str, Any]:
+        if require_source_guard:
+            raise ContextDenied(GOVERNED_RUN_REQUIRED)
         raw = dict(payload)
         knowledge_base_id = str(raw.get("knowledge_base_id") or "").strip()
         if not knowledge_base_id:
@@ -430,7 +449,33 @@ def _default_knowledge_build_runner(
     return _run_knowledge_build
 
 
-def execute_exported_workflow(
+def _has_ungoverned_reference_runner(
+    ir: IRWorkflow,
+    *,
+    config: CaliberConfig,
+    knowledge_query_runner: Callable[[dict[str, Any]], dict[str, Any]] | None,
+    knowledge_build_runner: Callable[[dict[str, Any]], dict[str, Any]] | None,
+    subworkflow_runner: Callable[..., Any] | None,
+) -> bool:
+    if config.profile != "reference":
+        return False
+    return (
+        (
+            knowledge_query_runner is not None
+            and any(isinstance(node, IRKnowledgeQuery) for node in ir.nodes.values())
+        )
+        or (
+            knowledge_build_runner is not None
+            and any(isinstance(node, IRKnowledgeBuild) for node in ir.nodes.values())
+        )
+        or (
+            subworkflow_runner is not None
+            and any(isinstance(node, IRSubworkflow) for node in ir.nodes.values())
+        )
+    )
+
+
+def execute_exported_workflow(  # noqa: PLR0912 - one central runtime wiring boundary
     ir: IRWorkflow,
     input_text: str,
     *,
@@ -451,6 +496,7 @@ def execute_exported_workflow(
         Callable[[str, str, str, float, int, WorkflowExecutor, bool], dict[str, Any]] | None
     ) = None,
     session_memory_store: WorkflowSessionMemoryStore | None = None,
+    source_guard: Callable[[str], None] | None = None,
 ) -> WorkflowRunResult:
     """Execute an exported workflow IR through the full CALIBER interpreter."""
 
@@ -463,6 +509,15 @@ def execute_exported_workflow(
     resolved_config = config if config is not None else CaliberConfig.load()
     resolved_resolver = resolver if resolver is not None else InMemoryToolResolver()
     resolved_identity = identity or _default_identity(active_project_id=active_project_id)
+
+    if _has_ungoverned_reference_runner(
+        ir,
+        config=resolved_config,
+        knowledge_query_runner=knowledge_query_runner,
+        knowledge_build_runner=knowledge_build_runner,
+        subworkflow_runner=subworkflow_runner,
+    ):
+        raise ContextDenied(GOVERNED_RUN_REQUIRED)
 
     runtime_session_factory = session_factory
     if (
@@ -493,6 +548,8 @@ def execute_exported_workflow(
         resolved_subworkflow_runner = _default_subworkflow_runner(
             session_factory=runtime_session_factory,
             config=resolved_config,
+            source_guard=source_guard,
+            require_source_guard=resolved_config.profile == "reference",
         )
 
     resolved_knowledge_query_runner = knowledge_query_runner
@@ -507,6 +564,8 @@ def execute_exported_workflow(
             session_factory=runtime_session_factory,
             config=resolved_config,
             identity=resolved_identity,
+            source_guard=source_guard,
+            require_source_guard=resolved_config.profile == "reference",
         )
 
     resolved_knowledge_build_runner = knowledge_build_runner
@@ -521,6 +580,7 @@ def execute_exported_workflow(
             session_factory=runtime_session_factory,
             config=resolved_config,
             identity=resolved_identity,
+            require_source_guard=resolved_config.profile == "reference",
         )
 
     resolved_executor = executor

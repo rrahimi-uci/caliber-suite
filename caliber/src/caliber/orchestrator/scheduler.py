@@ -26,14 +26,21 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 
 from caliber.db.models import (
+    CaliberProject,
     CaliberWorkflow,
     CaliberWorkflowDeployment,
     CaliberWorkflowVersion,
 )
 from caliber.observability.trace import bind_trace_id
+from caliber.policy.principal import ServicePrincipal, workload_id_for
+from caliber.workflows.admission import AdmissionDenied, AdmissionSettings, purpose_for
 from caliber.workflows.cron import cron_matches
 from caliber.workflows.manifest import StartNode, parse_manifest
-from caliber.workflows.run_launch import enqueue_workflow_run
+from caliber.workflows.run_launch import (
+    LineageRequiredError,
+    current_runtime_lineage_coordinates,
+    enqueue_workflow_run,
+)
 
 logger = logging.getLogger("caliber.orchestrator.scheduler")
 
@@ -48,10 +55,12 @@ class WorkflowSchedulerTask:
         session_factory: sessionmaker[Session],
         interval_seconds: float = DEFAULT_INTERVAL_SECONDS,
         publish: Callable[[dict[str, Any]], None] | None = None,
+        admission: AdmissionSettings | None = None,
     ) -> None:
         self._session_factory = session_factory
         self._interval_seconds = interval_seconds
         self._publish = publish
+        self._admission = admission
         self._task: asyncio.Task[None] | None = None
         self._stopped = asyncio.Event()
 
@@ -146,16 +155,73 @@ class WorkflowSchedulerTask:
             return False
 
         minute_key = local_now.strftime("%Y-%m-%dT%H:%M")
-        _run, created = enqueue_workflow_run(
-            session,
-            workflow=workflow,
-            version=version,
-            alias=deployment.alias,
-            source="cron",
-            actor="@scheduler",
-            idempotency_key=f"cron:{deployment.alias}:{minute_key}",
-            publish=self._publish,
-        )
+        principal = None
+        identity = None
+        workspace_release_id = environment_id = None
+        actor = "@scheduler"
+        if self._admission is not None and self._admission.enabled:
+            project = (
+                session.get(CaliberProject, workflow.project_id) if workflow.project_id else None
+            )
+            if project is None or not workflow.project_id:
+                logger.warning(
+                    "cron run refused: %s for workflow %s",
+                    "service_principal_unconfigured",
+                    workflow.workflow_id,
+                )
+                return False
+            try:
+                principal = ServicePrincipal(
+                    principal_id=f"service_principal:cron:{workflow.workflow_id}",
+                    tenant_id=str(project.tenant_id),
+                    project_id=workflow.project_id,
+                    workflow_id=workflow.workflow_id,
+                    workload_id=workload_id_for(version.manifest_hash),
+                    purpose=purpose_for("cron"),
+                    allowed_actions=frozenset({"resource.execute"}),
+                    allowed_resources=frozenset({f"workflow:{workflow.workflow_id}"}),
+                )
+                identity = principal.to_identity()
+                actor = principal.principal_id
+                if self._admission.lineage_required:
+                    workspace_release_id, environment_id = current_runtime_lineage_coordinates(
+                        session,
+                        workflow.project_id,
+                        deployment_environment=deployment.environment,
+                    )
+            except ValueError as exc:
+                logger.warning(
+                    "cron run refused: service_principal_unconfigured for workflow %s (%s)",
+                    workflow.workflow_id,
+                    exc,
+                )
+                return False
+        try:
+            with session.begin_nested():
+                _run, created = enqueue_workflow_run(
+                    session,
+                    workflow=workflow,
+                    version=version,
+                    alias=deployment.alias,
+                    requested_alias=deployment.alias,
+                    version_selector=version.version_id,
+                    source="cron",
+                    actor=actor,
+                    idempotency_key=f"cron:{deployment.alias}:{minute_key}",
+                    workspace_release_id=workspace_release_id,
+                    environment_id=environment_id,
+                    publish=self._publish,
+                    identity=identity,
+                    admission=self._admission,
+                    service_principal=principal,
+                )
+        except (AdmissionDenied, LineageRequiredError, RuntimeError, ValueError) as exc:
+            logger.warning(
+                "cron run refused for workflow %s: %s",
+                workflow.workflow_id,
+                exc,
+            )
+            return False
         if created:
             logger.info(
                 "scheduled run for workflow %s alias %s (cron=%r)",

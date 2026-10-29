@@ -9,6 +9,7 @@ import pytest
 from sqlalchemy.orm import Session, sessionmaker
 
 from caliber.config import CaliberConfig
+from caliber.context.authorize import GOVERNED_RUN_REQUIRED, ContextDenied
 from caliber.db.models import CaliberWorkflow, CaliberWorkflowDeployment, CaliberWorkflowVersion
 from caliber.tool_sandbox.models import ToolSandboxRunResult
 from caliber.workflows import export_runtime
@@ -274,6 +275,7 @@ def test_default_subworkflow_runner_uses_latest_manual_version_and_propagates_ru
         subworkflow_depth: int,
         config: CaliberConfig,
         session_factory,
+        **kwargs,
     ) -> SimpleNamespace:
         captured["session"] = session
         captured["target_version_id"] = target_version.version_id
@@ -282,6 +284,7 @@ def test_default_subworkflow_runner_uses_latest_manual_version_and_propagates_ru
         captured["subworkflow_depth"] = subworkflow_depth
         captured["config"] = config
         captured["session_factory"] = session_factory
+        captured.update(kwargs)
         return SimpleNamespace(plan_id="child-plan", version_id=target_version.version_id)
 
     def _fake_execute(
@@ -355,6 +358,27 @@ def test_default_subworkflow_runner_uses_latest_manual_version_and_propagates_ru
         "tokens": 23,
         "steps": ["child_start", "child_final"],
     }
+
+    def source_guard(version_id: str) -> None:
+        del version_id
+
+    guarded_runner = export_runtime._default_subworkflow_runner(
+        session_factory=session_factory,
+        config=app_config,
+        source_guard=source_guard,
+        require_source_guard=True,
+    )
+    guarded_runner(
+        "WF-child",
+        "manual",
+        "Guarded child",
+        90.0,
+        2,
+        executor,
+        True,
+    )
+    assert captured["source_guard"] is source_guard
+    assert captured["require_source_guard"] is True
 
 
 def test_default_subworkflow_runner_uses_active_alias_deployment(
@@ -694,6 +718,109 @@ def test_execute_exported_workflow_autowires_default_knowledge_query_runner(
     # The resolved active version is pinned into the node output for reproducibility.
     assert payload["resolved_version_ids"] == ["KBV-7"]
     assert payload["resolved_knowledge_base_id"] == "KB-1"
+
+
+def test_reference_profile_exported_query_refuses_before_retrieval(
+    session_factory: sessionmaker[Session],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[str] = []
+
+    class _FakeKnowledgeService:
+        def __init__(self, *args, **kwargs) -> None:
+            del args, kwargs
+
+        def query(self, *args, **kwargs):
+            del args, kwargs
+            calls.append("query")
+            raise AssertionError("reference-profile export must refuse before retrieval")
+
+    monkeypatch.setattr(export_runtime, "KnowledgeBaseService", _FakeKnowledgeService)
+    config = CaliberConfig(profile="reference")
+    plan_holder: dict[str, RuntimePlan] = {}
+
+    def _fake_execute(plan: RuntimePlan, *args, **kwargs) -> WorkflowRunResult:
+        del args, kwargs
+        plan_holder["plan"] = plan
+        return WorkflowRunResult(status="completed", output="refused-at-node")
+
+    monkeypatch.setattr(export_runtime, "execute", _fake_execute)
+    result = export_runtime.execute_exported_workflow(
+        _ir(_knowledge_query_manifest()),
+        "secret?",
+        config=config,
+        session_factory=session_factory,
+    )
+
+    assert result.output == "refused-at-node"
+    assert plan_holder["plan"].knowledge_query_runner is not None
+    with pytest.raises(ContextDenied) as error:
+        plan_holder["plan"].knowledge_query_runner(  # type: ignore[misc]
+            {"version_ids": ["KBV-unapproved"], "question": "secret?"}
+        )
+    assert error.value.code == GOVERNED_RUN_REQUIRED
+    assert calls == []
+
+
+def test_reference_profile_exported_build_refuses_before_version_creation(
+    session_factory: sessionmaker[Session],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[str] = []
+
+    class _FakeKnowledgeService:
+        def __init__(self, *args, **kwargs) -> None:
+            del args, kwargs
+
+        def create_version(self, *args, **kwargs):
+            del args, kwargs
+            calls.append("create_version")
+            raise AssertionError("reference-profile export must refuse before build")
+
+    monkeypatch.setattr(export_runtime, "KnowledgeBaseService", _FakeKnowledgeService)
+    config = CaliberConfig(profile="reference")
+    plan_holder: dict[str, RuntimePlan] = {}
+
+    def _fake_execute(plan: RuntimePlan, *args, **kwargs) -> WorkflowRunResult:
+        del args, kwargs
+        plan_holder["plan"] = plan
+        return WorkflowRunResult(status="completed", output="refused-at-node")
+
+    monkeypatch.setattr(export_runtime, "execute", _fake_execute)
+    result = export_runtime.execute_exported_workflow(
+        _ir(_knowledge_build_manifest()),
+        "source",
+        config=config,
+        session_factory=session_factory,
+    )
+
+    assert result.output == "refused-at-node"
+    assert plan_holder["plan"].knowledge_build_runner is not None
+    with pytest.raises(ContextDenied) as error:
+        plan_holder["plan"].knowledge_build_runner(  # type: ignore[misc]
+            {
+                "knowledge_base_id": "KB-1",
+                "chunking_strategy": "recursive",
+                "embedding_model": "BAAI/bge-m3",
+            }
+        )
+    assert error.value.code == GOVERNED_RUN_REQUIRED
+    assert calls == []
+
+
+def test_reference_profile_export_rejects_unwrapped_custom_knowledge_runner(
+    session_factory: sessionmaker[Session],
+) -> None:
+    with pytest.raises(ContextDenied) as error:
+        export_runtime.execute_exported_workflow(
+            _ir(_knowledge_query_manifest()),
+            "secret?",
+            config=CaliberConfig(profile="reference"),
+            session_factory=session_factory,
+            knowledge_query_runner=lambda _payload: {"answer": "bypassed"},
+        )
+
+    assert error.value.code == GOVERNED_RUN_REQUIRED
 
 
 def test_default_knowledge_query_runner_requires_active_version_or_version_ids(

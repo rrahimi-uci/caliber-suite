@@ -28,8 +28,10 @@ from caliber.db.models import (
     CaliberWorkspaceChangeRequestHead,
     CaliberWorkspaceEnvironment,
     CaliberWorkspaceRelease,
+    CaliberWorkspaceReleaseEvaluation,
     CaliberWorkspaceRevision,
 )
+from caliber.eval.evidence import build_release_gate_evidence
 from caliber.routes.workspace_releases import _break_glass_apply_sync
 from caliber.schemas import WorkspaceBreakGlassApplyRequest
 from caliber.workspace_release_governance import record_workspace_release_decision
@@ -99,6 +101,61 @@ def _set_source_mode(db_session: Session, project_id: str, source_mode: str) -> 
     assert project is not None
     project.source_mode = source_mode
     db_session.commit()
+
+
+def _attach_gate_evidence(
+    db_session: Session,
+    release: CaliberWorkspaceRelease,
+    *,
+    evaluation_id: str,
+    plan_sha256: str,
+    input_sha256: str,
+) -> str:
+    rows = [
+        {
+            "example_id": "example-1",
+            "input": {"prompt": "hello"},
+            "expected": {"answer": "world"},
+            "prediction": "world",
+            "scores": {"Judge.quality": 1.0},
+            "score": 1.0,
+            "passed": True,
+            "error": None,
+            "weight": 1.0,
+            "tags": [],
+        }
+    ]
+    evidence, digest = build_release_gate_evidence(
+        scored_rows=rows,
+        dataset_id="DS-p5f",
+        dataset_version=1,
+        plan_sha256=plan_sha256,
+        input_sha256=input_sha256,
+        evaluation_id=evaluation_id,
+        provider={"provider": "fake", "simulated": True},
+        candidate={"overall": 1.0, "dimensions": {"Judge.quality": 1.0}},
+        baseline=None,
+        deltas={},
+        n_examples=1,
+        min_aggregate_score=0.8,
+        min_aggregate_delta=None,
+        result="pass",
+    )
+    release.evaluation_evidence_sha256 = digest
+    db_session.add(
+        CaliberWorkspaceReleaseEvaluation(
+            evaluation_id=evaluation_id,
+            project_id=release.project_id,
+            workspace_release_id=release.release_id,
+            idempotency_key=f"{evaluation_id}-request",
+            evaluation_plan_sha256=plan_sha256,
+            input_sha256=input_sha256,
+            status="succeeded",
+            gate_evidence=evidence,
+            requested_by="@test",
+        )
+    )
+    return digest
 
 
 def _releases_path(project_id: str) -> str:
@@ -477,7 +534,13 @@ def _seed_governed_release(
         change_request_head_id=head_id,
     )
     release.status = "awaiting_quality_signoff"
-    release.evaluation_evidence_sha256 = GATE
+    _attach_gate_evidence(
+        db_session,
+        release,
+        evaluation_id=f"EVAL-{key}",
+        plan_sha256=digest,
+        input_sha256=digest,
+    )
     db_session.commit()
     return release, head_id
 
@@ -510,7 +573,7 @@ def test_quality_signoff_go_advances_a_qa_release_to_approved(
         json={
             "decision": "go",
             "rationale": "looks good",
-            "gate_evidence_sha256": GATE,
+            "gate_evidence_sha256": release.evaluation_evidence_sha256,
             "change_request_head_id": head_id,
         },
     )
@@ -537,7 +600,11 @@ def test_quality_signoff_by_the_developer_who_requested_it_is_refused(
     response = client.post(
         f"{_releases_path(project_id)}/{release.release_id}/quality-signoff",
         headers={"X-CALIBER-User": "@dev"},
-        json={"decision": "go", "gate_evidence_sha256": GATE, "change_request_head_id": head_id},
+        json={
+            "decision": "go",
+            "gate_evidence_sha256": release.evaluation_evidence_sha256,
+            "change_request_head_id": head_id,
+        },
     )
     assert response.status_code == 403, response.text
 
@@ -558,7 +625,7 @@ def test_approve_requires_a_fresh_quality_signoff_first(
 
     response = client.post(
         f"{_releases_path(project_id)}/{release.release_id}/approve",
-        json={"decision": "go", "gate_evidence_sha256": GATE},
+        json={"decision": "go", "gate_evidence_sha256": release.evaluation_evidence_sha256},
     )
     assert response.status_code == 409, response.text
     assert "quality signoff" in response.json()["detail"]
@@ -593,7 +660,11 @@ def test_full_production_decision_chain_uses_distinct_qa_and_owner_actors(
     quality = client.post(
         f"{_releases_path(project_id)}/{release.release_id}/quality-signoff",
         headers={"X-CALIBER-User": "@qa"},
-        json={"decision": "go", "gate_evidence_sha256": GATE, "change_request_head_id": head_id},
+        json={
+            "decision": "go",
+            "gate_evidence_sha256": release.evaluation_evidence_sha256,
+            "change_request_head_id": head_id,
+        },
     )
     assert quality.status_code == 201, quality.text
     db_session.refresh(release)
@@ -601,7 +672,7 @@ def test_full_production_decision_chain_uses_distinct_qa_and_owner_actors(
 
     approved = client.post(
         f"{_releases_path(project_id)}/{release.release_id}/approve",
-        json={"decision": "go", "gate_evidence_sha256": GATE},
+        json={"decision": "go", "gate_evidence_sha256": release.evaluation_evidence_sha256},
     )
     assert approved.status_code == 201, approved.text
     assert approved.json()["data"]["decided_by"] == "@test"
@@ -647,7 +718,7 @@ def test_break_glass_apply_over_http_is_refused_without_a_real_session_credentia
             "incident_ref": "INC-1",
             "authorization_ref": "AUTH-1",
             "expires_at": (datetime.now(timezone.utc) + timedelta(minutes=10)).isoformat(),
-            "gate_evidence_sha256": GATE,
+            "gate_evidence_sha256": release.evaluation_evidence_sha256,
             "expected_current_release_id": release.release_id,
             "expected_environment_lock_version": 1,
             "idempotency_key": "break-glass-f11",
@@ -753,7 +824,13 @@ def _seed_verified_qa_staging_prod_chain(
         change_request_head_id=f"WCH-{key}",
     )
     qa_release.status = "awaiting_quality_signoff"
-    qa_release.evaluation_evidence_sha256 = GATE
+    qa_gate = _attach_gate_evidence(
+        db_session,
+        qa_release,
+        evaluation_id=f"EVAL-{key}-qa",
+        plan_sha256=digest,
+        input_sha256=digest,
+    )
     db_session.flush()
     record_workspace_release_decision(
         db_session,
@@ -762,7 +839,7 @@ def _seed_verified_qa_staging_prod_chain(
         identity=CaliberIdentity(user_id="@qa", scopes=_ADMIN_SCOPES),
         kind="quality",
         decision="go",
-        gate_evidence_sha256=GATE,
+        gate_evidence_sha256=qa_gate,
         change_request_head_id=f"WCH-{key}",
     )
     qa_apply = create_workspace_release_operation(
@@ -830,7 +907,13 @@ def _seed_verified_qa_staging_prod_chain(
         predecessor_release_id=staging_release.release_id,
     )
     prod_release.status = "awaiting_quality_signoff"
-    prod_release.evaluation_evidence_sha256 = GATE
+    _attach_gate_evidence(
+        db_session,
+        prod_release,
+        evaluation_id=f"EVAL-{key}-prod",
+        plan_sha256=digest,
+        input_sha256=digest,
+    )
     db_session.commit()
     return prod_release
 
@@ -859,7 +942,7 @@ def test_break_glass_apply_succeeds_through_a_verified_qa_staging_prod_chain(
         incident_ref="INC-2",
         authorization_ref="AUTH-2",
         expires_at=datetime.now(timezone.utc) + timedelta(minutes=10),
-        gate_evidence_sha256=GATE,
+        gate_evidence_sha256=prod_release.evaluation_evidence_sha256,
         expected_current_release_id=prod_release.release_id,
         expected_environment_lock_version=1,
         idempotency_key="f12-break-glass",
@@ -897,6 +980,7 @@ def test_break_glass_apply_denies_when_persisted_evidence_has_gone_stale_since_e
     prod_release = _seed_verified_qa_staging_prod_chain(
         db_session, project_id=project_id, key="f13"
     )
+    stale_gate_evidence_sha256 = prod_release.evaluation_evidence_sha256
     prod_release.evaluation_evidence_sha256 = (
         "e" * 64
     )  # evidence moved on after the chain was built
@@ -907,7 +991,7 @@ def test_break_glass_apply_denies_when_persisted_evidence_has_gone_stale_since_e
         incident_ref="INC-3",
         authorization_ref="AUTH-3",
         expires_at=datetime.now(timezone.utc) + timedelta(minutes=10),
-        gate_evidence_sha256=GATE,  # the caller's earlier-captured (now-stale) digest
+        gate_evidence_sha256=stale_gate_evidence_sha256,
         expected_current_release_id=prod_release.release_id,
         expected_environment_lock_version=1,
         idempotency_key="f13-break-glass",

@@ -59,6 +59,8 @@ class FakeEvalProvider:
     eval_callable: Callable[[EvalRequest], EvalComparison] | None = None
     calls: list[EvalRequest] = field(default_factory=list)
     session_factory: Any | None = None
+    evidence_rows: tuple[dict[str, Any], ...] | None = None
+    evaluation_run_ids: tuple[str, ...] = ()
 
     def evaluate(self, request: EvalRequest) -> EvalComparison:
         self.calls.append(request)
@@ -80,11 +82,40 @@ class FakeEvalProvider:
         if request.baseline_content is None:
             # Cold start: no baseline to compare against, regardless of attr.
             baseline = None
+        example_count = self._example_count(request)
         return _build_comparison(
             candidate=candidate,
             baseline=baseline,
             eval_dataset_id=request.eval_dataset_id,
-            n_examples=self._example_count(request),
+            n_examples=example_count,
+            evidence_rows=self._evidence_rows(candidate, baseline, example_count),
+            evaluation_run_ids=self.evaluation_run_ids,
+        )
+
+    def _evidence_rows(
+        self,
+        candidate: ScoreSet,
+        baseline: ScoreSet | None,
+        example_count: int,
+    ) -> tuple[dict[str, Any], ...]:
+        """Return deterministic rows for the simulated provider."""
+        if self.evidence_rows is not None:
+            return tuple(dict(row) for row in self.evidence_rows)
+        return tuple(
+            {
+                "example_id": f"fake-{index}",
+                "input": {"example": index},
+                "expected": {"example": index},
+                "prediction": "simulated",
+                "scores": dict(candidate.dimensions),
+                "score": candidate.overall,
+                "passed": candidate.overall >= _SIMULATED_PASS_THRESHOLD,
+                "error": None,
+                "weight": 1.0,
+                "tags": [],
+                "baseline_scores": dict(baseline.dimensions) if baseline else None,
+            }
+            for index in range(1, example_count + 1)
         )
 
     def _example_count(self, request: EvalRequest) -> int:
@@ -108,6 +139,7 @@ class FakeEvalProvider:
 
 
 _LEGACY_DEFAULT_EXAMPLES = 120
+_SIMULATED_PASS_THRESHOLD = 0.5
 _CANNED_CANDIDATE_OVERALL = 0.94
 _CANNED_BASELINE_OVERALL = 0.88
 
@@ -142,6 +174,8 @@ def _build_comparison(
     baseline: ScoreSet | None,
     eval_dataset_id: str,
     n_examples: int,
+    evidence_rows: tuple[dict[str, Any], ...] = (),
+    evaluation_run_ids: tuple[str, ...] = (),
 ) -> EvalComparison:
     deltas: dict[str, float] = {}
     if baseline is not None:
@@ -156,4 +190,6 @@ def _build_comparison(
         deltas=deltas,
         eval_dataset_id=eval_dataset_id,
         n_examples=n_examples,
+        evidence_rows=evidence_rows,
+        evaluation_run_ids=evaluation_run_ids,
     )

@@ -72,7 +72,7 @@ restart CALIBER; turning the flag on means you accept their alpha behavior, belo
 | Area | Routes it gates | What it does in this build |
 | --- | --- | --- |
 | Release-candidate signoff (record-only) | `/releases/candidates*` and `/releases/report-jobs*`, and the candidate section of the Releases page | Assembles criteria, evidence and waivers, computes a readiness score on the server, and records a go or no-go signoff with a rationale. A signoff **records a decision** and deploys or rolls back nothing. A waiver's `expires_at` is honoured every time the candidate is evaluated (a lapsed waiver stops clearing its blocker), and a signed candidate cannot be evaluated, waived or signed again. Scores and evidence references are entered by people: CALIBER does not read them from Evaluations or check that the artifact exists |
-| Workspace releases (experimental) | `/projects/{id}/releases*` (and `caliberctl workspace release`) | The API and SDK are complete, but nothing in this build executes a release evaluation, so an evaluation you start stays `queued` |
+| Workspace releases (experimental) | `/projects/{id}/releases*` (and `caliberctl workspace release`) | The default-off owner worker executes a complete release-local pinned evaluation when explicitly enabled; incomplete plans fail closed. Per-example evidence, expired-attempt recovery, and matching-evidence enforcement for governed decisions/break-glass are implemented; broader production apply remains a later Beta slice |
 
 While the flag is off, a call to any of those routes answers HTTP 404 with `reason_code: feature_disabled`,
 and the Releases page shows only the live board, the timeline and release operations. Those are core and not
@@ -95,6 +95,7 @@ can check it first. The path that governs a release end to end is Apply and roll
 | Evidence exists, but nobody can apply it | review and apply are separate from evaluation |
 | A release is stuck in an uncertain state | use the runbook instead of retrying ad hoc |
 | A rollback path is unclear | inspect the asset-specific control path first |
+| A release operation returns `409` with `reason: adapter_unavailable` | Register the named adapter, or enable the `CALIBER_*` setting named by `disabled_by`, then retry; no operation lock or external effect was created |
 | The Releases page has no candidate section, or `/releases/candidates` answers 404 with `reason_code: feature_disabled` | `CALIBER_FEATURE_RELEASE_CANDIDATES` is off (the default); set it to `true` and restart |
 
 ## 4. Related docs

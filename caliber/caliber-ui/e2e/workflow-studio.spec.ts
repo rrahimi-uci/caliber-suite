@@ -173,6 +173,159 @@ async function createWorkflowFromManifest(
 }
 
 test.describe("Workflow Studio", () => {
+  test("selects approved runtime lineage before submitting a project-scoped run", async ({
+    page,
+  }) => {
+    test.setTimeout(180_000);
+
+    await signIn(page);
+
+    const workflowName = uniqueSlug("pw-lineage");
+    const { workflowId, versionId } = await createWorkflowFromManifest(
+      page,
+      workflowName,
+      (createdWorkflowId, createdWorkflowName) => ({
+        schema_version: 1,
+        workflow_id: createdWorkflowId,
+        name: createdWorkflowName,
+        runtime: {
+          sdk: "openai-agents-python",
+          sdk_version_policy: "runtime-pinned",
+          compiler_version: "caliber-workflow-compiler-v1",
+          default_model_ref: "CALIBER_WORKFLOW_DEFAULT_MODEL",
+        },
+        nodes: {
+          start: {
+            id: "start",
+            type: "start",
+            outputs: { message: { type: "string" } },
+          },
+          final: {
+            id: "final",
+            type: "output",
+            inputs: { response: { type: "string" } },
+          },
+        },
+        edges: [{ id: "e1", from: "start", to: "final", map: { message: "response" } }],
+        tools: {},
+      }),
+    );
+
+    await page.route(`**${API_BASE}/workflows/${workflowId}`, async (route) => {
+      const response = await route.fetch();
+      const payload = (await response.json()) as {
+        data: Record<string, unknown>;
+      };
+      payload.data.project_id = "project-playwright";
+      await route.fulfill({
+        response,
+        body: JSON.stringify(payload),
+      });
+    });
+    await page.route(
+      `**${API_BASE}/projects/project-playwright/environments`,
+      async (route) =>
+        route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify({
+            data: {
+              environments: [
+                {
+                  environment_id: "env-playwright",
+                  project_id: "project-playwright",
+                  name: "Playwright production",
+                  environment_class: "prod",
+                  promotion_order: 1,
+                  status: "active",
+                  current_release_id: "release-playwright",
+                },
+              ],
+            },
+          }),
+        }),
+    );
+    await page.route(
+      `**${API_BASE}/projects/project-playwright/releases*`,
+      async (route) =>
+        route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify({
+            data: [
+              {
+                release_id: "release-playwright",
+                project_id: "project-playwright",
+                environment_id: "env-playwright",
+                status: "approved",
+              },
+            ],
+          }),
+        }),
+    );
+
+    let runBody: Record<string, unknown> | null = null;
+    await page.route(`**${API_BASE}/workflow-runs`, async (route) => {
+      runBody = route.request().postDataJSON() as Record<string, unknown>;
+      await route.fulfill({
+        status: 202,
+        contentType: "application/json",
+        body: JSON.stringify({
+          data: {
+            workflow_run_id: "WR-PLAYWRIGHT-LINEAGE",
+            workflow_id: workflowId,
+            workflow_version_id: versionId,
+            status: "queued",
+            alias: "manual",
+          },
+        }),
+      });
+    });
+
+    await page.reload();
+    await page.getByTestId("editor-run-monitor").click();
+    await expect(page.getByTestId("workflow-run-lineage-picker")).toBeVisible();
+    await expect(page.getByTestId("workflow-run-release-select")).toHaveValue("release-playwright");
+    await expect(page.getByTestId("workflow-run-environment-select")).toHaveValue("env-playwright");
+
+    await page.getByTestId("run-execute").click();
+    await expect
+      .poll(() => runBody, { timeout: 30_000 })
+      .toMatchObject({
+        workspace_release_id: "release-playwright",
+        environment_id: "env-playwright",
+      });
+
+    await page.unroute(
+      `**${API_BASE}/projects/project-playwright/environments`,
+    );
+    await page.unroute(
+      `**${API_BASE}/projects/project-playwright/releases*`,
+    );
+    await page.route(
+      `**${API_BASE}/projects/project-playwright/environments`,
+      async (route) =>
+        route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify({ data: { environments: [] } }),
+        }),
+    );
+    await page.route(
+      `**${API_BASE}/projects/project-playwright/releases*`,
+      async (route) =>
+        route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify({ data: [] }),
+        }),
+    );
+    await page.reload();
+    await page.getByTestId("editor-run-monitor").click();
+    await expect(page.getByRole("alert")).toContainText("lineage_required");
+    await expect(page.getByTestId("run-execute")).toBeDisabled();
+  });
+
   test("creates a workflow from a template, validates it, previews it, and runs it", async ({
     page,
   }) => {

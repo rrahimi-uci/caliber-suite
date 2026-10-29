@@ -487,6 +487,28 @@ class TestKnowledgeBaseBranches:
         )
         assert "error" in out and "question is required" in out["error"]
 
+    def test_reference_profile_query_refuses_before_service_call(
+        self, svc, session_factory, monkeypatch
+    ) -> None:
+        sid = _session(svc, session_factory)
+        svc._runtime_config = CaliberConfig.model_construct(profile="reference")
+        ts = _toolset(svc, session_factory, sid, mode="build", approval="auto_safe")
+        monkeypatch.setattr(
+            svc,
+            "_kb_service",
+            lambda: pytest.fail("reference-profile assistant query must refuse before loading"),
+            raising=False,
+        )
+
+        out = json.loads(
+            ts.dispatch(
+                "query_knowledge_base",
+                {"knowledge_base_id": "KB-cov", "question": "secret?"},
+            )
+        )
+
+        assert "error" in out and "governed_run_required" in out["error"]
+
     def test_query_kb_unknown_retrieval_mode(self, svc, session_factory) -> None:
         _seed_kb(session_factory)
         sid = _session(svc, session_factory)

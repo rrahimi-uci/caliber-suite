@@ -30,6 +30,7 @@ from caliber.db.models import CaliberAgentConfig, CaliberWorkflow
 from caliber.db.scoping import apply_visibility_filter
 from caliber.profile import GOVERNED_TRACE_FIELDS, SAFE_SPAN_ATTRIBUTES
 from caliber.trace_client import (
+    TraceDetail,
     TraceNotFoundError,
     TraceStoreUnavailableError,
     fetch_trace_detail,
@@ -400,6 +401,36 @@ _ROOT_PAYLOAD_KEYS: Final = ("request", "response", "request_preview", "response
 def redacted(field: str) -> str:
     """The placeholder that stands for a governed field's value."""
     return f"[redacted:{field}]"
+
+
+def trace_detail_as_dict(detail: TraceDetail) -> dict[str, Any]:
+    """Convert a :class:`TraceDetail` to the stable JSON shape used by trace routes.
+
+    Governed consumers use this before :func:`redact_trace_detail`, so they can apply the same
+    fail-closed payload contract as the observability detail route without reimplementing the
+    field mapping. The mapping intentionally includes only the existing trace-detail fields;
+    callers decide whether assessments and other non-payload metadata remain in their surface.
+    """
+    return {
+        "trace_id": detail.trace_id,
+        "name": detail.name,
+        "status": detail.status,
+        "experiment_id": detail.experiment_id,
+        "session_id": detail.session_id,
+        "user": detail.user,
+        "spans": detail.spans,
+        "mlflow_url": detail.mlflow_url,
+        "request": detail.request,
+        "response": detail.response,
+        "request_time_ms": detail.request_time_ms,
+        "execution_time_ms": detail.execution_time_ms,
+        "total_tokens": detail.total_tokens,
+        "prompt_tokens": detail.prompt_tokens,
+        "completion_tokens": detail.completion_tokens,
+        "cost_usd": detail.cost_usd,
+        "tags": detail.tags,
+        "assessments": detail.assessments,
+    }
 
 
 def _redact_attributes(attributes: Any) -> Any:

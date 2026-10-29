@@ -24,10 +24,13 @@ from caliber.db.models import (
     CaliberWorkflow,
     CaliberWorkflowRun,
     CaliberWorkflowVersion,
+    CaliberWorkspaceEnvironment,
     CaliberWorkspaceRelease,
 )
 from caliber.db.transactions import begin_sqlite_transaction
+from caliber.deployment_environments import ENVIRONMENT_CLASSES
 from caliber.ids import new_workflow_run_id
+from caliber.policy.principal import ServicePrincipal
 from caliber.workflows.admission import (
     SUBJECT_INVALID,
     AdmissionDenied,
@@ -110,6 +113,52 @@ def require_lineage(workspace_release_id: str | None, environment_id: str | None
         raise LineageRequiredError(LINEAGE_REQUIRED_MESSAGE)
 
 
+def current_runtime_lineage_coordinates(
+    session: Session,
+    project_id: str | None,
+    *,
+    deployment_environment: str | None,
+) -> tuple[str | None, str | None]:
+    """Return the server-owned current release for a deployment's environment class.
+
+    Cron and service-token callers have no request body in which to choose
+    lineage. Their persisted deployment environment class is the only allowed
+    mapping. Exactly one active Workspace environment with a current release
+    must match it; there is deliberately no ``prod`` or "only active row"
+    fallback. The release/environment coordinates are then validated again by
+    :func:`create_runtime_lineage` inside the admission transaction, which
+    rejects a stale, revoked, or otherwise ineligible release before commit.
+    """
+    if not project_id or not deployment_environment:
+        return None, None
+    environment_class = deployment_environment.strip().casefold()
+    if environment_class not in ENVIRONMENT_CLASSES:
+        return None, None
+    environments = (
+        session.execute(
+            select(CaliberWorkspaceEnvironment).where(
+                CaliberWorkspaceEnvironment.project_id == project_id,
+                CaliberWorkspaceEnvironment.status == "active",
+                CaliberWorkspaceEnvironment.current_release_id.is_not(None),
+                CaliberWorkspaceEnvironment.environment_class == environment_class,
+            )
+        )
+        .scalars()
+        .all()
+    )
+    if len(environments) != 1:
+        return None, None
+    environment = environments[0]
+    release = session.get(CaliberWorkspaceRelease, environment.current_release_id)
+    if (
+        release is None
+        or release.project_id != project_id
+        or release.environment_id != environment.environment_id
+    ):
+        return None, None
+    return str(release.release_id), str(environment.environment_id)
+
+
 def enqueue_workflow_run(  # noqa: PLR0912, PLR0915 - one insert path: idempotency, admission, lineage, events
     session: Session,
     *,
@@ -129,6 +178,7 @@ def enqueue_workflow_run(  # noqa: PLR0912, PLR0915 - one insert path: idempoten
     publish: Callable[[dict[str, Any]], None] | None = None,
     identity: CaliberIdentity | None = None,
     admission: AdmissionSettings | None = None,
+    service_principal: ServicePrincipal | None = None,
     requested_alias: str | None = None,
     version_selector: str | None = None,
     input_files: list[dict[str, Any]] | None = None,
@@ -146,7 +196,9 @@ def enqueue_workflow_run(  # noqa: PLR0912, PLR0915 - one insert path: idempoten
     immutable manifest are stored in this same transaction. ``identity`` is the authenticated caller (required). A
     refusal raises :class:`~caliber.workflows.admission.AdmissionDenied` and the caller must roll back: the run row
     has already been flushed. A retry that reuses an idempotency key returns the original run and manifest when it is
-    the same request and raises ``AdmissionDenied`` (409) when it is not. ``requested_alias`` is the release selector
+    the same request and raises ``AdmissionDenied`` (409) when it is not. Scheduler and service-token callers must
+    supply the server-created ``service_principal`` in this mode; public service calls are refused before a run row
+    is written. ``requested_alias`` is the release selector
     the caller *named* (``alias`` is what it resolved to; they differ when a trigger picks its own target), and is what
     the request's identity is built from. With ``admission.lineage_required`` (the reference profile) a run that does not
     name a workspace release and an environment raises :class:`LineageRequiredError` before anything is written.
@@ -154,6 +206,12 @@ def enqueue_workflow_run(  # noqa: PLR0912, PLR0915 - one insert path: idempoten
     if admission is not None and admission.lineage_required:
         require_lineage(workspace_release_id, environment_id)
     admitting = admission is not None and admission.enabled
+    if admitting and source in {"cron", "service"} and service_principal is None:
+        raise AdmissionDenied(
+            "service_principal_required",
+            f"{source} runs require a server-created service principal",
+            status=403,
+        )
     intent = intent_of(
         workflow_id=workflow.workflow_id,
         alias=alias if requested_alias is None else requested_alias,
@@ -206,6 +264,7 @@ def enqueue_workflow_run(  # noqa: PLR0912, PLR0915 - one insert path: idempoten
             now=now,
             run_tenant_id=tenant_id,
             intent=intent,
+            service_principal=service_principal,
         )
     manifest_snapshot = _clone_manifest(version.manifest)
     manifest_metadata = _saved_version_manifest_metadata(version)
@@ -219,6 +278,13 @@ def enqueue_workflow_run(  # noqa: PLR0912, PLR0915 - one insert path: idempoten
         "input": (input_text or "")[:1000],
         **manifest_metadata,
     }
+    if not admitting and source in {"cron", "service"}:
+        run_summary.update(
+            {
+                "admission_mode": "legacy",
+                "legacy_reason": "service_principal_admission_disabled",
+            }
+        )
     if workspace_release_id is not None:
         run_summary["strict_lineage"] = True
     if prepared is not None:

@@ -36,6 +36,7 @@ from starlette.routing import Route
 from caliber.audit import record as audit_record
 from caliber.auth import SCOPE_OPERATOR, require_scopes, require_user, resolve_identity
 from caliber.db.models import (
+    CaliberProject,
     CaliberServiceRateCall,
     CaliberServiceToken,
     CaliberWorkflow,
@@ -46,6 +47,7 @@ from caliber.db.models import (
 )
 from caliber.db.scoping import get_visible
 from caliber.ids import new_service_id, new_service_token_id
+from caliber.policy.principal import ServicePrincipal, ServicePrincipalError, workload_id_for
 from caliber.resource_access import ACTION_PUBLISH, require_project_access_if_scoped
 from caliber.routes._deps import (
     envelope_response,
@@ -64,12 +66,18 @@ from caliber.schemas import (
     WorkflowServicePublishRequest,
     WorkflowServiceSchema,
 )
-from caliber.workflows.run_launch import enqueue_workflow_run
+from caliber.workflows.admission import AdmissionDenied, AdmissionSettings, record_denial
+from caliber.workflows.run_launch import (
+    LineageRequiredError,
+    current_runtime_lineage_coordinates,
+    enqueue_workflow_run,
+)
 from caliber.workflows.run_state import (
     RUN_STATUS_COMPLETED,
     RUN_STATUS_FAILED,
 )
 from caliber.workflows.service_schema import derive_service_schemas
+from caliber.workspace_runtime_lineage import RuntimeLineageError
 
 PREFIX = "/ajax-api/2.0/mlflow/caliber"
 SERVICE_PATH = PREFIX + "/workflows/{workflow_id}/service"
@@ -572,6 +580,20 @@ def _validate_service_token_in_session(
     ``auth_required`` decision and the token check belong to the same configuration
     snapshot as enablement, schema, alias, and quota enforcement.
     """
+    token = _load_valid_service_token_in_session(
+        session, plaintext=plaintext, workflow_id=workflow_id, scope=scope
+    )
+    return f"service_token:{token.token_id}"
+
+
+def _load_valid_service_token_in_session(
+    session: Session,
+    *,
+    plaintext: str,
+    workflow_id: str,
+    scope: str = INVOKE_SCOPE,
+) -> CaliberServiceToken:
+    """Return the validated token row for the same transaction as invocation."""
     token_hash = _hash_token(plaintext)
     now = datetime.now(timezone.utc)
     token = (
@@ -590,7 +612,7 @@ def _validate_service_token_in_session(
         raise HTTPException(status_code=401, detail="service token expired")
     if scope not in (token.scopes or []):
         raise HTTPException(status_code=401, detail=f"service token missing scope {scope!r}")
-    return f"service_token:{token.token_id}"
+    return token
 
 
 def _preauthorize_service_invocation(
@@ -791,7 +813,7 @@ def _cors_headers(service: Any, request: Request) -> dict[str, str]:
     }
 
 
-async def invoke_service(request: Request) -> JSONResponse:
+async def invoke_service(request: Request) -> JSONResponse:  # noqa: PLR0912, PLR0915 - locked invoke transaction
     workflow_id = request.path_params["workflow_id"]
     factory = get_session_factory(request)
 
@@ -825,16 +847,17 @@ async def invoke_service(request: Request) -> JSONResponse:
         # Charged **after** authentication, deliberately. Flood protection belongs to
         # ``RateLimitMiddleware``; this service budget counts work authorized under the
         # same locked configuration snapshot as the run it creates.
-        actor = (
-            _validate_service_token_in_session(
+        token: CaliberServiceToken | None = None
+        if service.auth_required:
+            token = _load_valid_service_token_in_session(
                 session,
                 plaintext=_bearer_token(request),
                 workflow_id=workflow_id,
                 scope=INVOKE_SCOPE,
             )
-            if service.auth_required
-            else f"anonymous_service:{workflow_id}"
-        )
+            actor = f"service_token:{token.token_id}"
+        else:
+            actor = f"anonymous_service:{workflow_id}"
         try:
             jsonschema.validate(instance=payload.input, schema=service.input_schema or {})
         except jsonschema.ValidationError as exc:
@@ -859,6 +882,47 @@ async def invoke_service(request: Request) -> JSONResponse:
                     f"{deployment.version_id!r}"
                 ),
             )
+        admission = AdmissionSettings.from_config(request.app.state.config)
+        principal = None
+        identity = None
+        workspace_release_id = environment_id = None
+        if admission.enabled:
+            if token is None or not workflow.project_id:
+                raise HTTPException(
+                    status_code=403,
+                    detail=(
+                        "service_principal_required: reference admission requires an authenticated "
+                        "service-token principal for service invocation"
+                    ),
+                )
+            project = session.get(CaliberProject, workflow.project_id)
+            if project is None:
+                raise HTTPException(
+                    status_code=403,
+                    detail="service_principal_unconfigured: workflow project is unavailable",
+                )
+            try:
+                principal = ServicePrincipal(
+                    principal_id=actor,
+                    tenant_id=str(project.tenant_id),
+                    project_id=workflow.project_id,
+                    workflow_id=workflow.workflow_id,
+                    workload_id=workload_id_for(version.manifest_hash),
+                    purpose="workflow_run:service",
+                    allowed_actions=frozenset({"resource.execute"}),
+                    allowed_resources=frozenset({f"workflow:{workflow.workflow_id}"}),
+                    expires_at=_as_aware(token.expires_at) if token.expires_at else None,
+                    revoked_at=_as_aware(token.revoked_at) if token.revoked_at else None,
+                )
+                identity = principal.to_identity()
+                if admission.lineage_required:
+                    workspace_release_id, environment_id = current_runtime_lineage_coordinates(
+                        session,
+                        workflow.project_id,
+                        deployment_environment=deployment.environment,
+                    )
+            except ServicePrincipalError as exc:
+                raise HTTPException(status_code=403, detail=f"{exc.code}: {exc}") from exc
         # Resolve idempotency before charging. A replay returns an existing run and performs
         # no paid work, so consuming another quota slot would let network retries exhaust a
         # service's budget without creating any work. New-run insertion, quota accounting,
@@ -871,24 +935,46 @@ async def invoke_service(request: Request) -> JSONResponse:
             external_key=payload.idempotency_key,
             input_text=input_text,
         )
-        if run is None:
-            run, created = enqueue_workflow_run(
-                session,
-                workflow=workflow,
-                version=version,
-                alias=alias,
-                source="service",
-                actor=actor,
-                input_text=input_text,
-                idempotency_key=_scoped_service_idempotency_key(actor, payload.idempotency_key),
-                # Publish only after the transaction commits. Otherwise a quota refusal
-                # could emit a queued event for the run this transaction rolls back.
-                publish=None,
-            )
-            if not created:
-                _assert_matching_service_replay(run, input_text)
-        else:
-            created = False
+        try:
+            if run is None:
+                run, created = enqueue_workflow_run(
+                    session,
+                    workflow=workflow,
+                    version=version,
+                    alias=alias,
+                    requested_alias=alias,
+                    version_selector=version.version_id,
+                    source="service",
+                    actor=actor,
+                    input_text=input_text,
+                    input_json=input_text,
+                    idempotency_key=_scoped_service_idempotency_key(actor, payload.idempotency_key),
+                    workspace_release_id=workspace_release_id,
+                    environment_id=environment_id,
+                    # Publish only after the transaction commits. Otherwise a quota refusal
+                    # could emit a queued event for the run this transaction rolls back.
+                    publish=None,
+                    identity=identity,
+                    admission=admission,
+                    service_principal=principal,
+                )
+                if not created:
+                    _assert_matching_service_replay(run, input_text)
+            else:
+                created = False
+        except AdmissionDenied as exc:
+            session.rollback()
+            record_denial(session, exc)
+            raise HTTPException(status_code=exc.status, detail=str(exc)) from exc
+        except LineageRequiredError as exc:
+            session.rollback()
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        except RuntimeLineageError as exc:
+            session.rollback()
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        except ValueError as exc:
+            session.rollback()
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
         if created:
             # The helper deliberately re-locks/reloads so direct callers cannot hand it a
             # stale detached object. This transaction already owns the row lock, making

@@ -103,9 +103,31 @@ free-form durable memory (B12 memory, #667). The `/memory` API and the in-run me
   partition keys in `metadata` (`MemoryLifecycleUnavailableError`). It does not itself check that an `agent_id` or
   `user_id` belongs to the caller: the route and the in-run tool binding do that and are the only callers.
 
-The development profile keeps the previous behaviour. **Known limitation:** the installed mem0 2.x rejects entity ids
-passed as top-level search/list arguments, which the service does today (also in development); until that is
-fixed (tracked separately) search and list through the memory service return an error.
+The development profile keeps the previous behaviour. The service uses mem0 2.x's supported scope contract for
+search and list: entity identifiers are passed in the `filters` mapping, not as top-level arguments. `add` and
+`delete_all` retain mem0's entity-keyword API, while `list_entities` already passes its scope as `filters`. This
+keeps the installed mem0 release and the service wrapper on the same boundary without changing the reference
+profile's ownership or lifecycle refusals.
+
+## Trace payload visibility in review surfaces
+
+Reference-profile trace visibility and trace-payload visibility are separate decisions. A caller may see a trace or a
+review queue without being allowed to read request, response, span input, span output, or governed trace attributes.
+For a project-owned experiment, the current project owner and editor roles may read those payloads; viewers and
+reviewers do not. An administrator without membership in the owning project is not an implicit payload reader.
+
+The observability trace detail route and the review-queue alignment-example route use the same fail-closed contract:
+non-payload identifiers, status, timing, review question answers, provenance, and assessment identifiers remain, while
+governed request/response values are replaced with stable `[redacted:<field>]` placeholders. The queue detail route
+itself contains item identifiers and review metadata only; it does not grant payload access.
+
+`POST /eval-datasets/{dataset_id}/examples/from-trace` first resolves trace identity and visibility without mapping
+payloads. It then requires `trace.payload.read` before copying the source request or response. A visible trace without
+that permission receives `403`, a foreign or unknown trace receives the same `404` as a missing trace, and neither
+refusal changes the dataset version or inserts an example. Supplying explicit `input` or `expected` values does not
+bypass the source-trace authorization check. An authorized example records the `from-trace` and source trace tags.
+
+The development profile retains its earlier behavior; these payload gates are part of the reference-profile contract.
 
 ## A configuration that passes
 
@@ -183,6 +205,46 @@ For the alpha-upgrade tests that follow (#708, #715): create the alpha database 
 <alpha head>` through the working-tree migrations directory, with the manifest's `version_table`. That reproduces the
 alpha schema only because those files are frozen, which the never-skipping check enforces. Never read the migrations
 from the tag in CI; it is not in the checkout.
+
+### The seeded alpha database (B16-Upgrade.2, #708)
+
+`caliber/tests/alpha_seed.py` builds a database an alpha operator could really have, for the upgrade test that
+follows (#715). It is an offline test fixture, not an operator bootstrap path.
+
+- **Schema.** `alembic upgrade <alpha head>` through the working-tree migrations (the head and the version table come
+  from the manifest above). Before migrating, it re-verifies that the migration directory alembic reads is
+  byte-identical to the manifest, so the schema built is the alpha's. Nothing is read from the tag.
+- **Data.** Raw `INSERT` statements from literals in the file, using the alpha table and column names, not
+  `caliber.db.models`. Every row lists every column, so no value comes from a database default or a clock: the same
+  bytes on every run, on SQLite and on PostgreSQL 16. 35 tables, 140 rows: three users (one disabled), three projects
+  (one archived) with their environments and members, a session and access tokens, workflows with published and draft
+  versions and deployments, nine runs in every status (including `running` and `waiting_approval`), their events and
+  checkpoints, runtime approvals, effect-ledger rows `in_progress` (two, unresolved), `completed` and `failed`, a
+  workflow service and token, secrets as ciphertext with the tool that references one, a skill, an eval dataset and
+  run, a prompt refinement loop (prompt text lives in MLflow, not in this database), audit rows and runtime tables.
+  Every hash and ciphertext derives from a public constant; the users' login phrase is `ALPHA_SEED_PASSWORD`.
+  `seed_sha256()` fingerprints the data and is pinned in the test.
+- **For #715.** `alpha_database(dialect, tmp_path, name)` yields a created and seeded database; `migrate_database(url)`
+  upgrades it; `read_seeded_rows(url)` against `expected_rows()` (per table; a table the upgrade rewrites needs its own
+  assertion), `row_counts()` and `schema_shape(url)` (compare with a fresh install) check the result.
+
+It fails loudly instead of seeding the wrong database, with `AlphaSeedError`:
+
+```text
+not a caliber-v0.1.0a1 database: it records <revision> in caliber_alembic_version, the alpha head is <alpha head>
+caliber_projects already holds 3 row(s); seed an unseeded alpha database
+the migrations alembic reads are not the ones caliber-v0.1.0a1 shipped, so the schema built from them would not be the alpha's
+```
+
+Recovery: use a new, empty database (the fixture creates it); a wrong revision means something migrated it past or
+short of the alpha head; the third message means a shipped migration changed, so restore it as described above.
+
+```sh
+PYTHONPATH=caliber/src caliber/.venv/bin/python -m pytest caliber/tests/test_upgrade_from_alpha.py
+```
+
+The `postgresql` cases run in the "Migration parity (PostgreSQL)" CI job (`CALIBER_TEST_POSTGRES_URL`, the
+`pgvector/pgvector:pg16` image, because migration 0060 needs the `vector` extension).
 
 ## A stored secret never leaves the platform
 
@@ -379,8 +441,8 @@ synchronous real run (`POST /workflow-versions/{id}/run`) is never queued, so wi
    key from another source or in another project's workflow is a different request. A key that names a run created while
    admission was off returns that legacy run (it has no manifest). Two requests racing on one key admit exactly one
    run, and the loser gets the same answer a later retry would (PostgreSQL scenario).
-4. **Lineage (B02.4, #691).** Under `CALIBER_PROFILE=reference` every run started through the create-run route or the
-   event trigger names the workspace release and environment it runs against (`workspace_release_id` and
+4. **Lineage (B02.4, #691).** Under `CALIBER_PROFILE=reference` every run started through the create-run route, the
+   event trigger, the cron scheduler or a service token names the workspace release and environment it runs against (`workspace_release_id` and
    `environment_id`, together; optionally `model_id` and `config_sha256`): a run without them is `422` with
    `{"error": "lineage_required"}` before anything is read or written (`run_launch.require_lineage`,
    `LineageRequiredError`), and the run is created with its immutable runtime lineage. A lineage that is not valid for
@@ -389,11 +451,17 @@ synchronous real run (`POST /workflow-versions/{id}/run`) is never queued, so wi
    keeps the lineage of the run it retries (a fresh lineage record for the new run, refused with `409` if the release is
    no longer eligible) and a run that never had one cannot be retried in the reference profile (`422`). Development
    leaves lineage optional. **Not covered, tracked:** the assistant's run tool (a chat has no release to name) is
-   refused with the same code; the cron scheduler and service-token runs, which are not admitted either, still start
-   with no lineage (#958 and #967); and the console's Run and Trigger actions do not yet offer a release and
-   environment, so in the reference profile they are refused until they do (#968).
-5. **Who and what.** The subject is the authenticated caller (`session`, `pat` or `trusted_header`), the workload is
-   the workflow pinned to its version digest, the purpose is `workflow_run:<path>` with the route's own word (`api`, `event`, `retry`, `assistant`), never the
+   refused with the same code. The console's Run and Trigger actions load the project's active environments and approved
+   workspace releases, offer only exact current-release/environment pairs, and submit both IDs. If no eligible pair is
+   available, the controls show the same `lineage_required` refusal and do not issue a run or trigger request; the server
+   still revalidates project scope, approval and freshness (#968).
+5. **Who and what.** A user-started run has the authenticated caller (`session`, `pat` or `trusted_header`) as its
+   subject. A scheduler or service-token run has a server-created `service_principal` subject instead:
+   `principal_id` is `service_principal:cron:<workflow_id>` for the scheduler or `service_token:<token_id>` for the
+   service route. The principal is fixed to the local tenant, workflow project, pinned workload, purpose and allowed
+   action/resource set; it carries no ambient user scopes and is not admitted through human project membership. The
+   workload is the workflow pinned to its version digest, the purpose is `workflow_run:<path>` with the route's own
+   word (`api`, `event`, `retry`, `assistant`, `cron` or `service`), never the
    client-chosen `source` field, and the scope is the fixed
    deployment (`local` organization, region and residency) plus the workflow's project. The caller must be acting in
    the workflow's project, and a credential bound to another project is refused (`403`). A workflow outside any
@@ -411,12 +479,23 @@ synchronous real run (`POST /workflow-versions/{id}/run`) is never queued, so wi
 | `409` | `manifest_override_not_admitted` | save the manifest as a version, publish it and run that |
 | `409` | `sync_run_not_admitted` | submit the run to the queued `/workflow-runs` endpoint |
 | `403` | `policy_denied` / `grant_refused` | the policy or the caller's role does not allow it; the reason codes are in the message |
+| `403` | `service_principal_required` / `service_principal_unconfigured` | reference admission requires a configured server-owned scheduler or authenticated service-token principal; no run, grant, decision or manifest is stored |
+| `403` | `service_principal_revoked` / `service_principal_expired` / `service_principal_*_mismatch` | the server principal is revoked, expired or does not match the fixed tenant, project, workflow, workload, purpose, action or resource binding; correct the server-side configuration and retry |
 | `503` | `authority_unavailable` | the grant or decision store could not answer; nothing was stored, retry |
 
-**Not admitted yet (stay legacy runs):** runs started by the cron scheduler and by a service token
-(`routes/services.py`), because neither has a typed subject (a user who authenticated) to put in a grant; they
-need a service-principal model first (#958). Preview and index rows are not executable runs. Legacy runs are marked
-as such, never gain a manifest, and keep today's execution path.
+**Scheduler and service-token admission (B02.6/B02.7, #958/#967).** In the reference profile, the scheduler and service route
+create a typed server principal and use the same admission transaction as user-started runs. The scheduler binds the
+principal to the active deployment's project and sealed workflow-version workload. The service route first validates
+the bearer token's workflow, scope, expiry and revocation, then binds the principal to that token, the workflow's
+project and the sealed workload. Both paths derive runtime lineage from the deployment's persisted environment
+class and require exactly one active Workspace environment of that class with a current release. They do not fall
+back to `prod` or to an unrelated sole active environment; a missing, invalid, or ambiguous mapping is refused
+before any run, grant, decision or manifest row is stored. The admission transaction then rechecks that the mapped
+release is approved and still current, so a revoked or stale mapping returns `409` and stores nothing. A public
+service with no authenticated token is refused in the reference
+profile. When `CALIBER_ADMISSION_ENABLED=false`, development scheduler and service paths remain supported as legacy
+runs and their summaries explicitly carry `admission_mode: legacy` and
+`legacy_reason: service_principal_admission_disabled`. Preview and index rows are not executable runs.
 
 **Executing an admitted run (B02.2b, #683).** The worker reads the run's manifest back
 (`workflows/run_pins.py::load_run_manifest`: digest, schema and run id checked) and executes only what it pinned. It
@@ -1228,8 +1307,7 @@ source_not_approved` in the error body and every unapproved `knowledge_base_id@v
 nothing is stored. The role check (`resource.execute` on the project) comes first, so only a caller who may run the
 workflow learns what the project has approved. Approval and revocation take effect at the **next admission**: an
 idempotent retry of a request that was already admitted still returns that run, and a run already admitted keeps
-running on what it was pinned to (the load-time check is B07.2, #699). **Not covered:** cron-scheduler and
-service-token runs, which are not admitted in the first place (#958). A knowledge base that belongs to another project
+running on what it was pinned to (the load-time check is B07.2, #699). A knowledge base that belongs to another project
 or to no project can never be approved for this one (only a project's own knowledge bases can), so a workflow pinned
 to one is refused until it uses one of the project's own. Development does not require approval. The refusal is not
 audited (it carries no policy decision); the response is the record.
@@ -1290,9 +1368,32 @@ required (resubmit it). A grant holds at most 256 resources, so a run with 256 o
 (`grant_refused`). The check is point-in-time: a withdrawal landing between the guard and the query does not stop that
 one read. Outputs a run already produced (replayed on a resume from a checkpoint) are not re-authorized. Each version
 queried costs one decision and one audit row (a query naming several versions authorizes each before any is read).
-Legacy runs have no guard. **Not covered, tracked in #973:** preview runs, evaluations, deploy gates, refinement and
-calibration, the assistant's knowledge tools, runtime export and `knowledge_build` nodes still read knowledge-base
-bytes without this check, and cron and service-token runs are not admitted (#958).
+
+### Knowledge reads outside an admitted run (B07.6, #973)
+
+The reference profile has one governed knowledge-read path. An admitted workflow run supplies the typed run principal,
+its immutable manifest and its exact grant; the worker passes a `SourceGuard` to every knowledge-query node, including
+child workflows. The guard records an explicit `context.read` decision for each exact knowledge-base version before the
+retrieval service is called. Foreign projects, revoked memberships or grants, withdrawn approvals, and versions not in
+the grant therefore fail closed without a retrieval call.
+
+Other paths do not have a run-bound principal and cannot turn a manifest override or an ambient project-visible identity
+into authority. In `CALIBER_PROFILE=reference` they refuse before loading knowledge bytes:
+
+| surface | reference-profile behavior | required principal/authorization |
+| --- | --- | --- |
+| preview, including assistant draft preview | `governed_run_required` | an admitted workflow run; preview is not a run and has no `context.read` grant |
+| evaluations and deploy gates | `governed_run_required` | an admitted workflow run; offline replay is not an authorization boundary |
+| refinement and calibration | `governed_run_required` | an admitted workflow run; the stage/job identity alone is insufficient |
+| assistant `query_knowledge_base` | `governed_run_required` | an admitted workflow run, not the assistant's project visibility |
+| direct `POST /knowledge/query` | `governed_run_required` | an admitted workflow run, not the caller's project visibility |
+| exported runtime query and child-workflow query | the default runtime uses the caller-supplied admitted-run `SourceGuard`; unwrapped custom callbacks return `governed_run_required` | the exact run principal, manifest, grant and `context.read` decision |
+| `knowledge_build` workflow nodes | `governed_run_required` | no current workflow-node contract authorizes the source bytes used to build a new version |
+
+The refusal is raised before the retrieval or build service is reached. Development and legacy profiles retain their
+historical behavior; that compatibility is not a reference-profile authorization guarantee. Knowledge-base listing,
+metadata, build and version-management APIs remain resource-scoped operations; this matrix covers operations that load
+knowledge content for retrieval or workflow execution.
 
 ## The context manifest
 
@@ -1448,8 +1549,8 @@ configured one and the total); enforcing a budget on a provider call is B08. Leg
 A protected effect is approved by a person, and the approval has to say *what* it approves. `create_approval_request`
 (`caliber/src/caliber/workflows/approval_requests.py`) records a `pending` row in `caliber_runtime_approval_requests` that is bound to one
 effect proposal and to what the approver is shown (ADR 0003 `approval_request`; migration `0127`). It runs in the caller's transaction and
-never commits. **The route does not decide such a request yet** (see "Not wired yet" below): this is the recorded question, not yet an
-answerable approval.
+never commits. **The route does not decide a live such request yet** (see "Not wired yet" below): this is the recorded question, not yet an
+answerable approval. A request has a lifetime and is replaced by a newer one for the same step (see "Expiry" and "Supersession", B06.2, #712).
 
 - **What is bound.** `proposal_id`, the proposal's full `intent_hash` (`sha256:` and 64 hex digits, the digest every consumer reuses),
   its `expected_resource_version` (the downstream version the approval is valid for, or `NULL`), the `evidence_hash` of what the approver
@@ -1469,28 +1570,60 @@ answerable approval.
   not an integer from 1 to 31 536 000, or a `now` the expiry cannot be computed from (a date at the end of year 9999, not a datetime) is
   `bad_field`, and the message names the field. The one-year ceiling is a policy choice (a request open longer is a caller's mistake), not
   a configuration value or a storage limit.
-- **Locking.** The proposal row is read `FOR UPDATE` (a no-op on SQLite, whose write transaction is exclusive). Creators for one proposal
-  serialize, and so do they against the proposal's own state transition: a proposal moving to `approved` either commits before the creator
-  reads it (the creator refuses) or waits for the creator's transaction. Two creators for one `proposed` proposal both succeed, one after the
-  other, and leave two `pending` rows: there is deliberately no unique index, and replacing the older request by the newer (`superseded_by`)
-  is B06.2, which should take the same lock in the transaction that supersedes. The lock lasts until the caller commits or rolls back.
+- **Expiry (B06.2, #712).** `expires_at = requested_at + ttl_seconds`. The ttl is the caller's argument; a deployment's default is
+  `CALIBER_APPROVAL_TTL_SECONDS` (`approval_ttl_seconds`, default 86400, 1 to 31 536 000), which the caller reads with
+  `configured_ttl_seconds(config)`. A change affects only requests created afterwards. Expiry is **computed, never stored**: nothing sweeps a
+  request into an `expired` status, so a request that expires stays `pending` (or `approved`) in the list, and refusing it writes nothing.
+  The rule is `approval_refusal(status=, superseded_by=, expires_at=, now=)` (`approval_policy.py`, database-free). **The clock is the
+  application's** (`datetime.now(timezone.utc)`, the same clock that wrote `expires_at`), not the database's: one request is never judged by
+  two clocks, and a test can fix it. The window is half open, `[requested_at, expires_at)`: **at `expires_at` itself the request is already
+  expired**, so it is never usable one tick longer than its ttl (one microsecond earlier it is not). Servers that share a database need
+  synchronized clocks, as for every other deadline here; a clock that runs behind lets a request live that long past its expiry. A request with no `expires_at` (a legacy,
+  node-level one) never expires.
+- **Supersession (B06.2, #712).** In the transaction that inserts a request, every other *live* bound request for the same
+  `(workflow_run_id, node_id)` becomes `status = "superseded"` with `superseded_by` set to the new request's id: a request that is `pending`,
+  or `approved` and not yet consumed (`consumed_at` unset), whether it names the same proposal or a later one of the node (a changed intent or
+  version). It is atomic with the new request: if the caller rolls back, the older one is live again. **Left alone:** a request for another
+  node or another run, a legacy request (it binds no intent a change could void), a rejected one, a consumed one, and one already superseded
+  (its `superseded_by` is never rewritten, so superseded requests form a chain). Only `status` and `superseded_by` move; the binding the
+  approver saw and any decision already recorded stay on the row, unusable. The requests a call replaced are those whose `superseded_by` is the
+  returned request's id. The newer request is the one whose creator took the run lock later (commit order), not the one with the later
+  `requested_at`.
+- **Refusal codes** (`reason_code` of the 409; the vocabulary of `docs/architecture/approval-ux-contract.md`, which replaces the `approval_expired` and
+  `approval_superseded` the plan named). `superseded` when the request was replaced (`status` is `superseded` or `superseded_by` is set), `expired`
+  when the clock is at or past `expires_at`. Superseded is reported first, so a replaced request that is also expired says it was replaced
+  (the current request is the thing to decide).
+- **Locking.** Creators take the *run* row, then the proposal row, both `FOR UPDATE` (a no-op on SQLite, whose write transaction is
+  exclusive), in that order. The run lock is what makes supersession safe: creators for different proposals of one node lock different
+  proposal rows, so without it each would read the other's request as absent and leave two live ones. Creators for one proposal and the
+  proposal's own state transition serialize on the proposal row: a proposal moving to `approved` either commits before the creator reads
+  it (the creator refuses) or waits for the creator's transaction. The requests being superseded are read `FOR UPDATE`, predicate included, so
+  a decider or a consumer that holds one finishes first and a request it consumed is not overwritten. Whatever decides or consumes a request
+  must lock *that request's row* `FOR UPDATE` and re-run `approval_refusal` on what it read before writing (taking the run row first if it
+  takes both). All locks last until the caller commits or rolls back, so a caller keeps its transaction short; the run lock also briefly
+  holds up other writers of that run's row.
 - **The binding is a database fact.** A row is either legacy (every binding column `NULL`) or fully bound, never half-bound in either
   direction (`ck_runtime_approval_bound`); the three hash and digest columns are exactly 71 characters (`ck_runtime_approval_digest_length`);
   and a BEFORE UPDATE trigger (SQLite and PostgreSQL) refuses any change to `proposal_id`, `intent_hash`, `evidence_hash`, `policy_digest`,
   `expected_resource_version`, `expires_at` and `requested_by`: a request cannot be re-bound to another intent, nor a legacy row bound after
   the fact. `status`, the decision columns, `policy_snapshot`, `superseded_by` and `consumed_at` still move. PostgreSQL also enforces
   the proposal foreign key (SQLite does not enforce foreign keys in this repository).
-- **Not wired yet.** The decision routes refuse to decide a request that has a `proposal_id`: `409` with `reason_code`
-  `approval_bound_not_wired` and a message that carries no id, hash or requester, for both approve and reject, and nothing is written. The
-  default selection (no `runtime_approval_id`) ignores bound rows, so a legacy node-level request is never shadowed by a newer bound one. The
-  list endpoint still shows bound rows. Until B06.2 (expiry and supersession) and B06.3 (recheck at commit) replace this refusal, an expired
-  or superseded request is not refused either, because it cannot be decided at all. Known gaps for B06.3: the route's separation-of-duties
-  check compares the approver with `run.created_by`, not with the bound `requested_by`; and it must also check that the proposal's run is
-  still active before an approval is consumed.
+- **Not wired yet.** The decision routes (`approve` and `reject`) never decide a request that has a `proposal_id`; they answer `409` with a
+  `reason_code` and a static message that carries no id, hash or requester, and write nothing: `superseded` or `expired`
+  (B06.2, above), and for a request that is live, `approval_bound_not_wired`. **This task does not lift that last refusal; the recheck at commit
+  (B06.3, #718) does**, because only there are the exact intent, the evidence and policy pins, the downstream version and the approving
+  principal's authority re-verified (and #735 then moves consumption into the dispatcher's claim). Deciding a live bound request earlier would
+  record an approval nothing re-checked. The default selection (no `runtime_approval_id`) ignores bound rows, so a legacy node-level request is
+  never shadowed by a newer bound one. The list endpoint still shows bound rows (with their `status`; it does not yet expose `expires_at` or
+  `superseded_by`, which the approvals UI, #743, adds). Known gaps for B06.3: the route's separation-of-duties check compares the approver with
+  `run.created_by`, not with the bound `requested_by`; it must also check that the proposal's run is still active before an approval is consumed;
+  and a request that expires is not turned into a proposal state (the proposal stays `proposed`, so ask again).
 - **Legacy rows stay valid.** A node-level approval that guards no proposal keeps `NULL` in every new column and is decided exactly as before.
 - **Migration.** `0127` adds nine nullable columns, a foreign key, two checks, an index and the trigger (on PostgreSQL a function pinned to
   the schema); no backfill. Downgrade drops the trigger and function, the checks, the index and the columns; a legacy request is untouched and a
-  bound one is lost. It needs `0126` (B05.5b) to be applied first.
+  bound one is lost. It needs `0126` (B05.5b) to be applied first. **B06.2 adds no migration:** `expires_at`, `superseded_by` and `consumed_at` are
+  already in `0127` (the trigger lets `status` and `superseded_by` move), so there is no schema change, rollback or deployment step beyond the
+  new optional setting `CALIBER_APPROVAL_TTL_SECONDS`.
 - **Distinct actors.** The separation-of-duties rule of `record_approval` is now `assert_distinct_actor(actor, initiated_by, *, allow_self)`
   (`approval_policy.py`): it raises `ApprovalPolicyError` ("the account that triggered this run cannot approve it; a second person must decide
   ...") when the actor is the initiator, unless `allow_self` (`CALIBER_APPROVAL_ALLOW_SELF_APPROVAL`) is set; an unknown initiator is not
@@ -1518,12 +1651,50 @@ except ApprovalRequestError as refused:
 session.commit()  # the caller owns the transaction; the proposal row stays locked until then
 ```
 
-Deciding such a request through the API today:
+Deciding such a request through the API today (the same three answers for `approve` and `reject`; none of them writes anything):
 
 ```text
 POST /ajax-api/2.0/mlflow/caliber/workflow-runs/{run_id}/approval/approve   {"runtime_approval_id": "<bound request>"}
+
+# replaced by a newer request for the step (B06.2). Recovery: decide the current request of the step; list the run's approvals and take the
+# newest one that is `pending`.
+409 {"detail": "this approval request was replaced by a newer request and can no longer be decided; decide the current request for this step",
+     "status_code": 409, "reason_code": "superseded"}
+
+# at or past expires_at (B06.2). Recovery: ask for a new approval of the step (create a new request, which also replaces this one); the
+# proposal is unchanged and still `proposed`.
+409 {"detail": "this approval request has expired and can no longer be decided; ask for a new approval of the step",
+     "status_code": 409, "reason_code": "expired"}
+
+# live and not yet decidable here (until B06.3).
 409 {"detail": "this approval request is bound to an effect proposal and cannot be decided here yet: exact-intent approval is not wired",
      "status_code": 409, "reason_code": "approval_bound_not_wired"}
+```
+
+Creating a replacement, with the deployment's window:
+
+```python
+from caliber.workflows.approval_requests import configured_ttl_seconds, create_approval_request
+
+request = create_approval_request(
+    session,
+    proposal=changed_proposal,  # a later proposal of the same node; the older live request becomes superseded
+    policy=node_policy,
+    evidence_hash=evidence_digest,
+    requested_by="editor_a",
+    ttl_seconds=configured_ttl_seconds(config),  # CALIBER_APPROVAL_TTL_SECONDS, default 86400
+)
+session.commit()  # the older request's status and superseded_by are written in the same transaction
+```
+
+For the recheck at commit (B06.3) and the dispatcher's consumption (B06.4), the rule is one function:
+
+```python
+from caliber.workflows.approval_policy import approval_refusal
+
+code = approval_refusal(
+    status=row.status, superseded_by=row.superseded_by, expires_at=row.expires_at, now=datetime.now(timezone.utc)
+)  # "superseded", "expired" or None; call it on the row read FOR UPDATE, in the transaction that acts on it
 ```
 
 ## Agent steps: a request, a result, and no effects (B08.1a, #713)
@@ -1664,8 +1835,9 @@ build on it and are not part of it.
   output, so a claimed commit or another step's result is `malformed_result`, returned by the adapter itself). Entries are used
   in order, one per caller even under concurrency, and a script that runs out refuses with `script_exhausted`; with no script
   every step `completed` with usage estimated from the input. `fake.step_requests` lists the requests it was asked.
-- **The four provider executors refuse governed execution until each is integrated** (B08.openai-chat #729, B08.openai-responses
-  #730, B08.openai-agents #728, B08.anthropic #727): `OpenAIChatWorkflowExecutor`, `OpenAIResponsesWorkflowExecutor`,
+- **The provider executors refuse governed execution until each is integrated** (B08.openai-responses #730, B08.openai-agents
+  #728, B08.anthropic #727; **B08.openai-chat #729 is integrated**, see
+  [the OpenAI chat adapter](#the-openai-chat-completions-adapter-b08openai-chat-729)): `OpenAIResponsesWorkflowExecutor`,
   `OpenAIAgentsWorkflowExecutor` and `AnthropicChatWorkflowExecutor` each implement `run_step` and answer `refused` with
   `adapter_not_integrated` without building a client, importing an SDK or touching the network. Their `run_agent` (the ungoverned
   path every existing workflow uses) is unchanged. **For those four tasks:** `runtime.py` reaches the module as
@@ -1685,7 +1857,11 @@ build on it and are not part of it.
   the adapter's own (`adapter_timeout` and `malformed_result` where they apply; the platform's `adapter_error`,
   `adapter_unsupported`, `adapter_not_integrated` and `script_exhausted` never pass) and that the adapter itself, called
   directly, returned rather than raised. The planted payload is in neither the result nor any log record (loggers lowered to
-  DEBUG). A driver may not declare `completes`, `proposes_protected_tool` or `claims_commit` unsupported.
+  DEBUG). A driver may not declare `completes`, `proposes_protected_tool` or `claims_commit` unsupported. An adapter that reads
+  a clock against the request's deadline needs its driver to inject a fake one (the harness' default deadline,
+  `2026-10-26T09:10:00Z`, is in the past), and `budget_exhausted` stages one turn that spent the budget
+  (`StepUsage(900, 100, 1000, 1, 0)`). `tests/conformance/test_agent_adapter_openai_chat.py` is the driver for
+  `OpenAIChatWorkflowExecutor`; it declares `another_steps_result` unsupported (a chat completion carries no step identity).
 
 ```python
 from caliber.workflows.agent_step import AgentStepInput, ScriptedStep, run_agent_step
@@ -1704,7 +1880,7 @@ Recovery is always the same shape: the occurrence is retried as the next `attemp
 
 | the adapter | result | recover by |
 | --- | --- | --- |
-| is an executor that is not integrated yet (`OpenAIChat`, `OpenAIResponses`, `OpenAIAgents`) | `refused`, `adapter_not_integrated` | running the node with the scripted adapter, or waiting for that provider's B08 task; the ungoverned `run_agent` path is unaffected |
+| is an executor that is not integrated yet (`OpenAIResponses`, `OpenAIAgents`) | `refused`, `adapter_not_integrated` | running the node with the scripted adapter, or waiting for that provider's B08 task; the ungoverned `run_agent` path is unaffected |
 | has no `run_step`, or an `async def` one | `refused`, `adapter_unsupported` | passing an `AgentStepAdapter` with a plain `run_step` |
 | raises (a provider error, anything else) | `adapter_error` | reading the server log (the exception's class and the step id, never its text) and retrying as the next attempt |
 | times out (`TimeoutError`) | `adapter_timeout` | the call's outcome is unknown: retry as the next attempt; the reservation is kept |
@@ -1762,6 +1938,50 @@ is settled, B08.4):
 | refuses (`stop_reason: "refusal"`) | `refused`, `model_refused`, usage `provider` | rephrasing the request, or another model |
 | reaches a limit | `max_turns`, `max_tool_calls`, `max_tokens` or `deadline`, usage kept | raising the limit for the next attempt, or ending the node |
 | has no client (the SDK is not installed) | `refused`, `provider_unavailable`, nothing was called | installing the `anthropic` extra (`pip install caliber-suite[anthropic]`) |
+
+### The OpenAI chat completions adapter (B08.openai-chat, #729)
+
+`OpenAIChatWorkflowExecutor.run_step` runs one governed step through `client.chat.completions.create`
+(`caliber/src/caliber/workflows/step_openai_chat.py`). It uses the message building, reasoning-model handling (including the one
+retry of the 400 "function tools with reasoning_effort"), prompt-cache keys and tool-call execution helper `run_agent` uses, and
+`run_agent` itself is unchanged. It adds no route, table or setting; the one new constructor argument, `step_clock` (a callable
+returning an aware `datetime`, default the UTC clock), is what a step's deadline is read from.
+
+- **Read tools run only from `step_input.read_tools`.** Any other tool the model calls is never run: it is a proposal. A protected
+  tool is offered to the model with a *proposal envelope* as its parameters: `connector`, `connector_version`, `effect_class`,
+  `resource`, `args` (the tool's own arguments) and optionally `expected_resource_version`. The envelope is read strictly (an
+  unknown key such as `state` or `receipt_id`, a missing or mistyped field or an invalid action is `malformed_result`), so a model
+  that says an effect happened is unreadable, never recorded. The result is `proposed_action` with one `ProposedAction`
+  whose `effect_class` and `connector_version` are **the model's claims** (`platform_bound` is false; B08.2 binds them to the
+  protected-effect inventory and refuses a mismatch). If one response calls several protected tools the first is proposed and
+  the rest of that response, read calls included, does not run. A call to a tool the agent does not have is `malformed_result`.
+  The envelope carries the connector the *model* names: a `ProposedAction` has no tool-name field, so B08.2 must decide how a
+  proposal is tied to the tool that was called.
+- **Limits come from the request.** `max_turns` counts provider responses; `max_tool_calls` counts read tools run, all or none per
+  response; `max_tokens` is compared with the provider's total before each call and after each response (more than the limit
+  stops with `max_tokens` whatever the model wanted; exactly the limit is allowed but leaves nothing for another call); the
+  deadline is read before each call. A step that may not start (`max_*` of 0, a deadline reached) returns the stop with zero usage,
+  source `estimated`, and the provider is not touched. A response the provider cut off (`finish_reason: length`) is `max_tokens`
+  and its tool calls are not acted on. Each call is also bounded: the SDK's retries are off (`with_options(max_retries=0)`), its
+  timeout is the time left to the deadline (at most `CALIBER_PROVIDER_REQUEST_TIMEOUT_SECONDS`) and the remaining token budget is
+  sent as `max_completion_tokens`. The platform still enforces the limits against the returned usage (B08.3).
+- **Usage is the provider's**, summed over turns, with `usage_source: "provider"` and `cached_prompt_tokens` only when the
+  provider reported them. A response with no usage object is estimated by word count and reported `estimated`; a total below
+  `prompt + completion` is raised to it; a figure that is not a plain non-negative integer (or exceeds 2147483647) is
+  `malformed_result`. Usage is kept on every stop, and on a failure after at least one response (reported `unknown`).
+- **A refusal is a result.** `message.refusal` and `finish_reason: content_filter` are `refused` with `model_refused` and
+  `content_filtered`; the model's words are not returned.
+
+| the provider | result | recover by |
+| --- | --- | --- |
+| times out (`TimeoutError`, `httpx.TimeoutException`, `openai.APITimeoutError`) | `error`, `adapter_timeout` | the call's outcome is unknown: retry as the next attempt; the reservation is kept |
+| raises anything else (a 4xx/5xx, a network error) | `error`, `provider_error` | reading the server log (the exception's class and the step id, never its text) and retrying as the next attempt |
+| returns something that is not a chat completion, a bad tool call, unreadable usage, a malformed or over-claiming proposal envelope | `error`, `malformed_result` | none for this output; check the model and the tool's schema |
+| runs past `max_turns`, `max_tool_calls`, `max_tokens` or the deadline | the matching stop reason | raising the limit on the next attempt, or a smaller task |
+
+No exception text, provider payload, tool name or tool argument is placed in a result or a log line (the log line carries the
+exception's class name and the step id). Not covered: handoffs (`run_agent` ignores them too), structured output (a step result
+has no output field, so the final text is not returned), the token reservation (B08.4) and recording the proposal (B08.2).
 
 ## Policy decisions
 
@@ -1825,17 +2045,17 @@ means the action cannot be done by a run (use the human-approval path or a perso
 policy lacks a risk for the action and must be extended; `subject_mismatch` and `workload_mismatch` are always a bug
 or an attack: fix the caller.
 
-## Release evaluation: the evaluator claims queued attempts (B10.1, #701)
+## Release evaluation: the evaluator executes queued attempts (B10.2, #707)
 
 `POST /projects/{project_id}/releases/{release_id}/evaluate` queues one `caliber_workspace_release_evaluations` row
 (`queued`) per attempt. `WorkspaceReleaseEvaluator` (`caliber/src/caliber/orchestrator/workspace_release_evaluator.py`)
 is the owner-only loop that picks them up. It reuses the service's own queue and lease
 (`claim_workspace_release_evaluation`); there is no second queue.
 
-> **Do not enable it in a deployment until B10.2 (#707) lands.** It only *claims*. Nothing runs the evaluation, nothing
-> finishes it, and nothing acts when its claim lease lapses (reclaiming an expired attempt is B10.4, #721). A claimed
-> attempt therefore stays `running`, its release stays `evaluating`, and every later `evaluate` call answers
-> `409 release already has an active evaluation attempt`, until the row is given back (below).
+> It is still opt-in. With the feature and worker flags enabled, the evaluator claims a row, resolves the release's
+> own immutable revision pins, runs the configured EvalProvider, and completes the attempt. If the lease expires,
+> the next owner records the abandoned attempt and claims a new fenced attempt; provider run identifiers observed
+> before a crash remain attached to the evaluation and are deduplicated.
 
 - **One claim per tick, oldest first.** Every `CALIBER_WORKSPACE_RELEASE_EVALUATOR_INTERVAL_SECONDS` (default 5, from 0.5
   to 3600) it claims the `queued` row with the oldest `requested_at` (ties by id). The row becomes `running` with
@@ -1845,8 +2065,47 @@ is the owner-only loop that picks them up. It reuses the service's own queue and
 - **The claim identity.** `claimed_by` (and `started_by`) hold `workspace-release-evaluator-<pid>-<id>`, followed by
   `:t<token>` when the claim was fenced (the fencing token of the execution-owner lease it was made under; no suffix
   outside the reference profile). That is how the token is kept without a migration: an attempt claimed by owner 1 reads
-  `...:t1`, one claimed after a takeover `...:t2`. B10.4 (#721) must pass this identity, not the bare worker id, to the
-  service's heartbeat and complete (it is the `worker_id` of `ClaimedEvaluation`), and may read the token back from the row.
+  `...:t1`, one claimed after a takeover `...:t2`. The evaluator passes this identity and the attempt number to the
+  service's heartbeat and complete calls (it is the `worker_id` of `ClaimedEvaluation`), and may read the token back
+  from the row.
+- **Pinned execution.** Before the provider call the worker loads only the release's `revision_id` and its
+  `CaliberWorkspaceRevisionResource` rows. It requires one `candidate`, one `evaluation` dataset, and one `evaluation`
+  judge pin; optional `baseline` pins are also revision-local. Each registered adapter resolves and snapshots its
+  exact resource again, and a changed resource digest, missing adapter, missing pin, provider mismatch, or digest
+  mismatch blocks the release without calling the provider. The request carries the exact dataset version and judge
+  configuration; it never follows an unrelated workflow/run manifest or a mutable alias.
+- **Result provenance and settlement.** The provider result records a SHA-256 evidence digest containing the plan and
+  input digests, candidate/baseline scores, example count, thresholds, and `provider`/`simulated` provenance. A score
+  below the pinned aggregate threshold becomes `no_go`; an unavailable plan/provider or invalid result becomes a
+  retryable `blocked` outcome. Completion uses the same release lock version captured before provider work, so a
+  concurrent transition cannot be overwritten.
+- **Evidence-bound gate digest (B10.3, #714).** A provider must return one per-example result row for every pinned
+  dataset example. The worker persists the canonical `gate_evidence` block on the evaluation attempt before settling the
+  release. It contains the complete rows, a dataset digest derived from `example_id`/input/expected/weight/tags, the
+  scored-result digest, per-scorer valid-row/weight denominators, candidate/baseline aggregates, thresholds and
+  provider provenance. `evaluation_evidence_sha256` is the digest of that exact block and can be recomputed without a
+  provider call. A missing row set or row-count mismatch blocks settlement and writes no gate evidence.
+- **Durable attempt history and recovery (B10.4, #721).** The parent evaluation row remains the idempotent public
+  queue/status record. Each claim also creates one row in `caliber_workspace_release_evaluation_attempts`, keyed by
+  `(evaluation_id, attempt_number)`, with its worker identity, lease, status and provider run identifiers. When a
+  lease expires, the old attempt becomes `orphaned` and the next claim increments the attempt number; the old row and
+  any run identifiers are never overwritten. A provider run observed before settlement is recorded immediately, so a
+  crash after an external call remains auditable. Completion, heartbeat and run-recording operations are fenced to
+  the current attempt; a stale worker cannot settle the recovered release. Only the current attempt can become the
+  authoritative completion, and all parent/provider run identifiers are merged without duplicates.
+- **Matching successful gate evidence (B10.5, #732).** Manual quality/final decisions and automatic/break-glass
+  release paths accept only a release-local evaluation row with `status=succeeded` whose canonical evidence recomputes
+  to the release-bound digest and matches the evaluation's plan and input digests. The evidence must preserve provider
+  and simulated/real provenance, satisfy the recorded aggregate criteria, and contain no critical-failure or waiver
+  bypass. Missing, stale, tampered, non-passing, or out-of-scope evidence fails closed; break-glass does not waive a
+  failed critical gate.
+- **Adapter refusal (B10.6, #740).** A release operation that names a resource type with no registered adapter returns
+  HTTP `409` with the stable payload `{"reason":"adapter_unavailable","adapter":"<resource type>","disabled_by":"profile"}`.
+  Deployments that construct the registry from an environment-controlled feature may set `disabled_by` to that exact
+  `CALIBER_*` variable instead. The refusal is emitted before an operation lock or durable operation is created, so the
+  recovery is to enable/register the named adapter and retry the same intent; it is not evidence that an external effect
+  was attempted. When the release-candidate feature itself is off, the existing route gate still returns HTTP `404`
+  `reason_code=feature_disabled` and names `CALIBER_FEATURE_RELEASE_CANDIDATES`.
 - **Owner-only and fenced.** It runs only in the process holding the execution-owner lease (see above), and in the
   reference profile each claim is made in a transaction that first runs `assert_fenced` with the exact lease the owner
   captured. A process whose lease was taken over, expired or cannot be checked claims nothing and records nothing; the
@@ -1856,16 +2115,18 @@ is the owner-only loop that picks them up. It reuses the service's own queue and
   (`FOR UPDATE SKIP LOCKED` on PostgreSQL and a conditional `UPDATE ... WHERE status = 'queued'`); the loser claims
   nothing that tick and the next tick takes the next row.
 - **Opt-in, and dormant while the feature is off.** The evaluator is built only when
-  `CALIBER_FEATURE_RELEASE_CANDIDATES=true` *and* `CALIBER_WORKSPACE_RELEASE_EVALUATOR_ENABLED=true` (default **false**
-  until B10.2 executes the plan). Setting the second without the first logs a warning at startup and does nothing; with
+  `CALIBER_FEATURE_RELEASE_CANDIDATES=true` *and* `CALIBER_WORKSPACE_RELEASE_EVALUATOR_ENABLED=true` (default **false**).
+  Setting the second without the first logs a warning at startup and does nothing; with
   the feature off the release routes keep answering `404 feature_disabled`. When it does start it logs a WARNING that
-  attempts are claimed but not executed, and a WARNING for every claim. `CALIBER_BACKGROUND_TASKS_ENABLED=false` stops it
-  like every loop.
+  the worker is enabled and an INFO for each completed evaluation. `CALIBER_BACKGROUND_TASKS_ENABLED=false` stops it like
+  every loop. A manually constructed worker without its provider and adapter registry is claim-only test/dry-run mode;
+  the server always supplies both dependencies.
 - **A clean stop gives the claims back.** On shutdown or when the lease is lost the controller stops the loops;
-  `stop()` then sets this process's own still-`running` claims back to `queued` and clears `claimed_by`, `started_by`,
-  `started_at`, `heartbeat_at` and `lease_expires_at` (the attempt number is kept) in one compare-and-set statement on
-  its own claim identity, so it never touches a row another worker owns, and it works after the lease is gone. A crash,
-  a kill or a stop that outlives `CALIBER_SHUTDOWN_GRACE_SECONDS` does not requeue.
+  `stop()` then marks this process's own still-`running` attempt history as `requeued` and sets the parent claim back
+  to `queued`, clearing `claimed_by`, `started_by`, `started_at`, `heartbeat_at` and `lease_expires_at` in one
+  compare-and-set statement on its own claim identity. It never touches a row another worker owns, and it works after
+  the lease is gone. A crash, a kill or a stop that outlives `CALIBER_SHUTDOWN_GRACE_SECONDS` leaves the attempt
+  `running` until the next owner observes the expired lease and records it as `orphaned`.
 - **Liveness is write-only for now.** Every tick, idle ones included, writes a `caliber_worker_heartbeats` row of kind
   `workspace_release_evaluator`; a clean stop removes it and a replaced evaluator's stale row is reaped after a few
   poll intervals. Nothing reads that kind yet (`/readiness` queue health reads the `workflow_run` kind only), so it is a
@@ -1877,24 +2138,25 @@ is the owner-only loop that picks them up. It reuses the service's own queue and
 stop grace ends is abandoned (a thread cannot be cancelled) and can claim a row after the requeue. A queued row whose
 claim keeps failing with an unexpected error is retried first on every tick, so it holds up the rows behind it.
 
-**Recovering stranded rows** (a crashed or killed process, or an expired stop grace, left an attempt `running` that nothing
-will finish). List them, then give them back; this is safe **only while B10.2 (#707) is not merged**, because after it a
-`running` row may be a live evaluation:
+**Inspecting recovered attempts** (a crashed or killed process, or an expired stop grace, left an attempt `running`).
+The next owner recovers these automatically after `lease_expires_at` is in the past. Inspect both the parent queue row
+and its immutable attempt history:
 
 ```sql
 SELECT evaluation_id, workspace_release_id, claimed_by, lease_expires_at
 FROM caliber_workspace_release_evaluations
 WHERE status = 'running' AND claimed_by LIKE 'workspace-release-evaluator-%';
 
-UPDATE caliber_workspace_release_evaluations
-SET status = 'queued', claimed_by = NULL, started_by = NULL, started_at = NULL,
-    heartbeat_at = NULL, lease_expires_at = NULL
-WHERE status = 'running' AND claimed_by LIKE 'workspace-release-evaluator-%';
+SELECT evaluation_id, attempt_number, worker_id, status, provider_run_ids, authoritative,
+       completed_at, error_code
+FROM caliber_workspace_release_evaluation_attempts
+WHERE status IN ('running', 'orphaned', 'requeued')
+ORDER BY evaluation_id, attempt_number;
 ```
 
 **Rollback.** Unset `CALIBER_WORKSPACE_RELEASE_EVALUATOR_ENABLED` (or set it false) and restart: a clean stop of the old
-process requeues its claims, and a new process claims nothing. If the old process did not stop cleanly, run the recovery
-SQL above, otherwise those releases keep answering 409. There is no migration and nothing else to undo.
+process requeues its claims, and a new process claims nothing. If the old process did not stop cleanly, recover only
+expired rows with the SQL above. There is no migration and nothing else to undo.
 ## Reserved tool names and refused paths (#641)
 
 The protected-effect inventory (`docs/architecture/protected-effect-paths.md`) classifies a built-in tool by its

@@ -193,6 +193,7 @@ BACKEND_CORE_TESTS=(
   tests/test_agent_step_contract.py
   tests/test_agent_step_adapter.py
   tests/conformance/test_agent_adapter_anthropic.py
+  tests/conformance/test_agent_adapter_openai_chat.py
   tests/test_approval_ux_contract.py
   tests/test_execution_role.py
   tests/test_readiness_execution_role.py
@@ -214,6 +215,7 @@ BACKEND_CORE_TESTS=(
   tests/test_effect_records.py
   tests/test_effect_receipts.py
   tests/test_approval_binding.py
+  tests/test_approval_supersession.py
   tests/test_routes_system_effects.py
   tests/test_effect_reconcile.py
   tests/test_context_sources.py
@@ -307,11 +309,13 @@ job_migration_parity_postgres() {
         tests/test_effect_records.py \
         tests/test_effect_receipts.py \
         tests/test_approval_binding.py \
+        tests/test_approval_supersession.py \
         tests/test_routes_system_effects.py \
         tests/test_effect_reconcile.py \
         tests/test_context_sources.py \
         tests/test_context_manifest.py \
         tests/test_workspace_release_evaluator.py \
+        tests/test_upgrade_from_alpha.py \
         -k postgresql --no-cov -q
     status=$?
   fi

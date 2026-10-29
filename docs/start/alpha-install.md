@@ -280,6 +280,7 @@ CALIBER:
 export CALIBER_FEATURE_INTEGRATIONS=true        # MCP servers and OpenAPI integrations (preview)
 export CALIBER_FEATURE_COOKBOOKS=true           # Cookbooks (preview)
 export CALIBER_FEATURE_RELEASE_CANDIDATES=true  # release-candidate signoff and workspace releases
+export CALIBER_WORKSPACE_RELEASE_EVALUATOR_ENABLED=true  # execute release-local pinned evaluations
 ```
 
 To turn Aria off instead, set `CALIBER_FEATURE_ARIA=false` and restart.

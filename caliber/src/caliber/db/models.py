@@ -2595,7 +2595,8 @@ class CaliberRuntimeApprovalRequest(Base):
     fact: a CHECK allows only all-``NULL`` or fully bound, hash and digest columns are exactly 71 characters, and a BEFORE
     UPDATE trigger (SQLite and PostgreSQL) refuses any change to the binding columns, so an UPDATE or raw SQL cannot
     re-bind a request to another intent. ``status``, ``consumed_at`` and ``superseded_by`` and the decision columns may
-    still move. The decision route does not decide a bound row yet (it answers ``409 approval_bound_not_wired``).
+    still move. The decision route does not decide a bound row yet: it answers ``409`` with ``superseded``, ``expired`` (B06.2,
+    #712) or ``approval_bound_not_wired``.
     """
 
     __tablename__ = "caliber_runtime_approval_requests"
@@ -2647,7 +2648,8 @@ class CaliberRuntimeApprovalRequest(Base):
     expected_resource_version: Mapped[str | None] = mapped_column(String(256), nullable=True)
     #: After this the request cannot be approved (UTC, stored naive like every timestamp here).
     expires_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
-    #: The request that replaced this one (set by the supersession step, B06.2); ``NULL`` while it stands.
+    #: The request that replaced this one (set by ``create_approval_request`` in the transaction that inserts the replacement, B06.2);
+    #: ``NULL`` while it stands.
     superseded_by: Mapped[str | None] = mapped_column(String(64), nullable=True)
     #: When the dispatcher consumed the decision (B06.4); ``NULL`` until then. This task only adds the column.
     consumed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
@@ -3654,7 +3656,13 @@ class CaliberWorkspaceRelease(Base):
 
 
 class CaliberWorkspaceReleaseEvaluation(Base):
-    """Durable, lease-based machine evaluation attempt for a Workspace release."""
+    """Durable, lease-based machine evaluation for a Workspace release.
+
+    The row is the idempotent public evaluation request and current lease
+    pointer.  Individual claims live in
+    :class:`CaliberWorkspaceReleaseEvaluationAttempt` so a reclaim never
+    overwrites the provenance of an earlier worker or external provider run.
+    """
 
     __tablename__ = "caliber_workspace_release_evaluations"
     __table_args__ = (
@@ -3708,6 +3716,10 @@ class CaliberWorkspaceReleaseEvaluation(Base):
     lease_expires_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     heartbeat_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     linked_evaluation_run_ids: Mapped[list[str]] = mapped_column(JSON, default=list)
+    # Canonical per-example release-gate evidence.  This is retained with the
+    # attempt so operators can recompute ``evaluation_evidence_sha256`` without
+    # re-running a provider or relying on an external MLflow record.
+    gate_evidence: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
     gate_verdict_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
     error_code: Mapped[str | None] = mapped_column(String(64), nullable=True)
     error_summary: Mapped[str | None] = mapped_column(String(4000), nullable=True)
@@ -3721,6 +3733,55 @@ class CaliberWorkspaceReleaseEvaluation(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=func.now(), onupdate=func.now()
     )
+
+
+class CaliberWorkspaceReleaseEvaluationAttempt(Base):
+    """Immutable claim history and provider-run provenance for one evaluation.
+
+    A lease can expire after a provider has created an external run.  The
+    attempt is then marked ``orphaned`` and a new attempt can be claimed, but
+    only the current attempt may settle the release.  ``authoritative`` is
+    true for the one attempt whose result changed the release state.
+    """
+
+    __tablename__ = "caliber_workspace_release_evaluation_attempts"
+    __table_args__ = (
+        UniqueConstraint(
+            "evaluation_id", "attempt_number", name="uq_workspace_release_eval_attempt_number"
+        ),
+        Index(
+            "ix_workspace_release_eval_attempts_evaluation",
+            "evaluation_id",
+            "attempt_number",
+        ),
+        CheckConstraint(
+            "status IN ('running', 'requeued', 'orphaned', 'succeeded', 'failed')",
+            name="ck_workspace_release_eval_attempt_status",
+        ),
+        CheckConstraint("attempt_number >= 1", name="ck_workspace_release_eval_attempt_number"),
+    )
+
+    attempt_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    evaluation_id: Mapped[str] = mapped_column(
+        String(64),
+        ForeignKey("caliber_workspace_release_evaluations.evaluation_id"),
+        nullable=False,
+    )
+    attempt_number: Mapped[int] = mapped_column(Integer, nullable=False)
+    worker_id: Mapped[str] = mapped_column(String(256), nullable=False)
+    status: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="running", server_default="running"
+    )
+    claimed_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    lease_expires_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    provider_run_ids: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
+    authoritative: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="0"
+    )
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    error_code: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    error_summary: Mapped[str | None] = mapped_column(String(4000), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
 
 class CaliberWorkspaceReleaseEvidence(Base):

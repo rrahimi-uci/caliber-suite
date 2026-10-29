@@ -67,11 +67,22 @@ if job.awaits_human:
 > routes (releases and their operations) answer 404 with `reason_code: feature_disabled`. Importing,
 > revisions and Change Requests are not behind the flag.
 
-> **Experimental in the alpha.** Nothing in this build executes Workspace release evaluations, so an
-> evaluation you start stays `queued`. The API, SDK and `caliberctl workspace` are complete and tested, but
-> a Workspace release does not govern anything yet. The release path that works end to end is Apply and
-> Rollback on a prompt. The same applies to the release-candidate signoff on the Releases page and
-> `caliberctl release sign`: they record a decision and deploy or roll back nothing.
+> **Experimental in the alpha.** Workspace release evaluation is now executed by the opt-in owner-only worker when
+> `CALIBER_FEATURE_RELEASE_CANDIDATES=true` and `CALIBER_WORKSPACE_RELEASE_EVALUATOR_ENABLED=true`. The worker
+> evaluates only the release revision's pinned candidate, dataset, judge and configuration; missing or changed pins
+> block the release. Successful and no-go evaluations persist the exact per-example gate evidence and recomputable
+> digest (B10.3). Expired attempts are recorded and re-claimed with durable attempt history and stale-worker fencing
+> (B10.4); provider run identifiers are preserved and deduplicated. B10.5 requires every quality/final decision and
+> break-glass apply to present matching, recomputable evidence from a succeeded release-local evaluation, including its
+> plan/input digests, provider provenance and passing criteria; stale, tampered, missing, or non-passing evidence is
+> rejected. The release-candidate signoff on the Releases page and `caliberctl release sign` remain record-only and
+> deploy or roll back nothing.
+
+If the flag is enabled but a release revision contains a resource type with no registered adapter, a release operation
+fails before it creates a durable operation or takes the environment lock. The API returns HTTP `409` with the exact
+payload `{"reason":"adapter_unavailable","adapter":"<resource type>","disabled_by":"profile"}` (or the
+configured `CALIBER_*` variable when the deployment supplies one). Register/enable that adapter, then retry the same
+intent. A feature-disabled Workspace release route remains the separate HTTP `404` `feature_disabled` response above.
 
 A Workspace revision moves from reviewed to live only through explicit,
 typed governance steps: open a Change Request, evaluate the release against

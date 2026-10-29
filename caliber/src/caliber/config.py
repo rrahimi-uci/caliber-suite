@@ -868,11 +868,11 @@ class CaliberConfig(BaseModel):
     workspace_release_evaluator_enabled: bool = Field(
         default=False,
         description=(
-            "Opt in to the Workspace release evaluator (B10.1). When true and the "
-            "release_candidates feature is on, it starts with the owner-only loops and claims "
-            "queued CaliberWorkspaceReleaseEvaluation rows, oldest first. Do not enable it in "
-            "a deployment until B10.2 (#707) lands: it only claims, so a claimed evaluation "
-            "stays running (a clean stop requeues it) and later evaluate calls answer 409. "
+            "Opt in to the Workspace release evaluator (B10.2). When true and the "
+            "release_candidates feature is on, it starts the owner-only loop, resolves each "
+            "release-local immutable plan, and executes it with the configured EvalProvider. "
+            "Missing or drifted pins block the release; expired-attempt recovery arrives in "
+            "B10.4. "
             "Never starts while CALIBER_FEATURE_RELEASE_CANDIDATES is off."
         ),
     )
@@ -1447,6 +1447,18 @@ class CaliberConfig(BaseModel):
             "gate. Off by default: that is the one separation-of-duties rule that is "
             "meaningful without a role hierarchy. Enable it for a single-operator "
             "install, which would otherwise deadlock on its own approval gates."
+        ),
+    )
+
+    approval_ttl_seconds: int = Field(
+        default=86400,
+        ge=1,
+        le=31_536_000,
+        description=(
+            "How long an approval request bound to an effect proposal stays answerable: its expires_at is "
+            "requested_at plus this many seconds (default 24 hours, at most a year). A request past it is refused "
+            "with the reason code expired. Read with caliber.workflows.approval_requests.configured_ttl_seconds by the "
+            "caller that creates the request; a change affects only requests created afterwards."
         ),
     )
 
@@ -2475,6 +2487,7 @@ _ENV_VAR_TABLE: list[tuple[str, str, Any]] = [
         str,
     ),
     ("CALIBER_APPROVAL_ALLOW_SELF_APPROVAL", "approval_allow_self_approval", _flag),
+    ("CALIBER_APPROVAL_TTL_SECONDS", "approval_ttl_seconds", int),
     ("CALIBER_EGRESS_POLICY_ENABLED", "egress_policy_enabled", _flag),
     ("CALIBER_EGRESS_BLOCKED_CATEGORIES", "egress_blocked_categories", str),
     ("CALIBER_EGRESS_ALLOWED_HOSTS", "egress_allowed_hosts", str),

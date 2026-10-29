@@ -30,7 +30,10 @@
         683,
         687,
         691,
-        695
+        695,
+        958,
+        967,
+        968
       ]
     },
     {
@@ -95,7 +98,10 @@
         734,
         742,
         751,
-        760
+        760,
+        990,
+        996,
+        997
       ]
     },
     {
@@ -134,7 +140,8 @@
         699,
         704,
         710,
-        726
+        726,
+        973
       ]
     },
     {
@@ -149,7 +156,8 @@
       "decision": "Rule bundles are operator-authored, validated, digest-pinned at initial admission and read from verified immutable bytes. Context attachments cannot mutate an existing RunManifest. Allocation/omission records describe the actual consumed context; untrusted source text never becomes policy.",
       "children": [
         719,
-        736
+        736,
+        976
       ]
     },
     {
@@ -229,7 +237,8 @@
         672,
         677,
         658,
-        665
+        665,
+        960
       ]
     },
     {
@@ -261,7 +270,8 @@
       "children": [
         659,
         666,
-        667
+        667,
+        947
       ]
     },
     {
@@ -399,7 +409,8 @@
         886,
         888,
         890,
-        851
+        851,
+        979
       ]
     },
     {
@@ -7596,6 +7607,30 @@
       "documentation": "docs/operate/reference-profile.md and the affected API/SDK/cookbook page; add exact refusal/recovery examples."
     },
     {
+      "number": 947,
+      "key": "533:mem0-filters",
+      "parent": 533,
+      "package": "B12",
+      "title": "[D2] B12.mem0 · Use mem0 2.x filters for scoped search and list",
+      "milestone": "D2",
+      "stage": "Beta",
+      "gaps": [
+        "G12",
+        "G15"
+      ],
+      "priority": "P1",
+      "lane": "P1",
+      "execution_order": 2003,
+      "blocked_by": [
+        667
+      ],
+      "scope": "Use the installed mem0 2.x contract for scoped search and list: pass agent_id, user_id and run_id through filters= for Memory.search and Memory.get_all. Keep add/delete_all on their supported entity-keyword API and keep list_entities on the filters contract. Test that top-level entity arguments are rejected by the real mem0 API and that the service reaches a stubbed store with the exact filters mapping.",
+      "files": "modify `caliber/src/caliber/memory/service.py`, `caliber/tests/test_memory_service.py`, `caliber/tests/test_memory_reference_scope.py`, `docs/operate/reference-profile.md`; regenerate `docs-site/` and `caliber/caliber-ui/public/docs/`",
+      "tests": "- Unit: `caliber/tests/test_memory_service.py::test_installed_mem0_v2_accepts_entity_scope_only_inside_filters`, `::test_search_passes_scope_and_top_k`, and `::test_get_all_passes_scope_and_top_k`.",
+      "acceptance": "With the supported mem0 2.x dependency installed, MemoryService.search and get_all complete without ValueError, pass the exact scope under filters, and preserve top_k. Direct top-level entity arguments are rejected by the real mem0 API in a deterministic stub-store test; add/delete_all/list_entities retain their verified contracts. No scope or authorization behavior changes.",
+      "documentation": "Update docs/operate/reference-profile.md to document the mem0 2.x filters boundary and the unchanged add/delete_all/list_entities contracts; regenerate committed docs copies and indexes."
+    },
+    {
       "number": 851,
       "key": "542:security",
       "parent": 542,
@@ -7792,6 +7827,196 @@
       "tests": "caliber/tests/test_protected_effect_inventory.py caliber/tests/test_assistant_publisher.py",
       "acceptance": "Reserve built-in names at tool registration and assistant publishing; use trusted registry identity when calling effect_class. Reference profile refuses host-file export and database MCP writes until explicitly supported. Keep source inventory at symbol/function granularity; dynamic behavior tests prove routing/refusal and a new primitive in an existing function/file must fail inventory coverage. No undecided optional security rows remain.",
       "documentation": "docs/operate/reference-profile.md and the affected API/SDK/cookbook page; add exact refusal/recovery examples."
+    },
+    {
+      "number": 958,
+      "key": "517:service-principal-admission",
+      "parent": 517,
+      "package": "B02",
+      "title": "[D2] B02.6 · Admit scheduler and service-token runs through typed service principals",
+      "milestone": "D2",
+      "stage": "Beta",
+      "gaps": ["G02", "G03", "G10", "G20", "G22"],
+      "priority": "P1",
+      "lane": "P1",
+      "execution_order": 2014,
+      "blocked_by": [671, 680, 691],
+      "scope": "Define a server-controlled service-principal subject for cron schedules and service-token calls. Bind each principal to a fixed deployment organization, project, workload, purpose and allowed action/resource set; issue a run-bound grant and record the same subject, grant, policy decision, lineage and immutable pins used by user admission. Route both scheduler and service-token paths through enqueue_workflow_run with explicit identity and admission settings. In the reference profile, refuse an unconfigured or unauthorized principal before any run, grant or manifest row is committed; legacy mode remains explicitly labeled.",
+      "files": "modify `caliber/src/caliber/policy/principal.py`, `caliber/src/caliber/policy/grants.py`, `caliber/src/caliber/workflows/run_launch.py`, `caliber/src/caliber/orchestrator/scheduler.py`, `caliber/src/caliber/routes/services.py`; add migrations only if the existing service-principal configuration cannot be represented without a fresh revision",
+      "tests": "add `caliber/tests/test_service_principal_admission.py`; extend `caliber/tests/test_run_admission.py` and `caliber/tests/egi_scenarios/test_b02_admission.py` for authorized/refused scheduler and service-token paths, exact manifest/grant/decision identity, lineage, rollback and no-dispatch-on-denial",
+      "acceptance": "A configured scheduler or service principal creates one admitted run with exact typed subject, grant, policy decision, lineage and pins; unknown, cross-project, expired, revoked or missing-lineage principals return a named refusal and persist no partial admission rows. Existing user admission and explicitly labeled legacy development paths remain unchanged.",
+      "documentation": "update `docs/operate/reference-profile.md` and ADR 0004 with service-principal configuration, subject/manifest representation, lineage defaults, refusal codes and scheduler/service-token recovery examples"
+    },
+    {
+      "number": 967,
+      "key": "517:service-principal-lineage",
+      "parent": 517,
+      "package": "B02",
+      "title": "[D2] B02.7 · Require release/environment lineage for non-user admission paths",
+      "milestone": "D2",
+      "stage": "Beta",
+      "gaps": ["G02", "G10", "G22"],
+      "priority": "P1",
+      "lane": "P1",
+      "execution_order": 2015,
+      "blocked_by": [958],
+      "scope": "Make every admitted scheduler and service-token run carry the same runtime lineage contract as user and event admission. Resolve a configured workspace release and environment from the service principal or schedule, pass both through enqueue_workflow_run and the immutable manifest, and refuse ambiguity or a missing approved mapping in the reference profile. Never infer a current alias after admission.",
+      "files": "modify `caliber/src/caliber/orchestrator/scheduler.py`, `caliber/src/caliber/routes/services.py`, `caliber/src/caliber/workflows/run_launch.py`, `caliber/src/caliber/run_manifest.py` and the service-principal configuration model from #958",
+      "tests": "extend `caliber/tests/test_run_admission.py`, `caliber/tests/test_run_manifest.py` and `caliber/tests/egi_scenarios/test_b02_admission.py` for configured lineage, missing release/environment, revoked mapping, alias movement and unchanged user/event behavior",
+      "acceptance": "Reference-profile scheduler and service-token admissions either persist the exact approved workspace release/environment in the manifest or return 422/403 with a stable refusal reason; no admitted run has null runtime lineage and no alias is resolved after admission.",
+      "documentation": "update `docs/operate/reference-profile.md` and the service-principal configuration reference with release/environment selection, refusal and recovery behavior"
+    },
+    {
+      "number": 968,
+      "key": "517:console-lineage-picker",
+      "parent": 517,
+      "package": "B02",
+      "title": "[D2] B02.8 · Let console Run and Trigger actions select approved release and environment",
+      "milestone": "D2",
+      "stage": "Beta",
+      "gaps": ["G02", "G10", "G22"],
+      "priority": "P1",
+      "lane": "P3",
+      "execution_order": 2016,
+      "blocked_by": [691],
+      "scope": "Add accessible release and environment selectors to the console Run and Trigger actions. Populate only the current approved workspace releases/environments for the selected project, send workspace_release_id and environment_id in the existing API contract, preserve the selected values on validation errors, and show the exact lineage-required refusal when no approved option exists. Do not let the client choose organization or bypass server authorization.",
+      "files": "modify `caliber/caliber-ui/src/pages/WorkflowEditor.tsx`, `caliber/caliber-ui/src/pages/WorkflowDetail.tsx`, UI API/types and the existing workflow-run/trigger request helpers",
+      "tests": "add/update Vitest coverage for accessible labels, approved-option loading, selected IDs, empty/refused state and server error rendering; add Playwright coverage for successful Run and Trigger admission and lineage-required refusal",
+      "acceptance": "A reference-profile Run and Trigger from the console sends the selected approved release/environment IDs and reaches the existing admission endpoint; no-options and server refusal states are accessible, deterministic and make zero run mutations.",
+      "documentation": "update the console workflow-run guide and `docs/operate/reference-profile.md` with the release/environment selection requirement and refusal recovery"
+    },
+    {
+      "number": 960,
+      "key": "530:review-queue-redaction",
+      "parent": 530,
+      "package": "B11",
+      "title": "[D2] B11.5 · Apply trace payload authorization to review queues and example-from-trace",
+      "milestone": "D2",
+      "stage": "Beta",
+      "gaps": ["G13"],
+      "priority": "P1",
+      "lane": "P2",
+      "execution_order": 2017,
+      "blocked_by": [677],
+      "scope": "Apply can_read_payloads and redact_trace_detail before trace payloads leave the server in review-queue item views and eval-dataset example-from-trace creation. Reviewers retain the review question and non-payload identifiers but receive governed placeholders for forbidden payload fields; example creation is refused when the caller cannot read the source payload, and copied examples never bypass project visibility. Tags, assessment rationale and MLflow/unscoped responses remain unchanged unless the existing trace-redaction contract explicitly covers them; document any deferred surfaces.",
+      "files": "modify `caliber/src/caliber/routes/review_queues.py`, `caliber/src/caliber/routes/eval_datasets.py` and shared `caliber/src/caliber/observability/trace_access.py` helpers",
+      "tests": "extend `caliber/tests/test_trace_redaction.py` and add route tests for reviewer/viewer placeholders, owner/editor payload access, forbidden example-from-trace with zero dataset mutation, foreign experiment denial and preserved review-question fields",
+      "acceptance": "A caller without trace.payload.read cannot receive governed trace payloads from a review queue or create an example from them; the response retains only the documented metadata/question and placeholders, while an authorized caller receives the existing payload shape and a copied example records the authorized source identity.",
+      "documentation": "update `docs/operate/reference-profile.md` and the observability/review-queue API docs with payload visibility, placeholder and example-from-trace refusal behavior"
+    },
+    {
+      "number": 973,
+      "key": "524:knowledge-read-surfaces",
+      "parent": 524,
+      "package": "B07",
+      "title": "[D2] B07.6 · Authorize knowledge reads outside admitted-run execution",
+      "milestone": "D2",
+      "stage": "Beta",
+      "gaps": ["G10", "G14"],
+      "priority": "P1",
+      "lane": "P1",
+      "execution_order": 2018,
+      "blocked_by": [699, 710],
+      "scope": "Inventory every reference-profile knowledge-byte read outside the admitted-run knowledge-query path: preview, evaluations, deploy gates, refinement/calibration, assistant tools, export_runtime and knowledge_build nodes. For each path use the existing run/grant/source authorization contract with an explicit principal and context.read decision, or refuse before loading bytes when no governed principal exists. Manifest overrides cannot create authority; foreign, revoked and unapproved sources remain fail-closed.",
+      "files": "modify `caliber/src/caliber/workflows/workflow_versions.py`, `caliber/src/caliber/routes/evaluations.py`, `caliber/src/caliber/workflows/promoter.py`, `caliber/src/caliber/orchestrator/workflow_stages.py`, `caliber/src/caliber/assistant/agent_tools.py`, `caliber/src/caliber/workflows/export_runtime.py` and the knowledge-build runner; reuse `caliber/src/caliber/context/authorize.py`",
+      "tests": "add denial-before-load and authorized-read tests for preview, evaluation, deploy gate, refinement/calibration, assistant, export and knowledge_build paths; extend `caliber/tests/test_context_authorize.py` and relevant `caliber/tests/egi_scenarios/` public-path fixtures with foreign/revoked/unapproved cases",
+      "acceptance": "Every listed reference-profile path either records an explicit context.read decision before loading source bytes or returns a named refusal without a retrieval call; a manifest override, foreign project, revoked membership or unapproved source never grants access, and authorized reads preserve the existing result shape.",
+      "documentation": "update `docs/operate/reference-profile.md` with the per-surface authorization/refusal matrix and the principal required for each governed read"
+    },
+    {
+      "number": 976,
+      "key": "525:context-manifest-completion",
+      "parent": 525,
+      "package": "B07",
+      "title": "[D3] B07.6 · Complete context-manifest coverage for memory, attempts, tools and derived values",
+      "milestone": "D3",
+      "stage": "Beta",
+      "gaps": ["G14"],
+      "priority": "P1",
+      "lane": "P1",
+      "execution_order": 3021,
+      "blocked_by": [710, 720],
+      "scope": "Extend the immutable context-manifest contract at the existing AgentStep boundary. Record session-memory reads as authorized memory references, link each manifest revision to its NodeStep/attempt, record tool specifications/results and structured-output suffixes that reach the provider, resolve registry prompts once before digesting and execution, carry source provenance and decision IDs through transformed/for_each values, define resume behavior for replayed knowledge outputs, and cover the knowledge-query synthesis and other model calls that receive run or retrieved content. Preserve readers-first schema compatibility and refuse missing authority.",
+      "files": "modify `caliber/src/caliber/context/manifest.py`, `caliber/src/caliber/workflows/runtime.py`, AgentStep request/result contracts from #720, provider adapter boundary, knowledge-query synthesis and `caliber/src/caliber/db/models.py`; add a fresh migration only for explicit NodeStep/attempt linkage",
+      "tests": "add focused unit tests for memory authorization, manifest-step linkage, exact provider bytes/digest, tool-result recording, derived provenance, resume decisions and non-agent model calls; extend `caliber/tests/test_context_manifest.py`, `caliber/tests/test_memory_reference_scope.py` and the relevant V03/public-path scenario with denial and retry cases",
+      "acceptance": "For every governed model call, the persisted manifest is linked to the exact step/attempt and contains the authorized bytes/provenance that reached the provider, including memory, tool specs/results, suffixes and derived values; a missing decision or replay authority refuses before provider work, and old Beta manifests remain readable.",
+      "documentation": "update `docs/operate/reference-profile.md`, the context-manifest schema reference and AgentStep documentation with recorded fields, resume semantics, compatibility and refusal behavior"
+    },
+    {
+      "number": 990,
+      "key": "522:openapi-import-retry-contract",
+      "parent": 522,
+      "package": "B05",
+      "title": "[D3] B05.3b · Preserve idempotency, expected-version and attempt contracts in OpenAPI imports",
+      "milestone": "D3",
+      "stage": "Beta",
+      "gaps": ["G04", "G06"],
+      "priority": "P1",
+      "lane": "P1",
+      "execution_order": 3022,
+      "blocked_by": [711],
+      "scope": "Extend the OpenAPI import path so a bound idempotency header is reachable through the derived tool input contract or one canonical header binding, expected_resource_version is a first-class proposal-bound input mapped only to the operation's declared precondition header, and imported execution configuration persists max_attempts and timeout_seconds. Persist and expose per-attempt status, emitted key, transport outcome and final replay/receipt disposition for B05 receipts. Reject caller-supplied conflicting keys or versions before dispatch.",
+      "files": "modify `caliber/src/caliber/integrations/openapi/tool_drafts.py`, OpenAPI execution configuration persistence, `caliber/src/caliber/integrations/openapi/executor.py` and the B05 receipt/attempt models; add a fresh migration only when the existing execution-config schema cannot carry the fields",
+      "tests": "extend `caliber/tests/test_openapi_executor_egress.py` and `caliber/tests/egi_scenarios/test_connector_capabilities.py`; add import-schema, expected-version, safe-retry, conflicting-input, attempt-log and stale-If-Match no-mutation cases against the real executor and downstream fixture",
+      "acceptance": "An imported document-request operation exposes exactly one bound idempotency-key path and a proposal-bound expected version, retries only with that emitted key, refuses a stale version before mutation, persists configured retry/timeout limits, and exposes an attempt log sufficient for a verified B05 receipt; ordinary imported reads remain unchanged.",
+      "documentation": "update ADR 0001, `docs/reports/egi/D1-connector-capability.md`, `docs/operate/reference-profile.md` and the OpenAPI import/connector docs so the keep decision's conditional executor changes are explicit"
+    },
+    {
+      "number": 996,
+      "key": "522:park-unknown-run",
+      "parent": 522,
+      "package": "B05",
+      "title": "[D3] B05.5c · Park and resume runs gated by unresolved effects",
+      "milestone": "D3",
+      "stage": "Beta",
+      "gaps": ["G04", "G06"],
+      "priority": "P1",
+      "lane": "P1",
+      "execution_order": 3023,
+      "blocked_by": [742, 751],
+      "scope": "Replace terminal failure on an effect dependency in dispatched, unknown or reconciled state with a durable blocked/waiting checkpoint that records the logical effect key, intent digest and visible reason. Resume the same run when the reconciler settles the effect as committed or failed; never create a new logical occurrence or send a second mutation. Define and enforce re-run behavior for an unresolved occurrence, and expose the parked/resumed state in the run and operator reconciliation views.",
+      "files": "modify `caliber/src/caliber/workflows/runtime.py`, run lifecycle/checkpoint persistence, `caliber/src/caliber/effects/reconcile.py` and `caliber/src/caliber/routes/system_effects.py`; reuse the operator view from #751",
+      "tests": "extend `caliber/tests/egi_scenarios/test_v07_restart_exactly_once.py` with kill-after-commit/reconcile/resume and kill-before-send cases; add unit tests for parked state, settlement wake-up, duplicate resume, re-run refusal, failed settlement and operator/run-view reasons",
+      "acceptance": "A run blocked by an unresolved effect is durably parked, resumes the same logical occurrence after authoritative settlement, performs at most one downstream mutation and reports the reason/state in both run and operator views; unresolved re-run cannot create a new request.",
+      "documentation": "update `docs/operate/reference-profile.md` and the intervention/reconciliation guide with parked-run states, resume triggers, re-run refusal and operator recovery"
+    },
+    {
+      "number": 997,
+      "key": "522:reconciler-owner-loop",
+      "parent": 522,
+      "package": "B05",
+      "title": "[D3] B05.5d · Drive reconciliation from the owner loop and resolve same-token stuck dispatches",
+      "milestone": "D3",
+      "stage": "Beta",
+      "gaps": ["G04", "G06"],
+      "priority": "P1",
+      "lane": "P1",
+      "execution_order": 3024,
+      "blocked_by": [724, 742, 751],
+      "scope": "Call reconcile_pass from the execution-owner dispatcher loop with the captured lease, bounded budget and progress callback; stop on lease loss. In the same-token settle path, convert store/thread errors that leave a dispatched row ambiguous into unknown or a bounded in-flight state according to the existing evidence rules rather than leaving it indefinitely dispatched. Keep permanent-unknown operator resolution owner-fenced and audited in the #751 view; never infer non-commit from a 404.",
+      "files": "modify `caliber/src/caliber/effects/reconcile.py`, `caliber/src/caliber/effects/dispatcher.py`, owner-loop integration from `caliber/src/caliber/orchestrator/runtime.py` and the operator route from #751",
+      "tests": "add owner-loop lease-loss and budget tests; extend `caliber/tests/egi_scenarios/test_v07_restart_exactly_once.py` and dispatcher tests for same-token settle failure, bounded in-flight handling, progress, stop-on-lease-loss and audited permanent-unknown operator resolution",
+      "acceptance": "The owner loop invokes reconciliation only under its current lease, stops without new claims after lease loss, and no same-token dispatch remains silently stuck after a settle error; operator resolution is owner-fenced, audited and preserves unknown when evidence is insufficient.",
+      "documentation": "update `docs/operate/reference-profile.md` and the operator reconciliation/runbook docs with owner-loop cadence, lease-loss behavior, in-flight recovery and permanent-unknown handling"
+    },
+    {
+      "number": 979,
+      "key": "542:workspace-import-flake",
+      "parent": 542,
+      "package": "B16",
+      "title": "[D5] B16.7 · Make workspace import replay deterministic on slow runners",
+      "milestone": "D5",
+      "stage": "Beta",
+      "gaps": ["G19"],
+      "priority": "P1",
+      "lane": "P3",
+      "execution_order": 5043,
+      "blocked_by": [610],
+      "scope": "Diagnose and fix the timing-dependent `test_import_submission_is_durable_idempotent_and_digest_pinned` replay assertion without weakening the 202/409 contract. Synchronize the test with the durable import state using the existing deterministic worker/job seam or a bounded polling helper with a fake clock; preserve idempotency, digest pinning and the real slow-runner behavior. Do not add sleeps or make the test order-dependent.",
+      "files": "modify `caliber/tests/test_workspace_routes.py` and, only if the root cause requires it, the existing workspace import job/status seam in `caliber/src/caliber/routes/workspace.py` or worker modules; do not alter unrelated workspace behavior",
+      "tests": "run `caliber/tests/test_workspace_routes.py::test_import_submission_is_durable_idempotent_and_digest_pinned` repeatedly with the repository-supported slow-worker/fake-clock setup; add regression coverage for replay before/after durable completion, same digest, changed digest conflict and worker delay without wall-clock sleeps",
+      "acceptance": "The replay test passes deterministically under the supported slow-runner simulation, still expects 202 only for the same durable idempotent submission and 409 for changed intent, and the full workspace route/import regression suite passes with no arbitrary sleep or skipped assertion.",
+      "documentation": "update `docs/reports/egi/D2-acceptance.md` and the Beta reliability evidence fragment with the root cause, deterministic synchronization contract and exact validation command"
     }
   ],
   "excluded": [

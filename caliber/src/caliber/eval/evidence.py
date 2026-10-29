@@ -93,11 +93,18 @@ def dataset_digest(rows: Sequence[Mapping[str, Any]]) -> str:
 
 
 def _row_weight(row: Any) -> float:
-    raw = getattr(row, "weight", 1.0)
+    raw = row.get("weight", 1.0) if isinstance(row, Mapping) else getattr(row, "weight", 1.0)
     if isinstance(raw, bool) or not isinstance(raw, (int, float)):
         return 1.0
     value = float(raw)
     return value if value >= 0 and math.isfinite(value) else 1.0
+
+
+def _row_value(row: Any, name: str, default: Any = None) -> Any:
+    """Read a field from either a scorecard row or a provider row mapping."""
+    if isinstance(row, Mapping):
+        return row.get(name, default)
+    return getattr(row, name, default)
 
 
 def scorer_denominators(rows: Sequence[Any]) -> dict[str, dict[str, float]]:
@@ -109,10 +116,10 @@ def scorer_denominators(rows: Sequence[Any]) -> dict[str, dict[str, float]]:
     """
     denominators: dict[str, dict[str, float]] = {}
     for row in rows:
-        if getattr(row, "error", None):
+        if _row_value(row, "error"):
             continue
         weight = _row_weight(row)
-        for name in getattr(row, "scores", {}) or {}:
+        for name in _row_value(row, "scores", {}) or {}:
             entry = denominators.setdefault(name, {"valid_rows": 0.0, "weight_sum": 0.0})
             entry["valid_rows"] += 1
             entry["weight_sum"] += weight
@@ -132,8 +139,8 @@ def tag_slices(rows: Sequence[Any]) -> dict[str, dict[str, Any]]:
     slices: dict[str, dict[str, Any]] = {}
     for row in rows:
         weight = _row_weight(row)
-        errored = bool(getattr(row, "error", None))
-        for tag in sorted({str(tag) for tag in (getattr(row, "tags", None) or [])}):
+        errored = bool(_row_value(row, "error"))
+        for tag in sorted({str(tag) for tag in (_row_value(row, "tags") or [])}):
             entry = slices.setdefault(
                 tag,
                 {
@@ -149,10 +156,10 @@ def tag_slices(rows: Sequence[Any]) -> dict[str, dict[str, Any]]:
             entry["weight_sum"] += weight
             if errored:
                 entry["errored_count"] += 1
-            if getattr(row, "passed", False):
+            if _row_value(row, "passed", False):
                 entry["passed_count"] += 1
                 entry["_pass_weight"] += weight
-            entry["_score_weight"] += weight * float(getattr(row, "score", 0.0) or 0.0)
+            entry["_score_weight"] += weight * float(_row_value(row, "score", 0.0) or 0.0)
 
     out: dict[str, dict[str, Any]] = {}
     for tag, entry in sorted(slices.items()):
@@ -247,10 +254,73 @@ def build_evidence(
     }
 
 
+def build_release_gate_evidence(
+    *,
+    scored_rows: Sequence[Mapping[str, Any]],
+    dataset_id: str,
+    dataset_version: int | None,
+    plan_sha256: str,
+    input_sha256: str,
+    evaluation_id: str,
+    provider: Mapping[str, Any],
+    candidate: Mapping[str, Any],
+    baseline: Mapping[str, Any] | None,
+    deltas: Mapping[str, Any],
+    n_examples: int,
+    min_aggregate_score: float,
+    min_aggregate_delta: float | None,
+    result: str,
+) -> tuple[dict[str, Any], str]:
+    """Build and digest the immutable evidence for a release gate.
+
+    Release evaluation providers return aggregates for the gate, but the
+    aggregate is only trustworthy when its input rows and denominators are
+    retained.  This block deliberately includes the complete rows, the
+    dataset digest, and scorer denominators.  The returned digest is the
+    exact value persisted on the release and can be recomputed from the
+    stored block without calling a provider.
+    """
+    rows = [dict(row) for row in scored_rows]
+    if not rows:
+        raise ValueError("release gate evidence requires at least one scored row")
+    if len(rows) != n_examples:
+        raise ValueError(
+            "release gate evidence row count does not match the provider example count"
+        )
+    evidence = {
+        "schema": "workspace-release-gate-evidence/v2",
+        "evaluation_id": evaluation_id,
+        "plan_sha256": plan_sha256,
+        "input_sha256": input_sha256,
+        "provider": dict(provider),
+        "dataset": {
+            "id": dataset_id,
+            "version": dataset_version,
+            "digest": dataset_digest(rows),
+        },
+        "results": {
+            "rows": rows,
+            "digest": _digest(rows),
+            "n_examples": n_examples,
+            "scorer_denominators": scorer_denominators(rows),
+        },
+        "candidate": dict(candidate),
+        "baseline": dict(baseline) if baseline is not None else None,
+        "deltas": dict(deltas),
+        "gate": {
+            "min_aggregate_score": min_aggregate_score,
+            "min_aggregate_delta": min_aggregate_delta,
+            "result": result,
+        },
+    }
+    return evidence, _digest(evidence).removeprefix("sha256:")
+
+
 __all__ = [
     "EVIDENCE_SCHEMA_VERSION",
     "SAMPLE_ORDER",
     "build_evidence",
+    "build_release_gate_evidence",
     "content_digest_of_text",
     "dataset_digest",
     "scorer_denominators",

@@ -1,7 +1,7 @@
 # Verified by running the lab against a real stack -- see README.md ("Verify it worked").
 feasibility:
   - Every outcome is deterministic. Snapshots hash content, diffs compare pins, the review state machine is code, and every refusal carries its documented status and reason -- no model grades anything in this lab.
-  - The lab's hardest claim -- that a workspace release evaluation never executes -- is proven live (the evaluation is still queued after a wait) and pinned in the backend test suite by asserting that nothing calls the complete/settle service functions and that the only caller of the claim is the opt-in, off-by-default WorkspaceReleaseEvaluator (claim only), so the lab fails loudly the day an executor lands. The live check assumes the evaluator is off: an operator who sets CALIBER_WORKSPACE_RELEASE_EVALUATOR_ENABLED=true makes the evaluation `running`, and the 'still queued after a wait' check fails by design.
+  - The lab's default-off claim -- that its incomplete fixture remains queued when the evaluator flag is off -- is proven live. The backend suite separately exercises execution, digest verification and completion; enabling the worker against this fixture is expected to block rather than fabricate a plan.
 evaluation:
   deterministic_checks:
     - name: SnapshotIdempotency
@@ -15,7 +15,7 @@ evaluation:
       criteria: self-review is 403 self_review_forbidden; the assigned reviewer's approval makes the change request technically_approved
     - name: TheBoundaryHolds
       type: deterministic_check
-      criteria: the evaluation is queued and stays queued (the evaluator is off by default); accept is 409 qa_go_decision_required; signoff is 409 (gate evidence missing); apply is 409 (only approved)
+      criteria: the evaluation is queued and stays queued because this lab leaves the evaluator off; an enabled evaluator requires complete digest-matching candidate/dataset/judge pins; accept is 409 qa_go_decision_required; signoff is 409 (gate evidence missing); apply is 409 (only approved)
   rule_checks:
     - snapshots_require_operator_scope_and_an_editor_role
     - releases_share_the_release_candidates_flag_while_revisions_and_change_requests_are_ungated

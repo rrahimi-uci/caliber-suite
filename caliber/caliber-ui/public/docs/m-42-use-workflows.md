@@ -63,6 +63,22 @@ need `reviewer`, `editor` or `owner`. Approving a run that is waiting for approv
 `owner`. Applying a calibration candidate needs `editor` or `owner`. A member whose role is too weak gets 403 and a
 person outside the project gets 404. See [Auth and project scoping](m-31-auth-and-project-scoping.md).
 
+## Run with approved runtime lineage
+
+In the reference profile, the console Run and event Trigger controls require
+runtime lineage. Open the Run or Deployments surface and select an approved
+workspace release together with the environment whose current-release pointer
+matches that release. The console submits both IDs to the existing run or
+trigger endpoint; it never chooses an organization, bypasses project scope, or
+overrides server admission.
+
+Only active environments with an exact approved current release are shown. If
+the project has no such pair, the controls remain disabled and show the stable
+`lineage_required` refusal. Create or approve a workspace release and make it
+current for an active environment, then refresh the page. A release becoming
+stale between selection and submission is still rejected by the server; keep
+the selected pair and retry after the environment is current again.
+
 ## 1. What workflows are for in CALIBER
 
 Workflows are the orchestration surface for multi-step automation. They connect

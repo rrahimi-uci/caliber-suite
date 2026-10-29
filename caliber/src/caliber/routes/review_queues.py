@@ -41,7 +41,15 @@ from caliber.auth import (
 from caliber.db.models import CaliberReviewItem, CaliberReviewQueue
 from caliber.db.scoping import apply_visibility_filter, get_visible
 from caliber.ids import new_review_item_id, new_review_queue_id
-from caliber.observability.trace_access import require_readable_trace, visible_experiments
+from caliber.observability.trace_access import (
+    can_read_payloads,
+    is_visible,
+    redact_trace_detail,
+    require_readable_trace,
+    trace_detail_as_dict,
+    visible_experiments,
+)
+from caliber.profile import payload_governance_active
 from caliber.resource_access import require_project_access_if_scoped
 from caliber.review.writeback import (
     AnswerWriteBack,
@@ -508,21 +516,53 @@ def alignment_examples(request: Request) -> JSONResponse:
 
     examples: list[dict[str, Any]] = []
     skipped: list[dict[str, str]] = []
+    governed = payload_governance_active(getattr(request.app.state, "config", None))
+
+    def trace_data_for_item(item: CaliberReviewItem) -> dict[str, Any] | None:
+        if not governed:
+            return trace_detail_as_dict(fetch_trace_detail(item.trace_id))
+        with factory() as access_session:
+            visible = visible_experiments(access_session, identity)
+            # Resolve the experiment and non-payload metadata first. A reviewer who can see the
+            # queue but lacks trace.payload.read must receive stable placeholders without causing
+            # the full trace (including span inputs/outputs) to be mapped.
+            metadata = fetch_trace_detail(item.trace_id, include_payloads=False)
+            if not is_visible(metadata.experiment_id, visible):
+                return None
+            allowed = can_read_payloads(access_session, identity, metadata.experiment_id or "")
+            if allowed:
+                detail = fetch_trace_detail(item.trace_id)
+                trace_data = trace_detail_as_dict(detail)
+                # The experiment identity is part of the authorization decision. If the backing
+                # store changes it between lookups, fail closed for the returned shape.
+                allowed = can_read_payloads(access_session, identity, detail.experiment_id or "")
+                return redact_trace_detail(trace_data, allowed)
+            return redact_trace_detail(
+                {**trace_detail_as_dict(metadata), "request": None, "response": None},
+                False,
+            )
+
     for item in items:
         label = _alignment_label(item.answers.get(question_key))
         if label is None:
             skipped.append({"item_id": item.item_id, "reason": "label is not pass/fail"})
             continue
-        detail = fetch_trace_detail(item.trace_id)
-        if detail.response is None or detail.response == "":
+
+        trace_data = trace_data_for_item(item)
+        if trace_data is None:
             skipped.append({"item_id": item.item_id, "reason": "trace response unavailable"})
             continue
-        outputs = _alignment_outputs(detail.response)
+
+        response = trace_data.get("response")
+        if response is None or response == "":
+            skipped.append({"item_id": item.item_id, "reason": "trace response unavailable"})
+            continue
+        outputs = _alignment_outputs(response)
         examples.append(
             {
                 "inputs": {
                     "trace_id": item.trace_id,
-                    "request": detail.request,
+                    "request": trace_data.get("request"),
                     "review_item_id": item.item_id,
                 },
                 "outputs": outputs,

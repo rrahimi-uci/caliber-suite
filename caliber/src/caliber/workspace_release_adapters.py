@@ -71,6 +71,17 @@ class WorkspaceReleaseAdapterError(RuntimeError):
 class WorkspaceReleaseAdapterUnavailableError(WorkspaceReleaseAdapterError):
     """No adapter is registered for a revision resource type."""
 
+    def __init__(self, adapter: str, *, disabled_by: str = "profile") -> None:
+        adapter_name = str(adapter).strip().lower()
+        if not adapter_name:
+            raise ValueError("adapter must not be empty")
+        disabled_by_name = str(disabled_by).strip() or "profile"
+        if disabled_by_name != "profile" and not disabled_by_name.startswith("CALIBER_"):
+            raise ValueError("disabled_by must be an environment variable or 'profile'")
+        self.adapter = adapter_name
+        self.disabled_by = disabled_by_name
+        super().__init__(f"no Workspace resource adapter is registered for {adapter_name!r}")
+
 
 class WorkspaceProviderTimeoutError(WorkspaceReleaseAdapterError):
     """A provider call timed out with a known effect boundary."""
@@ -190,7 +201,16 @@ class WorkspaceResourceAdapter(Protocol):
 class WorkspaceResourceAdapterRegistry:
     """Explicit adapter registry; it never creates network clients implicitly."""
 
-    def __init__(self, adapters: Mapping[str, WorkspaceResourceAdapter] | None = None) -> None:
+    def __init__(
+        self,
+        adapters: Mapping[str, WorkspaceResourceAdapter] | None = None,
+        *,
+        disabled_by: str = "profile",
+    ) -> None:
+        disabled_by_name = str(disabled_by).strip() or "profile"
+        if disabled_by_name != "profile" and not disabled_by_name.startswith("CALIBER_"):
+            raise ValueError("disabled_by must be an environment variable or 'profile'")
+        self._disabled_by = disabled_by_name
         self._adapters: dict[str, WorkspaceResourceAdapter] = {}
         for adapter in (adapters or {}).values():
             self.register(adapter)
@@ -210,7 +230,7 @@ class WorkspaceResourceAdapterRegistry:
         adapter = self.get(resource_type)
         if adapter is None:
             raise WorkspaceReleaseAdapterUnavailableError(
-                f"no Workspace resource adapter is registered for {resource_type!r}"
+                str(resource_type).strip().lower(), disabled_by=self._disabled_by
             )
         return adapter
 

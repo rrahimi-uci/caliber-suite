@@ -14,12 +14,13 @@ Control issue #610 (D2: Beta). Packages: B02 #517, B03 #518, B07 #524, B11 #530,
 
 | item | value |
 | --- | --- |
-| Candidate commit | `35c4e1a0136c3abf58cd86015aa79b3d0d1f2eb9` (main after #975) |
-| D2 range | `c225785942c..35c4e1a0136`: 29 squash-merged PRs, the first being `94050c42a34` (#941) |
+| Candidate commit | `2887c4dd3bdcf1a72da7d9981f4c3aee7793c161` (current main after #1026) |
+| Original measured D2 candidate | `35c4e1a0136c3abf58cd86015aa79b3d0d1f2eb9` (main after #975); the full-suite and coverage measurements below are explicitly tied to this commit |
+| D2 delivery range | `c225785942c..2887c4dd3bd`: the child-PR inventory below is authoritative; current main also contains later non-D2 integration work |
 | Migration head | `0121` (`0114` run manifests, `0115` run grants, `0116` execution owner, `0117` policy decisions, `0118` experiment owners, `0119` event outbox, `0120` approved context sources, `0121` context manifests) |
 | `run_manifest.v1.json` SHA-256 | `b030a8d4fb825de480eb82a5819cfc4faebf192d4f0dd693a36cda4e7f0c731b` |
 | `context_manifest.v1.json` SHA-256 | `f9125e32f92a4868dcbfb8688d79cd0cac27fddf7b082ebf6d7be86f6abe82a9` |
-| Built artifacts | Not built or digested for this report. The CI "Wheel build (with bundled SPA)" job passed on the final PR head (#975: 23 checks passed, 5 skipped and 2 neutral). The jobs skipped on pull requests by design are those that run only on push to main (the full backend suite on Python 3.11, compatibility, integration, cookbook UI-only, Allure); they ran on main for the candidate, see below. The wheel digest belongs to the release candidate (D15 M16.4), not to D2. |
+| Built artifacts | Not built or digested for this report. The CI "Wheel build (with bundled SPA)" job passed on the original D2 candidate PR (#975) and the final knowledge-read follow-up PR (#1026). The wheel digest belongs to the release candidate (D15 M16.4), not to D2. |
 
 ## What each exit criterion rests on
 
@@ -47,6 +48,8 @@ Every child is closed and its PR is merged to main. Each PR body records its own
 | B02 | #687 | #963 | `9623dd24cac` | request digest and retry intent |
 | B02 | #691 | #966 | `1dabe63adc0` | lineage required in the reference profile |
 | B02 | #695 | #970 | `1e1235e3198` | `GET /workflow-runs/{id}/admission-manifest`, SDK and console client |
+| B02 | #967 | #1024 | `04a21300b10` | service admission bound to approved deployment lineage |
+| B02 | #968 | #1025 | `3dd95ba32df` | console Run and Trigger actions require approved lineage |
 | B03 | #657 | #943 | `f9e072f342e` | pure principal types |
 | B03 | #664 | #948 | `6c3677ca0f9` | run-bound grants, never above the role |
 | B03 | #671 | #952 | `7e107ab5007` | typed `PolicyDecision` with exact run and grant |
@@ -58,6 +61,7 @@ Every child is closed and its PR is merged to main. Each PR body records its own
 | B07 | #699 | #972 | `bdc2ea7465d` | authorize before load |
 | B07 | #704 | #974 | `563319f53f6` | ContextManifest v1 contract and immutable storage |
 | B07 | #710 | #975 | `35c4e1a0136` | manifest recorded before the provider sees any context (V03) |
+| B07 | #973 | #1026 | `2887c4dd3bd` | reference-profile knowledge reads require an admitted-run SourceGuard or fail closed |
 | B11 | #658 | #940 | `be2df4f8163` | canonical experiment claims across aliases |
 | B11 | #665 | #954 | `31718c13b96` | atomic exclusive experiment owner registry |
 | B11 | #672 | #956 | `a17fa5bc37b` | trace payload permission |
@@ -72,7 +76,7 @@ Every child is closed and its PR is merged to main. Each PR body records its own
 
 ## Validation on the candidate
 
-Run on 2026-10-27 against `35c4e1a0136`, PostgreSQL 16 test database available (`CALIBER_TEST_POSTGRES_URL`).
+The full candidate validation below was run on 2026-10-27 against the original measured D2 candidate `35c4e1a0136`, with a PostgreSQL 16 test database available (`CALIBER_TEST_POSTGRES_URL`).
 
 | check | command | result |
 | --- | --- | --- |
@@ -81,6 +85,7 @@ Run on 2026-10-27 against `35c4e1a0136`, PostgreSQL 16 test database available (
 | Coverage of the lines D2 added (`c225785942c..35c4e1a0136`) | repository changed-line check over the coverage XML | **99.43% (3669 of 3690 lines)** across the source files D2 changed (migrations are not measured); the package as a whole is 95.73% line coverage (62457 of 65242) and 88.56% branch coverage |
 | CI on each PR head | GitHub Actions, required pull-request checks | green on every merged PR. These runs do not include the push-only full backend suite, so that suite is evidenced by the local runs above and by the main run below |
 | CI on main at the candidate | push run 40574044870 | **failed once**: "Full backend suite (Python 3.11)" ended 1 failed, 10482 passed, 262 skipped; the failure is `tests/test_workspace_routes.py::test_import_submission_is_durable_idempotent_and_digest_pinned` (`assert 409 == 202` on a replayed import). That test is in the workspace source-import feature (#376, #338), not in D2 code, passes when run alone, and the requests in the log are seconds apart (a very slow runner), which points to a timing dependence; it was not diagnosed here (#979). Re-running that job (attempts 2 and 3) failed differently, with a `PytestDeprecationWarning` INTERNALERROR from pytest-asyncio 1.4.1 on a fresh dependency install; that broke every fresh-dependency run on main and was fixed in #981. A later run (40607908735, head `d88090ec5c8`) passed 10482 and failed 1: the S3 log handler test (#978), which depends on a root-logger handler left by an earlier `create_app` in the same process; #982 made it hermetic. **The run on `3e395a0c741` (40617047113), which contains all of D2 and both fixes, is green: 24 jobs, 21 success, 3 skipped by design; Full backend suite (Python 3.11) 10483 passed, 262 skipped, 0 failed (57m27s).** #979 (the workspace import timing test) did not recur and remains open as an undiagnosed flake. The push runs for the other 27 D2 commits on main were cancelled by later pushes, so only the candidate and #964 have a completed main run |
+| Post-merge B07.6 regression on current main | `PYTHONPATH=src .venv/bin/pytest --no-cov -q tests/egi_scenarios/test_b07_admission_sources.py tests/test_promoter_knowledge_runners_coverage.py tests/test_workflow_export_runtime.py tests/test_assistant_agent_tools_coverage.py tests/test_p2a_kb_openapi_child_route_wiring.py tests/test_routes_knowledge_bases.py` | **157 passed, 7 skipped** on `2887c4dd3bd`; skips were the documented local PostgreSQL/reference-profile cases, covered by the PR's PostgreSQL CI job |
 | Lint, format, types | `ruff check`, `ruff format --check`, `mypy src` | clean at each PR head; clean on the final head |
 | Whitespace | `git diff --check` | clean on every PR |
 
@@ -99,13 +104,10 @@ Each child PR got a fresh-agent review of its diff, and each found defects that 
 
 ## Scope exceptions and unresolved findings
 
-Open and visible; none blocks D2's exit criteria, each is owned by an issue.
+Open and visible; none blocks D2's exit criteria, each is owned by an issue. Issues #967, #968 and #973 were integrated after the original measured candidate and are therefore not exceptions on current main.
 
 | issue | what is not covered |
 | --- | --- |
-| #958, #967 | Cron-scheduler and service-token runs are legacy runs: they are not admitted, have no run grant and (in the reference profile) no runtime lineage. A service-principal model for run grants is needed. |
-| #968 | The console cannot start runs in the reference profile until the Run and Trigger actions can name a release and environment. |
-| #973 | Knowledge-base reads outside an admitted run (preview, evaluations, gates, refinement, assistant, export, `knowledge_build`) are not guarded by `context.read`. |
 | #976 | The context manifest records the step's initial context only: session memory is recorded as history without a memory authorization, manifests are not linked to the step, tool specifications and tool-loop results are not recorded, a registry prompt is resolved twice, retrieved text that passes through another node loses its provenance, a resumed run that replays a recorded knowledge-query output is refused, and other model calls (query answer synthesis, guardrail judges) are not recorded. |
 | #960 | Trace payloads in review-queue items and example-from-trace are not governed. |
 | #978 | `test_s3_log_handler_does_not_log_about_its_own_delivery_at_debug` depends on the environment (see above). |

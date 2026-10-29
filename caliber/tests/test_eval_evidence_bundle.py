@@ -27,6 +27,8 @@ from starlette.testclient import TestClient
 import caliber.routes.evaluations as evaluations_route
 from caliber.db.models import CaliberEvalDataset, CaliberEvalDatasetExample, CaliberEvalRun
 from caliber.eval.evidence import (
+    build_release_gate_evidence,
+    content_digest_of_text,
     dataset_digest,
     scorer_denominators,
     tag_slices,
@@ -85,6 +87,16 @@ def test_the_dataset_digest_is_insensitive_to_tag_order() -> None:
     assert dataset_digest(left) == dataset_digest(right)
 
 
+def test_evidence_digest_helpers_fail_closed_for_empty_text_and_invalid_weights() -> None:
+    assert content_digest_of_text(None) is None
+    assert scorer_denominators(
+        [
+            {"scores": {"quality": 1.0}, "weight": True},
+            {"scores": {"quality": 1.0}, "weight": -2.0},
+        ]
+    ) == {"quality": {"valid_rows": 2, "weight_sum": 2.0}}
+
+
 def test_denominators_exclude_errored_rows_and_record_the_weight_sum() -> None:
     """A row with any scorer error is excluded from per-scorer aggregates. That
     policy is only auditable if the resulting denominator is recorded."""
@@ -141,6 +153,79 @@ def test_slices_count_errored_rows_separately() -> None:
     slices = tag_slices([_row(example_id="a", score=0.0, passed=False, tags=["p0"], error="boom")])
     assert slices["p0"]["errored_count"] == 1
     assert slices["p0"]["passed_count"] == 0
+
+
+def test_release_gate_evidence_is_row_bound_and_recomputable() -> None:
+    rows = [
+        {
+            "example_id": "a",
+            "input": {"q": "one"},
+            "expected": {"answer": "one"},
+            "scores": {"Judge.quality": 0.9},
+            "score": 0.9,
+            "passed": True,
+            "weight": 2.0,
+            "tags": ["p0"],
+        }
+    ]
+    evidence, digest = build_release_gate_evidence(
+        scored_rows=rows,
+        dataset_id="DS-1",
+        dataset_version=3,
+        plan_sha256="p" * 64,
+        input_sha256="i" * 64,
+        evaluation_id="EVAL-1",
+        provider={"provider": "fake", "simulated": True},
+        candidate={"overall": 0.9, "dimensions": {"Judge.quality": 0.9}},
+        baseline=None,
+        deltas={},
+        n_examples=1,
+        min_aggregate_score=0.8,
+        min_aggregate_delta=None,
+        result="pass",
+    )
+    assert evidence["dataset"]["digest"] == dataset_digest(rows)
+    assert evidence["results"]["scorer_denominators"] == {
+        "Judge.quality": {"valid_rows": 1, "weight_sum": 2.0}
+    }
+    _, repeated = build_release_gate_evidence(
+        scored_rows=evidence["results"]["rows"],
+        dataset_id=evidence["dataset"]["id"],
+        dataset_version=evidence["dataset"]["version"],
+        plan_sha256=evidence["plan_sha256"],
+        input_sha256=evidence["input_sha256"],
+        evaluation_id=evidence["evaluation_id"],
+        provider=evidence["provider"],
+        candidate=evidence["candidate"],
+        baseline=evidence["baseline"],
+        deltas=evidence["deltas"],
+        n_examples=evidence["results"]["n_examples"],
+        min_aggregate_score=evidence["gate"]["min_aggregate_score"],
+        min_aggregate_delta=evidence["gate"]["min_aggregate_delta"],
+        result=evidence["gate"]["result"],
+    )
+    assert repeated == digest
+
+
+def test_release_gate_evidence_rejects_empty_or_mismatched_rows() -> None:
+    kwargs = {
+        "dataset_id": "DS-1",
+        "dataset_version": 1,
+        "plan_sha256": "p" * 64,
+        "input_sha256": "i" * 64,
+        "evaluation_id": "EVAL-1",
+        "provider": {},
+        "candidate": {},
+        "baseline": None,
+        "deltas": {},
+        "min_aggregate_score": 0.8,
+        "min_aggregate_delta": None,
+        "result": "pass",
+    }
+    with pytest.raises(ValueError, match="at least one"):
+        build_release_gate_evidence(scored_rows=[], n_examples=0, **kwargs)
+    with pytest.raises(ValueError, match="row count"):
+        build_release_gate_evidence(scored_rows=[{"example_id": "a"}], n_examples=2, **kwargs)
 
 
 # ---------------------------------------------------------------------------

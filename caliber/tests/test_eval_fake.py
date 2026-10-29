@@ -2,8 +2,20 @@
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+
+import pytest
+
 from caliber.eval.fake import FakeEvalProvider
-from caliber.eval.provider import EvalComparison, EvalRequest, ScoreSet
+from caliber.eval.provider import (
+    EvalComparison,
+    EvalProviderError,
+    EvalRequest,
+    ScoreSet,
+    apply_scorer_weights,
+    build_provider,
+    describe_provider,
+)
 
 
 def _request(**overrides: object) -> EvalRequest:
@@ -44,6 +56,90 @@ def test_cold_start_skips_baseline_when_baseline_content_missing() -> None:
     comparison = provider.evaluate(_request(baseline_content=None))
     assert comparison.baseline is None
     assert comparison.deltas == {}
+
+
+def test_custom_evidence_rows_are_carried_into_the_comparison() -> None:
+    rows = ({"example_id": "fixture-1", "scores": {"quality": 1.0}},)
+    comparison = FakeEvalProvider(evidence_rows=rows, n_examples=1).evaluate(_request())
+    assert comparison.evidence_rows == rows
+
+
+def test_provider_run_ids_are_carried_into_the_comparison() -> None:
+    comparison = FakeEvalProvider(evaluation_run_ids=("run-1", "run-2")).evaluate(_request())
+    assert comparison.evaluation_run_ids == ("run-1", "run-2")
+
+
+def test_weighting_ignores_invalid_entries_and_recomputes_valid_weights() -> None:
+    scores = ScoreSet(overall=0.2, dimensions={"quality": 0.8, "safety": 0.4})
+    weighted = apply_scorer_weights(
+        scores,
+        {
+            "quality": 3,
+            "safety": 1.0,
+            "missing": 2,
+            "bool": True,
+            "text": "2",
+            "negative": -1,
+        },
+    )
+    assert weighted.overall == 0.7
+    assert weighted.dimensions == scores.dimensions
+    assert apply_scorer_weights(scores, {"missing": 1}) is scores
+
+
+def test_provider_factory_and_description_are_explicit() -> None:
+    assert isinstance(build_provider("FAKE"), FakeEvalProvider)
+    assert describe_provider(FakeEvalProvider()) == {"provider": "fake", "simulated": True}
+    assert describe_provider(SimpleNamespace(provider_name="custom", is_simulated=False)) == {
+        "provider": "custom",
+        "simulated": False,
+    }
+    assert build_provider("mlflow").__class__.__name__ == "MLflowEvalProvider"
+    with pytest.raises(EvalProviderError, match="unknown eval_provider"):
+        build_provider("missing")
+
+
+def test_provider_factory_wires_configured_mlflow_default(monkeypatch: pytest.MonkeyPatch) -> None:
+    from caliber.eval import predict
+
+    completion = object()
+    factory = object()
+    loader = object()
+    monkeypatch.setattr(predict, "build_completion_fn", lambda config: completion)
+    monkeypatch.setattr(predict, "build_default_predict_fn_factory", lambda complete: factory)
+    monkeypatch.setattr(predict, "build_db_load_dataset", lambda session_factory: loader)
+
+    provider = build_provider("mlflow", session_factory=object(), config=object())
+
+    assert provider._default_factory is factory  # type: ignore[attr-defined]
+    assert provider._load_dataset is loader  # type: ignore[attr-defined]
+
+
+def test_fake_provider_supports_requested_scorers_and_dataset_loader_errors(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    requested = FakeEvalProvider(n_examples=None)
+    comparison = requested.evaluate(_request(scorer_names=["quality"]))
+    assert comparison.candidate.dimensions == {"quality": 0.94}
+
+    def loader_factory(_session_factory: object):
+        def load(_dataset_id: str, _version: int | None = None) -> list[dict[str, object]]:
+            return [{"example_id": "one"}]
+
+        return load
+
+    monkeypatch.setattr("caliber.eval.predict.build_db_load_dataset", loader_factory)
+    provider = FakeEvalProvider(session_factory=object())
+    assert provider.evaluate(_request()).n_examples == 1
+
+    def empty_loader_factory(_session_factory: object):
+        def load(_dataset_id: str, _version: int | None = None) -> list[dict[str, object]]:
+            raise ValueError("empty")
+
+        return load
+
+    monkeypatch.setattr("caliber.eval.predict.build_db_load_dataset", empty_loader_factory)
+    assert FakeEvalProvider(session_factory=object()).evaluate(_request()).n_examples == 0
 
 
 def test_overrides_candidate_and_baseline_scores() -> None:
