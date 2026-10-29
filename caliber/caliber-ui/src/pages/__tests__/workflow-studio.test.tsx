@@ -2246,6 +2246,8 @@ describe("WorkflowDetail calibration", () => {
       workflow?: Record<string, unknown>;
       agents?: Array<Record<string, unknown>>;
       calibrationJobs?: Array<Record<string, unknown>>;
+      environments?: Array<Record<string, unknown>>;
+      releases?: Array<Record<string, unknown>>;
     } = {},
   ) {
     const datasetAvailable = overrides.datasetAvailable ?? true;
@@ -2270,6 +2272,8 @@ describe("WorkflowDetail calibration", () => {
       updated_at: NOW,
       ...overrides.workflow,
     };
+    const environments = overrides.environments ?? [];
+    const releases = overrides.releases ?? [];
     const capabilities = overrides.capabilities ?? {
       queue_enabled: false,
       supports_async_submit: false,
@@ -2331,6 +2335,12 @@ describe("WorkflowDetail calibration", () => {
       ),
       http.get(`${API_BASE}/workflows/WF-1`, () =>
         HttpResponse.json(envelope(workflow)),
+      ),
+      http.get(`${API_BASE}/projects/project-1/environments`, () =>
+        HttpResponse.json(envelope({ environments })),
+      ),
+      http.get(`${API_BASE}/projects/project-1/releases`, () =>
+        HttpResponse.json(envelope(releases)),
       ),
       http.get(`${API_BASE}/workflows/WF-1/versions`, () =>
         HttpResponse.json(envelope(versions)),
@@ -3394,6 +3404,169 @@ describe("WorkflowDetail calibration", () => {
       source: "manual",
     });
     expect(postedRuns[1]).not.toHaveProperty("workflow_version_id");
+  });
+
+  it("selects an approved project lineage pair before queueing a workflow run", async () => {
+    let runBody: Record<string, unknown> | null = null;
+    server.use(
+      ...detailHandlers({
+        workflow: { project_id: "project-1" },
+        capabilities: {
+          queue_enabled: true,
+          supports_async_submit: true,
+          supports_cancel: false,
+          supports_retry: false,
+          supports_resume: false,
+          runtime_approvals_enabled: false,
+          checkpointing_enabled: false,
+          event_backend: "in_process",
+        },
+        environments: [
+          {
+            environment_id: "env-prod",
+            project_id: "project-1",
+            name: "Production",
+            environment_class: "prod",
+            promotion_order: 2,
+            status: "active",
+            current_release_id: "release-prod",
+          },
+        ],
+        releases: [
+          {
+            release_id: "release-prod",
+            project_id: "project-1",
+            environment_id: "env-prod",
+            status: "approved",
+          },
+        ],
+      }),
+      http.post(`${API_BASE}/workflow-runs`, async ({ request }) => {
+        runBody = (await request.json()) as Record<string, unknown>;
+        return HttpResponse.json(
+          envelope(makeRun({ workflow_run_id: "WR-LINEAGE", status: "queued" })),
+          { status: 202 },
+        );
+      }),
+    );
+
+    renderAt(<WorkflowDetail />, "/workflows/WF-1", "/workflows/:workflowId");
+    await userEvent.click(await screen.findByTestId("workflow-run-open"));
+    expect(await screen.findByTestId("workflow-run-lineage-picker")).toBeInTheDocument();
+    expect(screen.getByTestId("workflow-run-release-select")).toHaveValue("release-prod");
+    expect(screen.getByTestId("workflow-run-environment-select")).toHaveValue("env-prod");
+
+    await userEvent.click(screen.getByTestId("workflow-run-start"));
+    await waitFor(() =>
+      expect(runBody).toMatchObject({
+        workspace_release_id: "release-prod",
+        environment_id: "env-prod",
+      }),
+    );
+  });
+
+  it("does not submit a run when a project has no approved current lineage pair", async () => {
+    let runCalls = 0;
+    server.use(
+      ...detailHandlers({ workflow: { project_id: "project-1" } }),
+      http.post(`${API_BASE}/workflow-runs`, () => {
+        runCalls += 1;
+        return HttpResponse.json(envelope(makeRun()), { status: 202 });
+      }),
+    );
+
+    renderAt(<WorkflowDetail />, "/workflows/WF-1", "/workflows/:workflowId");
+    await userEvent.click(await screen.findByTestId("workflow-run-open"));
+    expect(await screen.findByRole("alert")).toHaveTextContent("lineage_required");
+    expect(screen.getByTestId("workflow-run-start")).toBeDisabled();
+    expect(runCalls).toBe(0);
+  });
+
+  it("sends the selected lineage pair when triggering an event deployment", async () => {
+    let triggerBody: Record<string, unknown> | null = null;
+    const baseManifest = makeVersion().manifest;
+    const version = makeVersion({
+      manifest: {
+        ...baseManifest,
+        nodes: {
+          ...baseManifest.nodes,
+          start: {
+            ...baseManifest.nodes.start,
+            trigger: {
+              mode: "event",
+              event_name: "object.created",
+              alias: "prod",
+              enabled: true,
+            },
+          },
+        },
+      },
+    });
+    server.use(
+      ...detailHandlers({
+        workflow: { project_id: "project-1" },
+        versions: [version],
+        deployments: [
+          {
+            deployment_id: "WFD-PROD",
+            workflow_id: "WF-1",
+            alias: "prod",
+            version_id: "WFV-1",
+            environment: null,
+            status: "active",
+            deployed_by: "@ops",
+            deployed_at: NOW,
+            rollback_checkpoint: [],
+          },
+        ],
+        capabilities: {
+          queue_enabled: true,
+          supports_async_submit: true,
+          supports_cancel: false,
+          supports_retry: false,
+          supports_resume: false,
+          runtime_approvals_enabled: false,
+          checkpointing_enabled: false,
+          event_backend: "in_process",
+        },
+        environments: [
+          {
+            environment_id: "env-prod",
+            project_id: "project-1",
+            name: "Production",
+            environment_class: "prod",
+            promotion_order: 2,
+            status: "active",
+            current_release_id: "release-prod",
+          },
+        ],
+        releases: [
+          {
+            release_id: "release-prod",
+            project_id: "project-1",
+            environment_id: "env-prod",
+            status: "approved",
+          },
+        ],
+      }),
+      http.post(`${API_BASE}/workflows/WF-1/trigger`, async ({ request }) => {
+        triggerBody = (await request.json()) as Record<string, unknown>;
+        return HttpResponse.json(envelope(makeRun({ workflow_run_id: "WR-TRIGGER" })), {
+          status: 202,
+        });
+      }),
+    );
+
+    renderAt(<WorkflowDetail />, "/workflows/WF-1", "/workflows/:workflowId");
+    await userEvent.click(await screen.findByTestId("tab-deployments"));
+    await userEvent.click(await screen.findByTestId("trigger-now-prod"));
+    await waitFor(() =>
+      expect(triggerBody).toMatchObject({
+        alias: "prod",
+        workspace_release_id: "release-prod",
+        environment_id: "env-prod",
+      }),
+    );
   });
 
   it("disables workflow launch controls when deployment run capabilities fail to load", async () => {

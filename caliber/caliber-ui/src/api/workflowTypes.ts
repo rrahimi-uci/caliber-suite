@@ -1744,6 +1744,66 @@ export interface Project {
   archived_by?: string | null;
 }
 
+/** One of the fixed, project-scoped runtime environments used by lineage admission. */
+export interface WorkspaceEnvironment {
+  environment_id: string;
+  project_id: string;
+  name: string;
+  environment_class: string;
+  promotion_order: number;
+  status: string;
+  recovery_policy_enabled: boolean;
+  current_release_id: string | null;
+  pending_operation_id: string | null;
+  operation_state: "idle" | "applying" | "reconcile_required";
+  policy_sha256: string;
+  lock_version: number;
+  created_by: string;
+  created_at: string | null;
+  updated_at: string | null;
+  access_role: string | null;
+  permissions: string[];
+}
+
+export interface WorkspaceEnvironmentList {
+  environments: WorkspaceEnvironment[];
+}
+
+/** Immutable workspace release record returned by the project release list. */
+export interface WorkspaceRelease {
+  release_id: string;
+  project_id: string;
+  revision_id: string;
+  environment_id: string;
+  change_request_id: string | null;
+  change_request_head_id: string | null;
+  version_tag_id: string | null;
+  predecessor_release_id: string | null;
+  environment_config_sha256: string;
+  runtime_dependencies_sha256: string;
+  policy_sha256: string;
+  request_idempotency_key: string;
+  evaluation_evidence_sha256: string | null;
+  decision_set_sha256: string | null;
+  status:
+    | "draft"
+    | "evaluating"
+    | "blocked"
+    | "rejected"
+    | "approved"
+    | "awaiting_quality_signoff"
+    | "awaiting_approval";
+  requested_by: string;
+  requested_at: string | null;
+  evaluated_by: string | null;
+  evaluated_at: string | null;
+  lock_version: number;
+  error_code: string | null;
+  error_summary: string | null;
+  created_at: string | null;
+  updated_at: string | null;
+}
+
 export type ProjectRole = "owner" | "editor" | "reviewer" | "viewer";
 
 export interface ProjectMember {

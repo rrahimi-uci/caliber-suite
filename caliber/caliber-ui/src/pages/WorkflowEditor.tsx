@@ -53,6 +53,7 @@ import { TraceReplayGraph } from "@/components/workflows/TraceReplayGraph";
 import { WorkflowRunArtifactPersistenceBadge } from "@/components/workflows/WorkflowRunArtifactPersistenceBadge";
 import { WorkflowRunLineagePanel } from "@/components/workflows/WorkflowRunLineagePanel";
 import { WorkflowRunRecoveryPanel } from "@/components/workflows/WorkflowRunRecoveryPanel";
+import { WorkflowRunLineagePicker } from "@/components/workflows/WorkflowRunLineagePicker";
 import { StepPreview } from "@/components/workflows/StepPreview";
 import {
   checkpointLoadErrorMessage,
@@ -68,6 +69,7 @@ import {
 } from "@/components/workflows/WorkflowSessionMemoryPanel";
 import { useEventStream, type CaliberEvent } from "@/hooks/useEventStream";
 import { useApiMutation, useApiQuery, useInvalidate } from "@/hooks/useApiQuery";
+import { useWorkflowRunLineage } from "@/hooks/useWorkflowRunLineage";
 import { useFeature } from "@/hooks/useFeature";
 import {
   buildNodePalette,
@@ -99,6 +101,10 @@ import {
   workflowRunStatusVerbPhrase,
 } from "@/lib/workflowRunLabels";
 import { workflowRunPath, workflowRunUrl } from "@/lib/workflowRunLinks";
+import {
+  WORKFLOW_LINEAGE_EMPTY_MESSAGE,
+  WORKFLOW_LINEAGE_SELECTION_MESSAGE,
+} from "@/lib/workflowRunLineage";
 import {
   buildSyntheticWorkflowRunManifest,
   mergeWorkflowRunCheckpoints,
@@ -1826,6 +1832,10 @@ export function WorkflowEditor(): JSX.Element {
     (signal) => caliberApi.getWorkflow(workflowId!, signal),
     { enabled: Boolean(workflowId) },
   );
+  const workflowRunLineage = useWorkflowRunLineage(
+    workflowQuery.data?.project_id,
+    showRunMonitor,
+  );
   const editorBootstrapReady = Boolean(versionQuery.data);
   const monitoredRunManifestQuery = useApiQuery<WorkflowRunManifest>(
     ["workflow-run", activeRun?.workflow_run_id ?? null, "manifest"],
@@ -2184,8 +2194,11 @@ export function WorkflowEditor(): JSX.Element {
   }, [refreshRunMonitorNow]);
 
   const runMut = useApiMutation(
-    () =>
-      caliberApi.createWorkflowRun({
+    () => {
+      if (workflowQuery.data?.project_id && !workflowRunLineage.selectedOption) {
+        throw new Error(lineageSelectionDisabledReason ?? WORKFLOW_LINEAGE_SELECTION_MESSAGE);
+      }
+      return caliberApi.createWorkflowRun({
         workflow_version_id: versionId!,
         workflow_id: workflowId,
         alias: "manual",
@@ -2193,7 +2206,10 @@ export function WorkflowEditor(): JSX.Element {
         session_id: sessionIdInput.trim() || undefined,
         source: "editor",
         manifest: dirty && manifest ? manifest : undefined,
-      }),
+        workspace_release_id: workflowRunLineage.selectedOption?.workspace_release_id,
+        environment_id: workflowRunLineage.selectedOption?.environment_id,
+      });
+    },
     {
       onSuccess: (run) => {
         refreshRunHistoryQueries();
@@ -3711,6 +3727,17 @@ export function WorkflowEditor(): JSX.Element {
   const manualResumeEnabled = Boolean(runCapabilities?.supports_resume);
   const workflowStatus = workflowStatusOverride ?? workflowQuery.data?.status ?? null;
   const currentVersionStatus = versionQuery.data?.status ?? null;
+  const lineageSelectionDisabledReason = workflowQuery.data?.project_id
+    ? workflowRunLineage.error
+      ? `Unable to load approved workspace releases and environments: ${workflowRunLineage.error.message}`
+      : workflowRunLineage.isLoading
+        ? "Loading approved workspace releases and environments"
+        : workflowRunLineage.selectedOption
+          ? null
+          : workflowRunLineage.options.length === 0
+            ? WORKFLOW_LINEAGE_EMPTY_MESSAGE
+            : WORKFLOW_LINEAGE_SELECTION_MESSAGE
+    : null;
   const runExecuteDisabledReason = capabilitiesQuery.isLoading
     ? "Loading workflow run capabilities"
     : capabilitiesQuery.isError
@@ -3721,7 +3748,7 @@ export function WorkflowEditor(): JSX.Element {
           ? "Resume this workflow before running it"
       : !queueRunsEnabled
         ? "Enable the run queue to execute workflows"
-        : null;
+        : lineageSelectionDisabledReason;
   const runBusy =
     runMut.isPending ||
     cancelRunMut.isPending ||
@@ -4623,6 +4650,20 @@ export function WorkflowEditor(): JSX.Element {
                 value={sessionIdInput}
                 onChange={(e) => setSessionIdInput(e.target.value)}
               />
+              {workflowQuery.data?.project_id && (
+                <div className="mb-3 rounded-lg border border-zinc-200 bg-zinc-50/60 p-2.5">
+                  <WorkflowRunLineagePicker
+                    options={workflowRunLineage.options}
+                    selectedWorkspaceReleaseId={workflowRunLineage.selectedWorkspaceReleaseId}
+                    selectedEnvironmentId={workflowRunLineage.selectedEnvironmentId}
+                    onSelect={workflowRunLineage.selectOption}
+                    isLoading={workflowRunLineage.isLoading}
+                    error={workflowRunLineage.error}
+                    disabled={Boolean(lineageSelectionDisabledReason)}
+                    compact
+                  />
+                </div>
+              )}
               <div className="mb-3 grid grid-cols-4 gap-2">
                 <button
                   type="button"

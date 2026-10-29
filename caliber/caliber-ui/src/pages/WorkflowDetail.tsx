@@ -43,6 +43,7 @@ import { WorkflowRunArtifactPersistenceBadge } from "@/components/workflows/Work
 import { WorkflowRunLineagePanel } from "@/components/workflows/WorkflowRunLineagePanel";
 import { WorkflowRunTracePanel } from "@/components/workflows/WorkflowRunTracePanel";
 import { WorkflowRunRecoveryPanel } from "@/components/workflows/WorkflowRunRecoveryPanel";
+import { WorkflowRunLineagePicker } from "@/components/workflows/WorkflowRunLineagePicker";
 import { TraceReplayGraph } from "@/components/workflows/TraceReplayGraph";
 import {
   checkpointLoadErrorMessage,
@@ -57,6 +58,7 @@ import {
   WorkflowSessionMemoryPanel,
 } from "@/components/workflows/WorkflowSessionMemoryPanel";
 import { useApiMutation, useApiQuery, useInvalidate } from "@/hooks/useApiQuery";
+import { useWorkflowRunLineage } from "@/hooks/useWorkflowRunLineage";
 import { useEventStream } from "@/hooks/useEventStream";
 import { buildMlflowHref } from "@/lib/externalLinks";
 import { SINGLE_ENVIRONMENT } from "@/lib/environment";
@@ -83,6 +85,10 @@ import {
   workflowRunStatusRingClass,
 } from "@/lib/workflowRunLabels";
 import { workflowRunPath, workflowRunUrl } from "@/lib/workflowRunLinks";
+import {
+  WORKFLOW_LINEAGE_EMPTY_MESSAGE,
+  WORKFLOW_LINEAGE_SELECTION_MESSAGE,
+} from "@/lib/workflowRunLineage";
 import {
   buildSyntheticWorkflowRunManifest,
   mergeWorkflowRunCheckpoints,
@@ -986,6 +992,10 @@ export function WorkflowDetail(): JSX.Element {
 
   const wfQuery = useApiQuery(["workflow", workflowId], (s) => caliberApi.getWorkflow(workflowId!, s));
   const capabilitiesQuery = useApiQuery(["capabilities"], (s) => caliberApi.getCapabilities(s));
+  const workflowRunLineage = useWorkflowRunLineage(
+    wfQuery.data?.project_id,
+    tab === "runs" || tab === "deployments",
+  );
   const workflowComponentsQuery = useApiQuery(
     ["workflow-components"],
     (s) => caliberApi.listWorkflowComponents(s),
@@ -1502,6 +1512,17 @@ export function WorkflowDetail(): JSX.Element {
     capabilitiesQuery.data?.workflow_runs ?? null;
   const workflowRunCapabilitiesUnavailableMessage =
     "Workflow run capabilities could not be loaded. Refresh the page or verify deployment settings/API health.";
+  const lineageSelectionDisabledReason = wfQuery.data?.project_id
+    ? workflowRunLineage.error
+      ? `Unable to load approved workspace releases and environments: ${workflowRunLineage.error.message}`
+      : workflowRunLineage.isLoading
+        ? "Loading approved workspace releases and environments"
+        : workflowRunLineage.selectedOption
+          ? null
+          : workflowRunLineage.options.length === 0
+            ? WORKFLOW_LINEAGE_EMPTY_MESSAGE
+            : WORKFLOW_LINEAGE_SELECTION_MESSAGE
+    : null;
   const queueRunsEnabled = Boolean(runCapabilities?.queue_enabled);
   const workflowStatus = workflowStatusOverride ?? wfQuery.data?.status ?? null;
   const triggerDisabledReason =
@@ -1515,7 +1536,7 @@ export function WorkflowDetail(): JSX.Element {
         ? "Resume this workflow before triggering runs"
         : workflowStatus === "archived"
           ? "Archived workflows cannot be triggered"
-          : null;
+          : lineageSelectionDisabledReason;
   const runStartDisabledReason =
     capabilitiesQuery.isLoading
       ? "Loading workflow run capabilities"
@@ -1531,7 +1552,7 @@ export function WorkflowDetail(): JSX.Element {
           ? "Resume this workflow before running it"
           : workflowStatus === "archived"
             ? "Archived workflows cannot be run"
-            : null;
+            : lineageSelectionDisabledReason;
 
   useEffect(() => {
     setWorkflowStatusOverride(null);
@@ -1594,6 +1615,9 @@ export function WorkflowDetail(): JSX.Element {
         }
         throw new Error(`No deployment found for alias ${runAlias}.`);
       }
+      if (wfQuery.data?.project_id && !workflowRunLineage.selectedOption) {
+        throw new Error(lineageSelectionDisabledReason ?? WORKFLOW_LINEAGE_SELECTION_MESSAGE);
+      }
       if (queueRunsEnabled) {
         if (runAlias === "manual") {
           return caliberApi.createWorkflowRun({
@@ -1602,6 +1626,8 @@ export function WorkflowDetail(): JSX.Element {
             input: runInput,
             session_id: runSessionId.trim() || undefined,
             source: "manual",
+            workspace_release_id: workflowRunLineage.selectedOption?.workspace_release_id,
+            environment_id: workflowRunLineage.selectedOption?.environment_id,
           });
         }
         return caliberApi.createWorkflowRun({
@@ -1610,6 +1636,8 @@ export function WorkflowDetail(): JSX.Element {
           input: runInput,
           session_id: runSessionId.trim() || undefined,
           source: "manual",
+          workspace_release_id: workflowRunLineage.selectedOption?.workspace_release_id,
+          environment_id: workflowRunLineage.selectedOption?.environment_id,
         });
       }
       return caliberApi.runWorkflowVersion(
@@ -1617,6 +1645,11 @@ export function WorkflowDetail(): JSX.Element {
         runInput,
         runSessionId.trim() || undefined,
         runAlias,
+        undefined,
+        {
+          workspace_release_id: workflowRunLineage.selectedOption?.workspace_release_id,
+          environment_id: workflowRunLineage.selectedOption?.environment_id,
+        },
       );
     },
     {
@@ -1675,7 +1708,16 @@ export function WorkflowDetail(): JSX.Element {
 
   const [triggerMessage, setTriggerMessage] = useState<string | null>(null);
   const triggerMut = useApiMutation<WorkflowRun, string>(
-    (alias) => caliberApi.triggerWorkflowEvent(workflowId!, { alias }),
+    (alias) => {
+      if (wfQuery.data?.project_id && !workflowRunLineage.selectedOption) {
+        throw new Error(lineageSelectionDisabledReason ?? WORKFLOW_LINEAGE_SELECTION_MESSAGE);
+      }
+      return caliberApi.triggerWorkflowEvent(workflowId!, {
+        alias,
+        workspace_release_id: workflowRunLineage.selectedOption?.workspace_release_id,
+        environment_id: workflowRunLineage.selectedOption?.environment_id,
+      });
+    },
     {
       onSuccess: (run, alias) => {
         setTriggerMessage(
@@ -3485,6 +3527,20 @@ export function WorkflowDetail(): JSX.Element {
                 {deployMut.isPending ? "Deploying..." : "Deploy Alias"}
               </button>
             </div>
+            {wfQuery.data?.project_id && (
+              <div className="mt-4 rounded-xl border border-slate-100 bg-slate-50/60 p-3">
+                <WorkflowRunLineagePicker
+                  options={workflowRunLineage.options}
+                  selectedWorkspaceReleaseId={workflowRunLineage.selectedWorkspaceReleaseId}
+                  selectedEnvironmentId={workflowRunLineage.selectedEnvironmentId}
+                  onSelect={workflowRunLineage.selectOption}
+                  isLoading={workflowRunLineage.isLoading}
+                  error={workflowRunLineage.error}
+                  disabled={Boolean(lineageSelectionDisabledReason)}
+                  compact
+                />
+              </div>
+            )}
             <div className="mt-3 flex flex-wrap items-center gap-3 text-xs text-slate-500">
               <span className="rounded-md bg-slate-50 px-2 py-1 ring-1 ring-slate-200/70">
                 {deployAlias.trim().toLowerCase() === "prod"
@@ -3635,6 +3691,20 @@ export function WorkflowDetail(): JSX.Element {
                     : "Run Pipeline"}
               </button>
             </div>
+            {wfQuery.data?.project_id && (
+              <div className="mt-4 rounded-xl border border-slate-100 bg-slate-50/60 p-3">
+                <WorkflowRunLineagePicker
+                  options={workflowRunLineage.options}
+                  selectedWorkspaceReleaseId={workflowRunLineage.selectedWorkspaceReleaseId}
+                  selectedEnvironmentId={workflowRunLineage.selectedEnvironmentId}
+                  onSelect={workflowRunLineage.selectOption}
+                  isLoading={workflowRunLineage.isLoading}
+                  error={workflowRunLineage.error}
+                  disabled={Boolean(lineageSelectionDisabledReason)}
+                  compact
+                />
+              </div>
+            )}
             <div className="mt-3 flex flex-wrap items-center gap-3 text-xs text-slate-500">
               {capabilitiesQuery.isError && (
                 <span

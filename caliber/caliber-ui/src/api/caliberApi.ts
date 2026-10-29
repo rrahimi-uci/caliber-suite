@@ -238,6 +238,8 @@ import type {
   WorkflowRunTrace,
   WorkflowVersion,
   GraphDiff,
+  WorkspaceEnvironmentList,
+  WorkspaceRelease,
   ObservabilityExperiment,
   ObservabilityMetrics,
   ObservabilityTrace,
@@ -3058,12 +3060,16 @@ export const caliberApi = {
     sessionId?: string,
     alias = "manual",
     manifest?: WorkflowManifest,
+    lineage?: {
+      workspace_release_id?: string;
+      environment_id?: string;
+    },
   ): Promise<WorkflowRunResult> {
     return request<WorkflowRunResult>(
       `/workflow-versions/${encodeURIComponent(versionId)}/run`,
       {
         method: "POST",
-        body: stripNulls({ input, session_id: sessionId, alias, manifest }),
+        body: stripNulls({ input, session_id: sessionId, alias, manifest, ...lineage }),
       },
     );
   },
@@ -3109,6 +3115,39 @@ export const caliberApi = {
     return request<WorkflowRun>(
       `/workflows/${encodeURIComponent(workflowId)}/trigger`,
       { method: "POST", body: stripNulls(payload) },
+    );
+  },
+
+  /** GET /projects/{id}/environments — fixed project runtime environments. */
+  listProjectEnvironments(
+    projectId: string,
+    signal?: AbortSignal,
+  ): Promise<WorkspaceEnvironmentList> {
+    return request<WorkspaceEnvironmentList>(
+      `/projects/${encodeURIComponent(projectId)}/environments`,
+      { signal },
+    );
+  },
+
+  /** GET /projects/{id}/releases — approved workspace releases for lineage selection. */
+  listWorkspaceReleases(
+    projectId: string,
+    options: {
+      status?: WorkspaceRelease["status"];
+      environment_id?: string;
+      limit?: number;
+      offset?: number;
+    } = {},
+    signal?: AbortSignal,
+  ): Promise<WorkspaceRelease[]> {
+    return request<WorkspaceRelease[]>(
+      `/projects/${encodeURIComponent(projectId)}/releases${buildQuery({
+        status: options.status,
+        environment_id: options.environment_id,
+        limit: options.limit?.toString(),
+        offset: options.offset?.toString(),
+      })}`,
+      { signal },
     );
   },
 
