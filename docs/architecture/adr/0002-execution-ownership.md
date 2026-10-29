@@ -57,7 +57,7 @@ transition with the token arrives with the outbox (#685). This record fixes who 
 | `WebhookDispatcher` | execution-owner lease (B13, #536) | Delivers accepted outbound webhook events; retries into the dead-letter queue. |
 | `OutboxPublisher` | execution-owner lease (B13, #536) | Hands recorded business events (the transactional outbox) to each consumer's inbox, with retry and backoff; delivery is at-least-once and consumers deduplicate on the event id. |
 | `WorkspaceImportWorker` | execution-owner lease (B13, #536) | Claims queued push-mode Workspace import jobs and materializes each into an immutable WorkspaceRevision. |
-| `WorkspaceReleaseEvaluator` | execution-owner lease (B13, #536) | Claims and executes queued Workspace release evaluations from the release revision's immutable candidate, dataset and judge pins, oldest first and fenced by the lease; B10.3 persists per-example gate evidence and B10.4 records/reclaims expired attempts with durable history and stale-worker fencing. |
+| `WorkspaceReleaseEvaluator` | execution-owner lease (B13, #536) | Claims and executes queued Workspace release evaluations from the release revision's immutable candidate, dataset and judge pins, oldest first and fenced by the lease; B10.3 persists per-example gate evidence, B10.4 records/reclaims expired attempts with durable history and stale-worker fencing, and B10.5 requires matching successful evidence before governed decisions or break-glass apply. |
 | `EventBus` (database, Redis or NATS) | every process (fans events out; takes no effect) | publisher and poll tasks (database bus) or consumer tasks (Redis, NATS) deliver platform events to subscribers; publishing becomes idempotent through the outbox (#536) |
 
 ### Recovery by stage

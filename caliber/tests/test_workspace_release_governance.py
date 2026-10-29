@@ -20,8 +20,10 @@ from caliber.db.models import (
     CaliberWorkspaceEnvironment,
     CaliberWorkspaceRelease,
     CaliberWorkspaceReleaseDecision,
+    CaliberWorkspaceReleaseEvaluation,
     CaliberWorkspaceRevision,
 )
+from caliber.eval.evidence import build_release_gate_evidence
 from caliber.ids import new_workspace_release_operation_id
 from caliber.workspace_release_governance import (
     WorkspaceBreakGlassError,
@@ -58,7 +60,48 @@ REVISION_ID = "WSR-p5b"
 HEAD_ID = "WSCRH-p5b"
 CR_ID = "WSCR-p5b"
 HEX = "a" * 64
-GATE = "b" * 64
+
+
+def _gate_fixture(
+    evaluation_id: str,
+    *,
+    result: str = "pass",
+    candidate_score: float = 1.0,
+) -> tuple[dict[str, object], str]:
+    rows = [
+        {
+            "example_id": "example-1",
+            "input": {"prompt": "hello"},
+            "expected": {"answer": "world"},
+            "prediction": "world",
+            "scores": {"Judge.quality": 1.0},
+            "score": 1.0,
+            "passed": result == "pass",
+            "error": None,
+            "weight": 1.0,
+            "tags": [],
+        }
+    ]
+    evidence, digest = build_release_gate_evidence(
+        scored_rows=rows,
+        dataset_id="DS-p5b",
+        dataset_version=1,
+        plan_sha256=HEX,
+        input_sha256=HEX,
+        evaluation_id=evaluation_id,
+        provider={"provider": "fake", "simulated": True},
+        candidate={"overall": candidate_score, "dimensions": {"Judge.quality": candidate_score}},
+        baseline=None,
+        deltas={},
+        n_examples=1,
+        min_aggregate_score=0.8,
+        min_aggregate_delta=None,
+        result=result,
+    )
+    return evidence, digest
+
+
+_, GATE = _gate_fixture("EVAL-release-p5b")
 ALL_ADMIN_SCOPES = frozenset({SCOPE_ADMIN, SCOPE_APPROVER, SCOPE_OPERATOR})
 
 
@@ -202,7 +245,22 @@ def _release(
         predecessor_release_id=predecessor_release_id,
     )
     release.status = RELEASE_AWAITING_QUALITY_SIGNOFF
-    release.evaluation_evidence_sha256 = GATE
+    evaluation_id = f"EVAL-{key}"
+    gate_evidence, gate_digest = _gate_fixture(evaluation_id)
+    release.evaluation_evidence_sha256 = gate_digest
+    session.add(
+        CaliberWorkspaceReleaseEvaluation(
+            evaluation_id=evaluation_id,
+            project_id=PROJECT_ID,
+            workspace_release_id=release.release_id,
+            idempotency_key=f"{key}-evaluation",
+            evaluation_plan_sha256=HEX,
+            input_sha256=HEX,
+            status="succeeded",
+            gate_evidence=gate_evidence,
+            requested_by="workspace-admin",
+        )
+    )
     session.flush()
     return release
 
@@ -300,7 +358,7 @@ def test_decision_and_release_transition_roll_back_together(
             identity=_identity("qa"),
             kind="quality",
             decision="go",
-            gate_evidence_sha256=GATE,
+            gate_evidence_sha256=release.evaluation_evidence_sha256,
             change_request_head_id=HEAD_ID,
         )
     assert (
@@ -335,7 +393,7 @@ def test_decisions_reject_stale_digest_head_and_duplicate_rows(db_session: Sessi
             identity=_identity("qa"),
             kind="quality",
             decision="go",
-            gate_evidence_sha256=GATE,
+            gate_evidence_sha256=release.evaluation_evidence_sha256,
             change_request_head_id="WSCRH-other",
         )
     record_workspace_release_decision(
@@ -356,7 +414,7 @@ def test_decisions_reject_stale_digest_head_and_duplicate_rows(db_session: Sessi
             identity=_identity("qa"),
             kind="quality",
             decision="go",
-            gate_evidence_sha256=GATE,
+            gate_evidence_sha256=release.evaluation_evidence_sha256,
             change_request_head_id=HEAD_ID,
         )
 
@@ -554,6 +612,72 @@ def test_revision_head_gate_and_environment_state_are_checked(db_session: Sessio
         )
 
 
+def test_decision_requires_a_succeeded_release_local_evaluation(db_session: Session) -> None:
+    _seed(db_session)
+    release = _release(db_session)
+    evaluation = db_session.get(CaliberWorkspaceReleaseEvaluation, "EVAL-release-p5b")
+    assert evaluation is not None
+    evaluation.status = "failed"
+    db_session.flush()
+
+    with pytest.raises(WorkspaceReleaseDecisionConflictError, match="successful gate evidence"):
+        record_workspace_release_decision(
+            db_session,
+            project_id=PROJECT_ID,
+            workspace_release_id=release.release_id,
+            identity=_identity("qa"),
+            kind="quality",
+            decision="go",
+            gate_evidence_sha256=release.evaluation_evidence_sha256,
+            change_request_head_id=HEAD_ID,
+        )
+
+
+def test_decision_rejects_tampered_criteria_or_provenance(db_session: Session) -> None:
+    _seed(db_session)
+    release = _release(db_session)
+    evaluation = db_session.get(CaliberWorkspaceReleaseEvaluation, "EVAL-release-p5b")
+    assert evaluation is not None
+    tampered = dict(evaluation.gate_evidence)
+    tampered["provider"] = {"provider": "fake"}
+    evaluation.gate_evidence = tampered
+    db_session.flush()
+
+    with pytest.raises(WorkspaceReleaseDecisionConflictError, match="successful gate evidence"):
+        record_workspace_release_decision(
+            db_session,
+            project_id=PROJECT_ID,
+            workspace_release_id=release.release_id,
+            identity=_identity("qa"),
+            kind="quality",
+            decision="go",
+            gate_evidence_sha256=release.evaluation_evidence_sha256,
+            change_request_head_id=HEAD_ID,
+        )
+
+    db_session.rollback()
+    _seed(db_session)
+    release = _release(db_session)
+    evaluation = db_session.get(CaliberWorkspaceReleaseEvaluation, "EVAL-release-p5b")
+    assert evaluation is not None
+    below_threshold, below_threshold_digest = _gate_fixture("EVAL-release-p5b", candidate_score=0.5)
+    evaluation.gate_evidence = below_threshold
+    release.evaluation_evidence_sha256 = below_threshold_digest
+    db_session.flush()
+
+    with pytest.raises(WorkspaceReleaseDecisionConflictError, match="successful gate evidence"):
+        record_workspace_release_decision(
+            db_session,
+            project_id=PROJECT_ID,
+            workspace_release_id=release.release_id,
+            identity=_identity("qa"),
+            kind="quality",
+            decision="go",
+            gate_evidence_sha256=below_threshold_digest,
+            change_request_head_id=HEAD_ID,
+        )
+
+
 def test_quality_decision_rejects_wrong_environment_status_and_review_state(
     db_session: Session,
 ) -> None:
@@ -679,7 +803,7 @@ def _seed_break_glass_candidate(
             identity=_identity("qa"),
             kind="quality",
             decision="go",
-            gate_evidence_sha256=GATE,
+            gate_evidence_sha256=qa.evaluation_evidence_sha256,
             change_request_head_id=HEAD_ID,
         )
         qa_apply = create_workspace_release_operation(
@@ -771,7 +895,7 @@ def test_derive_break_glass_gate_evidence_reflects_a_genuinely_passed_release(
         db_session,
         project_id=PROJECT_ID,
         workspace_release_id=release.release_id,
-        gate_evidence_sha256=GATE,
+        gate_evidence_sha256=release.evaluation_evidence_sha256,
     )
     assert machine_gates_passed is True
     assert integrity_checks_passed is True
@@ -785,7 +909,7 @@ def test_derive_break_glass_gate_evidence_reflects_a_genuinely_passed_release(
         incident_ref="INC-DERIVE-OK",
         authorization_ref="AUTH-DERIVE-OK",
         expires_at=datetime.now(timezone.utc) + timedelta(minutes=10),
-        gate_evidence_sha256=GATE,
+        gate_evidence_sha256=release.evaluation_evidence_sha256,
         expected_current_release_id=release.release_id,
         expected_environment_lock_version=1,
         idempotency_key="breakglass-derive-ok",
@@ -808,7 +932,9 @@ def test_derive_break_glass_gate_evidence_catches_a_digest_that_has_gone_stale(
     ``create_workspace_break_glass_apply`` (unchanged) must still deny.
     """
     release = _seed_break_glass_candidate(db_session)
-    stale_gate_evidence_sha256 = GATE  # what an earlier read/request captured
+    stale_gate_evidence_sha256 = (
+        release.evaluation_evidence_sha256
+    )  # what an earlier read/request captured
     release.evaluation_evidence_sha256 = "c" * 64  # evidence has since moved on
     db_session.flush()
 
@@ -857,7 +983,7 @@ def test_derive_break_glass_gate_evidence_catches_a_release_that_left_the_passed
         db_session,
         project_id=PROJECT_ID,
         workspace_release_id=release.release_id,
-        gate_evidence_sha256=GATE,
+        gate_evidence_sha256=release.evaluation_evidence_sha256,
     )
     assert machine_gates_passed is False
     # The digest itself still matches (only the status moved) -- proving this
@@ -874,7 +1000,7 @@ def test_derive_break_glass_gate_evidence_catches_a_release_that_left_the_passed
             incident_ref="INC-DERIVE-STALE-STATUS",
             authorization_ref="AUTH-DERIVE-STALE-STATUS",
             expires_at=datetime.now(timezone.utc) + timedelta(minutes=10),
-            gate_evidence_sha256=GATE,
+            gate_evidence_sha256=release.evaluation_evidence_sha256,
             expected_current_release_id=release.release_id,
             expected_environment_lock_version=1,
             idempotency_key="breakglass-derive-stale-status",
@@ -901,7 +1027,7 @@ def test_derive_break_glass_gate_evidence_returns_false_for_an_unknown_or_foreig
         db_session,
         project_id="PRJ-some-other-project",
         workspace_release_id=release.release_id,
-        gate_evidence_sha256=GATE,
+        gate_evidence_sha256=release.evaluation_evidence_sha256,
     ) == (False, False)
 
 
@@ -925,7 +1051,7 @@ def test_break_glass_is_disabled_by_default_and_rejects_noninteractive_credentia
             incident_ref="INC-1",
             authorization_ref="AUTH-1",
             expires_at=expires,
-            gate_evidence_sha256=GATE,
+            gate_evidence_sha256=release.evaluation_evidence_sha256,
             expected_current_release_id=release.release_id,
             expected_environment_lock_version=1,
             idempotency_key="breakglass-1",
@@ -950,7 +1076,7 @@ def test_break_glass_is_disabled_by_default_and_rejects_noninteractive_credentia
             incident_ref="INC-PAT",
             authorization_ref="AUTH-PAT",
             expires_at=datetime.now(timezone.utc) + timedelta(minutes=10),
-            gate_evidence_sha256=GATE,
+            gate_evidence_sha256=release.evaluation_evidence_sha256,
             expected_current_release_id=release.release_id,
             expected_environment_lock_version=1,
             idempotency_key="breakglass-pat",
@@ -967,7 +1093,7 @@ def test_break_glass_is_disabled_by_default_and_rejects_noninteractive_credentia
             incident_ref="INC-NOADMIN",
             authorization_ref="AUTH-NOADMIN",
             expires_at=datetime.now(timezone.utc) + timedelta(minutes=10),
-            gate_evidence_sha256=GATE,
+            gate_evidence_sha256=release.evaluation_evidence_sha256,
             expected_current_release_id=release.release_id,
             expected_environment_lock_version=1,
             idempotency_key="breakglass-noadmin",
@@ -998,7 +1124,7 @@ def test_break_glass_requires_admin_session_and_all_gates(db_session: Session) -
                 incident_ref="INC-1",
                 authorization_ref="AUTH-1",
                 expires_at=expires,
-                gate_evidence_sha256=GATE,
+                gate_evidence_sha256=release.evaluation_evidence_sha256,
                 expected_current_release_id=release.release_id,
                 expected_environment_lock_version=1,
                 idempotency_key="breakglass-gates",
@@ -1021,7 +1147,7 @@ def test_valid_break_glass_is_atomic_single_use_and_high_severity_audited(
         incident_ref="INC-42",
         authorization_ref="AUTH-42",
         expires_at=expires,
-        gate_evidence_sha256=GATE,
+        gate_evidence_sha256=release.evaluation_evidence_sha256,
         expected_current_release_id=release.release_id,
         expected_environment_lock_version=1,
         idempotency_key="breakglass-valid",
@@ -1047,7 +1173,7 @@ def test_valid_break_glass_is_atomic_single_use_and_high_severity_audited(
         incident_ref="INC-42",
         authorization_ref="AUTH-42",
         expires_at=expires,
-        gate_evidence_sha256=GATE,
+        gate_evidence_sha256=release.evaluation_evidence_sha256,
         expected_current_release_id=release.release_id,
         expected_environment_lock_version=1,
         idempotency_key="breakglass-valid",
@@ -1066,7 +1192,7 @@ def test_valid_break_glass_is_atomic_single_use_and_high_severity_audited(
             incident_ref="INC-42",
             authorization_ref="AUTH-42",
             expires_at=expires,
-            gate_evidence_sha256=GATE,
+            gate_evidence_sha256=release.evaluation_evidence_sha256,
             expected_current_release_id=release.release_id,
             expected_environment_lock_version=1,
             idempotency_key="breakglass-valid",
@@ -1109,7 +1235,7 @@ def test_operation_service_validates_break_glass_authorization_defensively(
         incident_ref="INC-DEFENSE",
         authorization_ref="AUTH-DEFENSE",
         expires_at=datetime.now(timezone.utc) + timedelta(minutes=10),
-        gate_evidence_sha256=GATE,
+        gate_evidence_sha256=release.evaluation_evidence_sha256,
         expected_current_release_id=release.release_id,
         expected_environment_lock_version=1,
         idempotency_key="breakglass-defense",
@@ -1223,7 +1349,7 @@ def test_break_glass_requires_qa_acceptance_and_staging_verification(db_session:
             incident_ref="INC-QA",
             authorization_ref="AUTH-QA",
             expires_at=expires,
-            gate_evidence_sha256=GATE,
+            gate_evidence_sha256=release.evaluation_evidence_sha256,
             expected_current_release_id=release.release_id,
             expected_environment_lock_version=1,
             idempotency_key="breakglass-qa",
@@ -1242,7 +1368,7 @@ def test_break_glass_requires_qa_acceptance_and_staging_verification(db_session:
             incident_ref="INC-STAGE",
             authorization_ref="AUTH-STAGE",
             expires_at=expires,
-            gate_evidence_sha256=GATE,
+            gate_evidence_sha256=release.evaluation_evidence_sha256,
             expected_current_release_id=release.release_id,
             expected_environment_lock_version=1,
             idempotency_key="breakglass-stage",
@@ -1263,7 +1389,7 @@ def test_break_glass_requires_qa_acceptance_and_staging_verification(db_session:
             incident_ref="INC-NO-PREDECESSOR",
             authorization_ref="AUTH-NO-PREDECESSOR",
             expires_at=datetime.now(timezone.utc) + timedelta(minutes=10),
-            gate_evidence_sha256=GATE,
+            gate_evidence_sha256=release.evaluation_evidence_sha256,
             expected_current_release_id=release.release_id,
             expected_environment_lock_version=1,
             idempotency_key="breakglass-no-predecessor",
@@ -1288,7 +1414,7 @@ def test_break_glass_requires_qa_acceptance_and_staging_verification(db_session:
             incident_ref="INC-MISSING",
             authorization_ref="AUTH-MISSING",
             expires_at=datetime.now(timezone.utc) + timedelta(minutes=10),
-            gate_evidence_sha256=GATE,
+            gate_evidence_sha256=release.evaluation_evidence_sha256,
             expected_current_release_id=release.release_id,
             expected_environment_lock_version=1,
             idempotency_key="breakglass-missing",
@@ -1313,7 +1439,7 @@ def test_break_glass_rechecks_production_coordinates_status_and_expiry(
             incident_ref="INC-COORD",
             authorization_ref="AUTH-COORD",
             expires_at=datetime.now(timezone.utc) + timedelta(minutes=10),
-            gate_evidence_sha256=GATE,
+            gate_evidence_sha256=release.evaluation_evidence_sha256,
             expected_current_release_id=release.release_id,
             expected_environment_lock_version=1,
             idempotency_key="breakglass-coord",
@@ -1338,7 +1464,7 @@ def test_break_glass_rechecks_production_coordinates_status_and_expiry(
             incident_ref="INC-STATUS",
             authorization_ref="AUTH-STATUS",
             expires_at=datetime.now(timezone.utc) + timedelta(minutes=10),
-            gate_evidence_sha256=GATE,
+            gate_evidence_sha256=release.evaluation_evidence_sha256,
             expected_current_release_id=release.release_id,
             expected_environment_lock_version=1,
             idempotency_key="breakglass-status",
@@ -1356,7 +1482,7 @@ def test_break_glass_rechecks_production_coordinates_status_and_expiry(
             incident_ref="INC-EXPIRY",
             authorization_ref="AUTH-EXPIRY",
             expires_at=datetime.now(timezone.utc) + timedelta(hours=2),
-            gate_evidence_sha256=GATE,
+            gate_evidence_sha256=release.evaluation_evidence_sha256,
             expected_current_release_id=release.release_id,
             expected_environment_lock_version=1,
             idempotency_key="breakglass-expiry",
@@ -1383,7 +1509,7 @@ def test_break_glass_rechecks_production_coordinates_status_and_expiry(
             incident_ref="INC-STAGE-COORD",
             authorization_ref="AUTH-STAGE-COORD",
             expires_at=datetime.now(timezone.utc) + timedelta(minutes=10),
-            gate_evidence_sha256=GATE,
+            gate_evidence_sha256=release.evaluation_evidence_sha256,
             expected_current_release_id=release.release_id,
             expected_environment_lock_version=1,
             idempotency_key="breakglass-stage-coord",
@@ -1403,7 +1529,7 @@ def test_break_glass_input_and_idempotency_conflicts_are_rejected(db_session: Se
         "incident_ref": "INC-INPUT",
         "authorization_ref": "AUTH-INPUT",
         "expires_at": datetime.now(timezone.utc) + timedelta(minutes=10),
-        "gate_evidence_sha256": GATE,
+        "gate_evidence_sha256": release.evaluation_evidence_sha256,
         "expected_current_release_id": release.release_id,
         "expected_environment_lock_version": 1,
         "idempotency_key": "breakglass-input",
@@ -1452,7 +1578,7 @@ def test_break_glass_idempotency_conflicts_with_normal_apply_and_changed_input(
             incident_ref="INC-SHARED",
             authorization_ref="AUTH-SHARED",
             expires_at=datetime.now(timezone.utc) + timedelta(minutes=10),
-            gate_evidence_sha256=GATE,
+            gate_evidence_sha256=release.evaluation_evidence_sha256,
             expected_current_release_id=release.release_id,
             expected_environment_lock_version=1,
             idempotency_key="shared-key",
@@ -1474,7 +1600,7 @@ def test_break_glass_replay_fails_closed_if_authorization_row_is_missing(
         incident_ref="INC-MISSING-AUTH",
         authorization_ref="AUTH-MISSING-AUTH",
         expires_at=datetime.now(timezone.utc) + timedelta(minutes=10),
-        gate_evidence_sha256=GATE,
+        gate_evidence_sha256=release.evaluation_evidence_sha256,
         expected_current_release_id=release.release_id,
         expected_environment_lock_version=1,
         idempotency_key="breakglass-missing-auth",
@@ -1499,7 +1625,7 @@ def test_break_glass_replay_fails_closed_if_authorization_row_is_missing(
             incident_ref="INC-MISSING-AUTH",
             authorization_ref="AUTH-MISSING-AUTH",
             expires_at=datetime.now(timezone.utc) + timedelta(minutes=10),
-            gate_evidence_sha256=GATE,
+            gate_evidence_sha256=release.evaluation_evidence_sha256,
             expected_current_release_id=release.release_id,
             expected_environment_lock_version=1,
             idempotency_key="breakglass-missing-auth",

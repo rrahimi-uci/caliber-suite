@@ -2003,6 +2003,12 @@ is the owner-only loop that picks them up. It reuses the service's own queue and
   crash after an external call remains auditable. Completion, heartbeat and run-recording operations are fenced to
   the current attempt; a stale worker cannot settle the recovered release. Only the current attempt can become the
   authoritative completion, and all parent/provider run identifiers are merged without duplicates.
+- **Matching successful gate evidence (B10.5, #732).** Manual quality/final decisions and automatic/break-glass
+  release paths accept only a release-local evaluation row with `status=succeeded` whose canonical evidence recomputes
+  to the release-bound digest and matches the evaluation's plan and input digests. The evidence must preserve provider
+  and simulated/real provenance, satisfy the recorded aggregate criteria, and contain no critical-failure or waiver
+  bypass. Missing, stale, tampered, non-passing, or out-of-scope evidence fails closed; break-glass does not waive a
+  failed critical gate.
 - **Owner-only and fenced.** It runs only in the process holding the execution-owner lease (see above), and in the
   reference profile each claim is made in a transaction that first runs `assert_fenced` with the exact lease the owner
   captured. A process whose lease was taken over, expired or cannot be checked claims nothing and records nothing; the

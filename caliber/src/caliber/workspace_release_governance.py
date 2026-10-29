@@ -10,10 +10,12 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import re
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
-from typing import Literal
+from typing import Any, Literal, cast
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -29,9 +31,11 @@ from caliber.db.models import (
     CaliberWorkspaceEnvironment,
     CaliberWorkspaceRelease,
     CaliberWorkspaceReleaseDecision,
+    CaliberWorkspaceReleaseEvaluation,
     CaliberWorkspaceReleaseOperation,
     CaliberWorkspaceRevision,
 )
+from caliber.eval.evidence import build_release_gate_evidence
 from caliber.ids import (
     new_rework_task_id,
     new_workspace_break_glass_authorization_id,
@@ -203,6 +207,205 @@ def _require_gate_binding(release: CaliberWorkspaceRelease, gate_evidence_sha256
     return gate
 
 
+def _finite_score(value: object) -> bool:
+    return (
+        isinstance(value, (int, float))
+        and not isinstance(value, bool)
+        and math.isfinite(float(value))
+        and 0.0 <= float(value) <= 1.0
+    )
+
+
+def _recompute_gate_evidence(  # noqa: PLR0911, PLR0912, PLR0915
+    evidence: Mapping[str, object],
+) -> str | None:
+    """Rebuild the persisted release-evidence digest without provider calls."""
+
+    if evidence.get("schema") != "workspace-release-gate-evidence/v2":
+        return None
+    dataset = evidence.get("dataset")
+    results = evidence.get("results")
+    provider = evidence.get("provider")
+    candidate = evidence.get("candidate")
+    baseline = evidence.get("baseline")
+    deltas = evidence.get("deltas")
+    gate = evidence.get("gate")
+    if not all(
+        isinstance(value, Mapping)
+        for value in (dataset, results, provider, candidate, deltas, gate)
+    ):
+        return None
+    dataset = cast(Mapping[str, Any], dataset)
+    results = cast(Mapping[str, Any], results)
+    provider = cast(Mapping[str, Any], provider)
+    candidate = cast(Mapping[str, Any], candidate)
+    deltas = cast(Mapping[str, Any], deltas)
+    gate = cast(Mapping[str, Any], gate)
+    rows = results.get("rows")
+    n_examples = results.get("n_examples")
+    if (
+        not isinstance(rows, list)
+        or any(not isinstance(row, Mapping) for row in rows)
+        or isinstance(n_examples, bool)
+        or not isinstance(n_examples, int)
+    ):
+        return None
+    rows = cast(list[Mapping[str, Any]], rows)
+    if not isinstance(dataset.get("id"), str) or not dataset["id"].strip():
+        return None
+    dataset_version = dataset.get("version")
+    if dataset_version is not None and (
+        isinstance(dataset_version, bool) or not isinstance(dataset_version, int)
+    ):
+        return None
+    evaluation_id = evidence.get("evaluation_id")
+    if not isinstance(evaluation_id, str) or not evaluation_id:
+        return None
+    plan_sha256 = evidence.get("plan_sha256")
+    input_sha256 = evidence.get("input_sha256")
+    if (
+        not isinstance(plan_sha256, str)
+        or not isinstance(input_sha256, str)
+        or _DIGEST_RE.fullmatch(plan_sha256) is None
+        or _DIGEST_RE.fullmatch(input_sha256) is None
+    ):
+        return None
+    if (
+        not isinstance(provider.get("provider"), str)
+        or not provider["provider"].strip()
+        or not isinstance(provider.get("simulated"), bool)
+    ):
+        return None
+    if not isinstance(candidate.get("overall"), (int, float)) or isinstance(
+        candidate.get("overall"), bool
+    ):
+        return None
+    if not _finite_score(candidate["overall"]):
+        return None
+    result = gate.get("result")
+    if result not in {"pass", "no_go"}:
+        return None
+    result = cast(str, result)
+    if gate.get("critical_failures") or gate.get("failed_critical_criteria"):
+        return None
+    if gate.get("waivers") or gate.get("exceptions"):
+        return None
+    minimum = gate.get("min_aggregate_score")
+    if not _finite_score(minimum):
+        return None
+    minimum_score = float(cast(int | float, minimum))
+    minimum_delta = gate.get("min_aggregate_delta")
+    if minimum_delta is not None and not _finite_score(minimum_delta):
+        return None
+    minimum_delta_score = (
+        float(cast(int | float, minimum_delta)) if minimum_delta is not None else None
+    )
+    if not isinstance(deltas, Mapping):
+        return None
+    if baseline is not None and not isinstance(baseline, Mapping):
+        return None
+    if baseline is not None:
+        baseline = cast(Mapping[str, Any], baseline)
+    if baseline is not None and not _finite_score(baseline.get("overall")):
+        return None
+    if minimum_delta is not None and baseline is None:
+        return None
+    candidate_overall = float(candidate["overall"])
+    if result == "pass" and candidate_overall < minimum_score:
+        return None
+    if baseline is not None:
+        delta_overall = deltas.get("overall")
+        if not isinstance(delta_overall, (int, float)) or isinstance(delta_overall, bool):
+            return None
+        expected_delta = candidate_overall - float(baseline["overall"])
+        if not math.isclose(float(delta_overall), expected_delta, rel_tol=0.0, abs_tol=1e-6):
+            return None
+        if (
+            result == "pass"
+            and minimum_delta_score is not None
+            and expected_delta < minimum_delta_score
+        ):
+            return None
+    try:
+        _evidence, digest = build_release_gate_evidence(
+            scored_rows=rows,
+            dataset_id=dataset["id"],
+            dataset_version=dataset_version,
+            plan_sha256=plan_sha256,
+            input_sha256=input_sha256,
+            evaluation_id=evaluation_id,
+            provider=dict(provider),
+            candidate=dict(candidate),
+            baseline=dict(baseline) if baseline is not None else None,
+            deltas=dict(deltas),
+            n_examples=n_examples,
+            min_aggregate_score=minimum_score,
+            min_aggregate_delta=minimum_delta_score,
+            result=result,
+        )
+    except (TypeError, ValueError, KeyError):
+        return None
+    return digest
+
+
+def _require_matching_successful_gate_evidence(
+    session: Session,
+    release: CaliberWorkspaceRelease,
+    gate_evidence_sha256: str,
+    *,
+    require_pass: bool,
+) -> CaliberWorkspaceReleaseEvaluation:
+    """Require an intact, release-local evaluation result before governance.
+
+    The release row stores only a digest.  This lookup binds that digest back to
+    the succeeded evaluation that produced it, its immutable plan/input
+    digests, provider provenance and the criteria that produced the pass/no-go
+    result.  A caller cannot turn a copied digest or a manually edited release
+    row into a release approval.
+    """
+
+    gate = _digest(gate_evidence_sha256, "gate_evidence_sha256")
+    if release.evaluation_evidence_sha256 is None:
+        raise WorkspaceReleaseDecisionConflictError("machine gate evidence is missing")
+    if release.evaluation_evidence_sha256 != gate:
+        raise WorkspaceReleaseDecisionConflictError("gate evidence digest does not bind release")
+    evaluations = session.execute(
+        select(CaliberWorkspaceReleaseEvaluation)
+        .where(
+            CaliberWorkspaceReleaseEvaluation.project_id == release.project_id,
+            CaliberWorkspaceReleaseEvaluation.workspace_release_id == release.release_id,
+            CaliberWorkspaceReleaseEvaluation.status == "succeeded",
+        )
+        .order_by(
+            CaliberWorkspaceReleaseEvaluation.completed_at.desc(),
+            CaliberWorkspaceReleaseEvaluation.evaluation_id.desc(),
+        )
+    ).scalars()
+    for evaluation in evaluations:
+        evidence = evaluation.gate_evidence
+        if not isinstance(evidence, Mapping):
+            continue
+        if (
+            evidence.get("evaluation_id") != evaluation.evaluation_id
+            or evidence.get("plan_sha256") != evaluation.evaluation_plan_sha256
+            or evidence.get("input_sha256") != evaluation.input_sha256
+            or _recompute_gate_evidence(evidence) != gate
+        ):
+            continue
+        result = (
+            evidence.get("gate", {}).get("result")
+            if isinstance(evidence.get("gate"), Mapping)
+            else None
+        )
+        if require_pass and result != "pass":
+            continue
+        return evaluation
+    requirement = "successful" if require_pass else "matching"
+    raise WorkspaceReleaseDecisionConflictError(
+        f"{requirement} gate evidence is missing or invalid"
+    )
+
+
 def _create_release_rework_task(
     session: Session,
     *,
@@ -320,7 +523,12 @@ def record_workspace_release_decision(  # noqa: PLR0912
     project, release, environment, revision = _release_context(
         session, project_id, workspace_release_id
     )
-    _require_gate_binding(release, gate_evidence_sha256)
+    _require_matching_successful_gate_evidence(
+        session,
+        release,
+        gate_evidence_sha256,
+        require_pass=decision == DECISION_GO,
+    )
     existing = session.execute(
         select(CaliberWorkspaceReleaseDecision).where(
             CaliberWorkspaceReleaseDecision.workspace_release_id == release.release_id,
@@ -596,16 +804,19 @@ def derive_break_glass_gate_evidence(
     release = session.get(CaliberWorkspaceRelease, workspace_release_id)
     if release is None or release.project_id != project_id:
         return False, False
-    machine_gates_passed = (
-        release.status in {RELEASE_AWAITING_QUALITY_SIGNOFF, RELEASE_AWAITING_APPROVAL}
-        and release.evaluation_evidence_sha256 is not None
+    try:
+        _require_matching_successful_gate_evidence(
+            session,
+            release,
+            gate_evidence_sha256,
+            require_pass=True,
+        )
+    except WorkspaceReleaseGovernanceError:
+        return False, False
+    return (
+        release.status in {RELEASE_AWAITING_QUALITY_SIGNOFF, RELEASE_AWAITING_APPROVAL},
+        True,
     )
-    integrity_checks_passed = (
-        release.evaluation_evidence_sha256 is not None
-        and bool(_DIGEST_RE.fullmatch(gate_evidence_sha256))
-        and gate_evidence_sha256 == release.evaluation_evidence_sha256
-    )
-    return machine_gates_passed, integrity_checks_passed
 
 
 def create_workspace_break_glass_apply(  # noqa: PLR0912
@@ -665,6 +876,12 @@ def create_workspace_break_glass_apply(  # noqa: PLR0912
         raise WorkspaceBreakGlassError("release is not eligible for break-glass apply")
     if expected_current_release_id != release.release_id:
         raise WorkspaceBreakGlassError("expected current release is stale")
+    _require_matching_successful_gate_evidence(
+        session,
+        release,
+        gate_evidence_sha256,
+        require_pass=True,
+    )
     gate = _require_gate_binding(release, gate_evidence_sha256)
     request, head = _require_break_glass_preconditions(session, release, revision)
     _require_distinct_actor(identity, _originators(release, revision, request, head))
