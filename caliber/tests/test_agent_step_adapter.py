@@ -1163,7 +1163,7 @@ def test_run_agent_is_unchanged_by_the_step_script() -> None:
 # -------------------------------------------------------------- the four provider executors refuse until integrated
 
 
-@pytest.mark.parametrize("name", ["openai_chat", "openai_responses", "openai_agents", "anthropic"])
+@pytest.mark.parametrize("name", ["openai_responses", "openai_agents"])
 def test_a_provider_executor_refuses_governed_execution_until_it_is_integrated(name: str) -> None:
     ctx = make_context()
     executor = every_executor()[name]

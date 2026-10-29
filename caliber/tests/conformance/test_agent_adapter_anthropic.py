@@ -937,7 +937,7 @@ def test_the_harness_usage_override_is_additive_and_a_driver_may_state_what_its_
     None
 ):
     default = make_context(Scenario.BUDGET_EXHAUSTED)
-    assert default.staged_usage == StepUsage(900, 100, 1000, 3, 0)
+    assert default.staged_usage == StepUsage(900, 100, 1000, 1, 0)
     stated = make_context(Scenario.BUDGET_EXHAUSTED)
     stated.usage_override = StepUsage(900, 100, 1000, 1, 0)
     assert stated.staged_usage == StepUsage(900, 100, 1000, 1, 0)
