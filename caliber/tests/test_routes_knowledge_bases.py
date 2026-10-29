@@ -27,6 +27,20 @@ KB = PREFIX + "/knowledge-bases"
 QUERY = PREFIX + "/knowledge/query"
 
 
+def test_reference_profile_query_refuses_before_retrieval(
+    client: TestClient,
+) -> None:
+    client.app.state.config = client.app.state.config.model_copy(update={"profile": "reference"})
+
+    response = client.post(
+        QUERY,
+        json={"version_ids": ["KBV-unapproved"], "question": "secret?"},
+    )
+
+    assert response.status_code == 409, response.text
+    assert "governed_run_required" in response.text
+
+
 class _DummyEmbedder:
     def __init__(self, model_id: str, dimension: int = 8) -> None:
         self.model_id = model_id

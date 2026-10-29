@@ -17,6 +17,7 @@ from caliber.auth import (
     require_user,
     resolve_identity,
 )
+from caliber.context.authorize import GOVERNED_RUN_REQUIRED
 from caliber.db.models import CaliberKnowledgeBase, CaliberKnowledgeBaseVersion
 from caliber.db.scoping import get_visible
 from caliber.knowledge.embeddings import KnowledgeDependencyError
@@ -424,6 +425,11 @@ async def query_knowledge(request: Request) -> JSONResponse:
     identity = resolve_identity(request)
     body = await parse_json_object(request)
     payload = KnowledgeQueryRequest.model_validate(body)
+    if getattr(request.app.state.config, "profile", "") == "reference":
+        raise HTTPException(
+            status_code=409,
+            detail=f"{GOVERNED_RUN_REQUIRED}: knowledge queries require an admitted workflow run",
+        )
     try:
         # Retrieval, and with a real assistant engine a model call: off the event loop.
         result = await run_in_threadpool(_service(request).query, payload, identity=identity)
@@ -452,6 +458,11 @@ async def calibrate_knowledge_base(request: Request) -> JSONResponse:
     with get_session_factory(request)() as session:
         kb = _require_visible_knowledge_base(session, knowledge_base_id, identity)
         require_project_access_if_scoped(session, identity, kb.project_id, "resource.execute")
+    if getattr(request.app.state.config, "profile", "") == "reference":
+        raise HTTPException(
+            status_code=409,
+            detail=f"{GOVERNED_RUN_REQUIRED}: knowledge calibration requires an admitted workflow run",
+        )
     try:
         # Up to three model calls per question (answer, faithfulness, correctness): minutes on a
         # real provider. On a worker thread, so the rest of the server keeps answering meanwhile.

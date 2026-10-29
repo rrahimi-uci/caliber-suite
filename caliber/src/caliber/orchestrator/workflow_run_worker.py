@@ -1696,6 +1696,7 @@ class WorkflowRunWorker:
                     config=self._config,
                     session_factory=self._session_factory,
                     source_guard=source_guard,
+                    require_source_guard=admitted_identity is not None,
                     context_recorder=context_recorder,
                 )
             except (WorkflowManifestError, ValidationError) as exc:
