@@ -9,7 +9,7 @@ Accepted, 2026-10-26. Cites ADR 0001 (the reference profile) and `docs/architect
 
 Four things today have no single owner. (1) Control records the EGI program adds (run manifest, capability
 envelope, policy decision, approval, effect record, receipt, acceptance decision, evidence package, outbox) have
-no agreed writer: two modules could each persist "the" receipt. (2) Eleven background workers and an event bus are
+no agreed writer: two modules could each persist "the" receipt. (2) Twelve background workers and an event bus are
 started by the server lifespan, and nothing says which process may run them when two processes share a database (a second
 active owner doubles effects). (3) many code paths can change an external system (the inventory lists them all); some run through
 the effect ledger, most run through nothing. (4) Packages B02–B06 each need to answer "which module writes this
@@ -35,7 +35,7 @@ is not the writer reads the record and never updates it.**
 
 ### Background loops
 
-Started in `caliber/src/caliber/server.py::create_app`'s lifespan. The eleven workers are listed by
+Started in `caliber/src/caliber/server.py::create_app`'s lifespan. The twelve workers are listed by
 `caliber/src/caliber/observability/worker_inventory.py`; the event bus (`start_bus()`) is started in the same
 lifespan but is invisible to that inventory, so it has its own row. **The decision:** in the reference profile
 exactly one process holds the execution-owner lease at a time and only the holder runs the workers; the others
@@ -57,12 +57,13 @@ transition with the token arrives with the outbox (#685). This record fixes who 
 | `WebhookDispatcher` | execution-owner lease (B13, #536) | Delivers accepted outbound webhook events; retries into the dead-letter queue. |
 | `OutboxPublisher` | execution-owner lease (B13, #536) | Hands recorded business events (the transactional outbox) to each consumer's inbox, with retry and backoff; delivery is at-least-once and consumers deduplicate on the event id. |
 | `WorkspaceImportWorker` | execution-owner lease (B13, #536) | Claims queued push-mode Workspace import jobs and materializes each into an immutable WorkspaceRevision. |
+| `WorkspaceReleaseEvaluator` | execution-owner lease (B13, #536) | Claims queued Workspace release evaluations, oldest first, fenced by the lease; resolving and running the plan arrives with B10.2. |
 | `EventBus` (database, Redis or NATS) | every process (fans events out; takes no effect) | publisher and poll tasks (database bus) or consumer tasks (Redis, NATS) deliver platform events to subscribers; publishing becomes idempotent through the outbox (#536) |
 
 ### Recovery by stage
 
 What each loop leaves behind when its owner dies in the middle of a tick, who picks it up, and which table shows it. The
-rows are the eleven loops of `worker_inventory()` (the event bus is not a loop and has no row), and
+rows are the twelve loops of `worker_inventory()` (the event bus is not a loop and has no row), and
 `caliber/tests/test_worker_inventory.py` fails if a loop has no row here or a row names a loop that is gone. (This record is
 not a page of the published docs site, so "ADR 0002, Recovery by stage" is a repository path, not a link there.) Every loop is
 `owner_only`, so the "next owner" is whichever process acquires the lease after the old one lapses
@@ -81,6 +82,7 @@ token. The operator steps are in `docs/operate/recovery-runbook.md`.
 | `AriaPlanWorker` | yes | there is no claim: a step stays at the status its last commit left | the next owner's tick polls the steps still `waiting_job` and resumes their plans | `caliber_aria_plan_steps` |
 | `KnowledgeBaseWorker` | yes | the build run stays `running` until its lease (`CALIBER_KNOWLEDGE_BUILD_LEASE_SECONDS`, 120 s) lapses | `_recover_expired_leases` sets it `queued` again ("worker lease expired; build re-queued for recovery", event `build_requeued`) | `caliber_knowledge_base_runs`; `caliber_knowledge_base_run_events` |
 | `WorkspaceImportWorker` | yes | nothing was persisted (the revision and the job's `succeeded` commit together); the job stays `running` until its lease (`CALIBER_WORKSPACE_IMPORT_LEASE_SECONDS`, 300 s) lapses | `reconcile_expired_import_jobs` moves it to `reconcile_required`; it is not requeued, `retry_failed_import_job` refuses that state (it accepts only `failed`), and no operator action on the job exists yet: an operator queues a new import job for the same content, which is safe by digest | `caliber_workspace_import_jobs`; `caliber_workspace_revisions` |
+| `WorkspaceReleaseEvaluator` | yes | a claimed evaluation remains `running` and its release remains `evaluating` if the process dies; the claim lease expires but no automatic requeue exists yet | until B10.4 (#721), an operator uses the documented recovery SQL only while B10.2 (#707) is not merged; after B10.2, do not clear a live evaluation attempt without its recovery contract | `caliber_workspace_release_evaluations`; `caliber_workspace_releases` |
 | `WorkflowSchedulerTask` | yes | a tick commits once, so a crash mid-tick persists none of that tick's runs | the unique `(workflow_id, source, idempotency_key)` on `cron:{alias}:{minute}` makes a repeat harmless; a minute that passes with no owner, or whose tick the new owner misses, is not fired later | `caliber_workflow_deployments`; `caliber_workflow_runs` |
 | `OutboxPublisher` | yes | the claimed rows keep a lease (30 s) and the attempt was already counted | at lease expiry the rows are due again and the next owner's publisher redelivers them; the consumer's inbox key `(consumer, event_id)` drops a repeat; a row that runs out of `CALIBER_EVENT_OUTBOX_MAX_ATTEMPTS` is `dead` and kept | `caliber_event_outbox`; `caliber_event_inbox` |
 
@@ -243,11 +245,11 @@ and `exempt` rows stay with the module the row names.
 
 ## Appendix: worker ownership classification (B13.1, #660)
 
-The same eleven loops, classified for the lease: `owner_only` means only the execution-owner lease holder runs the
+The same twelve loops, classified for the lease: `owner_only` means only the execution-owner lease holder runs the
 loop and it stops claiming when the lease is lost; every other replica serves requests only. `any_process` would
 mean the loop is safe on every replica at once. The classification is the `ownership` field of
 `caliber/src/caliber/observability/worker_inventory.py`, and `caliber/tests/test_worker_inventory.py` fails if this
-table and the inventory disagree. All eleven are `owner_only`: the claim in the last column makes an overlap harmless today
+table and the inventory disagree. All twelve are `owner_only`: the claim in the last column makes an overlap harmless today
 but does not fence a stale process whose lease expired mid-transition, and two loops (`AriaPlanWorker`,
 `ReleaseReconcilerTask`) have no per-row claim at all. A loop moves to `any_process` only by an amendment to this record that shows it safe under fencing.
 
@@ -264,6 +266,7 @@ but does not fence a stale process whose lease expired mid-transition, and two l
 | `WebhookDispatcher` | `owner_only` | accept lease (at least 60 s, covering the retry window) plus an in-process in-flight claim |
 | `OutboxPublisher` | `owner_only` | per-row lease (`claimed_by`, `lease_expires_at`): a conditional UPDATE claims each row (exclusive on SQLite too; `FOR UPDATE SKIP LOCKED` on PostgreSQL avoids the contention) and only the claimer can settle it; redelivery is deduplicated by the consumer's inbox key `(consumer, event_id)` |
 | `WorkspaceImportWorker` | `owner_only` | per-job lease (`workspace_import_lease_seconds`) |
+| `WorkspaceReleaseEvaluator` | `owner_only` | conditional `UPDATE ... WHERE status = 'queued'` claim (`claim_workspace_release_evaluation`) with a per-attempt lease (`workspace_release_evaluator_lease_seconds`), made inside a transaction fenced by `assert_fenced` |
 
 The event bus is not in the worker inventory and is classified by its own row in the table above.
 
