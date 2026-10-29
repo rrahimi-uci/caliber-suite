@@ -407,8 +407,8 @@ synchronous real run (`POST /workflow-versions/{id}/run`) is never queued, so wi
    key from another source or in another project's workflow is a different request. A key that names a run created while
    admission was off returns that legacy run (it has no manifest). Two requests racing on one key admit exactly one
    run, and the loser gets the same answer a later retry would (PostgreSQL scenario).
-4. **Lineage (B02.4, #691).** Under `CALIBER_PROFILE=reference` every run started through the create-run route or the
-   event trigger names the workspace release and environment it runs against (`workspace_release_id` and
+4. **Lineage (B02.4, #691).** Under `CALIBER_PROFILE=reference` every run started through the create-run route, the
+   event trigger, the cron scheduler or a service token names the workspace release and environment it runs against (`workspace_release_id` and
    `environment_id`, together; optionally `model_id` and `config_sha256`): a run without them is `422` with
    `{"error": "lineage_required"}` before anything is read or written (`run_launch.require_lineage`,
    `LineageRequiredError`), and the run is created with its immutable runtime lineage. A lineage that is not valid for
@@ -417,11 +417,15 @@ synchronous real run (`POST /workflow-versions/{id}/run`) is never queued, so wi
    keeps the lineage of the run it retries (a fresh lineage record for the new run, refused with `409` if the release is
    no longer eligible) and a run that never had one cannot be retried in the reference profile (`422`). Development
    leaves lineage optional. **Not covered, tracked:** the assistant's run tool (a chat has no release to name) is
-   refused with the same code; the cron scheduler and service-token runs, which are not admitted either, still start
-   with no lineage (#958 and #967); and the console's Run and Trigger actions do not yet offer a release and
+   refused with the same code; and the console's Run and Trigger actions do not yet offer a release and
    environment, so in the reference profile they are refused until they do (#968).
-5. **Who and what.** The subject is the authenticated caller (`session`, `pat` or `trusted_header`), the workload is
-   the workflow pinned to its version digest, the purpose is `workflow_run:<path>` with the route's own word (`api`, `event`, `retry`, `assistant`), never the
+5. **Who and what.** A user-started run has the authenticated caller (`session`, `pat` or `trusted_header`) as its
+   subject. A scheduler or service-token run has a server-created `service_principal` subject instead:
+   `principal_id` is `service_principal:cron:<workflow_id>` for the scheduler or `service_token:<token_id>` for the
+   service route. The principal is fixed to the local tenant, workflow project, pinned workload, purpose and allowed
+   action/resource set; it carries no ambient user scopes and is not admitted through human project membership. The
+   workload is the workflow pinned to its version digest, the purpose is `workflow_run:<path>` with the route's own
+   word (`api`, `event`, `retry`, `assistant`, `cron` or `service`), never the
    client-chosen `source` field, and the scope is the fixed
    deployment (`local` organization, region and residency) plus the workflow's project. The caller must be acting in
    the workflow's project, and a credential bound to another project is refused (`403`). A workflow outside any
@@ -439,12 +443,20 @@ synchronous real run (`POST /workflow-versions/{id}/run`) is never queued, so wi
 | `409` | `manifest_override_not_admitted` | save the manifest as a version, publish it and run that |
 | `409` | `sync_run_not_admitted` | submit the run to the queued `/workflow-runs` endpoint |
 | `403` | `policy_denied` / `grant_refused` | the policy or the caller's role does not allow it; the reason codes are in the message |
+| `403` | `service_principal_required` / `service_principal_unconfigured` | reference admission requires a configured server-owned scheduler or authenticated service-token principal; no run, grant, decision or manifest is stored |
+| `403` | `service_principal_revoked` / `service_principal_expired` / `service_principal_*_mismatch` | the server principal is revoked, expired or does not match the fixed tenant, project, workflow, workload, purpose, action or resource binding; correct the server-side configuration and retry |
 | `503` | `authority_unavailable` | the grant or decision store could not answer; nothing was stored, retry |
 
-**Not admitted yet (stay legacy runs):** runs started by the cron scheduler and by a service token
-(`routes/services.py`), because neither has a typed subject (a user who authenticated) to put in a grant; they
-need a service-principal model first (#958). Preview and index rows are not executable runs. Legacy runs are marked
-as such, never gain a manifest, and keep today's execution path.
+**Scheduler and service-token admission (B02.6, #958).** In the reference profile, the scheduler and service route
+create a typed server principal and use the same admission transaction as user-started runs. The scheduler binds the
+principal to the active deployment's project and sealed workflow-version workload. The service route first validates
+the bearer token's workflow, scope, expiry and revocation, then binds the principal to that token, the workflow's
+project and the sealed workload. Both paths derive runtime lineage from exactly one active current workspace
+environment (preferring the `prod` environment); an absent or ambiguous environment is refused before any run,
+grant, decision or manifest row is stored. A public service with no authenticated token is refused in the reference
+profile. When `CALIBER_ADMISSION_ENABLED=false`, development scheduler and service paths remain supported as legacy
+runs and their summaries explicitly carry `admission_mode: legacy` and
+`legacy_reason: service_principal_admission_disabled`. Preview and index rows are not executable runs.
 
 **Executing an admitted run (B02.2b, #683).** The worker reads the run's manifest back
 (`workflows/run_pins.py::load_run_manifest`: digest, schema and run id checked) and executes only what it pinned. It
@@ -1256,8 +1268,7 @@ source_not_approved` in the error body and every unapproved `knowledge_base_id@v
 nothing is stored. The role check (`resource.execute` on the project) comes first, so only a caller who may run the
 workflow learns what the project has approved. Approval and revocation take effect at the **next admission**: an
 idempotent retry of a request that was already admitted still returns that run, and a run already admitted keeps
-running on what it was pinned to (the load-time check is B07.2, #699). **Not covered:** cron-scheduler and
-service-token runs, which are not admitted in the first place (#958). A knowledge base that belongs to another project
+running on what it was pinned to (the load-time check is B07.2, #699). A knowledge base that belongs to another project
 or to no project can never be approved for this one (only a project's own knowledge bases can), so a workflow pinned
 to one is refused until it uses one of the project's own. Development does not require approval. The refusal is not
 audited (it carries no policy decision); the response is the record.
@@ -1320,7 +1331,7 @@ one read. Outputs a run already produced (replayed on a resume from a checkpoint
 queried costs one decision and one audit row (a query naming several versions authorizes each before any is read).
 Legacy runs have no guard. **Not covered, tracked in #973:** preview runs, evaluations, deploy gates, refinement and
 calibration, the assistant's knowledge tools, runtime export and `knowledge_build` nodes still read knowledge-base
-bytes without this check, and cron and service-token runs are not admitted (#958).
+bytes without this check.
 
 ## The context manifest
 

@@ -103,7 +103,6 @@ Open and visible; none blocks D2's exit criteria, each is owned by an issue.
 
 | issue | what is not covered |
 | --- | --- |
-| #958, #967 | Cron-scheduler and service-token runs are legacy runs: they are not admitted, have no run grant and (in the reference profile) no runtime lineage. A service-principal model for run grants is needed. |
 | #968 | The console cannot start runs in the reference profile until the Run and Trigger actions can name a release and environment. |
 | #973 | Knowledge-base reads outside an admitted run (preview, evaluations, gates, refinement, assistant, export, `knowledge_build`) are not guarded by `context.read`. |
 | #976 | The context manifest records the step's initial context only: session memory is recorded as history without a memory authorization, manifests are not linked to the step, tool specifications and tool-loop results are not recorded, a registry prompt is resolved twice, retrieved text that passes through another node loses its provenance, a resumed run that replays a recorded knowledge-query output is refused, and other model calls (query answer synthesis, guardrail judges) are not recorded. |
