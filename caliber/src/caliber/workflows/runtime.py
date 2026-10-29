@@ -707,6 +707,7 @@ class OpenAIChatWorkflowExecutor:
         parallel_tool_calls: bool = False,
         prompt_cache_enabled: bool = False,
         prompt_cache_retention: str | None = None,
+        step_clock: Callable[[], Any] | None = None,
     ) -> None:
         if client is not None:
             self._client = client
@@ -734,17 +735,31 @@ class OpenAIChatWorkflowExecutor:
         self._parallel_tool_calls = parallel_tool_calls
         self._prompt_cache_enabled = prompt_cache_enabled
         self._prompt_cache_retention = prompt_cache_retention or None
+        # The clock a step's deadline is read from (an aware datetime); ``None`` is the real UTC clock.
+        self._step_clock = step_clock
 
     def run_step(
         self, request: _agent_step.AgentStepRequest, step_input: _agent_step.AgentStepInput
     ) -> _agent_step.AgentStepResult:
-        """Governed execution is not integrated for this executor yet (B08, #729): refused, no provider is called.
+        """One governed step through chat completions (B08, #729); see :mod:`caliber.workflows.step_openai_chat`.
 
-        The step is answered with a ``refused`` result (``adapter_not_integrated``) before any client is built or any
-        network is touched; :meth:`run_agent` is unchanged. The task that integrates this adapter replaces this body.
+        The model's read-tool calls run only through ``step_input.read_tools``; a call to any other tool is returned as a
+        proposed action (the model's unbound claim) and never run. The request's limits, the provider's usage and a
+        provider failure (``adapter_timeout``, ``provider_error``, ``malformed_result``) are typed results; nothing the
+        provider said is placed in a result or a log line. :meth:`run_agent` is unchanged.
         """
-        del step_input
-        return _agent_step.refusal(request, _agent_step.ADAPTER_NOT_INTEGRATED)
+        from caliber.workflows import step_openai_chat  # noqa: PLC0415
+
+        config = step_openai_chat.ChatStepConfig(
+            client=self._client,
+            default_model=self._default_model,
+            reasoning_effort=self._reasoning_effort,
+            parallel_tool_calls=self._parallel_tool_calls,
+            prompt_cache_enabled=self._prompt_cache_enabled,
+            prompt_cache_retention=self._prompt_cache_retention,
+            clock=self._step_clock,
+        )
+        return step_openai_chat.run_openai_chat_step(config, request, step_input)
 
     def run_agent(  # noqa: PLR0915 - provider request/response loop with tool replay
         self,
