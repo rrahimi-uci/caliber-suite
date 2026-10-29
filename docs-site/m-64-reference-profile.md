@@ -95,6 +95,26 @@ search and list: entity identifiers are passed in the `filters` mapping, not as 
 keeps the installed mem0 release and the service wrapper on the same boundary without changing the reference
 profile's ownership or lifecycle refusals.
 
+## Trace payload visibility in review surfaces
+
+Reference-profile trace visibility and trace-payload visibility are separate decisions. A caller may see a trace or a
+review queue without being allowed to read request, response, span input, span output, or governed trace attributes.
+For a project-owned experiment, the current project owner and editor roles may read those payloads; viewers and
+reviewers do not. An administrator without membership in the owning project is not an implicit payload reader.
+
+The observability trace detail route and the review-queue alignment-example route use the same fail-closed contract:
+non-payload identifiers, status, timing, review question answers, provenance, and assessment identifiers remain, while
+governed request/response values are replaced with stable `[redacted:<field>]` placeholders. The queue detail route
+itself contains item identifiers and review metadata only; it does not grant payload access.
+
+`POST /eval-datasets/{dataset_id}/examples/from-trace` first resolves trace identity and visibility without mapping
+payloads. It then requires `trace.payload.read` before copying the source request or response. A visible trace without
+that permission receives `403`, a foreign or unknown trace receives the same `404` as a missing trace, and neither
+refusal changes the dataset version or inserts an example. Supplying explicit `input` or `expected` values does not
+bypass the source-trace authorization check. An authorized example records the `from-trace` and source trace tags.
+
+The development profile retains its earlier behavior; these payload gates are part of the reference-profile contract.
+
 ## A configuration that passes
 
 ```ini
