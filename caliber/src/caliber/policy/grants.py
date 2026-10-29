@@ -53,7 +53,13 @@ from caliber.db.models import (
     CaliberRunGrant,
     CaliberWorkflowRun,
 )
-from caliber.policy.principal import PrincipalError, Subject, Workload
+from caliber.policy.principal import (
+    SERVICE_PRINCIPAL_AUTH_METHOD,
+    PrincipalError,
+    ServicePrincipal,
+    Subject,
+    Workload,
+)
 from caliber.resource_access import (
     OWNER_ROLE_REQUIRED_SCOPES,
     PROJECT_ACTIONS,
@@ -164,7 +170,7 @@ def _text(name: str, value: str) -> str:
     return _clean(value, name, _MAX_ID)
 
 
-def create_grant(
+def create_grant(  # noqa: PLR0912 - human and server-principal authority have distinct fail-closed checks
     session: Session,
     *,
     grant_id: str,
@@ -178,6 +184,7 @@ def create_grant(
     expires_at: datetime,
     now: datetime | None = None,
     scopes: frozenset[str] | None = None,
+    service_principal: ServicePrincipal | None = None,
 ) -> Grant:
     """Issue a grant for ``run_id``. Flushes, does not commit: it belongs in the admission transaction.
 
@@ -189,6 +196,17 @@ def create_grant(
     """
     if type(subject) is not Subject or type(workload) is not Workload:
         raise GrantError("subject and workload must be a Subject and a Workload")
+    if subject.auth_method == SERVICE_PRINCIPAL_AUTH_METHOD:
+        if type(service_principal) is not ServicePrincipal:
+            raise GrantError(
+                "a service_principal subject needs its server-created principal binding"
+            )
+        if subject != service_principal.to_subject():
+            raise GrantError("the grant subject does not match the service principal")
+    elif service_principal is not None:
+        raise GrantError(
+            "a service principal binding is only valid for a service_principal subject"
+        )
     if subject.project_id is not None and subject.project_id != project_id:
         raise GrantError("the grant's project must be the project the subject acted in")
     moment = _now(now)
@@ -220,14 +238,49 @@ def create_grant(
         raise GrantError("the run does not exist")
     if run_project[0] is not None and run_project[0] != row.project_id:
         raise GrantError("the run belongs to a different project")
-    role = _current_role(session, row.project_id, subject.user_id, scopes, lock=False)
-    if role is None:
-        raise GrantError("the subject is not a current member of the project")
-    beyond = sorted(action for action in actions if role not in PROJECT_ACTIONS[action])
-    if beyond:
-        raise GrantError(
-            f"the subject's role may not perform {beyond}; a grant never exceeds the role"
-        )
+    if service_principal is not None:
+        try:
+            workflow_id = str(
+                session.execute(
+                    select(CaliberWorkflowRun.workflow_id).where(
+                        CaliberWorkflowRun.workflow_run_id == row.workflow_run_id
+                    )
+                ).scalar_one_or_none()
+                or ""
+            )
+            service_principal.validate_binding(
+                tenant_id=str(
+                    session.execute(
+                        select(CaliberProject.tenant_id).where(
+                            CaliberProject.project_id == row.project_id
+                        )
+                    ).scalar_one_or_none()
+                    or ""
+                ),
+                project_id=row.project_id,
+                workflow_id=workflow_id,
+                workload=workload,
+                purpose=service_principal.purpose,
+                action="resource.execute",
+                resource=f"workflow:{workflow_id}",
+                now=moment.replace(tzinfo=timezone.utc),
+            )
+        except PrincipalError as exc:
+            code = getattr(exc, "code", "service_principal_unconfigured")
+            raise GrantError(f"{code}: {exc}") from exc
+        if not set(actions) <= service_principal.allowed_actions:
+            raise GrantError("the grant asks for an action outside the service principal binding")
+        if not set(resources) <= service_principal.allowed_resources:
+            raise GrantError("the grant asks for a resource outside the service principal binding")
+    else:
+        role = _current_role(session, row.project_id, subject.user_id, scopes, lock=False)
+        if role is None:
+            raise GrantError("the subject is not a current member of the project")
+        beyond = sorted(action for action in actions if role not in PROJECT_ACTIONS[action])
+        if beyond:
+            raise GrantError(
+                f"the subject's role may not perform {beyond}; a grant never exceeds the role"
+            )
     session.add(row)
     session.flush()
     return _to_grant(row)
@@ -341,14 +394,20 @@ def authorize(
             raise GrantDenied(GRANT_REVOKED)
         if row.expires_at <= _now(now):
             raise GrantDenied(GRANT_EXPIRED)
-        role = _current_role(session, row.project_id, row.subject_user_id, scopes, lock=True)
-        if role is None:
-            raise GrantDenied(NOT_A_MEMBER)
+        if row.subject_auth_method == SERVICE_PRINCIPAL_AUTH_METHOD:
+            role = None
+        else:
+            role = _current_role(session, row.project_id, row.subject_user_id, scopes, lock=True)
+            if role is None:
+                raise GrantDenied(NOT_A_MEMBER)
     except SQLAlchemyError as exc:
         raise GrantDenied(AUTHORITY_UNAVAILABLE) from exc
     if action not in grant.allowed_actions:
         raise GrantDenied(ACTION_NOT_ALLOWED)
-    if role not in PROJECT_ACTIONS.get(action, frozenset()):
+    if (
+        grant.subject.auth_method != SERVICE_PRINCIPAL_AUTH_METHOD
+        and role not in PROJECT_ACTIONS.get(action, frozenset())
+    ):
         raise GrantDenied(ROLE_NOT_ALLOWED)
     if resource not in grant.allowed_resources:
         raise GrantDenied(RESOURCE_NOT_ALLOWED)
