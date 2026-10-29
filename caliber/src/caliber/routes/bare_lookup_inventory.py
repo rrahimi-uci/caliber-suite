@@ -187,7 +187,7 @@ _REVIEWED_BARE_LOOKUPS: dict[str, str] = {
         "documented scope), so it cannot see the check performed in the "
         "caller's caller, in a different module."
     ),
-    "caliber.routes.services.invoke_service:844": (
+    "caliber.routes.services.invoke_service:867": (
         "`routes/services.py`'s service-invocation surface authenticates via "
         "a per-service bearer token (`_lock_service_configuration`/"
         "`_validate_service_token_in_session`, both called earlier in this "
@@ -197,7 +197,7 @@ _REVIEWED_BARE_LOOKUPS: dict[str, str] = {
         "inventory. The invoked workflow's own visibility is not the "
         "applicable gate here."
     ),
-    "caliber.routes.services.service_openapi:1152": (
+    "caliber.routes.services.service_openapi:1236": (
         "Same per-service bearer-token gate as `invoke_service` above "
         "(`_lock_service_configuration`/`_validate_service_token_in_session`, "
         "called earlier in this function) -- also listed in "

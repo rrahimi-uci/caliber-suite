@@ -357,6 +357,8 @@ def test_scheduler_fires_cron_and_dedupes(client: TestClient) -> None:
         )
     assert len(runs) == 2
     assert all(r.source == "cron" for r in runs)
+    assert all(r.summary["admission_mode"] == "legacy" for r in runs)
+    assert all(r.summary["legacy_reason"] == "service_principal_admission_disabled" for r in runs)
 
 
 def test_scheduler_persists_manifest_snapshot_for_replay(client: TestClient) -> None:
