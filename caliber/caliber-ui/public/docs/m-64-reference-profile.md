@@ -170,14 +170,45 @@ For the alpha-upgrade tests that follow (#708, #715): create the alpha database 
 alpha schema only because those files are frozen, which the never-skipping check enforces. Never read the migrations
 from the tag in CI; it is not in the checkout.
 
-The Beta's deterministic fixture (`caliber/tests/alpha_seed.py`) creates that schema, inserts representative
-alpha-shaped rows using raw column names, and refuses a database at any other revision or one that already contains
-rows. It is an offline test fixture, not an operator bootstrap path; it uses public test constants and must never be
-used as a source of credentials. Run its acceptance checks with:
+### The seeded alpha database (B16-Upgrade.2, #708)
+
+`caliber/tests/alpha_seed.py` builds a database an alpha operator could really have, for the upgrade test that
+follows (#715). It is an offline test fixture, not an operator bootstrap path.
+
+- **Schema.** `alembic upgrade <alpha head>` through the working-tree migrations (the head and the version table come
+  from the manifest above). Before migrating, it re-verifies that the migration directory alembic reads is
+  byte-identical to the manifest, so the schema built is the alpha's. Nothing is read from the tag.
+- **Data.** Raw `INSERT` statements from literals in the file, using the alpha table and column names, not
+  `caliber.db.models`. Every row lists every column, so no value comes from a database default or a clock: the same
+  bytes on every run, on SQLite and on PostgreSQL 16. 35 tables, 140 rows: three users (one disabled), three projects
+  (one archived) with their environments and members, a session and access tokens, workflows with published and draft
+  versions and deployments, nine runs in every status (including `running` and `waiting_approval`), their events and
+  checkpoints, runtime approvals, effect-ledger rows `in_progress` (two, unresolved), `completed` and `failed`, a
+  workflow service and token, secrets as ciphertext with the tool that references one, a skill, an eval dataset and
+  run, a prompt refinement loop (prompt text lives in MLflow, not in this database), audit rows and runtime tables.
+  Every hash and ciphertext derives from a public constant; the users' login phrase is `ALPHA_SEED_PASSWORD`.
+  `seed_sha256()` fingerprints the data and is pinned in the test.
+- **For #715.** `alpha_database(dialect, tmp_path, name)` yields a created and seeded database; `migrate_database(url)`
+  upgrades it; `read_seeded_rows(url)` against `expected_rows()` (per table; a table the upgrade rewrites needs its own
+  assertion), `row_counts()` and `schema_shape(url)` (compare with a fresh install) check the result.
+
+It fails loudly instead of seeding the wrong database, with `AlphaSeedError`:
+
+```text
+not a caliber-v0.1.0a1 database: it records <revision> in caliber_alembic_version, the alpha head is <alpha head>
+caliber_projects already holds 3 row(s); seed an unseeded alpha database
+the migrations alembic reads are not the ones caliber-v0.1.0a1 shipped, so the schema built from them would not be the alpha's
+```
+
+Recovery: use a new, empty database (the fixture creates it); a wrong revision means something migrated it past or
+short of the alpha head; the third message means a shipped migration changed, so restore it as described above.
 
 ```sh
 PYTHONPATH=caliber/src caliber/.venv/bin/python -m pytest caliber/tests/test_upgrade_from_alpha.py
 ```
+
+The `postgresql` cases run in the "Migration parity (PostgreSQL)" CI job (`CALIBER_TEST_POSTGRES_URL`, the
+`pgvector/pgvector:pg16` image, because migration 0060 needs the `vector` extension).
 
 ## A stored secret never leaves the platform
 
