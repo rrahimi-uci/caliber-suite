@@ -1450,6 +1450,18 @@ class CaliberConfig(BaseModel):
         ),
     )
 
+    approval_ttl_seconds: int = Field(
+        default=86400,
+        ge=1,
+        le=31_536_000,
+        description=(
+            "How long an approval request bound to an effect proposal stays answerable: its expires_at is "
+            "requested_at plus this many seconds (default 24 hours, at most a year). A request past it is refused "
+            "with the reason code expired. Read with caliber.workflows.approval_requests.configured_ttl_seconds by the "
+            "caller that creates the request; a change affects only requests created afterwards."
+        ),
+    )
+
     egress_policy_enabled: bool = Field(
         default=True,
         description=(
@@ -2475,6 +2487,7 @@ _ENV_VAR_TABLE: list[tuple[str, str, Any]] = [
         str,
     ),
     ("CALIBER_APPROVAL_ALLOW_SELF_APPROVAL", "approval_allow_self_approval", _flag),
+    ("CALIBER_APPROVAL_TTL_SECONDS", "approval_ttl_seconds", int),
     ("CALIBER_EGRESS_POLICY_ENABLED", "egress_policy_enabled", _flag),
     ("CALIBER_EGRESS_BLOCKED_CATEGORIES", "egress_blocked_categories", str),
     ("CALIBER_EGRESS_ALLOWED_HOSTS", "egress_allowed_hosts", str),

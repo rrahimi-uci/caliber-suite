@@ -34,6 +34,9 @@ Every rule is evaluated here rather than in the route so it is testable without 
 request, and so the worker's snapshot and the route's enforcement read the same
 definitions.
 
+Whether a request can still be decided at all is :func:`approval_refusal` (B06.2, #712): superseded by a newer request, or expired.
+It is pure (the caller reads the row and passes the clock), so the decision route and the recheck at commit apply one rule.
+
 Separation of duties is :func:`assert_distinct_actor` (B06.1, #706), extracted from
 :func:`record_approval` so every approval path applies one rule with one message. The request
 that binds an approval to one effect proposal is ``caliber.workflows.approval_requests``, kept in
@@ -44,7 +47,8 @@ lazily).
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
+from datetime import datetime, timezone
+from typing import Any, Final
 
 #: The default role an approval node requires when the manifest says nothing.
 DEFAULT_REQUIRED_ROLE = "caliber.approver"
@@ -58,6 +62,16 @@ SUPPORTED_TIMEOUT_BEHAVIORS: frozenset[str] = frozenset({"block"})
 VALID_ROLES: frozenset[str] = frozenset(
     {"caliber.viewer", "caliber.operator", "caliber.approver", "caliber.admin"}
 )
+
+
+#: Stable refusal codes for a request that can no longer be decided or consumed (B06.2, #712). The decision route returns them as
+#: the ``reason_code`` of a 409 and the commit-time recheck (B06.3) reuses them. They are the vocabulary of
+#: ``docs/architecture/approval-ux-contract.md`` (``expired``, ``superseded``), which replaces the ``approval_expired`` /
+#: ``approval_superseded`` named in the plan.
+REFUSAL_EXPIRED: Final = "expired"
+REFUSAL_SUPERSEDED: Final = "superseded"
+#: ``status`` of a request that a newer request for the same node replaced.
+STATUS_SUPERSEDED: Final = "superseded"
 
 
 class ApprovalPolicyError(ValueError):
@@ -182,6 +196,42 @@ def assert_distinct_actor(actor: str, initiated_by: str | None, *, allow_self: b
         )
 
 
+def _utc(moment: datetime) -> datetime:
+    """``moment`` as an aware UTC datetime; a naive one (how every timestamp is stored here) is already UTC."""
+    if moment.tzinfo is None:
+        return moment.replace(tzinfo=timezone.utc)
+    return moment.astimezone(timezone.utc)
+
+
+def approval_refusal(
+    *,
+    status: str | None,
+    superseded_by: str | None,
+    expires_at: datetime | None,
+    now: datetime,
+) -> str | None:
+    """Why a request can no longer be decided or consumed: :data:`REFUSAL_SUPERSEDED`, :data:`REFUSAL_EXPIRED` or ``None``.
+
+    Pure: the caller reads the row and passes the clock, so every path that acts on a request (the decision route today, the
+    recheck at commit in B06.3) applies one rule with one set of codes, and a test can fix the clock.
+
+    * **Superseded** (checked first, because a replaced request is gone whatever its clock says): ``status`` is
+      ``superseded`` or ``superseded_by`` is set.
+    * **Expired**: ``now`` is at or after ``expires_at``. The window is half-open, ``[requested_at, expires_at)``: at the
+      very instant it ends the request is already refused, so a request is never usable one tick longer than its ttl.
+      ``expires_at`` is stored naive and read as UTC; an aware ``now`` is converted. A request with no ``expires_at`` (a
+      legacy, node-level one) never expires.
+
+    The clock is the application's (``datetime.now(timezone.utc)``): the same one that wrote ``expires_at``, so a request is
+    never judged by two clocks. Nodes that share a database need synchronized clocks, as for every other deadline here.
+    """
+    if status == STATUS_SUPERSEDED or superseded_by:
+        return REFUSAL_SUPERSEDED
+    if expires_at is not None and _utc(now) >= _utc(expires_at):
+        return REFUSAL_EXPIRED
+    return None
+
+
 def record_approval(
     *,
     policy: ApprovalPolicy,
@@ -214,11 +264,15 @@ def record_approval(
 
 __all__ = [
     "DEFAULT_REQUIRED_ROLE",
+    "REFUSAL_EXPIRED",
+    "REFUSAL_SUPERSEDED",
+    "STATUS_SUPERSEDED",
     "SUPPORTED_TIMEOUT_BEHAVIORS",
     "VALID_ROLES",
     "ApprovalPolicy",
     "ApprovalPolicyError",
     "QuorumState",
+    "approval_refusal",
     "assert_distinct_actor",
     "record_approval",
     "validate_timeout_behavior",

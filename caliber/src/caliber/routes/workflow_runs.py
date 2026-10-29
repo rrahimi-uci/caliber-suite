@@ -77,8 +77,11 @@ from caliber.workflows.admission import (
     record_denial,
 )
 from caliber.workflows.approval_policy import (
+    REFUSAL_EXPIRED,
+    REFUSAL_SUPERSEDED,
     ApprovalPolicy,
     ApprovalPolicyError,
+    approval_refusal,
     record_approval,
 )
 from caliber.workflows.manifest import (
@@ -1861,6 +1864,42 @@ async def retry_workflow_run(request: Request) -> JSONResponse:  # noqa: PLR0912
 
 #: ``reason_code`` of the 409 for a request that is bound to an effect proposal (B06.1, #706).
 APPROVAL_BOUND_NOT_WIRED = "approval_bound_not_wired"
+#: The 409 message for each refusal of a bound request. Static on purpose: no request id, proposal id, hash or requester.
+_BOUND_REFUSAL_DETAIL = {
+    REFUSAL_SUPERSEDED: (
+        "this approval request was replaced by a newer request and can no longer be decided; "
+        "decide the current request for this step"
+    ),
+    REFUSAL_EXPIRED: (
+        "this approval request has expired and can no longer be decided; "
+        "ask for a new approval of the step"
+    ),
+    APPROVAL_BOUND_NOT_WIRED: (
+        "this approval request is bound to an effect proposal and cannot be decided "
+        "here yet: exact-intent approval is not wired"
+    ),
+}
+
+
+def _utc_now() -> datetime:
+    """The clock the decision routes judge an approval's expiry by (a seam so a test can fix it)."""
+    return datetime.now(timezone.utc)
+
+
+def _bound_refusal(row: CaliberRuntimeApprovalRequest, *, now: datetime) -> CaliberHTTPException:
+    """The 409 for a request bound to an effect proposal: superseded, expired, or (still live) not decidable here yet."""
+    code = (
+        approval_refusal(
+            status=row.status,
+            superseded_by=row.superseded_by,
+            expires_at=row.expires_at,
+            now=now,
+        )
+        or APPROVAL_BOUND_NOT_WIRED
+    )
+    return CaliberHTTPException(
+        status_code=409, detail=_BOUND_REFUSAL_DETAIL[code], reason_code=code
+    )
 
 
 def _select_pending_runtime_approval(
@@ -1868,13 +1907,17 @@ def _select_pending_runtime_approval(
     *,
     run: CaliberWorkflowRun,
     runtime_approval_id: str | None,
+    now: datetime,
 ) -> CaliberRuntimeApprovalRequest:
     """The pending legacy (node-level) approval this decision is about.
 
-    A request bound to an effect proposal (``proposal_id`` set, B06.1) is not decided here: this route checks none of its
-    binding, expiry, supersession or expected version, so deciding it would approve an intent nothing re-verified. Naming one
-    is ``409 approval_bound_not_wired`` (payload-free), and the default selection ignores bound rows so a legacy request is
-    never shadowed by a newer bound one. B06.2 and B06.3 replace this refusal with the real checks.
+    A request bound to an effect proposal (``proposal_id`` set, B06.1) is not decided here, whatever its state: this route does
+    not yet re-verify its exact intent or the approver's authority (the recheck at commit, B06.3, lifts that). Naming one is a
+    ``409`` with a stable ``reason_code`` and a payload-free message, and nothing is written: ``superseded`` when a
+    newer request replaced it, ``expired`` when ``now`` is at or past its ``expires_at`` (B06.2, #712; superseded is
+    reported first), otherwise ``approval_bound_not_wired``. The default selection ignores bound rows, so a legacy request is
+    never shadowed by a newer bound one. The refusal is read-only, so it takes no lock; whatever lifts it must lock the row
+    ``FOR UPDATE`` and re-run :func:`approval_refusal` before it writes.
     """
     if runtime_approval_id:
         row = session.get(CaliberRuntimeApprovalRequest, runtime_approval_id)
@@ -1887,14 +1930,7 @@ def _select_pending_runtime_approval(
                 ),
             )
         if row.proposal_id is not None:
-            raise CaliberHTTPException(
-                status_code=409,
-                detail=(
-                    "this approval request is bound to an effect proposal and cannot be decided "
-                    "here yet: exact-intent approval is not wired"
-                ),
-                reason_code=APPROVAL_BOUND_NOT_WIRED,
-            )
+            raise _bound_refusal(row, now=now)
         if row.status != "pending":
             raise HTTPException(
                 status_code=409,
@@ -1954,7 +1990,7 @@ async def approve_workflow_run_approval(request: Request) -> JSONResponse:
     run_id = request.path_params["run_id"]
     body = await parse_json_object(request, allow_empty=True)
     payload = WorkflowRunApprovalDecisionRequest.model_validate(body)
-    now = datetime.now(timezone.utc)
+    now = _utc_now()
     factory = get_session_factory(request)
     with factory() as session:
         run = _get_run_or_404(session, run_id, request=request)
@@ -2005,6 +2041,7 @@ async def approve_workflow_run_approval(request: Request) -> JSONResponse:
             session,
             run=run,
             runtime_approval_id=payload.runtime_approval_id,
+            now=now,
         )
         approval_id = approval.runtime_approval_id
         # Enforce the node's OWN policy (C6): this endpoint previously required only
@@ -2130,7 +2167,7 @@ async def reject_workflow_run_approval(request: Request) -> JSONResponse:
     run_id = request.path_params["run_id"]
     body = await parse_json_object(request, allow_empty=True)
     payload = WorkflowRunApprovalDecisionRequest.model_validate(body)
-    now = datetime.now(timezone.utc)
+    now = _utc_now()
     approval_id: str | None = None
     approval_node_id: str | None = None
     factory = get_session_factory(request)
@@ -2152,6 +2189,7 @@ async def reject_workflow_run_approval(request: Request) -> JSONResponse:
             session,
             run=run,
             runtime_approval_id=payload.runtime_approval_id,
+            now=now,
         )
         approval_id = approval.runtime_approval_id
         approval_node_id = approval.node_id
