@@ -227,6 +227,7 @@ BACKEND_CORE_TESTS=(
   tests/test_run_identity.py
   tests/test_policy_principal.py
   tests/test_worker_inventory.py
+  tests/test_workspace_release_evaluator.py
   tests/test_request_limits.py
   tests/test_upgrade_from_alpha.py
   tests/test_migration_checksums.py
@@ -310,6 +311,7 @@ job_migration_parity_postgres() {
         tests/test_effect_reconcile.py \
         tests/test_context_sources.py \
         tests/test_context_manifest.py \
+        tests/test_workspace_release_evaluator.py \
         -k postgresql --no-cov -q
     status=$?
   fi
