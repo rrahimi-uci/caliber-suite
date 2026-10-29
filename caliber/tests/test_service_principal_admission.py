@@ -16,6 +16,8 @@ from caliber.db.models import (
     CaliberRunGrant,
     CaliberRunManifest,
     CaliberWorkflowRun,
+    CaliberWorkspaceRelease,
+    CaliberWorkspaceRuntimeLineage,
 )
 from caliber.orchestrator.scheduler import WorkflowSchedulerTask
 from caliber.policy.grants import GrantError, authorize, create_grant
@@ -37,6 +39,7 @@ from caliber.policy.principal import (
 )
 from caliber.run_manifest import read_manifest
 from caliber.workflows.admission import AdmissionSettings
+from caliber.workflows.run_launch import current_runtime_lineage_coordinates
 from tests.test_run_admission import _project_workflow
 from tests.workflow_helpers import PREFIX, deploy_prod, seed_workspace_release
 
@@ -267,7 +270,10 @@ def test_service_token_run_is_admitted_with_manifest_grant_decision_and_lineage(
     client: TestClient, db_session: Session
 ) -> None:
     workflow_id, token = _publish_service_and_token(client, db_session)
-    seed_workspace_release(db_session, PROJECT, name="service")
+    seed_workspace_release(db_session, PROJECT, name="service-dev")
+    production = seed_workspace_release(
+        db_session, PROJECT, name="service-prod", environment_class="production"
+    )
     db_session.commit()
     _enable_reference_admission(client)
 
@@ -286,6 +292,9 @@ def test_service_token_run_is_admitted_with_manifest_grant_decision_and_lineage(
         manifest = session.execute(select(CaliberRunManifest)).scalar_one()
         assert run is not None and run.manifest_legacy is False
         assert run.runtime_lineage_id
+        lineage = session.get(CaliberWorkspaceRuntimeLineage, run.runtime_lineage_id)
+        assert lineage is not None
+        assert lineage.environment_id == production["environment_id"]
         assert run.created_by == grant.subject_user_id
         record = read_manifest(bytes(manifest.manifest_bytes), manifest.manifest_digest)
         assert record["subject"]["auth_method"] == SERVICE_PRINCIPAL_AUTH_METHOD
@@ -314,6 +323,8 @@ def test_reference_service_token_without_current_lineage_stores_nothing(
     client: TestClient, db_session: Session
 ) -> None:
     workflow_id, token = _publish_service_and_token(client, db_session)
+    seed_workspace_release(db_session, PROJECT, name="service-dev")
+    db_session.commit()
     _enable_reference_admission(client)
 
     response = client.post(
@@ -331,6 +342,88 @@ def test_reference_service_token_without_current_lineage_stores_nothing(
             CaliberRunManifest,
         ):
             assert session.execute(select(func.count()).select_from(model)).scalar_one() == 0
+
+
+def test_reference_service_token_refuses_ambiguous_deployment_class(
+    client: TestClient, db_session: Session
+) -> None:
+    workflow_id, token = _publish_service_and_token(client, db_session)
+    seed_workspace_release(
+        db_session, PROJECT, name="service-prod-a", environment_class="production"
+    )
+    seed_workspace_release(
+        db_session, PROJECT, name="service-prod-b", environment_class="production"
+    )
+    db_session.commit()
+    _enable_reference_admission(client)
+
+    response = client.post(
+        f"{PREFIX}/services/{workflow_id}/invoke",
+        json={"input": {"user_message": "ambiguous"}},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert response.status_code == 422, response.text
+    assert "lineage_required" in response.text
+    with client.app.state.session_factory() as session:
+        assert (
+            session.execute(select(func.count()).select_from(CaliberWorkflowRun)).scalar_one() == 0
+        )
+
+
+def test_reference_service_token_refuses_ineligible_mapped_release(
+    client: TestClient, db_session: Session
+) -> None:
+    workflow_id, token = _publish_service_and_token(client, db_session)
+    coordinates = seed_workspace_release(
+        db_session, PROJECT, name="service-revoked", environment_class="production"
+    )
+    release = db_session.get(CaliberWorkspaceRelease, coordinates["workspace_release_id"])
+    assert release is not None
+    release.status = "rejected"
+    db_session.commit()
+    _enable_reference_admission(client)
+
+    response = client.post(
+        f"{PREFIX}/services/{workflow_id}/invoke",
+        json={"input": {"user_message": "revoked"}},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert response.status_code == 409, response.text
+    assert "release_status=rejected" in response.text
+    with client.app.state.session_factory() as session:
+        assert (
+            session.execute(select(func.count()).select_from(CaliberWorkflowRun)).scalar_one() == 0
+        )
+
+
+def test_lineage_resolver_fails_closed_for_invalid_or_broken_mapping(
+    client: TestClient, db_session: Session
+) -> None:
+    assert current_runtime_lineage_coordinates(
+        db_session, None, deployment_environment="production"
+    ) == (None, None)
+    assert current_runtime_lineage_coordinates(
+        db_session, PROJECT, deployment_environment=None
+    ) == (None, None)
+    assert current_runtime_lineage_coordinates(
+        db_session, PROJECT, deployment_environment="unknown"
+    ) == (None, None)
+
+    workflow_id, _ = _project_workflow(client, db_session)
+    coordinates = seed_workspace_release(
+        db_session, PROJECT, name="service-broken", environment_class="production"
+    )
+    environment_id = coordinates["environment_id"]
+    from caliber.db.models import CaliberWorkspaceEnvironment
+
+    environment = db_session.get(CaliberWorkspaceEnvironment, environment_id)
+    assert environment is not None
+    environment.current_release_id = "missing-release"
+    db_session.flush()
+    assert current_runtime_lineage_coordinates(
+        db_session, PROJECT, deployment_environment="production"
+    ) == (None, None)
+    assert workflow_id
 
 
 def test_reference_public_service_is_refused_without_a_service_principal(
@@ -366,7 +459,7 @@ def test_scheduler_admits_with_server_owned_principal_and_lineage(
         trigger={"mode": "cron", "cron": "* * * * *", "timezone": "UTC", "alias": "prod"},
     )
     deploy_prod(client, workflow_id, version_id)
-    seed_workspace_release(db_session, PROJECT, name="cron")
+    seed_workspace_release(db_session, PROJECT, name="cron", environment_class="production")
     db_session.commit()
 
     scheduler = WorkflowSchedulerTask(

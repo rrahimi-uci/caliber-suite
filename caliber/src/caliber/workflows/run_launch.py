@@ -28,6 +28,7 @@ from caliber.db.models import (
     CaliberWorkspaceRelease,
 )
 from caliber.db.transactions import begin_sqlite_transaction
+from caliber.deployment_environments import ENVIRONMENT_CLASSES
 from caliber.ids import new_workflow_run_id
 from caliber.policy.principal import ServicePrincipal
 from caliber.workflows.admission import (
@@ -113,16 +114,25 @@ def require_lineage(workspace_release_id: str | None, environment_id: str | None
 
 
 def current_runtime_lineage_coordinates(
-    session: Session, project_id: str | None
+    session: Session,
+    project_id: str | None,
+    *,
+    deployment_environment: str | None,
 ) -> tuple[str | None, str | None]:
-    """Return the server-owned current production release and environment.
+    """Return the server-owned current release for a deployment's environment class.
 
     Cron and service-token callers have no request body in which to choose
-    lineage. The production environment pointer is the only allowed source;
-    zero or multiple usable rows means the service principal is unconfigured
-    and reference admission will refuse before a run row is inserted.
+    lineage. Their persisted deployment environment class is the only allowed
+    mapping. Exactly one active Workspace environment with a current release
+    must match it; there is deliberately no ``prod`` or "only active row"
+    fallback. The release/environment coordinates are then validated again by
+    :func:`create_runtime_lineage` inside the admission transaction, which
+    rejects a stale, revoked, or otherwise ineligible release before commit.
     """
-    if not project_id:
+    if not project_id or not deployment_environment:
+        return None, None
+    environment_class = deployment_environment.strip().casefold()
+    if environment_class not in ENVIRONMENT_CLASSES:
         return None, None
     environments = (
         session.execute(
@@ -130,19 +140,23 @@ def current_runtime_lineage_coordinates(
                 CaliberWorkspaceEnvironment.project_id == project_id,
                 CaliberWorkspaceEnvironment.status == "active",
                 CaliberWorkspaceEnvironment.current_release_id.is_not(None),
+                CaliberWorkspaceEnvironment.environment_class == environment_class,
             )
         )
         .scalars()
         .all()
     )
-    production = [environment for environment in environments if environment.name == "prod"]
-    if len(production) == 1:
-        environment = production[0]
-    elif len(environments) == 1:
-        environment = environments[0]
-    else:
+    if len(environments) != 1:
         return None, None
-    return str(environment.current_release_id), str(environment.environment_id)
+    environment = environments[0]
+    release = session.get(CaliberWorkspaceRelease, environment.current_release_id)
+    if (
+        release is None
+        or release.project_id != project_id
+        or release.environment_id != environment.environment_id
+    ):
+        return None, None
+    return str(release.release_id), str(environment.environment_id)
 
 
 def enqueue_workflow_run(  # noqa: PLR0912, PLR0915 - one insert path: idempotency, admission, lineage, events

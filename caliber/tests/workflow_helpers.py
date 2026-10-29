@@ -6,6 +6,7 @@ Not collected by pytest (no ``test_`` prefix). Mirrors the ``_make_*`` /
 
 from __future__ import annotations
 
+import hashlib
 from typing import Any
 
 from sqlalchemy.orm import Session
@@ -350,18 +351,34 @@ def create_and_publish(
     return workflow_id, version_id
 
 
-def seed_workspace_release(session: Any, project_id: str, name: str = "rl") -> dict[str, str]:
+def seed_workspace_release(
+    session: Any,
+    project_id: str,
+    name: str = "rl",
+    *,
+    environment_class: str = "development",
+) -> dict[str, str]:
     """An approved, current workspace release and its environment in ``project_id`` (flushes, does not commit).
 
     The runtime-lineage coordinates a run names in the reference profile; idempotent per ``(project_id, name)``.
+    ``environment_class`` lets admission tests model the deployment class that
+    is allowed to select this environment; it defaults to development for the
+    existing user/event test fixtures.
     Returns the two request fields ``workspace_release_id`` and ``environment_id``.
     """
+    from sqlalchemy import func, select
+
     from caliber.db.models import CaliberWorkspaceEnvironment, CaliberWorkspaceRevision
     from caliber.workspace_release_service import create_workspace_release
 
-    digest = "a" * 64
+    digest = hashlib.sha256(f"{project_id}:{name}".encode()).hexdigest()
     environment_id = f"WSE-{name}-{project_id}"[:64]
     revision_id = f"WSR-{name}-{project_id}"[:64]
+    revision_number = session.execute(
+        select(func.coalesce(func.max(CaliberWorkspaceRevision.revision_number), 0) + 1).where(
+            CaliberWorkspaceRevision.project_id == project_id
+        )
+    ).scalar_one()
     existing = session.get(CaliberWorkspaceEnvironment, environment_id)
     if existing is not None:
         return {
@@ -372,7 +389,7 @@ def seed_workspace_release(session: Any, project_id: str, name: str = "rl") -> d
         environment_id=environment_id,
         project_id=project_id,
         name=f"{name}-dev",
-        environment_class="development",
+        environment_class=environment_class,
         promotion_order=10,
         status="active",
         created_by="@test",
@@ -383,7 +400,7 @@ def seed_workspace_release(session: Any, project_id: str, name: str = "rl") -> d
             CaliberWorkspaceRevision(
                 revision_id=revision_id,
                 project_id=project_id,
-                revision_number=1,
+                revision_number=revision_number,
                 source_id=None,
                 source_commit_sha=None,
                 manifest={"apiVersion": "caliber/v1alpha1"},

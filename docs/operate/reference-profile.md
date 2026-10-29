@@ -481,13 +481,16 @@ synchronous real run (`POST /workflow-versions/{id}/run`) is never queued, so wi
 | `403` | `service_principal_revoked` / `service_principal_expired` / `service_principal_*_mismatch` | the server principal is revoked, expired or does not match the fixed tenant, project, workflow, workload, purpose, action or resource binding; correct the server-side configuration and retry |
 | `503` | `authority_unavailable` | the grant or decision store could not answer; nothing was stored, retry |
 
-**Scheduler and service-token admission (B02.6, #958).** In the reference profile, the scheduler and service route
+**Scheduler and service-token admission (B02.6/B02.7, #958/#967).** In the reference profile, the scheduler and service route
 create a typed server principal and use the same admission transaction as user-started runs. The scheduler binds the
 principal to the active deployment's project and sealed workflow-version workload. The service route first validates
 the bearer token's workflow, scope, expiry and revocation, then binds the principal to that token, the workflow's
-project and the sealed workload. Both paths derive runtime lineage from exactly one active current workspace
-environment (preferring the `prod` environment); an absent or ambiguous environment is refused before any run,
-grant, decision or manifest row is stored. A public service with no authenticated token is refused in the reference
+project and the sealed workload. Both paths derive runtime lineage from the deployment's persisted environment
+class and require exactly one active Workspace environment of that class with a current release. They do not fall
+back to `prod` or to an unrelated sole active environment; a missing, invalid, or ambiguous mapping is refused
+before any run, grant, decision or manifest row is stored. The admission transaction then rechecks that the mapped
+release is approved and still current, so a revoked or stale mapping returns `409` and stores nothing. A public
+service with no authenticated token is refused in the reference
 profile. When `CALIBER_ADMISSION_ENABLED=false`, development scheduler and service paths remain supported as legacy
 runs and their summaries explicitly carry `admission_mode: legacy` and
 `legacy_reason: service_principal_admission_disabled`. Preview and index rows are not executable runs.

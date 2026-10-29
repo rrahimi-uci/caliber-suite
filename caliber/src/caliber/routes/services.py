@@ -917,7 +917,9 @@ async def invoke_service(request: Request) -> JSONResponse:  # noqa: PLR0912, PL
                 identity = principal.to_identity()
                 if admission.lineage_required:
                     workspace_release_id, environment_id = current_runtime_lineage_coordinates(
-                        session, workflow.project_id
+                        session,
+                        workflow.project_id,
+                        deployment_environment=deployment.environment,
                     )
             except ServicePrincipalError as exc:
                 raise HTTPException(status_code=403, detail=f"{exc.code}: {exc}") from exc

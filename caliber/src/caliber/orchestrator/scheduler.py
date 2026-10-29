@@ -185,7 +185,9 @@ class WorkflowSchedulerTask:
                 actor = principal.principal_id
                 if self._admission.lineage_required:
                     workspace_release_id, environment_id = current_runtime_lineage_coordinates(
-                        session, workflow.project_id
+                        session,
+                        workflow.project_id,
+                        deployment_environment=deployment.environment,
                     )
             except ValueError as exc:
                 logger.warning(
