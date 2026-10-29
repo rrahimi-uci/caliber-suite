@@ -43,6 +43,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import warnings
 from collections.abc import Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -57,6 +58,7 @@ from alembic import command
 from alembic.script import ScriptDirectory
 from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.engine import Connection
+from sqlalchemy.exc import SAWarning
 
 from caliber.db.migrate import build_config
 from caliber.db_url import normalize_database_url
@@ -130,7 +132,7 @@ def _password_hash() -> str:
 
 def _table(
     name: str,
-    columns: str | Mapping[str, Value],
+    columns: str,
     rows: Sequence[Mapping[str, Value]],
     *,
     defaults: Mapping[str, Value] | None = None,
@@ -138,12 +140,8 @@ def _table(
     autoincrement: bool = False,
 ) -> SeedTable:
     """Build an alpha table from its frozen columns and explicit neutral defaults."""
-    if isinstance(columns, str):
-        column_names = tuple(columns.split())
-        base: dict[str, Value] = dict.fromkeys(column_names)
-    else:
-        column_names = tuple(columns)
-        base = dict(columns)
+    column_names = tuple(columns.split())
+    base: dict[str, Value] = dict.fromkeys(column_names)
     if len(column_names) != len(set(column_names)):
         raise AlphaSeedError(f"{name}: alpha column list contains duplicates")
     defaults = dict(defaults or {})
@@ -1864,7 +1862,11 @@ def schema_shape(url: str) -> dict[str, tuple[str, ...]]:
         for table in inspector.get_table_names():
             if table == alpha_version_table():
                 continue
-            shape[table] = tuple(sorted(column["name"] for column in inspector.get_columns(table)))
+            with warnings.catch_warnings():
+                # PostgreSQL's pgvector column (migration 0060) has no SQLAlchemy type; reflecting it warns.
+                warnings.simplefilter("ignore", category=SAWarning)
+                columns = inspector.get_columns(table)
+            shape[table] = tuple(sorted(column["name"] for column in columns))
         return shape
     finally:
         engine.dispose()
