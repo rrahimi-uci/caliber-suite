@@ -85,7 +85,8 @@ if job.awaits_human:
 > `CALIBER_FEATURE_RELEASE_CANDIDATES=true` and `CALIBER_WORKSPACE_RELEASE_EVALUATOR_ENABLED=true`. The worker
 > evaluates only the release revision's pinned candidate, dataset, judge and configuration; missing or changed pins
 > block the release. Successful and no-go evaluations persist the exact per-example gate evidence and recomputable
-> digest (B10.3); expired-attempt recovery remains B10.4. The release-candidate signoff on the Releases page and
+> digest (B10.3). Expired attempts are recorded and re-claimed with durable attempt history and stale-worker fencing
+> (B10.4); provider run identifiers are preserved and deduplicated. The release-candidate signoff on the Releases page and
 > `caliberctl release sign` remain record-only and deploy or roll back nothing.
 
 A Workspace revision moves from reviewed to live only through explicit,

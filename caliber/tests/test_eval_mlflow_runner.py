@@ -22,6 +22,7 @@ from caliber.eval.mlflow_runner import (
     _coerce_float,
     _compute_deltas,
     _count_examples,
+    _extract_evaluation_run_ids,
     _extract_evidence_rows,
     _merge_evidence_rows,
     _metrics_to_score_set,
@@ -303,6 +304,16 @@ def test_evidence_table_normalization_supports_common_shapes() -> None:
     assert _table_records(object()) == []
 
 
+def test_evaluation_run_ids_are_normalized_and_deduplicated() -> None:
+    assert _extract_evaluation_run_ids(
+        {"run_id": "run-a", "run_ids": ["run-a", "run-b"], "evaluation_run_id": "  run-c "}
+    ) == ("run-a", "run-b", "run-c")
+    assert set(_extract_evaluation_run_ids(types.SimpleNamespace(run_ids={"run-d", "run-e"}))) == {
+        "run-d",
+        "run-e",
+    }
+
+
 def test_evidence_rows_are_extracted_and_candidate_baseline_rows_must_align() -> None:
     result = types.SimpleNamespace(
         tables={
@@ -448,6 +459,7 @@ def test_evaluate_with_injected_dataset_and_scorers_runs_a_full_pass(
     class _MockEvalResult:
         def __init__(self, metrics: dict[str, float], score: float) -> None:
             self.metrics = metrics
+            self.run_id = f"run-{score}"
             self.tables = {
                 "eval_results_table": [
                     {
@@ -504,6 +516,7 @@ def test_evaluate_with_injected_dataset_and_scorers_runs_a_full_pass(
         "Correctness": 0.88,
         "Safety": 0.99,
     }
+    assert comparison.evaluation_run_ids == ("run-0.95", "run-0.88")
 
 
 def test_evaluate_cold_start_skips_baseline_pass(monkeypatch: pytest.MonkeyPatch) -> None:

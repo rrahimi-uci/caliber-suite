@@ -1977,9 +1977,9 @@ is the owner-only loop that picks them up. It reuses the service's own queue and
 (`claim_workspace_release_evaluation`); there is no second queue.
 
 > It is still opt-in. With the feature and worker flags enabled, the evaluator claims a row, resolves the release's
-> own immutable revision pins, runs the configured EvalProvider, and completes the attempt. It does not reclaim an
-> expired attempt yet (B10.4, #721); a live evaluation therefore remains protected by its lease until that recovery
-> slice lands.
+> own immutable revision pins, runs the configured EvalProvider, and completes the attempt. If the lease expires,
+> the next owner records the abandoned attempt and claims a new fenced attempt; provider run identifiers observed
+> before a crash remain attached to the evaluation and are deduplicated.
 
 - **One claim per tick, oldest first.** Every `CALIBER_WORKSPACE_RELEASE_EVALUATOR_INTERVAL_SECONDS` (default 5, from 0.5
   to 3600) it claims the `queued` row with the oldest `requested_at` (ties by id). The row becomes `running` with
@@ -1989,8 +1989,9 @@ is the owner-only loop that picks them up. It reuses the service's own queue and
 - **The claim identity.** `claimed_by` (and `started_by`) hold `workspace-release-evaluator-<pid>-<id>`, followed by
   `:t<token>` when the claim was fenced (the fencing token of the execution-owner lease it was made under; no suffix
   outside the reference profile). That is how the token is kept without a migration: an attempt claimed by owner 1 reads
-  `...:t1`, one claimed after a takeover `...:t2`. B10.4 (#721) must pass this identity, not the bare worker id, to the
-  service's heartbeat and complete (it is the `worker_id` of `ClaimedEvaluation`), and may read the token back from the row.
+  `...:t1`, one claimed after a takeover `...:t2`. The evaluator passes this identity and the attempt number to the
+  service's heartbeat and complete calls (it is the `worker_id` of `ClaimedEvaluation`), and may read the token back
+  from the row.
 - **Pinned execution.** Before the provider call the worker loads only the release's `revision_id` and its
   `CaliberWorkspaceRevisionResource` rows. It requires one `candidate`, one `evaluation` dataset, and one `evaluation`
   judge pin; optional `baseline` pins are also revision-local. Each registered adapter resolves and snapshots its
@@ -2008,6 +2009,14 @@ is the owner-only loop that picks them up. It reuses the service's own queue and
   scored-result digest, per-scorer valid-row/weight denominators, candidate/baseline aggregates, thresholds and
   provider provenance. `evaluation_evidence_sha256` is the digest of that exact block and can be recomputed without a
   provider call. A missing row set or row-count mismatch blocks settlement and writes no gate evidence.
+- **Durable attempt history and recovery (B10.4, #721).** The parent evaluation row remains the idempotent public
+  queue/status record. Each claim also creates one row in `caliber_workspace_release_evaluation_attempts`, keyed by
+  `(evaluation_id, attempt_number)`, with its worker identity, lease, status and provider run identifiers. When a
+  lease expires, the old attempt becomes `orphaned` and the next claim increments the attempt number; the old row and
+  any run identifiers are never overwritten. A provider run observed before settlement is recorded immediately, so a
+  crash after an external call remains auditable. Completion, heartbeat and run-recording operations are fenced to
+  the current attempt; a stale worker cannot settle the recovered release. Only the current attempt can become the
+  authoritative completion, and all parent/provider run identifiers are merged without duplicates.
 - **Owner-only and fenced.** It runs only in the process holding the execution-owner lease (see above), and in the
   reference profile each claim is made in a transaction that first runs `assert_fenced` with the exact lease the owner
   captured. A process whose lease was taken over, expired or cannot be checked claims nothing and records nothing; the
@@ -2024,10 +2033,11 @@ is the owner-only loop that picks them up. It reuses the service's own queue and
   every loop. A manually constructed worker without its provider and adapter registry is claim-only test/dry-run mode;
   the server always supplies both dependencies.
 - **A clean stop gives the claims back.** On shutdown or when the lease is lost the controller stops the loops;
-  `stop()` then sets this process's own still-`running` claims back to `queued` and clears `claimed_by`, `started_by`,
-  `started_at`, `heartbeat_at` and `lease_expires_at` (the attempt number is kept) in one compare-and-set statement on
-  its own claim identity, so it never touches a row another worker owns, and it works after the lease is gone. A crash,
-  a kill or a stop that outlives `CALIBER_SHUTDOWN_GRACE_SECONDS` does not requeue.
+  `stop()` then marks this process's own still-`running` attempt history as `requeued` and sets the parent claim back
+  to `queued`, clearing `claimed_by`, `started_by`, `started_at`, `heartbeat_at` and `lease_expires_at` in one
+  compare-and-set statement on its own claim identity. It never touches a row another worker owns, and it works after
+  the lease is gone. A crash, a kill or a stop that outlives `CALIBER_SHUTDOWN_GRACE_SECONDS` leaves the attempt
+  `running` until the next owner observes the expired lease and records it as `orphaned`.
 - **Liveness is write-only for now.** Every tick, idle ones included, writes a `caliber_worker_heartbeats` row of kind
   `workspace_release_evaluator`; a clean stop removes it and a replaced evaluator's stale row is reaped after a few
   poll intervals. Nothing reads that kind yet (`/readiness` queue health reads the `workflow_run` kind only), so it is a
@@ -2039,18 +2049,20 @@ is the owner-only loop that picks them up. It reuses the service's own queue and
 stop grace ends is abandoned (a thread cannot be cancelled) and can claim a row after the requeue. A queued row whose
 claim keeps failing with an unexpected error is retried first on every tick, so it holds up the rows behind it.
 
-**Recovering stranded rows** (a crashed or killed process, or an expired stop grace, left an attempt `running`). List
-them, then give them back only after confirming `lease_expires_at` is in the past; B10.4 will make this automatic:
+**Inspecting recovered attempts** (a crashed or killed process, or an expired stop grace, left an attempt `running`).
+The next owner recovers these automatically after `lease_expires_at` is in the past. Inspect both the parent queue row
+and its immutable attempt history:
 
 ```sql
 SELECT evaluation_id, workspace_release_id, claimed_by, lease_expires_at
 FROM caliber_workspace_release_evaluations
 WHERE status = 'running' AND claimed_by LIKE 'workspace-release-evaluator-%';
 
-UPDATE caliber_workspace_release_evaluations
-SET status = 'queued', claimed_by = NULL, started_by = NULL, started_at = NULL,
-    heartbeat_at = NULL, lease_expires_at = NULL
-WHERE status = 'running' AND claimed_by LIKE 'workspace-release-evaluator-%';
+SELECT evaluation_id, attempt_number, worker_id, status, provider_run_ids, authoritative,
+       completed_at, error_code
+FROM caliber_workspace_release_evaluation_attempts
+WHERE status IN ('running', 'orphaned', 'requeued')
+ORDER BY evaluation_id, attempt_number;
 ```
 
 **Rollback.** Unset `CALIBER_WORKSPACE_RELEASE_EVALUATOR_ENABLED` (or set it false) and restart: a clean stop of the old

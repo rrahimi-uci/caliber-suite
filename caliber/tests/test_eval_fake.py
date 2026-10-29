@@ -64,6 +64,11 @@ def test_custom_evidence_rows_are_carried_into_the_comparison() -> None:
     assert comparison.evidence_rows == rows
 
 
+def test_provider_run_ids_are_carried_into_the_comparison() -> None:
+    comparison = FakeEvalProvider(evaluation_run_ids=("run-1", "run-2")).evaluate(_request())
+    assert comparison.evaluation_run_ids == ("run-1", "run-2")
+
+
 def test_weighting_ignores_invalid_entries_and_recomputes_valid_weights() -> None:
     scores = ScoreSet(overall=0.2, dimensions={"quality": 0.8, "safety": 0.4})
     weighted = apply_scorer_weights(
@@ -92,6 +97,22 @@ def test_provider_factory_and_description_are_explicit() -> None:
     assert build_provider("mlflow").__class__.__name__ == "MLflowEvalProvider"
     with pytest.raises(EvalProviderError, match="unknown eval_provider"):
         build_provider("missing")
+
+
+def test_provider_factory_wires_configured_mlflow_default(monkeypatch: pytest.MonkeyPatch) -> None:
+    from caliber.eval import predict
+
+    completion = object()
+    factory = object()
+    loader = object()
+    monkeypatch.setattr(predict, "build_completion_fn", lambda config: completion)
+    monkeypatch.setattr(predict, "build_default_predict_fn_factory", lambda complete: factory)
+    monkeypatch.setattr(predict, "build_db_load_dataset", lambda session_factory: loader)
+
+    provider = build_provider("mlflow", session_factory=object(), config=object())
+
+    assert provider._default_factory is factory  # type: ignore[attr-defined]
+    assert provider._load_dataset is loader  # type: ignore[attr-defined]
 
 
 def test_fake_provider_supports_requested_scorers_and_dataset_loader_errors(

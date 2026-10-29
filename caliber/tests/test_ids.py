@@ -13,6 +13,7 @@ from caliber.ids import (
     new_knowledge_base_relationship_id,
     new_quality_review_id,
     new_rework_task_id,
+    new_workspace_release_evaluation_attempt_id,
 )
 
 
@@ -39,6 +40,11 @@ def test_rework_task_id_has_rwt_prefix_and_hex_suffix() -> None:
 def test_quality_review_id_has_qrv_prefix_and_hex_suffix() -> None:
     review_id = new_quality_review_id()
     assert re.match(r"^QRV-[0-9a-f]{8}$", review_id), review_id
+
+
+def test_workspace_release_evaluation_attempt_id_has_durable_prefix() -> None:
+    attempt_id = new_workspace_release_evaluation_attempt_id()
+    assert re.match(r"^WSRELEA-[0-9a-f]{8}$", attempt_id), attempt_id
 
 
 def test_ids_are_unique() -> None:

@@ -66,6 +66,7 @@ PredictFnFactory = Callable[[str], PredictFn]
 class _EvalPass:
     scores: ScoreSet
     evidence_rows: tuple[dict[str, Any], ...]
+    evaluation_run_ids: tuple[str, ...]
 
 
 # Re-exported for back-compat; the canonical map lives in ``eval.judge_scorer``.
@@ -161,6 +162,7 @@ class MLflowEvalProvider:
 
         baseline_scores: ScoreSet | None
         baseline_rows: tuple[dict[str, Any], ...] = ()
+        baseline_run_ids: tuple[str, ...] = ()
         if request.baseline_content is None:
             baseline_scores = None
         else:
@@ -173,6 +175,7 @@ class MLflowEvalProvider:
                 request=request,
             )
             baseline_rows = baseline_pass.evidence_rows
+            baseline_run_ids = baseline_pass.evaluation_run_ids
             baseline_scores = baseline_pass.scores
             baseline_scores = _align_selected_scores(baseline_scores, metric_names)
             _require_requested_scores(baseline_scores, request.scorer_names, label="baseline")
@@ -184,6 +187,10 @@ class MLflowEvalProvider:
             candidate_pass.evidence_rows,
             baseline_rows,
         )
+        evaluation_run_ids = _merge_run_ids(
+            candidate_pass.evaluation_run_ids,
+            baseline_run_ids,
+        )
         return EvalComparison(
             candidate=candidate_scores,
             baseline=baseline_scores,
@@ -191,6 +198,7 @@ class MLflowEvalProvider:
             eval_dataset_id=request.eval_dataset_id,
             n_examples=n_examples,
             evidence_rows=evidence_rows,
+            evaluation_run_ids=evaluation_run_ids,
         )
 
     # ------------------------------------------------------------------
@@ -397,7 +405,35 @@ class MLflowEvalProvider:
         return _EvalPass(
             scores=_metrics_to_score_set(getattr(result, "metrics", {}) or {}),
             evidence_rows=_extract_evidence_rows(result, data, request.scorer_names),
+            evaluation_run_ids=_extract_evaluation_run_ids(result),
         )
+
+
+def _merge_run_ids(*groups: tuple[str, ...]) -> tuple[str, ...]:
+    merged: list[str] = []
+    for group in groups:
+        for raw in group:
+            run_id = str(raw).strip()
+            if run_id and run_id not in merged:
+                merged.append(run_id)
+    return tuple(merged)
+
+
+def _extract_evaluation_run_ids(result: Any) -> tuple[str, ...]:
+    """Read provider run references without depending on one MLflow result class."""
+
+    values: list[str] = []
+    for name in ("run_id", "run_ids", "evaluation_run_id", "evaluation_run_ids"):
+        raw = result.get(name) if isinstance(result, Mapping) else getattr(result, name, None)
+        candidates: tuple[str, ...]
+        if isinstance(raw, str):
+            candidates = (raw,)
+        elif isinstance(raw, (list, tuple, set, frozenset)):
+            candidates = tuple(str(item) for item in raw)
+        else:
+            candidates = ()
+        values.extend(candidates)
+    return _merge_run_ids(tuple(values))
 
 
 def _table_records(table: Any) -> list[Mapping[str, Any]]:

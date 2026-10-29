@@ -60,6 +60,7 @@ class FakeEvalProvider:
     calls: list[EvalRequest] = field(default_factory=list)
     session_factory: Any | None = None
     evidence_rows: tuple[dict[str, Any], ...] | None = None
+    evaluation_run_ids: tuple[str, ...] = ()
 
     def evaluate(self, request: EvalRequest) -> EvalComparison:
         self.calls.append(request)
@@ -88,6 +89,7 @@ class FakeEvalProvider:
             eval_dataset_id=request.eval_dataset_id,
             n_examples=example_count,
             evidence_rows=self._evidence_rows(candidate, baseline, example_count),
+            evaluation_run_ids=self.evaluation_run_ids,
         )
 
     def _evidence_rows(
@@ -173,6 +175,7 @@ def _build_comparison(
     eval_dataset_id: str,
     n_examples: int,
     evidence_rows: tuple[dict[str, Any], ...] = (),
+    evaluation_run_ids: tuple[str, ...] = (),
 ) -> EvalComparison:
     deltas: dict[str, float] = {}
     if baseline is not None:
@@ -188,4 +191,5 @@ def _build_comparison(
         eval_dataset_id=eval_dataset_id,
         n_examples=n_examples,
         evidence_rows=evidence_rows,
+        evaluation_run_ids=evaluation_run_ids,
     )

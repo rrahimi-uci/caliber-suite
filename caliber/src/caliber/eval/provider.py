@@ -54,6 +54,9 @@ class EvalComparison:
     # Provider-owned, per-example evidence. An aggregate score alone cannot
     # prove which inputs and denominators produced a release decision.
     evidence_rows: tuple[Mapping[str, Any], ...] = ()
+    # External provider runs are evidence references, not foreign keys: an
+    # MLflow run may outlive a crashed worker and can therefore be orphaned.
+    evaluation_run_ids: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
