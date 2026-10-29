@@ -1330,13 +1330,24 @@ def test_every_executor_implements_run_step(monkeypatch: pytest.MonkeyPatch) -> 
     built = every_executor()
     assert tuple(built) == EXECUTOR_NAMES
     for name, executor in built.items():
-        ctx = make_context()
+        # An integrated executor reads the clock against the deadline, so the deadline is one that no date reaches.
+        ctx = make_context(
+            limits={
+                "max_turns": 8,
+                "max_tool_calls": 4,
+                "max_tokens": 20000,
+                "deadline": "2999-01-01T00:00:00Z",
+            }
+        )
         assert isinstance(executor, AgentStepAdapter), name
         result = run_agent_step(executor, ctx.request, ctx.step_input)
         assert result.workflow_run_id == ctx.request.workflow_run_id
         assert result.proposed_actions == ()
         if name == "fake":
             assert result.stop_reason == "completed", name
+        elif name == "openai_chat":
+            # Integrated (#729): it runs the step, and the tripwire client's failure is a typed provider error.
+            assert (result.stop_reason, result.error_code) == ("error", "provider_error"), name
         else:
             assert (result.stop_reason, result.error_code) == ("refused", ADAPTER_NOT_INTEGRATED), (
                 name
