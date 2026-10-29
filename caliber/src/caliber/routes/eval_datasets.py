@@ -53,7 +53,8 @@ from caliber.eval.dataset_sync import (
     MLflowDatasetSyncClient,
 )
 from caliber.ids import new_eval_dataset_id, new_eval_example_id
-from caliber.observability.trace_access import is_visible
+from caliber.observability.trace_access import can_read_payloads, is_visible
+from caliber.profile import payload_governance_active
 from caliber.resource_access import require_project_access_if_scoped
 from caliber.routes._deps import (
     envelope_response,
@@ -72,7 +73,12 @@ from caliber.schemas import (
     EvalExampleReviseRequest,
     EvalExampleSchema,
 )
-from caliber.trace_client import TraceDetail, fetch_trace_detail
+from caliber.trace_client import (
+    TraceDetail,
+    TraceNotFoundError,
+    TraceStoreUnavailableError,
+    fetch_trace_detail,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -437,6 +443,40 @@ def _trace_field_text(value: Any) -> str:
         return str(value)
 
 
+def _authorized_trace_for_example(request: Request, identity: Any, trace_id: str) -> TraceDetail:
+    """Resolve visibility and payload access before returning trace content for a copy."""
+    if not payload_governance_active(getattr(request.app.state, "config", None)):
+        detail = fetch_trace_detail(trace_id)
+        if not is_visible(detail.experiment_id, visible_experiments_for(request)):
+            # A trace the caller cannot see reads exactly like one that does not exist: nothing of it is
+            # copied, and an explicit input still works as it does for a missing trace.
+            return TraceDetail(trace_id=trace_id)
+        return detail
+
+    # Resolve only the trace identity first. The metadata-only lookup does not map spans or root
+    # request/response values, so authorization precedes any payload copy.
+    try:
+        metadata = fetch_trace_detail(trace_id, strict=True, include_payloads=False)
+    except TraceNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=f"trace {trace_id!r} not found") from exc
+    except TraceStoreUnavailableError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    if not is_visible(metadata.experiment_id, visible_experiments_for(request)):
+        raise HTTPException(status_code=404, detail=f"trace {trace_id!r} not found")
+    with get_session_factory(request)() as session:
+        if not can_read_payloads(session, identity, metadata.experiment_id or ""):
+            raise HTTPException(
+                status_code=403,
+                detail="trace payload access is required to create an example from a trace",
+            )
+    try:
+        return fetch_trace_detail(trace_id, strict=True)
+    except TraceNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=f"trace {trace_id!r} not found") from exc
+    except TraceStoreUnavailableError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
 async def create_example_from_trace(request: Request) -> JSONResponse:
     """Append an example built from an observed MLflow trace.
 
@@ -452,11 +492,7 @@ async def create_example_from_trace(request: Request) -> JSONResponse:
     actor = require_scopes(request, [SCOPE_OPERATOR])
     identity = resolve_identity(request)
 
-    detail = fetch_trace_detail(payload.trace_id)
-    if not is_visible(detail.experiment_id, visible_experiments_for(request)):
-        # A trace the caller cannot see reads exactly like one that does not exist: nothing of it is
-        # copied, and an explicit input still works as it does for a missing trace.
-        detail = TraceDetail(trace_id=payload.trace_id)
+    detail = _authorized_trace_for_example(request, identity, payload.trace_id)
     derived_input: dict[str, object] = (
         dict(payload.input)
         if payload.input is not None

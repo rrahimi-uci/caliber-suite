@@ -18,15 +18,19 @@ import mlflow
 import pytest
 from mlflow.exceptions import MlflowException
 from mlflow.protos.databricks_pb2 import RESOURCE_DOES_NOT_EXIST
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 from starlette.testclient import TestClient
 
 from caliber.auth import SCOPE_ADMIN, SCOPE_APPROVER, SCOPE_OPERATOR, SCOPE_VIEWER, CaliberIdentity
 from caliber.db.models import (
     CaliberAgentConfig,
+    CaliberEvalDataset,
+    CaliberEvalDatasetExample,
     CaliberExperimentOwner,
     CaliberProject,
     CaliberProjectMember,
+    CaliberReviewItem,
     CaliberWorkflow,
 )
 from caliber.observability.experiment_registry import tracking_backend
@@ -45,8 +49,19 @@ from caliber.resource_access import (
     decide_project_access,
     permissions_for_role,
 )
-from tests.test_trace_project_scoping import ALICE, OBS, PROJECT_A, FakeMlflow, _as, _trace
-from tests.test_trace_project_scoping import world as scoping_world  # noqa: F401 - a fixture
+from caliber.trace_client import TraceDetail
+from tests.test_trace_project_scoping import (
+    ALICE,
+    OBS,
+    PROJECT_A,
+    FakeMlflow,
+    _as,
+    _grant_operator,
+    _trace,
+)
+from tests.test_trace_project_scoping import (
+    world as scoping_world,  # noqa: F401 - a fixture
+)
 
 PROJECT = "P-payload"
 ROLES = {
@@ -509,6 +524,22 @@ def _span_by_id(body: dict[str, Any]) -> dict[str, dict[str, Any]]:
     return {span["span_id"]: span for span in body["spans"]}
 
 
+def _seed_completed_review_item(db_session: Session, item_id: str = "RVI-redaction") -> None:
+    db_session.add(
+        CaliberReviewItem(
+            item_id=item_id,
+            queue_id="rq-a",
+            trace_id="tr-rich",
+            experiment_id="exp-A",
+            status="completed",
+            answers={"ok": True, "rationale": "keep this review answer"},
+            assessment_ids=["assessment-1"],
+            completed_by="@reviewer-trace",
+        )
+    )
+    db_session.commit()
+
+
 def test_viewer_sees_redacted_detail(client: TestClient, traced: FakeMlflow) -> None:
     editor = client.get(f"{OBS}/traces/tr-rich", headers=_as(ALICE, PROJECT_A))
     assert editor.status_code == 200, editor.text
@@ -536,6 +567,323 @@ def test_viewer_sees_redacted_detail(client: TestClient, traced: FakeMlflow) -> 
         assert seen["request"] == "[redacted:request]" and seen["response"] == "[redacted:response]"
         for key in ("trace_id", "name", "status", "experiment_id", "total_tokens", "cost_usd"):
             assert seen[key] == full[key], key
+
+
+def test_review_queue_alignment_redacts_payloads_but_preserves_review_metadata(
+    client: TestClient,
+    traced: FakeMlflow,
+    db_session: Session,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A visible queue is not a payload grant: the reviewer keeps answers and lineage only."""
+    from caliber.routes import review_queues as routes
+
+    _seed_completed_review_item(db_session)
+    calls: list[dict[str, Any]] = []
+
+    def fetch(trace_id: str, **kwargs: Any) -> TraceDetail:
+        calls.append(kwargs)
+        if kwargs.get("include_payloads") is False:
+            return TraceDetail(trace_id=trace_id, experiment_id="exp-A")
+        return TraceDetail(
+            trace_id=trace_id,
+            experiment_id="exp-A",
+            request=SECRET,
+            response=SECRET,
+        )
+
+    monkeypatch.setattr(routes, "fetch_trace_detail", fetch)
+    response = client.get(
+        "/ajax-api/2.0/mlflow/caliber/review-queues/rq-a/alignment-examples",
+        params={"question_key": "ok"},
+        headers=_as(VIEWER, PROJECT_A),
+    )
+
+    assert response.status_code == 200, response.text
+    data = response.json()["data"]
+    assert calls == [{"include_payloads": False}], "a denied reviewer never maps full payloads"
+    assert data["examples"][0]["inputs"] == {
+        "trace_id": "tr-rich",
+        "request": "[redacted:request]",
+        "review_item_id": "RVI-redaction",
+    }
+    assert data["examples"][0]["outputs"] == "[redacted:response]"
+    assert data["examples"][0]["expectations"] == {"rationale": "keep this review answer"}
+    assert data["examples"][0]["label"] is True
+    assert data["examples"][0]["provenance"]["assessment_ids"] == ["assessment-1"]
+    assert SECRET not in response.text
+
+
+def test_review_queue_alignment_keeps_existing_payload_shape_for_editor(
+    client: TestClient,
+    traced: FakeMlflow,
+    db_session: Session,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from caliber.routes import review_queues as routes
+
+    _seed_completed_review_item(db_session, item_id="RVI-editor")
+    calls: list[dict[str, Any]] = []
+
+    def fetch(trace_id: str, **kwargs: Any) -> TraceDetail:
+        calls.append(kwargs)
+        return TraceDetail(
+            trace_id=trace_id,
+            experiment_id="exp-A",
+            request=SECRET,
+            response=SECRET,
+        )
+
+    monkeypatch.setattr(routes, "fetch_trace_detail", fetch)
+    response = client.get(
+        "/ajax-api/2.0/mlflow/caliber/review-queues/rq-a/alignment-examples",
+        params={"question_key": "ok"},
+        headers=_as(ALICE, PROJECT_A),
+    )
+
+    assert response.status_code == 200, response.text
+    assert calls == [{"include_payloads": False}, {}]
+    example = response.json()["data"]["examples"][0]
+    assert example["inputs"]["request"] == SECRET
+    assert example["outputs"] == SECRET
+
+
+def test_review_queue_alignment_skips_a_foreign_trace_without_full_fetch(
+    client: TestClient,
+    traced: FakeMlflow,
+    db_session: Session,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from caliber.routes import review_queues as routes
+
+    _seed_completed_review_item(db_session, item_id="RVI-foreign")
+    item = db_session.get(CaliberReviewItem, "RVI-foreign")
+    assert item is not None
+    item.experiment_id = "exp-B"
+    db_session.commit()
+    calls: list[dict[str, Any]] = []
+
+    def fetch(trace_id: str, **kwargs: Any) -> TraceDetail:
+        calls.append(kwargs)
+        return TraceDetail(trace_id=trace_id, experiment_id="exp-B", response=SECRET)
+
+    monkeypatch.setattr(routes, "fetch_trace_detail", fetch)
+    response = client.get(
+        "/ajax-api/2.0/mlflow/caliber/review-queues/rq-a/alignment-examples",
+        params={"question_key": "ok"},
+        headers=_as(VIEWER, PROJECT_A),
+    )
+
+    assert response.status_code == 200, response.text
+    assert calls == [{"include_payloads": False}]
+    assert response.json()["data"]["examples"] == []
+    assert response.json()["data"]["skipped"] == [
+        {"item_id": "RVI-foreign", "reason": "trace response unavailable"}
+    ]
+
+
+def test_from_trace_refuses_viewer_before_copying_or_mutating_dataset(
+    client: TestClient,
+    traced: FakeMlflow,
+    db_session: Session,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from caliber.routes import eval_datasets as routes
+
+    _grant_operator(client, VIEWER)
+    calls: list[dict[str, Any]] = []
+
+    def fetch(trace_id: str, **kwargs: Any) -> TraceDetail:
+        calls.append(kwargs)
+        if kwargs.get("include_payloads") is False:
+            return TraceDetail(trace_id=trace_id, experiment_id="exp-A")
+        return TraceDetail(
+            trace_id=trace_id,
+            experiment_id="exp-A",
+            request=SECRET,
+            response=SECRET,
+        )
+
+    monkeypatch.setattr(routes, "fetch_trace_detail", fetch)
+    before = db_session.get(CaliberEvalDataset, "ds-a")
+    assert before is not None
+    before_version = before.version
+    response = client.post(
+        "/ajax-api/2.0/mlflow/caliber/eval-datasets/ds-a/examples/from-trace",
+        json={
+            "trace_id": "tr-rich",
+            "input": {"manual": "input"},
+            "expected": {"manual": "expected"},
+        },
+        headers=_as(VIEWER, PROJECT_A),
+    )
+
+    assert response.status_code == 403, response.text
+    assert calls == [{"strict": True, "include_payloads": False}]
+    db_session.expire_all()
+    assert db_session.get(CaliberEvalDataset, "ds-a").version == before_version  # type: ignore[union-attr]
+    assert db_session.execute(select(CaliberEvalDatasetExample)).scalars().all() == []
+    assert SECRET not in response.text
+
+
+def test_from_trace_returns_503_when_metadata_store_is_unavailable(
+    client: TestClient,
+    traced: FakeMlflow,
+    db_session: Session,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from caliber.routes import eval_datasets as routes
+    from caliber.trace_client import TraceStoreUnavailableError
+
+    _grant_operator(client, ALICE)
+
+    def unavailable(*_args: Any, **_kwargs: Any) -> TraceDetail:
+        raise TraceStoreUnavailableError("trace store unavailable")
+
+    monkeypatch.setattr(routes, "fetch_trace_detail", unavailable)
+    response = client.post(
+        "/ajax-api/2.0/mlflow/caliber/eval-datasets/ds-a/examples/from-trace",
+        json={"trace_id": "tr-down", "input": {"manual": "input"}},
+        headers=_as(ALICE, PROJECT_A),
+    )
+
+    assert response.status_code == 503
+    assert "trace store unavailable" in response.text
+
+
+def test_from_trace_returns_503_if_store_fails_after_payload_authorization(
+    client: TestClient,
+    traced: FakeMlflow,
+    db_session: Session,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from caliber.routes import eval_datasets as routes
+    from caliber.trace_client import TraceStoreUnavailableError
+
+    _grant_operator(client, ALICE)
+    calls: list[dict[str, Any]] = []
+
+    def fails_after_metadata(trace_id: str, **kwargs: Any) -> TraceDetail:
+        calls.append(kwargs)
+        if kwargs.get("include_payloads") is False:
+            return TraceDetail(trace_id=trace_id, experiment_id="exp-A")
+        raise TraceStoreUnavailableError("trace store lost during payload fetch")
+
+    monkeypatch.setattr(routes, "fetch_trace_detail", fails_after_metadata)
+    response = client.post(
+        "/ajax-api/2.0/mlflow/caliber/eval-datasets/ds-a/examples/from-trace",
+        json={"trace_id": "tr-race", "input": {"manual": "input"}},
+        headers=_as(ALICE, PROJECT_A),
+    )
+
+    assert response.status_code == 503
+    assert calls == [{"strict": True, "include_payloads": False}, {"strict": True}]
+
+
+def test_from_trace_returns_404_for_missing_metadata_or_payload_trace(
+    client: TestClient,
+    traced: FakeMlflow,
+    db_session: Session,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from caliber.routes import eval_datasets as routes
+    from caliber.trace_client import TraceNotFoundError
+
+    _grant_operator(client, ALICE)
+
+    def missing_metadata(*_args: Any, **_kwargs: Any) -> TraceDetail:
+        raise TraceNotFoundError("not found")
+
+    monkeypatch.setattr(routes, "fetch_trace_detail", missing_metadata)
+    metadata_response = client.post(
+        "/ajax-api/2.0/mlflow/caliber/eval-datasets/ds-a/examples/from-trace",
+        json={"trace_id": "tr-missing-metadata", "input": {"manual": "input"}},
+        headers=_as(ALICE, PROJECT_A),
+    )
+    assert metadata_response.status_code == 404
+
+    calls: list[dict[str, Any]] = []
+
+    def missing_payload(trace_id: str, **kwargs: Any) -> TraceDetail:
+        calls.append(kwargs)
+        if kwargs.get("include_payloads") is False:
+            return TraceDetail(trace_id=trace_id, experiment_id="exp-A")
+        raise TraceNotFoundError("not found after authorization")
+
+    monkeypatch.setattr(routes, "fetch_trace_detail", missing_payload)
+    payload_response = client.post(
+        "/ajax-api/2.0/mlflow/caliber/eval-datasets/ds-a/examples/from-trace",
+        json={"trace_id": "tr-missing-payload", "input": {"manual": "input"}},
+        headers=_as(ALICE, PROJECT_A),
+    )
+    assert payload_response.status_code == 404
+    assert calls == [{"strict": True, "include_payloads": False}, {"strict": True}]
+
+
+def test_from_trace_allows_editor_after_metadata_authorization(
+    client: TestClient,
+    traced: FakeMlflow,
+    db_session: Session,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from caliber.routes import eval_datasets as routes
+
+    _grant_operator(client, ALICE)
+    calls: list[dict[str, Any]] = []
+
+    def fetch(trace_id: str, **kwargs: Any) -> TraceDetail:
+        calls.append(kwargs)
+        return TraceDetail(
+            trace_id=trace_id,
+            experiment_id="exp-A",
+            request=SECRET,
+            response=SECRET,
+        )
+
+    monkeypatch.setattr(routes, "fetch_trace_detail", fetch)
+    response = client.post(
+        "/ajax-api/2.0/mlflow/caliber/eval-datasets/ds-a/examples/from-trace",
+        json={"trace_id": "tr-rich"},
+        headers=_as(ALICE, PROJECT_A),
+    )
+
+    assert response.status_code == 201, response.text
+    assert calls == [{"strict": True, "include_payloads": False}, {"strict": True}]
+    data = response.json()["data"]
+    assert data["input"]["input"] == SECRET
+    assert data["expected"]["expected"] == SECRET
+    assert data["tags"][:2] == ["from-trace", "trace:tr-rich"]
+
+
+def test_from_trace_refuses_a_foreign_experiment_before_full_fetch(
+    client: TestClient,
+    traced: FakeMlflow,
+    db_session: Session,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from caliber.routes import eval_datasets as routes
+
+    _grant_operator(client, ALICE)
+    calls: list[dict[str, Any]] = []
+
+    def fetch(trace_id: str, **kwargs: Any) -> TraceDetail:
+        calls.append(kwargs)
+        return TraceDetail(trace_id=trace_id, experiment_id="exp-B")
+
+    monkeypatch.setattr(routes, "fetch_trace_detail", fetch)
+    before = db_session.get(CaliberEvalDataset, "ds-a")
+    assert before is not None
+    before_version = before.version
+    response = client.post(
+        "/ajax-api/2.0/mlflow/caliber/eval-datasets/ds-a/examples/from-trace",
+        json={"trace_id": "tr-foreign", "input": {"manual": "input"}},
+        headers=_as(ALICE, PROJECT_A),
+    )
+
+    assert response.status_code == 404, response.text
+    assert calls == [{"strict": True, "include_payloads": False}]
+    db_session.expire_all()
+    assert db_session.get(CaliberEvalDataset, "ds-a").version == before_version  # type: ignore[union-attr]
 
 
 def test_the_payload_is_redacted_for_an_administrator_who_is_not_a_member(

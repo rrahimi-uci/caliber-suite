@@ -663,3 +663,15 @@ judge alignment, and trace-derived dataset capture. Submission validates the
 answers against the queue's schema (required coverage, no unknown keys) and
 degrades to a clean `502` if the trace write-back fails, leaving CALIBER state
 consistent.
+
+In the reference profile, trace visibility is not a payload grant. The queue detail response exposes item identifiers,
+review questions, answers, statuses, and provenance metadata; the alignment-example view applies the same
+`trace.payload.read` decision as the trace viewer before returning request or response content. Viewers and reviewers
+receive stable `[redacted:<field>]` placeholders for governed fields while retaining non-payload review metadata.
+Project owners and editors may read project-owned payloads when acting in that project. An administrator without
+membership is not an implicit payload reader.
+
+Creating an evaluation example from a trace performs a metadata-only identity/visibility lookup first, then checks
+payload authorization before fetching and copying the request/response. A foreign or unknown trace is a non-disclosing
+`404`; a visible trace without payload permission is `403`. Neither refusal mutates the dataset, and explicit example
+overrides do not bypass the source-trace permission check. The development profile retains the pre-governance behavior.
