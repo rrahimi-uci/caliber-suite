@@ -21,9 +21,14 @@ from caliber.db.models import (
     CaliberWorkspaceEnvironment,
     CaliberWorkspaceRelease,
     CaliberWorkspaceReleaseEvaluation,
+    CaliberWorkspaceReleaseEvaluationAttempt,
     CaliberWorkspaceRevision,
 )
-from caliber.ids import new_workspace_release_evaluation_id, new_workspace_release_id
+from caliber.ids import (
+    new_workspace_release_evaluation_attempt_id,
+    new_workspace_release_evaluation_id,
+    new_workspace_release_id,
+)
 from caliber.workspace_runtime_lineage import create_runtime_lineage
 
 RELEASE_DRAFT = "draft"
@@ -57,6 +62,12 @@ _DIGEST_RE = re.compile(r"^[0-9a-f]{64}$")
 _MAX_ERROR_CODE_LENGTH = 64
 _MAX_ERROR_SUMMARY_LENGTH = 4000
 EMPTY_DECISION_SET_SHA256 = hashlib.sha256(b"[]").hexdigest()
+
+EVALUATION_ATTEMPT_RUNNING = "running"
+EVALUATION_ATTEMPT_REQUEUED = "requeued"
+EVALUATION_ATTEMPT_ORPHANED = "orphaned"
+EVALUATION_ATTEMPT_SUCCEEDED = "succeeded"
+EVALUATION_ATTEMPT_FAILED = "failed"
 
 #: `caliber_projects.source_mode` (`P1-A`, migration `0093`). The only other
 #: value is `"caliber_managed"` (the default) -- `schemas.py`'s
@@ -112,6 +123,83 @@ def _digest(value: str, name: str) -> str:
     if not _DIGEST_RE.fullmatch(value):
         raise ValueError(f"{name} must be a lowercase SHA-256 digest")
     return value
+
+
+def _merge_run_ids(
+    existing: list[str] | None, incoming: list[str] | tuple[str, ...] | None
+) -> list[str]:
+    """Deduplicate provider run IDs while preserving first-observed order."""
+
+    merged: list[str] = []
+    for raw in (*tuple(existing or ()), *tuple(incoming or ())):
+        run_id = str(raw).strip()
+        if run_id and run_id not in merged:
+            merged.append(run_id)
+    return merged
+
+
+def _attempt_for(
+    session: Session, evaluation_id: str, attempt_number: int
+) -> CaliberWorkspaceReleaseEvaluationAttempt | None:
+    return session.execute(
+        select(CaliberWorkspaceReleaseEvaluationAttempt).where(
+            CaliberWorkspaceReleaseEvaluationAttempt.evaluation_id == evaluation_id,
+            CaliberWorkspaceReleaseEvaluationAttempt.attempt_number == attempt_number,
+        )
+    ).scalar_one_or_none()
+
+
+def _ensure_attempt(
+    session: Session,
+    evaluation: CaliberWorkspaceReleaseEvaluation,
+    *,
+    worker_id: str,
+    claimed_at: datetime,
+    status: str = EVALUATION_ATTEMPT_RUNNING,
+    lease_expires_at: datetime | None = None,
+) -> CaliberWorkspaceReleaseEvaluationAttempt:
+    """Create the current attempt record, or return the existing row."""
+
+    attempt = _attempt_for(session, evaluation.evaluation_id, evaluation.attempt_number)
+    if attempt is not None:
+        return attempt
+    attempt = CaliberWorkspaceReleaseEvaluationAttempt(
+        attempt_id=new_workspace_release_evaluation_attempt_id(),
+        evaluation_id=evaluation.evaluation_id,
+        attempt_number=evaluation.attempt_number,
+        worker_id=worker_id,
+        status=status,
+        claimed_at=claimed_at,
+        lease_expires_at=lease_expires_at,
+    )
+    session.add(attempt)
+    session.flush()
+    return attempt
+
+
+def _mark_expired_attempt_orphaned(
+    session: Session,
+    evaluation: CaliberWorkspaceReleaseEvaluation,
+    *,
+    now: datetime,
+) -> None:
+    """Retain the old claim before its row is reused by a recovery attempt."""
+
+    attempt = _attempt_for(session, evaluation.evaluation_id, evaluation.attempt_number)
+    if attempt is None:
+        attempt = _ensure_attempt(
+            session,
+            evaluation,
+            worker_id=evaluation.claimed_by or "unknown-worker",
+            claimed_at=_utc(evaluation.started_at) or now,
+            status=EVALUATION_ATTEMPT_ORPHANED,
+            lease_expires_at=_utc(evaluation.lease_expires_at),
+        )
+    attempt.status = EVALUATION_ATTEMPT_ORPHANED
+    attempt.completed_at = _db_time(now)
+    attempt.lease_expires_at = _db_time(now)
+    attempt.error_code = "evaluation_lease_expired"
+    attempt.error_summary = "the worker lease expired; an external provider run may be orphaned"
 
 
 def _require_release(session: Session, release_id: str) -> CaliberWorkspaceRelease:
@@ -541,7 +629,12 @@ def claim_workspace_release_evaluation(
     lease_seconds: int = 300,
     now: datetime | None = None,
 ) -> CaliberWorkspaceReleaseEvaluation:
-    """Claim a queued attempt, or reclaim a running attempt after lease expiry."""
+    """Claim a queued attempt, or reclaim a running attempt after lease expiry.
+
+    Every successful claim gets its own durable attempt row.  A requeue or
+    expired lease therefore advances the attempt number rather than reusing
+    the prior claim's provenance.
+    """
 
     if not worker_id.strip() or lease_seconds < 1:
         raise ValueError("worker_id must be non-empty and lease_seconds must be positive")
@@ -571,11 +664,20 @@ def claim_workspace_release_evaluation(
             )
             if getattr(renewed, "rowcount", 0) != 1:
                 raise WorkspaceReleaseLeaseError("evaluation claim was lost during renewal")
+            attempt = _ensure_attempt(
+                session,
+                current,
+                worker_id=worker_id,
+                claimed_at=_utc(current.started_at) or moment,
+                lease_expires_at=stamp + timedelta(seconds=lease_seconds),
+            )
+            attempt.lease_expires_at = stamp + timedelta(seconds=lease_seconds)
             session.flush()
             session.refresh(current)
             return current
         if lease is not None and lease > moment:
             raise WorkspaceReleaseLeaseError("evaluation lease is owned by another live worker")
+        _mark_expired_attempt_orphaned(session, current, now=moment)
         claim = (
             update(CaliberWorkspaceReleaseEvaluation)
             .where(
@@ -597,6 +699,7 @@ def claim_workspace_release_evaluation(
             )
         )
     else:
+        previous_attempt = _attempt_for(session, current.evaluation_id, current.attempt_number)
         claim = (
             update(CaliberWorkspaceReleaseEvaluation)
             .where(
@@ -605,6 +708,11 @@ def claim_workspace_release_evaluation(
             )
             .values(
                 status=EVALUATION_RUNNING,
+                attempt_number=(
+                    CaliberWorkspaceReleaseEvaluation.attempt_number + 1
+                    if previous_attempt is not None
+                    else CaliberWorkspaceReleaseEvaluation.attempt_number
+                ),
                 claimed_by=worker_id,
                 started_by=worker_id,
                 started_at=stamp,
@@ -617,6 +725,13 @@ def claim_workspace_release_evaluation(
         raise WorkspaceReleaseLeaseError("evaluation claim lost its CAS race")
     session.flush()
     session.refresh(current)
+    _ensure_attempt(
+        session,
+        current,
+        worker_id=worker_id,
+        claimed_at=moment,
+        lease_expires_at=stamp + timedelta(seconds=lease_seconds),
+    )
     return current
 
 
@@ -625,6 +740,7 @@ def heartbeat_workspace_release_evaluation(
     evaluation: CaliberWorkspaceReleaseEvaluation,
     *,
     worker_id: str,
+    attempt_number: int | None = None,
     lease_seconds: int = 300,
     now: datetime | None = None,
 ) -> CaliberWorkspaceReleaseEvaluation:
@@ -635,6 +751,9 @@ def heartbeat_workspace_release_evaluation(
     current = session.get(CaliberWorkspaceReleaseEvaluation, evaluation.evaluation_id)
     if current is None or current.status != EVALUATION_RUNNING:
         raise WorkspaceReleaseLeaseError("evaluation is not running")
+    expected_attempt = current.attempt_number if attempt_number is None else attempt_number
+    if expected_attempt != current.attempt_number:
+        raise WorkspaceReleaseLeaseError("evaluation attempt is no longer current")
     moment = _utc(now) or _now()
     stamp = _db_time(moment)
     if current.claimed_by != worker_id or (_utc(current.lease_expires_at) or moment) <= moment:
@@ -645,6 +764,7 @@ def heartbeat_workspace_release_evaluation(
             CaliberWorkspaceReleaseEvaluation.evaluation_id == current.evaluation_id,
             CaliberWorkspaceReleaseEvaluation.status == EVALUATION_RUNNING,
             CaliberWorkspaceReleaseEvaluation.claimed_by == worker_id,
+            CaliberWorkspaceReleaseEvaluation.attempt_number == expected_attempt,
             CaliberWorkspaceReleaseEvaluation.lease_expires_at == current.lease_expires_at,
             CaliberWorkspaceReleaseEvaluation.lease_expires_at > stamp,
         )
@@ -655,6 +775,9 @@ def heartbeat_workspace_release_evaluation(
     )
     if getattr(renewed, "rowcount", 0) != 1:
         raise WorkspaceReleaseLeaseError("evaluation heartbeat lost its CAS race")
+    attempt = _attempt_for(session, current.evaluation_id, expected_attempt)
+    if attempt is not None:
+        attempt.lease_expires_at = stamp + timedelta(seconds=lease_seconds)
     session.flush()
     session.refresh(current)
     return current
@@ -665,6 +788,7 @@ def complete_workspace_release_evaluation(
     evaluation: CaliberWorkspaceReleaseEvaluation,
     *,
     worker_id: str,
+    attempt_number: int | None = None,
     result: Literal["pass", "no_go", "blocked"],
     expected_release_lock_version: int,
     evidence_sha256: str | None = None,
@@ -683,6 +807,9 @@ def complete_workspace_release_evaluation(
         raise WorkspaceReleaseLeaseError("evaluation is not running")
     if current.claimed_by != worker_id:
         raise WorkspaceReleaseLeaseError("evaluation lease is owned by another worker")
+    expected_attempt = current.attempt_number if attempt_number is None else attempt_number
+    if expected_attempt != current.attempt_number:
+        raise WorkspaceReleaseLeaseError("evaluation attempt is no longer current")
     moment = _utc(now) or _now()
     if (_utc(current.lease_expires_at) or moment) <= moment:
         raise WorkspaceReleaseLeaseError("evaluation lease has expired")
@@ -718,15 +845,87 @@ def complete_workspace_release_evaluation(
     current.heartbeat_at = None
     current.gate_evidence = gate_evidence
     current.gate_verdict_id = gate_verdict_id
-    current.linked_evaluation_run_ids = list(evaluation_run_ids or [])
+    current.linked_evaluation_run_ids = _merge_run_ids(
+        current.linked_evaluation_run_ids, evaluation_run_ids
+    )
     current.error_code = error_code if result == "blocked" else None
     current.error_summary = error_summary if result == "blocked" else None
+    attempt = _ensure_attempt(
+        session,
+        current,
+        worker_id=worker_id,
+        claimed_at=_utc(current.started_at) or moment,
+        lease_expires_at=None,
+    )
+    attempt.status = (
+        EVALUATION_ATTEMPT_FAILED if result == "blocked" else EVALUATION_ATTEMPT_SUCCEEDED
+    )
+    attempt.authoritative = True
+    attempt.completed_at = _db_time(moment)
+    attempt.lease_expires_at = None
+    attempt.provider_run_ids = _merge_run_ids(attempt.provider_run_ids, evaluation_run_ids)
+    attempt.error_code = error_code if result == "blocked" else None
+    attempt.error_summary = error_summary if result == "blocked" else None
     session.flush()
     return current
 
 
+def record_workspace_release_evaluation_attempt_runs(
+    session: Session,
+    evaluation: CaliberWorkspaceReleaseEvaluation,
+    *,
+    attempt_number: int,
+    worker_id: str,
+    evaluation_run_ids: list[str] | tuple[str, ...],
+) -> CaliberWorkspaceReleaseEvaluationAttempt | None:
+    """Record provider runs without settling the release.
+
+    If a provider returns after the lease has expired, its run IDs remain
+    attached to the old attempt as orphan provenance while a later attempt
+    remains the only one allowed to become authoritative.
+    """
+
+    if attempt_number < 1:
+        raise ValueError("attempt_number must be positive")
+    current = session.get(CaliberWorkspaceReleaseEvaluation, evaluation.evaluation_id)
+    if current is None:
+        raise WorkspaceReleaseLeaseError("workspace evaluation not found")
+    attempt = _attempt_for(session, current.evaluation_id, attempt_number)
+    if attempt is None:
+        attempt = CaliberWorkspaceReleaseEvaluationAttempt(
+            attempt_id=new_workspace_release_evaluation_attempt_id(),
+            evaluation_id=current.evaluation_id,
+            attempt_number=attempt_number,
+            worker_id=worker_id,
+            status=EVALUATION_ATTEMPT_ORPHANED,
+            claimed_at=_db_time(_now()),
+            provider_run_ids=[],
+        )
+        session.add(attempt)
+    attempt.provider_run_ids = _merge_run_ids(attempt.provider_run_ids, evaluation_run_ids)
+    is_current = (
+        current.status == EVALUATION_RUNNING
+        and current.attempt_number == attempt_number
+        and current.claimed_by == worker_id
+    )
+    if not is_current and not attempt.authoritative:
+        attempt.status = EVALUATION_ATTEMPT_ORPHANED
+        attempt.authoritative = False
+        attempt.completed_at = _db_time(_now())
+    current.linked_evaluation_run_ids = _merge_run_ids(
+        current.linked_evaluation_run_ids, evaluation_run_ids
+    )
+    session.flush()
+    return attempt
+
+
 __all__ = [
     "EMPTY_DECISION_SET_SHA256",
+    "EVALUATION_ATTEMPT_FAILED",
+    "EVALUATION_ATTEMPT_ORPHANED",
+    "EVALUATION_ATTEMPT_REQUEUED",
+    "EVALUATION_ATTEMPT_RUNNING",
+    "EVALUATION_ATTEMPT_SUCCEEDED",
     "EVALUATION_FAILED",
     "EVALUATION_QUEUED",
     "EVALUATION_RUNNING",
@@ -751,6 +950,7 @@ __all__ = [
     "create_workspace_release",
     "create_workspace_release_evaluation",
     "heartbeat_workspace_release_evaluation",
+    "record_workspace_release_evaluation_attempt_runs",
     "resume_blocked_workspace_release",
     "settle_machine_evaluation",
     "start_workspace_release_evaluation",

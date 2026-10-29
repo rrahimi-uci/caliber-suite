@@ -97,6 +97,7 @@ WORKSPACE_VERSION_CLAIM_PREFIX = "WSVC-"
 WORKSPACE_VERSION_TAG_PREFIX = "WSVT-"
 WORKSPACE_RELEASE_PREFIX = "WSREL-"
 WORKSPACE_RELEASE_EVALUATION_PREFIX = "WSRELEV-"
+WORKSPACE_RELEASE_EVALUATION_ATTEMPT_PREFIX = "WSRELEA-"
 WORKSPACE_RELEASE_EVIDENCE_PREFIX = "WSRELE-"
 WORKSPACE_RELEASE_DECISION_PREFIX = "WSRELD-"
 WORKSPACE_BREAK_GLASS_AUTHORIZATION_PREFIX = "WSBGA-"
@@ -568,6 +569,11 @@ def new_workspace_release_id() -> str:
 def new_workspace_release_evaluation_id() -> str:
     """Return a fresh durable Workspace-release evaluation ID."""
     return f"{WORKSPACE_RELEASE_EVALUATION_PREFIX}{_suffix()}"
+
+
+def new_workspace_release_evaluation_attempt_id() -> str:
+    """Return a fresh durable Workspace-release evaluation-attempt ID."""
+    return f"{WORKSPACE_RELEASE_EVALUATION_ATTEMPT_PREFIX}{_suffix()}"
 
 
 def new_workspace_release_evidence_id() -> str:
