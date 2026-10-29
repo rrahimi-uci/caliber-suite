@@ -40,6 +40,15 @@ Every account has a `principal_type`: `human` or `agent`. An agent principal is 
 behaviour pins B02/B08 define (model route, prompt or skill digest, adapter version). Evidence records name the
 principal and, for an agent, its pins, for every role decision.
 
+Beta run admission also has a narrower `service_principal` subject for non-human ingress. It is server-created for a
+cron schedule or an already-authenticated service token; callers cannot submit one, and it is not a human project
+member or a holder of ambient platform scopes. The server binds it to one tenant, project, workflow, sealed workload,
+purpose and explicit action/resource set before issuing the run grant. The scheduler uses
+`service_principal:cron:<workflow_id>` and the service route uses `service_token:<token_id>` as the subject identity.
+The resulting grant, policy decision, lineage and immutable pins are recorded exactly like a user admission. This is
+an ingress identity contract, not a promotion of the principal to an autonomous owner, reviewer or approver; those
+role semantics remain governed by this ADR and the later autonomy packages.
+
 ### Levels
 
 One level per use case (the GovernanceRecord's `autonomy` field, M24), chosen from this closed vocabulary. The
