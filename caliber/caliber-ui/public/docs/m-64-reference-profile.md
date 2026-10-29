@@ -1690,8 +1690,9 @@ build on it and are not part of it.
   output, so a claimed commit or another step's result is `malformed_result`, returned by the adapter itself). Entries are used
   in order, one per caller even under concurrency, and a script that runs out refuses with `script_exhausted`; with no script
   every step `completed` with usage estimated from the input. `fake.step_requests` lists the requests it was asked.
-- **The four provider executors refuse governed execution until each is integrated** (B08.openai-chat #729, B08.openai-responses
-  #730, B08.openai-agents #728, B08.anthropic #727): `OpenAIChatWorkflowExecutor`, `OpenAIResponsesWorkflowExecutor`,
+- **The provider executors refuse governed execution until each is integrated** (B08.openai-responses #730, B08.openai-agents
+  #728, B08.anthropic #727; **B08.openai-chat #729 is integrated**, see
+  [the OpenAI chat adapter](#the-openai-chat-completions-adapter-b08openai-chat-729)): `OpenAIResponsesWorkflowExecutor`,
   `OpenAIAgentsWorkflowExecutor` and `AnthropicChatWorkflowExecutor` each implement `run_step` and answer `refused` with
   `adapter_not_integrated` without building a client, importing an SDK or touching the network. Their `run_agent` (the ungoverned
   path every existing workflow uses) is unchanged. **For those four tasks:** `runtime.py` reaches the module as
@@ -1709,7 +1710,11 @@ build on it and are not part of it.
   the adapter's own (`adapter_timeout` and `malformed_result` where they apply; the platform's `adapter_error`,
   `adapter_unsupported`, `adapter_not_integrated` and `script_exhausted` never pass) and that the adapter itself, called
   directly, returned rather than raised. The planted payload is in neither the result nor any log record (loggers lowered to
-  DEBUG). A driver may not declare `completes`, `proposes_protected_tool` or `claims_commit` unsupported.
+  DEBUG). A driver may not declare `completes`, `proposes_protected_tool` or `claims_commit` unsupported. An adapter that reads
+  a clock against the request's deadline needs its driver to inject a fake one (the harness' default deadline,
+  `2026-10-26T09:10:00Z`, is in the past), and `budget_exhausted` stages one turn that spent the budget
+  (`StepUsage(900, 100, 1000, 1, 0)`). `tests/conformance/test_agent_adapter_openai_chat.py` is the driver for
+  `OpenAIChatWorkflowExecutor`; it declares `another_steps_result` unsupported (a chat completion carries no step identity).
 
 ```python
 from caliber.workflows.agent_step import AgentStepInput, ScriptedStep, run_agent_step
@@ -1728,7 +1733,7 @@ Recovery is always the same shape: the occurrence is retried as the next `attemp
 
 | the adapter | result | recover by |
 | --- | --- | --- |
-| is an executor that is not integrated yet (`OpenAIChat`, `OpenAIResponses`, `OpenAIAgents`, `AnthropicChat`) | `refused`, `adapter_not_integrated` | running the node with the scripted adapter, or waiting for that provider's B08 task; the ungoverned `run_agent` path is unaffected |
+| is an executor that is not integrated yet (`OpenAIResponses`, `OpenAIAgents`, `AnthropicChat`) | `refused`, `adapter_not_integrated` | running the node with the scripted adapter, or waiting for that provider's B08 task; the ungoverned `run_agent` path is unaffected |
 | has no `run_step`, or an `async def` one | `refused`, `adapter_unsupported` | passing an `AgentStepAdapter` with a plain `run_step` |
 | raises (a provider error, anything else) | `adapter_error` | reading the server log (the exception's class and the step id, never its text) and retrying as the next attempt |
 | times out (`TimeoutError`) | `adapter_timeout` | the call's outcome is unknown: retry as the next attempt; the reservation is kept |
@@ -1740,6 +1745,50 @@ An invalid *request*, or a step input for another node, is not a result: `run_ag
 example `attempt: violates minimum 1`) before anything runs. Not covered here, so not claimed: limits are not enforced by this
 boundary (B08.3), no token reservation is made (B08.4), a blocking adapter is not interrupted, and the interpreter does not yet
 call `run_agent_step`; no governed node execution is enabled by this change.
+
+### The OpenAI chat completions adapter (B08.openai-chat, #729)
+
+`OpenAIChatWorkflowExecutor.run_step` runs one governed step through `client.chat.completions.create`
+(`caliber/src/caliber/workflows/step_openai_chat.py`). It uses the message building, reasoning-model handling (including the one
+retry of the 400 "function tools with reasoning_effort"), prompt-cache keys and tool-call execution helper `run_agent` uses, and
+`run_agent` itself is unchanged. It adds no route, table or setting; the one new constructor argument, `step_clock` (a callable
+returning an aware `datetime`, default the UTC clock), is what a step's deadline is read from.
+
+- **Read tools run only from `step_input.read_tools`.** Any other tool the model calls is never run: it is a proposal. A protected
+  tool is offered to the model with a *proposal envelope* as its parameters: `connector`, `connector_version`, `effect_class`,
+  `resource`, `args` (the tool's own arguments) and optionally `expected_resource_version`. The envelope is read strictly (an
+  unknown key such as `state` or `receipt_id`, a missing or mistyped field or an invalid action is `malformed_result`), so a model
+  that says an effect happened is unreadable, never recorded. The result is `proposed_action` with one `ProposedAction`
+  whose `effect_class` and `connector_version` are **the model's claims** (`platform_bound` is false; B08.2 binds them to the
+  protected-effect inventory and refuses a mismatch). If one response calls several protected tools the first is proposed and
+  the rest of that response, read calls included, does not run. A call to a tool the agent does not have is `malformed_result`.
+  The envelope carries the connector the *model* names: a `ProposedAction` has no tool-name field, so B08.2 must decide how a
+  proposal is tied to the tool that was called.
+- **Limits come from the request.** `max_turns` counts provider responses; `max_tool_calls` counts read tools run, all or none per
+  response; `max_tokens` is compared with the provider's total before each call and after each response (more than the limit
+  stops with `max_tokens` whatever the model wanted; exactly the limit is allowed but leaves nothing for another call); the
+  deadline is read before each call. A step that may not start (`max_*` of 0, a deadline reached) returns the stop with zero usage,
+  source `estimated`, and the provider is not touched. A response the provider cut off (`finish_reason: length`) is `max_tokens`
+  and its tool calls are not acted on. Each call is also bounded: the SDK's retries are off (`with_options(max_retries=0)`), its
+  timeout is the time left to the deadline (at most `CALIBER_PROVIDER_REQUEST_TIMEOUT_SECONDS`) and the remaining token budget is
+  sent as `max_completion_tokens`. The platform still enforces the limits against the returned usage (B08.3).
+- **Usage is the provider's**, summed over turns, with `usage_source: "provider"` and `cached_prompt_tokens` only when the
+  provider reported them. A response with no usage object is estimated by word count and reported `estimated`; a total below
+  `prompt + completion` is raised to it; a figure that is not a plain non-negative integer (or exceeds 2147483647) is
+  `malformed_result`. Usage is kept on every stop, and on a failure after at least one response (reported `unknown`).
+- **A refusal is a result.** `message.refusal` and `finish_reason: content_filter` are `refused` with `model_refused` and
+  `content_filtered`; the model's words are not returned.
+
+| the provider | result | recover by |
+| --- | --- | --- |
+| times out (`TimeoutError`, `httpx.TimeoutException`, `openai.APITimeoutError`) | `error`, `adapter_timeout` | the call's outcome is unknown: retry as the next attempt; the reservation is kept |
+| raises anything else (a 4xx/5xx, a network error) | `error`, `provider_error` | reading the server log (the exception's class and the step id, never its text) and retrying as the next attempt |
+| returns something that is not a chat completion, a bad tool call, unreadable usage, a malformed or over-claiming proposal envelope | `error`, `malformed_result` | none for this output; check the model and the tool's schema |
+| runs past `max_turns`, `max_tool_calls`, `max_tokens` or the deadline | the matching stop reason | raising the limit on the next attempt, or a smaller task |
+
+No exception text, provider payload, tool name or tool argument is placed in a result or a log line (the log line carries the
+exception's class name and the step id). Not covered: handoffs (`run_agent` ignores them too), structured output (a step result
+has no output field, so the final text is not returned), the token reservation (B08.4) and recording the proposal (B08.2).
 
 ## Policy decisions
 
