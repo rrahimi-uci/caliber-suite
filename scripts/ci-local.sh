@@ -314,6 +314,7 @@ job_migration_parity_postgres() {
         tests/test_context_sources.py \
         tests/test_context_manifest.py \
         tests/test_workspace_release_evaluator.py \
+        tests/test_upgrade_from_alpha.py \
         -k postgresql --no-cov -q
     status=$?
   fi
