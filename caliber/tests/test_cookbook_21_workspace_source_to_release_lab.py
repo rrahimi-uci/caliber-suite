@@ -86,23 +86,26 @@ def test_release_evaluations_still_have_no_executor() -> None:
     """The lab's central boundary claim, as a tripwire.
 
     ``claim_workspace_release_evaluation`` (and its complete/settle companions) are the only
-    way an evaluation leaves ``queued``. Today nothing in ``caliber/src`` calls them, which is
-    why the lab teaches "the evaluation stays queued" as the alpha's documented limitation.
-    The day an executor lands, this test fails -- update cookbook 21 (its README's boundary
-    section, stage 6 of the script, verification.yaml) before deleting this assertion.
+    way an evaluation leaves ``queued``. The only caller of the claim is the opt-in
+    ``WorkspaceReleaseEvaluator`` (B10.1, off by default, so the lab's evaluation still stays
+    queued); nothing in ``caliber/src`` calls complete/settle, which is why the lab teaches "the
+    evaluation never executes" as the alpha's documented limitation. The day an executor lands
+    (B10.2/B10.3), this test fails -- update cookbook 21 (its README's boundary section, stage 6
+    of the script, verification.yaml) before deleting this assertion.
     """
-    workers = {
-        "claim_workspace_release_evaluation",
-        "complete_workspace_release_evaluation",
-        "settle_machine_evaluation",
-    }
+    claim = "claim_workspace_release_evaluation"
+    executors = {"complete_workspace_release_evaluation", "settle_machine_evaluation"}
+    claimers: list[str] = []
     callers: list[str] = []
     for path in SRC.rglob("*.py"):
         if path.name == "workspace_release_service.py":
             continue
-        tree = ast.parse(path.read_text(encoding="utf-8"))
-        if workers & _function_calls_in(tree):
+        called = _function_calls_in(ast.parse(path.read_text(encoding="utf-8")))
+        if claim in called:
+            claimers.append(str(path.relative_to(REPO_ROOT)))
+        if executors & called:
             callers.append(str(path.relative_to(REPO_ROOT)))
+    assert claimers == ["caliber/src/caliber/orchestrator/workspace_release_evaluator.py"]
     assert callers == [], (
         f"workspace release evaluations now have an executor ({callers}); "
         "update cookbook 21's boundary claims"
