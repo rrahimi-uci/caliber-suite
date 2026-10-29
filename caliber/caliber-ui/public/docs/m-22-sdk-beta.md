@@ -72,8 +72,11 @@ if job.awaits_human:
 > evaluates only the release revision's pinned candidate, dataset, judge and configuration; missing or changed pins
 > block the release. Successful and no-go evaluations persist the exact per-example gate evidence and recomputable
 > digest (B10.3). Expired attempts are recorded and re-claimed with durable attempt history and stale-worker fencing
-> (B10.4); provider run identifiers are preserved and deduplicated. The release-candidate signoff on the Releases page and
-> `caliberctl release sign` remain record-only and deploy or roll back nothing.
+> (B10.4); provider run identifiers are preserved and deduplicated. B10.5 requires every quality/final decision and
+> break-glass apply to present matching, recomputable evidence from a succeeded release-local evaluation, including its
+> plan/input digests, provider provenance and passing criteria; stale, tampered, missing, or non-passing evidence is
+> rejected. The release-candidate signoff on the Releases page and `caliberctl release sign` remain record-only and
+> deploy or roll back nothing.
 
 A Workspace revision moves from reviewed to live only through explicit,
 typed governance steps: open a Change Request, evaluate the release against
