@@ -652,8 +652,27 @@ class _FakeLoop:
         self.log.append((self.name, "stop-end", time.monotonic()))
 
 
+class _FakeEvaluator(_FakeLoop):
+    """The release evaluator's lifecycle surface: a loop that also takes the lease provider."""
+
+    UNBOUND = object()
+
+    def __init__(self, name: str, log: list[tuple[str, str, float]]) -> None:
+        super().__init__(name, log)
+        self.provider: Any = self.UNBOUND
+
+    def bind_lease_provider(self, provider: Any) -> None:
+        self.provider = provider
+
+
 def _lifespan(
-    log: list[tuple[str, str, float]], *, janitor: str = "janitor", outbox: bool = False
+    log: list[tuple[str, str, float]],
+    *,
+    janitor: str = "janitor",
+    outbox: bool = False,
+    evaluator: _FakeEvaluator | None = None,
+    session_factory: Any = None,
+    reference_profile: bool = False,
 ) -> Any:
     from caliber.server import _build_lifespan
 
@@ -681,7 +700,10 @@ def _lifespan(
         None,  # type: ignore[arg-type]
         bus,  # type: ignore[arg-type]
         background_tasks_enabled=True,
+        session_factory=session_factory,
+        reference_profile=reference_profile,
         outbox_publisher=_FakeLoop("outbox", log, 0.3) if outbox else None,  # type: ignore[arg-type]
+        workspace_release_evaluator=evaluator,  # type: ignore[arg-type]
     )
 
 
@@ -695,6 +717,59 @@ def test_the_outbox_publisher_runs_and_stops_with_the_owner_loops() -> None:
         assert ("outbox", "stop-end") in [(n, what) for n, what, _ in log]
 
     asyncio.run(scenario())
+
+
+def test_the_release_evaluator_runs_and_stops_with_the_owner_loops_and_is_unfenced_without_a_lease() -> (
+    None
+):
+    log: list[tuple[str, str, float]] = []
+    evaluator = _FakeEvaluator("evaluator", log)
+
+    async def scenario() -> None:
+        app = SimpleNamespace(state=SimpleNamespace())
+        async with _lifespan(log, evaluator=evaluator)(app):
+            assert ("evaluator", "start") in [(n, what) for n, what, _ in log]
+            assert app.state.execution_role.role == OWNER
+        assert ("evaluator", "stop-end") in [(n, what) for n, what, _ in log]
+
+    asyncio.run(scenario())
+    # outside the reference profile there is no lease: nothing is bound and the evaluator is the owner by construction
+    assert evaluator.provider is _FakeEvaluator.UNBOUND
+
+
+def test_a_loop_set_without_the_release_evaluator_still_starts() -> None:
+    log: list[tuple[str, str, float]] = []
+
+    async def scenario() -> None:
+        async with _lifespan(log)(SimpleNamespace(state=SimpleNamespace())):
+            pass
+
+    asyncio.run(scenario())
+    assert "evaluator" not in {n for n, _, _ in log}
+
+
+@pytest.mark.parametrize("dialect", DIALECTS)
+def test_the_release_evaluator_is_fenced_by_the_lease_the_role_holds(
+    dialect: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    log: list[tuple[str, str, float]] = []
+    evaluator = _FakeEvaluator("evaluator", log)
+    with _database(dialect, tmp_path, monkeypatch) as (_, factory):
+
+        async def scenario() -> None:
+            app = SimpleNamespace(state=SimpleNamespace())
+            lifespan = _lifespan(
+                log, evaluator=evaluator, session_factory=factory, reference_profile=True
+            )
+            async with lifespan(app):
+                role = app.state.execution_role
+                held = evaluator.provider()
+                assert isinstance(held, Lease)
+                assert held.owner_id == role.owner_id and held.fencing_token == 1
+                assert held == role.lease, "the exact lease the owner captured"
+            assert evaluator.provider() is None, "no lease once the loops are stopped: no claim"
+
+        asyncio.run(scenario())
 
 
 def test_the_owner_loops_stop_together_after_the_webhooks_and_before_the_bus_and_engine() -> None:
