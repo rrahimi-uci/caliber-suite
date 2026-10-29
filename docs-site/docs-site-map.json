@@ -311,6 +311,13 @@
       "nav_order": 50
     },
     {
+      "href": "m-65-recovery-runbook.html",
+      "label": "Reference profile recovery runbook",
+      "section": "operate",
+      "nav_order": 55,
+      "doc_type": "runbook"
+    },
+    {
       "href": "m-52-backup-and-recovery.html",
       "label": "Backup and recovery",
       "section": "operate",
