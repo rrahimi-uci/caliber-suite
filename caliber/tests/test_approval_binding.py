@@ -701,7 +701,7 @@ def _bind_two_sessions(factory: sessionmaker[Session]) -> str:
 def test_a_creator_holds_the_proposal_row_until_it_commits_on_postgresql(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Creators serialize: the second one waits for the first one's transaction, then also succeeds (two pending rows)."""
+    """Creators serialize: the second one waits for the first one's transaction, then also succeeds (and supersedes it, B06.2)."""
     _need_postgresql()
     with _database("postgresql", tmp_path, monkeypatch) as (_, factory):
         proposal_id = _bind_two_sessions(factory)
@@ -722,7 +722,7 @@ def test_a_creator_holds_the_proposal_row_until_it_commits_on_postgresql(
             second_request = _create(session, again, now=AT + timedelta(minutes=1))
             session.commit()
         assert second_request.proposal_id == proposal_id
-        # No unique index: both requests stand, and replacing the older one is B06.2's job.
+        # No unique index: both rows exist; the newer one superseded the older (B06.2, tests/test_approval_supersession.py).
         assert (
             _count(
                 factory,

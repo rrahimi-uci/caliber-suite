@@ -2595,7 +2595,8 @@ class CaliberRuntimeApprovalRequest(Base):
     fact: a CHECK allows only all-``NULL`` or fully bound, hash and digest columns are exactly 71 characters, and a BEFORE
     UPDATE trigger (SQLite and PostgreSQL) refuses any change to the binding columns, so an UPDATE or raw SQL cannot
     re-bind a request to another intent. ``status``, ``consumed_at`` and ``superseded_by`` and the decision columns may
-    still move. The decision route does not decide a bound row yet (it answers ``409 approval_bound_not_wired``).
+    still move. The decision route does not decide a bound row yet: it answers ``409`` with ``superseded``, ``expired`` (B06.2,
+    #712) or ``approval_bound_not_wired``.
     """
 
     __tablename__ = "caliber_runtime_approval_requests"
@@ -2647,7 +2648,8 @@ class CaliberRuntimeApprovalRequest(Base):
     expected_resource_version: Mapped[str | None] = mapped_column(String(256), nullable=True)
     #: After this the request cannot be approved (UTC, stored naive like every timestamp here).
     expires_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
-    #: The request that replaced this one (set by the supersession step, B06.2); ``NULL`` while it stands.
+    #: The request that replaced this one (set by ``create_approval_request`` in the transaction that inserts the replacement, B06.2);
+    #: ``NULL`` while it stands.
     superseded_by: Mapped[str | None] = mapped_column(String(64), nullable=True)
     #: When the dispatcher consumed the decision (B06.4); ``NULL`` until then. This task only adds the column.
     consumed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
