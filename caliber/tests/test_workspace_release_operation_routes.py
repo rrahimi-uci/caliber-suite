@@ -194,7 +194,34 @@ def test_release_operation_routes_fail_closed_without_adapter_and_on_degraded_en
         },
     )
     assert missing_adapter.status_code == 409, missing_adapter.text
-    assert "adapter" in missing_adapter.json()["detail"]
+    assert missing_adapter.json() == {
+        "reason": "adapter_unavailable",
+        "adapter": "fake",
+        "disabled_by": "profile",
+    }
+    assert client.get(path).json() == {"data": []}
+
+    # A deployment can explain a missing adapter with the exact configuration
+    # switch that disabled it; the route must preserve that machine-readable
+    # provenance rather than collapsing it into a generic conflict string.
+    client.app.state.workspace_resource_adapter_registry = WorkspaceResourceAdapterRegistry(
+        disabled_by="CALIBER_FEATURE_RELEASE_CANDIDATES"
+    )
+    env_disabled = client.post(
+        path,
+        json={
+            "kind": "apply",
+            "idempotency_key": "route-missing-adapter-env",
+            "expected_environment_lock_version": 1,
+        },
+    )
+    assert env_disabled.status_code == 409, env_disabled.text
+    assert env_disabled.json() == {
+        "reason": "adapter_unavailable",
+        "adapter": "fake",
+        "disabled_by": "CALIBER_FEATURE_RELEASE_CANDIDATES",
+    }
+    assert client.get(path).json() == {"data": []}
 
     client.app.state.workspace_resource_adapter_registry = WorkspaceResourceAdapterRegistry(
         {"fake": FakeWorkspaceResourceAdapter()}

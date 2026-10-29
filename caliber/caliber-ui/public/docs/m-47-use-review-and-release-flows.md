@@ -78,6 +78,7 @@ can check it first. The path that governs a release end to end is Apply and roll
 | Evidence exists, but nobody can apply it | review and apply are separate from evaluation |
 | A release is stuck in an uncertain state | use the runbook instead of retrying ad hoc |
 | A rollback path is unclear | inspect the asset-specific control path first |
+| A release operation returns `409` with `reason: adapter_unavailable` | Register the named adapter, or enable the `CALIBER_*` setting named by `disabled_by`, then retry; no operation lock or external effect was created |
 | The Releases page has no candidate section, or `/releases/candidates` answers 404 with `reason_code: feature_disabled` | `CALIBER_FEATURE_RELEASE_CANDIDATES` is off (the default); set it to `true` and restart |
 
 ## 4. Related docs

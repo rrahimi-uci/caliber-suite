@@ -40,6 +40,10 @@ from caliber.schemas import (
     WorkspaceReleaseOperationSchema,
     WorkspaceReleaseSchema,
 )
+from caliber.workspace_release_adapters import (
+    WorkspaceReleaseAdapterUnavailableError,
+    WorkspaceResourceAdapterRegistry,
+)
 from caliber.workspace_release_operation_service import (
     OPERATION_APPLIED,
     OPERATION_APPLYING,
@@ -88,6 +92,23 @@ STAGING_ENVIRONMENT_ID = "WSE-p5a-staging"
 REVISION_ID = "WSR-p5a"
 HEX = "a" * 64
 NOW = datetime(2026, 9, 17, 12, 0, tzinfo=timezone.utc)
+
+
+def test_adapter_unavailable_names_cause() -> None:
+    registry = WorkspaceResourceAdapterRegistry(disabled_by="CALIBER_FEATURE_RELEASE_CANDIDATES")
+
+    with pytest.raises(WorkspaceReleaseAdapterUnavailableError) as raised:
+        registry.require("  Widget  ")
+
+    error = raised.value
+    assert error.adapter == "widget"
+    assert error.disabled_by == "CALIBER_FEATURE_RELEASE_CANDIDATES"
+    assert "widget" in str(error)
+
+    with pytest.raises(ValueError, match="adapter must not be empty"):
+        WorkspaceReleaseAdapterUnavailableError("")
+    with pytest.raises(ValueError, match="environment variable"):
+        WorkspaceReleaseAdapterUnavailableError("widget", disabled_by="release-profile")
 
 
 def _seed_workspace(

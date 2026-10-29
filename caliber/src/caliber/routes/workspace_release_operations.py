@@ -41,6 +41,7 @@ from caliber.schemas import (
 )
 from caliber.workspace_release_adapters import (
     WorkspaceReleaseAdapterError,
+    WorkspaceReleaseAdapterUnavailableError,
     WorkspaceResourceAdapterRegistry,
 )
 from caliber.workspace_release_operation_service import WorkspaceReleaseOperationConflictError
@@ -131,6 +132,27 @@ def _conflict(
     exc: WorkspaceReleaseOperationConflictError | WorkspaceReleaseAdapterError,
 ) -> HTTPException:
     return HTTPException(status_code=409, detail=str(exc))
+
+
+def _adapter_unavailable_response(
+    exc: WorkspaceReleaseAdapterUnavailableError,
+) -> JSONResponse:
+    """Return a stable refusal that tells an operator how the adapter was disabled.
+
+    This is intentionally a bare payload rather than the generic ``detail``
+    envelope.  Adapter availability is a capability decision, so clients need
+    the adapter name and the configuration/profile responsible for the refusal
+    without parsing human-readable text.
+    """
+
+    return JSONResponse(
+        {
+            "reason": "adapter_unavailable",
+            "adapter": exc.adapter,
+            "disabled_by": exc.disabled_by,
+        },
+        status_code=409,
+    )
 
 
 def _create_sync(
@@ -289,6 +311,8 @@ async def create_operation(request: Request) -> JSONResponse:
             payload=payload,
             adapters=_registry(request),
         )
+    except WorkspaceReleaseAdapterUnavailableError as exc:
+        return _adapter_unavailable_response(exc)
     except (WorkspaceReleaseOperationConflictError, WorkspaceReleaseAdapterError) as exc:
         raise _conflict(exc) from exc
     return JSONResponse({"data": data}, status_code=201)
@@ -346,6 +370,8 @@ async def _mutate_route(request: Request, action: str, *, actor: str | None = No
             action=action,
             adapters=_registry(request),
         )
+    except WorkspaceReleaseAdapterUnavailableError as exc:
+        return _adapter_unavailable_response(exc)
     except (WorkspaceReleaseOperationConflictError, WorkspaceReleaseAdapterError) as exc:
         raise _conflict(exc) from exc
     return JSONResponse({"data": data})
