@@ -838,10 +838,12 @@ def create_app(config: CaliberConfig | None = None) -> ASGIApp:  # noqa: PLR0915
         storage=working_dir_service,
         provider_registry=workspace_source_registry,
     )
+    admission_settings = AdmissionSettings.from_config(resolved)
     scheduler = WorkflowSchedulerTask(
         session_factory=session_factory,
         interval_seconds=resolved.workflow_scheduler_interval_seconds,
         publish=getattr(event_bus, "publish", None),
+        admission=admission_settings,
     )
     janitor = JanitorTask(
         session_factory=session_factory,
@@ -1017,9 +1019,6 @@ def create_app(config: CaliberConfig | None = None) -> ASGIApp:  # noqa: PLR0915
             path_limits={GITHUB_WEBHOOK_PATH: resolved.github_webhook_max_body_bytes},
         )
     app.state.config = resolved
-    AdmissionSettings.from_config(
-        resolved
-    )  # a rule bundle path without its digest (or the reverse) fails startup
     app.state.engine = engine
     app.state.session_factory = session_factory
     app.state.secret_store = secret_store

@@ -24,8 +24,10 @@ request is the same one; a different request under the same key is a ``409``. "T
 server-derived scope), and its SHA-256 (:func:`request_digest_of`) is stored in the immutable manifest, so the
 comparison does not depend on anything that can change after admission.
 
-Not admitted, deliberately and documented in ``docs/operate/reference-profile.md``: runs started by the cron
-scheduler and by a service token (no typed subject exists for either yet) stay legacy runs.
+The cron scheduler and service-token route use a server-created :class:`~caliber.policy.principal.ServicePrincipal`
+when admission is enabled. The principal is bound to the local tenant, project, workload, purpose and allowed
+action/resource set; it is never supplied by the caller and does not use human project membership. When admission is
+disabled, those paths remain explicitly labelled legacy for development compatibility.
 """
 
 from __future__ import annotations
@@ -61,7 +63,15 @@ from caliber.policy.decisions import (
     audit_decision,
     decide,
 )
-from caliber.policy.principal import AUTH_METHODS, PrincipalError, Subject, Workload
+from caliber.policy.principal import (
+    AUTH_METHODS,
+    SERVICE_PRINCIPAL_AUTH_METHOD,
+    PrincipalError,
+    ServicePrincipal,
+    ServicePrincipalError,
+    Subject,
+    Workload,
+)
 from caliber.run_manifest import (
     BuiltManifest,
     DeploymentScope,
@@ -107,6 +117,7 @@ OVERRIDE_NOT_ADMITTED: Final = "manifest_override_not_admitted"
 AUTHORITY_UNAVAILABLE: Final = "authority_unavailable"
 INTENT_CONFLICT: Final = "intent_conflict"
 SOURCE_NOT_APPROVED: Final = "source_not_approved"
+SERVICE_PRINCIPAL_REQUIRED: Final = "service_principal_required"
 
 
 class AdmissionDenied(Exception):  # noqa: N818 - a refusal, named for what it says
@@ -188,6 +199,8 @@ class PreparedAdmission:
     #: The context sources (``(knowledge_base_id, version_id)``) the run may read, each granted ``context.read`` on its
     #: own resource: set only when approved sources are required (the reference profile), empty otherwise.
     sources: frozenset[tuple[str, str]] = frozenset()
+    #: The server-created binding, when this run entered through cron or a service token.
+    service_principal: ServicePrincipal | None = None
 
 
 @dataclass(frozen=True)
@@ -218,7 +231,7 @@ def purpose_for(source: str) -> str:
 
 def _subject(identity: CaliberIdentity, project_id: str) -> Subject:
     method = identity.credential_kind or "trusted_header"
-    if method not in AUTH_METHODS:
+    if method not in AUTH_METHODS | {SERVICE_PRINCIPAL_AUTH_METHOD}:
         raise AdmissionDenied(
             SUBJECT_INVALID, f"the credential kind {method!r} cannot start an admitted run"
         )
@@ -426,14 +439,17 @@ def _require_approved_sources(
     Only a caller who may run the workflow at all learns what the project has approved (the role check comes
     first), and the refusal names every offending ``knowledge_base_id@version_id``.
     """
-    from caliber.resource_access import require_project_access_if_scoped  # noqa: PLC0415 - avoids an import cycle
+    if identity.credential_kind != SERVICE_PRINCIPAL_AUTH_METHOD:
+        from caliber.resource_access import require_project_access_if_scoped  # noqa: PLC0415 - avoids an import cycle
 
-    try:
-        require_project_access_if_scoped(session, identity, workflow.project_id, "resource.execute")
-    except HTTPException as exc:
-        raise AdmissionDenied(
-            GRANT_REFUSED, "the caller may not run this workflow", status=403
-        ) from exc
+        try:
+            require_project_access_if_scoped(
+                session, identity, workflow.project_id, "resource.execute"
+            )
+        except HTTPException as exc:
+            raise AdmissionDenied(
+                GRANT_REFUSED, "the caller may not run this workflow", status=403
+            ) from exc
     sources = _knowledge_sources(session, version) | {
         (pin.knowledge_base_id, pin.version_id) for pin in pins.knowledge_base_versions
     }
@@ -475,6 +491,7 @@ def prepare_admission(
     now: datetime,
     run_tenant_id: str,
     intent: dict[str, Any],
+    service_principal: ServicePrincipal | None = None,
 ) -> PreparedAdmission:
     """Resolve and validate everything, building the manifest; writes nothing. Raises :class:`AdmissionDenied`.
 
@@ -501,6 +518,16 @@ def prepare_admission(
             status=403,
         )
     subject = _subject(identity, workflow.project_id)
+    if service_principal is not None and (
+        identity.user_id != service_principal.principal_id
+        or identity.credential_kind != SERVICE_PRINCIPAL_AUTH_METHOD
+        or identity.credential_id != service_principal.principal_id
+    ):
+        raise AdmissionDenied(
+            SERVICE_PRINCIPAL_REQUIRED,
+            "the authenticated service principal does not match the server binding",
+            status=403,
+        )
     try:
         workload = Workload.for_workflow(workflow.name, version.manifest_hash)
     except PrincipalError as exc:
@@ -540,6 +567,25 @@ def prepare_admission(
         )
     except ManifestError as exc:
         raise AdmissionDenied(MANIFEST_REFUSED, f"{exc.code}: {exc}") from exc
+    bound_service_principal = service_principal
+    if service_principal is not None:
+        try:
+            service_principal.validate_binding(
+                tenant_id=run_tenant_id,
+                project_id=workflow.project_id,
+                workflow_id=workflow.workflow_id,
+                workload=workload,
+                purpose=purpose_for(source),
+                action=RUN_ACTION,
+                resource=run_resource(workflow.workflow_id),
+                now=now,
+            )
+            bound_service_principal = service_principal.with_admission_resources(
+                actions=frozenset({CONTEXT_READ_ACTION}) if sources else frozenset(),
+                resources=frozenset(source_resource(kb, version_id) for kb, version_id in sources),
+            )
+        except ServicePrincipalError as exc:
+            raise AdmissionDenied(exc.code, str(exc), status=403) from exc
     return PreparedAdmission(
         run_id=run_id,
         grant_id=grant_id,
@@ -551,6 +597,7 @@ def prepare_admission(
         now=now,
         execution_manifest=execution_manifest,
         sources=sources,
+        service_principal=bound_service_principal,
     )
 
 
@@ -591,6 +638,7 @@ def persist_admission(
             expires_at=prepared.now + timedelta(seconds=settings.grant_ttl_seconds),
             now=prepared.now,
             scopes=scopes,
+            service_principal=prepared.service_principal,
         )
     except grants.GrantError as exc:
         raise AdmissionDenied(GRANT_REFUSED, f"the grant was refused: {exc}", status=403) from exc

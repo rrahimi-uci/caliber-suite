@@ -31,8 +31,26 @@ from typing import Any, Final, final
 
 from caliber.auth import ALL_SCOPES, ANONYMOUS, CaliberIdentity
 
-#: How a subject authenticated: the credential kinds ``caliber.auth`` records (``CaliberIdentity.credential_kind``).
+# A service principal is not a user-shaped request identity. It is created by a
+# server-owned scheduler or by a validated service token and is admitted only
+# after its fixed binding has been checked. Keeping this as an auth method in
+# the manifest makes the subject typed without changing the v1 wire shape.
+SERVICE_PRINCIPAL_AUTH_METHOD: Final[str] = "service_principal"
+
+#: How a subject authenticated: the credential kinds ``caliber.auth`` records
+#: (``CaliberIdentity.credential_kind``). The server-created principal is
+#: deliberately separate: it is not a credential resolved from a request.
 AUTH_METHODS: Final[frozenset[str]] = frozenset({"session", "pat", "trusted_header"})
+
+SERVICE_PRINCIPAL_UNCONFIGURED: Final[str] = "service_principal_unconfigured"
+SERVICE_PRINCIPAL_REVOKED: Final[str] = "service_principal_revoked"
+SERVICE_PRINCIPAL_EXPIRED: Final[str] = "service_principal_expired"
+SERVICE_PRINCIPAL_ORGANIZATION_MISMATCH: Final[str] = "service_principal_organization_mismatch"
+SERVICE_PRINCIPAL_PROJECT_MISMATCH: Final[str] = "service_principal_project_mismatch"
+SERVICE_PRINCIPAL_WORKLOAD_MISMATCH: Final[str] = "service_principal_workload_mismatch"
+SERVICE_PRINCIPAL_PURPOSE_MISMATCH: Final[str] = "service_principal_purpose_mismatch"
+SERVICE_PRINCIPAL_ACTION_NOT_ALLOWED: Final[str] = "service_principal_action_not_allowed"
+SERVICE_PRINCIPAL_RESOURCE_NOT_ALLOWED: Final[str] = "service_principal_resource_not_allowed"
 
 #: ``subject`` and ``workload`` objects of the ``run_manifest`` v1 schema: exactly these keys, no others.
 SUBJECT_FIELDS: Final[frozenset[str]] = frozenset({"user_id", "auth_method"})
@@ -75,6 +93,14 @@ def _exact_fields(kind: str, data: object, expected: frozenset[str]) -> Mapping[
     return data
 
 
+class ServicePrincipalError(PrincipalError):
+    """A server-created service principal is absent, stale, or outside its binding."""
+
+    def __init__(self, code: str, message: str) -> None:
+        self.code = code
+        super().__init__(message)
+
+
 def workload_id_for(workflow_version_digest: str) -> str:
     """The workload id for a workflow version: ``wl_`` plus the *full* 64-hex SHA-256 digest, never a prefix."""
     if type(workflow_version_digest) is not str or not _DIGEST.fullmatch(workflow_version_digest):
@@ -100,9 +126,12 @@ class Subject:
             raise PrincipalError(
                 "user_id must be an authenticated user, not the anonymous sentinel or a list"
             )
-        if type(self.auth_method) is not str or self.auth_method not in AUTH_METHODS:
+        if type(self.auth_method) is not str or self.auth_method not in (
+            AUTH_METHODS | {SERVICE_PRINCIPAL_AUTH_METHOD}
+        ):
             raise PrincipalError(
-                f"auth_method must be one of {sorted(AUTH_METHODS)}, got {self.auth_method!r}"
+                f"auth_method must be one of {sorted(AUTH_METHODS | {SERVICE_PRINCIPAL_AUTH_METHOD})}, "
+                f"got {self.auth_method!r}"
             )
         if self.project_id is not None:
             _text("project_id", self.project_id)
@@ -141,11 +170,17 @@ class Subject:
             raise PrincipalError(f"scopes must be defined by caliber.auth, got {unknown}")
         if self.auth_method == "pat" and credential_id is None:
             raise PrincipalError("a pat subject needs its credential_id to become an identity")
-        if self.auth_method != "pat" and (
+        if self.auth_method not in {"pat", SERVICE_PRINCIPAL_AUTH_METHOD} and (
             credential_id is not None or credential_project_id is not None
         ):
             raise PrincipalError(
                 "only a pat subject carries a credential_id or credential_project_id"
+            )
+        if self.auth_method == SERVICE_PRINCIPAL_AUTH_METHOD and (
+            credential_id is None or credential_project_id is not None
+        ):
+            raise PrincipalError(
+                "a service_principal subject needs its server-created credential_id and no project binding"
             )
         return CaliberIdentity(
             user_id=self.user_id,
@@ -204,6 +239,159 @@ class Workload:
 
 @final
 @dataclass(frozen=True)
+class ServicePrincipal:
+    """A server-controlled, workload-bound subject for non-human run ingress.
+
+    This is intentionally not persisted as a standing credential. A scheduler
+    creates one from the active deployment, while a service route creates one
+    from a token that was already validated in the same transaction. The run
+    grant is the durable authority; these fields are the claims that admission
+    checks before that grant exists.
+    """
+
+    principal_id: str
+    tenant_id: str
+    project_id: str
+    workflow_id: str
+    workload_id: str
+    purpose: str
+    allowed_actions: frozenset[str]
+    allowed_resources: frozenset[str]
+    expires_at: Any | None = None
+    revoked_at: Any | None = None
+
+    def __post_init__(self) -> None:
+        for name, value in (
+            ("principal_id", self.principal_id),
+            ("tenant_id", self.tenant_id),
+            ("project_id", self.project_id),
+            ("workflow_id", self.workflow_id),
+            ("workload_id", self.workload_id),
+            ("purpose", self.purpose),
+        ):
+            _text(name, value)
+        self.workload_id_for_digest(self.workload_id)
+        if type(self.allowed_actions) is not frozenset or not self.allowed_actions:
+            raise PrincipalError("allowed_actions must be a non-empty frozenset")
+        if type(self.allowed_resources) is not frozenset or not self.allowed_resources:
+            raise PrincipalError("allowed_resources must be a non-empty frozenset")
+        if any(
+            type(value) is not str or not value or value != value.strip()
+            for value in self.allowed_actions
+        ):
+            raise PrincipalError("allowed_actions must contain clean strings")
+        if any(
+            type(value) is not str or not value or value != value.strip()
+            for value in self.allowed_resources
+        ):
+            raise PrincipalError("allowed_resources must contain clean strings")
+
+    @staticmethod
+    def workload_id_for_digest(workload_id: str) -> str:
+        """Return the value unchanged after checking the derived workload shape."""
+        if type(workload_id) is not str or not workload_id.startswith(WORKLOAD_ID_PREFIX):
+            raise PrincipalError("workload_id must be derived from a workflow-version digest")
+        digest = workload_id[len(WORKLOAD_ID_PREFIX) :]
+        return workload_id_for(digest)
+
+    @property
+    def auth_method(self) -> str:
+        return SERVICE_PRINCIPAL_AUTH_METHOD
+
+    def to_identity(self) -> CaliberIdentity:
+        """Build the internal identity with no ambient user scopes."""
+        return CaliberIdentity(
+            user_id=self.principal_id,
+            scopes=frozenset(),
+            active_project_id=self.project_id,
+            credential_kind=SERVICE_PRINCIPAL_AUTH_METHOD,
+            credential_id=self.principal_id,
+        )
+
+    def to_subject(self) -> Subject:
+        return Subject(
+            user_id=self.principal_id,
+            auth_method=SERVICE_PRINCIPAL_AUTH_METHOD,
+            project_id=self.project_id,
+        )
+
+    def with_admission_resources(
+        self, *, actions: frozenset[str], resources: frozenset[str]
+    ) -> ServicePrincipal:
+        """Add resources derived by admission from the sealed workload bundle.
+
+        Only the server can call this while resolving pinned context. It does
+        not accept caller-supplied resources and preserves the fixed primary
+        action/resource claims.
+        """
+        return ServicePrincipal(
+            principal_id=self.principal_id,
+            tenant_id=self.tenant_id,
+            project_id=self.project_id,
+            workflow_id=self.workflow_id,
+            workload_id=self.workload_id,
+            purpose=self.purpose,
+            allowed_actions=self.allowed_actions | actions,
+            allowed_resources=self.allowed_resources | resources,
+            expires_at=self.expires_at,
+            revoked_at=self.revoked_at,
+        )
+
+    def validate_binding(
+        self,
+        *,
+        tenant_id: str,
+        project_id: str,
+        workflow_id: str,
+        workload: Workload,
+        purpose: str,
+        action: str,
+        resource: str,
+        now: object | None = None,
+    ) -> None:
+        """Fail closed when the server-created principal no longer matches the run."""
+        if self.revoked_at is not None:
+            raise ServicePrincipalError(
+                SERVICE_PRINCIPAL_REVOKED, "the service principal is revoked"
+            )
+        if self.expires_at is not None and now is not None and self.expires_at <= now:
+            raise ServicePrincipalError(
+                SERVICE_PRINCIPAL_EXPIRED, "the service principal is expired"
+            )
+        if tenant_id != self.tenant_id:
+            raise ServicePrincipalError(
+                SERVICE_PRINCIPAL_ORGANIZATION_MISMATCH,
+                "the service principal is bound to another deployment organization",
+            )
+        if project_id != self.project_id:
+            raise ServicePrincipalError(
+                SERVICE_PRINCIPAL_PROJECT_MISMATCH,
+                "the service principal is bound to another project",
+            )
+        if workflow_id != self.workflow_id or workload.workload_id != self.workload_id:
+            raise ServicePrincipalError(
+                SERVICE_PRINCIPAL_WORKLOAD_MISMATCH,
+                "the service principal is bound to another workflow workload",
+            )
+        if purpose != self.purpose:
+            raise ServicePrincipalError(
+                SERVICE_PRINCIPAL_PURPOSE_MISMATCH,
+                "the service principal is bound to another run purpose",
+            )
+        if action not in self.allowed_actions:
+            raise ServicePrincipalError(
+                SERVICE_PRINCIPAL_ACTION_NOT_ALLOWED,
+                "the service principal is not allowed to perform this action",
+            )
+        if resource not in self.allowed_resources:
+            raise ServicePrincipalError(
+                SERVICE_PRINCIPAL_RESOURCE_NOT_ALLOWED,
+                "the service principal is not allowed to access this resource",
+            )
+
+
+@final
+@dataclass(frozen=True)
 class RunPrincipal:
     """The pair a run acts as, and the grant that authorizes it. Both principals stay distinct."""
 
@@ -221,11 +409,23 @@ class RunPrincipal:
 
 __all__ = [
     "AUTH_METHODS",
+    "SERVICE_PRINCIPAL_ACTION_NOT_ALLOWED",
+    "SERVICE_PRINCIPAL_AUTH_METHOD",
+    "SERVICE_PRINCIPAL_EXPIRED",
+    "SERVICE_PRINCIPAL_ORGANIZATION_MISMATCH",
+    "SERVICE_PRINCIPAL_PROJECT_MISMATCH",
+    "SERVICE_PRINCIPAL_PURPOSE_MISMATCH",
+    "SERVICE_PRINCIPAL_RESOURCE_NOT_ALLOWED",
+    "SERVICE_PRINCIPAL_REVOKED",
+    "SERVICE_PRINCIPAL_UNCONFIGURED",
+    "SERVICE_PRINCIPAL_WORKLOAD_MISMATCH",
     "SUBJECT_FIELDS",
     "WORKLOAD_FIELDS",
     "WORKLOAD_ID_PREFIX",
     "PrincipalError",
     "RunPrincipal",
+    "ServicePrincipal",
+    "ServicePrincipalError",
     "Subject",
     "Workload",
     "workload_id_for",
