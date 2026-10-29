@@ -61,6 +61,7 @@ from caliber.orchestrator.release_reconciler import ReleaseReconcilerTask
 from caliber.orchestrator.scheduler import WorkflowSchedulerTask
 from caliber.orchestrator.worker import RefinementWorker
 from caliber.orchestrator.workflow_run_worker import WorkflowRunWorker
+from caliber.orchestrator.workspace_release_evaluator import WorkspaceReleaseEvaluator
 from caliber.profile import reference_profile_violations
 from caliber.promoter import Promoter, build_promoter
 from caliber.rate_limit import RateLimitMiddleware, build_limiter
@@ -312,12 +313,13 @@ def _build_lifespan(  # noqa: PLR0915 - one lifespan: every owner loop's start a
     reference_profile: bool = False,
     execution_lease_seconds: float = 30.0,
     outbox_publisher: OutboxPublisher | None = None,
+    workspace_release_evaluator: WorkspaceReleaseEvaluator | None = None,
 ) -> Lifespan:
     """Create the Starlette lifespan callback that starts/stops background tasks.
 
     Startup order: refinement worker → workflow-run worker → Aria worker →
     knowledge-build worker → workspace-import worker → scheduler → janitor →
-    release reconciler → calibration drain → webhooks.
+    release reconciler → workspace release evaluator → calibration drain → webhooks.
     Shutdown stops the webhook dispatcher first, then every other loop at once (each drain waits for its own
     in-flight work, so one after another they would keep claiming new work for the sum of the graces); the event
     bus stops, and the database engine is disposed, only after all of them.
@@ -350,6 +352,8 @@ def _build_lifespan(  # noqa: PLR0915 - one lifespan: every owner loop's start a
             await scheduler.start()
         await janitor.start()
         await release_reconciler.start()
+        if workspace_release_evaluator is not None:
+            await workspace_release_evaluator.start()
         await calibration_drain_task.start()
         await webhooks.start()
         if outbox_publisher is not None:
@@ -372,6 +376,8 @@ def _build_lifespan(  # noqa: PLR0915 - one lifespan: every owner loop's start a
             stops.append(workflow_run_worker.stop(grace_seconds=grace_seconds))
         if outbox_publisher is not None:
             stops.append(outbox_publisher.stop(grace_seconds=grace_seconds))
+        if workspace_release_evaluator is not None:
+            stops.append(workspace_release_evaluator.stop(grace_seconds=grace_seconds))
         stops += [
             worker.stop(grace_seconds=grace_seconds),
             calibration_drain_task.stop(grace_seconds=grace_seconds),
@@ -386,14 +392,18 @@ def _build_lifespan(  # noqa: PLR0915 - one lifespan: every owner loop's start a
         if failures:
             raise failures[0]
 
+    leased = reference_profile and session_factory is not None
     role = ExecutionRoleController(
         session_factory,
         lease_seconds=execution_lease_seconds,
         start_loops=start_owner_loops,
         stop_loops=stop_owner_loops,
-        leased=reference_profile and session_factory is not None,
+        leased=leased,
         run_loops=background_tasks_enabled,
     )
+    if workspace_release_evaluator is not None and leased:
+        # Every claim is fenced with the exact lease this process holds, and nothing is claimed without one.
+        workspace_release_evaluator.bind_lease_provider(lambda: role.lease)
 
     @asynccontextmanager
     async def lifespan(_app: Starlette) -> AsyncIterator[None]:
@@ -850,6 +860,25 @@ def create_app(config: CaliberConfig | None = None) -> ASGIApp:  # noqa: PLR0915
         session_factory=session_factory,
         config=resolved,
     )
+    # B10.1: claims queued Workspace release evaluations. Dormant while the release feature is off.
+    if (
+        resolved.workspace_release_evaluator_enabled
+        and not resolved.feature_release_candidates_enabled
+    ):
+        logger.warning(
+            "CALIBER_WORKSPACE_RELEASE_EVALUATOR_ENABLED is true but CALIBER_FEATURE_RELEASE_CANDIDATES is "
+            "false, so the Workspace release evaluator is dormant and no release evaluation will be claimed"
+        )
+    workspace_release_evaluator = (
+        WorkspaceReleaseEvaluator(
+            session_factory,
+            resolved,
+            poll_interval_seconds=resolved.workspace_release_evaluator_interval_seconds,
+        )
+        if resolved.feature_release_candidates_enabled
+        and resolved.workspace_release_evaluator_enabled
+        else None
+    )
     webhooks = build_dispatcher(
         bus=event_bus,
         urls_csv=resolved.webhook_urls,
@@ -922,6 +951,7 @@ def create_app(config: CaliberConfig | None = None) -> ASGIApp:  # noqa: PLR0915
             reference_profile=resolved.profile == "reference",
             execution_lease_seconds=resolved.execution_lease_seconds,
             outbox_publisher=outbox_publisher,
+            workspace_release_evaluator=workspace_release_evaluator,
         ),
         exception_handlers={
             HTTPException: http_exception_handler,
