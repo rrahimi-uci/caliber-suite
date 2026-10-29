@@ -247,7 +247,7 @@ one; that needs write access to runs and is not guarded here.
 (`CALIBER_WORKFLOW_RUN_RETENTION_DAYS`) skips it, and `DELETE /workflows/{id}` answers `409`
 (`cannot delete workflow: its runs have immutable run manifests`) while any of its runs has one, because removing
 the run would either violate the manifest's foreign key (PostgreSQL) or orphan it (SQLite). Legacy and
-manifest-less runs are pruned and deleted as before. A rollback (`caliber-migrate downgrade 0113`) drops the table
+manifest-less runs are pruned and deleted as before. Rolling the schema back past 0113 drops the table
 and therefore the manifests, never the runs; upgrading again starts with no manifests and marks every existing run
 legacy.
 
@@ -548,8 +548,8 @@ Issuing refuses (`GrantError`): an empty or oversized set, an action outside the
 role, a subject who is not a current member, a run that does not exist or belongs to another project, a naive datetime,
 and an expiry that is not in the future.
 
-This task stores and checks grants; it makes no policy decision and records none (B03.3 and B03.5). A rollback
-(`caliber-migrate downgrade 0114`) drops the table and therefore the grants, never the runs.
+This task stores and checks grants; it makes no policy decision and records none (B03.3 and B03.5). Rolling the
+schema back past 0114 drops the table and therefore the grants, never the runs.
 
 ## Experiment ownership
 
@@ -669,7 +669,7 @@ minus the renewal interval (a fenced transaction blocks the owner's own renewal 
 give fenced and acquiring transactions a `SET LOCAL lock_timeout`, since a stuck session holding the row would block
 failover (`idle_in_transaction_session_timeout` bounds it too).
 
-A rollback (`caliber-migrate downgrade 0115`) drops the table; the next acquirer starts at token 1.
+Rolling the schema back past 0116 drops the table; the next acquirer starts at token 1.
 
 ### Who runs the loops (B13.3, #673)
 
@@ -1077,7 +1077,7 @@ them the one way ADR 0003 allows: by asking the downstream by the **original log
 - **Owner-only.** `reconcile_pass(factory, lease=..., targets=..., lookup=...)` needs the `Lease` the execution owner captured, and every write re-compares it
   in the transaction that writes (`fence_owner`: exact owner and fencing token, database clock). No question is asked on a lease that is gone. A pass
   whose lease is taken over stops with `ProposalError` `lease_lost`; what it already settled stays settled and the new owner's pass takes the rest. Which
-  process runs the pass, and when, belongs with the dispatcher's owner loop (B04.1); until then the pass is called by the code that holds the lease.
+  process runs the pass, and when, belongs with the dispatcher's owner loop (B04.1, tracked in #997); until then the pass is called by the code that holds the lease.
 - **Abandoned means a prior lease.** Migration 0126 records `dispatch_token` (the fencing token the owner held) with every dispatch. A `dispatched` proposal is
   abandoned exactly when its token is lower than the token of the lease the reconciler holds; `abandon_dispatch` then records `unknown` with reason
   `abandoned_dispatch` (under the *reconciler's* lease; `not_abandoned` for a dispatch under the current lease, which is in flight in this very process and is
@@ -1091,7 +1091,8 @@ them the one way ADR 0003 allows: by asking the downstream by the **original log
   | a stored request that is this proposal's effect (key, intent, target, expected version) | verified receipt, `reconciled`, `committed`; one audit entry | `committed` |
   | 404 from a connector that proves absence final (tombstone or honoured cancel, reads its own writes) | `reconciled`, `failed` (`absence_proven`) | `failed` |
   | 404 from any other connector (document-request included): delayed visibility, or a request still in flight | nothing | `unknown` |
-  | 5xx, 401, an unreadable body, another request under the key | nothing | `unknown` / `unverified` |
+  | 5xx, 401 or any other status | nothing | `unknown` (detail `http_<code>`) |
+  | a 2xx whose body is not this proposal's effect (unreadable, or another request under the key) | nothing | `unverified` |
   | cannot be reached, or no binding for this connector and project | nothing | `lookup_failed` / `not_bound` |
 
   A proposal that another actor moved while the downstream was asked is `moved` and is not overwritten (the write is conditioned on the version that was read).
@@ -1984,5 +1985,6 @@ A configuration that passes this page is the minimum for the reference profile, 
 
 ## Related
 
+- [Reference profile recovery runbook](recovery-runbook.md) for the operator steps when the owner dies, an effect is `unknown`, a callback is redelivered or events back up.
 - [Health and readiness](health-and-readiness.md) for what the readiness response contains.
 - [Configuration and provider setup](configuration-and-provider-setup.md) for the settings themselves.

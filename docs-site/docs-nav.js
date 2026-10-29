@@ -209,6 +209,11 @@ window.DOCS_DATA = {
           "newtab": false
         },
         {
+          "href": "m-65-recovery-runbook.html",
+          "label": "Reference profile recovery runbook",
+          "newtab": false
+        },
+        {
           "href": "m-52-backup-and-recovery.html",
           "label": "Backup and recovery",
           "newtab": false
@@ -1617,6 +1622,34 @@ window.DOCS_DATA = {
         "recovery",
         "storage",
         "rollback"
+      ],
+      "newtab": false,
+      "nav_hidden": false
+    },
+    {
+      "href": "m-65-recovery-runbook.html",
+      "label": "Reference profile recovery runbook",
+      "section": "Operate CALIBER",
+      "section_id": "operate",
+      "summary": "What to do, and what never to do, when a reference-profile deployment stops halfway: owner failover, an unknown effect, a redelivered callback, an outbox backlog, a failed run with an effect in doubt.",
+      "audience": [
+        "operator"
+      ],
+      "doc_type": "runbook",
+      "prerequisites": [
+        "A CALIBER deployment running the reference profile",
+        "An operator-scoped token, and an admin-scoped one for the legacy effect resolve",
+        "Read access to the CALIBER database for the read-only queries"
+      ],
+      "stability": "beta",
+      "reviewed_on": "2026-10-28",
+      "version_applicability": "current main branch docs contract",
+      "tags": [
+        "recovery",
+        "reference-profile",
+        "failover",
+        "effects",
+        "runbook"
       ],
       "newtab": false,
       "nav_hidden": false
