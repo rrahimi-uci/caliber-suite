@@ -39,7 +39,8 @@ import inspect
 import logging
 import math
 import sys
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
+from dataclasses import dataclass
 from typing import Any
 
 from caliber.eval.judge_scorer import JUDGE_VALUE_TYPE_MAP, JudgeError, build_judge
@@ -52,12 +53,20 @@ from caliber.eval.provider import (
 )
 
 logger = logging.getLogger("caliber.eval.mlflow_runner")
+_EVIDENCE_PASS_THRESHOLD = 0.5
 
 # A predict_fn takes one example (dict) and returns the model's output —
 # typically a string but anything the scorers accept is fine. The factory
 # wraps the prompt content so the predict_fn closes over it.
 PredictFn = Callable[..., Any]
 PredictFnFactory = Callable[[str], PredictFn]
+
+
+@dataclass(frozen=True)
+class _EvalPass:
+    scores: ScoreSet
+    evidence_rows: tuple[dict[str, Any], ...]
+
 
 # Re-exported for back-compat; the canonical map lives in ``eval.judge_scorer``.
 _JUDGE_VALUE_TYPE_MAP: dict[Any, type] = JUDGE_VALUE_TYPE_MAP
@@ -137,7 +146,7 @@ class MLflowEvalProvider:
         scorers = self._resolve_scorers(request.scorer_names, request.scorer_configs)
         metric_names = _selected_metric_names(request.scorer_names, scorers)
 
-        candidate_scores = self._run_eval_pass(
+        candidate_pass = self._run_eval_pass(
             mlflow,
             factory(request.candidate_content),
             data,
@@ -145,15 +154,17 @@ class MLflowEvalProvider:
             label="candidate",
             request=request,
         )
+        candidate_scores = candidate_pass.scores
         candidate_scores = _align_selected_scores(candidate_scores, metric_names)
         _require_requested_scores(candidate_scores, request.scorer_names, label="candidate")
         candidate_scores = apply_scorer_weights(candidate_scores, request.scorer_weights)
 
         baseline_scores: ScoreSet | None
+        baseline_rows: tuple[dict[str, Any], ...] = ()
         if request.baseline_content is None:
             baseline_scores = None
         else:
-            baseline_scores = self._run_eval_pass(
+            baseline_pass = self._run_eval_pass(
                 mlflow,
                 factory(request.baseline_content),
                 data,
@@ -161,18 +172,25 @@ class MLflowEvalProvider:
                 label="baseline",
                 request=request,
             )
+            baseline_rows = baseline_pass.evidence_rows
+            baseline_scores = baseline_pass.scores
             baseline_scores = _align_selected_scores(baseline_scores, metric_names)
             _require_requested_scores(baseline_scores, request.scorer_names, label="baseline")
             baseline_scores = apply_scorer_weights(baseline_scores, request.scorer_weights)
 
         deltas = _compute_deltas(candidate_scores, baseline_scores)
         n_examples = _count_examples(data)
+        evidence_rows = _merge_evidence_rows(
+            candidate_pass.evidence_rows,
+            baseline_rows,
+        )
         return EvalComparison(
             candidate=candidate_scores,
             baseline=baseline_scores,
             deltas=deltas,
             eval_dataset_id=request.eval_dataset_id,
             n_examples=n_examples,
+            evidence_rows=evidence_rows,
         )
 
     # ------------------------------------------------------------------
@@ -358,7 +376,7 @@ class MLflowEvalProvider:
         *,
         label: str,
         request: EvalRequest,
-    ) -> ScoreSet:
+    ) -> _EvalPass:
         try:
             result = mlflow.genai.evaluate(
                 data=data,
@@ -376,7 +394,181 @@ class MLflowEvalProvider:
                 f"mlflow.genai.evaluate failed on {label} pass for "
                 f"agent_id={request.agent_id!r}: {exc}"
             ) from exc
-        return _metrics_to_score_set(getattr(result, "metrics", {}) or {})
+        return _EvalPass(
+            scores=_metrics_to_score_set(getattr(result, "metrics", {}) or {}),
+            evidence_rows=_extract_evidence_rows(result, data, request.scorer_names),
+        )
+
+
+def _table_records(table: Any) -> list[Mapping[str, Any]]:
+    """Convert common MLflow table shapes to row mappings."""
+    if isinstance(table, Mapping):
+        records = table.get("records")
+        if isinstance(records, list):
+            return [row for row in records if isinstance(row, Mapping)]
+        return [table]
+    to_dict = getattr(table, "to_dict", None)
+    if callable(to_dict):
+        try:
+            records = to_dict(orient="records")
+        except TypeError:
+            records = to_dict()
+        if isinstance(records, list):
+            return [row for row in records if isinstance(row, Mapping)]
+    if isinstance(table, list):
+        return [row for row in table if isinstance(row, Mapping)]
+    return []
+
+
+def _result_rows(result: Any) -> list[Mapping[str, Any]]:
+    """Find MLflow's per-example result table without depending on one version."""
+    tables = getattr(result, "tables", None)
+    if isinstance(tables, Mapping):
+        for name, table in tables.items():
+            if "eval" in str(name).lower() or "result" in str(name).lower():
+                rows = _table_records(table)
+                if rows:
+                    return rows
+        for table in tables.values():
+            rows = _table_records(table)
+            if rows:
+                return rows
+    for attr in ("results", "eval_results", "rows"):
+        rows = _table_records(getattr(result, attr, None))
+        if rows:
+            return rows
+    return []
+
+
+def _numeric(value: Any) -> float | None:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    value = float(value)
+    return value if math.isfinite(value) else None
+
+
+def _extract_evidence_rows(
+    result: Any,
+    data: Any,
+    scorer_names: list[str],
+) -> tuple[dict[str, Any], ...]:
+    """Normalize an MLflow result table into the release evidence row shape.
+
+    If the backend did not return a per-example table, return no rows. The
+    release evaluator then refuses to settle the gate instead of pretending an
+    aggregate metric is durable evidence.
+    """
+    del data
+    return tuple(
+        _normalize_evidence_row(source, index, scorer_names)
+        for index, source in enumerate(_result_rows(result), start=1)
+    )
+
+
+def _normalize_evidence_row(
+    source: Mapping[str, Any], index: int, scorer_names: list[str]
+) -> dict[str, Any]:
+    scores = _named_scores(source, scorer_names)
+    scores.update(_generic_scores(source, scorer_names, scores))
+    raw_score = _numeric(source.get("score"))
+    if raw_score is None and scores:
+        raw_score = round(sum(scores.values()) / len(scores), 6)
+    return {
+        "example_id": str(source.get("example_id") or source.get("id") or f"example-{index}"),
+        "input": source.get("input", source.get("inputs", {})),
+        "expected": source.get("expected", source.get("expectations", {})),
+        "prediction": source.get("prediction", source.get("outputs", source.get("output"))),
+        "scores": scores,
+        "score": raw_score if raw_score is not None else 0.0,
+        "passed": bool(
+            source.get("passed", raw_score is not None and raw_score >= _EVIDENCE_PASS_THRESHOLD)
+        ),
+        "error": source.get("error"),
+        "weight": source.get("weight", 1.0),
+        "tags": list(source.get("tags", []) or []),
+    }
+
+
+def _named_scores(source: Mapping[str, Any], scorer_names: list[str]) -> dict[str, float]:
+    scores: dict[str, float] = {}
+    raw_scores = source.get("scores")
+    if isinstance(raw_scores, Mapping):
+        for name, value in raw_scores.items():
+            numeric = _numeric(value)
+            if numeric is not None:
+                scores[str(name)] = numeric
+    for name in scorer_names:
+        if name in scores:
+            continue
+        numeric = next(
+            (
+                value
+                for value in (
+                    _numeric(source.get(name)),
+                    _numeric(source.get(f"{name}/value")),
+                    _numeric(source.get(f"{name}/score")),
+                    _numeric(source.get(f"{name}/mean")),
+                )
+                if value is not None
+            ),
+            None,
+        )
+        if numeric is not None:
+            scores[name] = numeric
+    return scores
+
+
+_EVIDENCE_METADATA_KEYS = frozenset(
+    {
+        "example_id",
+        "id",
+        "input",
+        "inputs",
+        "expected",
+        "expectations",
+        "prediction",
+        "outputs",
+        "output",
+        "score",
+        "passed",
+        "error",
+        "weight",
+        "tags",
+    }
+)
+
+
+def _generic_scores(
+    source: Mapping[str, Any], scorer_names: list[str], existing: Mapping[str, float]
+) -> dict[str, float]:
+    return {
+        str(key): numeric
+        for key, value in source.items()
+        if key not in _EVIDENCE_METADATA_KEYS
+        and not any(key == name or key.startswith(f"{name}/") for name in scorer_names)
+        and (numeric := _numeric(value)) is not None
+        and key not in existing
+    }
+
+
+def _merge_evidence_rows(
+    candidate_rows: tuple[dict[str, Any], ...],
+    baseline_rows: tuple[dict[str, Any], ...],
+) -> tuple[dict[str, Any], ...]:
+    """Attach baseline per-row scores without changing candidate row identity."""
+    if not baseline_rows:
+        return candidate_rows
+    if len(candidate_rows) != len(baseline_rows):
+        raise EvalProviderError("candidate and baseline evidence row counts differ")
+    merged: list[dict[str, Any]] = []
+    for candidate, baseline in zip(candidate_rows, baseline_rows, strict=True):
+        if candidate.get("example_id") != baseline.get("example_id"):
+            raise EvalProviderError("candidate and baseline evidence rows are not aligned")
+        row = dict(candidate)
+        row["baseline_scores"] = dict(baseline.get("scores") or {})
+        row["baseline_score"] = baseline.get("score")
+        merged.append(row)
+    return tuple(merged)
 
 
 def _prime_mlflow_lazy_imports() -> None:

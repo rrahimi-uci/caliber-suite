@@ -1987,8 +1987,13 @@ is the owner-only loop that picks them up. It reuses the service's own queue and
   input digests, candidate/baseline scores, example count, thresholds, and `provider`/`simulated` provenance. A score
   below the pinned aggregate threshold becomes `no_go`; an unavailable plan/provider or invalid result becomes a
   retryable `blocked` outcome. Completion uses the same release lock version captured before provider work, so a
-  concurrent transition cannot be overwritten. B10.3 (#714) adds first-class evidence rows and verdict records; this
-  result digest is the B10.2 completion anchor.
+  concurrent transition cannot be overwritten.
+- **Evidence-bound gate digest (B10.3, #714).** A provider must return one per-example result row for every pinned
+  dataset example. The worker persists the canonical `gate_evidence` block on the evaluation attempt before settling the
+  release. It contains the complete rows, a dataset digest derived from `example_id`/input/expected/weight/tags, the
+  scored-result digest, per-scorer valid-row/weight denominators, candidate/baseline aggregates, thresholds and
+  provider provenance. `evaluation_evidence_sha256` is the digest of that exact block and can be recomputed without a
+  provider call. A missing row set or row-count mismatch blocks settlement and writes no gate evidence.
 - **Owner-only and fenced.** It runs only in the process holding the execution-owner lease (see above), and in the
   reference profile each claim is made in a transaction that first runs `assert_fenced` with the exact lease the owner
   captured. A process whose lease was taken over, expired or cannot be checked claims nothing and records nothing; the

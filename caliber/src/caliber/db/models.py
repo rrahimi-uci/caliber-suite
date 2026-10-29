@@ -3710,6 +3710,10 @@ class CaliberWorkspaceReleaseEvaluation(Base):
     lease_expires_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     heartbeat_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     linked_evaluation_run_ids: Mapped[list[str]] = mapped_column(JSON, default=list)
+    # Canonical per-example release-gate evidence.  This is retained with the
+    # attempt so operators can recompute ``evaluation_evidence_sha256`` without
+    # re-running a provider or relying on an external MLflow record.
+    gate_evidence: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
     gate_verdict_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
     error_code: Mapped[str | None] = mapped_column(String(64), nullable=True)
     error_summary: Mapped[str | None] = mapped_column(String(4000), nullable=True)

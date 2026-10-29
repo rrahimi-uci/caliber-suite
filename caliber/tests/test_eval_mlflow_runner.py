@@ -22,10 +22,13 @@ from caliber.eval.mlflow_runner import (
     _coerce_float,
     _compute_deltas,
     _count_examples,
+    _extract_evidence_rows,
+    _merge_evidence_rows,
     _metrics_to_score_set,
     _prime_mlflow_lazy_imports,
     _require_requested_scores,
     _selected_metric_names,
+    _table_records,
 )
 from caliber.eval.provider import EvalProviderError, EvalRequest, ScoreSet
 
@@ -278,6 +281,150 @@ def test_count_examples_falls_back_to_iteration() -> None:
     assert _count_examples(object()) == 0
 
 
+def test_evidence_table_normalization_supports_common_shapes() -> None:
+    assert _table_records({"records": [{"id": "one"}]}) == [{"id": "one"}]
+    assert _table_records({"id": "one"}) == [{"id": "one"}]
+    assert _table_records([{"id": "one"}, "not-a-row"]) == [{"id": "one"}]
+
+    class PandasLike:
+        def to_dict(self, **kwargs: Any) -> list[dict[str, str]]:
+            assert kwargs == {"orient": "records"}
+            return [{"id": "one"}]
+
+    assert _table_records(PandasLike()) == [{"id": "one"}]
+
+    class LegacyTable:
+        def to_dict(self, **_kwargs: Any) -> dict[str, dict[str, str]]:
+            if _kwargs:
+                raise TypeError("orient unsupported")
+            return {"id": "one"}
+
+    assert _table_records(LegacyTable()) == []
+    assert _table_records(object()) == []
+
+
+def test_evidence_rows_are_extracted_and_candidate_baseline_rows_must_align() -> None:
+    result = types.SimpleNamespace(
+        tables={
+            "other": [{"id": "ignored"}],
+            "eval_results_table": [
+                {
+                    "id": "one",
+                    "inputs": {"q": 1},
+                    "expectations": {"answer": "a"},
+                    "outputs": "a",
+                    "Judge.quality/value": 0.9,
+                    "auxiliary": 0.8,
+                    "weight": 2.0,
+                    "tags": ["p0"],
+                }
+            ],
+        }
+    )
+    rows = _extract_evidence_rows(result, [], ["Judge.quality"])
+    assert rows[0]["example_id"] == "one"
+    assert rows[0]["scores"] == {"Judge.quality": 0.9, "auxiliary": 0.8}
+    assert rows[0]["score"] == 0.85
+    assert rows[0]["passed"] is True
+
+    assert _merge_evidence_rows(rows, ()) == rows
+    with pytest.raises(EvalProviderError, match="row counts differ"):
+        _merge_evidence_rows(rows, ({}, {}))
+    with pytest.raises(EvalProviderError, match="not aligned"):
+        _merge_evidence_rows(rows, ({"example_id": "other", "scores": {}},))
+
+    no_table = types.SimpleNamespace(results=[{"id": "fallback"}])
+    assert _extract_evidence_rows(no_table, [], []) == (
+        {
+            "example_id": "fallback",
+            "input": {},
+            "expected": {},
+            "prediction": None,
+            "scores": {},
+            "score": 0.0,
+            "passed": False,
+            "error": None,
+            "weight": 1.0,
+            "tags": [],
+        },
+    )
+
+
+def test_evidence_row_lookup_falls_back_across_table_and_result_attributes() -> None:
+    empty_named = types.SimpleNamespace(
+        tables={"eval_results_table": [], "other": [{"id": "from-values"}]}
+    )
+    assert _extract_evidence_rows(empty_named, [], []) == (
+        {
+            "example_id": "from-values",
+            "input": {},
+            "expected": {},
+            "prediction": None,
+            "scores": {},
+            "score": 0.0,
+            "passed": False,
+            "error": None,
+            "weight": 1.0,
+            "tags": [],
+        },
+    )
+
+    assert _extract_evidence_rows(types.SimpleNamespace(rows=[]), [], []) == ()
+
+
+def test_scorer_resolution_reports_provider_and_configuration_errors(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    scorers_stub = types.ModuleType("mlflow.genai.scorers")
+    genai_stub = types.ModuleType("mlflow.genai")
+    genai_stub.scorers = scorers_stub  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "mlflow.genai", genai_stub)
+    monkeypatch.setitem(sys.modules, "mlflow.genai.scorers", scorers_stub)
+
+    with pytest.raises(EvalProviderError, match="unknown scorer provider"):
+        MLflowEvalProvider()._resolve_scorer_class(scorers_stub, "Other.metric")
+    with pytest.raises(EvalProviderError, match="unknown scorer"):
+        MLflowEvalProvider()._resolve_scorer_class(scorers_stub, "Missing")
+    with pytest.raises(EvalProviderError, match="object/dict"):
+        MLflowEvalProvider()._resolve_scorers(["Missing"], {"Missing": "bad"})
+
+    class Broken:
+        def __init__(self) -> None:
+            raise RuntimeError("broken")
+
+    scorers_stub.Broken = Broken  # type: ignore[attr-defined]
+    with pytest.raises(EvalProviderError, match="failed to initialize"):
+        MLflowEvalProvider()._resolve_scorers(["Broken"], {})
+
+
+def test_default_scorer_import_failure_is_actionable(monkeypatch: pytest.MonkeyPatch) -> None:
+    real_import = builtins.__import__
+
+    def missing_scorers(name: str, *args: object, **kwargs: object) -> object:
+        if name in {"mlflow.genai", "mlflow.genai.scorers"}:
+            raise ImportError("no scorers")
+        return real_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", missing_scorers)
+    with pytest.raises(EvalProviderError, match="scorers is unavailable"):
+        MLflowEvalProvider()._resolve_scorers()
+
+
+def test_loader_signature_fallback_and_alignment_edges() -> None:
+    from caliber.eval.mlflow_runner import _loader_accepts_version
+
+    class Uninspectable:
+        __signature__ = property(lambda _self: (_ for _ in ()).throw(ValueError("hidden")))
+
+    assert _loader_accepts_version(Uninspectable()) is False
+    assert _align_selected_scores(
+        ScoreSet(0.5, {"Selected": 0.5}), {"Selected": "other"}
+    ) == ScoreSet(0.5, {"Selected": 0.5})
+    assert _compute_deltas(ScoreSet(0.5, {"new": 0.5}), ScoreSet(0.4, {"old": 0.4})) == {
+        "overall": 0.1
+    }
+
+
 def test_evaluate_with_injected_dataset_and_scorers_runs_a_full_pass(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -299,8 +446,22 @@ def test_evaluate_with_injected_dataset_and_scorers_runs_a_full_pass(
     call_log: list[dict[str, Any]] = []
 
     class _MockEvalResult:
-        def __init__(self, metrics: dict[str, float]) -> None:
+        def __init__(self, metrics: dict[str, float], score: float) -> None:
             self.metrics = metrics
+            self.tables = {
+                "eval_results_table": [
+                    {
+                        "example_id": f"q{index}",
+                        "inputs": {"question": f"q{index}"},
+                        "expectations": {"answer": f"a{index}"},
+                        "outputs": f"a{index}",
+                        "Correctness": score,
+                        "Safety": 0.99,
+                        "score": (score + 0.99) / 2,
+                    }
+                    for index in range(1, 4)
+                ]
+            }
 
     def fake_evaluate(*, data: object, predict_fn: Any, scorers: list[Any]) -> _MockEvalResult:
         _ = predict_fn
@@ -313,8 +474,8 @@ def test_evaluate_with_injected_dataset_and_scorers_runs_a_full_pass(
             }
         )
         if is_first:
-            return _MockEvalResult({"Correctness/mean": 0.95, "Safety/mean": 0.99})
-        return _MockEvalResult({"Correctness/mean": 0.88, "Safety/mean": 0.99})
+            return _MockEvalResult({"Correctness/mean": 0.95, "Safety/mean": 0.99}, 0.95)
+        return _MockEvalResult({"Correctness/mean": 0.88, "Safety/mean": 0.99}, 0.88)
 
     _install_fake_mlflow(monkeypatch, evaluate_fn=fake_evaluate)
 
@@ -337,6 +498,12 @@ def test_evaluate_with_injected_dataset_and_scorers_runs_a_full_pass(
     assert comparison.deltas["Correctness"] == 0.07
     assert comparison.n_examples == 3
     assert comparison.eval_dataset_id == "default"
+    assert len(comparison.evidence_rows) == 3
+    assert comparison.evidence_rows[0]["scores"] == {"Correctness": 0.95, "Safety": 0.99}
+    assert comparison.evidence_rows[0]["baseline_scores"] == {
+        "Correctness": 0.88,
+        "Safety": 0.99,
+    }
 
 
 def test_evaluate_cold_start_skips_baseline_pass(monkeypatch: pytest.MonkeyPatch) -> None:

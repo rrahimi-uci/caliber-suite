@@ -11,7 +11,7 @@ from __future__ import annotations
 import hashlib
 import re
 from datetime import datetime, timedelta, timezone
-from typing import Literal
+from typing import Any, Literal
 
 from sqlalchemy import or_, select, update
 from sqlalchemy.orm import Session
@@ -668,6 +668,7 @@ def complete_workspace_release_evaluation(
     result: Literal["pass", "no_go", "blocked"],
     expected_release_lock_version: int,
     evidence_sha256: str | None = None,
+    gate_evidence: dict[str, Any] | None = None,
     gate_verdict_id: str | None = None,
     evaluation_run_ids: list[str] | None = None,
     error_code: str | None = None,
@@ -715,6 +716,7 @@ def complete_workspace_release_evaluation(
     current.completed_at = moment
     current.lease_expires_at = None
     current.heartbeat_at = None
+    current.gate_evidence = gate_evidence
     current.gate_verdict_id = gate_verdict_id
     current.linked_evaluation_run_ids = list(evaluation_run_ids or [])
     current.error_code = error_code if result == "blocked" else None

@@ -14,6 +14,7 @@ Two implementations ship:
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Any, Protocol
 
@@ -50,6 +51,9 @@ class EvalComparison:
     deltas: dict[str, float] = field(default_factory=dict)
     eval_dataset_id: str = ""
     n_examples: int = 0
+    # Provider-owned, per-example evidence. An aggregate score alone cannot
+    # prove which inputs and denominators produced a release decision.
+    evidence_rows: tuple[Mapping[str, Any], ...] = ()
 
 
 @dataclass(frozen=True)
