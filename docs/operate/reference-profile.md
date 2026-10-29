@@ -1844,6 +1844,8 @@ build on it and are not part of it.
   `_agent_step` (one import line already there), so add no new top-level import to the shared import block or `__all__` (use
   `_agent_step.failure`, `_agent_step.answer`, `_agent_step.StepUsage` and so on, or import inside the method), replace only your
   own `run_step` body, and regenerate the docs and search index last, after merging `origin/main`.
+  `AnthropicChatWorkflowExecutor` is the first of them integrated (B08.anthropic #727, [below](#anthropic-governed-step-b08anthropic-727)): it
+  no longer refuses, and its `run_agent` is still unchanged.
 - **Conformance harness.** `caliber/tests/agent_step_conformance.py` is what a provider adapter's tests plug into (B08.5 #769
   parametrizes over it for the five executors). An adapter supplies a driver that builds it with its provider transport stubbed
   to a scenario and whose stub calls `ctx.provider_called()` each time the provider would be called. `run_scenario` checks,
@@ -1878,7 +1880,7 @@ Recovery is always the same shape: the occurrence is retried as the next `attemp
 
 | the adapter | result | recover by |
 | --- | --- | --- |
-| is an executor that is not integrated yet (`OpenAIResponses`, `OpenAIAgents`, `AnthropicChat`) | `refused`, `adapter_not_integrated` | running the node with the scripted adapter, or waiting for that provider's B08 task; the ungoverned `run_agent` path is unaffected |
+| is an executor that is not integrated yet (`OpenAIResponses`, `OpenAIAgents`) | `refused`, `adapter_not_integrated` | running the node with the scripted adapter, or waiting for that provider's B08 task; the ungoverned `run_agent` path is unaffected |
 | has no `run_step`, or an `async def` one | `refused`, `adapter_unsupported` | passing an `AgentStepAdapter` with a plain `run_step` |
 | raises (a provider error, anything else) | `adapter_error` | reading the server log (the exception's class and the step id, never its text) and retrying as the next attempt |
 | times out (`TimeoutError`) | `adapter_timeout` | the call's outcome is unknown: retry as the next attempt; the reservation is kept |
@@ -1890,6 +1892,52 @@ An invalid *request*, or a step input for another node, is not a result: `run_ag
 example `attempt: violates minimum 1`) before anything runs. Not covered here, so not claimed: limits are not enforced by this
 boundary (B08.3), no token reservation is made (B08.4), a blocking adapter is not interrupted, and the interpreter does not yet
 call `run_agent_step`; no governed node execution is enabled by this change.
+
+### Anthropic governed step (B08.anthropic, #727)
+
+`AnthropicChatWorkflowExecutor.run_step` runs one agent step through the Anthropic Messages API; the code is
+`caliber.workflows.step_adapters.anthropic_chat` and the executor's `run_agent` (the ungoverned loop every existing workflow uses)
+is unchanged. It adds no route, table or setting; the only new option is the executor's `step_clock` (a test's clock, default UTC
+now). It takes the step's request and `AgentStepInput` and answers with the typed result of the section above.
+
+- **Tools.** Every tool of the agent is offered to the model, in two kinds. A **read tool** (a name in `step_input.read_tools`
+  whose binding does not require approval) is offered with its own input schema, run only from `read_tools` when called, and its
+  result goes back to the model. Anything else is a **proposal**: it is offered with the proposal as its input (`connector`,
+  `connector_version`, `effect_class`, `resource`, the tool's own arguments under `args`, optional `expected_resource_version`), is
+  **never run**, and when the model calls it the step stops with `proposed_action` carrying that one action. `effect_class` and
+  `connector_version` are the model's claims: the action is not `platform_bound` and `bound_to` refuses a claim that differs from the
+  platform's. A call of a tool the agent does not have, or a proposal with a field the schema does not define (a `state` or
+  `receipt_id`, a model claiming that an effect happened), is `malformed_result`. When one reply calls several protected tools, the
+  first is proposed and the rest are dropped (v1 allows one action per step); parallel tool use is turned off in the request. A reply
+  that mixes read and protected calls runs none of the reads. Handoff targets are not offered, and a structured-output schema is not
+  applied (a step's result carries no output text).
+- **Limits** are those of the request, checked around every provider call (the platform checks them again, B08.3). Before a turn:
+  `max_turns`, then the deadline, then the tokens left, each a stop reason that keeps the usage so far; before each read tool:
+  `max_tool_calls` (and the deadline); and no read tool is run when no turn is left to use its result. A call's `max_tokens` is the
+  smaller of the executor's cap and the tokens left, its timeout the smaller of the provider timeout and the time to the deadline,
+  and the SDK's automatic retries are off (`max_retries=0`: a retry is the next attempt, which is reserved separately). Provider usage
+  over `max_tokens` is the `max_tokens` stop whatever the model said; a reply the provider cut off (`stop_reason: "max_tokens"`) is
+  one too, and a half-finished tool call in it is not acted on. A stop before any call reports zero usage with `usage_source:
+  "estimated"` (nothing was called).
+- **Usage** is the provider's, summed over the step's turns, with `usage_source: "provider"`: prompt = `input_tokens` +
+  `cache_creation_input_tokens` + `cache_read_input_tokens`, `cached_prompt_tokens` = the cache reads (absent when the provider
+  reported none), completion = `output_tokens`, `turns` = provider calls, `tool_calls` = read tools run.
+- **Nothing from the provider or the model reaches a result or a log line**: no text, tool name, argument or exception message. The
+  log carries the step id, the exception's class name, a fixed reason token and counts.
+
+Results this adapter returns (recover as for any step: the occurrence is retried as the next `attempt`, after this one's reservation
+is settled, B08.4):
+
+| the provider or model | result | recover by |
+| --- | --- | --- |
+| calls a protected tool | `proposed_action` with one unbound action | binding it to the inventory's class (B08.2); nothing was run |
+| calls a read tool | the tool runs from `read_tools`, the step goes on | nothing |
+| times out (`TimeoutError`, `anthropic.APITimeoutError`, an `httpx`/`httpcore` timeout) | `error`, `adapter_timeout`, usage of the turns that returned, source `unknown` | retrying as the next attempt; the outcome of the call is unknown and the reservation is kept |
+| raises anything else (rate limit, 5xx, connection error) | `error`, `provider_error`, same usage rule | reading the log (class name and step id) and retrying as the next attempt |
+| answers with an unknown stop reason, malformed blocks or usage, an unknown tool, a bad or state-claiming proposal | `error`, `malformed_result`, the usage that was readable | none for this output: it was dropped; check the model's tool schema and the agent's tool bindings |
+| refuses (`stop_reason: "refusal"`) | `refused`, `model_refused`, usage `provider` | rephrasing the request, or another model |
+| reaches a limit | `max_turns`, `max_tool_calls`, `max_tokens` or `deadline`, usage kept | raising the limit for the next attempt, or ending the node |
+| has no client (the SDK is not installed) | `refused`, `provider_unavailable`, nothing was called | installing the `anthropic` extra (`pip install caliber-suite[anthropic]`) |
 
 ### The OpenAI chat completions adapter (B08.openai-chat, #729)
 
