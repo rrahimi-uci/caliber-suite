@@ -92,6 +92,12 @@ if job.awaits_human:
 > rejected. The release-candidate signoff on the Releases page and `caliberctl release sign` remain record-only and
 > deploy or roll back nothing.
 
+If the flag is enabled but a release revision contains a resource type with no registered adapter, a release operation
+fails before it creates a durable operation or takes the environment lock. The API returns HTTP `409` with the exact
+payload `{"reason":"adapter_unavailable","adapter":"<resource type>","disabled_by":"profile"}` (or the
+configured `CALIBER_*` variable when the deployment supplies one). Register/enable that adapter, then retry the same
+intent. A feature-disabled Workspace release route remains the separate HTTP `404` `feature_disabled` response above.
+
 A Workspace revision moves from reviewed to live only through explicit,
 typed governance steps: open a Change Request, evaluate the release against
 pinned digests, record a quality decision and a separate approval decision,

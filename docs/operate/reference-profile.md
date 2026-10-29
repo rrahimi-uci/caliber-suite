@@ -2023,6 +2023,13 @@ is the owner-only loop that picks them up. It reuses the service's own queue and
   and simulated/real provenance, satisfy the recorded aggregate criteria, and contain no critical-failure or waiver
   bypass. Missing, stale, tampered, non-passing, or out-of-scope evidence fails closed; break-glass does not waive a
   failed critical gate.
+- **Adapter refusal (B10.6, #740).** A release operation that names a resource type with no registered adapter returns
+  HTTP `409` with the stable payload `{"reason":"adapter_unavailable","adapter":"<resource type>","disabled_by":"profile"}`.
+  Deployments that construct the registry from an environment-controlled feature may set `disabled_by` to that exact
+  `CALIBER_*` variable instead. The refusal is emitted before an operation lock or durable operation is created, so the
+  recovery is to enable/register the named adapter and retry the same intent; it is not evidence that an external effect
+  was attempted. When the release-candidate feature itself is off, the existing route gate still returns HTTP `404`
+  `reason_code=feature_disabled` and names `CALIBER_FEATURE_RELEASE_CANDIDATES`.
 - **Owner-only and fenced.** It runs only in the process holding the execution-owner lease (see above), and in the
   reference profile each claim is made in a transaction that first runs `assert_fenced` with the exact lease the owner
   captured. A process whose lease was taken over, expired or cannot be checked claims nothing and records nothing; the
