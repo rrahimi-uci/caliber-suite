@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import copy
 import dataclasses
+import inspect
 import json
 import re
 from collections.abc import Iterator, Mapping
@@ -58,6 +59,9 @@ from caliber.effects.records import (
     read_proposal,
     record_proposal,
 )
+from caliber.workflows import runtime
+from caliber.workflows.agent_step import ADAPTER_NOT_INTEGRATED, AgentStepAdapter, run_agent_step
+from tests.agent_step_conformance import EXECUTOR_NAMES, every_executor, make_context
 from tests.dialect_helpers import DIALECTS
 from tests.test_effect_proposals import _seed_run
 from tests.test_event_outbox import _database
@@ -1290,3 +1294,50 @@ def test_other_kinds_keep_quoting_the_value_the_agent_step_kinds_do_not() -> Non
     with pytest.raises(ContractValidationError) as silent:
         validate_record(RESULT_KIND, with_action(effect_class=SECRET))
     assert SECRET not in str(silent.value)
+
+
+# ---------------------------------------------------------------- every executor takes part in governed execution (B08.1b, #720)
+
+
+def test_every_executor_implements_run_step(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Every ``WorkflowExecutor`` in the runtime is an ``AgentStepAdapter``; only the scripted fake runs a step so far.
+
+    The four provider executors answer with a ``refused`` result (``adapter_not_integrated``) and touch no provider: their
+    clients are tripwires, and the Agents SDK is never imported. The discovery makes the test fail for an executor that is
+    added later without ``run_step``, so it cannot be left out of governed execution by accident.
+    """
+    executors = [
+        cls
+        for _, cls in inspect.getmembers(runtime, inspect.isclass)
+        if cls.__module__ == runtime.__name__
+        and cls is not runtime.WorkflowExecutor
+        and callable(getattr(cls, "run_agent", None))
+    ]
+    assert {cls.__name__ for cls in executors} == {
+        "FakeWorkflowExecutor",
+        "OpenAIChatWorkflowExecutor",
+        "OpenAIResponsesWorkflowExecutor",
+        "OpenAIAgentsWorkflowExecutor",
+        "AnthropicChatWorkflowExecutor",
+    }
+    for cls in executors:
+        assert callable(getattr(cls, "run_step", None)), f"{cls.__name__} has no run_step"
+
+    def no_sdk() -> None:
+        raise AssertionError("the Agents SDK was imported")
+
+    monkeypatch.setattr(runtime.OpenAIAgentsWorkflowExecutor, "_sdk", staticmethod(no_sdk))
+    built = every_executor()
+    assert tuple(built) == EXECUTOR_NAMES
+    for name, executor in built.items():
+        ctx = make_context()
+        assert isinstance(executor, AgentStepAdapter), name
+        result = run_agent_step(executor, ctx.request, ctx.step_input)
+        assert result.workflow_run_id == ctx.request.workflow_run_id
+        assert result.proposed_actions == ()
+        if name == "fake":
+            assert result.stop_reason == "completed", name
+        else:
+            assert (result.stop_reason, result.error_code) == ("refused", ADAPTER_NOT_INTEGRATED), (
+                name
+            )
