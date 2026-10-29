@@ -166,3 +166,73 @@ def test_adr_0002_appendix_matches_the_inventory() -> None:
     rows = re.findall(r"^\| `(\w+)` \| `(\w+)` \|", section, flags=re.M)
     assert dict(rows) == {d.cls_name: d.ownership for d in worker_inventory()}
     assert len(rows) == len({cls for cls, _ in rows}), "a loop is listed twice"
+
+
+def _recovery_rows(adr: str) -> list[list[str]]:
+    """The cells of each row of ADR 0002's "Recovery by stage" table (header and separator excluded)."""
+    section = adr.split("### Recovery by stage", 1)[1]
+    section = re.split(r"^#{2,3} ", section, maxsplit=1, flags=re.M)[0]
+    rows: list[list[str]] = []
+    for line in section.splitlines():
+        if not line.startswith("| `"):
+            continue
+        rows.append([cell.strip() for cell in line.strip().strip("|").split("|")])
+    return rows
+
+
+@pytest.mark.skipif(not ADR_PATH.is_file(), reason="docs/ is not part of this installation")
+def test_recovery_doc_covers_every_loop() -> None:
+    """ADR 0002's "Recovery by stage" has exactly one row per loop of `worker_inventory()`."""
+    inventory = worker_inventory()
+    rows = _recovery_rows(ADR_PATH.read_text(encoding="utf-8"))
+    names = [row[0].strip("`") for row in rows]
+    assert len(rows) == len(inventory)
+    assert sorted(names) == sorted(d.cls_name for d in inventory), (
+        "a loop has no recovery row, or a row names a loop that is not in worker_inventory()"
+    )
+    assert len(set(names)) == len(names), "a loop is listed twice"
+
+
+@pytest.mark.skipif(not ADR_PATH.is_file(), reason="docs/ is not part of this installation")
+def test_recovery_rows_are_complete_and_agree_with_the_inventory() -> None:
+    by_class = {d.cls_name: d for d in worker_inventory()}
+    known_tables = {table.name for table in models.Base.metadata.sorted_tables}
+    for row in _recovery_rows(ADR_PATH.read_text(encoding="utf-8")):
+        assert len(row) == 5, f"{row[0]}: a recovery row has five cells"
+        loop, owner_only, dies, resumes, proof = row
+        assert all(cell for cell in row), f"{loop}: no cell may be empty"
+        expected = "yes" if by_class[loop.strip("`")].ownership == "owner_only" else "no"
+        assert owner_only == expected, f"{loop}: owner-only? disagrees with worker_inventory()"
+        assert dies and resumes
+        tables = [t for t in re.findall(r"`([a-z_]+)`", proof) if t != "reap_stale_job"]
+        assert tables, f"{loop}: the last cell names no table"
+        unknown = [t for t in tables if t not in known_tables]
+        assert not unknown, f"{loop}: not tables of caliber.db.models: {unknown}"
+        declared = {
+            getattr(models, name).__tablename__ for name in by_class[loop.strip("`")].tables
+        }
+        assert declared & set(tables), (
+            f"{loop}: the last cell names none of the tables the inventory declares for it: {sorted(declared)}"
+        )
+
+
+_COUNT_WORDS = {"ten": 10, "eleven": 11, "twelve": 12, "thirteen": 13}
+
+
+@pytest.mark.skipif(not ADR_PATH.is_file(), reason="docs/ is not part of this installation")
+def test_adr_prose_counts_match_the_inventory() -> None:
+    """The words ADR 0002 uses for the number of loops ("the eleven loops") follow the inventory."""
+    adr = ADR_PATH.read_text(encoding="utf-8")
+    found = re.findall(
+        r"\b(ten|eleven|twelve|thirteen) (?:background )?(?:loops|workers)\b", adr, flags=re.I
+    )
+    assert found, "ADR 0002 no longer states how many loops there are"
+    assert {_COUNT_WORDS[word.lower()] for word in found} == {len(worker_inventory())}
+
+
+def test_recovery_rows_parser_stops_at_the_next_heading() -> None:
+    adr = (
+        "### Recovery by stage\n\n| loop | a | b | c | d |\n| --- | --- | --- | --- | --- |\n"
+        "| `One` | yes | x | y | `t` |\n\n### Next\n\n| `Two` | yes | x | y | `t` |\n"
+    )
+    assert [row[0] for row in _recovery_rows(adr)] == ["`One`"]
