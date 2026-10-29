@@ -1835,17 +1835,15 @@ build on it and are not part of it.
   output, so a claimed commit or another step's result is `malformed_result`, returned by the adapter itself). Entries are used
   in order, one per caller even under concurrency, and a script that runs out refuses with `script_exhausted`; with no script
   every step `completed` with usage estimated from the input. `fake.step_requests` lists the requests it was asked.
-- **The provider executors refuse governed execution until each is integrated** (B08.openai-responses #730, B08.openai-agents
-  #728, B08.anthropic #727; **B08.openai-chat #729 is integrated**, see
-  [the OpenAI chat adapter](#the-openai-chat-completions-adapter-b08openai-chat-729)): `OpenAIResponsesWorkflowExecutor`,
-  `OpenAIAgentsWorkflowExecutor` and `AnthropicChatWorkflowExecutor` each implement `run_step` and answer `refused` with
-  `adapter_not_integrated` without building a client, importing an SDK or touching the network. Their `run_agent` (the ungoverned
-  path every existing workflow uses) is unchanged. **For those four tasks:** `runtime.py` reaches the module as
+- **The provider executors refuse governed execution until each is integrated** (B08.openai-agents #728 remains); **B08.openai-chat
+  #729, B08.openai-responses #730 and B08.anthropic #727 are integrated**, see the provider sections below. The remaining
+  `OpenAIAgentsWorkflowExecutor` implements `run_step` and answers `refused` with `adapter_not_integrated` without building a
+  client, importing an SDK or touching the network. Each executor's `run_agent` (the ungoverned path every existing workflow uses)
+  is unchanged. **For the remaining task:** `runtime.py` reaches the module as
   `_agent_step` (one import line already there), so add no new top-level import to the shared import block or `__all__` (use
   `_agent_step.failure`, `_agent_step.answer`, `_agent_step.StepUsage` and so on, or import inside the method), replace only your
   own `run_step` body, and regenerate the docs and search index last, after merging `origin/main`.
-  `AnthropicChatWorkflowExecutor` is the first of them integrated (B08.anthropic #727, [below](#anthropic-governed-step-b08anthropic-727)): it
-  no longer refuses, and its `run_agent` is still unchanged.
+  `OpenAIResponsesWorkflowExecutor` and `AnthropicChatWorkflowExecutor` no longer refuse, and their `run_agent` paths are still unchanged.
 - **Conformance harness.** `caliber/tests/agent_step_conformance.py` is what a provider adapter's tests plug into (B08.5 #769
   parametrizes over it for the five executors). An adapter supplies a driver that builds it with its provider transport stubbed
   to a scenario and whose stub calls `ctx.provider_called()` each time the provider would be called. `run_scenario` checks,
@@ -1880,7 +1878,7 @@ Recovery is always the same shape: the occurrence is retried as the next `attemp
 
 | the adapter | result | recover by |
 | --- | --- | --- |
-| is an executor that is not integrated yet (`OpenAIResponses`, `OpenAIAgents`) | `refused`, `adapter_not_integrated` | running the node with the scripted adapter, or waiting for that provider's B08 task; the ungoverned `run_agent` path is unaffected |
+| is an executor that is not integrated yet (`OpenAIAgents`) | `refused`, `adapter_not_integrated` | running the node with the scripted adapter, or waiting for that provider's B08 task; the ungoverned `run_agent` path is unaffected |
 | has no `run_step`, or an `async def` one | `refused`, `adapter_unsupported` | passing an `AgentStepAdapter` with a plain `run_step` |
 | raises (a provider error, anything else) | `adapter_error` | reading the server log (the exception's class and the step id, never its text) and retrying as the next attempt |
 | times out (`TimeoutError`) | `adapter_timeout` | the call's outcome is unknown: retry as the next attempt; the reservation is kept |
@@ -1892,6 +1890,26 @@ An invalid *request*, or a step input for another node, is not a result: `run_ag
 example `attempt: violates minimum 1`) before anything runs. Not covered here, so not claimed: limits are not enforced by this
 boundary (B08.3), no token reservation is made (B08.4), a blocking adapter is not interrupted, and the interpreter does not yet
 call `run_agent_step`; no governed node execution is enabled by this change.
+
+### OpenAI Responses governed step (B08.openai-responses, #730)
+
+`OpenAIResponsesWorkflowExecutor.run_step` runs one bounded governed step through
+`client.responses.create`; the adapter is `caliber.workflows.step_openai_responses` and the existing ungoverned
+`run_agent` path is unchanged. It adds no route, table or setting; `step_clock` is an optional test clock, defaulting to UTC now.
+
+- **Tools.** Read tools are offered with their normal Responses function schema and are executed only from
+  `step_input.read_tools`. Every other bound tool is offered with a strict proposal envelope (`connector`,
+  `connector_version`, `effect_class`, `resource`, `args`, and optional `expected_resource_version`) and is never executed. The
+  first protected call becomes one unbound `proposed_action`; unknown tools, extra state/receipt fields and malformed JSON are
+  `malformed_result`. A response mixing read and protected calls runs none of the reads. Follow-up read results use the Responses
+  `previous_response_id`/`function_call_output` protocol.
+- **Limits and usage.** The adapter checks the request's turns, tool calls, token budget and deadline around each provider call,
+  sends the remaining budget as `max_output_tokens`, bounds the provider timeout and disables SDK retries. Provider input/output/
+  total usage and cached input tokens are summed over turns; missing usage is marked `estimated`, and a provider failure keeps
+  usage from turns that returned with source `unknown`.
+- **Failures.** Provider timeouts are `adapter_timeout`, other provider exceptions are `provider_error`, malformed Responses
+  output is `malformed_result`, and a refusal message is `refused` with `model_refused`. Provider text, tool names, arguments and
+  exception messages are not copied to results or logs.
 
 ### Anthropic governed step (B08.anthropic, #727)
 
