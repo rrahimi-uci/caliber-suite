@@ -437,8 +437,10 @@ synchronous real run (`POST /workflow-versions/{id}/run`) is never queued, so wi
    keeps the lineage of the run it retries (a fresh lineage record for the new run, refused with `409` if the release is
    no longer eligible) and a run that never had one cannot be retried in the reference profile (`422`). Development
    leaves lineage optional. **Not covered, tracked:** the assistant's run tool (a chat has no release to name) is
-   refused with the same code; and the console's Run and Trigger actions do not yet offer a release and
-   environment, so in the reference profile they are refused until they do (#968).
+   refused with the same code. The console's Run and Trigger actions load the project's active environments and approved
+   workspace releases, offer only exact current-release/environment pairs, and submit both IDs. If no eligible pair is
+   available, the controls show the same `lineage_required` refusal and do not issue a run or trigger request; the server
+   still revalidates project scope, approval and freshness (#968).
 5. **Who and what.** A user-started run has the authenticated caller (`session`, `pat` or `trusted_header`) as its
    subject. A scheduler or service-token run has a server-created `service_principal` subject instead:
    `principal_id` is `service_principal:cron:<workflow_id>` for the scheduler or `service_token:<token_id>` for the
