@@ -53,6 +53,52 @@ M4 and M6 gates and are a different thing.
 6. **The release notes are written** (`docs/reports/release-0.1.0a1-notes.md`): what is in it, what is not,
    what was verified and how, and the known limitations.
 
+## Upgrading from 0.1.0a1
+
+Treat an upgrade as a database change and schedule a maintenance window. This
+procedure applies to the single-tenant Beta deployment that starts from the
+`0.1.0a1` alpha schema:
+
+1. **Stop writers before the backup.** Drain or stop the CALIBER server and
+   workflow workers so no requests or jobs can write while the database is
+   being captured. Keep MLflow's backend store and artifact store in the same
+   recovery plan when they are part of the deployment.
+2. **Create and verify a restorable backup.** For PostgreSQL, use the supported
+   backup procedure in [Backup and recovery](m-52-backup-and-recovery.md), retain
+   the dump and its metadata, and verify that the backup can be restored in an
+   isolated database before proceeding. Do not treat a file copy made while
+   SQLite is being written as a valid backup.
+3. **Install the target release and migrate the CALIBER database.** Point
+   `CALIBER_DATABASE_URL` at the existing CALIBER database and run
+   `caliber-migrate` from the target release. Run the command once, to
+   completion, before starting the new server; do not edit, reorder, skip, or
+   downgrade shipped migrations, and do not use the server to create tables.
+4. **Start the target release and check readiness.** Query the canonical
+   readiness endpoint:
+
+   ```bash
+   curl -sS -H "Authorization: Bearer $CALIBER_TOKEN" \
+     "$CALIBER_BASE_URL/ajax-api/2.0/mlflow/caliber/readiness" | jq
+   ```
+
+   Continue only when the response is HTTP 200 with `data.ready == true` and
+   the `schema` check is ready. Also verify the health endpoint, UI, worker
+   heartbeats, and the deployment's normal smoke journey. A `schema` blocker
+   means the migration did not complete or the server is using a different
+   database URL; stop and correct that configuration rather than starting
+   application traffic.
+5. **Recover by restoring, not by downgrading.** If the migration or smoke
+   checks fail, stop the target release, preserve the logs and migration
+   output, restore the verified pre-upgrade backup, and restart the previous
+   release. Never attempt to reverse a non-reversible migration with manual
+   SQL. After recovery, record the failed target version and investigate it
+   before retrying with a new release artifact.
+
+The migration-parity CI job exercises this path against PostgreSQL, including
+the frozen alpha migration checks in `tests/test_upgrade_from_alpha.py`. That
+test protects the alpha history; it is not a substitute for the backup,
+restore, readiness, and smoke checks in an operator's deployment window.
+
 ## Cut it
 
 From a clean checkout of the commit to tag:
