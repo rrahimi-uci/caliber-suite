@@ -377,6 +377,12 @@ def test_a_network_error_is_retried(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_the_core_journey_gate_is_required_and_waited_for() -> None:
-    assert "Backend core journey" in _ledger_module().REQUIRED_GATES
+    required = _ledger_module().REQUIRED_GATES
+    assert {
+        "Backend core journey",
+        "Backend core journey (API)",
+        "Backend core journey (SDK)",
+    }.issubset(required)
     workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
-    assert "backend-core" in workflow["jobs"]["gate-ledger"]["needs"]
+    needs = set(workflow["jobs"]["gate-ledger"]["needs"])
+    assert {"backend-core", "backend-core-api", "backend-core-sdk"}.issubset(needs)
