@@ -29,8 +29,12 @@ from alembic.config import Config
 from alembic.script import ScriptDirectory
 from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.exc import OperationalError
+from starlette.testclient import TestClient
 
+from caliber.config import CaliberConfig
 from caliber.db.migrate import VERSION_TABLE
+from caliber.db.session import sessionmaker_from_engine
+from caliber.server import create_app
 from tests import alpha_seed
 from tests.alpha_seed import (
     AlphaSeedError,
@@ -64,6 +68,7 @@ from tests.migration_checksums import (
     verify_manifest_against_tag,
     verify_tree,
 )
+from tests.workflow_helpers import PREFIX, create_draft, create_workflow, make_manifest
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 MIGRATIONS_SCRIPT_LOCATION = PROJECT_ROOT / "src" / "caliber" / "db" / "migrations"
@@ -196,6 +201,156 @@ def _count(url: str, table: str) -> int:
             return int(connection.execute(text(f"SELECT COUNT(*) FROM {table}")).scalar_one())
     finally:
         engine.dispose()
+
+
+def _current_revision(url: str) -> str:
+    """Return the one revision recorded after an upgrade, failing closed on a split head."""
+    engine = create_engine(url)
+    try:
+        with engine.connect() as connection:
+            revisions = list(
+                connection.execute(text(f"SELECT version_num FROM {VERSION_TABLE}")).scalars()
+            )
+    finally:
+        engine.dispose()
+    assert len(revisions) == 1, f"expected one recorded migration revision, got {revisions}"
+    return str(revisions[0])
+
+
+def _assert_new_governed_admission(url: str) -> None:
+    """Exercise a new current run through the upgraded database, not just its DDL."""
+    config = CaliberConfig.load(
+        environ={
+            "CALIBER_DATABASE_URL": url,
+            "CALIBER_AUTH_MODE": "trusted_header",
+            "CALIBER_ADMIN_USERS": "alice@example.test",
+            "CALIBER_WORKFLOW_RUN_QUEUE_ENABLED": "true",
+            "CALIBER_ADMISSION_ENABLED": "true",
+            "CALIBER_BACKGROUND_TASKS_ENABLED": "false",
+            "CALIBER_ASSISTANT_ENGINE": "fake",
+            "CALIBER_ALLOW_FLAGGED_DSPY_OPTIMIZERS": "true",
+            "CALIBER_ALLOW_FLAGGED_LOCAL_EMBEDDINGS": "true",
+        }
+    )
+    app = create_app(config=config)
+    app_engine = app.state.engine
+    upgraded_engine = create_engine(url)
+    app.state.engine = upgraded_engine
+    app.state.session_factory = sessionmaker_from_engine(upgraded_engine)
+    try:
+        with TestClient(
+            app,
+            headers={
+                "X-CALIBER-User": "alice@example.test",
+                "X-CALIBER-Project": "PRJ-A0000001",
+            },
+        ) as client:
+            workflow_id = create_workflow(client, "post-upgrade-governed-admission")
+            version_id, _ = create_draft(client, workflow_id, make_manifest(workflow_id))
+            published = client.post(f"{PREFIX}/workflow-versions/{version_id}/publish")
+            assert published.status_code == 200, published.text
+
+            response = client.post(
+                f"{PREFIX}/workflow-runs",
+                json={
+                    "workflow_id": workflow_id,
+                    "alias": "manual",
+                    "input": "post-upgrade admission",
+                    "idempotency_key": "post-upgrade-admission-1",
+                },
+            )
+            assert response.status_code == 202, response.text
+            run_id = response.json()["data"]["workflow_run_id"]
+
+            with upgraded_engine.connect() as connection:
+                run = connection.execute(
+                    text(
+                        "SELECT manifest_legacy, summary FROM caliber_workflow_runs "
+                        "WHERE workflow_run_id = :run_id"
+                    ),
+                    {"run_id": run_id},
+                ).one()
+                assert not bool(run.manifest_legacy)
+                summary = json.loads(run.summary) if isinstance(run.summary, str) else run.summary
+                assert summary["admitted"] is True
+                assert (
+                    connection.execute(
+                        text(
+                            "SELECT COUNT(*) FROM caliber_run_manifests "
+                            "WHERE workflow_run_id = :run_id"
+                        ),
+                        {"run_id": run_id},
+                    ).scalar_one()
+                    == 1
+                )
+                assert (
+                    connection.execute(
+                        text(
+                            "SELECT COUNT(*) FROM caliber_run_grants "
+                            "WHERE workflow_run_id = :run_id"
+                        ),
+                        {"run_id": run_id},
+                    ).scalar_one()
+                    == 1
+                )
+                assert (
+                    connection.execute(
+                        text(
+                            "SELECT COUNT(*) FROM caliber_policy_decisions "
+                            "WHERE workflow_run_id = :run_id"
+                        ),
+                        {"run_id": run_id},
+                    ).scalar_one()
+                    == 1
+                )
+    finally:
+        app_engine.dispose()
+        upgraded_engine.dispose()
+
+
+@pytest.mark.parametrize("dialect", DIALECTS)
+def test_alpha_database_upgrades_to_head(dialect: str, tmp_path: Path) -> None:
+    """Upgrade representative alpha data and prove old and new governed paths coexist."""
+    with (
+        alpha_database(dialect, tmp_path, "upgrade_alpha") as database,
+        dialect_database_url(dialect, tmp_path, "upgrade_head") as fresh_url,
+    ):
+        before = read_seeded_rows(database.url)
+        migrate_database(database.url)
+        migrate_database(fresh_url)
+
+        assert _current_revision(database.url) == _script_directory().get_heads()[0]
+        assert read_seeded_rows(database.url) == before == expected_rows()
+        assert schema_shape(database.url) == schema_shape(fresh_url)
+
+        legacy_runs = {row["workflow_run_id"] for row in before["caliber_workflow_runs"]}
+        engine = create_engine(database.url)
+        try:
+            with engine.connect() as connection:
+                migrated_runs = connection.execute(
+                    text(
+                        "SELECT workflow_run_id, manifest_legacy, runtime_lineage_id "
+                        "FROM caliber_workflow_runs"
+                    )
+                ).all()
+                assert {row.workflow_run_id for row in migrated_runs} == legacy_runs
+                assert all(bool(row.manifest_legacy) for row in migrated_runs)
+                assert all(row.runtime_lineage_id is None for row in migrated_runs)
+
+                unresolved = connection.execute(
+                    text(
+                        "SELECT status, completed_at FROM caliber_effect_ledger "
+                        "WHERE status = 'in_progress' ORDER BY effect_key"
+                    )
+                ).all()
+                assert len(unresolved) == 2
+                assert all(
+                    row.status == "in_progress" and row.completed_at is None for row in unresolved
+                )
+        finally:
+            engine.dispose()
+
+        _assert_new_governed_admission(database.url)
 
 
 @pytest.mark.parametrize("dialect", DIALECTS)
