@@ -4372,8 +4372,13 @@ class AssistantService:
                     "reasons": ["Human approval is required before alias rotation."],
                 },
             }
+            job_creator = identity.user_id if identity is not None else user
             job = CaliberRefinementJob(
                 job_id=new_job_id(),
+                # Assistant routes resolve ``user`` from the authenticated
+                # request.  Prefer the bundled identity when present so a
+                # service caller cannot substitute an unrelated creator.
+                triggered_by=job_creator,
                 agent_id=clean_prompt_name,
                 primary_item_id=item.item_id,
                 artifact_type="prompt",
