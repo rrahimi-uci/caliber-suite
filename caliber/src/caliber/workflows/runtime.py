@@ -33,7 +33,7 @@ import logging
 import re
 import textwrap
 import time
-from collections.abc import Callable, Collection, Iterator
+from collections.abc import Callable, Collection, Iterator, Mapping
 from concurrent.futures import ThreadPoolExecutor
 from concurrent.futures import TimeoutError as FuturesTimeout
 from dataclasses import dataclass, field
@@ -48,7 +48,16 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from caliber.auth import CaliberIdentity
 from caliber.config import provider_request_timeout
 from caliber.context.authorize import ContextDenied
+from caliber.effects.dispatcher import (
+    HTTP_CONNECTOR,
+    HTTP_VERSION,
+    EffectRefused,
+    EffectRequest,
+    dispatch,
+    submit_proposal,
+)
 from caliber.effects.reconcile import UnknownEffectError
+from caliber.effects.records import RecordedProposal
 from caliber.integrations.openapi.executor import bind_openapi_http_tool
 from caliber.llm.models import (
     DEFAULT_OPENAI_REASONING_EFFORT,
@@ -57,11 +66,13 @@ from caliber.llm.models import (
 )
 from caliber.mcp_gateway import McpGatewayError, invoke_tool_by_server_id_sync
 from caliber.observability.mlflow_tracing import Tracer, get_tracer, model_cost_usd
+from caliber.ownership import Lease
 from caliber.tool_sandbox.models import ToolSandboxRunRequest
 from caliber.tool_sandbox.service import (
     sandbox_from_optional_config,
 )
 from caliber.workflows import agent_step as _agent_step
+from caliber.workflows.approval_policy import approval_valid_at_commit
 from caliber.workflows.guardrails import (
     GuardrailBlockedError,
     GuardrailContext,
@@ -2376,6 +2387,35 @@ class AgentContextAssembly:
     tool_results: tuple[dict[str, Any], ...] = ()
 
 
+@dataclass(frozen=True)
+class EffectAuthorization:
+    """The exact approval and owner lease a governed HTTP effect may consume."""
+
+    approval_id: str
+    approver_scopes: frozenset[str] | set[str]
+    lease: Lease
+    current_resource_version: str | object | None = None
+    evidence_hash: str | None = None
+
+
+@dataclass(frozen=True)
+class GovernedEffectContext:
+    """Runtime-owned inputs needed to cross the B04 dispatcher boundary.
+
+    ``authorize`` is deliberately a producer-owned gate: it must return an
+    exact approval binding for the recorded proposal, never a boolean.  The
+    receipt verifier is also explicit because generic HTTP has no universal
+    read-by-key contract.  Callers that cannot verify a response fail closed
+    before transport.
+    """
+
+    session_factory: Callable[[], Any]
+    workflow_run_id: str
+    authorize: Callable[[RecordedProposal], EffectAuthorization | None]
+    receipt_verifier: Callable[[EffectRequest, Mapping[str, Any]], Any]
+    backend_config: Mapping[str, Any] = field(default_factory=dict)
+
+
 @dataclass
 class RuntimePlan:
     """Everything the interpreter needs to execute a workflow version."""
@@ -2448,6 +2488,10 @@ class RuntimePlan:
     # outright, so there is nothing to deduplicate. Set by the queued run worker,
     # which is the only path that can be restarted after a lease expiry.
     effect_ledger: Any | None = None
+    #: B04.2 context for manifest-backed webhook/API nodes. A plan with a
+    #: workflow version but no context refuses these nodes rather than falling
+    #: back to the legacy raw sender.
+    governed_effects: GovernedEffectContext | None = None
     #: Called with the ids of a node and of everything upstream of it before the node runs, outside its retries (B05.5b,
     #: #742). Raises ``caliber.effects.reconcile.UnknownEffectError`` while an effect those nodes asked for has no final
     #: outcome, so no step that depends on an effect nobody can vouch for runs. ``None`` where nothing records effects.
@@ -4973,6 +5017,98 @@ def _perform_guarded_effect(
     return result
 
 
+def _declared_http_effect_class(node: IRNode) -> str:
+    """Read a node-declared class, using the B04.2 reversible default.
+
+    ``submit_proposal`` still applies the protected-effect inventory's
+    fail-closed classification. The runtime value is therefore a claim from
+    the node, while the persisted proposal remains inventory-bound.
+    """
+    value = getattr(node, "effect_class", None)
+    return value if isinstance(value, str) and value.strip() else "reversible_write"
+
+
+def _perform_http_effect(
+    plan: RuntimePlan,
+    *,
+    node: IRNode,
+    node_id: str,
+    request: dict[str, Any],
+) -> Any:
+    """Route a manifest HTTP node through proposal, approval and dispatch.
+
+    Plans without a workflow version are the legacy/test execution surface and
+    retain the existing ledger behavior. A manifest-backed plan must provide a
+    complete governed context; missing authority or receipt verification is a
+    refusal, never an implicit allow or a raw sender call.
+    """
+    sender = plan.webhook_sender or partial(_default_webhook_sender, policy=plan.egress_policy)
+    if plan.governed_effects is None:
+        if plan.workflow_version_id is None:
+            return _perform_guarded_effect(
+                plan, node_id=node_id, request=request, perform=lambda: sender(request)
+            )
+        raise ToolExecutionError(
+            f"{node_id!r} requires a governed effect context for manifest HTTP execution"
+        )
+
+    context = plan.governed_effects
+    if not callable(context.authorize) or not callable(context.receipt_verifier):
+        raise ToolExecutionError("governed HTTP effect context is incomplete")
+    _check_egress(plan, request)
+    proposal_args = _json_compatible(request)
+    if not isinstance(proposal_args, dict):
+        raise ToolExecutionError("governed HTTP effect request is not JSON-compatible")
+    occurrence_id = _STEP_OCCURRENCE.get() or node_id
+    try:
+        with context.session_factory() as session:
+            proposal = submit_proposal(
+                session,
+                workflow_run_id=context.workflow_run_id,
+                node_id=node_id,
+                occurrence_id=occurrence_id,
+                connector=HTTP_CONNECTOR,
+                connector_version=HTTP_VERSION,
+                effect_class_name=_declared_http_effect_class(node),
+                resource=request["url"],
+                args=proposal_args,
+            )
+            session.commit()
+    except EffectRefused as exc:
+        raise ToolExecutionError(f"HTTP effect proposal refused: {exc.code}") from exc
+
+    try:
+        authorization = context.authorize(proposal)
+    except Exception as exc:
+        raise ToolExecutionError(f"HTTP effect authorization failed: {type(exc).__name__}") from exc
+    if not isinstance(authorization, EffectAuthorization):
+        raise ToolExecutionError("HTTP effect authorization was not granted")
+
+    backend_config = dict(context.backend_config)
+    backend_config["sender"] = sender
+    backend_config["receipt_verifier"] = context.receipt_verifier
+    try:
+        outcome = dispatch(
+            context.session_factory,
+            proposal.proposal_id,
+            approval_id=authorization.approval_id,
+            approver_scopes=authorization.approver_scopes,
+            lease=authorization.lease,
+            backend_kind="http",
+            backend_config=backend_config,
+            current_resource_version=authorization.current_resource_version,
+            evidence_hash=authorization.evidence_hash,
+            approval_validator=approval_valid_at_commit,
+        )
+    except EffectRefused as exc:
+        raise ToolExecutionError(f"HTTP effect dispatch refused: {exc.code}") from exc
+    if outcome.state != "committed":
+        raise ToolExecutionError(f"HTTP effect did not commit: {outcome.reason or outcome.state}")
+    if outcome.response is None:
+        raise ToolExecutionError("HTTP effect committed without a transport response")
+    return dict(outcome.response)
+
+
 #: Failures that prove the effect did **not** reach the remote system, so the
 #: ledger row can be released for retry. Anything else (notably a timeout, where
 #: the request may already have been processed) keeps the claim, which makes the
@@ -6617,9 +6753,6 @@ def _run_node(  # noqa: PLR0911, PLR0912, PLR0915 - per-node-type dispatch
             body = next(iter(inputs.values()))
         if body is None:
             body = run_input
-        # Bound with the plan's policy so the default sender's client enforces egress on
-        # the connection it opens. An injected fake still takes just the request.
-        sender = plan.webhook_sender or partial(_default_webhook_sender, policy=plan.egress_policy)
         request = {
             "url": url,
             "method": node.method,
@@ -6628,9 +6761,7 @@ def _run_node(  # noqa: PLR0911, PLR0912, PLR0915 - per-node-type dispatch
             "body": body,
         }
         try:
-            result = _perform_guarded_effect(
-                plan, node_id=nid, request=request, perform=lambda: sender(request)
-            )
+            result = _perform_http_effect(plan, node=node, node_id=nid, request=request)
         except ToolExecutionError:
             raise
         except Exception as exc:
@@ -6685,7 +6816,6 @@ def _run_node(  # noqa: PLR0911, PLR0912, PLR0915 - per-node-type dispatch
                     req_body = next(iter(inputs.values()))
                 if req_body is None:
                     req_body = run_input
-        sender = plan.webhook_sender or partial(_default_webhook_sender, policy=plan.egress_policy)
         request = {
             "url": req_url,
             "method": method,
@@ -6694,9 +6824,7 @@ def _run_node(  # noqa: PLR0911, PLR0912, PLR0915 - per-node-type dispatch
             "body": req_body,
         }
         try:
-            api_result = _perform_guarded_effect(
-                plan, node_id=nid, request=request, perform=lambda: sender(request)
-            )
+            api_result = _perform_http_effect(plan, node=node, node_id=nid, request=request)
         except ToolExecutionError:
             raise
         except Exception as exc:

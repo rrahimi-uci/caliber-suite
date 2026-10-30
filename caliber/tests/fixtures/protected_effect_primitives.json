@@ -465,8 +465,15 @@
    "symbol": "_run_node",
    "row": "EP-006",
    "primitives": {
-    "_perform_guarded_effect": 2,
     "invoke_tool": 1
+   }
+  },
+  {
+   "file": "caliber/src/caliber/workflows/runtime.py",
+   "symbol": "_perform_http_effect",
+   "row": "EP-131",
+   "primitives": {
+    "_perform_guarded_effect": 1
    }
   }
  ]
