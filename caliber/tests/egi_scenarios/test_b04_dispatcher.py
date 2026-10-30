@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import timedelta
 
+import pytest
 from sqlalchemy import select
 
 from caliber.db.models import CaliberProjectMember, CaliberRuntimeApprovalRequest
@@ -20,24 +21,27 @@ from tests.egi_scenarios.conftest import (
     ReferenceApp,
     Workspaces,
 )
+from tests.egi_scenarios.test_b02_admission import _call
 from tests.egi_scenarios.test_v04_stale_approval import (
     EVIDENCE,
     T0,
     _request,
 )
-from tests.egi_scenarios.test_v05_revocation_while_waiting import _approved, _waiting_run
+from tests.egi_scenarios.test_v05_revocation_while_waiting import _waiting_run
 
 
 def test_dispatcher_uses_canonical_approval_and_registered_connector(
-    reference_app: ReferenceApp, two_workspaces: Workspaces, downstream: Downstream
+    reference_app: ReferenceApp,
+    two_workspaces: Workspaces,
+    downstream: Downstream,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """A real reference-profile approval and lease reach the private connector once.
 
-    The approval is marked through the producer-owned fixture because the public
-    decision route intentionally remains ``approval_bound_not_wired`` until the
-    B06.4 task moves consumption into this dispatcher transaction.  The test still
-    exercises the migrated application, canonical commit validator, real lease
-    store, outbox/receipt persistence, and the real downstream HTTP fixture.
+    The approval is recorded through the public decision route, while consumption
+    remains owned by the dispatcher claim transaction. The test exercises the
+    migrated application, canonical commit validator, real lease store,
+    outbox/receipt persistence, and the real downstream HTTP fixture.
     """
     with reference_app.session_factory() as session:
         member = session.execute(
@@ -50,6 +54,7 @@ def test_dispatcher_uses_canonical_approval_and_registered_connector(
         session.commit()
 
     run_id = _waiting_run(reference_app)
+    monkeypatch.setattr("caliber.routes.workflow_runs._utc_now", lambda: T0 + timedelta(minutes=1))
     approval_id, proposal_id = _request(
         reference_app,
         run_id,
@@ -59,7 +64,15 @@ def test_dispatcher_uses_canonical_approval_and_registered_connector(
         args={"document_type": "pay_statement"},
         expected_resource_version="1",
     )
-    _approved(reference_app, run_id, approval_id)
+    approved = _call(
+        reference_app,
+        "POST",
+        APPROVER_A,
+        PROJECT_A,
+        f"/workflow-runs/{run_id}/approval/approve",
+        {"runtime_approval_id": approval_id, "reason": "ship it"},
+    )
+    assert approved.status_code == 200, approved.text
 
     with reference_app.session_factory() as session:
         lease = acquire(session, "egi-b04-dispatcher", ttl_seconds=600)

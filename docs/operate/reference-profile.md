@@ -996,6 +996,14 @@ with session_factory() as session:
   the proposal and approval, consumes the approval, moves `proposed -> approved -> dispatched`, and enqueues
   `effect.proposal.dispatched`; only after commit does it invoke the registered private backend. A backend is never the
   public OpenAPI route itself.
+- **The approval route records; the dispatcher consumes.** `POST .../workflow-runs/{run_id}/approval/approve` and
+  `.../approval/reject` accept an explicit proposal-bound `runtime_approval_id` after locking the run and request. They
+  persist the decision, audit row and workflow event but leave `consumed_at` unset. Expired or superseded requests are
+  refused without a write; a request that the dispatcher already claimed returns `409 already_consumed`. The dispatcher
+  then rechecks the exact intent, evidence and current approver authority in its run-first claim transaction and sets
+  `consumed_at` in the same commit as `proposed -> approved -> dispatched` and the outbox row. If the process dies after
+  that commit and before the remote call, the durable dispatched row and outbox entry remain recoverable; retry/reconciliation
+  reads the proposal state and does not send a second unproven dispatch.
 
 ```python
 from caliber.effects.dispatcher import EffectRefused, dispatch, submit_proposal
