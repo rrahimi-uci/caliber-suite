@@ -100,7 +100,7 @@ SELECT consumer, source, event_id, status, received_at FROM caliber_inbox_events
 | --- | --- |
 | No `owner` anywhere, two `owner`s, runs not draining after a crash or deploy | [Owner crash and failover](#owner-crash-and-failover) |
 | A legacy claim `in_progress`, or a proposal `dispatched`, `unknown` or `reconciled` | [A stuck or unknown effect](#a-stuck-or-unknown-effect) |
-| A run `failed` with `UnknownEffectError` or an effect that "was claimed but never recorded an outcome" | [A gated or failed run](#a-gated-or-failed-run) |
+| A run `failed` with `UnknownEffectError` or an effect that "was claimed but never recorded an outcome" | [A gated, parked, or failed run](#a-gated-parked-or-failed-run) |
 | A callback or webhook delivered twice, `inbox_payload_mismatch`, an inbox row stuck at `received` | [Callback and webhook redelivery](#callback-and-webhook-redelivery) |
 | Events not arriving, dead outbox rows, dead letters | [Outbox backlog and dead letters](#outbox-backlog-and-dead-letters) |
 | An admission refusal (`bundle_unavailable`, `rule_bundle_refused`), or a run `failed` with `pins_changed` or `context_denied` | [A run refused for its pins or its rule bundle](#a-run-refused-for-its-pins-or-its-rule-bundle) |
@@ -402,7 +402,7 @@ text):
 | `authority_denied` (`grant_expired`, `grant_revoked`, `not_a_member`) | submit a new run as someone who may |
 
 The same rule as for effects applies: a refused run is not resumed, and a new run is a new run. For a run that had an
-effect in doubt, settle the effect first ([A gated or failed run](#a-gated-or-failed-run)).
+effect in doubt, settle the effect first ([A gated, parked, or failed run](#a-gated-parked-or-failed-run)).
 
 ## After a restore
 
