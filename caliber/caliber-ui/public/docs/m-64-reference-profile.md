@@ -63,6 +63,27 @@ A refusal carries `x-request-id` (the caller's, or one generated) and writes one
 method, path and size. The body is refused, not drained, so a client that keeps sending a very large body may see
 a connection reset rather than the `413`.
 
+## Governed webhook and API-request nodes
+
+Manifest-backed `webhook` and `api_request` nodes use the registered private `http` effect backend. Before a request
+is sent, the runtime records an immutable proposal containing the node occurrence, URL, method, headers, timeout and
+body. Dispatch then rechecks the exact bound approval and the captured `execution-owner` lease in one transaction,
+emits the durable dispatch event, and only then calls the private transport. The path does not call a public CALIBER
+route or recursively invoke the OpenAPI execution surface. Egress is checked before the proposal is submitted and by
+the default client at connection time.
+
+The generic HTTP backend cannot assume that every endpoint supports durable idempotency or a lookup-by-key API. It
+therefore emits `Idempotency-Key` from the proposal's stable logical key, but requires the runtime caller to provide an
+authoritative receipt verifier for the endpoint. The verifier must read the downstream's own state and return receipt
+facts matching the proposal's connector, resource, intent hash and attempt. A missing verifier, missing exact approval or
+missing lease is refused before transport; a response that cannot be verified does not become `committed` and remains
+recoverable as an unknown effect. The platform makes no universal exactly-once claim for arbitrary HTTP services.
+
+A manifest-backed plan without this governed context is refused rather than falling back to the raw sender. Legacy plans
+without a workflow manifest retain the existing `_perform_guarded_effect` ledger behavior and do not create an effect
+proposal. The runtime integration that owns a run must bind the context with the run id, exact approval provider, live
+execution-owner lease and endpoint-specific verifier; no new environment variable, SDK route or migration is required.
+
 ## Memory is owned, derived and read-mostly
 
 Until the owned memory lifecycle (M20: retention, legal hold, deletion) exists, the reference profile does not offer

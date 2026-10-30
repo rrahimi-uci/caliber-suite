@@ -51,8 +51,8 @@ from caliber.context.authorize import ContextDenied
 from caliber.effects.dispatcher import (
     HTTP_CONNECTOR,
     HTTP_VERSION,
-    EffectRequest,
     EffectRefused,
+    EffectRequest,
     dispatch,
     submit_proposal,
 )
@@ -72,11 +72,11 @@ from caliber.tool_sandbox.service import (
     sandbox_from_optional_config,
 )
 from caliber.workflows import agent_step as _agent_step
+from caliber.workflows.approval_policy import approval_valid_at_commit
 from caliber.workflows.guardrails import (
     GuardrailBlockedError,
     GuardrailContext,
 )
-from caliber.workflows.approval_policy import approval_valid_at_commit
 from caliber.workflows.ir import (
     IRAgent,
     IRApiRequest,
@@ -5103,9 +5103,7 @@ def _perform_http_effect(
     except EffectRefused as exc:
         raise ToolExecutionError(f"HTTP effect dispatch refused: {exc.code}") from exc
     if outcome.state != "committed":
-        raise ToolExecutionError(
-            f"HTTP effect did not commit: {outcome.reason or outcome.state}"
-        )
+        raise ToolExecutionError(f"HTTP effect did not commit: {outcome.reason or outcome.state}")
     if outcome.response is None:
         raise ToolExecutionError("HTTP effect committed without a transport response")
     return dict(outcome.response)

@@ -42,8 +42,8 @@ from tests.egi_scenarios.conftest import (
 )
 from tests.egi_scenarios.test_v04_stale_approval import (
     EVIDENCE,
-    TTL,
     T0,
+    TTL,
     _request,
 )
 from tests.egi_scenarios.test_v05_revocation_while_waiting import _approved, _waiting_run
@@ -193,9 +193,7 @@ def test_webhook_runtime_uses_registered_http_dispatcher_and_verified_receipt(
         ),
     )
 
-    result = execute(
-        plan, '{"document_type":"pay_statement"}', executor=FakeWorkflowExecutor()
-    )
+    result = execute(plan, '{"document_type":"pay_statement"}', executor=FakeWorkflowExecutor())
 
     assert result.status == "completed", result.error
     assert authorization_calls == 1

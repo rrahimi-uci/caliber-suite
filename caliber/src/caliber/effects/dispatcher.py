@@ -265,7 +265,10 @@ class _HttpBackend:
             return TransportResult(classified, response=response)
 
         def verify() -> ReceiptFacts | None:
-            return verifier(request, response)
+            facts = verifier(request, response)
+            if facts is not None and not isinstance(facts, ReceiptFacts):
+                raise _TransportRefusedError("receipt_verifier_invalid")
+            return facts
 
         return TransportResult(classified, verify, response=response)
 
@@ -709,13 +712,13 @@ def dispatch(
 
 __all__ = [
     "BACKENDS",
+    "HTTP_CAPABILITY",
+    "HTTP_CONNECTOR",
+    "HTTP_VERSION",
     "BackendRegistration",
     "EffectOutcome",
     "EffectRefused",
     "EffectRequest",
-    "HTTP_CAPABILITY",
-    "HTTP_CONNECTOR",
-    "HTTP_VERSION",
     "PrivateBackend",
     "TransportResult",
     "UnsupportedEffectPath",

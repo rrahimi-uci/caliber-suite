@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from contextlib import nullcontext
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -10,8 +12,8 @@ from sqlalchemy import select
 import caliber.effects.dispatcher as dispatcher_module
 import caliber.workflows.runtime as runtime_module
 from caliber.db.models import CaliberEffectProposal
+from caliber.effects.dispatcher import EffectOutcome, EffectRefused
 from caliber.effects.receipts import ReceiptFacts
-from caliber.egress import EgressPolicy
 from caliber.workflows.compiler import build_ir
 from caliber.workflows.manifest import parse_manifest
 from caliber.workflows.runtime import (
@@ -19,6 +21,7 @@ from caliber.workflows.runtime import (
     FakeWorkflowExecutor,
     GovernedEffectContext,
     RuntimePlan,
+    ToolExecutionError,
     execute,
 )
 from caliber.workflows.tools import InMemoryToolResolver
@@ -28,14 +31,71 @@ from tests.test_effect_proposals import _seed_run
 from tests.test_event_outbox import _database
 from tests.test_workflow_api_request_node import _manifest as api_manifest
 from tests.test_workflow_api_request_node import _url_node
-from tests.test_workflow_webhook_node import _manifest as webhook_manifest
 from tests.test_workflow_webhook_node import _ALLOW_UNRESOLVABLE
+from tests.test_workflow_webhook_node import _manifest as webhook_manifest
 
 
 def _http_manifest(kind: str, url: str) -> dict[str, Any]:
     if kind == "webhook":
         return webhook_manifest(url)
     return api_manifest(_url_node(url=url))
+
+
+def _direct_http_request() -> dict[str, Any]:
+    return {
+        "url": "https://example.test/direct-http",
+        "method": "POST",
+        "headers": {},
+        "timeout_seconds": 5,
+        "body": "hello",
+    }
+
+
+def _direct_http_plan(
+    *,
+    authorize: Any = None,
+    receipt_verifier: Any = None,
+    sender: Any = None,
+) -> RuntimePlan:
+    resolver = InMemoryToolResolver({})
+    manifest = parse_manifest(_http_manifest("webhook", _direct_http_request()["url"]))
+    if authorize is None:
+        authorize = lambda _proposal: EffectAuthorization(
+            approval_id="approval",
+            approver_scopes=frozenset({"caliber.approver"}),
+            lease=object(),
+        )
+    if receipt_verifier is None:
+        receipt_verifier = lambda _request, _response: None
+    if sender is None:
+        sender = lambda _request: {"status_code": 201, "request_id": "direct"}
+    session_factory = lambda: nullcontext(SimpleNamespace(commit=lambda: None))
+    return RuntimePlan(
+        ir=build_ir(manifest, resolver, version="1"),
+        resolver=resolver,
+        workflow_version_id="direct-http-version",
+        webhook_sender=sender,
+        egress_policy=_ALLOW_UNRESOLVABLE,
+        governed_effects=GovernedEffectContext(
+            session_factory=session_factory,
+            workflow_run_id="RUN-direct-http",
+            authorize=authorize,
+            receipt_verifier=receipt_verifier,
+        ),
+    )
+
+
+def _fake_recorded_proposal(*_args: Any, **_kwargs: Any) -> SimpleNamespace:
+    return SimpleNamespace(proposal_id="proposal-direct-http")
+
+
+def _run_direct_http_effect(plan: RuntimePlan) -> Any:
+    return runtime_module._perform_http_effect(
+        plan,
+        node=plan.ir.nodes["hook"],
+        node_id="hook",
+        request=_direct_http_request(),
+    )
 
 
 @pytest.mark.parametrize("kind", ["webhook", "api_request"])
@@ -84,9 +144,7 @@ def test_manifest_http_nodes_use_proposal_dispatch_and_receipt(
             )
 
         resolver = InMemoryToolResolver({})
-        manifest = parse_manifest(
-            _http_manifest(kind, "https://example.test/governed-http")
-        )
+        manifest = parse_manifest(_http_manifest(kind, "https://example.test/governed-http"))
         plan = RuntimePlan(
             ir=build_ir(manifest, resolver, version="1"),
             resolver=resolver,
@@ -137,3 +195,112 @@ def test_manifest_http_node_refuses_raw_sender_without_governed_context(
     assert result.status == "error"
     assert "governed effect context" in (result.error or "")
     assert called is False
+
+
+def test_legacy_http_plan_keeps_the_existing_guarded_effect_path() -> None:
+    captured: dict[str, Any] = {}
+    resolver = InMemoryToolResolver({})
+    request = _direct_http_request()
+    manifest = parse_manifest(_http_manifest("webhook", request["url"]))
+
+    def sender(outgoing: dict[str, Any]) -> dict[str, Any]:
+        captured.update(outgoing)
+        return {"status_code": 200, "request_id": "legacy"}
+
+    plan = RuntimePlan(
+        ir=build_ir(manifest, resolver, version="1"),
+        resolver=resolver,
+        webhook_sender=sender,
+        egress_policy=_ALLOW_UNRESOLVABLE,
+    )
+    result = _run_direct_http_effect(plan)
+    assert result == {"status_code": 200, "request_id": "legacy"}
+    assert captured["url"] == request["url"]
+
+
+def test_governed_http_plan_rejects_incomplete_context() -> None:
+    plan = _direct_http_plan(authorize="not-callable")
+    with pytest.raises(ToolExecutionError, match="context is incomplete"):
+        _run_direct_http_effect(plan)
+
+
+def test_governed_http_plan_rejects_non_json_proposal_args(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(runtime_module, "_json_compatible", lambda _value: "not-a-mapping")
+    with pytest.raises(ToolExecutionError, match="not JSON-compatible"):
+        _run_direct_http_effect(_direct_http_plan())
+
+
+def test_governed_http_plan_surfaces_proposal_refusal(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def refuse(*_args: Any, **_kwargs: Any) -> None:
+        raise EffectRefused("proposal_refused")
+
+    monkeypatch.setattr(runtime_module, "submit_proposal", refuse)
+    with pytest.raises(ToolExecutionError, match="proposal refused: proposal_refused"):
+        _run_direct_http_effect(_direct_http_plan())
+
+
+def test_governed_http_plan_surfaces_authorizer_exception(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(runtime_module, "submit_proposal", _fake_recorded_proposal)
+
+    def authorize(_proposal: Any) -> None:
+        raise ValueError("approval provider unavailable")
+
+    with pytest.raises(ToolExecutionError, match="authorization failed: ValueError"):
+        _run_direct_http_effect(_direct_http_plan(authorize=authorize))
+
+
+def test_governed_http_plan_rejects_missing_authorization(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(runtime_module, "submit_proposal", _fake_recorded_proposal)
+    with pytest.raises(ToolExecutionError, match="authorization was not granted"):
+        _run_direct_http_effect(_direct_http_plan(authorize=lambda _proposal: object()))
+
+
+def test_governed_http_plan_surfaces_dispatch_refusal(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(runtime_module, "submit_proposal", _fake_recorded_proposal)
+
+    def refuse(*_args: Any, **_kwargs: Any) -> None:
+        raise EffectRefused("dispatch_refused")
+
+    monkeypatch.setattr(runtime_module, "dispatch", refuse)
+    with pytest.raises(ToolExecutionError, match="dispatch refused: dispatch_refused"):
+        _run_direct_http_effect(_direct_http_plan())
+
+
+def test_governed_http_plan_rejects_uncommitted_outcome(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(runtime_module, "submit_proposal", _fake_recorded_proposal)
+    monkeypatch.setattr(
+        runtime_module,
+        "dispatch",
+        lambda *_args, **_kwargs: EffectOutcome(
+            proposal_id="proposal-direct-http", state="unknown", reason="receipt_pending"
+        ),
+    )
+    with pytest.raises(ToolExecutionError, match="did not commit: receipt_pending"):
+        _run_direct_http_effect(_direct_http_plan())
+
+
+def test_governed_http_plan_rejects_commit_without_transport_response(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(runtime_module, "submit_proposal", _fake_recorded_proposal)
+    monkeypatch.setattr(
+        runtime_module,
+        "dispatch",
+        lambda *_args, **_kwargs: EffectOutcome(
+            proposal_id="proposal-direct-http", state="committed"
+        ),
+    )
+    with pytest.raises(ToolExecutionError, match="without a transport response"):
+        _run_direct_http_effect(_direct_http_plan())

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -399,6 +400,99 @@ def test_http_backend_requires_receipt_verifier_before_transport() -> None:
     assert refused.value.code == "backend_config_missing"
     assert refused.value.never_sent is True
     assert called is False
+
+
+def test_http_backend_rejects_connector_binding_before_sender() -> None:
+    request = replace(
+        _http_request(),
+        view=replace(_http_request().view, connector="other-connector"),
+    )
+    with pytest.raises(RuntimeError) as refused:
+        dispatcher_module._HttpBackend().perform(
+            request,
+            {"sender": lambda _request: {"status_code": 201}, "receipt_verifier": lambda *_: None},
+        )
+    assert refused.value.code == "connector_binding_mismatch"
+    assert refused.value.never_sent is True
+
+
+def test_http_backend_rejects_intent_without_matching_url() -> None:
+    request = replace(_http_request(), intent={"args": {"method": "POST"}})
+    with pytest.raises(RuntimeError) as refused:
+        dispatcher_module._HttpBackend().perform(
+            request,
+            {"sender": lambda _request: {"status_code": 201}, "receipt_verifier": lambda *_: None},
+        )
+    assert refused.value.code == "connector_intent_unsupported"
+
+
+def test_http_backend_defaults_headers_and_preserves_ambiguous_response() -> None:
+    original = _http_request()
+    args = dict(original.intent["args"])
+    args["headers"] = None
+    request = replace(original, intent={"args": args})
+    captured: dict[str, Any] = {}
+
+    def sender(outgoing: dict[str, Any]) -> dict[str, Any]:
+        captured.update(outgoing)
+        return {"status_code": 202, "text": "accepted"}
+
+    result = dispatcher_module._HttpBackend().perform(
+        request, {"sender": sender, "receipt_verifier": lambda *_: None}
+    )
+    assert captured["headers"] == {"Idempotency-Key": request.view.logical_key}
+    assert result.outcome.outcome is TransportOutcome.AMBIGUOUS
+    assert result.response == {"status_code": 202, "text": "accepted"}
+
+
+def test_http_backend_rejects_non_mapping_headers() -> None:
+    original = _http_request()
+    args = dict(original.intent["args"])
+    args["headers"] = "not-a-header-map"
+    request = replace(original, intent={"args": args})
+    with pytest.raises(RuntimeError) as refused:
+        dispatcher_module._HttpBackend().perform(
+            request,
+            {"sender": lambda _request: {"status_code": 201}, "receipt_verifier": lambda *_: None},
+        )
+    assert refused.value.code == "connector_intent_unsupported"
+
+
+def test_http_backend_classifies_sender_exception_without_claiming_commit() -> None:
+    def sender(_request: dict[str, Any]) -> dict[str, Any]:
+        raise ConnectionError("downstream unavailable")
+
+    result = dispatcher_module._HttpBackend().perform(
+        _http_request(), {"sender": sender, "receipt_verifier": lambda *_: None}
+    )
+    assert result.outcome.outcome is TransportOutcome.AMBIGUOUS
+    assert result.outcome.code == "unclassified_error"
+
+
+def test_http_backend_rejects_malformed_transport_result() -> None:
+    with pytest.raises(RuntimeError) as refused:
+        dispatcher_module._HttpBackend().perform(
+            _http_request(),
+            {
+                "sender": lambda _request: {"status_code": "201"},
+                "receipt_verifier": lambda *_: None,
+            },
+        )
+    assert refused.value.code == "transport_result_invalid"
+
+
+def test_http_backend_rejects_untyped_receipt_verifier_result() -> None:
+    result = dispatcher_module._HttpBackend().perform(
+        _http_request(),
+        {
+            "sender": lambda _request: {"status_code": 201},
+            "receipt_verifier": lambda *_: {"not": "receipt-facts"},
+        },
+    )
+    assert result.verify is not None
+    with pytest.raises(RuntimeError) as refused:
+        result.verify()
+    assert refused.value.code == "receipt_verifier_invalid"
 
 
 def test_registered_http_backend_dispatches_private_transport_and_returns_response(
