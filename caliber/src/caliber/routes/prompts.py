@@ -534,8 +534,15 @@ def enqueue_prompt_optimization_run(  # noqa: PLR0912, PLR0915 - sequential vali
     session.add(item)
     session.flush()
 
+    job_creator = identity.user_id if identity is not None else actor
     job = CaliberRefinementJob(
         job_id=new_job_id(),
+        # Provenance comes from the authenticated request identity, never from
+        # prompt metadata or a client-supplied creator field.  ``actor`` is
+        # required by this helper's route and audit contract; the optional
+        # identity keeps direct internal callers compatible while making the
+        # resolved identity authoritative whenever one is available.
+        triggered_by=job_creator,
         agent_id=payload.agent_id,
         primary_item_id=item.item_id,
         artifact_type="prompt",
