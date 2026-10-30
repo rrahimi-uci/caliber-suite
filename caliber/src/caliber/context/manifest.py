@@ -4,7 +4,8 @@ A :class:`ContextManifest <caliber.contracts>` (kind ``context_manifest``, schem
 provider sees them, every segment of an agent step's context with:
 
 * a **trust tier**: ``instruction`` (what the platform and the workflow's author say) or ``data`` (everything else:
-  the user's input, retrieved text, tool output, history, memory). Only a system or workflow instruction is an
+  the user's input, retrieved text, tool output, history, memory). Only a system/workflow instruction or a
+  provider-required structured-output suffix is an
   instruction, and every one is; **retrieved text is data**, so text a source contains can never be promoted to an
   instruction by being retrieved;
 * its **source** (prompt, input, knowledge-base version, tool, memory, history), the **retrieval** and **transform**
@@ -66,7 +67,9 @@ KIND: Final = "context_manifest"
 SCHEMA_VERSION: Final = "v1"
 INSTRUCTION: Final = "instruction"
 DATA: Final = "data"
-INSTRUCTION_KINDS: Final = frozenset({"system_instruction", "workflow_instruction"})
+INSTRUCTION_KINDS: Final = frozenset(
+    {"system_instruction", "workflow_instruction", "structured_output_suffix"}
+)
 #: Sources whose payload is loaded from a store and so needs an authorization decision.
 AUTHORIZED_SOURCES: Final = frozenset({"knowledge_base", "memory"})
 #: Segment kinds that always carry an authorization decision, whatever source they name.
@@ -93,6 +96,7 @@ RULE_BUNDLE_MISMATCH: Final = "rule_bundle_mismatch"
 #: A context manifest cites a rule bundle for a run that was admitted without one.
 RULE_BUNDLE_UNPINNED: Final = "rule_bundle_unpinned"
 _MAX_BYTES: Final = 1 << 20
+_MAX_NODE_STEP_ID_LENGTH: Final = 128
 
 
 class ContextManifestError(ValueError):
@@ -115,6 +119,7 @@ class ContextSegment:
     retrieval: Mapping[str, Any] | None = None
     transform: Mapping[str, Any] | None = None
     authorization_decision_id: str | None = None
+    authorization_decision_ids: tuple[str, ...] = ()
 
     def to_record(self, position: int) -> dict[str, Any]:
         record: dict[str, Any] = {
@@ -131,6 +136,8 @@ class ContextSegment:
             record["transform"] = dict(self.transform)
         if self.authorization_decision_id is not None:
             record["authorization_decision_id"] = self.authorization_decision_id
+        if self.authorization_decision_ids:
+            record["authorization_decision_ids"] = list(self.authorization_decision_ids)
         return record
 
 
@@ -210,7 +217,7 @@ def _classify(record: Mapping[str, Any]) -> ContextManifestError | None:
         if (segment.get("tier") == INSTRUCTION) != (segment.get("kind") in INSTRUCTION_KINDS):
             return ContextManifestError(
                 TIER_VIOLATION,
-                f"segment {index}: only a system or workflow instruction is an instruction",
+                f"segment {index}: only a system/workflow instruction or structured-output suffix is an instruction",
             )
         needs = (
             segment["source"].get("kind") in AUTHORIZED_SOURCES
@@ -273,12 +280,27 @@ class BuiltContextManifest:
     def revision(self) -> int:
         return int(self.record["revision"])
 
+    @property
+    def step(self) -> dict[str, Any] | None:
+        value = self.record.get("step")
+        return dict(value) if isinstance(value, dict) else None
+
+    @property
+    def node_step_id(self) -> str | None:
+        step = self.step
+        if step is None:
+            return None
+        return _node_step_id(self.workflow_run_id, step["node_id"], step["occurrence_id"])
+
     def row_values(self) -> dict[str, Any]:
         created = datetime.fromisoformat(str(self.record["created_at"]).replace("Z", "+00:00"))
         return {
             "context_manifest_id": self.context_manifest_id,
             "workflow_run_id": self.workflow_run_id,
             "step_request_id": self.step_request_id,
+            "node_step_id": self.node_step_id,
+            "occurrence_id": (self.step or {}).get("occurrence_id"),
+            "attempt": (self.step or {}).get("attempt"),
             "revision": self.revision,
             "schema_version": SCHEMA_VERSION,
             "manifest_bytes": self.manifest_bytes,
@@ -316,6 +338,9 @@ def _strict_integers(record: Mapping[str, Any]) -> None:
         record["revision"],
         *(value for key, value in allocation.items() if key != "sections"),
     ]
+    step = record.get("step")
+    if isinstance(step, Mapping):
+        counts.append(step["attempt"])
     for section in allocation.get("sections", []):
         counts += [section["cap_tokens"], section["used_tokens"]]
     for segment in record["segments"]:
@@ -331,6 +356,14 @@ def _timestamp(moment: datetime) -> str:
         return moment.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
     except (OverflowError, ValueError) as exc:
         raise ContextManifestError(INVALID, "created_at is out of range") from exc
+
+
+def _node_step_id(workflow_run_id: str, node_id: str, occurrence_id: str) -> str:
+    """Return a bounded, deterministic identity for one logical node occurrence."""
+    raw = f"{workflow_run_id}:{node_id}:{occurrence_id}"
+    if len(raw) <= _MAX_NODE_STEP_ID_LENGTH:
+        return raw
+    return "ns-" + hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
 
 @dataclass(frozen=True)
@@ -441,6 +474,7 @@ def build_context_manifest(
     redacted: Sequence[Mapping[str, Any]] = (),
     sections: Sequence[Mapping[str, Any]] = (),
     rule_bundle: Mapping[str, Any] | None = None,
+    step: Mapping[str, Any] | None = None,
 ) -> BuiltContextManifest:
     """Build and validate the manifest of one agent step. Pure: raises :class:`ContextManifestError`.
 
@@ -488,6 +522,8 @@ def build_context_manifest(
         },
         "created_at": _timestamp(created_at),
     }
+    if step is not None:
+        record["step"] = dict(step)
     if scope.project_id is not None:
         record["project_id"] = scope.project_id
     if omitted:
@@ -568,8 +604,11 @@ def _verify_authorizations(session: Session, record: Mapping[str, Any]) -> None:
     no later than the manifest. (A decision may be cited by any step of its run: it authorizes the read, not a step.)"""
     created = datetime.fromisoformat(str(record["created_at"]).replace("Z", "+00:00"))
     for index, segment in enumerate(record["segments"]):
-        decision_id = segment.get("authorization_decision_id")
-        if decision_id is None:
+        decision_ids: list[str] = []
+        if segment.get("authorization_decision_id") is not None:
+            decision_ids.append(str(segment["authorization_decision_id"]))
+        decision_ids.extend(str(item) for item in segment.get("authorization_decision_ids", []))
+        if not decision_ids:
             continue
         source = segment["source"]
         expected = (
@@ -579,20 +618,39 @@ def _verify_authorizations(session: Session, record: Mapping[str, Any]) -> None:
             if source["kind"] == "memory"
             else None
         )
-        row = session.get(CaliberPolicyDecision, decision_id)
-        if (
-            row is None
-            or expected is None
-            or row.result != "allow"
-            or row.workflow_run_id != record["workflow_run_id"]
-            or row.action != CONTEXT_READ
-            or row.resource != expected
-            or row.evaluated_at.replace(tzinfo=timezone.utc) > created
-        ):
+        # A singular decision id is reserved for a segment whose source is the
+        # exact authorized store object.  Derived values use the plural field;
+        # otherwise an unrelated tool payload could smuggle a valid decision
+        # from another source into the manifest.
+        if expected is None and segment.get("authorization_decision_id") is not None:
             raise ContextManifestError(
                 AUTHORIZATION_REJECTED,
                 f"segment {index}: its authorization decision is not a recorded allow of this read by this run",
             )
+        for decision_id in decision_ids:
+            row = session.get(CaliberPolicyDecision, decision_id)
+            # A transformed/for_each value is labelled with the delivery node,
+            # not the original store source.  Its provenance decision ids still
+            # have to be exact, run-scoped context reads, but the segment's
+            # ``tool`` source is not itself an authority resource to compare.
+            decision_matches_source = row is not None and (
+                row.resource == expected
+                if expected is not None
+                else isinstance(row.resource, str)
+                and row.resource.startswith(("knowledge_base:", "memory:"))
+            )
+            if (
+                row is None
+                or row.result != "allow"
+                or row.workflow_run_id != record["workflow_run_id"]
+                or row.action != CONTEXT_READ
+                or not decision_matches_source
+                or row.evaluated_at.replace(tzinfo=timezone.utc) > created
+            ):
+                raise ContextManifestError(
+                    AUTHORIZATION_REJECTED,
+                    f"segment {index}: its authorization decision is not a recorded allow of this read by this run",
+                )
 
 
 def _verify_run(session: Session, record: Mapping[str, Any]) -> None:

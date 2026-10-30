@@ -130,6 +130,33 @@ def test_judge_parses_client_json(monkeypatch) -> None:
     assert gr._judge("text", "crit") == (True, "x")
 
 
+def test_judge_records_context_before_provider(monkeypatch) -> None:
+    events: list[object] = []
+    msg = SimpleNamespace(content='{"violation": false, "reason": ""}')
+    completions = SimpleNamespace(
+        create=lambda **_kw: (
+            events.append("provider") or SimpleNamespace(choices=[SimpleNamespace(message=msg)])
+        )
+    )
+    fake_client = SimpleNamespace(chat=SimpleNamespace(completions=completions))
+    monkeypatch.setattr(gr, "_judge_client", lambda: (fake_client, "gpt-4o-mini", "high"))
+
+    result = gr._judge(
+        "response",
+        "criterion",
+        context=GuardrailContext(
+            node_id="guardrail",
+            occurrence_id="guardrail:1",
+            context_recorder=lambda assembly: events.append(assembly),
+        ),
+    )
+
+    assert result == (False, "")
+    assert events[0].node_id == "guardrail"
+    assert events[0].inputs[0].text == "CRITERION:\ncriterion\n\nTEXT:\nresponse"
+    assert events[1] == "provider"
+
+
 def test_judge_returns_none_when_no_client(monkeypatch) -> None:
     monkeypatch.setattr(gr, "_judge_client", lambda: None)
     assert gr._judge("text", "crit") is None

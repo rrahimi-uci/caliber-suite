@@ -2225,6 +2225,11 @@ class CaliberContextManifest(Base):
         String(64), ForeignKey("caliber_workflow_runs.workflow_run_id")
     )
     step_request_id: Mapped[str] = mapped_column(String(128))
+    #: Additive B07.6 linkage. Nullable so manifests written before the
+    #: linkage extension remain readable without a backfill or reinterpretation.
+    node_step_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    occurrence_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    attempt: Mapped[int | None] = mapped_column(Integer, nullable=True)
     revision: Mapped[int] = mapped_column(Integer)
     schema_version: Mapped[str] = mapped_column(String(16), default="v1")
     manifest_bytes: Mapped[bytes] = mapped_column(LargeBinary)

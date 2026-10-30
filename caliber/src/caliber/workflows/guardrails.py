@@ -19,7 +19,7 @@ from dataclasses import dataclass, field
 from typing import Any, Literal, cast
 
 from caliber.llm.models import DEFAULT_OPENAI_REASONING_EFFORT, reasoning_effort_for_model
-from caliber.workflows.ir import IRGuardrail
+from caliber.workflows.ir import IRGuardrail, PromptRef
 
 
 class GuardrailBlockedError(Exception):
@@ -37,6 +37,10 @@ class GuardrailContext:
 
     response_text: str = ""
     tool_calls: list[dict[str, Any]] = field(default_factory=list)
+    node_id: str | None = None
+    occurrence_id: str | None = None
+    attempt: int = 1
+    context_recorder: Callable[[Any], str | None] | None = None
 
     @property
     def called_tool_names(self) -> set[str]:
@@ -335,7 +339,13 @@ def _judge_client() -> tuple[Any, str, str] | None:
     return built
 
 
-def _judge(content: str, criterion: str, *, model: str | None = None) -> tuple[bool, str] | None:
+def _judge(
+    content: str,
+    criterion: str,
+    *,
+    model: str | None = None,
+    context: GuardrailContext | None = None,
+) -> tuple[bool, str] | None:
     """Ask the LLM judge whether ``content`` violates ``criterion``.
 
     Returns ``(violation, reason)``, or ``None`` when no judge is available or
@@ -354,6 +364,28 @@ def _judge(content: str, criterion: str, *, model: str | None = None) -> tuple[b
         ],
         "response_format": {"type": "json_object"},
     }
+    if context is not None and context.context_recorder is not None:
+        from caliber.workflows.runtime import AgentContextAssembly, AgentContextInput  # noqa: PLC0415
+
+        context.context_recorder(
+            AgentContextAssembly(
+                node_id=context.node_id or "guardrail",
+                instructions=PromptRef(kind="inline", inline_text=_JUDGE_SYSTEM),
+                instruction_text=_JUDGE_SYSTEM,
+                skill_instructions=(),
+                history=(),
+                inputs=(
+                    AgentContextInput(
+                        port="input",
+                        text=f"CRITERION:\n{criterion}\n\nTEXT:\n{content}",
+                        origin_node_id=context.node_id,
+                        origin_node_type="agent",
+                    ),
+                ),
+                occurrence_id=context.occurrence_id,
+                attempt=context.attempt,
+            )
+        )
     if effort := reasoning_effort_for_model(effective_model, default_reasoning):
         kwargs["reasoning_effort"] = effort
     try:
@@ -365,12 +397,16 @@ def _judge(content: str, criterion: str, *, model: str | None = None) -> tuple[b
 
 
 def _judge_check(
-    kind: str, content: str, criterion: str, params: dict[str, Any]
+    kind: str, content: str, criterion: str, params: dict[str, Any], ctx: GuardrailContext
 ) -> GuardrailResult:
     """Shared body for the LLM-judge checks: judge ``content``, map to a result."""
     if not content.strip():
         return GuardrailResult(passed=True, kind=kind)
-    verdict = _judge(content, criterion, model=params.get("model"))
+    verdict = (
+        _judge(content, criterion, model=params.get("model"), context=ctx)
+        if ctx.context_recorder is not None
+        else _judge(content, criterion, model=params.get("model"))
+    )
     if verdict is None:
         if str(params.get("on_judge_error", "pass")) == "block":
             return GuardrailResult(
@@ -403,13 +439,13 @@ def _tool_evidence(ctx: GuardrailContext) -> str:
 @register_check("llm_jailbreak")
 def _llm_jailbreak(params: dict[str, Any], ctx: GuardrailContext) -> GuardrailResult:
     """LLM-judge prompt-injection / jailbreak detection (best on ``pre_agent`` input)."""
-    return _judge_check("llm_jailbreak", ctx.response_text, _JAILBREAK_CRITERION, params)
+    return _judge_check("llm_jailbreak", ctx.response_text, _JAILBREAK_CRITERION, params, ctx)
 
 
 @register_check("llm_toxicity")
 def _llm_toxicity(params: dict[str, Any], ctx: GuardrailContext) -> GuardrailResult:
     """LLM-judge toxicity / harm detection — the ML upgrade of ``toxicity_check``."""
-    return _judge_check("llm_toxicity", ctx.response_text, _TOXICITY_CRITERION, params)
+    return _judge_check("llm_toxicity", ctx.response_text, _TOXICITY_CRITERION, params, ctx)
 
 
 @register_check("llm_groundedness")
@@ -423,7 +459,7 @@ def _llm_groundedness(params: dict[str, Any], ctx: GuardrailContext) -> Guardrai
     if not evidence.strip():
         return GuardrailResult(passed=True, kind="llm_groundedness")
     content = f"EVIDENCE:\n{evidence}\n\nRESPONSE:\n{ctx.response_text}"
-    return _judge_check("llm_groundedness", content, _GROUNDEDNESS_CRITERION, params)
+    return _judge_check("llm_groundedness", content, _GROUNDEDNESS_CRITERION, params, ctx)
 
 
 # --- Redaction (on_failure: redact) ------------------------------------------

@@ -1420,9 +1420,9 @@ DELETE are refused by database triggers and by the ORM (and, as for run manifest
 those privileges).
 
 A manifest lists the **segments** in the order the provider sees them (`position` equals the index), each with (a segment's
-`kind` must match its source: a knowledge base's text can only be `retrieved_text`, an instruction can only come from a prompt):
+`kind` must match its source: a knowledge base's text can only be `retrieved_text`, an instruction or structured-output suffix can only come from a prompt, and a tool specification/result can only come from a tool):
 
-- a **trust tier**: `instruction` only for a system or workflow instruction (and every one is); everything else, the
+- a **trust tier**: `instruction` only for a system/workflow instruction or structured-output suffix (and every one is); everything else, the
   user's input, **retrieved text**, tool output, history and memory, is `data`. Text a source contains can never be
   promoted to an instruction by being retrieved;
 - its **source** (prompt, input, knowledge-base version, tool, memory, history), the **retrieval** and **transform** that
@@ -1463,6 +1463,17 @@ unauthorized source, a refused manifest, a database failure) the step **does not
 an `error_boundary` does not absorb the refusal), the run ends `context_denied` and the provider was never called. A document
 that says "ignore all previous instructions" is therefore recorded as data and reaches the agent as input, never as part of
 its instructions (scenario V03).
+
+**Non-agent model calls covered by B07.6.** A knowledge-query node's answer-synthesis call uses the same recorder before
+the OpenAI or Anthropic provider is called. Its resolved system prompt, bounded history, exact user prompt (including the
+retrieved answer context), knowledge-base source and `context.read` decision are recorded against the knowledge node's
+occurrence and attempt. A missing source decision refuses before the provider is touched. The same boundary is used for
+each retrieval mode, so multiple synthesis calls become ordered revisions of the same node occurrence rather than an
+unlinked side channel.
+
+LLM-backed guardrail judges use the same pre-call recorder when they run inside a governed workflow. The criterion and
+the response/evidence they judge are recorded as data against the guardrail node and attempt; deterministic guardrails do
+not create a model-call manifest.
 
 **Caps and redaction (B07.4, #719).** `caliber.context.manifest.pack_context(segments, caps=..., redactor=...)` is the one pure
 function that decides what an agent step's context may contain, and `build_context_manifest` records its result
@@ -1550,13 +1561,8 @@ running the previous release rejects a stored manifest that carries it (`invalid
 release to every pod that reads context manifests before any worker running it can record one for a bundle-pinned run (or drain
 bundle-pinned runs first); do not mix releases while bundle-pinned runs are in flight.
 
-What this does not cover, so it is not claimed: the tool specifications, the structured-output suffix and the results of tool
-calls made *during* a step are not in the manifest; a registry prompt is loaded when the step is assembled and again by the
-provider adapter, so an alias moved in between is not detected; session memory loaded for the step is recorded as `history`
-without a `memory` authorization (follow-up); a resumed run that replays a recorded knowledge-query output has no guard
-decision for it and is refused; a manifest is not linked to the `NodeStep` it describes, so a retried step adds a further
-revision-1 manifest; other model calls (a knowledge query's own answer synthesis, guardrail judges) are not agent steps and are
-not recorded. Token counts are an accounting estimate (four characters a token, and the recorded budget is the larger of the
+Model calls outside a live workflow run (for example, offline evaluation and deploy-gate scoring) remain outside this
+runtime manifest boundary. Token counts are an accounting estimate (four characters a token, and the recorded budget is the larger of the
 configured one and the total); enforcing a budget on a provider call is B08. Legacy runs and development have no recorder.
 
 ## Approval requests: bound to the exact intent (B06.1, #706)

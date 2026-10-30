@@ -1040,6 +1040,44 @@ def test_generate_answer_dispatches_to_providers(
     assert error2 is None
 
 
+def test_generate_answer_records_rag_prompt_before_provider(
+    app_config: CaliberConfig,
+    session_factory: sessionmaker[Session],
+) -> None:
+    kb, version = _kb_and_version()
+    events: list[object] = []
+    config = app_config.model_copy(update={"assistant_engine": "openai"})
+    service = _service(config, session_factory)
+
+    def record(details: dict[str, object]) -> None:
+        events.append(details)
+
+    def provider(**_kwargs: object) -> str:
+        events.append("provider")
+        return "answer"
+
+    service._generate_openai_answer = provider  # type: ignore[method-assign]
+    answer, error = service._generate_answer(
+        question="q",
+        history=[{"role": "user", "content": "earlier"}],
+        knowledge_base=kb,
+        version=version,
+        retrieved_chunks=_one_chunk(),
+        chat_model=None,
+        model_context_recorder=record,
+        model_context={"node_id": "knowledge"},
+    )
+
+    assert (answer, error) == ("answer", None)
+    assert events[1] == "provider"
+    details = events[0]
+    assert isinstance(details, dict)
+    assert details["node_id"] == "knowledge"
+    assert details["version_id"] == version.knowledge_base_version_id
+    assert "Retries happen three times." in str(details["user_prompt"])
+    assert str(details["system_instruction"]).startswith("You are CALIBER")
+
+
 def test_generate_answer_resolves_auto_to_a_real_engine_by_key(
     app_config: CaliberConfig,
     session_factory: sessionmaker[Session],

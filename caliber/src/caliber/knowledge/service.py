@@ -10,7 +10,7 @@ import math
 import re
 import tempfile
 from collections import defaultdict
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 from pathlib import Path
@@ -1586,7 +1586,12 @@ class KnowledgeBaseService:
     # Query / compare
     # ------------------------------------------------------------------
     def query(
-        self, payload: KnowledgeQueryRequest, *, identity: CaliberIdentity
+        self,
+        payload: KnowledgeQueryRequest,
+        *,
+        identity: CaliberIdentity,
+        model_context_recorder: Callable[[dict[str, Any]], None] | None = None,
+        model_context: Mapping[str, Any] | None = None,
     ) -> KnowledgeQueryResultSchema:
         version_results: list[KnowledgeQueryVersionResultSchema] = []
         tracer = get_tracer()
@@ -1751,6 +1756,8 @@ class KnowledgeBaseService:
                             version=version,
                             retrieved_chunks=retrieved_chunks,
                             chat_model=payload.chat_model,
+                            model_context_recorder=model_context_recorder,
+                            model_context=model_context,
                         )
                         answer_ms = (perf_counter() - answer_started) * 1000
                         citations = [
@@ -4803,6 +4810,8 @@ class KnowledgeBaseService:
         version: CaliberKnowledgeBaseVersion,
         retrieved_chunks: list[KnowledgeQueryChunkSchema],
         chat_model: str | None,
+        model_context_recorder: Callable[[dict[str, Any]], None] | None = None,
+        model_context: Mapping[str, Any] | None = None,
     ) -> tuple[str | None, str | None]:
         if not retrieved_chunks:
             return None, "No relevant chunks were retrieved for this question."
@@ -4810,6 +4819,25 @@ class KnowledgeBaseService:
         # raw, it fell through to the canned extractive answer below on a default install.
         engine = resolve_assistant_engine(self._config.assistant_engine or "fake")
         model = chat_model or self._config.assistant_model
+        if engine in {"openai", "anthropic"} and model_context_recorder is not None:
+            normalized_history = []
+            for message in history[-6:]:
+                role = message.get("role", "user")
+                if role not in {"user", "assistant"}:
+                    role = "user"
+                normalized_history.append({"role": role, "content": message.get("content", "")})
+            model_context_recorder(
+                {
+                    **dict(model_context or {}),
+                    "system_instruction": _rag_system_prompt(
+                        knowledge_base.name, version.version_number
+                    ),
+                    "history": normalized_history,
+                    "user_prompt": _rag_user_prompt(question, retrieved_chunks),
+                    "knowledge_base_id": knowledge_base.knowledge_base_id,
+                    "version_id": version.knowledge_base_version_id,
+                }
+            )
         if engine == "openai":
             model = model or DEFAULT_OPENAI_MODEL
             try:

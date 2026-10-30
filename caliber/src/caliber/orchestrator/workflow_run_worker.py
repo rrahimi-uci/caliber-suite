@@ -1701,6 +1701,9 @@ class WorkflowRunWorker:
                         and getattr(self._config, "profile", "") == "reference"
                     ),
                     context_recorder=context_recorder,
+                    memory_read_authorizer=(
+                        source_guard.authorize_memory if source_guard is not None else None
+                    ),
                 )
             except (WorkflowManifestError, ValidationError) as exc:
                 self._mark_failed(

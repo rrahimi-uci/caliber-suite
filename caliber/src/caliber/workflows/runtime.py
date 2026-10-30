@@ -41,6 +41,7 @@ from datetime import datetime, timezone
 from functools import partial
 from http import HTTPStatus
 from pathlib import Path
+from threading import Lock
 from typing import Any, Protocol
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -212,6 +213,15 @@ class CaliberRunContext:
 
 _RUN_CONTEXT: contextvars.ContextVar[CaliberRunContext | None] = contextvars.ContextVar(
     "caliber_workflow_run_context", default=None
+)
+_STEP_ATTEMPT: contextvars.ContextVar[int] = contextvars.ContextVar(
+    "caliber_workflow_step_attempt", default=1
+)
+_STEP_OCCURRENCE: contextvars.ContextVar[str | None] = contextvars.ContextVar(
+    "caliber_workflow_step_occurrence", default=None
+)
+_STEP_PROVENANCE: contextvars.ContextVar[tuple[dict[str, Any], ...]] = contextvars.ContextVar(
+    "caliber_workflow_step_provenance", default=()
 )
 ManagedFileResolver = Callable[
     [IRManagedFileReference, str, int],
@@ -2340,6 +2350,8 @@ class AgentContextInput:
     origin_node_id: str | None = None
     origin_node_type: str | None = None
     origin_result: dict[str, Any] | None = None
+    transform: dict[str, Any] | None = None
+    authorization_decision_ids: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -2353,6 +2365,15 @@ class AgentContextAssembly:
     skill_instructions: tuple[str, ...]
     history: tuple[HistoryMessage, ...]
     inputs: tuple[AgentContextInput, ...]
+    occurrence_id: str | None = None
+    attempt: int = 1
+    step_request_id: str | None = None
+    memory_history: tuple[HistoryMessage, ...] = ()
+    memory_reference: str | None = None
+    memory_authorization_decision_id: str | None = None
+    tool_specs: tuple[dict[str, Any], ...] = ()
+    structured_output_suffix: str = ""
+    tool_results: tuple[dict[str, Any], ...] = ()
 
 
 @dataclass
@@ -2372,7 +2393,18 @@ class RuntimePlan:
     knowledge_query_runner: Callable[[dict[str, Any]], dict[str, Any]] | None = None
     knowledge_build_runner: Callable[[dict[str, Any]], dict[str, Any]] | None = None
     #: Called with each agent step's context before the provider sees any of it (B07.3b); raising refuses the step.
-    context_recorder: Callable[[AgentContextAssembly], None] | None = None
+    context_recorder: Callable[[AgentContextAssembly], str | None] | None = None
+    #: Authorizes a run-scoped session-memory reference before the memory store loads it.
+    memory_read_authorizer: Callable[[str], str] | None = None
+    #: Provenance is carried out-of-band so transformed values retain authority without changing their business shape.
+    context_provenance: dict[tuple[str, str], tuple[dict[str, Any], ...]] = field(
+        default_factory=dict
+    )
+    context_provenance_lock: Lock = field(default_factory=Lock, repr=False)
+    #: Resolves an authorized knowledge version to the decision id recorded before retrieval.
+    context_provenance_resolver: Callable[[str], str | None] | None = None
+    #: Whether the run has a source guard capable of re-validating replayed knowledge reads.
+    context_source_guard_present: bool = False
     review_queue_enqueuer: Callable[[dict[str, Any]], dict[str, Any]] | None = None
     # Outbound HTTP sender for Webhook nodes. ``None`` -> the httpx-backed default
     # (``_default_webhook_sender``); tests inject a fake to avoid real network I/O.
@@ -4039,6 +4071,26 @@ def _interpret(  # noqa: PLR0911, PLR0912, PLR0915 - graph interpreter dispatch
             else:
                 for port in out_ports:
                     port_values[(resume_checkpoint.node_id, port)] = resume_checkpoint.output
+            if isinstance(node, IRKnowledgeQuery):
+                replay_provenance = _knowledge_context_provenance(
+                    plan, port_values.get((resume_checkpoint.node_id, "result"))
+                )
+                if plan.context_recorder is not None and (
+                    not plan.context_source_guard_present or not replay_provenance
+                ):
+                    return WorkflowRunResult(
+                        status="error",
+                        output="",
+                        steps=steps,
+                        tags=base_tags,
+                        tokens=total_tokens,
+                        error=(
+                            "ContextDenied: authority_unavailable: "
+                            "a replayed knowledge result has no reusable source-read authority"
+                        ),
+                        guardrail_results=guardrail_results,
+                    )
+                _set_context_provenance(plan, node, replay_provenance)
             processed.add(resume_checkpoint.node_id)
             _deliver_from(resume_checkpoint.node_id)
         else:
@@ -4326,12 +4378,81 @@ def _delivering_edge(
     return None
 
 
+def _get_context_provenance(
+    plan: RuntimePlan, node_id: str, output: str
+) -> tuple[dict[str, Any], ...]:
+    with plan.context_provenance_lock:
+        return plan.context_provenance.get((node_id, output), ())
+
+
+def _set_context_provenance(
+    plan: RuntimePlan,
+    node: IRNode,
+    provenance: tuple[dict[str, Any], ...],
+) -> None:
+    if not provenance:
+        return
+    with plan.context_provenance_lock:
+        for output in node.outputs:
+            plan.context_provenance[(node.node_id, output)] = provenance
+
+
+def _input_context_provenance(
+    plan: RuntimePlan,
+    ir: IRWorkflow,
+    node: IRNode,
+    inputs: dict[str, Any],
+    port_values: dict[tuple[str, str], Any],
+) -> tuple[dict[str, Any], ...]:
+    """Collect the unique authority records carried by values delivered to ``node``."""
+    collected: list[dict[str, Any]] = []
+    for port, value in inputs.items():
+        edge = _delivering_edge(ir, node.node_id, port, value, port_values)
+        if edge is None:
+            continue
+        for item in _get_context_provenance(plan, edge.from_node, edge.from_output):
+            if item not in collected:
+                collected.append(item)
+    return tuple(collected)
+
+
+def _knowledge_context_provenance(plan: RuntimePlan, payload: Any) -> tuple[dict[str, Any], ...]:
+    """Return embedded or freshly resolved decision ids for a knowledge result."""
+    if not isinstance(payload, dict):
+        return ()
+    embedded = payload.get("context_provenance")
+    if isinstance(embedded, list):
+        embedded_refs = tuple(
+            dict(item)
+            for item in embedded
+            if isinstance(item, dict)
+            and isinstance(item.get("authorization_decision_id"), str)
+            and isinstance(item.get("source"), dict)
+        )
+        if embedded_refs:
+            return embedded_refs
+    if plan.context_provenance_resolver is None:
+        return ()
+    refs: list[dict[str, Any]] = []
+    for version_id in payload.get("resolved_version_ids") or ():
+        decision_id = plan.context_provenance_resolver(str(version_id))
+        if decision_id:
+            refs.append(
+                {
+                    "authorization_decision_id": str(decision_id),
+                    "source": {"kind": "knowledge_base", "version_id": str(version_id)},
+                }
+            )
+    return tuple(refs)
+
+
 def _agent_context_inputs(
     ir: IRWorkflow,
     node: IRAgent,
     inputs: dict[str, Any],
     port_values: dict[tuple[str, str], Any],
     agent_input: str,
+    plan: RuntimePlan | None = None,
 ) -> tuple[AgentContextInput, ...]:
     """The one input the provider is given (``agent_input``) and where it came from.
 
@@ -4342,10 +4463,45 @@ def _agent_context_inputs(
     if port is None:
         # Nothing was wired: a graph node is handed the run's own input, an inline target the item it is run on.
         origin_type = None if _is_inline_target(ir, node.node_id) else "start"
-        return (AgentContextInput(port="input", text=agent_input, origin_node_type=origin_type),)
+        step_provenance = _STEP_PROVENANCE.get()
+        return (
+            AgentContextInput(
+                port="input",
+                text=agent_input,
+                origin_node_type=origin_type,
+                transform=(
+                    {"name": "derived", "version": "runtime-v1"} if step_provenance else None
+                ),
+                authorization_decision_ids=tuple(
+                    str(item["authorization_decision_id"])
+                    for item in step_provenance
+                    if item.get("authorization_decision_id")
+                ),
+            ),
+        )
     edge = _delivering_edge(ir, node.node_id, port, inputs[port], port_values)
     origin = ir.nodes.get(edge.from_node) if edge is not None else None
     result = port_values.get((edge.from_node, "result")) if edge is not None else None
+    raw_provenance = result.get("context_provenance") if isinstance(result, dict) else None
+    provenance: list[dict[str, Any]] = []
+    if isinstance(raw_provenance, list):
+        provenance.extend(item for item in raw_provenance if isinstance(item, dict))
+    elif edge is not None and plan is not None:
+        provenance.extend(_get_context_provenance(plan, edge.from_node, edge.from_output))
+    else:
+        provenance.extend(_STEP_PROVENANCE.get())
+    transform = None
+    decision_ids: tuple[str, ...] = ()
+    if provenance:
+        transform = {
+            "name": str(origin.node_id if origin is not None else "derived"),
+            "version": "runtime-v1",
+        }
+        decision_ids = tuple(
+            str(item["authorization_decision_id"])
+            for item in provenance
+            if item.get("authorization_decision_id")
+        )
     return (
         AgentContextInput(
             port=port,
@@ -4353,8 +4509,37 @@ def _agent_context_inputs(
             origin_node_id=edge.from_node if edge is not None else None,
             origin_node_type=origin.node_type.value if origin is not None else None,
             origin_result=result if isinstance(result, dict) else None,
+            transform=transform,
+            authorization_decision_ids=decision_ids,
         ),
     )
+
+
+def _context_provider_material(
+    executor: WorkflowExecutor, agent: IRAgent
+) -> tuple[tuple[dict[str, Any], ...], str]:
+    """Resolve the exact provider-facing tool shape and suffix before the call.
+
+    The legacy runtime has four provider executors with intentionally different
+    tool wire shapes. Keeping this mapping at the assembly boundary makes the
+    manifest digest the material that actually reaches each provider without
+    coupling the manifest package to optional SDKs.
+    """
+    name = type(executor).__name__
+    if name == "AnthropicChatWorkflowExecutor":
+        specs = _anthropic_tool_specs(agent)
+        suffix = _structured_output_prompt_suffix(agent)
+    elif name in {"OpenAIResponsesWorkflowExecutor", "OpenAIAgentsWorkflowExecutor"}:
+        specs = _openai_responses_tool_specs(agent)
+        suffix = (
+            _structured_output_prompt_suffix(agent)
+            if name == "OpenAIAgentsWorkflowExecutor"
+            else ""
+        )
+    else:
+        specs = _openai_tool_specs(agent)
+        suffix = ""
+    return tuple(dict(spec) for spec in specs), suffix
 
 
 def _run_agent_with_history(
@@ -4372,13 +4557,27 @@ def _run_agent_with_history(
     explicit = [dict(item) for item in (explicit_history or [])]
     key = _session_memory_key(plan, agent)
     stored: list[HistoryMessage] = []
+    memory_reference: str | None = None
+    memory_decision_id: str | None = None
     if key is not None and plan.session_memory_store is not None:
+        if plan.context_recorder is not None:
+            from caliber.workflows.session_memory import memory_reference_for  # noqa: PLC0415
+
+            memory_reference = memory_reference_for(*key)
+            if plan.memory_read_authorizer is None:
+                raise ContextDenied("authority_unavailable")
+            # The decision is recorded before the store is touched. A memory
+            # backend therefore cannot become an authority source by itself.
+            memory_decision_id = plan.memory_read_authorizer(memory_reference)
         stored = plan.session_memory_store.load_history(
             workflow_id=key[0],
             node_id=key[1],
             session_id=key[2],
         )
     history = _merge_message_history(stored, explicit)
+    tool_specs, structured_suffix = _context_provider_material(executor, agent)
+    occurrence_id = _STEP_OCCURRENCE.get() or agent.node_id
+    attempt = _STEP_ATTEMPT.get()
     if plan.context_recorder is not None:
         # The context is recorded, authorized and validated before the provider sees any of it: a refusal raises here.
         # A native (Agents SDK) handoff runs the target inside the provider call, where the runtime cannot see it, so
@@ -4388,17 +4587,33 @@ def _run_agent_with_history(
             for node_id, (target, _) in (handoff_agents or {}).items()
             if node_id != agent.node_id
         ]
+        root_step_request_id: str | None = None
+        root_assembly: AgentContextAssembly | None = None
         for recipient in recipients:
-            plan.context_recorder(
-                AgentContextAssembly(
-                    node_id=recipient.node_id,
-                    instructions=recipient.instructions,
-                    instruction_text=_base_instruction_text(recipient),
-                    skill_instructions=tuple(recipient.skill_instructions),
-                    history=tuple(history),
-                    inputs=context_inputs or (AgentContextInput(port="input", text=input_text),),
-                )
+            recipient_occurrence = (
+                occurrence_id
+                if recipient.node_id == agent.node_id
+                else f"{occurrence_id}:handoff:{recipient.node_id}"
             )
+            assembly = AgentContextAssembly(
+                node_id=recipient.node_id,
+                instructions=recipient.instructions,
+                instruction_text=_base_instruction_text(recipient),
+                skill_instructions=tuple(recipient.skill_instructions),
+                history=tuple(explicit),
+                inputs=context_inputs or (AgentContextInput(port="input", text=input_text),),
+                occurrence_id=recipient_occurrence,
+                attempt=attempt,
+                memory_history=tuple(stored),
+                memory_reference=memory_reference,
+                memory_authorization_decision_id=memory_decision_id,
+                tool_specs=tool_specs,
+                structured_output_suffix=structured_suffix,
+            )
+            request_id = plan.context_recorder(assembly)
+            if recipient.node_id == agent.node_id:
+                root_step_request_id = request_id
+                root_assembly = assembly
     result = _run_agent_traced(
         executor,
         agent,
@@ -4408,6 +4623,18 @@ def _run_agent_with_history(
         tool_callables=tool_callables,
         preview=preview,
     )
+    if plan.context_recorder is not None and root_step_request_id and root_assembly is not None:
+        tool_results = tuple(item for item in result.tool_calls if isinstance(item, dict))
+        if tool_results:
+            from dataclasses import replace  # noqa: PLC0415
+
+            plan.context_recorder(
+                replace(
+                    root_assembly,
+                    step_request_id=root_step_request_id,
+                    tool_results=tool_results,
+                )
+            )
     updated_history = _trim_message_history(
         [
             *history,
@@ -5367,6 +5594,8 @@ def _run_inline_target_node(
     item: Any,
     guardrail_results: list[dict[str, Any]],
     extra_tools: dict[str, Callable[..., Any]] | None = None,
+    occurrence_id: str | None = None,
+    inherited_provenance: tuple[dict[str, Any], ...] = (),
 ) -> tuple[int, NodeStep, dict[str, Any], dict[str, str]]:
     target_inputs, target_run_input = _inline_target_inputs(target, item)
     target_port_values: dict[tuple[str, str], Any] = {}
@@ -5381,6 +5610,8 @@ def _run_inline_target_node(
         port_values=target_port_values,
         guardrail_results=guardrail_results,
         extra_tools=extra_tools,
+        occurrence_id=occurrence_id,
+        inherited_provenance=inherited_provenance,
     )
     step = _attach_step_port_snapshots(
         step,
@@ -5713,6 +5944,7 @@ def _run_node(  # noqa: PLR0911, PLR0912, PLR0915 - per-node-type dispatch
         total_tokens = 0
         aggregated_artifacts: dict[str, str] = {}
         target = ir.nodes.get(node.target_node_id) if node.target_node_id else None
+        inherited_provenance = _input_context_provenance(plan, ir, node, inputs, port_values)
         if target is not None and not _supports_inline_orchestration_target(target):
             raise ToolExecutionError(
                 f"for_each node {nid!r} target {target.node_id!r} must be an executable "
@@ -5739,6 +5971,8 @@ def _run_node(  # noqa: PLR0911, PLR0912, PLR0915 - per-node-type dispatch
                         item=item,
                         guardrail_results=guardrail_results,
                         extra_tools=extra_tools,
+                        occurrence_id=f"{agent_target.node_id}:item:{index}",
+                        inherited_provenance=inherited_provenance,
                     )
                     record: dict[str, Any] = {
                         "item": item,
@@ -5818,6 +6052,8 @@ def _run_node(  # noqa: PLR0911, PLR0912, PLR0915 - per-node-type dispatch
                         item=item,
                         guardrail_results=guardrail_results,
                         extra_tools=extra_tools,
+                        occurrence_id=f"{target.node_id}:item:{index}",
+                        inherited_provenance=inherited_provenance,
                     )
                     total_tokens += toks
                     results.append(
@@ -5899,6 +6135,7 @@ def _run_node(  # noqa: PLR0911, PLR0912, PLR0915 - per-node-type dispatch
         iterations: list[dict[str, Any]] = []
         total_tokens = 0
         loop_artifacts: dict[str, str] = {}
+        inherited_provenance = _input_context_provenance(plan, ir, node, inputs, port_values)
         final_output = _stringify_inline_target_input(current_state)
         stop_reason = "max_iterations_reached"
         stopped_on_condition = False
@@ -5913,6 +6150,8 @@ def _run_node(  # noqa: PLR0911, PLR0912, PLR0915 - per-node-type dispatch
                 item=current_state,
                 guardrail_results=guardrail_results,
                 extra_tools=extra_tools,
+                occurrence_id=f"{target.node_id}:iteration:{iteration_index + 1}",
+                inherited_provenance=inherited_provenance,
             )
             total_tokens += tokens
             next_state = _loop_next_state(child_step, child_outputs)
@@ -6011,6 +6250,7 @@ def _run_node(  # noqa: PLR0911, PLR0912, PLR0915 - per-node-type dispatch
                 f"must be an executable node ({_INLINE_ORCHESTRATION_TARGET_LABEL}), not "
                 f"{compensate.node_type.value!r}"
             )
+        inherited_provenance = _input_context_provenance(plan, ir, node, inputs, port_values)
         if target is not None:
             try:
                 tokens, target_step, _target_outputs, _target_artifacts = _run_inline_target_node(
@@ -6022,6 +6262,8 @@ def _run_node(  # noqa: PLR0911, PLR0912, PLR0915 - per-node-type dispatch
                     item=boundary_input,
                     guardrail_results=guardrail_results,
                     extra_tools=extra_tools,
+                    occurrence_id=f"{target.node_id}:boundary",
+                    inherited_provenance=inherited_provenance,
                 )
                 _publish_declared_outputs(
                     node,
@@ -6059,6 +6301,8 @@ def _run_node(  # noqa: PLR0911, PLR0912, PLR0915 - per-node-type dispatch
                                 item=boundary_input,
                                 guardrail_results=guardrail_results,
                                 extra_tools=extra_tools,
+                                occurrence_id=f"{compensate.node_id}:compensation",
+                                inherited_provenance=inherited_provenance,
                             )
                         )
                     except (ContextDenied, UnknownEffectError):
@@ -6419,6 +6663,9 @@ def _run_node(  # noqa: PLR0911, PLR0912, PLR0915 - per-node-type dispatch
                 "chat_model": node.chat_model,
                 "retrieval_modes": retrieval_modes,
                 "graph_overrides": graph_overrides or None,
+                "_context_node_id": nid,
+                "_context_occurrence_id": _STEP_OCCURRENCE.get(),
+                "_context_attempt": _STEP_ATTEMPT.get(),
             }
         )
         versions = payload.get("versions") if isinstance(payload, dict) else None
@@ -6827,7 +7074,7 @@ def _run_node(  # noqa: PLR0911, PLR0912, PLR0915 - per-node-type dispatch
             node,
             agent_input,
             context_inputs=(
-                _agent_context_inputs(ir, node, inputs, port_values, agent_input)
+                _agent_context_inputs(ir, node, inputs, port_values, agent_input, plan)
                 if plan.context_recorder is not None
                 else None
             ),
@@ -7015,7 +7262,14 @@ def _run_node(  # noqa: PLR0911, PLR0912, PLR0915 - per-node-type dispatch
     if isinstance(node, IRGuardrail):
         response_text = _first_str(inputs) or ""
         tool_calls = _find_recent_tool_calls(port_values)
-        ctx = GuardrailContext(response_text=response_text, tool_calls=tool_calls)
+        ctx = GuardrailContext(
+            response_text=response_text,
+            tool_calls=tool_calls,
+            node_id=nid,
+            occurrence_id=_STEP_OCCURRENCE.get(),
+            attempt=_STEP_ATTEMPT.get(),
+            context_recorder=plan.context_recorder,
+        )
         from caliber.workflows.guardrails import evaluate_guardrail  # noqa: PLC0415
 
         results = evaluate_guardrail(node, ctx)
@@ -7248,11 +7502,18 @@ def _run_node_with_policy(
     extra_tools: dict[str, Callable[..., Any]] | None = None,
     runtime_approvals_enabled: bool = False,
     approved_human_approval_nodes: set[str] | None = None,
+    occurrence_id: str | None = None,
+    inherited_provenance: tuple[dict[str, Any], ...] = (),
 ) -> tuple[int, NodeStep]:
     attempts = max(1, node.execution_policy.max_retries + 1)
     last_exc: Exception | None = None
     ledger = plan.effect_ledger
     for attempt in range(attempts):
+        occurrence_token = _STEP_OCCURRENCE.set(occurrence_id or node.node_id)
+        attempt_token = _STEP_ATTEMPT.set(attempt + 1)
+        provenance_token = _STEP_PROVENANCE.set(
+            inherited_provenance or _input_context_provenance(plan, ir, node, inputs, port_values)
+        )
         # Reset effect-occurrence numbering for each attempt. Without this a retry
         # re-derives occurrence 1 for an effect the previous attempt claimed as 0,
         # producing a different idempotency key, so the ledger judges an effect it
@@ -7323,6 +7584,20 @@ def _run_node_with_policy(
                         ) from exc
                     finally:
                         pool.shutdown(wait=not timed_out, cancel_futures=timed_out)
+            provenance = inherited_provenance or _input_context_provenance(
+                plan, ir, node, inputs, port_values
+            )
+            if isinstance(node, IRKnowledgeQuery):
+                provenance = provenance or _knowledge_context_provenance(
+                    plan, port_values.get((node.node_id, "result"))
+                )
+                result_payload = port_values.get((node.node_id, "result"))
+                if provenance and isinstance(result_payload, dict):
+                    port_values[(node.node_id, "result")] = {
+                        **result_payload,
+                        "context_provenance": [dict(item) for item in provenance],
+                    }
+            _set_context_provenance(plan, node, provenance)
             return tokens, step
         except UnknownEffectError:
             raise  # a retry cannot make an effect nobody can vouch for known
@@ -7337,6 +7612,10 @@ def _run_node_with_policy(
                 attempts,
                 exc,
             )
+        finally:
+            _STEP_PROVENANCE.reset(provenance_token)
+            _STEP_ATTEMPT.reset(attempt_token)
+            _STEP_OCCURRENCE.reset(occurrence_token)
     assert last_exc is not None
     raise last_exc
 

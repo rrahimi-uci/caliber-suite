@@ -11,6 +11,7 @@ from caliber.context.authorize import ContextDenied
 from caliber.workflows.runtime import (
     AgentContextAssembly,
     FakeWorkflowExecutor,
+    RuntimeResumeCheckpoint,
     execute,
 )
 from tests.test_workflow_runtime import _plan
@@ -170,8 +171,10 @@ def test_an_item_a_for_each_runs_an_agent_on_has_no_known_origin() -> None:
         {"id": "e3", "from": "wrap", "to": "final", "map": {"text": "response"}},
     ]
     recorder = Recorder()
+    plan = _plan(data, knowledge_query_runner=_knowledge, context_recorder=recorder)
+    plan.context_provenance_resolver = lambda version_id: f"decision:{version_id}"
     result = execute(
-        _plan(data, knowledge_query_runner=_knowledge, context_recorder=recorder),
+        plan,
         "hello",
         executor=FakeWorkflowExecutor(),
     )
@@ -180,6 +183,153 @@ def test_an_item_a_for_each_runs_an_agent_on_has_no_known_origin() -> None:
         ("x", None),
         ("y", None),
     ], "never labelled as the run's own input"
+    assert all(
+        item.transform == {"name": "derived", "version": "runtime-v1"}
+        and item.authorization_decision_ids == ("decision:KBV-1",)
+        for assembly in recorder.assemblies
+        for item in assembly.inputs
+    )
+
+
+def test_replayed_knowledge_output_preserves_source_read_provenance() -> None:
+    data = make_manifest()
+    data["nodes"]["knowledge"] = _knowledge_node()
+    data["edges"] = [
+        {"id": "e1", "from": "start", "to": "knowledge", "map": {"msg": "question"}},
+        {"id": "e2", "from": "knowledge", "to": "agent", "map": {"answer": "input"}},
+        {"id": "e3", "from": "agent", "to": "final", "map": {"final_output": "response"}},
+    ]
+    first_recorder = Recorder()
+    first_plan = _plan(data, knowledge_query_runner=_knowledge, context_recorder=first_recorder)
+    first_plan.context_provenance_resolver = lambda version_id: f"decision:{version_id}"
+    first_plan.context_source_guard_present = True
+    first = execute(first_plan, "hello", executor=FakeWorkflowExecutor())
+    assert first.status == "completed", first.error
+    knowledge_step = next(step for step in first.steps if step.node_id == "knowledge")
+    assert knowledge_step.output_by_port is not None
+    checkpoint_result = knowledge_step.output_by_port["result"]
+    assert checkpoint_result["context_provenance"] == [
+        {
+            "authorization_decision_id": "decision:KBV-1",
+            "source": {"kind": "knowledge_base", "version_id": "KBV-1"},
+        }
+    ]
+
+    replay_recorder = Recorder()
+    replay_plan = _plan(data, context_recorder=replay_recorder)
+    replay_plan.context_source_guard_present = True
+    replay = execute(
+        replay_plan,
+        "hello",
+        executor=FakeWorkflowExecutor(),
+        resume_checkpoint=RuntimeResumeCheckpoint(
+            node_id="knowledge",
+            output_by_port=knowledge_step.output_by_port,
+            replay_output=True,
+        ),
+    )
+    assert replay.status == "completed", replay.error
+    assert replay_recorder.assemblies[0].inputs[0].authorization_decision_ids == ("decision:KBV-1",)
+
+
+def test_replayed_knowledge_output_without_authority_fails_before_provider() -> None:
+    data = make_manifest()
+    data["nodes"]["knowledge"] = _knowledge_node()
+    data["edges"] = [
+        {"id": "e1", "from": "start", "to": "knowledge", "map": {"msg": "question"}},
+        {"id": "e2", "from": "knowledge", "to": "agent", "map": {"answer": "input"}},
+        {"id": "e3", "from": "agent", "to": "final", "map": {"final_output": "response"}},
+    ]
+    executor = FakeWorkflowExecutor()
+    plan = _plan(data, context_recorder=Recorder())
+    plan.context_source_guard_present = False
+    result = execute(
+        plan,
+        "hello",
+        executor=executor,
+        resume_checkpoint=RuntimeResumeCheckpoint(
+            node_id="knowledge",
+            output_by_port={
+                "answer": "answer",
+                "result": {"resolved_version_ids": ["KBV-1"]},
+            },
+            replay_output=True,
+        ),
+    )
+    assert result.status == "error"
+    assert (result.error or "").startswith("ContextDenied: authority_unavailable")
+    assert executor.calls == []
+
+
+class _MemoryStore:
+    def __init__(self) -> None:
+        self.loaded = 0
+        self.saved = 0
+        self.history = [{"role": "assistant", "content": "previous"}]
+
+    def load_history(self, **_kwargs: Any) -> list[dict[str, str]]:
+        self.loaded += 1
+        return [dict(item) for item in self.history]
+
+    def save_history(self, *, history: list[dict[str, str]], **_kwargs: Any) -> None:
+        self.saved += 1
+        self.history = [dict(item) for item in history]
+
+
+def test_memory_is_authorized_before_loading_and_recorded_with_the_step() -> None:
+    data = make_manifest(
+        "memory-manifest-wf",
+        runtime={
+            "sdk": "openai-agents-python",
+            "sdk_version_policy": "runtime-pinned",
+            "compiler_version": "caliber-workflow-compiler-v1",
+            "default_model_ref": "CALIBER_WORKFLOW_DEFAULT_MODEL",
+            "session": {"type": "persistent"},
+        },
+    )
+    store = _MemoryStore()
+    recorder = Recorder()
+    plan = _plan(
+        data,
+        context_recorder=recorder,
+        memory_read_authorizer=lambda reference: f"decision:{reference}",
+        session_memory_store=store,
+    )
+
+    result = execute(plan, "hello", executor=FakeWorkflowExecutor(), session_id="session-1")
+
+    assert result.status == "completed", result.error
+    assert store.loaded == 1 and store.saved == 1
+    (assembly,) = recorder.assemblies
+    assert assembly.memory_reference == ("workflow:memory-manifest-wf/node:agent/session:session-1")
+    assert assembly.memory_authorization_decision_id == (
+        "decision:workflow:memory-manifest-wf/node:agent/session:session-1"
+    )
+    assert assembly.memory_history == ({"role": "assistant", "content": "previous"},)
+
+
+def test_memory_without_an_authorizer_fails_before_the_store_is_loaded() -> None:
+    data = make_manifest(
+        "memory-denied-wf",
+        runtime={
+            "sdk": "openai-agents-python",
+            "sdk_version_policy": "runtime-pinned",
+            "compiler_version": "caliber-workflow-compiler-v1",
+            "default_model_ref": "CALIBER_WORKFLOW_DEFAULT_MODEL",
+            "session": {"type": "persistent"},
+        },
+    )
+    store = _MemoryStore()
+    result = execute(
+        _plan(data, context_recorder=Recorder(), session_memory_store=store),
+        "hello",
+        executor=FakeWorkflowExecutor(),
+        session_id="session-1",
+    )
+
+    assert result.status == "error"
+    assert (result.error or "").startswith("ContextDenied: authority_unavailable")
+    assert store.loaded == 0 and store.saved == 0
 
 
 def test_every_agent_a_native_handoff_may_reach_is_recorded_before_the_provider_runs() -> None:
