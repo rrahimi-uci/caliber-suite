@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -64,6 +65,28 @@ def _submit(session: Session, *, tool_name: str = "write_workdir_file") -> str:
         },
         tool_name=tool_name,
         caliber_defined=True,
+    )
+    session.commit()
+    return recorded.proposal_id
+
+
+def _submit_http(session: Session) -> str:
+    recorded = submit_proposal(
+        session,
+        workflow_run_id="RUN-ep",
+        node_id="hook",
+        occurrence_id="occ-http",
+        connector="http",
+        connector_version="1",
+        effect_class_name="reversible_write",
+        resource="https://api.example.test/v1/resource",
+        args={
+            "url": "https://api.example.test/v1/resource",
+            "method": "POST",
+            "headers": {"X-Test": "1"},
+            "timeout_seconds": 5,
+            "body": {"value": "hello"},
+        },
     )
     session.commit()
     return recorded.proposal_id
@@ -330,6 +353,209 @@ def _document_request(
         ),
         intent={"args": {"document_type": document_type}},
     )
+
+
+def _http_request() -> dispatcher_module.EffectRequest:
+    intent = Intent(
+        connector="http",
+        connector_version="1",
+        effect_class="irreversible_write",
+        resource="https://api.example.test/v1/resource",
+        args={
+            "url": "https://api.example.test/v1/resource",
+            "method": "POST",
+            "headers": {"X-Test": "1"},
+            "timeout_seconds": 5,
+            "body": {"value": "hello"},
+        },
+        expected_resource_version=None,
+    )
+    return dispatcher_module.EffectRequest(
+        view=ProposalView(
+            proposal_id="prop-http",
+            logical_key="dispatch-http-key",
+            connector=intent.connector,
+            connector_version=intent.connector_version,
+            effect_class=intent.effect_class,
+            resource=intent.resource,
+            expected_resource_version=None,
+            intent_hash=intent.digest,
+            attempt=1,
+            state=DISPATCHED,
+        ),
+        intent={"args": intent.plain_args},
+    )
+
+
+def test_http_backend_requires_receipt_verifier_before_transport() -> None:
+    called = False
+
+    def sender(_request: Any) -> dict[str, Any]:
+        nonlocal called
+        called = True
+        return {"status_code": 201}
+
+    with pytest.raises(RuntimeError) as refused:
+        dispatcher_module._HttpBackend().perform(_http_request(), {"sender": sender})
+    assert refused.value.code == "backend_config_missing"
+    assert refused.value.never_sent is True
+    assert called is False
+
+
+def test_http_backend_rejects_connector_binding_before_sender() -> None:
+    request = replace(
+        _http_request(),
+        view=replace(_http_request().view, connector="other-connector"),
+    )
+    with pytest.raises(RuntimeError) as refused:
+        dispatcher_module._HttpBackend().perform(
+            request,
+            {"sender": lambda _request: {"status_code": 201}, "receipt_verifier": lambda *_: None},
+        )
+    assert refused.value.code == "connector_binding_mismatch"
+    assert refused.value.never_sent is True
+
+
+def test_http_backend_rejects_intent_without_matching_url() -> None:
+    request = replace(_http_request(), intent={"args": {"method": "POST"}})
+    with pytest.raises(RuntimeError) as refused:
+        dispatcher_module._HttpBackend().perform(
+            request,
+            {"sender": lambda _request: {"status_code": 201}, "receipt_verifier": lambda *_: None},
+        )
+    assert refused.value.code == "connector_intent_unsupported"
+
+
+def test_http_backend_defaults_headers_and_preserves_ambiguous_response() -> None:
+    original = _http_request()
+    args = dict(original.intent["args"])
+    args["headers"] = None
+    request = replace(original, intent={"args": args})
+    captured: dict[str, Any] = {}
+
+    def sender(outgoing: dict[str, Any]) -> dict[str, Any]:
+        captured.update(outgoing)
+        return {"status_code": 202, "text": "accepted"}
+
+    result = dispatcher_module._HttpBackend().perform(
+        request, {"sender": sender, "receipt_verifier": lambda *_: None}
+    )
+    assert captured["headers"] == {"Idempotency-Key": request.view.logical_key}
+    assert result.outcome.outcome is TransportOutcome.AMBIGUOUS
+    assert result.response == {"status_code": 202, "text": "accepted"}
+
+
+def test_http_backend_rejects_non_mapping_headers() -> None:
+    original = _http_request()
+    args = dict(original.intent["args"])
+    args["headers"] = "not-a-header-map"
+    request = replace(original, intent={"args": args})
+    with pytest.raises(RuntimeError) as refused:
+        dispatcher_module._HttpBackend().perform(
+            request,
+            {"sender": lambda _request: {"status_code": 201}, "receipt_verifier": lambda *_: None},
+        )
+    assert refused.value.code == "connector_intent_unsupported"
+
+
+def test_http_backend_classifies_sender_exception_without_claiming_commit() -> None:
+    def sender(_request: dict[str, Any]) -> dict[str, Any]:
+        raise ConnectionError("downstream unavailable")
+
+    result = dispatcher_module._HttpBackend().perform(
+        _http_request(), {"sender": sender, "receipt_verifier": lambda *_: None}
+    )
+    assert result.outcome.outcome is TransportOutcome.AMBIGUOUS
+    assert result.outcome.code == "unclassified_error"
+
+
+def test_http_backend_rejects_malformed_transport_result() -> None:
+    with pytest.raises(RuntimeError) as refused:
+        dispatcher_module._HttpBackend().perform(
+            _http_request(),
+            {
+                "sender": lambda _request: {"status_code": "201"},
+                "receipt_verifier": lambda *_: None,
+            },
+        )
+    assert refused.value.code == "transport_result_invalid"
+
+
+def test_http_backend_rejects_untyped_receipt_verifier_result() -> None:
+    result = dispatcher_module._HttpBackend().perform(
+        _http_request(),
+        {
+            "sender": lambda _request: {"status_code": 201},
+            "receipt_verifier": lambda *_: {"not": "receipt-facts"},
+        },
+    )
+    assert result.verify is not None
+    with pytest.raises(RuntimeError) as refused:
+        result.verify()
+    assert refused.value.code == "receipt_verifier_invalid"
+
+
+def test_registered_http_backend_dispatches_private_transport_and_returns_response(
+    tmp_path: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    with _database("sqlite", tmp_path, monkeypatch) as (_, factory):
+        _seed_run(factory)
+        with factory() as session:
+            proposal_id = _submit_http(session)
+            approval_id = _approval(session, proposal_id)
+            lease = leased(session, "http-dispatcher")
+            session.commit()
+
+        captured: dict[str, Any] = {}
+
+        def sender(request: dict[str, Any]) -> dict[str, Any]:
+            captured.update(request)
+            return {
+                "status_code": 201,
+                "request_id": "http-request-1",
+                "json": {"accepted": True},
+                "text": "accepted",
+                "headers": {},
+            }
+
+        def verify(request: Any, response: dict[str, Any]) -> ReceiptFacts:
+            assert response["request_id"] == "http-request-1"
+            return ReceiptFacts(
+                attempt=request.view.attempt or 1,
+                idempotency_key=request.view.logical_key,
+                connector=request.view.connector,
+                connector_version=request.view.connector_version,
+                resource=request.view.resource,
+                intent_hash=request.view.intent_hash,
+                downstream_request_id=response["request_id"],
+                response_digest="sha256:" + "b" * 64,
+            )
+
+        result = dispatch(
+            factory,
+            proposal_id,
+            approval_id=approval_id,
+            approver_scopes={"caliber.approver"},
+            lease=lease,
+            backend_kind="http",
+            backend_config={"sender": sender, "receipt_verifier": verify},
+            approval_validator=_validator,
+            now=AT,
+        )
+
+        assert result.state == "committed"
+        assert result.response == {
+            "status_code": 201,
+            "request_id": "http-request-1",
+            "json": {"accepted": True},
+            "text": "accepted",
+            "headers": {},
+        }
+        with factory() as session:
+            proposal = session.get(CaliberEffectProposal, proposal_id)
+            assert proposal is not None
+            assert proposal_state(session, proposal_id).state == "committed"
+            assert captured["headers"]["Idempotency-Key"] == proposal.logical_key
 
 
 @pytest.mark.parametrize(

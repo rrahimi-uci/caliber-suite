@@ -6,7 +6,7 @@ product_area: operations
 stability: beta
 prerequisites:
   - A PostgreSQL database and a way to set environment variables for the CALIBER process
-reviewed_on: 2026-10-26
+reviewed_on: 2026-10-30
 version_applicability: current main branch docs contract
 tags:
   - reference-profile
@@ -76,6 +76,27 @@ applies; the default is never lower than a route's own:
 A refusal carries `x-request-id` (the caller's, or one generated) and writes one warning log line naming the
 method, path and size. The body is refused, not drained, so a client that keeps sending a very large body may see
 a connection reset rather than the `413`.
+
+## Governed webhook and API-request nodes
+
+Manifest-backed `webhook` and `api_request` nodes use the registered private `http` effect backend. Before a request
+is sent, the runtime records an immutable proposal containing the node occurrence, URL, method, headers, timeout and
+body. Dispatch then rechecks the exact bound approval and the captured `execution-owner` lease in one transaction,
+emits the durable dispatch event, and only then calls the private transport. The path does not call a public CALIBER
+route or recursively invoke the OpenAPI execution surface. Egress is checked before the proposal is submitted and by
+the default client at connection time.
+
+The generic HTTP backend cannot assume that every endpoint supports durable idempotency or a lookup-by-key API. It
+therefore emits `Idempotency-Key` from the proposal's stable logical key, but requires the runtime caller to provide an
+authoritative receipt verifier for the endpoint. The verifier must read the downstream's own state and return receipt
+facts matching the proposal's connector, resource, intent hash and attempt. A missing verifier, missing exact approval or
+missing lease is refused before transport; a response that cannot be verified does not become `committed` and remains
+recoverable as an unknown effect. The platform makes no universal exactly-once claim for arbitrary HTTP services.
+
+A manifest-backed plan without this governed context is refused rather than falling back to the raw sender. Legacy plans
+without a workflow manifest retain the existing `_perform_guarded_effect` ledger behavior and do not create an effect
+proposal. The runtime integration that owns a run must bind the context with the run id, exact approval provider, live
+execution-owner lease and endpoint-specific verifier; no new environment variable, SDK route or migration is required.
 
 ## Memory is owned, derived and read-mostly
 
@@ -1649,6 +1670,25 @@ enabling writers that populate the field.  Downgrade removes only the optional
 provenance value, leaves the job row and all other pipeline state intact, and
 there is no API/SDK schema change in this slice because `RefinementJobSchema`
 does not expose ORM-only columns automatically.
+
+### B06.2: authenticated creator writes
+
+The four producer-owned `CaliberRefinementJob` constructors now populate
+`triggered_by` from the resolved server identity: prompt optimization, skill
+calibration, workflow calibration, and assistant prompt-promotion proposals.
+When a request carries a `CaliberIdentity`, its `user_id` is authoritative; the
+route actor is retained only for direct internal callers that do not have a
+request identity. Prompt, skill, workflow, and assistant metadata are not
+creator authority, and client-supplied owner or creator values cannot replace
+the authenticated requester.
+
+This is provenance, not permission: apply still rechecks the current project
+permission, distinct approver, and exact candidate digest. Rows written before
+B06.2 remain explicitly unknown (`triggered_by = NULL`); operators recover
+those rows through the current authorization boundary or create a new job via a
+path that can declare its requester. No new migration or public API/SDK field
+is required because migration `0131` introduced the column and it remains an
+ORM-only field.
 
 ## Approval requests: bound to the exact intent (B06.1, #706)
 
