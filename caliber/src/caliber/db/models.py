@@ -189,6 +189,10 @@ class CaliberRefinementJob(Base):
     __table_args__ = (Index("ix_refinement_jobs_status_created", "status", "created_at"),)
 
     job_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    # Principal that caused this job to be created, when the creation path has
+    # a declared actor.  NULL is intentional for rows written before this
+    # provenance field existed and for explicitly supported legacy paths.
+    triggered_by: Mapped[str | None] = mapped_column(String(256), nullable=True)
     agent_id: Mapped[str] = mapped_column(String(64), ForeignKey("caliber_agent_config.agent_id"))
     workflow_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
     primary_item_id: Mapped[str] = mapped_column(
