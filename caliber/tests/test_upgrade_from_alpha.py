@@ -233,10 +233,10 @@ def _assert_new_governed_admission(url: str) -> None:
         }
     )
     app = create_app(config=config)
-    app_engine = app.state.engine
+    app_engine = app.state.engine  # type: ignore[attr-defined]
     upgraded_engine = create_engine(url)
-    app.state.engine = upgraded_engine
-    app.state.session_factory = sessionmaker_from_engine(upgraded_engine)
+    app.state.engine = upgraded_engine  # type: ignore[attr-defined]
+    app.state.session_factory = sessionmaker_from_engine(upgraded_engine)  # type: ignore[attr-defined]
     try:
         with TestClient(
             app,
