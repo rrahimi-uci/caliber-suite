@@ -18,6 +18,7 @@ be on that list.
 from __future__ import annotations
 
 import re
+import runpy
 from pathlib import Path
 
 import pytest
@@ -27,6 +28,7 @@ yaml = pytest.importorskip("yaml", reason="PyYAML is needed to parse the workflo
 REPO_ROOT = Path(__file__).resolve().parents[2]
 WORKFLOW = REPO_ROOT / ".github" / "workflows" / "ci.yml"
 SCRIPT = REPO_ROOT / "scripts" / "ci-local.sh"
+BACKEND_CORE_RUNNER = REPO_ROOT / "scripts" / "backend-core-tests.py"
 
 #: Workflow jobs the local runner deliberately does not mirror, with the reason. Each
 #: one either publishes evidence to GitHub or inspects the GitHub run itself, so there
@@ -271,23 +273,32 @@ def test_the_local_sdk_venvs_target_the_python_ci_uses() -> None:
     assert script.count('"$(sdk_interpreter)" -m venv') == 3
 
 
-def test_the_backend_core_test_lists_match_between_ci_and_the_local_runner() -> None:
-    """The PR gate and ``scripts/ci-local.sh`` must run the same files, or a green local run
-    would say nothing about the PR check (alpha gap P1-16)."""
+def test_backend_core_slices_are_shared_by_ci_and_the_local_runner() -> None:
+    """Every backend-core slice uses the one inventory and no file is run twice."""
     workflow = yaml.safe_load(WORKFLOW.read_text())
-    steps = workflow["jobs"]["backend-core"]["steps"]
-    run = next(step["run"] for step in steps if step.get("name", "").startswith("Run the core"))
-    in_ci = re.findall(r"tests/[A-Za-z0-9_]+\.py", run)
-
     script = SCRIPT.read_text()
-    block = re.search(r"BACKEND_CORE_TESTS=\(([^)]*)\)", script, re.S)
-    assert block, "BACKEND_CORE_TESTS not found in ci-local.sh"
-    locally = re.findall(r"tests/[A-Za-z0-9_]+\.py", block.group(1))
+    runner = runpy.run_path(str(BACKEND_CORE_RUNNER))
+    slices = runner["SLICES"]
+    assert set(slices) == {"api", "sdk", "governance"}
 
-    assert in_ci, "the CI job lists no test files"
-    assert in_ci == locally
-    for path in in_ci:
+    all_tests = [path for tests in slices.values() for path in tests]
+    assert len(all_tests) == 90
+    assert len(all_tests) == len(set(all_tests)), (
+        "a backend-core test is assigned to multiple slices"
+    )
+    for path in all_tests:
         assert (REPO_ROOT / "caliber" / path).exists(), f"{path} does not exist"
+
+    expected_jobs = {
+        "backend-core": "governance",
+        "backend-core-api": "api",
+        "backend-core-sdk": "sdk",
+    }
+    for job, slice_name in expected_jobs.items():
+        steps = workflow["jobs"][job]["steps"]
+        runs = [str(step.get("run", "")) for step in steps]
+        assert f"python scripts/backend-core-tests.py {slice_name}" in "\n".join(runs)
+        assert f"{job}) run_job" in script
 
 
 def test_the_alpha_migration_manifest_is_compared_with_the_release_tag_in_ci_and_locally() -> None:
@@ -300,7 +311,7 @@ def test_the_alpha_migration_manifest_is_compared_with_the_release_tag_in_ci_and
     steps = workflow["jobs"]["backend-core"]["steps"]
     names = [step.get("name", "") for step in steps]
     verify = next(s for s in steps if s.get("name", "").startswith("Verify the alpha migration"))
-    core = next(s for s in steps if s.get("name", "").startswith("Run the core"))
+    core = next(s for s in steps if s.get("name", "").startswith("Run the backend-core governance"))
     assert names.index(verify["name"]) < names.index(core["name"])
 
     check = "python caliber/tests/migration_checksums.py generate --check"
@@ -308,7 +319,10 @@ def test_the_alpha_migration_manifest_is_compared_with_the_release_tag_in_ci_and
     assert fetch in verify["run"]
     assert check in verify["run"]
     assert verify["run"].index(fetch) < verify["run"].index(check)
-    assert core["env"][REQUIRE_TAG_ENV] == "1"
+    runner = BACKEND_CORE_RUNNER.read_text()
+    assert f'"{REQUIRE_TAG_ENV}"' in runner
+    assert 'env.setdefault("CALIBER_REQUIRE_ALPHA_TAG", "1")' in runner
+    assert "backend-core-tests.py governance" in core["run"]
 
     script = SCRIPT.read_text()
     assert fetch in script
