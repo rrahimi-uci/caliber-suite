@@ -3573,6 +3573,8 @@ class OpenApiGenerateToolDraftsRequest(BaseModel):
     auth_binding: OpenApiAuthBindingSchema | None = None
     requires_approval: bool = False
     allow_in_preview: bool = False
+    max_attempts: int = Field(default=1, ge=1, le=5)
+    timeout_seconds: float = Field(default=30.0, gt=0, le=300)
 
     @model_validator(mode="after")
     def _validate_selection(self) -> OpenApiGenerateToolDraftsRequest:
@@ -3595,6 +3597,8 @@ class OpenApiToolDraftUpdateRequest(BaseModel):
     auth_binding: OpenApiAuthBindingSchema | None = None
     requires_approval: bool | None = None
     allow_in_preview: bool | None = None
+    max_attempts: int | None = Field(default=None, ge=1, le=5)
+    timeout_seconds: float | None = Field(default=None, gt=0, le=300)
 
 
 class OpenApiToolDraftPreviewRequest(BaseModel):

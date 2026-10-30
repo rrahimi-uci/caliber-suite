@@ -89,7 +89,7 @@ function baseDraft(): OpenApiToolDraft {
     auth_binding: { kind: "bearer" as const, secret_ref: "env://TICKET_TOKEN" },
     input_schema: { type: "object", properties: {} },
     output_schema: { type: "object", properties: {} },
-    execution_config: { kind: "openapi_http" },
+    execution_config: { kind: "openapi_http", max_attempts: 1, timeout_seconds: 30 },
     side_effect_level: "read" as const,
     requires_approval: false,
     allow_in_preview: true,
@@ -1427,6 +1427,11 @@ describe("OpenApiIntegrations", () => {
     await user.click(screen.getByRole("button", { name: "Tool Drafts" }));
     await user.click(await screen.findByText("get_ticket"));
 
+    await user.clear(screen.getByLabelText("Max attempts"));
+    await user.type(screen.getByLabelText("Max attempts"), "3");
+    await user.clear(screen.getByLabelText("Timeout (seconds)"));
+    await user.type(screen.getByLabelText("Timeout (seconds)"), "1.25");
+
     const authKind = screen.getByRole("combobox", { name: "Auth kind" });
 
     await user.selectOptions(authKind, ["api_key"]);
@@ -1477,6 +1482,8 @@ describe("OpenApiIntegrations", () => {
         client_secret_ref: "env://SECRET",
         refresh_token_secret_ref: "env://REFRESH",
       },
+      max_attempts: 3,
+      timeout_seconds: 1.25,
     });
   });
 

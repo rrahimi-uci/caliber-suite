@@ -92,12 +92,19 @@ def test_generate_tool_drafts_sends_selection_filters_not_just_ids() -> None:
 
     with client_with(handler) as caliber:
         drafts = caliber.openapi_integrations.generate_tool_drafts(
-            "OAI-1", tags=["tickets"], methods=["GET"], group_as_pack=True
+            "OAI-1",
+            tags=["tickets"],
+            methods=["GET"],
+            group_as_pack=True,
+            max_attempts=3,
+            timeout_seconds=1.25,
         )
 
     assert seen_body["tags"] == ["tickets"]
     assert seen_body["methods"] == ["GET"]
     assert seen_body["group_as_pack"] is True
+    assert seen_body["max_attempts"] == 3
+    assert seen_body["timeout_seconds"] == 1.25
     assert "operation_ids" not in seen_body
     assert drafts[0].draft_id == "OATD-1"
 

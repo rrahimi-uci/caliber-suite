@@ -14,6 +14,7 @@ from __future__ import annotations
 # ruff: noqa: PLR0912, PLR0915, PLR2004
 import base64
 import json
+import math
 import re
 import threading
 import time
@@ -86,10 +87,18 @@ class OpenApiExecutionError(RuntimeError):
     requests were tried (0 when none was).
     """
 
-    def __init__(self, message: str = "", *, never_sent: bool = False, attempts: int = 0) -> None:
+    def __init__(
+        self,
+        message: str = "",
+        *,
+        never_sent: bool = False,
+        attempts: int = 0,
+        attempt_log: list[dict[str, Any]] | None = None,
+    ) -> None:
         super().__init__(message)
         self.never_sent = never_sent
         self.attempts = attempts
+        self.attempt_log = list(attempt_log or [])
 
 
 def bind_egress_policy(policy: EgressPolicy | None) -> None:
@@ -153,6 +162,7 @@ class _Prepared:
     request_kwargs: dict[str, Any] = field(repr=False)  # holds the auth headers
     timeout: float
     max_attempts: int
+    idempotency_key: str | None
 
 
 def _prepare_request(
@@ -191,19 +201,35 @@ def _prepare_request(
 
     url = server_url + _render_path(path, path_params)
     headers = {str(key): str(value) for key, value in header_params.items()}
+    key_header = str(config.get("idempotency_key_header") or "").strip()
+    key = ""
+    if key_header:
+        key = (
+            _single_idempotency_key(
+                headers, key_header, str(input_data.get("idempotency_key") or "")
+            )
+            or ""
+        )
+    expected_header = str(config.get("expected_resource_version_header") or "").strip()
+    expected = None
+    if expected_header:
+        expected = _single_bound_header_value(
+            headers,
+            expected_header,
+            input_data.get("expected_resource_version", _MISSING),
+            field_name="expected_resource_version",
+        )
+
     policy = egress_policy if egress_policy is not None else active_egress_policy()
     auth_binding = config.get("auth_binding")
     auth = validate_auth_binding(auth_binding, egress_policy=policy)
     headers.update(auth["headers"])
     query_params.update(auth["query"])
 
-    key_header = str(config.get("idempotency_key_header") or "").strip()
     key_sent = False
     if key_header:
-        key = _single_idempotency_key(
-            headers, key_header, str(input_data.get("idempotency_key") or "")
-        )
-        if key is not None:
+        key = _single_idempotency_key(headers, key_header, key) or ""
+        if key:
             headers[key_header] = key
             key_sent = True
     # ``key_sent``: the outgoing request really carries exactly one key (whether it came from the ``idempotency_key``
@@ -217,7 +243,17 @@ def _prepare_request(
     except EgressBlockedError as exc:
         raise OpenApiExecutionError(str(exc)) from exc
 
-    timeout = float(config.get("timeout_seconds") or 30.0)
+    if expected_header:
+        expected = _single_bound_header_value(
+            headers,
+            expected_header,
+            expected if expected is not None else _MISSING,
+            field_name="expected_resource_version",
+        )
+        if expected is not None:
+            headers[expected_header] = expected
+
+    timeout = _timeout_seconds(config.get("timeout_seconds"))
     max_attempts = _max_attempts(config, method=method, has_idempotency_key=key_sent)
     request_content_types = [
         str(item)
@@ -239,6 +275,7 @@ def _prepare_request(
         request_kwargs=request_kwargs,
         timeout=timeout,
         max_attempts=max_attempts,
+        idempotency_key=key if key_sent else None,
     )
 
 
@@ -281,28 +318,61 @@ def execute_openapi_http_tool(
     response = None
     possibly_sent = False  # whether any attempt may have reached the downstream
     earlier_sent = False  # whether any attempt *before the last one* may have
+    attempt_log: list[dict[str, Any]] = []
     while attempt < max_attempts:
         attempt += 1
         earlier_sent = possibly_sent
+        record: dict[str, Any] = {
+            "attempt": attempt,
+            "emitted_idempotency_key": prepared.idempotency_key,
+        }
         try:
             with build_client(policy=policy, timeout=timeout) as client:
                 response = client.request(method, url, **request_kwargs)
         except EgressBlockedError as exc:
             # A block is a policy decision, not a transient fault. Retrying it would
             # only repeat the same refusal.
+            record.update(
+                {
+                    "status": "blocked",
+                    "transport_outcome": "never_sent",
+                    "error_type": type(exc).__name__,
+                }
+            )
+            attempt_log.append(record)
             raise OpenApiExecutionError(
-                str(exc), never_sent=not possibly_sent, attempts=attempt
+                str(exc),
+                never_sent=not possibly_sent,
+                attempts=attempt,
+                attempt_log=attempt_log,
             ) from exc
         except Exception as exc:  # transport-level failure: connect reset, timeout
             last_error = exc
             response = None
-            if not isinstance(exc, _NEVER_SENT_ERRORS):
+            never_sent = isinstance(exc, _NEVER_SENT_ERRORS)
+            if not never_sent:
                 possibly_sent = True
+            record.update(
+                {
+                    "status": "transport_error",
+                    "transport_outcome": "never_sent" if never_sent else "ambiguous",
+                    "error_type": type(exc).__name__,
+                }
+            )
+            attempt_log.append(record)
             if attempt >= max_attempts:
                 break
             time.sleep(_backoff_seconds(attempt))
             continue
         possibly_sent = True  # the downstream answered, so it received the request
+        record.update(
+            {
+                "status": "response",
+                "status_code": response.status_code,
+                "transport_outcome": "response",
+            }
+        )
+        attempt_log.append(record)
         if response.status_code in _RETRYABLE_STATUS and attempt < max_attempts:
             time.sleep(_backoff_seconds(attempt))
             continue
@@ -313,6 +383,7 @@ def execute_openapi_http_tool(
             f"openapi tool request failed after {attempt} attempt(s): {last_error}",
             never_sent=not possibly_sent,
             attempts=attempt,
+            attempt_log=attempt_log,
         ) from last_error
 
     parsed_json: Any = None
@@ -320,12 +391,29 @@ def execute_openapi_http_tool(
         parsed_json = response.json()
     except Exception:
         parsed_json = None
+    replay_confirmed = bool(
+        prepared.idempotency_key
+        and response.status_code == 200
+        and any(item.get("status_code") == 201 for item in attempt_log)
+    )
+    replay_candidate = bool(prepared.idempotency_key and response.status_code == 200)
     return {
         "status_code": response.status_code,
         "text": response.text,
         "json": parsed_json,
         "headers": _safe_response_headers(response.headers),
         "attempts": attempt,
+        "attempt_log": attempt_log,
+        "replay_disposition": (
+            "replay_confirmed"
+            if replay_confirmed
+            else "replay_candidate"
+            if replay_candidate
+            else "not_replay"
+        ),
+        # The executor has not performed the connector's authoritative lookup;
+        # a 2xx response is therefore never advertised as a verified receipt.
+        "receipt_disposition": "unverified",
         # Whether an attempt before the last one may have reached the downstream: a 4xx then proves nothing about it.
         "earlier_attempts_may_have_been_sent": earlier_sent,
     }
@@ -349,6 +437,44 @@ def _max_attempts(config: dict[str, Any], *, method: str, has_idempotency_key: b
     if method in _IDEMPOTENT_METHODS or has_idempotency_key:
         return requested
     return 1
+
+
+_MISSING = object()
+
+
+def _single_bound_header_value(
+    headers: dict[str, str],
+    header: str,
+    supplied: object,
+    *,
+    field_name: str,
+) -> str | None:
+    """Resolve one canonical proposal-bound value and reject conflicting headers."""
+
+    values: list[str] = []
+    for name in [name for name in headers if name.lower() == header.lower()]:
+        value = str(headers.pop(name)).strip()
+        if not value:
+            raise OpenApiExecutionError(f"the {header} header must not be blank")
+        values.append(value)
+    if supplied is not _MISSING and supplied is not None:
+        value = str(supplied).strip()
+        if not value:
+            raise OpenApiExecutionError(f"{field_name} must not be blank")
+        values.append(value)
+    if len(set(values)) > 1:
+        raise OpenApiExecutionError(f"conflicting values were supplied for {field_name}")
+    return values[0] if values else None
+
+
+def _timeout_seconds(raw: object) -> float:
+    try:
+        value = 30.0 if raw is None else float(str(raw))
+    except (TypeError, ValueError) as exc:
+        raise OpenApiExecutionError("timeout_seconds must be a finite positive number") from exc
+    if not math.isfinite(value) or value <= 0:
+        raise OpenApiExecutionError("timeout_seconds must be a finite positive number")
+    return value
 
 
 def _backoff_seconds(attempt: int) -> float:
@@ -386,6 +512,10 @@ def _resolve_pack_operation(config: dict[str, Any], input_data: dict[str, Any]) 
                     "path": entry.get("path"),
                     "request_content_types": entry.get("request_content_types") or [],
                     "response_statuses": entry.get("response_statuses") or [],
+                    "idempotency_key_header": entry.get("idempotency_key_header"),
+                    "expected_resource_version_header": entry.get(
+                        "expected_resource_version_header"
+                    ),
                 }
             )
             return resolved

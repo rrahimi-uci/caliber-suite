@@ -261,6 +261,8 @@ class OpenApiIntegrationsAPI(Resource):
         auth_binding: dict[str, Any] | None = None,
         requires_approval: bool = False,
         allow_in_preview: bool = False,
+        max_attempts: int = 1,
+        timeout_seconds: float = 30.0,
     ) -> _List[OpenApiToolDraft]:
         """Generate one or more curated tool drafts from selected operations.
 
@@ -273,6 +275,8 @@ class OpenApiIntegrationsAPI(Resource):
             "group_as_pack": group_as_pack,
             "requires_approval": requires_approval,
             "allow_in_preview": allow_in_preview,
+            "max_attempts": max_attempts,
+            "timeout_seconds": timeout_seconds,
         }
         if operation_ids is not None:
             body["operation_ids"] = operation_ids

@@ -1048,13 +1048,18 @@ Before the dispatcher (B05.5) sends an effect it needs two things that are not g
   2xx: the downstream answered; what it holds is verified against the intent by B05.4), `not_committed` (a 404, only for a
   connector that proves absence) or `unknown`.
 - **What the OpenAPI executor now reports and refuses** (`integrations/openapi/executor.py`): `OpenApiExecutionError` carries
-  `never_sent` and `attempts`; every exception raised before a request is built carries `never_sent=True`. `never_sent` is true
+  `never_sent`, `attempts`, and `attempt_log`; every exception raised before a request is built carries `never_sent=True`. `never_sent` is true
   only if the request is known never to have reached the downstream, and false if *any* attempt may have (a dropped read, a
   read or write timeout, a 5xx that was then retried into a connection failure). **A POST is retried only if its request
   carries exactly one idempotency key** (from `idempotency_key` or `header_params`, header name matched case-insensitively): a
   bound header with no key behind it no longer enables retries; two different keys, or a blank key header, are refused rather
-  than sent or dropped; a path parameter of `.` or `..` is refused. `submit_input` refuses a key that is not 1 to 255 printable
-  ASCII characters without surrounding whitespace and a `case_id` that is not one safe path segment, before any request is built.
+  than sent or dropped; a path parameter of `.` or `..` is refused. For imported operations, the derived schema exposes
+  `idempotency_key` and `expected_resource_version` as canonical fields and removes the bound `Idempotency-Key`/`If-Match`
+  parameters from free-form `header_params`; conflicting canonical and header-map values are refused before dispatch.
+  Results include `attempt_log`, `replay_disposition`, and `receipt_disposition`; the last is `unverified` until the connector
+  lookup/receipt layer proves the downstream record matches the proposal. `submit_input` refuses a key that is not 1 to 255
+  printable ASCII characters without surrounding whitespace and a `case_id` that is not one safe path segment, before any
+  request is built.
 
 ```python
 from caliber.effects.connectors import classify_error, classify_result
@@ -1074,11 +1079,11 @@ except OpenApiExecutionError as error:
     outcome = classify_error(error).outcome  # proven_not_sent, or ambiguous: the effect may have happened
 ```
 
-- **Not done here.** The D1 report's other executor changes (a dedicated `idempotency_key` input in the derived tool schema, the
-  expected version as a first-class input, an import that binds the key and retries, and a per-attempt log) are owned by #990,
-  which must close before the D3 gate calls the connector decision met. The connector's `submit_input` puts the key and the
-  version on the request itself, so the dispatcher does not depend on them. The dispatcher, receipts and the reconciler are
-  B05.4 and B05.5.
+- **Remaining boundary.** #990 completes the executor/import plumbing: the dedicated canonical fields, import-persisted binding and
+  retry limits, conflict refusal, and per-attempt/replay metadata are now available. The connector's `submit_input` still puts
+  the key and version on the request itself, so the dispatcher does not depend on the derived schema. The dispatcher, verified
+  receipts and the reconciler are B05.4 and B05.5; an executor `2xx` or `replay_candidate` is not by itself proof of a committed
+  receipt.
 
 ## Receipts: committed only with proof (B05.4a, #717)
 

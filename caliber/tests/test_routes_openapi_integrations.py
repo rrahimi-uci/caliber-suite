@@ -1126,6 +1126,49 @@ def test_generate_tool_drafts_by_tag_and_method_selection(client: TestClient) ->
     assert all(draft["additional_operation_ids"] == [] for draft in drafts)
 
 
+def test_openapi_draft_persists_retry_and_timeout_configuration(client: TestClient) -> None:
+    integration = _create_integration(client)
+    _import_version(client, str(integration["integration_id"]))
+    operations = client.get(f"{BASE}/{integration['integration_id']}/operations").json()["data"]
+    target = next(item for item in operations if item["operation_key"] == "GET /tickets")
+
+    generated = client.post(
+        f"{BASE}/{integration['integration_id']}/tool-drafts/generate",
+        json={
+            "operation_ids": [target["operation_id"]],
+            "max_attempts": 3,
+            "timeout_seconds": 1.25,
+        },
+    )
+    assert generated.status_code == 201, generated.text
+    draft = generated.json()["data"][0]
+    assert draft["execution_config"]["max_attempts"] == 3
+    assert draft["execution_config"]["timeout_seconds"] == 1.25
+    output_schema = draft["output_schema"]
+    assert {
+        "attempts",
+        "attempt_log",
+        "replay_disposition",
+        "receipt_disposition",
+        "earlier_attempts_may_have_been_sent",
+    } <= set(output_schema["properties"])
+    assert {
+        "attempts",
+        "attempt_log",
+        "replay_disposition",
+        "receipt_disposition",
+        "earlier_attempts_may_have_been_sent",
+    } <= set(output_schema["required"])
+
+    updated = client.patch(
+        f"{BASE}/{integration['integration_id']}/tool-drafts/{draft['draft_id']}",
+        json={"max_attempts": 4, "timeout_seconds": 2.5},
+    )
+    assert updated.status_code == 200, updated.text
+    assert updated.json()["data"]["execution_config"]["max_attempts"] == 4
+    assert updated.json()["data"]["execution_config"]["timeout_seconds"] == 2.5
+
+
 def test_generate_tool_pack_binds_multiple_operations_to_one_draft(
     client: TestClient, monkeypatch
 ) -> None:

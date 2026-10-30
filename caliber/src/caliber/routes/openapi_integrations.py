@@ -1432,6 +1432,8 @@ def _build_draft(
                 operations=operations,
                 server_url=server_url,
                 auth_binding=auth_binding,
+                max_attempts=payload.max_attempts,
+                timeout_seconds=payload.timeout_seconds,
             ),
             side_effect_level=side_effect_level,
             requires_approval=payload.requires_approval or side_effect_level != "read",
@@ -1458,6 +1460,8 @@ def _build_draft(
             operation=operation,
             server_url=server_url,
             auth_binding=auth_binding,
+            max_attempts=payload.max_attempts,
+            timeout_seconds=payload.timeout_seconds,
         ),
         side_effect_level=operation.side_effect_level,
         requires_approval=payload.requires_approval or operation.side_effect_level != "read",
@@ -1523,6 +1527,17 @@ async def update_openapi_tool_draft(request: Request) -> JSONResponse:
                 "to": changes["allow_in_preview"],
             }
             draft.allow_in_preview = bool(changes["allow_in_preview"])
+        current_config = dict(draft.execution_config or {})
+        max_attempts = int(
+            changes["max_attempts"]
+            if "max_attempts" in changes
+            else current_config.get("max_attempts", 1)
+        )
+        timeout_seconds = float(
+            changes["timeout_seconds"]
+            if "timeout_seconds" in changes
+            else current_config.get("timeout_seconds", 30.0)
+        )
         if "status" in changes:
             requested_status = str(changes["status"])
             if requested_status == "published" and draft.published_tool_id is None:
@@ -1545,6 +1560,8 @@ async def update_openapi_tool_draft(request: Request) -> JSONResponse:
                 operations=operations,
                 server_url=draft.server_url,
                 auth_binding=new_auth_binding,
+                max_attempts=max_attempts,
+                timeout_seconds=timeout_seconds,
             )
         else:
             draft.execution_config = build_execution_config(
@@ -1553,6 +1570,8 @@ async def update_openapi_tool_draft(request: Request) -> JSONResponse:
                 operation=operations[0],
                 server_url=draft.server_url,
                 auth_binding=new_auth_binding,
+                max_attempts=max_attempts,
+                timeout_seconds=timeout_seconds,
             )
         if draft.status != "published" and _draft_ready_for_publication(draft, operations):
             draft.status = "ready"
