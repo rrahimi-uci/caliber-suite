@@ -56,7 +56,7 @@ VENV_PY="$CALIBER_DIR/.venv/bin/python"
 # shellcheck disable=SC2034  # read by tests/test_ci_local_parity.py, and the install target to use
 CI_EXTRAS="dev,postgres,ingest,ocr,llm,knowledge,dspy,knowledge-local,memory"
 
-ALL_JOBS=(lint type-check test-smoke backend-core migration-parity-postgres egi-scenarios-postgres test compatibility integration docs-validation ui cookbook-ui-only compose package alpha-install alpha-journey security sdk plugin-sdk cli)
+ALL_JOBS=(lint type-check test-smoke backend-core backend-core-api backend-core-sdk migration-parity-postgres egi-scenarios-postgres test compatibility integration docs-validation ui cookbook-ui-only compose package alpha-install alpha-journey security sdk plugin-sdk cli)
 FAST_SKIP=(test compatibility integration cookbook-ui-only package alpha-install alpha-journey)
 
 bold() { printf '\033[1m%s\033[0m\n' "$*"; }
@@ -142,107 +142,8 @@ job_test_smoke() {
     --no-cov -q
 }
 
-# The core journey and the contracts that guard it (alpha gap P1-16): the same files the
-# "Backend core journey" CI job runs. ``tests/test_ci_local_parity.py`` fails if the two
-# lists drift apart.
-BACKEND_CORE_TESTS=(
-  tests/test_routes_jobs_apply.py
-  tests/test_routes_jobs_isolation.py
-  tests/test_routes_jobs.py
-  tests/test_job_route_gate_ratchet.py
-  tests/test_apply_shared_sqlite_store.py
-  tests/test_routes_prompts.py
-  tests/test_routes_releases.py
-  tests/test_routes_releases_scoping.py
-  tests/test_release_traceability.py
-  tests/test_orchestrator_eval.py
-  tests/test_simulated_provider_guard.py
-  tests/test_schema_readiness.py
-  tests/test_readiness_probes.py
-  tests/test_personal_access_tokens.py
-  tests/test_pat_binding_gates.py
-  tests/test_settings_routes.py
-  tests/test_mlflow_unreachable.py
-  tests/test_aria_honesty.py
-  tests/test_migrate_command.py
-  tests/test_alpha_install_contract.py
-  tests/test_wheel_boot_script.py
-  tests/test_extended_family_isolation.py
-  tests/test_alpha_scope_claims.py
-  tests/test_sdk_against_server.py
-  tests/test_sdk_prompt_journey.py
-  tests/test_sdk_skill_journey.py
-  tests/test_skill_journey_doc.py
-  tests/test_routes_tools_availability.py
-  tests/test_tool_docs_contract.py
-  tests/test_workflow_eval_provenance.py
-  tests/test_workflow_component_requirements.py
-  tests/test_workflow_docs_contract.py
-  tests/test_knowledge_embedding_availability.py
-  tests/test_knowledge_stack_script.py
-  tests/test_sdk_api_coverage.py
-  tests/test_bare_lookup_inventory.py
-  tests/test_plugin_contract.py
-  tests/test_feature_flags.py
-  tests/test_trace_project_scoping.py
-  tests/test_profile.py
-  tests/egi_scenarios/test_downstream_fixture.py
-  tests/test_protected_effect_inventory.py
-  tests/test_adr_index.py
-  tests/test_contracts_registry.py
-  tests/test_agent_step_contract.py
-  tests/test_agent_step_adapter.py
-  tests/conformance/test_agent_adapter_anthropic.py
-  tests/conformance/test_agent_adapter_openai_chat.py
-  tests/conformance/test_agent_adapter_openai_responses.py
-  tests/conformance/test_agent_adapter_openai_agents.py
-  tests/test_approval_ux_contract.py
-  tests/test_execution_role.py
-  tests/test_readiness_execution_role.py
-  tests/test_execution_owner.py
-  tests/test_rule_bundle.py
-  tests/test_run_grants.py
-  tests/test_policy_decisions.py
-  tests/test_trace_experiment_ownership.py
-  tests/test_trace_redaction.py
-  tests/test_memory_reference_scope.py
-  tests/test_routes_memory.py
-  tests/test_secret_canary.py
-  tests/test_observability_logging.py
-  tests/test_run_manifest.py
-  tests/test_run_admission.py
-  tests/test_event_outbox.py
-  tests/test_event_inbox.py
-  tests/test_effect_proposals.py
-  tests/test_effect_records.py
-  tests/test_effect_receipts.py
-  tests/test_approval_binding.py
-  tests/test_approval_supersession.py
-  tests/test_routes_system_effects.py
-  tests/test_effect_reconcile.py
-  tests/test_context_sources.py
-  tests/test_context_authorize.py
-  tests/test_context_manifest.py
-  tests/test_context_assembly.py
-  tests/test_context_assembly_runtime.py
-  tests/test_route_scope_inventory.py
-  tests/test_conftest_parameter_guard.py
-  tests/test_routes_openapi.py
-  tests/test_run_pins.py
-  tests/test_run_identity.py
-  tests/test_policy_principal.py
-  tests/test_worker_inventory.py
-  tests/test_workspace_release_evaluator.py
-  tests/test_request_limits.py
-  tests/test_upgrade_from_alpha.py
-  tests/test_migration_checksums.py
-)
-
 job_backend_core() {
-  cd "$CALIBER_DIR" || return 1
-  "$VENV_PY" -m pip install -q -e "$SDK_DIR" || return 1
-  "$VENV_PY" -m pip install -q -e "$CLI_DIR" || return 1
-  "$VENV_PY" -m pip install -q -e "$PLUGIN_SDK_DIR" || return 1
+  job_backend_core_install || return 1
   # The same two commands as CI's "Verify the alpha migration manifest against the release tag" step:
   # the working-tree check cannot catch a change that edits a shipped migration and its manifest entry.
   # The tag is fetched only if this clone does not already have it.
@@ -252,7 +153,32 @@ job_backend_core() {
       git fetch --no-tags --depth=1 origin tag caliber-v0.1.0a1 || exit 1
     "$VENV_PY" caliber/tests/migration_checksums.py generate --check
   ) || return 1
-  CALIBER_REQUIRE_ALPHA_TAG=1 "$VENV_PY" -m pytest -n auto --dist loadgroup --no-cov -q "${BACKEND_CORE_TESTS[@]}"
+  CALIBER_REQUIRE_ALPHA_TAG=1 PYTEST_XDIST_AUTO_NUM_WORKERS="$LOCAL_XDIST_AUTO_WORKERS" \
+    "$VENV_PY" "$REPO_ROOT/scripts/backend-core-tests.py" governance
+}
+
+job_backend_core_api() {
+  job_backend_core_install || return 1
+  CALIBER_REQUIRE_ALPHA_TAG=1 PYTEST_XDIST_AUTO_NUM_WORKERS="$LOCAL_XDIST_AUTO_WORKERS" \
+    "$VENV_PY" "$REPO_ROOT/scripts/backend-core-tests.py" api
+}
+
+job_backend_core_sdk() {
+  job_backend_core_install || return 1
+  CALIBER_REQUIRE_ALPHA_TAG=1 PYTEST_XDIST_AUTO_NUM_WORKERS="$LOCAL_XDIST_AUTO_WORKERS" \
+    "$VENV_PY" "$REPO_ROOT/scripts/backend-core-tests.py" sdk || return 1
+  (
+    cd "$SDK_DIR" || exit 1
+    "$VENV_PY" -m pytest -q -p no:cacheprovider \
+      -o asyncio_default_fixture_loop_scope=function tests/test_cookbook_*.py
+  )
+}
+
+job_backend_core_install() {
+  cd "$CALIBER_DIR" || return 1
+  "$VENV_PY" -m pip install -q -e "$SDK_DIR" || return 1
+  "$VENV_PY" -m pip install -q -e "$CLI_DIR" || return 1
+  "$VENV_PY" -m pip install -q -e "$PLUGIN_SDK_DIR" || return 1
 }
 
 # The PostgreSQL half of tests/test_migrations.py's and
@@ -805,6 +731,8 @@ main() {
       type-check) run_job type-check job_type_check ;;
       test-smoke) run_job test-smoke job_test_smoke ;;
       backend-core) run_job backend-core job_backend_core ;;
+      backend-core-api) run_job backend-core-api job_backend_core_api ;;
+      backend-core-sdk) run_job backend-core-sdk job_backend_core_sdk ;;
       migration-parity-postgres) run_job migration-parity-postgres job_migration_parity_postgres ;;
       egi-scenarios-postgres) run_job egi-scenarios-postgres job_egi_scenarios_postgres ;;
       test) run_job test job_test ;;

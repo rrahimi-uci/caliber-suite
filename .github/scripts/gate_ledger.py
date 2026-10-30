@@ -43,6 +43,8 @@ REQUIRED_GATES = (
     "Type check",
     "Backend smoke",
     "Backend core journey",
+    "Backend core journey (API)",
+    "Backend core journey (SDK)",
     "Migration parity (PostgreSQL)",
     "EGI scenarios (PostgreSQL)",
     "Docs validation",

@@ -59,7 +59,9 @@ The current CI pipeline keeps this explicit:
   changed. The SDK job fails if `mlflow`, `sqlalchemy` or `starlette` appears in
   the wheel's runtime requirements, and the CLI job installs `caliber-cli` against
   the SDK in the same commit, which `caliber-cli` pins as `caliber-sdk>=0.1.0a1,<0.2`
-- `backend-core` runs the alpha journey's contract tests on every pull request
+- `backend-core`, `backend-core-api`, and `backend-core-sdk` run the alpha journey's
+  contract tests as three parallel slices on every pull request; the gate ledger requires
+  all three slices
 - `package` builds the server wheel with the bundled SPA and then installs it alone
   into a fresh venv, migrates, boots it and fetches `/health` and the SPA
   (`scripts/verify-wheel-boot.sh`)
@@ -92,7 +94,7 @@ The current CI pipeline keeps this explicit:
   spec, or the runner, with the simulated providers and no model key. It is not
   a required check (a full pass takes about half an hour). The SDK example
   tests, which replay each script against a stateful stand-in server, run on
-  every pull request in the `Backend core journey` job
+  every pull request in the backend-core SDK slice
 
 ## 3. Preserve human review where the product expects it
 
