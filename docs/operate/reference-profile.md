@@ -910,8 +910,10 @@ with session_factory() as session:
 ## Effect proposals
 
 A run that asks to change something outside CALIBER first records a **proposal** (B05.1, #700, ADR 0003;
-`caliber/src/caliber/effects/records.py`, table `caliber_effect_proposals`, migration 0123). Nothing writes one yet: the
-dispatcher that does arrives with the rest of B05 (#711 onwards). What exists is the record and the rules it keeps.
+`caliber/src/caliber/effects/records.py`, table `caliber_effect_proposals`, migration 0123). B04.1 adds the two public
+services in `caliber/src/caliber/effects/dispatcher.py`: `submit_proposal` records the immutable intent without calling a
+connector, and `dispatch` is the sole supported boundary for an approved effect. Connector capability, receipt verification
+and reconciliation remain separate contracts below; no caller may bypass this boundary by invoking a public route recursively.
 
 - **Two separate things.** The **logical key** `(deployment, run, node, occurrence_id)` says *which* effect: a retry presents
   the same occurrence and finds the same proposal, a legitimate repeat (a loop that notifies the same endpoint twice)
@@ -967,9 +969,9 @@ with session_factory() as session:
   second dispatch. The caller passes the `version` it read (`proposal_state`), the UPDATE is conditioned on it, and a caller
   that read an old version gets `StaleVersion` (code `stale_version`) instead of overwriting a newer state; the same actor
   repeating a move that was already recorded gets `applied=False` and no second write. Each move records its evidence:
-  `approved` needs an `Approval("policy_decision", <decision id>)` that is an *allow* of `resource.execute` on
-  `effect:<proposal id>` for this run, and only a `read` can be approved this way (any other class needs an exact-intent
-  approval, B06, so it is refused as `approval_refused` until then); `dispatched` records `owner_id`, `attempt` and
+  `approved` needs the B06.3 `ApprovalCommit` returned by `approval_valid_at_commit`: it must be an exact-intent approval
+  for this proposal and run, with current policy, evidence, authority and resource-version pins still valid. The dispatcher
+  consumes that same request only after the validator succeeds; a legacy policy decision is not a write approval. `dispatched` records `owner_id`, `attempt` and
   `dispatched_at`; a move out of `dispatched` must present the same owner and attempt or it is `stale_owner` and records
   nothing; `failed`, `unknown` and `reconciled` record a short `reason` code (never a payload) and `unknown_at` / `settled_at`
   are stamped. The database enforces the same table: a trigger refuses an illegal edge, a state change that does not advance
@@ -982,6 +984,46 @@ with session_factory() as session:
   after the snapshot (a serialization failure): roll back and retry from a fresh read. A repeat is recognised only while the
   proposal is where the move left it; once it has moved on, the retry is `stale_version` and the caller reads `current_state`.
   `attempt` is 1 to 2147483647 and `reason` is the latest move's (the history belongs to the audit trail).
+- **Submission and dispatch are separate.** `submit_proposal` applies the protected-effect inventory before it records an
+  intent. Refused inventory entries (including untrusted sandbox paths) are not proposed; unknown tools fail closed to
+  `irreversible_write`. `dispatch` refuses a missing validator (`approval_validator_missing`), missing captured execution
+  lease (`lease_missing`), absent exact approval (`proposal_not_approved`), or an unregistered backend
+  (`unsupported_backend`) without a downstream call. The claim transaction locks and rechecks the proposal and approval,
+  consumes the approval, moves `proposed -> approved -> dispatched`, and enqueues `effect.proposal.dispatched`; only after
+  commit does it invoke the registered private backend. A backend is never the public OpenAPI route itself.
+
+```python
+from caliber.effects.dispatcher import EffectRefused, dispatch, submit_proposal
+
+proposal = submit_proposal(
+    session,
+    workflow_run_id=run_id,
+    node_id="ask",
+    occurrence_id=occurrence_id,
+    action=proposed_action,
+)
+session.commit()
+try:
+    result = dispatch(
+        session_factory,
+        proposal.proposal_id,
+        approval_id=runtime_approval_id,
+        approver_scopes={"caliber.approver"},
+        lease=execution_lease,
+        backend_kind="document_request",
+        backend_config={"base_url": downstream_url},
+        approval_validator=approval_valid_at_commit,
+    )
+except EffectRefused as refused:
+    # Stable code only; re-read the proposal and approval before deciding whether to retry.
+    logger.info("effect refused: %s", refused.code)
+```
+
+If the private transport returns `proven_not_sent` or a definitive rejection, the proposal settles `failed`. A committed
+HTTP response is only a claim: the connector verifier must return a receipt matching the logical key and intent before the
+proposal becomes `committed`. A timeout, process loss or verifier failure leaves a recoverable `dispatched`/`unknown` record;
+do not call `dispatch` again with a new occurrence. Hold the execution lease and use the reconciler's lookup-by-key path
+to settle it, or retry after a `lease_lost` refusal with a fresh lease and a fresh read.
 - **Fenced by the lease (B05.5a, #734).** Every move into or out of `dispatched` (dispatching, and committing, failing or marking `unknown`) must carry
   `lease=`, the `Lease` the owner captured when it acquired the execution-owner lease (see below), with `lease.owner_id == owner_id`. In the *same
   transaction* as the write (and, in `settle_dispatch`, the receipt), `caliber.ownership.assert_fenced` compares the persisted owner and fencing
@@ -1018,11 +1060,11 @@ except StaleVersion as stale:
 
 - **Limits.** The occurrence id is allocated and persisted by the caller before the effect is attempted; this module records
   it and cannot tell whether a caller reused one wrongly. `deployment` is this installation's one configured organization
-  (ADR 0001). Receipts and the dispatcher are not here (B05.3 to B05.5).
+  (ADR 0001). Connector capability, receipts and reconciliation remain separate services below.
 
 ## Connectors: what they promise and what an answer proves
 
-Before the dispatcher (B05.5) sends an effect it needs two things that are not guesses (B05.3, #711;
+Before the dispatcher (B04.1) sends an effect it needs two things that are not guesses (B05.3, #711;
 `caliber/src/caliber/effects/connectors/`): a **capability record** saying what the connector has been *shown* to do, and a
 **typed outcome** for each request that is never more optimistic than the evidence.
 
@@ -1091,8 +1133,8 @@ except OpenApiExecutionError as error:
 
 - **Remaining boundary.** #990 completes the executor/import plumbing: the dedicated canonical fields, import-persisted binding and
   retry limits, conflict refusal, and per-attempt/replay metadata are now available. The connector's `submit_input` still puts
-  the key and version on the request itself, so the dispatcher does not depend on the derived schema. The dispatcher, verified
-  receipts and the reconciler are B05.4 and B05.5; an executor `2xx` or `replay_candidate` is not by itself proof of a committed
+  the key and version on the request itself, so the B04.1 dispatcher does not depend on the derived schema. Verified receipts
+  and the reconciler remain B05.4 and B05.5; an executor `2xx` or `replay_candidate` is not by itself proof of a committed
   receipt.
 
 ## Receipts: committed only with proof (B05.4a, #717)
@@ -1160,7 +1202,8 @@ settled = settle_dispatch(
   with other arguments would commit downstream and then stay `unknown`. The proposal's effect class and expected version come from the
   proposal itself, so only the key, case, document type and version are checked against the downstream's data. Under REPEATABLE READ
   PostgreSQL refuses a competing insert as a serialization failure (`store_failed`): roll back and retry from a fresh read.
-- **Not here.** The dispatcher itself (B04.1). The reconciler for `unknown` and abandoned `dispatched` proposals is below.
+- **Not here.** The reconciler for `unknown` and abandoned `dispatched` proposals is below. The dispatcher delegates to
+  these capability and receipt contracts; it does not infer a commit from an HTTP status alone.
 
 ## Reconciler: only the owner asks about unknown and abandoned effects (B05.5b, #742)
 

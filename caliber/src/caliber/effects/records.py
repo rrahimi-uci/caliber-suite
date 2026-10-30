@@ -57,6 +57,7 @@ from caliber.db.models import (
     CaliberEffectProposal,
     CaliberEffectReceipt,
     CaliberPolicyDecision,
+    CaliberRuntimeApprovalRequest,
     CaliberWorkflowRun,
 )
 from caliber.db.transactions import begin_sqlite_transaction
@@ -109,6 +110,12 @@ TRANSITIONS: Final[Mapping[str, frozenset[str]]] = MappingProxyType(
 )
 SETTLED: Final = frozenset({COMMITTED, FAILED})
 POLICY_DECISION: Final = "policy_decision"
+#: The approval evidence written by the dispatcher after B06.3 has rechecked the
+#: exact-intent request and the current authority.  ``approval_ref`` is the
+#: runtime approval request id; the dispatcher passes the validator's
+#: ``ApprovalCommit`` object so this low-level writer cannot be used as a
+#: substitute for that recheck.
+EXACT_INTENT_APPROVAL: Final = "exact_intent"
 #: The policy action a decision must be for to approve a read effect, asked of the resource ``effect:<proposal id>``.
 EFFECT_ACTION: Final = "resource.execute"
 
@@ -720,9 +727,9 @@ def _offered(
         offered["reason"] = reason
     if receipt is not None:
         offered["receipt_id"] = receipt
-    if isinstance(approval, Approval):
-        offered["approval_kind"] = approval.kind
-        offered["approval_ref"] = approval.ref
+    columns = _approval_columns(approval)
+    if columns is not None:
+        offered.update(columns)
     return offered
 
 
@@ -818,8 +825,9 @@ def _evidence(
         values["receipt_id"] = receipt_id
     if approval is not None:
         _verify_approval(session, row, approval)
-        values["approval_kind"] = approval.kind
-        values["approval_ref"] = approval.ref
+        columns = _approval_columns(approval)
+        assert columns is not None
+        values.update(columns)
     if to_state == DISPATCHED:
         if owner is None or attempt is None:
             raise ProposalError(
@@ -921,7 +929,45 @@ def _verify_receipt(session: Session, row: CaliberEffectProposal, receipt_id: st
         )
 
 
-def _verify_approval(session: Session, row: CaliberEffectProposal, approval: Approval) -> None:
+def _approval_columns(approval: object | None) -> dict[str, str] | None:
+    """Return the persisted approval evidence for a policy or exact-intent commit."""
+    if isinstance(approval, Approval):
+        return {"approval_kind": approval.kind, "approval_ref": approval.ref}
+    # Import lazily: approval_policy already depends on this module for the
+    # canonical proposal reader, so importing it at module load would cycle.
+    from caliber.workflows.approval_policy import ApprovalCommit  # noqa: PLC0415
+
+    if isinstance(approval, ApprovalCommit):
+        return {"approval_kind": EXACT_INTENT_APPROVAL, "approval_ref": approval.approval_id}
+    return None
+
+
+def _verify_approval(session: Session, row: CaliberEffectProposal, approval: object) -> None:
+    from caliber.workflows.approval_policy import ApprovalCommit  # noqa: PLC0415
+
+    if isinstance(approval, ApprovalCommit):
+        request = session.get(CaliberRuntimeApprovalRequest, approval.approval_id)
+        if (
+            request is None
+            or request.runtime_approval_id != approval.approval_id
+            or request.proposal_id != row.proposal_id
+            or request.workflow_run_id != row.workflow_run_id
+            or request.status != "approved"
+            or request.consumed_at is not None
+            or request.intent_hash != row.intent_hash
+            or request.expected_resource_version != row.expected_resource_version
+            or request.workflow_run_id != approval.run_id
+            or request.decided_by != approval.approver_id
+            or request.evidence_hash != approval.evidence_hash
+            or request.policy_digest != approval.policy_digest
+            or approval.proposal_id != row.proposal_id
+            or approval.intent_hash != row.intent_hash
+        ):
+            raise ProposalError(
+                APPROVAL_REFUSED,
+                "the exact-intent approval is not bound to this proposal",
+            )
+        return
     if not isinstance(approval, Approval) or approval.kind != POLICY_DECISION:
         raise ProposalError(
             APPROVAL_REFUSED,
@@ -1020,6 +1066,7 @@ __all__ = [
     "DISPATCHED",
     "EFFECT_ACTION",
     "EVIDENCE_REQUIRED",
+    "EXACT_INTENT_APPROVAL",
     "FAILED",
     "ILLEGAL_TRANSITION",
     "INTENT_ALGORITHM",
