@@ -35,7 +35,7 @@ tags:
 | **What it is** | A governed pipeline that imports a third-party OpenAPI 3.x contract, normalizes and classifies its operations, detects dependencies between them deterministically, and lets an operator curate which operations become published, agent-facing tools. |
 | **Where state lives** | `CaliberOpenApiIntegration` (identity) → `CaliberOpenApiIntegrationVersion` (one pinned spec snapshot) → `CaliberOpenApiOperation` (normalized operations) → `CaliberOpenApiOperationDependency` (canonical dependency rows) → `CaliberOpenApiToolDraft` (curated, pre-publication tools). Publication writes a row into the existing `CaliberToolRegistry` with `execution_backend="openapi_http"`. |
 | **Key surfaces** | Routes under `/ajax-api/2.0/mlflow/caliber/openapi-integrations` (`routes/openapi_integrations.py`), the parser/classifier/detector modules under `integrations/openapi/*`, the `OpenApiIntegrations.tsx` UI, and `client.openapi_integrations` in the Python SDK. |
-| **Runtime model** | Import and curation are control-plane only — no runtime tool exists until an operator explicitly publishes a draft. A published tool executes through a declarative HTTP executor (`integrations/openapi/executor.py`) that reuses `caliber.egress`'s guarded transport, the same policy the workflow `webhook`/`api_request` nodes use. |
+| **Runtime model** | Import and curation are control-plane only — no runtime tool exists until an operator explicitly publishes a draft. A published tool executes through a declarative HTTP executor (`integrations/openapi/executor.py`) that reuses `caliber.egress`'s guarded transport, the same policy the workflow `webhook`/`api_request` nodes use. Imported drafts persist bounded `max_attempts` and `timeout_seconds`; the result includes a per-attempt transport/status log and explicitly leaves receipt verification to the connector layer. |
 | **Trust / safety** | All spec fetch (`url` import, reimport) and tool execution go through egress policy: loopback/link-local/private ranges and the cloud metadata endpoint are blocked by default. Secrets are referenced (`env://`, `secret://`), never stored raw. A draft cannot be previewed unless `allow_in_preview` is set, and publication requires every referenced secret to resolve. |
 | **Dependency model** | Detection is mostly deterministic: OpenAPI `links` auto-wire at `high` confidence, structural rules (path hierarchy, identifier-field matching, async create→poll pairs) land at `medium` as operator-reviewable suggestions, and same-tag grouping lands at `low` as advisory-only. The graph an integration can also serve is a derived projection of these rows, never their replacement. |
 | **Calibration** | Once published, an OpenAPI-derived tool is a normal `CaliberToolRegistry` row, so it inherits the same saved test-case, synchronous calibration, and durable calibration-job surfaces as a hand-registered tool. |
@@ -85,7 +85,7 @@ assets through a five-stage pipeline:
 4. **curate tool drafts** — an operator selects operations (by id, or by
    tag/method/path-prefix filter) and generates one draft per operation, or
    binds several into one tool pack, with editable auth binding, server URL,
-   and approval/preview flags;
+   approval/preview flags, and bounded retry/timeout settings;
 5. **publish** — a ready draft becomes a row in the existing
    `CaliberToolRegistry` with `execution_backend="openapi_http"`, reachable
    through the same tool, workflow, and SDK surfaces every other tool uses.
@@ -112,8 +112,8 @@ It deliberately does **not**:
 | `caliber/integrations/openapi/dependencies.py` | Deterministic dependency detection across an operation list: explicit `links`, path-hierarchy preconditions, identifier-field flow, async create→poll pairs, and same-tag grouping. No LLM call in this module. |
 | `caliber/integrations/openapi/diff.py` | Structural diff between two normalized-operation lists — added/removed/changed/breaking, keyed on the tracked fields (summary, side-effect level, deprecation, auth schemes, body requirement and content types, response statuses, tags) rather than free text. |
 | `caliber/integrations/openapi/graph.py` | Projects operations + dependency rows + tool drafts into a node/edge graph, including fingerprinted request/response schema nodes. Pure derivation — never a second source of dependency truth. |
-| `caliber/integrations/openapi/tool_drafts.py` | Builds a draft's name, description, input/output schema, and execution config from one operation or a multi-operation pack. |
-| `caliber/integrations/openapi/executor.py` | The one place an OpenAPI-derived tool touches the network: schema validation, auth injection, guarded HTTP request (with a bounded, idempotency-aware retry), OAuth client-credentials / refresh-token exchange through the same egress policy, and response-header redaction. |
+| `caliber/integrations/openapi/tool_drafts.py` | Builds a draft's name, description, input/output schema, and execution config from one operation or a multi-operation pack. Standard `Idempotency-Key` and `If-Match` parameters become canonical proposal-bound inputs, and the config persists bounded retry/timeout settings. |
+| `caliber/integrations/openapi/executor.py` | The one place an OpenAPI-derived tool touches the network: schema validation, canonical contract binding and conflict refusal, auth injection, guarded HTTP request (with a bounded, idempotency-aware retry), per-attempt outcome logging, OAuth client-credentials / refresh-token exchange through the same egress policy, and response-header redaction. |
 | `caliber/assistant/capabilities.py` + `assistant/agent_tools.py` | The stable `openapi_tool.list` / `openapi_tool.invoke` bridge plus the dynamic per-turn projection of visible published OpenAPI tools into Aria's toolset (see [§6](#6-agent-and-workflow-projection)). |
 
 ## 3. Domain model
@@ -194,6 +194,26 @@ auth requirement, a changed required-body flag, and a changed side-effect
 classification are flagged as breaking; everything else, including an added or
 removed operation, is informational.
 
+### Retry and proposal contract
+
+When an imported operation declares `Idempotency-Key` or `If-Match`, the derived
+tool schema exposes the canonical top-level fields `idempotency_key` and
+`expected_resource_version`; those headers are removed from the free-form
+`header_params` map. The executor accepts a header-map value only as a
+backward-compatible hand-written binding and refuses a conflicting canonical
+value before opening a connection. This keeps the idempotency key and expected
+version in the proposal contract rather than allowing an arbitrary header to
+change the effect after approval.
+
+Draft generation and update persist `max_attempts` (1–5) and
+`timeout_seconds` (greater than 0 and at most 300). A non-idempotent write is
+retried only when the outgoing request carries exactly one non-blank key. The
+executor returns `attempt_log`, `replay_disposition`, and
+`receipt_disposition`; `receipt_disposition` is `unverified` until the
+connector's lookup/receipt layer proves that the downstream record matches the
+proposal. A transport error may occur after the request left the process; the
+outcome remains ambiguous even when the retry later succeeds.
+
 ## 6. Agent and workflow projection
 
 A published tool is an ordinary `CaliberToolRegistry` row, so it is
@@ -236,7 +256,7 @@ published?" gap for ordinary read and mutate cases.
 | Unsafe writes reached before approval | A draft cannot be fired through `preview` unless `allow_in_preview` is explicitly set (otherwise `409`) — the same gate a registered tool's preview path uses. Preview and publish are audited (`preview_openapi_tool_draft`, `publish_openapi_tool_draft`), including a refused or failed outbound call. Publication additionally requires every secret reference to resolve, and refuses a tool name and version already registered (`409`). |
 | Hallucinated dependency structure | Only OpenAPI `links` and rule-based structural matches ever reach `auto_wired`/`suggested` status; there is no LLM call inside the detector at all. A same-tag grouping — the weakest, most text-only signal — is capped at `low`/advisory and never auto-wired. |
 | Duplicate or silent re-import | A spec's content hash is checked before persisting a new version; an identical re-import is rejected with a pointer to the existing version rather than silently duplicating it. |
-| Retry turning a create into a duplicate | The executor only retries a non-idempotent method (`POST`/`PATCH`-as-create) when the caller supplied an idempotency-key header; otherwise a transient 5xx/429 on a write is reported, not retried. |
+| Retry turning a create into a duplicate | The executor only retries a non-idempotent method (`POST`/`PATCH`-as-create) when the outgoing request carries exactly one non-blank idempotency key; otherwise a transient 5xx/429 on a write is reported, not retried. Conflicting canonical/header keys or expected versions are refused before dispatch. |
 
 ## 8. Extension points
 

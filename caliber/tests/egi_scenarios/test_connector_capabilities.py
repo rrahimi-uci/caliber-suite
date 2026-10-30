@@ -88,10 +88,14 @@ def build_tool(
 
 
 def post_input(key: str, *, version: int | None = None) -> dict[str, Any]:
-    headers: dict[str, Any] = {"Idempotency-Key": key}
+    data: dict[str, Any] = {
+        "path_params": {"case_id": CASE},
+        "idempotency_key": key,
+        "body": BODY,
+    }
     if version is not None:
-        headers["If-Match"] = version
-    return {"path_params": {"case_id": CASE}, "header_params": headers, "body": BODY}
+        data["expected_resource_version"] = version
+    return data
 
 
 # ---------------------------------------------------------------- 1. stable key
@@ -187,29 +191,43 @@ def test_the_connector_can_recover_a_lost_response_by_retrying_with_the_key(
     assert downstream.mutations() == 1
 
 
-def test_a_key_sent_as_a_header_parameter_does_not_enable_retries_by_itself(
+def test_an_unbound_handwritten_config_does_not_enable_retries_from_a_header_parameter(
     downstream: Downstream,
 ) -> None:
-    """Finding: retries of a POST are allowed only when ``idempotency_key_header`` is *bound in the config*
-    (``_max_attempts``), not when the caller sends the key as the spec's own ``Idempotency-Key`` header
-    parameter. Without the binding a lost response surfaces as an error after one attempt."""
-    request, _ = build_tool(downstream, POST_KEY, max_attempts=3)
+    """A hand-written binding without the canonical header cannot opt into unsafe POST retries."""
+    _request, _ = build_tool(downstream, POST_KEY, max_attempts=3)
     downstream.set_fault("drop_response_after_commit")
     with pytest.raises(OpenApiExecutionError, match="request failed after 1 attempt"):
-        request(**post_input("key-no-binding"))
+        execute_openapi_http_tool(
+            execution_config={
+                "kind": "openapi_http",
+                "method": "POST",
+                "path": "/cases/{case_id}/document-requests",
+                "server_url": downstream.base_url,
+                "auth_binding": None,
+                "request_content_types": ["application/json"],
+                "max_attempts": 3,
+            },
+            input_schema=None,
+            input_data={
+                "path_params": {"case_id": CASE},
+                "header_params": {"Idempotency-Key": "key-no-binding"},
+                "body": BODY,
+            },
+        )
     assert downstream.mutations() == 1
 
 
-def test_a_derived_input_schema_refuses_the_configured_idempotency_key_input(
+def test_the_derived_input_schema_exposes_canonical_bound_inputs(
     downstream: Downstream,
 ) -> None:
-    """Finding: ``idempotency_key_header`` reads ``input_data["idempotency_key"]``, but the schema derived from
-    the spec has ``additionalProperties: false`` and no such property, so the bound tool rejects it. The key
-    has to travel as the spec's own ``Idempotency-Key`` header parameter."""
-    request, _ = build_tool(downstream, POST_KEY, idempotency_key_header=KEY_HEADER)
-    with pytest.raises(OpenApiExecutionError, match="idempotency_key"):
-        request(path_params={"case_id": CASE}, body=BODY, idempotency_key="key-x")
-    assert downstream.mutations() == 0
+    """Imported operations bind the key and precondition to one top-level contract."""
+    request, config = build_tool(downstream, POST_KEY)
+    assert config["idempotency_key_header"] == KEY_HEADER
+    assert config["expected_resource_version_header"] == "If-Match"
+    result = request(**post_input("key-x", version=1))
+    assert result["status_code"] == 201
+    assert downstream.mutations() == 1
 
 
 def test_the_configured_idempotency_key_header_works_without_a_derived_schema(
@@ -224,6 +242,28 @@ def test_the_configured_idempotency_key_header_works_without_a_derived_schema(
     )
     assert result["status_code"] == 201
     assert downstream.mutations() == 1
+
+
+def test_conflicting_canonical_and_header_values_are_refused_before_dispatch(
+    downstream: Downstream,
+) -> None:
+    _, config = build_tool(downstream, POST_KEY)
+    with pytest.raises(OpenApiExecutionError, match="different|conflicting"):
+        execute_openapi_http_tool(
+            execution_config=config,
+            input_schema=None,
+            input_data={
+                "path_params": {"case_id": CASE},
+                "idempotency_key": "canonical",
+                "expected_resource_version": 1,
+                "header_params": {
+                    "Idempotency-Key": "different",
+                    "If-Match": 1,
+                },
+                "body": BODY,
+            },
+        )
+    assert downstream.mutations() == 0
 
 
 class _FlakyEndpoint(BaseHTTPRequestHandler):
@@ -371,24 +411,40 @@ def test_header_names_are_exact_in_the_derived_schema(downstream: Downstream) ->
     request, _ = build_tool(downstream, POST_KEY)
     lowercase = post_input("key-case")
     lowercase["header_params"] = {"idempotency-key": "key-case"}
-    with pytest.raises(OpenApiExecutionError, match="Idempotency-Key|idempotency-key"):
+    with pytest.raises(OpenApiExecutionError, match="unexpected|Idempotency-Key|idempotency-key"):
         request(**lowercase)
     etag = post_input("key-etag")
-    etag["header_params"]["If-Match"] = '"1"'
+    etag["expected_resource_version"] = '"1"'
     with pytest.raises(OpenApiExecutionError, match="integer"):
         request(**etag)
     keyless = {"path_params": {"case_id": CASE}, "body": BODY}
-    assert request(**keyless)["status_code"] == 400, (
-        "header_params is optional to the schema, required by the system"
-    )
+    with pytest.raises(OpenApiExecutionError, match="required property"):
+        request(**keyless)
     assert downstream.mutations() == 0
 
 
-def test_an_imported_tool_has_neither_a_bound_key_header_nor_retries(
+def test_an_imported_tool_persists_bound_headers_and_retry_limits(
     downstream: Downstream,
 ) -> None:
-    """Finding: nothing in the import path sets ``idempotency_key_header`` or ``max_attempts``; the tests above
-    add them by hand."""
-    _, config = build_tool(downstream, POST_KEY)
-    assert "idempotency_key_header" not in config
-    assert "max_attempts" not in config
+    _, config = build_tool(downstream, POST_KEY, max_attempts=3, timeout_seconds=0.3)
+    assert config["idempotency_key_header"] == KEY_HEADER
+    assert config["expected_resource_version_header"] == "If-Match"
+    assert config["max_attempts"] == 3
+    assert config["timeout_seconds"] == 0.3
+
+
+def test_attempt_log_exposes_transport_and_replay_disposition(downstream: Downstream) -> None:
+    request, _ = build_tool(downstream, POST_KEY, max_attempts=2, timeout_seconds=0.3)
+    downstream.set_fault("drop_response_after_commit")
+    result = request(**post_input("key-attempt-log", version=1))
+    assert result["attempts"] == 2
+    assert [item["status"] for item in result["attempt_log"]] == [
+        "transport_error",
+        "response",
+    ]
+    assert result["attempt_log"][0]["transport_outcome"] == "ambiguous"
+    assert all(
+        item["emitted_idempotency_key"] == "key-attempt-log" for item in result["attempt_log"]
+    )
+    assert result["replay_disposition"] == "replay_candidate"
+    assert result["receipt_disposition"] == "unverified"

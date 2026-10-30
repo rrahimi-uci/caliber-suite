@@ -2066,6 +2066,8 @@ export interface OpenApiGenerateToolDraftsPayload {
   auth_binding?: OpenApiAuthBinding;
   requires_approval?: boolean;
   allow_in_preview?: boolean;
+  max_attempts?: number;
+  timeout_seconds?: number;
 }
 
 export interface OpenApiToolDraftUpdatePayload {
@@ -2076,6 +2078,8 @@ export interface OpenApiToolDraftUpdatePayload {
   auth_binding?: OpenApiAuthBinding;
   requires_approval?: boolean;
   allow_in_preview?: boolean;
+  max_attempts?: number;
+  timeout_seconds?: number;
 }
 
 export interface OpenApiToolDraftPreviewResult {
@@ -2086,6 +2090,10 @@ export interface OpenApiToolDraftPreviewResult {
     json: unknown;
     headers: Record<string, string>;
     attempts: number;
+    attempt_log?: Array<Record<string, unknown>>;
+    replay_disposition?: string;
+    receipt_disposition?: string;
+    earlier_attempts_may_have_been_sent?: boolean;
   };
 }
 

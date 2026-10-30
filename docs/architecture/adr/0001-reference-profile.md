@@ -40,7 +40,7 @@ source of truth for the list).
 | connector | keep: the OpenAPI document-request connector (decided by the D1 experiment, `docs/reports/egi/D1-connector-capability.md`) | not yet (#534) |
 | profile switch | `CALIBER_PROFILE=reference` (#570); `CALIBER_FAULT_BARRIERS` must be unset | yes: the switch itself, and `fault_barriers_enabled` (#541) |
 
-Connector: keep — see docs/reports/egi/D1-connector-capability.md. The D1 experiment (#567) found the OpenAPI document-request connector carries a stable key, a precondition and a query by key; the decision is conditional on #522 task 3 delivering the executor changes that report lists (status: change 1, retry only with a sent key, is delivered by #711; changes 2 and 5, one way to supply the key and an import that binds it, are open and owned by #990).
+Connector: keep — see docs/reports/egi/D1-connector-capability.md. The D1 experiment (#567) found the OpenAPI document-request connector carries a stable key, a precondition and a query by key. The executor contract is now complete for the Beta import path: #711 made retry safety and typed transport state explicit, and #990 added canonical key/version inputs, import-persisted retry/timeout settings, conflict refusal, and per-attempt/replay metadata. Receipt verification remains the separate B05.4 connector responsibility; an executor result alone is not proof that the downstream record matches the proposal.
 
 Every effect class in `docs/architecture/protected-effect-paths.md` has a required control. The control is what the
 dispatcher (B04) enforces before the effect leaves the platform:

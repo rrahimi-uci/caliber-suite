@@ -1285,6 +1285,15 @@ function formatToolSignature(draft: OpenApiToolDraft): string {
   )}`;
 }
 
+function readExecutionNumber(
+  config: Record<string, unknown> | null,
+  key: string,
+  fallback: number,
+): number {
+  const value = config?.[key];
+  return typeof value === "number" && Number.isFinite(value) ? value : fallback;
+}
+
 function SchemaPanel({
   title,
   schema,
@@ -1354,6 +1363,12 @@ function ToolDraftRow({
     draft.auth_binding ?? { kind: "none" },
   );
   const [serverUrl, setServerUrl] = useState(draft.server_url);
+  const [maxAttempts, setMaxAttempts] = useState(() =>
+    readExecutionNumber(draft.execution_config, "max_attempts", 1),
+  );
+  const [timeoutSeconds, setTimeoutSeconds] = useState(() =>
+    readExecutionNumber(draft.execution_config, "timeout_seconds", 30),
+  );
   const [previewInput, setPreviewInput] = useState("{}");
   const [previewOutput, setPreviewOutput] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -1372,6 +1387,8 @@ function ToolDraftRow({
       await caliberApi.updateOpenApiToolDraft(integrationId, draft.draft_id, {
         server_url: serverUrl,
         auth_binding: authBinding,
+        max_attempts: maxAttempts,
+        timeout_seconds: timeoutSeconds,
       });
       setMessage("Saved.");
       onChanged();
@@ -1489,6 +1506,38 @@ function ToolDraftRow({
             <label className="text-xs">
               <span className="block font-medium text-gray-600 mb-1">Auth binding</span>
               <AuthBindingForm value={authBinding} onChange={setAuthBinding} />
+            </label>
+          </div>
+          <div className="grid gap-2 sm:grid-cols-2">
+            <label className="text-xs">
+              <span className="block font-medium text-gray-600 mb-1">Max attempts</span>
+              <input
+                aria-label="Max attempts"
+                type="number"
+                min={1}
+                max={5}
+                step={1}
+                value={maxAttempts}
+                onChange={(e) => setMaxAttempts(Number(e.target.value))}
+                className="w-full rounded-md border border-surface-300 px-2 py-1.5 text-xs"
+              />
+              <span className="mt-1 block text-[11px] text-gray-500">1–5 attempts</span>
+            </label>
+            <label className="text-xs">
+              <span className="block font-medium text-gray-600 mb-1">Timeout (seconds)</span>
+              <input
+                aria-label="Timeout (seconds)"
+                type="number"
+                min={0.001}
+                max={300}
+                step={0.1}
+                value={timeoutSeconds}
+                onChange={(e) => setTimeoutSeconds(Number(e.target.value))}
+                className="w-full rounded-md border border-surface-300 px-2 py-1.5 text-xs"
+              />
+              <span className="mt-1 block text-[11px] text-gray-500">
+                greater than 0 and at most 300
+              </span>
             </label>
           </div>
           <div className="flex items-center gap-2">

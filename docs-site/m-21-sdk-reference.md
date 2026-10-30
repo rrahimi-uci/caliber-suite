@@ -7770,7 +7770,7 @@ The derived API dependency graph (nodes/edges) for planning and display.
 - [`CaliberAPIError`](#caliberapierror)
 - [`CaliberTransportError`](#calibertransporterror)
 
-###### `generate_tool_drafts(integration_id: str, *, operation_ids: list[str] | None = None, tags: list[str] | None = None, methods: list[str] | None = None, path_prefix: str | None = None, group_as_pack: bool = False, version_id: str | None = None, server_url: str | None = None, auth_binding: dict[str, Any] | None = None, requires_approval: bool = False, allow_in_preview: bool = False) -> list[OpenApiToolDraft]`
+###### `generate_tool_drafts(integration_id: str, *, operation_ids: list[str] | None = None, tags: list[str] | None = None, methods: list[str] | None = None, path_prefix: str | None = None, group_as_pack: bool = False, version_id: str | None = None, server_url: str | None = None, auth_binding: dict[str, Any] | None = None, requires_approval: bool = False, allow_in_preview: bool = False, max_attempts: int = 1, timeout_seconds: float = 30.0) -> list[OpenApiToolDraft]`
 
 Generate one or more curated tool drafts from selected operations.
 
@@ -7792,6 +7792,8 @@ are bound into a single tool-pack draft instead of one draft each.
 | `auth_binding` | keyword-only | `dict[str, Any] | None` | `None` |
 | `requires_approval` | keyword-only | `bool` | `False` |
 | `allow_in_preview` | keyword-only | `bool` | `False` |
+| `max_attempts` | keyword-only | `int` | `1` |
+| `timeout_seconds` | keyword-only | `float` | `30.0` |
 
 **Returns:** `list[OpenApiToolDraft]`
 
