@@ -38,7 +38,6 @@ back, so a caller keeps its transaction short.
 
 from __future__ import annotations
 
-import hashlib
 import unicodedata
 from datetime import datetime, timedelta, timezone
 from typing import Final
@@ -54,12 +53,12 @@ from caliber.db.models import (
 )
 from caliber.effects.records import PRINTABLE, PROPOSED
 from caliber.ids import new_runtime_approval_id
-from caliber.run_manifest import canonical_bytes
 from caliber.workflows.approval_policy import (
     STATUS_SUPERSEDED,
     SUPPORTED_TIMEOUT_BEHAVIORS,
     VALID_ROLES,
     ApprovalPolicy,
+    policy_digest,
 )
 
 PROPOSAL_NOT_PROPOSED: Final = "proposal_not_proposed"
@@ -86,15 +85,6 @@ class ApprovalRequestError(ValueError):
     def __init__(self, code: str, message: str | None = None) -> None:
         super().__init__(message or code)
         self.code = code
-
-
-def policy_digest(policy: ApprovalPolicy) -> str:
-    """``sha256:`` and the SHA-256 of the canonical JSON of ``policy.to_snapshot()``: the digest a request pins.
-
-    It covers the policy as snapshotted at request time (required role, quorum, timeout behaviour, whether the initiator may
-    approve), not the approvers a quorum accumulates in the same stored snapshot afterwards.
-    """
-    return "sha256:" + hashlib.sha256(canonical_bytes(policy.to_snapshot())).hexdigest()
 
 
 def _checked_policy(policy: object) -> ApprovalPolicy:

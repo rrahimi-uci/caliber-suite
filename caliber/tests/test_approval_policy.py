@@ -13,6 +13,8 @@ the one that is now *rejected at authoring time* rather than silently ignored.
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import pytest
 from pydantic import ValidationError
 
@@ -97,6 +99,15 @@ def test_the_policy_is_read_off_the_node() -> None:
     policy = ApprovalPolicy.from_node(node)
     assert policy.required_role == "caliber.admin"
     assert policy.approval_count == 2
+
+
+def test_an_invalid_node_approval_count_falls_back_to_one() -> None:
+    node = SimpleNamespace(
+        required_role="caliber.approver",
+        approval_count="not-an-integer",
+        timeout_behavior="block",
+    )
+    assert ApprovalPolicy.from_node(node).approval_count == 1
 
 
 # ---------------------------------------------------------------------------
