@@ -1628,6 +1628,25 @@ provenance value, leaves the job row and all other pipeline state intact, and
 there is no API/SDK schema change in this slice because `RefinementJobSchema`
 does not expose ORM-only columns automatically.
 
+### B06.2: authenticated creator writes
+
+The four producer-owned `CaliberRefinementJob` constructors now populate
+`triggered_by` from the resolved server identity: prompt optimization, skill
+calibration, workflow calibration, and assistant prompt-promotion proposals.
+When a request carries a `CaliberIdentity`, its `user_id` is authoritative; the
+route actor is retained only for direct internal callers that do not have a
+request identity. Prompt, skill, workflow, and assistant metadata are not
+creator authority, and client-supplied owner or creator values cannot replace
+the authenticated requester.
+
+This is provenance, not permission: apply still rechecks the current project
+permission, distinct approver, and exact candidate digest. Rows written before
+B06.2 remain explicitly unknown (`triggered_by = NULL`); operators recover
+those rows through the current authorization boundary or create a new job via a
+path that can declare its requester. No new migration or public API/SDK field
+is required because migration `0131` introduced the column and it remains an
+ORM-only field.
+
 ## Approval requests: bound to the exact intent (B06.1, #706)
 
 A protected effect is approved by a person, and the approval has to say *what* it approves. `create_approval_request`

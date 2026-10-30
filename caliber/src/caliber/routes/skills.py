@@ -1478,8 +1478,13 @@ async def calibrate_skill(request: Request) -> JSONResponse:
         session.add(item)
         session.flush()
 
+        job_creator = identity.user_id
         job = CaliberRefinementJob(
             job_id=new_job_id(),
+            # The route's resolved identity is the only source of creator
+            # provenance.  Request metadata (including legacy owner fields)
+            # must never become the job creator.
+            triggered_by=job_creator,
             agent_id=target.agent_id,
             primary_item_id=item.item_id,
             artifact_type="skill",

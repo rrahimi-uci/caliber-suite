@@ -299,8 +299,13 @@ def enqueue_workflow_calibration_run(
     )
     session.add(item)
     session.flush()
+    job_creator = identity.user_id if identity is not None else actor
     job = CaliberRefinementJob(
         job_id=new_job_id(),
+        # ``actor``/``identity`` are resolved by the public route or assistant
+        # adapter.  Persist the resolved server identity, not workflow or
+        # agent metadata supplied by the caller.
+        triggered_by=job_creator,
         agent_id=payload.agent_id,
         workflow_id=workflow_id,
         primary_item_id=item.item_id,
