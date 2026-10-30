@@ -1,4 +1,4 @@
-"""V04 public path: an approval that has expired or been replaced is not usable, and refusing it changes nothing (B06.2, #712).
+"""V04 public path: an approval is decided by HTTP and stale requests remain unusable (B06.4, #735).
 
 The reference-profile app on PostgreSQL (the same logic on SQLite in the development profile). A run waits at a node for
 approval; a request bound to an effect proposal is made for that node through the real writer. An approver then answers through
@@ -9,11 +9,8 @@ the public decision routes (``POST /workflow-runs/{id}/approval/approve|reject``
 * a request that a newer one replaced (the same node asked again, for the same or a changed intent) is refused
   ``409 superseded``, even when it was already approved and not yet consumed, and superseded is reported before expired;
 * the refusal carries no id, hash or requester, and the run, the request, the proposal, the run events and the audit log are
-  exactly as they were.
-
-A live bound request is still refused (``approval_bound_not_wired``): the recheck at commit (B06.3) is what lets it be decided.
-Each test asserts that too, so the expiry boundary is proven from the live side and nothing here depends on that refusal going
-away.
+  exactly as they were;
+* a live bound request records the HTTP decision but remains unconsumed until the dispatcher claims the proposal.
 """
 
 from __future__ import annotations
@@ -53,7 +50,6 @@ EVIDENCE = "sha256:" + "e" * 64
 MICROSECOND = timedelta(microseconds=1)
 EXPIRED = "expired"
 SUPERSEDED = "superseded"
-NOT_WIRED = "approval_bound_not_wired"
 
 
 def _waiting_run(app: ReferenceApp) -> str:
@@ -204,11 +200,6 @@ def test_expired_approval_unusable(
     expiry = T0 + timedelta(seconds=TTL)
     before = _snapshot(app, run_id)
 
-    # Up to the last microsecond of the window the request is not expired (live, and not yet decidable here).
-    for moment in (T0, expiry - MICROSECOND):
-        _clock(monkeypatch, moment)
-        _assert_refused(_decide(app, run_id, action, request_id), NOT_WIRED, *secrets)
-
     # At the instant it ends, and afterwards, it is expired; the clock is the only thing that changed.
     for moment in (expiry, expiry + MICROSECOND, expiry + timedelta(days=30)):
         _clock(monkeypatch, moment)
@@ -262,9 +253,16 @@ def test_superseded_approval_unusable(
     _assert_refused(_decide(app, run_id, action, old_id), SUPERSEDED, *secrets)
     assert _snapshot(app, run_id) == before, "a refused decision changes nothing"
 
-    # The current request is the live one: not superseded, not expired.
-    _assert_refused(_decide(app, run_id, action, new_id), NOT_WIRED)
-    assert _snapshot(app, run_id) == before
+    # The current request is live and can record a decision. It is not consumed by
+    # the HTTP route; the dispatcher owns that later transition.
+    decided = _decide(app, run_id, action, new_id)
+    assert decided.status_code == 200, decided.text
+    with app.session_factory() as session:
+        current = session.get(CaliberRuntimeApprovalRequest, new_id)
+        assert current is not None
+        assert current.status == ("approved" if action == "approve" else "rejected")
+        assert current.decided_by == APPROVER_A
+        assert current.consumed_at is None
 
 
 def test_an_approved_but_unconsumed_approval_is_superseded_by_a_newer_request(
@@ -336,5 +334,8 @@ def test_a_request_for_another_node_does_not_supersede_and_a_legacy_request_is_u
     assert snapshot["requests"][other]["status"] == "pending"
     legacy = [r for r in snapshot["requests"].values() if r["proposal_id"] is None]
     assert [(r["status"], r["superseded_by"]) for r in legacy] == [("approved", None)]
-    for request_id in (mine, other):
-        _assert_refused(_decide(app, run_id, "approve", request_id), NOT_WIRED)
+    mine_response = _decide(app, run_id, "approve", mine)
+    assert mine_response.status_code == 200, mine_response.text
+    other_response = _decide(app, run_id, "approve", other)
+    assert other_response.status_code == 409, other_response.text
+    assert "current waiting node" in other_response.json()["detail"]

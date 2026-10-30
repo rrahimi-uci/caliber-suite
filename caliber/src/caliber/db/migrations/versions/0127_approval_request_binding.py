@@ -16,8 +16,9 @@ exactly as before). The binding is enforced by the database, not left to the wri
   so a request cannot be re-bound to another intent, nor a legacy row bound after the fact. ``status``, the decision columns,
   ``policy_snapshot`` (a quorum accumulates in it), ``superseded_by`` and ``consumed_at`` still move.
 
-No backfill; the decision path refuses a bound request until B06.2 and B06.3 (readers before writers). Downgrade drops the
-trigger, the checks, the index and the columns; a bound request is lost, a legacy one is untouched.
+No backfill; the decision path records a bound request's explicit decision while the B06.3/B06.4 dispatcher rechecks and consumes
+it at the claim boundary. Downgrade drops the trigger, the checks, the index and the columns; a bound request is lost, a legacy
+one is untouched.
 
 Revision ID: 0127
 Revises: 0126
