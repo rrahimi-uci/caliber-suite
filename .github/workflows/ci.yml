@@ -437,6 +437,7 @@ jobs:
           python caliber/tests/migration_checksums.py generate --check
       - name: Run the backend-core governance slice
         # The tag was fetched above, so the tag-match test must fail, not skip.
+        working-directory: .
         run: python scripts/backend-core-tests.py governance
 
   backend-core-api:
@@ -455,11 +456,13 @@ jobs:
       - name: Install package + dev extras
         run: uv pip install --system -e ".[${CALIBER_CI_EXTRAS}]"
       - name: Install the client, CLI, and plugin SDKs
+        working-directory: .
         run: |
           uv pip install --system -e sdk/caliber-sdk
           uv pip install --system -e sdk/caliber-cli
           uv pip install --system -e sdk/caliber-plugin-sdk
       - name: Run the backend-core API slice
+        working-directory: .
         run: python scripts/backend-core-tests.py api
 
   backend-core-sdk:
@@ -478,11 +481,13 @@ jobs:
       - name: Install package + dev extras
         run: uv pip install --system -e ".[${CALIBER_CI_EXTRAS}]"
       - name: Install the client, CLI, and plugin SDKs
+        working-directory: .
         run: |
           uv pip install --system -e sdk/caliber-sdk
           uv pip install --system -e sdk/caliber-cli
           uv pip install --system -e sdk/caliber-plugin-sdk
       - name: Run the backend-core SDK slice
+        working-directory: .
         run: python scripts/backend-core-tests.py sdk
       - name: Run the SDK cookbook example tests against their stateful stand-ins
         # Every cookbook lab has an SDK example script that is replayed here against a

@@ -298,6 +298,12 @@ def test_backend_core_slices_are_shared_by_ci_and_the_local_runner() -> None:
         steps = workflow["jobs"][job]["steps"]
         runs = [str(step.get("run", "")) for step in steps]
         assert f"python scripts/backend-core-tests.py {slice_name}" in "\n".join(runs)
+        runner = next(
+            step
+            for step in steps
+            if f"python scripts/backend-core-tests.py {slice_name}" in str(step.get("run", ""))
+        )
+        assert runner["working-directory"] == "."
         assert f"{job}) run_job" in script
 
 
