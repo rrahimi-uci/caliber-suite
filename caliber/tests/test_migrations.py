@@ -34,12 +34,14 @@ import warnings
 from pathlib import Path
 
 import pytest
+import sqlalchemy as sa
 from alembic import command
 from alembic.config import Config
 from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.exc import IntegrityError, SAWarning
 
 from caliber.db import Base
+from caliber.db.models import CaliberRefinementJob
 from tests.dialect_helpers import DIALECTS, dialect_database_url
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -144,6 +146,116 @@ def test_alembic_upgrade_head_matches_metadata(
         engine.dispose()
         # Clean up the env var the monkeypatch set, just in case parallel tests share state.
         os.environ.pop("CALIBER_DATABASE_URL", None)
+
+
+def test_refinement_job_triggered_by_model_contract() -> None:
+    """B06.1: creator provenance is optional and bounded to the issue contract."""
+    column = CaliberRefinementJob.__table__.c.triggered_by
+
+    assert column.nullable is True
+    assert isinstance(column.type, sa.String)
+    assert column.type.length == 256
+
+
+@pytest.mark.slow
+@pytest.mark.parametrize("dialect", DIALECTS)
+def test_0131_adds_optional_triggered_by_without_backfill_and_reverses(
+    dialect: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """B06.1: legacy rows stay NULL, the length boundary round-trips, and downgrade is safe.
+
+    Running the same test against the PostgreSQL service is intentional: the
+    migration-parity job must exercise the real DDL as well as SQLite's
+    development path.  There is no check constraint on this provenance field;
+    its exact boundary is the declared VARCHAR(256) contract.
+    """
+    with dialect_database_url(dialect, tmp_path, "refinement_job_triggered_by") as db_url:
+        monkeypatch.setenv("CALIBER_DATABASE_URL", db_url)
+        monkeypatch.chdir(PROJECT_ROOT)
+        cfg = Config(str(ALEMBIC_INI))
+        command.upgrade(cfg, "0130")
+        engine = create_engine(db_url)
+        try:
+            with engine.begin() as connection:
+                connection.execute(
+                    text(
+                        "INSERT INTO caliber_agent_config "
+                        "(agent_id, experiment_id, name, owner, artifact_types, "
+                        "eval_thresholds, optimizer_config, approval_policy) VALUES "
+                        "('agent-0131', 'exp-0131', 'Agent 0131', '@owner', '[]', '{}', '{}', '{}')"
+                    )
+                )
+                connection.execute(
+                    text(
+                        "INSERT INTO caliber_verification_queue "
+                        "(item_id, agent_id, category, free_text, severity) VALUES "
+                        "('FB-0131', 'agent-0131', 'hallucination', 'looks off', 'critical')"
+                    )
+                )
+                connection.execute(
+                    text(
+                        "INSERT INTO caliber_refinement_jobs "
+                        "(job_id, agent_id, primary_item_id, artifact_type, bundle_targets) "
+                        "VALUES ('RFN-0131-legacy', 'agent-0131', 'FB-0131', 'prompt', '[]')"
+                    )
+                )
+
+            command.upgrade(cfg, "0131")
+
+            inspector = inspect(engine)
+            columns = {
+                column["name"]: column
+                for column in inspector.get_columns("caliber_refinement_jobs")
+            }
+            assert columns["triggered_by"]["nullable"] is True
+            assert columns["triggered_by"]["type"].length == 256
+
+            creator = "@" + "a" * 255
+            with engine.begin() as connection:
+                connection.execute(
+                    text(
+                        "INSERT INTO caliber_refinement_jobs "
+                        "(job_id, agent_id, primary_item_id, artifact_type, bundle_targets, triggered_by) "
+                        "VALUES ('RFN-0131-declared', 'agent-0131', 'FB-0131', 'prompt', '[]', :triggered_by)"
+                    ),
+                    {"triggered_by": creator},
+                )
+
+            with engine.connect() as connection:
+                rows = connection.execute(
+                    text(
+                        "SELECT job_id, triggered_by FROM caliber_refinement_jobs "
+                        "WHERE job_id IN ('RFN-0131-legacy', 'RFN-0131-declared') "
+                        "ORDER BY job_id"
+                    )
+                ).all()
+            assert rows == [
+                ("RFN-0131-declared", creator),
+                ("RFN-0131-legacy", None),
+            ]
+
+            command.downgrade(cfg, "0130")
+
+            inspector = inspect(engine)
+            assert "triggered_by" not in {
+                column["name"] for column in inspector.get_columns("caliber_refinement_jobs")
+            }
+            with engine.connect() as connection:
+                remaining = (
+                    connection.execute(
+                        text(
+                            "SELECT job_id FROM caliber_refinement_jobs "
+                            "WHERE job_id IN ('RFN-0131-legacy', 'RFN-0131-declared') "
+                            "ORDER BY job_id"
+                        )
+                    )
+                    .scalars()
+                    .all()
+                )
+            assert remaining == ["RFN-0131-declared", "RFN-0131-legacy"]
+        finally:
+            engine.dispose()
+            os.environ.pop("CALIBER_DATABASE_URL", None)
 
 
 @pytest.mark.slow

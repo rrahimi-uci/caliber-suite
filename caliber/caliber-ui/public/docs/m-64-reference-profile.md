@@ -1604,6 +1604,30 @@ Model calls outside a live workflow run (for example, offline evaluation and dep
 runtime manifest boundary. Token counts are an accounting estimate (four characters a token, and the recorded budget is the larger of the
 configured one and the total); enforcing a budget on a provider call is B08. Legacy runs and development have no recorder.
 
+## Refinement-job creator provenance (B06.1, #731)
+
+`caliber_refinement_jobs.triggered_by` is the optional provenance field for the
+principal that caused a refinement job to be created.  It is a `VARCHAR(256)`
+and records a declared creator when the creation path has one; it is not an
+authorization grant and it is not evidence that a candidate may be applied.
+The apply boundary must still recheck the current project permission, distinct
+approver and exact candidate digest.  A `NULL` value is therefore unknown
+provenance, not permission to proceed.
+
+The reference-profile rule for an unknown creator is explicit human review or
+quarantine before an apply decision.  The schema slice itself adds no new
+runtime refusal code and does not silently rewrite an existing job.  Recovery
+is to review the job using the current authorization boundary, or to create a
+new job through a path that can declare its creator; do not infer a principal
+from timestamps, owners or other mutable fields.
+
+Migration `0131` adds the nullable column with no backfill, so every legacy row
+reads `NULL` and old readers remain compatible.  Deploy the migration before
+enabling writers that populate the field.  Downgrade removes only the optional
+provenance value, leaves the job row and all other pipeline state intact, and
+there is no API/SDK schema change in this slice because `RefinementJobSchema`
+does not expose ORM-only columns automatically.
+
 ## Approval requests: bound to the exact intent (B06.1, #706)
 
 A protected effect is approved by a person, and the approval has to say *what* it approves. `create_approval_request`
