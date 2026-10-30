@@ -27,6 +27,7 @@ from caliber.effects.dispatcher import (
     BACKENDS,
     BackendRegistration,
     EffectOutcome,
+    EffectRefused,
     TransportResult,
     dispatch,
 )
@@ -142,7 +143,7 @@ def _dispatch_kwargs(approval_id: str, lease: Any) -> dict[str, Any]:
     }
 
 
-def test_concurrent_approve_and_dispatch_are_serialized_and_recoverable(
+def test_concurrent_approve_and_dispatch_are_serialized_and_recoverable(  # noqa: PLR0915 - complete cross-transaction scenario
     approver: ReferenceApp,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -183,7 +184,9 @@ def test_concurrent_approve_and_dispatch_are_serialized_and_recoverable(
                 proposal_id,
                 **_dispatch_kwargs(approval_id, lease),
             )
-        except Exception as exc:  # the race loser is expected to refuse, not corrupt state
+        except EffectRefused as exc:
+            result = exc
+        except BaseException as exc:
             result = exc
         with observed_lock:
             observed.append(("dispatch", result))
@@ -196,6 +199,12 @@ def test_concurrent_approve_and_dispatch_are_serialized_and_recoverable(
         assert not thread.is_alive(), "the PostgreSQL lock race did not complete"
 
     approval_response = next(value for name, value in observed if name == "approve")
+    dispatch_result = next(value for name, value in observed if name == "dispatch")
+    assert not isinstance(dispatch_result, BaseException) or isinstance(
+        dispatch_result, EffectRefused
+    ), repr(dispatch_result)
+    if isinstance(dispatch_result, EffectRefused):
+        assert dispatch_result.code == "not_approved"
     assert approval_response.status_code in {200, 409}
     if approval_response.status_code == 409:
         assert approval_response.json()["reason_code"] == "already_consumed"
@@ -259,7 +268,9 @@ def test_two_concurrent_dispatchers_consume_one_approval(
                 proposal_id,
                 **_dispatch_kwargs(approval_id, lease),
             )
-        except Exception as exc:
+        except EffectRefused as exc:
+            result = exc
+        except BaseException as exc:
             result = exc
         with results_lock:
             results.append(result)
@@ -276,6 +287,15 @@ def test_two_concurrent_dispatchers_consume_one_approval(
     successful = [result for result in results if isinstance(result, EffectOutcome)]
     assert len(successful) == 1
     assert successful[0].state == "committed"
+    refusals = [result for result in results if isinstance(result, EffectRefused)]
+    assert len(refusals) == 1
+    assert refusals[0].code in {"already_consumed", "proposal_not_approved"}
+    unexpected = [
+        result
+        for result in results
+        if isinstance(result, BaseException) and not isinstance(result, EffectRefused)
+    ]
+    assert unexpected == [], repr(unexpected)
     with approver.session_factory() as session:
         row = session.get(CaliberRuntimeApprovalRequest, approval_id)
         assert row is not None and row.consumed_at is not None

@@ -1754,9 +1754,10 @@ answerable approval. A request has a lifetime and is replaced by a newer one for
   `expected_resource_version`, `expires_at` and `requested_by`: a request cannot be re-bound to another intent, nor a legacy row bound after
   the fact. `status`, the decision columns, `policy_snapshot`, `superseded_by` and `consumed_at` still move. PostgreSQL also enforces
   the proposal foreign key (SQLite does not enforce foreign keys in this repository).
-- **Decision versus commit.** The decision routes (`approve` and `reject`) still never decide a request that has a `proposal_id`; they answer `409`
-  with a `reason_code` and a static message that carries no id, hash or requester, and write nothing: `superseded` or `expired` (B06.2, above),
-  and for a live bound request, `approval_bound_not_wired`. This is intentional: the HTTP decision is not effect consumption. At the dispatch
+- **Decision versus commit.** The decision routes (`approve` and `reject`) record an explicit decision for a request that has a `proposal_id`,
+  but never consume it: they answer `409` with a `reason_code` and a static message that carries no id, hash or requester for `superseded`,
+  `expired` or `already_consumed` (B06.2/B06.4, above), and write nothing for those terminal states. This is intentional: the HTTP decision is
+  not effect consumption. At the dispatch
   boundary B06.3's `approval_valid_at_commit` rechecks the exact stored proposal, evidence and policy pins, expiry, supersession,
   consumption, and the current downstream version before any connector call. It then calls the B03.4 identity path, which invokes `decide`
   with the run manifest's original subject, workload, purpose, run id and grant id. The actual approver is checked separately against the
@@ -1815,9 +1816,9 @@ POST /ajax-api/2.0/mlflow/caliber/workflow-runs/{run_id}/approval/approve   {"ru
 409 {"detail": "this approval request has expired and can no longer be decided; ask for a new approval of the step",
      "status_code": 409, "reason_code": "expired"}
 
-# live and not yet decidable here (until B06.3).
-409 {"detail": "this approval request is bound to an effect proposal and cannot be decided here yet: exact-intent approval is not wired",
-     "status_code": 409, "reason_code": "approval_bound_not_wired"}
+# already consumed by the dispatcher; the decision is terminal and cannot be changed.
+409 {"detail": "this approval decision was already consumed by dispatch",
+     "status_code": 409, "reason_code": "already_consumed"}
 ```
 
 Creating a replacement, with the deployment's window:

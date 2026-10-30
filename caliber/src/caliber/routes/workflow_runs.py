@@ -1938,6 +1938,12 @@ def _select_pending_runtime_approval(
                     f"{runtime_approval_id!r} not found for workflow run {run.workflow_run_id!r}"
                 ),
             )
+        if row.consumed_at is not None:
+            raise CaliberHTTPException(
+                status_code=409,
+                detail="this approval decision was already consumed by dispatch",
+                reason_code=REFUSAL_ALREADY_CONSUMED,
+            )
         if row.proposal_id is not None:
             refusal = approval_refusal(
                 status=row.status,
@@ -1952,12 +1958,6 @@ def _select_pending_runtime_approval(
                     status_code=409,
                     detail="runtime approval does not match the current waiting node",
                 )
-        if row.consumed_at is not None:
-            raise CaliberHTTPException(
-                status_code=409,
-                detail="this approval decision was already consumed by dispatch",
-                reason_code=REFUSAL_ALREADY_CONSUMED,
-            )
         if row.status != "pending":
             raise HTTPException(
                 status_code=409,

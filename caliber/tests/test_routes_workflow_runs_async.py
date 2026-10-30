@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import pytest
 from starlette.testclient import TestClient
@@ -2329,6 +2329,38 @@ def test_a_consumed_bound_request_reports_a_stable_refusal(
         row.decided_by = "approver_a"
         row.decided_at = datetime.now(timezone.utc)
         row.consumed_at = datetime.now(timezone.utc)
+        session.commit()
+
+    response = client.post(
+        f"{PREFIX}/workflow-runs/{run_id}/approval/approve",
+        json={"runtime_approval_id": bound_id},
+    )
+    assert response.status_code == 409, response.text
+    assert response.json()["reason_code"] == "already_consumed"
+
+
+def test_a_consumed_bound_request_remains_terminal_after_expiry(
+    client: TestClient,
+) -> None:
+    """Consumption wins over a later TTL expiry when a decision is retried."""
+    _enable_runtime_approvals(client)
+    _wid, vid = create_and_publish(client)
+    created = client.post(
+        f"{PREFIX}/workflow-runs", json={"workflow_version_id": vid, "input": "hello"}
+    )
+    run_id = created.json()["data"]["workflow_run_id"]
+    _seed_waiting_approval(
+        client, run_id, approval_status="approved", checkpoint_input_by_port={"input": "hello"}
+    )
+    bound_id, _proposal_id = _seed_bound_approval(client, run_id)
+    with client.app.state.session_factory() as session:
+        row = session.get(CaliberRuntimeApprovalRequest, bound_id)
+        assert row is not None
+        row.status = "approved"
+        row.decided_by = "approver_a"
+        row.decided_at = datetime.now(timezone.utc)
+        row.consumed_at = datetime.now(timezone.utc)
+        row.expires_at = datetime.now(timezone.utc) - timedelta(seconds=1)
         session.commit()
 
     response = client.post(
