@@ -471,9 +471,12 @@ def _timeout_seconds(raw: object) -> float:
     try:
         value = 30.0 if raw is None else float(str(raw))
     except (TypeError, ValueError) as exc:
-        raise OpenApiExecutionError("timeout_seconds must be a finite positive number") from exc
+        # Keep malformed direct-call configuration as ValueError for callers that
+        # validate executor inputs before the request is built. The public executor
+        # annotates this pre-flight exception with never_sent/attempts metadata.
+        raise ValueError("timeout_seconds must be a finite positive number") from exc
     if not math.isfinite(value) or value <= 0:
-        raise OpenApiExecutionError("timeout_seconds must be a finite positive number")
+        raise ValueError("timeout_seconds must be a finite positive number")
     return value
 
 
