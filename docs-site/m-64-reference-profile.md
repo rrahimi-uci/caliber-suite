@@ -232,6 +232,16 @@ PYTHONPATH=caliber/src caliber/.venv/bin/python -m pytest caliber/tests/test_upg
 The `postgresql` cases run in the "Migration parity (PostgreSQL)" CI job (`CALIBER_TEST_POSTGRES_URL`, the
 `pgvector/pgvector:pg16` image, because migration 0060 needs the `vector` extension).
 
+The upgrade proof is `test_alpha_database_upgrades_to_head` in
+`caliber/tests/test_upgrade_from_alpha.py`. For each available dialect it migrates the seeded alpha database to the
+single current Alembic head, compares every seeded row and the complete reflected schema with a fresh head database,
+and verifies that historical workflow runs remain explicitly `manifest_legacy` with no invented runtime lineage. The
+two unresolved `in_progress` effect-ledger rows remain visible with no completion timestamp. The same test then uses
+the current workflow API to create and publish a new workflow and submit a governed run, proving that the upgraded
+database supports new admission without rewriting historical data. SQLite runs locally; PostgreSQL 16 runs when
+`CALIBER_TEST_POSTGRES_URL` is configured in the migration-parity job. A failed upgrade must be restored from a fresh
+database and investigated before retrying; the test does not attempt an automatic rollback of an operator database.
+
 ## A stored secret never leaves the platform
 
 `caliber/tests/test_secret_canary.py` (B12.5b, #666) stores `EGI_CANARY_<uuid4>` as `egi-canary` through the
