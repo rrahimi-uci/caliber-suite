@@ -907,7 +907,9 @@ def test_only_a_step_whose_adapter_never_ran_may_release_its_reservation() -> No
     ]
     assert all(result.error_code not in NOT_CALLED_CODES for result in kept)
     released = [run(object(), ctx), run(every_executor()["openai_agents"], ctx)]
-    assert {result.error_code for result in released} == NOT_CALLED_CODES
+    assert released[0].error_code == ADAPTER_UNSUPPORTED
+    assert released[1].stop_reason == "deadline"
+    assert released[1].error_code is None
 
 
 def test_a_failure_never_carries_a_proposal_or_invented_usage() -> None:
@@ -1160,13 +1162,15 @@ def test_run_agent_is_unchanged_by_the_step_script() -> None:
     assert fake.step_script.remaining == 0
 
 
-# -------------------------------------------------------------- the four provider executors refuse until integrated
+# -------------------------------------------------------------- governed provider executor regression
 
 
 @pytest.mark.parametrize("name", ["openai_agents"])
-def test_a_provider_executor_refuses_governed_execution_until_it_is_integrated(name: str) -> None:
+def test_a_provider_executor_honors_the_governed_deadline(name: str) -> None:
     ctx = make_context()
     executor = every_executor()[name]
     assert isinstance(executor, AgentStepAdapter)
     result = run(executor, ctx)
-    assert_typed_failure(result, ctx, ADAPTER_NOT_INTEGRATED, "refused")
+    assert result.stop_reason == "deadline"
+    assert result.error_code is None
+    assert result.usage_source == "estimated"
