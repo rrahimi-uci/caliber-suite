@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -21,6 +20,7 @@ from caliber.db.models import (
 from caliber.effects.connectors import Classified, TransportOutcome
 from caliber.effects.dispatcher import (
     BACKENDS,
+    BackendRegistration,
     EffectRefused,
     TransportResult,
     UnsupportedEffectPath,
@@ -56,7 +56,7 @@ def _submit(session: Session, *, tool_name: str = "write_workdir_file") -> str:
         node_id="agent",
         occurrence_id="occ-1",
         action={
-            "connector": "test-connector",
+            "connector": "document-request",
             "connector_version": "1",
             "effect_class": "read",
             "resource": "test/resource",
@@ -119,6 +119,18 @@ def _validator(
         decision_id="decision",
         run_identity=object(),  # The real validator supplies the typed identity.
     )
+
+
+@pytest.fixture(autouse=True)
+def _trusted_test_validator(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Use a deterministic transaction fixture behind the canonical-validator seam.
+
+    Production dispatch accepts only the imported ``approval_valid_at_commit``
+    function.  These SQLite unit fixtures do not seed the full run-authority
+    graph, so they replace that canonical symbol explicitly; the EGI scenario
+    exercises the real validator against the reference profile.
+    """
+    monkeypatch.setattr(dispatcher_module, "approval_valid_at_commit", _validator)
 
 
 class _Backend:
@@ -234,7 +246,11 @@ def test_valid_path_commits_with_receipt_and_calls_backend_after_claim_commit(
             lease = leased(session, "dispatcher")
             session.commit()
         backend = _Backend(factory, proposal_id)
-        monkeypatch.setitem(BACKENDS, "test", backend)
+        monkeypatch.setitem(
+            BACKENDS,
+            "test",
+            BackendRegistration(backend, "document-request", "1"),
+        )
         result = dispatch(
             factory,
             proposal_id,
@@ -285,13 +301,15 @@ def test_unregistered_backend_kind_is_unsupported_without_claiming(
 
 def _document_request(
     *,
+    connector: str = "document-request",
+    connector_version: str = "1",
     resource: str = "cases/CASE-1/document-requests",
     expected_resource_version: str | None = "7",
     document_type: str = "pay_statement",
 ) -> dispatcher_module.EffectRequest:
     intent = Intent(
-        connector="document-request",
-        connector_version="1",
+        connector=connector,
+        connector_version=connector_version,
         effect_class="irreversible_write",
         resource=resource,
         args={"document_type": document_type},
@@ -318,6 +336,16 @@ def _document_request(
     ("effect_request", "config", "code"),
     [
         (_document_request(), {}, "backend_config_missing"),
+        (
+            _document_request(connector="other-connector"),
+            {"base_url": "https://downstream.invalid"},
+            "connector_binding_mismatch",
+        ),
+        (
+            _document_request(connector_version="2"),
+            {"base_url": "https://downstream.invalid"},
+            "connector_binding_mismatch",
+        ),
         (
             _document_request(resource="not-a-document-request"),
             {"base_url": "https://downstream.invalid"},
@@ -532,6 +560,15 @@ def test_submit_proposal_refuses_conflicts_inventory_and_bad_action(
                         args={},
                     ),
                 )
+            with pytest.raises(EffectRefused, match="conflicting_intent_inputs"):
+                submit_proposal(
+                    session,
+                    workflow_run_id="RUN-ep",
+                    node_id="agent",
+                    occurrence_id="occ-conflicting-explicit",
+                    action=action,
+                    resource="test/different",
+                )
             with pytest.raises(EffectRefused, match="invalid_proposed_action"):
                 submit_proposal(
                     session,
@@ -560,9 +597,8 @@ def test_submit_proposal_refuses_conflicts_inventory_and_bad_action(
                 )
 
 
-@pytest.mark.parametrize("validator_kind", ["invalid", "raises", "mismatched"])
-def test_dispatch_rejects_invalid_validator_commit_without_claim(
-    tmp_path: Any, monkeypatch: pytest.MonkeyPatch, validator_kind: str
+def test_dispatch_rejects_untrusted_validator_without_claim(
+    tmp_path: Any, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     with _database("sqlite", tmp_path, monkeypatch) as (_, factory):
         _seed_run(factory)
@@ -572,19 +608,8 @@ def test_dispatch_rejects_invalid_validator_commit_without_claim(
             lease = leased(session, "dispatcher")
             session.commit()
 
-        def validator(session: Session, **kwargs: Any) -> object:
-            if validator_kind == "invalid":
-                return object()
-            if validator_kind == "raises":
-                raise RuntimeError("validator failed")
-            return replace(
-                _validator(
-                    session,
-                    approval_id=approval_id,
-                    proposal_id=proposal_id,
-                ),
-                evidence_hash="sha256:" + "x" * 64,
-            )
+        def validator(_session: Session, **_kwargs: Any) -> object:
+            raise AssertionError("an untrusted validator must never be called")
 
         with pytest.raises(EffectRefused) as refused:
             dispatch(
@@ -596,13 +621,196 @@ def test_dispatch_rejects_invalid_validator_commit_without_claim(
                 backend_kind="document_request",
                 approval_validator=validator,
             )
-        assert refused.value.code in {
-            "approval_validator_invalid",
-            "approval_validator_failed",
-            "approval_refused",
-        }
+        assert refused.value.code == "approval_validator_untrusted"
         with factory() as session:
             assert proposal_state(session, proposal_id).state == "proposed"
+
+
+@pytest.mark.parametrize(
+    ("failure", "expected"),
+    [
+        ("approval", "expired"),
+        ("proposal", "proposal_corrupt"),
+        ("generic", "approval_validator_failed"),
+        ("invalid", "approval_validator_invalid"),
+    ],
+)
+def test_dispatch_maps_validator_failures_to_stable_refusals(
+    tmp_path: Any,
+    monkeypatch: pytest.MonkeyPatch,
+    failure: str,
+    expected: str,
+) -> None:
+    with _database("sqlite", tmp_path, monkeypatch) as (_, factory):
+        _seed_run(factory)
+        with factory() as session:
+            proposal_id = _submit(session)
+            approval_id = _approval(session, proposal_id)
+            lease = leased(session, "dispatcher")
+            session.commit()
+
+        def validator(session: Session, **kwargs: Any) -> Any:
+            if failure == "approval":
+                raise ApprovalCommitRefused("expired")
+            if failure == "proposal":
+                raise ProposalError("proposal_corrupt", "proposal is corrupt")
+            if failure == "generic":
+                raise RuntimeError("validator crashed")
+            return object()
+
+        monkeypatch.setattr(dispatcher_module, "approval_valid_at_commit", validator)
+        with pytest.raises(EffectRefused) as refused:
+            dispatch(
+                factory,
+                proposal_id,
+                approval_id=approval_id,
+                approver_scopes={"caliber.approver"},
+                lease=lease,
+                backend_kind="document_request",
+                approval_validator=validator,
+            )
+        assert refused.value.code == expected
+        with factory() as session:
+            assert proposal_state(session, proposal_id).state == "proposed"
+
+
+def test_dispatch_refuses_a_backend_registration_that_does_not_match_intent(
+    tmp_path: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    with _database("sqlite", tmp_path, monkeypatch) as (_, factory):
+        _seed_run(factory)
+        with factory() as session:
+            proposal_id = _submit(session)
+            approval_id = _approval(session, proposal_id)
+            lease = leased(session, "dispatcher")
+            session.commit()
+        monkeypatch.setitem(
+            BACKENDS,
+            "mismatch",
+            BackendRegistration(
+                lambda _request, _config: pytest.fail("transport called"), "other", "1"
+            ),
+        )
+        with pytest.raises(EffectRefused) as refused:
+            dispatch(
+                factory,
+                proposal_id,
+                approval_id=approval_id,
+                approver_scopes={"caliber.approver"},
+                lease=lease,
+                backend_kind="mismatch",
+                approval_validator=_validator,
+            )
+        assert refused.value.code == "backend_intent_mismatch"
+        with factory() as session:
+            assert proposal_state(session, proposal_id).state == "proposed"
+
+
+def test_dispatch_refuses_a_consumed_approval_after_validation(
+    tmp_path: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    with _database("sqlite", tmp_path, monkeypatch) as (_, factory):
+        _seed_run(factory)
+        with factory() as session:
+            proposal_id = _submit(session)
+            approval_id = _approval(session, proposal_id)
+            lease = leased(session, "dispatcher")
+            session.commit()
+
+        original_transition = dispatcher_module.transition
+
+        def consume_after_approval(
+            session: Session, proposal_id: str, to_state: str, **kwargs: Any
+        ) -> Any:
+            result = original_transition(session, proposal_id, to_state, **kwargs)
+            if to_state == "approved":
+                approval = session.get(CaliberRuntimeApprovalRequest, approval_id)
+                assert approval is not None
+                approval.consumed_at = AT.replace(tzinfo=None)
+            return result
+
+        monkeypatch.setattr(dispatcher_module, "transition", consume_after_approval)
+        monkeypatch.setattr(dispatcher_module, "approval_valid_at_commit", _validator)
+        with pytest.raises(EffectRefused, match="approval_already_consumed"):
+            dispatch(
+                factory,
+                proposal_id,
+                approval_id=approval_id,
+                approver_scopes={"caliber.approver"},
+                lease=lease,
+                backend_kind="document_request",
+                approval_validator=_validator,
+            )
+
+
+def test_dispatch_refuses_when_the_proposal_run_is_missing_after_claim(
+    tmp_path: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    with _database("sqlite", tmp_path, monkeypatch) as (_, factory):
+        _seed_run(factory)
+        with factory() as session:
+            proposal_id = _submit(session)
+            approval_id = _approval(session, proposal_id)
+            lease = leased(session, "dispatcher")
+            session.commit()
+
+        original_reader = dispatcher_module.read_proposal
+
+        def missing_run(session: Session, proposal_id: str) -> dict[str, Any]:
+            record = dict(original_reader(session, proposal_id))
+            record["workflow_run_id"] = "run-that-does-not-exist"
+            return record
+
+        monkeypatch.setattr(dispatcher_module, "read_proposal", missing_run)
+        with pytest.raises(EffectRefused, match="run_not_found"):
+            dispatch(
+                factory,
+                proposal_id,
+                approval_id=approval_id,
+                approver_scopes={"caliber.approver"},
+                lease=lease,
+                backend_kind="document_request",
+                approval_validator=_validator,
+            )
+
+
+def test_dispatch_maps_settlement_proposal_error_to_public_refusal(
+    tmp_path: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    with _database("sqlite", tmp_path, monkeypatch) as (_, factory):
+        _seed_run(factory)
+        with factory() as session:
+            proposal_id = _submit(session)
+            approval_id = _approval(session, proposal_id)
+            lease = leased(session, "dispatcher")
+            session.commit()
+
+        class Backend:
+            def perform(self, _request: Any, _config: Any) -> TransportResult:
+                return TransportResult(
+                    Classified(TransportOutcome.PROVEN_NOT_SENT, "not-sent", 0, 0)
+                )
+
+        monkeypatch.setitem(
+            BACKENDS,
+            "settle-error",
+            BackendRegistration(Backend(), "document-request", "1"),
+        )
+
+        def refuse_settlement(*_args: Any, **_kwargs: Any) -> Any:
+            raise ProposalError("settlement_corrupt", "settlement is corrupt")
+
+        monkeypatch.setattr(dispatcher_module, "settle_dispatch", refuse_settlement)
+        with pytest.raises(EffectRefused, match="settlement_corrupt"):
+            dispatch(
+                factory,
+                proposal_id,
+                approval_id=approval_id,
+                approver_scopes={"caliber.approver"},
+                lease=lease,
+                backend_kind="settle-error",
+                approval_validator=_validator,
+            )
 
 
 def test_dispatch_rejects_consumed_approval_without_claim(
@@ -657,7 +865,11 @@ def test_dispatch_settles_noncommitted_transport_evidence(
             def perform(self, _request: Any, _config: Any) -> TransportResult:
                 return TransportResult(Classified(outcome, "test", 412, 1))
 
-        monkeypatch.setitem(BACKENDS, "outcome", Backend())
+        monkeypatch.setitem(
+            BACKENDS,
+            "outcome",
+            BackendRegistration(Backend(), "document-request", "1"),
+        )
         result = dispatch(
             factory,
             proposal_id,
@@ -705,9 +917,11 @@ def test_claim_returns_existing_in_flight_proposal_without_backend(
         approval_id="approval",
         approver_scopes=set(),
         lease=object(),  # type: ignore[arg-type]
+        backend_connector="document-request",
+        backend_connector_version="1",
         current_resource_version=None,
         evidence_hash=None,
-        approval_validator=lambda **_kwargs: object(),  # type: ignore[return-value]
+        approval_validator=dispatcher_module.approval_valid_at_commit,
         now=AT,
     )
     assert isinstance(result, dispatcher_module.EffectOutcome)
@@ -728,7 +942,7 @@ def test_dispatch_returns_existing_claim_without_calling_backend(
         approver_scopes=set(),
         lease=object(),  # type: ignore[arg-type]
         backend_kind="document_request",
-        approval_validator=lambda **_kwargs: object(),  # type: ignore[return-value]
+        approval_validator=dispatcher_module.approval_valid_at_commit,
     )
     assert result is expected
 
@@ -770,14 +984,8 @@ def test_submit_proposal_maps_recording_error_to_public_refusal(
             assert refused.value.code == "run_not_found"
 
 
-@pytest.mark.parametrize(
-    "validator_error",
-    [ApprovalCommitRefused("not_approved"), ProposalError("bad_field", "invalid")],
-)
-def test_claim_maps_validator_refusal_types(
-    tmp_path: Any,
-    monkeypatch: pytest.MonkeyPatch,
-    validator_error: Exception,
+def test_claim_rejects_untrusted_validator_before_transaction(
+    tmp_path: Any, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     with _database("sqlite", tmp_path, monkeypatch) as (_, factory):
         _seed_run(factory)
@@ -788,7 +996,7 @@ def test_claim_maps_validator_refusal_types(
             session.commit()
 
         def validator(_session: Session, **_kwargs: Any) -> ApprovalCommit:
-            raise validator_error
+            raise AssertionError("an untrusted validator must never be called")
 
         with pytest.raises(EffectRefused) as refused:
             dispatch(
@@ -800,7 +1008,7 @@ def test_claim_maps_validator_refusal_types(
                 backend_kind="document_request",
                 approval_validator=validator,
             )
-        assert refused.value.code in {"not_approved", "bad_field"}
+        assert refused.value.code == "approval_validator_untrusted"
 
 
 def test_dispatch_classifies_backend_exception_as_ambiguous(
@@ -818,7 +1026,11 @@ def test_dispatch_classifies_backend_exception_as_ambiguous(
             def perform(self, _request: Any, _config: Any) -> TransportResult:
                 raise RuntimeError("transport failed")
 
-        monkeypatch.setitem(BACKENDS, "raises", Backend())
+        monkeypatch.setitem(
+            BACKENDS,
+            "raises",
+            BackendRegistration(Backend(), "document-request", "1"),
+        )
         result = dispatch(
             factory,
             proposal_id,

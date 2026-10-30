@@ -931,7 +931,7 @@ from caliber.effects.records import Intent, ProposalConflict, record_proposal
 
 intent = Intent(
     connector="document-request",
-    connector_version="1.0.0",
+    connector_version="1",
     effect_class="irreversible_write",
     resource="cases/MORT-1/document-requests",
     args={"document_type": "pay_statement"},
@@ -972,11 +972,16 @@ with session_factory() as session:
   `attempt` is 1 to 2147483647 and `reason` is the latest move's (the history belongs to the audit trail).
 - **Submission and dispatch are separate.** `submit_proposal` applies the protected-effect inventory before it records an
   intent. Refused inventory entries (including untrusted sandbox paths) are not proposed; unknown tools fail closed to
-  `irreversible_write`. `dispatch` refuses a missing validator (`approval_validator_missing`), missing captured execution
-  lease (`lease_missing`), absent exact approval (`proposal_not_approved`), or an unregistered backend
-  (`unsupported_backend`) without a downstream call. The claim transaction locks and rechecks the proposal and approval,
-  consumes the approval, moves `proposed -> approved -> dispatched`, and enqueues `effect.proposal.dispatched`; only after
-  commit does it invoke the registered private backend. A backend is never the public OpenAPI route itself.
+  `irreversible_write`. The action form and explicit intent fields must agree exactly; conflicting duplicates are refused
+  (`conflicting_intent_inputs`). `dispatch` accepts only the canonical `approval_valid_at_commit` validator; a caller-supplied
+  substitute is refused (`approval_validator_untrusted`) and cannot bypass expiry, supersession, authority or revocation
+  checks. It also binds every registered private backend to one connector name and version, refusing a proposal/backend
+  mismatch (`backend_intent_mismatch`) before claiming anything. Missing validator (`approval_validator_missing`), missing
+  captured execution lease (`lease_missing`), absent exact approval (`proposal_not_approved`), or an unregistered backend
+  (`unsupported_backend`) are all fail-closed refusals without a downstream call. The claim transaction locks and rechecks
+  the proposal and approval, consumes the approval, moves `proposed -> approved -> dispatched`, and enqueues
+  `effect.proposal.dispatched`; only after commit does it invoke the registered private backend. A backend is never the
+  public OpenAPI route itself.
 
 ```python
 from caliber.effects.dispatcher import EffectRefused, dispatch, submit_proposal

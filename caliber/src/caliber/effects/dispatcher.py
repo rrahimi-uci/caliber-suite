@@ -60,6 +60,7 @@ from caliber.workflows.agent_step import ProposedAction
 from caliber.workflows.approval_policy import (
     ApprovalCommit,
     ApprovalCommitRefused,
+    approval_valid_at_commit,
 )
 
 _CASE_RESOURCE = re.compile(
@@ -123,10 +124,24 @@ class PrivateBackend(Protocol):
     ) -> TransportResult: ...
 
 
+@dataclass(frozen=True)
+class BackendRegistration:
+    """A private transport bound to the connector identity it is allowed to send."""
+
+    backend: PrivateBackend | Callable[[EffectRequest, Mapping[str, Any] | None], TransportResult]
+    connector: str
+    connector_version: str
+
+
 class _Backend:
     """Small adapter used by the built-in document-request connector."""
 
     def perform(self, request: EffectRequest, config: Mapping[str, Any] | None) -> TransportResult:
+        if (
+            request.view.connector != _document_request.CONNECTOR
+            or request.view.connector_version != _document_request.VERSION
+        ):
+            raise _TransportRefusedError("connector_binding_mismatch")
         settings = dict(config or {})
         base_url = settings.get("base_url")
         if not isinstance(base_url, str) or not base_url.strip():
@@ -195,10 +210,12 @@ class _TransportRefusedError(RuntimeError):
 
 # Backend names are intentionally explicit.  Future B04 children add their
 # private adapters here; an arbitrary caller-supplied kind never gets a callable.
-BACKENDS: dict[
-    str, PrivateBackend | Callable[[EffectRequest, Mapping[str, Any] | None], TransportResult]
-] = {
-    "document_request": _Backend(),
+BACKENDS: dict[str, BackendRegistration] = {
+    "document_request": BackendRegistration(
+        backend=_Backend(),
+        connector=_document_request.CONNECTOR,
+        connector_version=_document_request.VERSION,
+    ),
 }
 
 
@@ -248,8 +265,9 @@ def _action_fields(
             "expected_resource_version": intent.expected_resource_version,
         }
     if action is not None:
+        action_fields: dict[str, Any]
         if isinstance(action, ProposedAction):
-            return {
+            action_fields = {
                 "connector": action.connector,
                 "connector_version": action.connector_version,
                 "effect_class": action.effect_class,
@@ -257,8 +275,8 @@ def _action_fields(
                 "args": action.args,
                 "expected_resource_version": action.expected_resource_version,
             }
-        if isinstance(action, Mapping):
-            return {
+        elif isinstance(action, Mapping):
+            action_fields = {
                 key: action.get(key)
                 for key in (
                     "connector",
@@ -269,7 +287,22 @@ def _action_fields(
                     "expected_resource_version",
                 )
             }
-        raise EffectRefused("invalid_proposed_action")
+        else:
+            raise EffectRefused("invalid_proposed_action")
+        explicit_fields = {
+            "connector": connector,
+            "connector_version": connector_version,
+            "effect_class": effect_class_name,
+            "resource": resource,
+            "args": args,
+            "expected_resource_version": expected_resource_version,
+        }
+        if any(
+            value is not None and value != action_fields[key]
+            for key, value in explicit_fields.items()
+        ):
+            raise EffectRefused("conflicting_intent_inputs")
+        return action_fields
     return {
         "connector": connector,
         "connector_version": connector_version,
@@ -412,6 +445,8 @@ def _claim_dispatch(
     approval_id: str,
     approver_scopes: frozenset[str] | set[str],
     lease: Lease,
+    backend_connector: str,
+    backend_connector_version: str,
     current_resource_version: str | object | None,
     evidence_hash: str | None,
     approval_validator: Callable[..., ApprovalCommit],
@@ -428,6 +463,11 @@ def _claim_dispatch(
             raise EffectRefused("proposal_not_approved")
         view = proposal_view(session, proposal_id)
         intent_record = read_proposal(session, proposal_id)
+        if (
+            view.connector != backend_connector
+            or view.connector_version != backend_connector_version
+        ):
+            raise EffectRefused("backend_intent_mismatch")
         try:
             # Lease first, then the validator's run -> proposal -> approval
             # locks.  No connector is reachable before this transaction commits.
@@ -536,8 +576,10 @@ def dispatch(
         raise UnsupportedEffectPath("unsupported_backend")
     if not isinstance(approval_id, str) or not approval_id.strip():
         raise EffectRefused("proposal_not_approved")
+    if approval_validator is not approval_valid_at_commit:
+        raise EffectRefused("approval_validator_untrusted")
 
-    backend = BACKENDS[backend_kind]
+    registration = BACKENDS[backend_kind]
     try:
         claim = _claim_dispatch(
             session_or_factory,
@@ -545,9 +587,11 @@ def dispatch(
             approval_id=approval_id,
             approver_scopes=approver_scopes,
             lease=lease,
+            backend_connector=registration.connector,
+            backend_connector_version=registration.connector_version,
             current_resource_version=current_resource_version,
             evidence_hash=evidence_hash,
-            approval_validator=approval_validator,
+            approval_validator=approval_valid_at_commit,
             now=now,
         )
     except ProposalError as exc:
@@ -556,7 +600,7 @@ def dispatch(
         return claim
     request, captured_lease, attempt = claim.request, claim.lease, claim.attempt
     try:
-        transport = _backend_call(backend, request, backend_config)
+        transport = _backend_call(registration.backend, request, backend_config)
     except Exception as exc:
         transport = TransportResult(classify_error(exc))
 
@@ -582,6 +626,7 @@ def dispatch(
 
 __all__ = [
     "BACKENDS",
+    "BackendRegistration",
     "EffectOutcome",
     "EffectRefused",
     "EffectRequest",
