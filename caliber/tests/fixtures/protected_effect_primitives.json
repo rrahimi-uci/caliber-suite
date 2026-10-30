@@ -69,6 +69,14 @@
    }
   },
   {
+   "file": "caliber/src/caliber/workflows/step_openai_agents.py",
+   "symbol": "_build_tools",
+   "row": "EP-130",
+   "primitives": {
+    "invoke_tool": 1
+   }
+  },
+  {
    "file": "caliber/src/caliber/knowledge/service.py",
    "symbol": "KnowledgeBaseService._best_effort_delete_output_prefix",
    "row": "EP-061",

@@ -1821,15 +1821,10 @@ build on it and are not part of it.
   output, so a claimed commit or another step's result is `malformed_result`, returned by the adapter itself). Entries are used
   in order, one per caller even under concurrency, and a script that runs out refuses with `script_exhausted`; with no script
   every step `completed` with usage estimated from the input. `fake.step_requests` lists the requests it was asked.
-- **The provider executors refuse governed execution until each is integrated** (B08.openai-agents #728 remains); **B08.openai-chat
-  #729, B08.openai-responses #730 and B08.anthropic #727 are integrated**, see the provider sections below. The remaining
-  `OpenAIAgentsWorkflowExecutor` implements `run_step` and answers `refused` with `adapter_not_integrated` without building a
-  client, importing an SDK or touching the network. Each executor's `run_agent` (the ungoverned path every existing workflow uses)
-  is unchanged. **For the remaining task:** `runtime.py` reaches the module as
-  `_agent_step` (one import line already there), so add no new top-level import to the shared import block or `__all__` (use
-  `_agent_step.failure`, `_agent_step.answer`, `_agent_step.StepUsage` and so on, or import inside the method), replace only your
-  own `run_step` body, and regenerate the docs and search index last, after merging `origin/main`.
-  `OpenAIResponsesWorkflowExecutor` and `AnthropicChatWorkflowExecutor` no longer refuse, and their `run_agent` paths are still unchanged.
+- **The provider executors are integrated for governed execution** (B08.openai-agents #728, B08.openai-chat #729,
+  B08.openai-responses #730 and B08.anthropic #727). Each executor's `run_step` uses the shared typed step contract while
+  its `run_agent` path remains unchanged. The OpenAI Agents adapter loads the optional SDK lazily, runs only read tools,
+  and returns protected calls as unbound proposals; its ordinary tests use a deterministic SDK stub and never call a live provider.
 - **Conformance harness.** `caliber/tests/agent_step_conformance.py` is what a provider adapter's tests plug into (B08.5 #769
   parametrizes over it for the five executors). An adapter supplies a driver that builds it with its provider transport stubbed
   to a scenario and whose stub calls `ctx.provider_called()` each time the provider would be called. `run_scenario` checks,
@@ -1864,7 +1859,7 @@ Recovery is always the same shape: the occurrence is retried as the next `attemp
 
 | the adapter | result | recover by |
 | --- | --- | --- |
-| is an executor that is not integrated yet (`OpenAIAgents`) | `refused`, `adapter_not_integrated` | running the node with the scripted adapter, or waiting for that provider's B08 task; the ungoverned `run_agent` path is unaffected |
+ | has no Agents SDK installed | `refused`, `provider_unavailable` | install the optional Agents SDK extra; the legacy `run_agent` path remains available |
 | has no `run_step`, or an `async def` one | `refused`, `adapter_unsupported` | passing an `AgentStepAdapter` with a plain `run_step` |
 | raises (a provider error, anything else) | `adapter_error` | reading the server log (the exception's class and the step id, never its text) and retrying as the next attempt |
 | times out (`TimeoutError`) | `adapter_timeout` | the call's outcome is unknown: retry as the next attempt; the reservation is kept |
@@ -1896,6 +1891,31 @@ call `run_agent_step`; no governed node execution is enabled by this change.
 - **Failures.** Provider timeouts are `adapter_timeout`, other provider exceptions are `provider_error`, malformed Responses
   output is `malformed_result`, and a refusal message is `refused` with `model_refused`. Provider text, tool names, arguments and
   exception messages are not copied to results or logs.
+
+### OpenAI Agents governed step (B08.openai-agents, #728)
+
+`OpenAIAgentsWorkflowExecutor.run_step` runs one bounded governed step through the optional OpenAI Agents SDK; the
+adapter is `caliber.workflows.step_openai_agents` and the legacy `run_agent` path is unchanged. The SDK is loaded lazily
+through the executor and the ordinary conformance tests use a deterministic offline SDK stub.
+
+- **Tools.** Read tools are exposed with their normal function schema and are executed only from `step_input.read_tools`.
+  Protected tools are exposed with the strict proposal envelope (`connector`, `connector_version`, `effect_class`,
+  `resource`, `args`, and optional `expected_resource_version`). Their callback records the model's claim and returns a
+  fixed acknowledgment; it never resolves or calls the protected binding. The first protected call becomes one unbound
+  `proposed_action`; malformed JSON, unknown envelope fields (`state` or `receipt_id`) and invalid action values are
+  `malformed_result`.
+- **Limits and usage.** The request's deadline is checked before the provider call, `max_turns` is passed to the Agents
+  Runner, `max_tool_calls` stops read callbacks before another read runs, and provider usage above `max_tokens` returns
+  `max_tokens` with the usage retained. Provider input/output/total usage and cached input tokens are summed over raw
+  SDK responses; when the SDK supplies no raw response usage, the adapter marks the bounded estimate as `estimated`.
+- **Failures.** Provider timeouts are `adapter_timeout`, other provider exceptions are `provider_error`, unreadable SDK
+  output or proposals are `malformed_result`, a provider refusal is `refused` with `model_refused`, and an unavailable
+  optional SDK is `refused` with `provider_unavailable`. Provider text, tool arguments and exception messages are not copied
+  to results or logs.
+
+Results recover as for every governed step: a protected proposal proceeds to the approval/binding boundary, provider
+failures are retried as the next attempt with the reservation kept, and a missing optional SDK is fixed by installing the
+Agents SDK extra rather than falling back to an ungoverned protected-tool call.
 
 ### Anthropic governed step (B08.anthropic, #727)
 

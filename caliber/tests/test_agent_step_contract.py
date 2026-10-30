@@ -1302,8 +1302,7 @@ def test_other_kinds_keep_quoting_the_value_the_agent_step_kinds_do_not() -> Non
 def test_every_executor_implements_run_step(monkeypatch: pytest.MonkeyPatch) -> None:
     """Every ``WorkflowExecutor`` in the runtime is an ``AgentStepAdapter``; governed provider adapters run through a tripwire.
 
-    The unintegrated Agents executor answers with a ``refused`` result (``adapter_not_integrated``) and touches no provider; the
-    integrated provider executors answer with typed provider errors when their tripwire is called. The discovery makes the test fail for an executor that is
+    The integrated provider executors answer with typed results when their tripwire is called. The discovery makes the test fail for an executor that is
     added later without ``run_step``, so it cannot be left out of governed execution by accident.
     """
     executors = [
@@ -1355,6 +1354,4 @@ def test_every_executor_implements_run_step(monkeypatch: pytest.MonkeyPatch) -> 
             # Integrated (#730): it runs the step, and the tripwire client's failure is a typed provider error.
             assert (result.stop_reason, result.error_code) == ("error", "provider_error"), name
         else:
-            assert (result.stop_reason, result.error_code) == ("refused", ADAPTER_NOT_INTEGRATED), (
-                name
-            )
+            assert result.error_code != ADAPTER_NOT_INTEGRATED, name

@@ -1159,6 +1159,7 @@ class OpenAIAgentsWorkflowExecutor:
         parallel_tool_calls: bool = False,
         prompt_cache_enabled: bool = False,
         prompt_cache_retention: str | None = None,
+        step_clock: Callable[[], datetime] | None = None,
     ) -> None:
         self._api_key = api_key
         self._default_model = default_model
@@ -1167,6 +1168,7 @@ class OpenAIAgentsWorkflowExecutor:
         self._parallel_tool_calls = parallel_tool_calls
         self._prompt_cache_enabled = prompt_cache_enabled
         self._prompt_cache_retention = prompt_cache_retention or None
+        self._step_clock = step_clock
 
     @staticmethod
     def _sdk() -> tuple[Any, Any, Any, Any, Any, Any, Any, Any, Any]:
@@ -1202,13 +1204,30 @@ class OpenAIAgentsWorkflowExecutor:
     def run_step(
         self, request: _agent_step.AgentStepRequest, step_input: _agent_step.AgentStepInput
     ) -> _agent_step.AgentStepResult:
-        """Governed execution is not integrated for this executor yet (B08, #728): refused, no provider is called.
+        """Run one bounded governed Agents SDK step; governed execution is integrated.
 
-        The step is answered with a ``refused`` result (``adapter_not_integrated``) before any client is built or any
-        network is touched; :meth:`run_agent` is unchanged. The task that integrates this adapter replaces this body.
+        Read tools are the only callable tools and protected tools become unbound proposals.
         """
-        del step_input
-        return _agent_step.refusal(request, _agent_step.ADAPTER_NOT_INTEGRATED)
+        from caliber.workflows.step_openai_agents import (  # noqa: PLC0415
+            AgentsStepConfig,
+            run_openai_agents_step,
+        )
+
+        return run_openai_agents_step(
+            AgentsStepConfig(
+                default_model=self._default_model,
+                reasoning_effort=self._reasoning_effort,
+                api_key=self._api_key,
+                base_url=self._base_url,
+                parallel_tool_calls=self._parallel_tool_calls,
+                prompt_cache_enabled=self._prompt_cache_enabled,
+                prompt_cache_retention=self._prompt_cache_retention,
+                clock=self._step_clock,
+                sdk_loader=self._sdk,
+            ),
+            request,
+            step_input,
+        )
 
     def run_agent(  # noqa: PLR0915 - SDK orchestration plus tool/result bridging
         self,
