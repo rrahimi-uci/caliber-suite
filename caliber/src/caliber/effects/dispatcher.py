@@ -31,6 +31,7 @@ from sqlalchemy.orm import Session
 from caliber.db.models import CaliberRuntimeApprovalRequest, CaliberWorkflowRun
 from caliber.effects.connectors import (
     Classified,
+    ConnectorCapability,
     TransportOutcome,
     classify_error,
     classify_result,
@@ -66,6 +67,27 @@ from caliber.workflows.approval_policy import (
 _CASE_RESOURCE = re.compile(
     r"^cases/(?P<case_id>[A-Za-z0-9][A-Za-z0-9._-]{0,127})/document-requests$"
 )
+HTTP_CONNECTOR = "http"
+HTTP_VERSION = "1"
+# Generic HTTP has no platform-wide promise about key scope, retention, or a
+# read-by-key endpoint.  The runtime may still dispatch it, but the caller must
+# provide an authoritative receipt verifier for each endpoint.  This capability
+# deliberately cannot claim exactly-once semantics on its own.
+HTTP_CAPABILITY = ConnectorCapability(
+    connector=HTTP_CONNECTOR,
+    version=HTTP_VERSION,
+    idempotency_key_header="Idempotency-Key",
+    key_scope="unknown",
+    key_retention="unconfirmed",
+    key_retention_seconds=None,
+    key_conflict_status=None,
+    precondition_header=None,
+    stale_precondition_status=None,
+    definitive_rejection_statuses=frozenset(),
+    lookup_by_key=False,
+    lookup_consistency="unknown",
+    absence_proves_noncommit=False,
+)
 
 
 class EffectRefused(RuntimeError):  # noqa: N818 - stable public refusal name in the issue contract
@@ -93,6 +115,7 @@ class EffectOutcome:
     receipt_id: str | None = None
     reason: str | None = None
     applied: bool = True
+    response: Mapping[str, Any] | None = None
 
     @property
     def transport_outcome(self) -> TransportOutcome | None:
@@ -114,6 +137,7 @@ class TransportResult:
 
     outcome: Classified
     verify: Callable[[], ReceiptFacts | None] | None = None
+    response: Mapping[str, Any] | None = None
 
 
 class PrivateBackend(Protocol):
@@ -198,6 +222,54 @@ class _Backend:
         return TransportResult(classified, verify)
 
 
+class _HttpBackend:
+    """Private raw HTTP adapter for governed webhook and API-request nodes.
+
+    This backend intentionally accepts a transport callable and an authoritative
+    receipt verifier through ``config``.  It never calls a public CALIBER route
+    or the OpenAPI execution surface recursively.  A caller that cannot verify a
+    committed response is refused before sending anything.
+    """
+
+    def perform(self, request: EffectRequest, config: Mapping[str, Any] | None) -> TransportResult:
+        if (
+            request.view.connector != HTTP_CONNECTOR
+            or request.view.connector_version != HTTP_VERSION
+        ):
+            raise _TransportRefusedError("connector_binding_mismatch")
+        settings = dict(config or {})
+        sender = settings.get("sender")
+        verifier = settings.get("receipt_verifier")
+        if not callable(sender) or not callable(verifier):
+            raise _TransportRefusedError("backend_config_missing")
+        args = request.intent.get("args")
+        if not isinstance(args, Mapping) or args.get("url") != request.view.resource:
+            raise _TransportRefusedError("connector_intent_unsupported")
+        outgoing = dict(args)
+        headers = outgoing.get("headers")
+        if headers is None:
+            headers = {}
+        if not isinstance(headers, Mapping):
+            raise _TransportRefusedError("connector_intent_unsupported")
+        outgoing["headers"] = {str(key): str(value) for key, value in headers.items()}
+        outgoing["headers"].setdefault("Idempotency-Key", request.view.logical_key)
+        try:
+            result = sender(outgoing)
+        except Exception as exc:
+            return TransportResult(classify_error(exc))
+        if not isinstance(result, Mapping) or type(result.get("status_code")) is not int:
+            raise _TransportRefusedError("transport_result_invalid")
+        response = dict(result)
+        classified = classify_result(response, capability=HTTP_CAPABILITY)
+        if classified.outcome is not TransportOutcome.COMMITTED_RECEIPT:
+            return TransportResult(classified, response=response)
+
+        def verify() -> ReceiptFacts | None:
+            return verifier(request, response)
+
+        return TransportResult(classified, verify, response=response)
+
+
 class _TransportRefusedError(RuntimeError):
     """A backend refused before sending anything; it is not a downstream result."""
 
@@ -215,6 +287,11 @@ BACKENDS: dict[str, BackendRegistration] = {
         backend=_Backend(),
         connector=_document_request.CONNECTOR,
         connector_version=_document_request.VERSION,
+    ),
+    "http": BackendRegistration(
+        backend=_HttpBackend(),
+        connector=HTTP_CONNECTOR,
+        connector_version=HTTP_VERSION,
     ),
 }
 
@@ -419,7 +496,10 @@ def _backend_call(
 
 
 def _outcome_from_settled(
-    proposal_id: str, classified: Classified, settled: Settled
+    proposal_id: str,
+    classified: Classified,
+    settled: Settled,
+    response: Mapping[str, Any] | None = None,
 ) -> EffectOutcome:
     return EffectOutcome(
         proposal_id=proposal_id,
@@ -428,6 +508,7 @@ def _outcome_from_settled(
         receipt_id=settled.receipt_id,
         reason=settled.reason,
         applied=settled.applied,
+        response=response,
     )
 
 
@@ -619,7 +700,9 @@ def dispatch(
                 now=now,
             )
             session.commit()
-            return _outcome_from_settled(proposal_id, transport.outcome, settled)
+            return _outcome_from_settled(
+                proposal_id, transport.outcome, settled, transport.response
+            )
     except ProposalError as exc:
         raise EffectRefused(exc.code) from exc
 
@@ -630,6 +713,9 @@ __all__ = [
     "EffectOutcome",
     "EffectRefused",
     "EffectRequest",
+    "HTTP_CAPABILITY",
+    "HTTP_CONNECTOR",
+    "HTTP_VERSION",
     "PrivateBackend",
     "TransportResult",
     "UnsupportedEffectPath",
