@@ -83,7 +83,7 @@ from caliber.workflows.file_tools import (
     bind_project_managed_file_runtime,
     managed_file_tool_aliases,
 )
-from caliber.workflows.ir import IRSubworkflow, IRWorkflow
+from caliber.workflows.ir import IRSubworkflow, IRWorkflow, PromptRef
 from caliber.workflows.manifest import (
     AgentNode,
     DeployGate,
@@ -94,6 +94,7 @@ from caliber.workflows.manifest import (
 from caliber.workflows.runtime import (
     DEFAULT_PARALLEL_BRANCH_MAX_WORKERS,
     AgentContextAssembly,
+    AgentContextInput,
     AnthropicChatWorkflowExecutor,
     FakeWorkflowExecutor,
     NodeStep,
@@ -854,7 +855,8 @@ def build_plan(  # noqa: PLR0915 - central workflow plan assembler
     pinned_bundle: dict[str, Any] | None = None,
     source_guard: Callable[[str], None] | None = None,
     require_source_guard: bool = False,
-    context_recorder: Callable[[AgentContextAssembly], None] | None = None,
+    context_recorder: Callable[[AgentContextAssembly], str | None] | None = None,
+    memory_read_authorizer: Callable[[str], str] | None = None,
 ) -> RuntimePlan:
     """Compile and wrap a version into an executable :class:`RuntimePlan`.
 
@@ -1070,6 +1072,7 @@ def build_plan(  # noqa: PLR0915 - central workflow plan assembler
             source_guard=source_guard,
             require_source_guard=require_source_guard,
             context_recorder=context_recorder,
+            memory_read_authorizer=memory_read_authorizer,
         )
         run_ctx = current_run_context()
         execution_result = execute(
@@ -1090,6 +1093,60 @@ def build_plan(  # noqa: PLR0915 - central workflow plan assembler
             "tokens": execution_result.tokens,
             "steps": [step.node_id for step in execution_result.steps],
         }
+
+    def _record_knowledge_model_context(details: dict[str, Any]) -> None:
+        """Record the RAG synthesis prompt before its provider call."""
+        if context_recorder is None:
+            return
+        version_id = str(details.get("version_id") or "").strip()
+        knowledge_base_id = str(details.get("knowledge_base_id") or "").strip()
+        decision_id = getattr(source_guard, "decisions", {}).get(version_id)
+        if not version_id or not knowledge_base_id or not isinstance(decision_id, str):
+            raise ContextDenied("authorization_rejected")
+        provenance = [
+            {
+                "authorization_decision_id": decision_id,
+                "source": {
+                    "kind": "knowledge_base",
+                    "knowledge_base_id": knowledge_base_id,
+                    "version_id": version_id,
+                },
+            }
+        ]
+        raw_history = details.get("history")
+        history = (
+            tuple(dict(item) for item in raw_history if isinstance(item, dict))
+            if isinstance(raw_history, list)
+            else ()
+        )
+        occurrence_id = details.get("occurrence_id")
+        attempt = details.get("attempt")
+        context_recorder(
+            AgentContextAssembly(
+                node_id=str(details.get("node_id") or "knowledge_query"),
+                instructions=PromptRef(
+                    kind="inline", inline_text=str(details.get("system_instruction") or "")
+                ),
+                instruction_text=str(details.get("system_instruction") or ""),
+                skill_instructions=(),
+                history=history,
+                inputs=(
+                    AgentContextInput(
+                        port="input",
+                        text=str(details.get("user_prompt") or ""),
+                        origin_node_id=str(details.get("node_id") or "knowledge_query"),
+                        origin_node_type="knowledge_query",
+                        origin_result={
+                            "resolved_version_ids": [version_id],
+                            "context_provenance": provenance,
+                        },
+                        authorization_decision_ids=(decision_id,),
+                    ),
+                ),
+                occurrence_id=occurrence_id if isinstance(occurrence_id, str) else None,
+                attempt=attempt if type(attempt) is int and attempt >= 1 else 1,
+            )
+        )
 
     def _run_knowledge_query(payload: dict[str, Any]) -> dict[str, Any]:
         if require_source_guard and source_guard is None:
@@ -1136,6 +1193,12 @@ def build_plan(  # noqa: PLR0915 - central workflow plan assembler
         result = knowledge_service.query(
             request,
             identity=workflow_identity,
+            model_context_recorder=_record_knowledge_model_context,
+            model_context={
+                "node_id": raw.get("_context_node_id"),
+                "occurrence_id": raw.get("_context_occurrence_id"),
+                "attempt": raw.get("_context_attempt"),
+            },
         ).model_dump(mode="json")
         # Pin the resolved corpus version(s) into the node output so a run that
         # followed the KB's *active* pointer stays reproducible after that
@@ -1296,6 +1359,11 @@ def build_plan(  # noqa: PLR0915 - central workflow plan assembler
         knowledge_query_runner=_run_knowledge_query,
         knowledge_build_runner=_run_knowledge_build,
         context_recorder=context_recorder,
+        memory_read_authorizer=memory_read_authorizer,
+        context_provenance_resolver=(
+            getattr(source_guard, "decisions", {}).get if source_guard is not None else None
+        ),
+        context_source_guard_present=source_guard is not None,
         review_queue_enqueuer=_enqueue_review,
         session_memory_store=session_memory_store,
         subworkflow_depth=subworkflow_depth,

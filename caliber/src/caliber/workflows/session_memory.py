@@ -17,6 +17,11 @@ from caliber.db.models import CaliberWorkflowSessionMemory
 HistoryMessage = dict[str, str]
 
 
+def memory_reference_for(workflow_id: str, node_id: str, session_id: str) -> str:
+    """Stable, bounded resource name used to authorize one session-memory read."""
+    return f"workflow:{workflow_id}/node:{node_id}/session:{session_id}"
+
+
 def _normalize_history(
     history: list[dict[str, object]] | list[HistoryMessage],
 ) -> list[HistoryMessage]:
@@ -151,4 +156,5 @@ __all__ = [
     "InMemoryWorkflowSessionMemoryStore",
     "SqlWorkflowSessionMemoryStore",
     "WorkflowSessionMemoryStore",
+    "memory_reference_for",
 ]

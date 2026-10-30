@@ -39,6 +39,31 @@
       "type": "integer",
       "minimum": 1
     },
+    "step": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "node_id",
+        "occurrence_id",
+        "attempt"
+      ],
+      "properties": {
+        "node_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "occurrence_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "attempt": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
     "tenant_id": {
       "type": "string",
       "minLength": 1
@@ -88,6 +113,8 @@
               "user_input",
               "retrieved_text",
               "tool_output",
+              "tool_spec",
+              "structured_output_suffix",
               "history",
               "memory"
             ]
@@ -177,6 +204,15 @@
             "type": "string",
             "minLength": 1,
             "maxLength": 64
+          },
+          "authorization_decision_ids": {
+            "type": "array",
+            "maxItems": 64,
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64
+            }
           }
         },
         "allOf": [
@@ -196,7 +232,8 @@
                 "kind": {
                   "enum": [
                     "system_instruction",
-                    "workflow_instruction"
+                    "workflow_instruction",
+                    "structured_output_suffix"
                   ]
                 }
               }
@@ -326,6 +363,64 @@
                       "const": "tool"
                     }
                   }
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "kind": {
+                  "const": "tool_spec"
+                }
+              },
+              "required": [
+                "kind"
+              ]
+            },
+            "then": {
+              "properties": {
+                "tier": {
+                  "const": "data"
+                },
+                "source": {
+                  "properties": {
+                    "kind": {
+                      "const": "tool"
+                    }
+                  },
+                  "required": [
+                    "reference"
+                  ]
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "kind": {
+                  "const": "structured_output_suffix"
+                }
+              },
+              "required": [
+                "kind"
+              ]
+            },
+            "then": {
+              "properties": {
+                "tier": {
+                  "const": "instruction"
+                },
+                "source": {
+                  "properties": {
+                    "kind": {
+                      "const": "prompt"
+                    }
+                  },
+                  "required": [
+                    "reference"
+                  ]
                 }
               }
             }

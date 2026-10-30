@@ -186,6 +186,63 @@ def test_one_manifest_per_agent_step(
     for row in rows:
         built = load_context_manifest(db_session, world.run_id, row.step_request_id)
         assert built is not None and built.manifest_digest == row.manifest_digest
+        assert built.step == {
+            "node_id": row.occurrence_id.split(":", 1)[0],
+            "occurrence_id": row.occurrence_id,
+            "attempt": 1,
+        }
+        assert row.node_step_id
+
+
+def test_provider_specs_suffix_and_tool_results_are_digest_bound_revisions(
+    client: TestClient, db_session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from caliber.context.assembly import context_recorder_for
+    from caliber.workflows.runtime import AgentContextAssembly, AgentContextInput
+
+    world = _make_world(client, db_session, monkeypatch, sources_required=False)
+    recorder = context_recorder_for(
+        client.app.state.session_factory,
+        {"workflow_run_id": world.run_id, "project_id": PROJECT},
+        None,
+    )
+    assembly = AgentContextAssembly(
+        node_id="agent",
+        instructions=None,
+        instruction_text="",
+        skill_instructions=(),
+        history=(),
+        inputs=(AgentContextInput(port="input", text="hello", origin_node_type="start"),),
+        occurrence_id="agent:one",
+        attempt=2,
+        tool_specs=({"type": "function", "function": {"name": "lookup", "parameters": {}}},),
+        structured_output_suffix="Return JSON.",
+    )
+
+    request_id = recorder(assembly)
+    revision_id = recorder(
+        replace(
+            assembly,
+            step_request_id=request_id,
+            tool_results=({"tool": "lookup", "result": {"ok": True}},),
+        )
+    )
+    assert revision_id == request_id
+    rows = world.manifests()
+    assert [row.revision for row in rows] == [1, 2]
+    first = load_context_manifest(db_session, world.run_id, request_id)
+    assert first is not None
+    second = db_session.get(CaliberContextManifest, rows[1].context_manifest_id)
+    assert second is not None
+    second_record = json.loads(second.manifest_bytes)
+    assert [segment["kind"] for segment in second_record["segments"]] == [
+        "structured_output_suffix",
+        "tool_spec",
+        "tool_output",
+        "user_input",
+    ]
+    assert second_record["step"]["attempt"] == 2
+    assert second.node_step_id == first.node_step_id
 
 
 def test_retrieved_instruction_stays_data(

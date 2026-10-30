@@ -95,19 +95,20 @@ before the provider sees any of it; stored as canonical bytes with their SHA-256
 | `workflow_run_id` | string | yes | the run it belongs to |
 | `step_request_id` | string | yes | the agent-step request it was assembled for; unique with `revision` per run |
 | `revision` | integer (at least 1) | yes | a re-assembly of the same step is a new revision, never an edit |
+| `step` | object | no | additive v1 linkage to the logical `(node_id, occurrence_id, attempt)`; absent on older Beta manifests |
 | `tenant_id` | string | yes | `local` in the reference profile (ADR 0001) |
 | `region` | string | yes | `local` in the reference profile |
 | `residency` | string | no | `local` when absent |
 | `project_id` | string | no | the project the run was admitted in |
-| `segments` | array of objects | yes | in the order the provider sees them: `position` (0-based, contiguous), `tier` (`instruction` or `data`), `kind` (`system_instruction`, `workflow_instruction`, `user_input`, `retrieved_text`, `tool_output`, `history`, `memory`), `source` (`kind` of `prompt`, `input`, `knowledge_base`, `tool`, `memory`, `history`, with `knowledge_base_id`, `version_id` or `reference`), `content_digest`, `tokens`, optional `retrieval` (`mode`, `index_version`), `transform` (`name`, `version`) and `authorization_decision_id`. The content itself is not stored here, only its digest. |
+| `segments` | array of objects | yes | in the order the provider sees them: `position` (0-based, contiguous), `tier` (`instruction` or `data`), `kind` (`system_instruction`, `workflow_instruction`, `structured_output_suffix`, `user_input`, `retrieved_text`, `tool_spec`, `tool_output`, `history`, `memory`), `source` (`kind` of `prompt`, `input`, `knowledge_base`, `tool`, `memory`, `history`, with `knowledge_base_id`, `version_id` or `reference`), `content_digest`, `tokens`, optional `retrieval` (`mode`, `index_version`), `transform` (`name`, `version`), `authorization_decision_id` and plural `authorization_decision_ids` for derived values. The content itself is not stored here, only its digest. |
 | `omitted` | array of objects | no | what was left out: `source`, `reason` (`token_budget`, `unauthorized`, `redacted`, `filtered`, `duplicate`) and `tokens` |
 | `redacted` | array of objects | no | segments changed for a policy reason: `position`, `fields`, `reason` |
 | `rule_bundle` | object | no | the operator-pinned rule bundle the run was admitted with, cited by the step (B07.5b, #736): `bundle_id`, `version`, `sha256` (the digest the run manifest pinned at admission) and `rules`, one `{rule_id, source_ref, text_digest}` per selected rule (its provenance and the SHA-256 of its text; the text itself is not stored). Absent when the run was admitted without a bundle, and on a manifest written before it |
 | `token_allocation` | object | yes | `budget`, `used`, `instruction`, `data`, and optionally `sections`: one `{section, cap_tokens, used_tokens}` per capped section (`retrieved`, `history`), where `used_tokens` equals the tokens of that section's segments and does not exceed `cap_tokens` (B07.4, #719; absent on a manifest written before it) |
 | `created_at` | string (RFC 3339 date-time) | yes | when the manifest was written |
 
-Rules beyond field shapes. The schema enforces these: an `instruction` segment comes only from a system or workflow
-instruction and every one is `instruction` tier; **a segment's `kind` must match its `source.kind`** (instructions from a
+Rules beyond field shapes. The schema enforces these: an `instruction` segment comes only from a system/workflow
+instruction or structured-output suffix and every one is `instruction` tier; **a segment's `kind` must match its `source.kind`** (instructions from a
 `prompt`, `user_input` from `input`, `tool_output` from `tool`, `history` from `history`, `memory` from `memory`,
 `retrieved_text` from a `knowledge_base`), so text cannot be promoted to an instruction by labelling it; retrieved text is
 `data` tier; a knowledge-base source names `knowledge_base_id` and `version_id`, a prompt or memory source a `reference`;
@@ -245,6 +246,11 @@ EventEnvelope: a CloudEvents 1.0 envelope; the payload is referenced, never inli
 AgentStepRequest (B08.1a, #713): one bounded agent step, asked of an adapter. Built by the platform, never by the provider.
 Every identifier below (`step_request_id`, `workflow_run_id`, `node_id`, `occurrence_id`, `grant_id`) follows the rule
 `caliber.effects.records` applies to the same fields: not blank, no control characters, no lone surrogates.
+
+The B07.6 context manifest uses its optional `step` object to link every recorded provider call to the same
+`(node_id, occurrence_id, attempt)` tuple. This includes agent-provider calls, knowledge-query answer synthesis and
+LLM-backed guardrail judges; a tool-result revision keeps the original `step_request_id` and tuple. Older manifests
+without `step` remain readable as historical records.
 
 | field | type | required | note |
 | --- | --- | --- | --- |

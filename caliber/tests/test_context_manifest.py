@@ -157,6 +157,50 @@ def test_hash_round_trip() -> None:
     assert read_context_manifest(pretty) == record, "a reader accepts any form of a valid record"
 
 
+def test_logical_step_linkage_is_optional_and_bounded() -> None:
+    built = _build(step={"node_id": "agent", "occurrence_id": "agent:item:3", "attempt": 2})
+
+    assert built.record["step"] == {
+        "node_id": "agent",
+        "occurrence_id": "agent:item:3",
+        "attempt": 2,
+    }
+    assert built.node_step_id == "WR-cm:agent:agent:item:3"
+    assert built.row_values()["occurrence_id"] == "agent:item:3"
+    assert built.row_values()["attempt"] == 2
+
+
+def test_provider_metadata_is_recorded_as_ordered_provider_material() -> None:
+    built = _build(
+        segments=[
+            ContextSegment(
+                "instruction",
+                "structured_output_suffix",
+                {"kind": "prompt", "reference": "structured-output:agent"},
+                "Return JSON.",
+                3,
+            ),
+            ContextSegment(
+                "data",
+                "tool_spec",
+                {"kind": "tool", "reference": "lookup"},
+                '{"name":"lookup"}',
+                4,
+            ),
+        ]
+    )
+
+    record = built.record
+    assert [segment["kind"] for segment in record["segments"]] == [
+        "structured_output_suffix",
+        "tool_spec",
+    ]
+    assert record["segments"][0]["tier"] == "instruction"
+    assert (
+        record["segments"][1]["content_digest"] == hashlib.sha256(b'{"name":"lookup"}').hexdigest()
+    )
+
+
 def test_retrieved_text_is_data_tier() -> None:
     built = _build()
     retrieved = built.record["segments"][2]

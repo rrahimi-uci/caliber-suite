@@ -31,7 +31,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from caliber.audit import record as audit_record
-from caliber.context.sources import is_approved, source_resource
+from caliber.context.sources import is_approved, memory_resource, source_resource
 from caliber.db.models import CaliberKnowledgeBaseVersion
 from caliber.policy.decisions import (
     REFERENCE_POLICY_V1,
@@ -51,6 +51,7 @@ SOURCE_NOT_APPROVED: Final = "source_not_approved"
 GOVERNED_RUN_REQUIRED: Final = "governed_run_required"
 _MESSAGE: Final = "this run may not read that context source"
 _GOVERNED_RUN_MESSAGE: Final = "this knowledge operation requires an admitted workflow run"
+_MAX_MEMORY_REFERENCE_LENGTH: Final = 256
 
 
 class ContextDenied(PermissionError):  # noqa: N818 - a refusal, named for what it says
@@ -74,6 +75,14 @@ class ContextAuthorization:
 
     knowledge_base_id: str
     version_id: str
+    decision: PolicyDecision
+
+
+@dataclass(frozen=True)
+class MemoryAuthorization:
+    """A recorded allow for one run-scoped session-memory reference."""
+
+    reference: str
     decision: PolicyDecision
 
 
@@ -153,6 +162,67 @@ def authorize_source(
     return ContextAuthorization(knowledge_base_id, version_id, decision)
 
 
+def authorize_memory(
+    session: Session,
+    identity: Subject,
+    run_manifest: Mapping[str, Any],
+    grant_id: str,
+    reference: str,
+    *,
+    policy: Policy = REFERENCE_POLICY_V1,
+    now: datetime | None = None,
+) -> MemoryAuthorization:
+    """Authorize one session-memory read before the memory store is touched.
+
+    Memory is not a knowledge-base source and therefore has no approval row. It
+    still uses the same exact run grant and ``context.read`` decision as other
+    governed context, so a run without that authority cannot load prior turns.
+    """
+    if (
+        type(reference) is not str
+        or not reference.strip()
+        or len(reference) > _MAX_MEMORY_REFERENCE_LENGTH
+        or not reference.isprintable()
+    ):
+        raise ContextDenied(MANIFEST_INVALID)
+    try:
+        saved = Subject.from_manifest(
+            run_manifest["subject"], project_id=run_manifest.get("project_id")
+        )
+        workload = Workload.from_manifest(run_manifest["workload"])
+        run_id = str(run_manifest["workflow_run_id"])
+        purpose = str(run_manifest["purpose"])
+    except (KeyError, PrincipalError) as exc:
+        raise ContextDenied(MANIFEST_INVALID) from exc
+    if (identity.user_id, identity.auth_method) != (saved.user_id, saved.auth_method):
+        raise ContextDenied(IDENTITY_MISMATCH)
+    try:
+        decision = decide(
+            session,
+            run_id=run_id,
+            grant_id=grant_id,
+            subject=saved,
+            workload=workload,
+            action=CONTEXT_READ,
+            resource=memory_resource(reference),
+            purpose=purpose,
+            policy=policy,
+            now=now,
+        )
+    except DecisionInputError as exc:
+        raise ContextDenied(MANIFEST_INVALID) from exc
+    except SQLAlchemyError as exc:
+        raise ContextDenied(AUTHORITY_UNAVAILABLE) from exc
+    if not decision.allowed:
+        code = (
+            AUTHORITY_UNAVAILABLE
+            if AUTHORITY_UNAVAILABLE in decision.reason_codes
+            else AUTHORITY_DENIED
+        )
+        raise ContextDenied(code, decision.reason_codes)
+    return MemoryAuthorization(reference, decision)
+
+
 def _commit_quietly(session: Session) -> None:
     try:
         session.commit()
@@ -185,6 +255,7 @@ class SourceGuard:
         self._grant_id = grant_id
         self._policy = policy
         self.decisions: dict[str, str] = {}
+        self.memory_decisions: dict[str, str] = {}
 
     def __call__(self, version_id: str) -> None:
         try:
@@ -215,6 +286,32 @@ class SourceGuard:
             raise ContextDenied(AUTHORITY_UNAVAILABLE) from None
         self.decisions[version_id] = authorization.decision.decision_id
 
+    def authorize_memory(self, reference: str) -> str:
+        """Record and return the decision allowing one session-memory read."""
+        try:
+            with self._session_factory() as session:
+                try:
+                    authorization = authorize_memory(
+                        session,
+                        self._identity,
+                        self._run_manifest,
+                        self._grant_id,
+                        reference,
+                        policy=self._policy,
+                    )
+                except ContextDenied:
+                    _commit_quietly(session)
+                    raise
+                except SQLAlchemyError:
+                    session.rollback()
+                    raise ContextDenied(AUTHORITY_UNAVAILABLE) from None
+                session.commit()
+        except SQLAlchemyError:
+            raise ContextDenied(AUTHORITY_UNAVAILABLE) from None
+        decision_id = authorization.decision.decision_id
+        self.memory_decisions[reference] = decision_id
+        return decision_id
+
 
 def source_guard_for(
     session_factory: Callable[[], Session],
@@ -237,7 +334,9 @@ __all__ = [
     "SOURCE_NOT_APPROVED",
     "ContextAuthorization",
     "ContextDenied",
+    "MemoryAuthorization",
     "SourceGuard",
+    "authorize_memory",
     "authorize_source",
     "source_guard_for",
 ]
