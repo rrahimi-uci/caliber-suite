@@ -39,16 +39,43 @@ It is pure (the caller reads the row and passes the clock), so the decision rout
 
 Separation of duties is :func:`assert_distinct_actor` (B06.1, #706), extracted from
 :func:`record_approval` so every approval path applies one rule with one message. The request
-that binds an approval to one effect proposal is ``caliber.workflows.approval_requests``, kept in
-its own module so this one stays a cheap, database-free import (manifest validation imports it
-lazily).
+that binds an approval to one effect proposal is ``caliber.workflows.approval_requests``. The
+pure policy helpers remain usable without a request, while the commit validator below imports
+the persistence and run-authority contracts needed for the actual dispatch boundary.
 """
 
 from __future__ import annotations
 
+import hashlib
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Final
+
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+
+from caliber.db.models import (
+    CaliberEffectProposal,
+    CaliberProject,
+    CaliberProjectMember,
+    CaliberRuntimeApprovalRequest,
+    CaliberWorkflowRun,
+)
+from caliber.effects.records import ProposalError, read_proposal
+from caliber.policy.grants import AUTHORITY_UNAVAILABLE
+from caliber.resource_access import (
+    ACTION_APPROVE,
+    OWNER_ROLE_REQUIRED_SCOPES,
+    PROJECT_ACTIONS,
+    ROLE_EDITOR,
+    ROLE_OWNER,
+)
+from caliber.run_manifest import canonical_bytes
+from caliber.workflows.run_identity import (
+    IdentityDenied,
+    RunIdentity,
+    identity_for_run,
+)
 
 #: The default role an approval node requires when the manifest says nothing.
 DEFAULT_REQUIRED_ROLE = "caliber.approver"
@@ -70,12 +97,67 @@ VALID_ROLES: frozenset[str] = frozenset(
 #: ``approval_superseded`` named in the plan.
 REFUSAL_EXPIRED: Final = "expired"
 REFUSAL_SUPERSEDED: Final = "superseded"
+REFUSAL_INTENT_MISMATCH: Final = "intent_mismatch"
+REFUSAL_ROLE_REVOKED: Final = "role_revoked"
+REFUSAL_STALE_VERSION: Final = "stale_version"
+REFUSAL_SELF_APPROVAL: Final = "self_approval"
+REFUSAL_NOT_APPROVED: Final = "not_approved"
+REFUSAL_ALREADY_CONSUMED: Final = "already_consumed"
+REFUSAL_NOT_FOUND: Final = "not_found"
+REFUSAL_AUTHORITY_UNAVAILABLE: Final = "authority_unavailable"
 #: ``status`` of a request that a newer request for the same node replaced.
 STATUS_SUPERSEDED: Final = "superseded"
 
 
 class ApprovalPolicyError(ValueError):
     """The node's approval policy is not one the runtime can honour."""
+
+
+class ApprovalCommitRefusedError(PermissionError):
+    """A bound approval cannot authorize a dispatch in the current transaction.
+
+    ``code`` is a stable, non-sensitive refusal vocabulary for the dispatcher and
+    its recovery/event paths.  The exception deliberately does not include ids in
+    its default message: callers can log the surrounding transaction context under
+    their normal access controls without turning an API refusal into an identifier
+    oracle.
+    """
+
+    def __init__(
+        self, code: str, message: str | None = None, *, reasons: tuple[str, ...] = ()
+    ) -> None:
+        super().__init__(message or code)
+        self.code = code
+        self.reasons = reasons
+
+
+@dataclass(frozen=True)
+class ApprovalCommit:
+    """The exact, rechecked approval facts a dispatcher may carry into its claim.
+
+    The rows remain owned by the caller's transaction and are not consumed here.
+    A later dispatcher step must consume the same locked request and proposal in
+    that transaction; this value only makes the verified identity and pins
+    explicit, so it cannot accidentally substitute the approver for the run's
+    original subject.
+    """
+
+    run_id: str
+    approval_id: str
+    proposal_id: str
+    approver_id: str
+    intent_hash: str
+    evidence_hash: str
+    policy_digest: str
+    expected_resource_version: str | None
+    grant_id: str
+    decision_id: str
+    run_identity: RunIdentity
+
+
+# The shorter name reads naturally at call sites and remains the public contract;
+# the concrete class uses the repository's Error suffix convention.
+ApprovalCommitRefused = ApprovalCommitRefusedError
 
 
 @dataclass(frozen=True)
@@ -139,6 +221,11 @@ class ApprovalPolicy:
             timeout_behavior=str(getattr(node, "timeout_behavior", "block") or "block"),
             allow_self_approval=allow_self_approval,
         )
+
+
+def policy_digest(policy: ApprovalPolicy) -> str:
+    """Digest the normalized policy snapshot stored with a bound request."""
+    return "sha256:" + hashlib.sha256(canonical_bytes(policy.to_snapshot())).hexdigest()
 
 
 def validate_timeout_behavior(value: str) -> str:
@@ -232,6 +319,233 @@ def approval_refusal(
     return None
 
 
+_CURRENT_RESOURCE_VERSION_MISSING: Final = object()
+_DIGEST_LENGTH: Final = len("sha256:") + 64
+
+
+def _is_digest(value: object) -> bool:
+    return (
+        isinstance(value, str)
+        and len(value) == _DIGEST_LENGTH
+        and value.startswith("sha256:")
+        and all(character in "0123456789abcdef" for character in value[7:])
+    )
+
+
+def approval_valid_at_commit(  # noqa: PLR0912, PLR0915 - one fail-closed commit gate owns all pins
+    session: Session,
+    *,
+    approval_id: str,
+    proposal_id: str,
+    approver_scopes: frozenset[str] | set[str],
+    current_resource_version: str | object | None = _CURRENT_RESOURCE_VERSION_MISSING,
+    evidence_hash: str | None = None,
+    now: datetime | None = None,
+) -> ApprovalCommit:
+    """Recheck a bound approval immediately before an effect claim.
+
+    This is the producer-owned B06.3 contract consumed by B04.1's dispatcher.
+    It does not decide or consume the request and it does not call a connector.
+    The caller must keep the returned rows in the same transaction while it
+    atomically consumes the approval and claims dispatch.
+
+    Lock order is ``run -> proposal -> approval``.  The run lock serializes
+    approval/request changes for one run; the proposal lock makes the canonical
+    intent and state read stable; the approval lock makes expiry, supersession and
+    consumption checks apply to the row that will be consumed.  PostgreSQL uses
+    these locks for the claim transaction; SQLite remains development-only and
+    serializes its write transaction.
+
+    ``current_resource_version`` is required for a versioned target.  Omitting it
+    is therefore a fail-closed ``stale_version`` refusal, not permission to dispatch
+    without checking the downstream.  An unversioned proposal has a ``None``
+    expected version and may omit it.  When ``evidence_hash`` is supplied it is the
+    current evidence digest produced by the dispatcher and must equal the frozen
+    digest shown to the approver; when omitted, the stored digest is still checked
+    for shape and remains the evidence pin carried into the claim.
+
+    The run authority check deliberately delegates to :func:`identity_for_run`.
+    That function loads the manifest's exact original subject, workload, purpose,
+    run id and grant id before calling :func:`decide`; the approving principal is
+    checked separately from the request row and is never substituted into that
+    grant.
+    """
+    moment = now if now is not None else datetime.now(timezone.utc)
+    if not isinstance(moment, datetime) or moment.tzinfo is None:
+        raise ApprovalCommitRefused(REFUSAL_AUTHORITY_UNAVAILABLE)
+    moment = moment.astimezone(timezone.utc)
+
+    # These are deliberately separate row reads so the lock order is visible in
+    # code and can be kept aligned with the future dispatcher claim.
+    run = session.execute(
+        select(CaliberWorkflowRun)
+        .where(CaliberWorkflowRun.workflow_run_id == _proposal_run_id(session, proposal_id))
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    ).scalar_one_or_none()
+    if run is None:
+        raise ApprovalCommitRefused(REFUSAL_NOT_FOUND)
+
+    proposal = session.execute(
+        select(CaliberEffectProposal)
+        .where(
+            CaliberEffectProposal.proposal_id == proposal_id,
+            CaliberEffectProposal.workflow_run_id == run.workflow_run_id,
+        )
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    ).scalar_one_or_none()
+    if proposal is None:
+        raise ApprovalCommitRefused(REFUSAL_NOT_FOUND)
+
+    approval = session.execute(
+        select(CaliberRuntimeApprovalRequest)
+        .where(
+            CaliberRuntimeApprovalRequest.runtime_approval_id == approval_id,
+            CaliberRuntimeApprovalRequest.workflow_run_id == run.workflow_run_id,
+        )
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    ).scalar_one_or_none()
+    if approval is None:
+        raise ApprovalCommitRefused(REFUSAL_NOT_FOUND)
+
+    # A consumed row is terminal even when its old expiry has since elapsed.  The
+    # caller can safely retry only by reading the already-claimed proposal state.
+    if approval.consumed_at is not None:
+        raise ApprovalCommitRefused(REFUSAL_ALREADY_CONSUMED)
+    refusal = approval_refusal(
+        status=approval.status,
+        superseded_by=approval.superseded_by,
+        expires_at=approval.expires_at,
+        now=moment,
+    )
+    if refusal is not None:
+        raise ApprovalCommitRefused(refusal)
+    if approval.status != "approved" or not approval.decided_by:
+        raise ApprovalCommitRefused(REFUSAL_NOT_APPROVED)
+
+    # The binding is checked before any authority decision is recorded.  The
+    # canonical reader rebuilds intent-v1 from all producer-owned fields,
+    # including connector version and effect class, so a changed downstream
+    # identity cannot reuse an old approval digest.
+    if (
+        approval.proposal_id != proposal.proposal_id
+        or approval.workflow_run_id != proposal.workflow_run_id
+        or approval.project_id != run.project_id
+        or not _is_digest(approval.intent_hash)
+        or not _is_digest(approval.evidence_hash)
+        or not _is_digest(approval.policy_digest)
+        or approval.intent_hash != proposal.intent_hash
+        or approval.expected_resource_version != proposal.expected_resource_version
+        or not isinstance(approval.policy_snapshot, dict)
+    ):
+        raise ApprovalCommitRefused(REFUSAL_INTENT_MISMATCH)
+    try:
+        stored_proposal = read_proposal(session, proposal.proposal_id)
+    except (KeyError, ProposalError):
+        raise ApprovalCommitRefused(REFUSAL_INTENT_MISMATCH) from None
+    if stored_proposal["intent_hash"] != approval.intent_hash:
+        raise ApprovalCommitRefused(REFUSAL_INTENT_MISMATCH)
+
+    stored_policy = ApprovalPolicy.from_snapshot(approval.policy_snapshot)
+    if policy_digest(stored_policy) != approval.policy_digest:
+        raise ApprovalCommitRefused(REFUSAL_INTENT_MISMATCH)
+    if evidence_hash is not None and evidence_hash != approval.evidence_hash:
+        raise ApprovalCommitRefused(REFUSAL_INTENT_MISMATCH)
+    # SQLAlchemy keeps these columns nullable for legacy rows; the binding checks
+    # above establish the stronger type for this path.
+    assert isinstance(approval.intent_hash, str)
+    assert isinstance(approval.evidence_hash, str)
+    assert isinstance(approval.policy_digest, str)
+
+    expected_version = proposal.expected_resource_version
+    if current_resource_version is _CURRENT_RESOURCE_VERSION_MISSING:
+        if expected_version is not None:
+            raise ApprovalCommitRefused(REFUSAL_STALE_VERSION)
+    elif current_resource_version != expected_version:
+        raise ApprovalCommitRefused(REFUSAL_STALE_VERSION)
+
+    # The exact approving principal is authorized independently.  In particular,
+    # an approver's membership/scopes never flow into identity_for_run's grant
+    # recheck, which must continue to use the original run subject.
+    scopes = frozenset(approver_scopes)
+    if stored_policy.required_role not in scopes:
+        raise ApprovalCommitRefused(REFUSAL_ROLE_REVOKED)
+    try:
+        assert_distinct_actor(
+            approval.decided_by,
+            run.created_by,
+            allow_self=stored_policy.allow_self_approval,
+        )
+    except ApprovalPolicyError:
+        raise ApprovalCommitRefused(REFUSAL_SELF_APPROVAL) from None
+
+    if run.project_id is not None:
+        project = session.execute(
+            select(CaliberProject)
+            .where(CaliberProject.project_id == run.project_id)
+            .with_for_update(read=True)
+        ).scalar_one_or_none()
+        member = session.execute(
+            select(CaliberProjectMember)
+            .where(
+                CaliberProjectMember.project_id == run.project_id,
+                CaliberProjectMember.user_id == approval.decided_by,
+            )
+            .with_for_update(read=True)
+        ).scalar_one_or_none()
+        role = None
+        if project is not None and project.owner == approval.decided_by:
+            role = ROLE_OWNER
+            if not scopes >= OWNER_ROLE_REQUIRED_SCOPES:
+                role = ROLE_EDITOR
+        elif member is not None and member.status == "active" and member.deactivated_at is None:
+            role = member.role
+        if role not in PROJECT_ACTIONS[ACTION_APPROVE]:
+            raise ApprovalCommitRefused(REFUSAL_ROLE_REVOKED)
+
+    try:
+        run_identity = identity_for_run(session, run, now=moment)
+    except IdentityDenied as denied:
+        if denied.code == AUTHORITY_UNAVAILABLE:
+            raise ApprovalCommitRefused(
+                REFUSAL_AUTHORITY_UNAVAILABLE, reasons=denied.reasons
+            ) from None
+        raise ApprovalCommitRefused(REFUSAL_ROLE_REVOKED, reasons=denied.reasons) from None
+    if run_identity is None:
+        raise ApprovalCommitRefused(REFUSAL_ROLE_REVOKED)
+
+    return ApprovalCommit(
+        run_id=run.workflow_run_id,
+        approval_id=approval.runtime_approval_id,
+        proposal_id=proposal.proposal_id,
+        approver_id=approval.decided_by,
+        intent_hash=approval.intent_hash,
+        evidence_hash=approval.evidence_hash,
+        policy_digest=approval.policy_digest,
+        expected_resource_version=approval.expected_resource_version,
+        grant_id=run_identity.grant_id,
+        decision_id=run_identity.decision.decision_id,
+        run_identity=run_identity,
+    )
+
+
+def _proposal_run_id(session: Session, proposal_id: str) -> str:
+    """Resolve a proposal's run before taking the run lock.
+
+    Proposal identity is immutable.  Keeping this tiny lookup separate makes the
+    lock order in :func:`approval_valid_at_commit` explicit while still refusing
+    an unknown proposal without inventing a run id.
+    """
+    run_id = session.execute(
+        select(CaliberEffectProposal.workflow_run_id).where(
+            CaliberEffectProposal.proposal_id == proposal_id
+        )
+    ).scalar_one_or_none()
+    return str(run_id or "")
+
+
 def record_approval(
     *,
     policy: ApprovalPolicy,
@@ -264,16 +578,29 @@ def record_approval(
 
 __all__ = [
     "DEFAULT_REQUIRED_ROLE",
+    "REFUSAL_ALREADY_CONSUMED",
+    "REFUSAL_AUTHORITY_UNAVAILABLE",
     "REFUSAL_EXPIRED",
+    "REFUSAL_INTENT_MISMATCH",
+    "REFUSAL_NOT_APPROVED",
+    "REFUSAL_NOT_FOUND",
+    "REFUSAL_ROLE_REVOKED",
+    "REFUSAL_SELF_APPROVAL",
+    "REFUSAL_STALE_VERSION",
     "REFUSAL_SUPERSEDED",
     "STATUS_SUPERSEDED",
     "SUPPORTED_TIMEOUT_BEHAVIORS",
     "VALID_ROLES",
+    "ApprovalCommit",
+    "ApprovalCommitRefused",
+    "ApprovalCommitRefusedError",
     "ApprovalPolicy",
     "ApprovalPolicyError",
     "QuorumState",
     "approval_refusal",
+    "approval_valid_at_commit",
     "assert_distinct_actor",
+    "policy_digest",
     "record_approval",
     "validate_timeout_behavior",
 ]

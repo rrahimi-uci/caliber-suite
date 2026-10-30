@@ -1634,16 +1634,19 @@ answerable approval. A request has a lifetime and is replaced by a newer one for
   `expected_resource_version`, `expires_at` and `requested_by`: a request cannot be re-bound to another intent, nor a legacy row bound after
   the fact. `status`, the decision columns, `policy_snapshot`, `superseded_by` and `consumed_at` still move. PostgreSQL also enforces
   the proposal foreign key (SQLite does not enforce foreign keys in this repository).
-- **Not wired yet.** The decision routes (`approve` and `reject`) never decide a request that has a `proposal_id`; they answer `409` with a
-  `reason_code` and a static message that carries no id, hash or requester, and write nothing: `superseded` or `expired`
-  (B06.2, above), and for a request that is live, `approval_bound_not_wired`. **This task does not lift that last refusal; the recheck at commit
-  (B06.3, #718) does**, because only there are the exact intent, the evidence and policy pins, the downstream version and the approving
-  principal's authority re-verified (and #735 then moves consumption into the dispatcher's claim). Deciding a live bound request earlier would
-  record an approval nothing re-checked. The default selection (no `runtime_approval_id`) ignores bound rows, so a legacy node-level request is
-  never shadowed by a newer bound one. The list endpoint still shows bound rows (with their `status`; it does not yet expose `expires_at` or
-  `superseded_by`, which the approvals UI, #743, adds). Known gaps for B06.3: the route's separation-of-duties check compares the approver with
-  `run.created_by`, not with the bound `requested_by`; it must also check that the proposal's run is still active before an approval is consumed;
-  and a request that expires is not turned into a proposal state (the proposal stays `proposed`, so ask again).
+- **Decision versus commit.** The decision routes (`approve` and `reject`) still never decide a request that has a `proposal_id`; they answer `409`
+  with a `reason_code` and a static message that carries no id, hash or requester, and write nothing: `superseded` or `expired` (B06.2, above),
+  and for a live bound request, `approval_bound_not_wired`. This is intentional: the HTTP decision is not effect consumption. At the dispatch
+  boundary B06.3's `approval_valid_at_commit` rechecks the exact stored proposal, evidence and policy pins, expiry, supersession,
+  consumption, and the current downstream version before any connector call. It then calls the B03.4 identity path, which invokes `decide`
+  with the run manifest's original subject, workload, purpose, run id and grant id. The actual approver is checked separately against the
+  current required platform scope, active project membership/approval role and separation-of-duties policy; the approver is never substituted
+  into the run's grant. The dispatcher in B04.1 consumes the still-locked request only after this validator succeeds. The validator returns
+  stable `intent_mismatch`, `expired`, `superseded`, `role_revoked` and `stale_version` codes (plus `self_approval`, `not_approved`,
+  `already_consumed`, `not_found` and `authority_unavailable` for their distinct failure states), and does not call a downstream connector.
+  The default selection (no `runtime_approval_id`) ignores bound rows, so a legacy node-level request is never shadowed by a newer bound one. The
+  list endpoint still shows bound rows (with their `status`; it does not yet expose `expires_at` or `superseded_by`, which the approvals UI, #743,
+  adds). A request that expires is not turned into a proposal state (the proposal stays `proposed`, so ask again).
 - **Legacy rows stay valid.** A node-level approval that guards no proposal keeps `NULL` in every new column and is decided exactly as before.
 - **Migration.** `0127` adds nine nullable columns, a foreign key, two checks, an index and the trigger (on PostgreSQL a function pinned to
   the schema); no backfill. Downgrade drops the trigger and function, the checks, the index and the columns; a legacy request is untouched and a
@@ -1713,7 +1716,7 @@ request = create_approval_request(
 session.commit()  # the older request's status and superseded_by are written in the same transaction
 ```
 
-For the recheck at commit (B06.3) and the dispatcher's consumption (B06.4), the rule is one function:
+For a decision endpoint that only needs the lifecycle code, the pure rule remains:
 
 ```python
 from caliber.workflows.approval_policy import approval_refusal
@@ -1721,6 +1724,23 @@ from caliber.workflows.approval_policy import approval_refusal
 code = approval_refusal(
     status=row.status, superseded_by=row.superseded_by, expires_at=row.expires_at, now=datetime.now(timezone.utc)
 )  # "superseded", "expired" or None; call it on the row read FOR UPDATE, in the transaction that acts on it
+```
+
+The B06.3 commit validator is the producer-owned boundary used by the dispatcher:
+
+```python
+from caliber.workflows.approval_policy import approval_valid_at_commit
+
+checked = approval_valid_at_commit(
+    session,
+    approval_id=approval.runtime_approval_id,
+    proposal_id=proposal.proposal_id,
+    approver_scopes=current_approver_scopes,
+    current_resource_version=downstream_version,  # required for versioned targets; omission fails closed
+    evidence_hash=current_evidence_hash,
+)
+# Keep the run, proposal and approval locks until the same transaction consumes
+# approval and claims dispatch. No connector is called by this function.
 ```
 
 ## Agent steps: a request, a result, and no effects (B08.1a, #713)
