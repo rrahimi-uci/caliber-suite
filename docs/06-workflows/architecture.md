@@ -358,7 +358,7 @@ outcomes:
 
 - queued
 - running
-- waiting_approval or waiting_event
+- waiting_approval, waiting_event, or waiting_effect
 - completed, failed, cancelled, or expired
 
 The legal transitions between these run states are centralized in

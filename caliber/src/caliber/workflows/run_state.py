@@ -12,6 +12,7 @@ from dataclasses import dataclass
 RUN_STATUS_QUEUED = "queued"
 RUN_STATUS_RUNNING = "running"
 RUN_STATUS_WAITING_APPROVAL = "waiting_approval"
+RUN_STATUS_WAITING_EFFECT = "waiting_effect"
 RUN_STATUS_WAITING_EVENT = "waiting_event"
 RUN_STATUS_COMPLETED = "completed"
 RUN_STATUS_FAILED = "failed"
@@ -32,6 +33,7 @@ ALLOWED_RUN_TRANSITIONS: dict[str, frozenset[str]] = {
     RUN_STATUS_RUNNING: frozenset(
         {
             RUN_STATUS_WAITING_APPROVAL,
+            RUN_STATUS_WAITING_EFFECT,
             RUN_STATUS_WAITING_EVENT,
             RUN_STATUS_COMPLETED,
             RUN_STATUS_FAILED,
@@ -39,6 +41,15 @@ ALLOWED_RUN_TRANSITIONS: dict[str, frozenset[str]] = {
         }
     ),
     RUN_STATUS_WAITING_APPROVAL: frozenset(
+        {
+            RUN_STATUS_QUEUED,
+            RUN_STATUS_RUNNING,
+            RUN_STATUS_FAILED,
+            RUN_STATUS_CANCELLED,
+            RUN_STATUS_EXPIRED,
+        }
+    ),
+    RUN_STATUS_WAITING_EFFECT: frozenset(
         {
             RUN_STATUS_QUEUED,
             RUN_STATUS_RUNNING,
@@ -110,6 +121,7 @@ __all__ = [
     "RUN_STATUS_QUEUED",
     "RUN_STATUS_RUNNING",
     "RUN_STATUS_WAITING_APPROVAL",
+    "RUN_STATUS_WAITING_EFFECT",
     "RUN_STATUS_WAITING_EVENT",
     "TERMINAL_RUN_STATUSES",
     "InvalidRunStateTransition",

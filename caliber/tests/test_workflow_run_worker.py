@@ -2534,9 +2534,16 @@ def test_worker_does_not_run_a_node_whose_effect_has_no_final_outcome(client) ->
     with client.app.state.session_factory() as session:
         run = session.get(CaliberWorkflowRun, run_id)
         assert run is not None
-        assert (run.status, run.error_code) == ("failed", "runtime_error")
-        assert str(run.error_summary).startswith("UnknownEffectError: effect prop-")
-        assert "reconcile it" in str(run.error_summary)
+        assert (run.status, run.error_code) == ("waiting_effect", "effect_reconciliation")
+        assert "waiting for authoritative effect reconciliation" in str(run.error_summary)
+        summary = dict(run.summary or {})
+        checkpoint_id = summary.get("resume_checkpoint_id")
+        assert isinstance(checkpoint_id, str) and checkpoint_id
+        checkpoint = session.get(CaliberWorkflowRunCheckpoint, checkpoint_id)
+        assert checkpoint is not None
+        assert checkpoint.state_blob["kind"] == "effect_reconciliation"
+        assert checkpoint.state_blob["effects"][0]["proposal_id"] == proposal
+        assert summary["parked_effects"]["resume_policy"] == "same_run_same_occurrence"
         steps = (
             session.query(CaliberWorkflowRunEvent)
             .filter(
@@ -2546,7 +2553,67 @@ def test_worker_does_not_run_a_node_whose_effect_has_no_final_outcome(client) ->
             )
             .count()
         )
-        assert steps == 0, "the agent did not run on top of an effect nobody can vouch for"
+        assert steps == 1, "the blocked node records its durable effect checkpoint"
+        assert (
+            session.query(CaliberWorkflowRunEvent)
+            .filter(
+                CaliberWorkflowRunEvent.workflow_run_id == run_id,
+                CaliberWorkflowRunEvent.event_type == "workflow.run.waiting_effect",
+            )
+            .count()
+            == 1
+        )
+
+
+def test_worker_rejects_malformed_effect_wait_checkpoint(client, monkeypatch) -> None:
+    _enable_queue(client)
+    _wid, vid = create_and_publish(client)
+    created = client.post(
+        f"{PREFIX}/workflow-runs",
+        json={"workflow_version_id": vid, "input": "hello"},
+    )
+    assert created.status_code == 202
+    run_id = created.json()["data"]["workflow_run_id"]
+
+    def _fake_execute(*args, **kwargs):
+        return WorkflowRunResult(
+            status="blocked",
+            output="",
+            error="waiting_effect:support_agent",
+            steps=[
+                NodeStep(
+                    "support_agent",
+                    "agent",
+                    "blocked",
+                    detail="waiting_effect:support_agent",
+                    checkpoint_state={
+                        "kind": "effect_reconciliation",
+                        "node_id": "support_agent",
+                        # Missing input_by_port and effects must fail closed.
+                    },
+                )
+            ],
+        )
+
+    monkeypatch.setattr("caliber.orchestrator.workflow_run_worker.execute", _fake_execute)
+
+    _build_worker(client)._tick()
+
+    with client.app.state.session_factory() as session:
+        run = session.get(CaliberWorkflowRun, run_id)
+        assert run is not None
+        assert run.status == "failed"
+        assert run.error_code == "runtime_error"
+        assert run.error_summary == (
+            "workflow runtime returned waiting_effect without "
+            "durable effect-reconciliation checkpoint context"
+        )
+        assert (
+            session.query(CaliberWorkflowRunCheckpoint)
+            .filter(CaliberWorkflowRunCheckpoint.workflow_run_id == run_id)
+            .count()
+            == 0
+        )
 
 
 def test_worker_executes_start_to_output_passthrough_run(client) -> None:

@@ -134,7 +134,11 @@ def test_effect_timeout_leaves_unknown_never_second_mutation(
         effect_gate(factory, "RUN-ep")({NODE})
     assert proposal_id in str(refused.value)
     blocked = _workflow_result(factory)
-    assert blocked.status == "error" and (blocked.error or "").startswith("UnknownEffectError")
+    assert blocked.status == "blocked"
+    assert blocked.error == "waiting_effect:agent"
+    checkpoint = blocked.steps[-1].checkpoint_state
+    assert checkpoint and checkpoint["kind"] == "effect_reconciliation"
+    assert checkpoint["effects"][0]["proposal_id"] == proposal_id
     with factory() as session, pytest.raises(ProposalError) as blind:
         transition(
             session,

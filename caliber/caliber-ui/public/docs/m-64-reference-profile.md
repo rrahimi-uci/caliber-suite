@@ -1179,12 +1179,16 @@ them the one way ADR 0003 allows: by asking the downstream by the **original log
 - **Unknown blocks what depends on it.** The runtime asks `plan.effect_gate` before every node, at the top of **every attempt** of its retries and before a
   guardrail re-runs the agents feeding it, with the node and everything it may depend on: every node upstream of it by edge, and the **inline children** of each of
   those (a `for_each` / `loop` / `error_boundary` target, a boundary's `compensate_with`, an agent's handoff targets), which have no edges of their own. While an
-  effect any of them asked for is `dispatched`, `unknown` or `reconciled`, the node does not run and the run ends with `UnknownEffectError: effect <proposal> (node
-  <n>, unknown) has no final outcome: reconcile it ...` (run status `failed`, error code `runtime_error`). The refusal is never absorbed: a fan-out item, a loop
-  iteration, an error boundary or its compensation does not turn it into the item's own error. The queued-run worker installs the gate for every run.
-- **A refused run is over; it is not resumed.** The run is `failed`; once the reconciler settles the effect nothing restarts it. A *new* run is a new logical effect
-  (the logical key includes the run id), so it is not gated by the old run's open effect and may ask the downstream for the same thing again: decide that with the
-  operator before re-running something whose effect is `unknown`. Parking a gated run and resuming it after reconciliation is a follow-up.
+  effect any of them asked for is `dispatched`, `unknown` or `reconciled`, the node does not run and the runtime returns a durable `waiting_effect` checkpoint
+  (`effect_reconciliation`) containing the node inputs, proposal id, logical key and intent digest. The queued-run worker persists the run as
+  `waiting_effect` with `error_code=effect_reconciliation`; it does not turn the refusal into a terminal failure or run the gated node. The refusal is never absorbed:
+  a fan-out item, a loop iteration, an error boundary or its compensation does not turn it into the item's own error.
+- **A parked run resumes as the same occurrence.** After the reconciler or an authoritative receipt callback settles every proposal named in the checkpoint as
+  `committed` or `failed`, the platform atomically changes that same run from `waiting_effect` to `queued` and records `workflow.run.effect_resumed`. The worker
+  resumes from the checkpointed gated node, preserving the original run id, logical key and intent digest; it never creates a new logical occurrence or dispatches the
+  proposal again. A proposal that remains `dispatched`, `unknown` or `reconciled` keeps the run parked. Manual `POST /workflow-runs/{run_id}/resume` and retry are
+  refused while it is `waiting_effect`; only authoritative settlement wakes it. The proposal and run reason are visible in the `parked_runs` collection returned by
+  `GET /system/effects?source=proposal`.
 
 ```python
 from caliber.effects.callbacks import parse_bindings
@@ -1196,9 +1200,10 @@ for result in reconcile_pass(session_factory, lease=lease, targets=targets):
 ```
 
 - **Timeout example (V08).** The connector's timeout fires after the request went out (`ambiguous`, recorded `unknown` with reason `ambiguous:may_have_been_sent`; not `failed`,
-  the downstream may have committed, and not `committed`, nobody read a receipt). A retry from the node layer is refused (`UnknownEffectError`, the run ends `failed`), nothing
-  can dispatch the proposal again (`illegal_transition` from `unknown` to `dispatched`), and the next reconciler pass finds the stored request by the original key and commits it
-  with a verified receipt: one downstream mutation throughout (`tests/egi_scenarios/test_v08_timeout_retry.py`).
+  the downstream may have committed, and not `committed`, nobody read a receipt). The dependent run is parked at an `effect_reconciliation` checkpoint, nothing can
+  dispatch the proposal again (`illegal_transition` from `unknown` to `dispatched`), and the next reconciler pass finds the stored request by the original key, commits it
+  with a verified receipt and wakes the same run. Resuming the checkpoint produces one downstream mutation throughout
+  (`tests/egi_scenarios/test_v08_timeout_retry.py`).
 - **Refusals and recovery.** `lease_lost`: you are no longer the owner, stop and let the new owner reconcile. `store_failed`: roll back and retry. `unknown` after a
   pass: nothing proves the outcome yet (delayed visibility looks like absence); the next pass asks again, the effect is never re-sent, and dependents stay blocked.
   There is no operator action that fails an `unknown` effect without the downstream's evidence yet (the operator view below lists them; an audited action is #997); a connector that

@@ -57,7 +57,12 @@ from caliber.integrations.openapi.executor import bind_egress_policy, execute_op
 from caliber.ownership import acquire, current_lease, release
 from caliber.workflows.compiler import build_ir
 from caliber.workflows.manifest import parse_manifest
-from caliber.workflows.runtime import FakeWorkflowExecutor, RuntimePlan, execute
+from caliber.workflows.runtime import (
+    FakeWorkflowExecutor,
+    RuntimePlan,
+    RuntimeResumeCheckpoint,
+    execute,
+)
 from tests.dialect_helpers import DIALECTS
 from tests.egi_scenarios.conftest import Downstream
 from tests.test_effect_proposals import _seed_run
@@ -199,12 +204,21 @@ def _reconcile(factory: sessionmaker[Session], lease: Any, downstream: Downstrea
     )
 
 
-def _workflow_result(factory: sessionmaker[Session]) -> Any:
+def _workflow_result(
+    factory: sessionmaker[Session],
+    *,
+    resume_checkpoint: RuntimeResumeCheckpoint | None = None,
+) -> Any:
     """Run a start -> agent -> output workflow whose ``agent`` node asked for the effect, with the effect gate in place."""
     ir = build_ir(parse_manifest(make_manifest()), fake_resolver(), version="v07")
     plan = RuntimePlan(ir=ir, resolver=fake_resolver())
     plan.effect_gate = effect_gate(factory, "RUN-ep")
-    return execute(plan, "hello", executor=FakeWorkflowExecutor())
+    return execute(
+        plan,
+        "hello",
+        executor=FakeWorkflowExecutor(),
+        resume_checkpoint=resume_checkpoint,
+    )
 
 
 def test_kill_before_dispatch(
@@ -267,12 +281,28 @@ def test_kill_after_downstream_commit(
     with factory() as session:
         assert proposal_state(session, proposal_id).state == DISPATCHED
 
+    parked = _workflow_result(factory)
+    assert parked.status == "blocked"
+    parked_checkpoint = parked.steps[-1].checkpoint_state
+    assert parked_checkpoint and parked_checkpoint["kind"] == "effect_reconciliation"
+
     results = _reconcile(factory, _new_owner(factory), downstream)
     assert [(r.proposal_id, r.outcome, r.state) for r in results] == [
         (proposal_id, RECONCILED_COMMITTED, COMMITTED)
     ]
     assert downstream.mutations() == 1
     _assert_receipt_matches_the_downstream(factory, proposal_id, downstream)
+    resumed = _workflow_result(
+        factory,
+        resume_checkpoint=RuntimeResumeCheckpoint(
+            node_id=str(parked_checkpoint["node_id"]),
+            checkpoint_kind="effect_reconciliation",
+            input_by_port=dict(parked_checkpoint["input_by_port"]),
+            replay_output=False,
+        ),
+    )
+    assert resumed.status == "completed", resumed.error
+    assert downstream.mutations() == 1, "resuming the parked run must not resend the effect"
 
 
 def test_kill_before_receipt_persist(
@@ -334,10 +364,12 @@ def test_dependent_node_blocked_while_unknown(
     assert _reconcile(factory, lease, downstream)[0].outcome == STILL_UNKNOWN
 
     blocked = _workflow_result(factory)
-    assert blocked.status == "error"
-    assert "UnknownEffectError" in (blocked.error or "") and proposal_id in (blocked.error or "")
-    assert "reconcile" in (blocked.error or "")
-    assert [step.node_id for step in blocked.steps] == ["start"], (
+    assert blocked.status == "blocked"
+    assert blocked.error == "waiting_effect:agent"
+    effect_checkpoint = blocked.steps[-1].checkpoint_state
+    assert effect_checkpoint and effect_checkpoint["kind"] == "effect_reconciliation"
+    assert effect_checkpoint["effects"][0]["proposal_id"] == proposal_id
+    assert [step.node_id for step in blocked.steps] == ["start", "agent"], (
         "the effect's own node did not run again"
     )
     with pytest.raises(UnknownEffectError):
@@ -357,7 +389,15 @@ def test_dependent_node_blocked_while_unknown(
     with factory() as session:
         assert proposal_state(session, proposal_id).state == COMMITTED
 
-    completed = _workflow_result(factory)
+    completed = _workflow_result(
+        factory,
+        resume_checkpoint=RuntimeResumeCheckpoint(
+            node_id=str(effect_checkpoint["node_id"]),
+            checkpoint_kind="effect_reconciliation",
+            input_by_port=dict(effect_checkpoint["input_by_port"]),
+            replay_output=False,
+        ),
+    )
     assert completed.status == "completed", completed.error
 
 

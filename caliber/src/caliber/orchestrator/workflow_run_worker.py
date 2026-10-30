@@ -59,6 +59,7 @@ from caliber.workflows.run_state import (
     RUN_STATUS_QUEUED,
     RUN_STATUS_RUNNING,
     RUN_STATUS_WAITING_APPROVAL,
+    RUN_STATUS_WAITING_EFFECT,
     RUN_STATUS_WAITING_EVENT,
     assert_run_transition,
     normalize_runtime_result_status,
@@ -101,6 +102,8 @@ def _step_to_dict(step: NodeStep) -> dict[str, Any]:
         payload["model"] = step.model
     if isinstance(step.prompt_version, str) and step.prompt_version:
         payload["prompt_version"] = step.prompt_version
+    if isinstance(step.checkpoint_state, dict):
+        payload["checkpoint_state"] = dict(step.checkpoint_state)
     return payload
 
 
@@ -230,6 +233,13 @@ def _resume_checkpoint_preflight_error(  # noqa: PLR0911 - explicit fail-closed 
             f"kind {checkpoint_kind!r} does not match current node "
             f"{resume_checkpoint.node_id!r} type {node_type!r}"
         )
+    if checkpoint_kind == "effect_reconciliation":
+        if not isinstance(resume_checkpoint.input_by_port, dict):
+            return (
+                f"kind {checkpoint_kind!r} for node {resume_checkpoint.node_id!r} "
+                "requires an input snapshot"
+            )
+        return None
     if not resume_checkpoint.replay_output:
         return None
     if node_type in {"wait_for_event", "wait_until", "human_approval"}:
@@ -438,6 +448,45 @@ def _waiting_event_checkpoint_payload(  # noqa: PLR0911 - gate-specific early ex
         resume_at = state_blob.get("resume_at")
         if not isinstance(resume_at, str) or not resume_at.strip():
             return None
+        return node_id, state_blob
+    return None
+
+
+def _effect_checkpoint_payload(  # noqa: PLR0911 - fail closed at every checkpoint validation boundary
+    result: WorkflowRunResult,
+) -> tuple[str, dict[str, Any]] | None:
+    """Extract and validate the runtime's effect-reconciliation checkpoint."""
+    node_id = _blocked_result_node_id(result.error, prefix="waiting_effect:")
+    if node_id is None:
+        return None
+    for step in reversed(result.steps):
+        if step.node_id != node_id or not isinstance(step.checkpoint_state, dict):
+            continue
+        state_blob = dict(step.checkpoint_state)
+        if state_blob.get("kind") != "effect_reconciliation":
+            return None
+        if state_blob.get("node_id") != node_id:
+            return None
+        if not isinstance(state_blob.get("input_by_port"), dict):
+            return None
+        effects = state_blob.get("effects")
+        if not isinstance(effects, list) or not effects:
+            return None
+        for effect in effects:
+            if not isinstance(effect, dict):
+                return None
+            if not all(
+                isinstance(effect.get(key), str) for key in ("proposal_id", "node_id", "state")
+            ):
+                return None
+            if effect.get("logical_key") is not None and not isinstance(
+                effect.get("logical_key"), str
+            ):
+                return None
+            if effect.get("intent_hash") is not None and not isinstance(
+                effect.get("intent_hash"), str
+            ):
+                return None
         return node_id, state_blob
     return None
 
@@ -784,12 +833,26 @@ class WorkflowRunWorker:
             if not has_resume_payload:
                 return None
         if (
-            kind in {"wait_for_event", "wait_until", "runtime_approval", "human_approval"}
+            kind
+            in {
+                "wait_for_event",
+                "wait_until",
+                "runtime_approval",
+                "human_approval",
+                "effect_reconciliation",
+            }
             and input_by_port is None
         ):
             return None
         replay_output = not (
-            kind in {"wait_for_event", "wait_until", "runtime_approval", "human_approval"}
+            kind
+            in {
+                "wait_for_event",
+                "wait_until",
+                "runtime_approval",
+                "human_approval",
+                "effect_reconciliation",
+            }
             and input_by_port is not None
         )
         return RuntimeResumeCheckpoint(
@@ -2049,6 +2112,28 @@ class WorkflowRunWorker:
                     state_blob=waiting_event_checkpoint[1],
                 )
                 return
+            if self._is_waiting_effect(result):
+                effect_checkpoint = _effect_checkpoint_payload(result)
+                if effect_checkpoint is None:
+                    self._mark_failed(
+                        session,
+                        row,
+                        result=result,
+                        error_code="runtime_error",
+                        error_summary=(
+                            "workflow runtime returned waiting_effect without "
+                            "durable effect-reconciliation checkpoint context"
+                        ),
+                    )
+                    return
+                self._mark_waiting_effect(
+                    session,
+                    row,
+                    result,
+                    node_id=effect_checkpoint[0],
+                    state_blob=effect_checkpoint[1],
+                )
+                return
             if self._is_cancelled_result(result):
                 self._mark_cancelled(session, row, result)
                 return
@@ -2086,6 +2171,109 @@ class WorkflowRunWorker:
             result.status == "blocked"
             and isinstance(result.error, str)
             and result.error.startswith("waiting_event:")
+        )
+
+    def _is_waiting_effect(self, result: WorkflowRunResult) -> bool:
+        return bool(
+            result.status == "blocked"
+            and isinstance(result.error, str)
+            and result.error.startswith("waiting_effect:")
+        )
+
+    def _mark_waiting_effect(
+        self,
+        session: Session,
+        run: CaliberWorkflowRun,
+        result: WorkflowRunResult,
+        *,
+        node_id: str,
+        state_blob: dict[str, Any],
+    ) -> None:
+        assert_run_transition(run.status, RUN_STATUS_WAITING_EFFECT)
+        run.status = RUN_STATUS_WAITING_EFFECT
+        run.current_node_id = node_id
+        run.error_code = "effect_reconciliation"
+        raw_effects = state_blob.get("effects") if isinstance(state_blob, dict) else None
+        effects = raw_effects if isinstance(raw_effects, list) else []
+        effect_ids = [
+            str(item.get("proposal_id"))
+            for item in effects
+            if isinstance(item, dict) and isinstance(item.get("proposal_id"), str)
+        ]
+        run.error_summary = (
+            "waiting for authoritative effect reconciliation before resuming "
+            f"node {node_id!r}; unresolved proposals: {', '.join(effect_ids)}"
+        )
+        now = datetime.now(timezone.utc)
+        run.last_heartbeat_at = now
+        run.lease_expires_at = None
+
+        checkpoint_seq = (
+            session.execute(
+                select(func.max(CaliberWorkflowRunCheckpoint.sequence)).where(
+                    CaliberWorkflowRunCheckpoint.workflow_run_id == run.workflow_run_id
+                )
+            )
+            .scalars()
+            .first()
+        )
+        checkpoint_id = new_workflow_run_checkpoint_id()
+        session.add(
+            CaliberWorkflowRunCheckpoint(
+                checkpoint_id=checkpoint_id,
+                workflow_run_id=run.workflow_run_id,
+                project_id=run.project_id,
+                sequence=(checkpoint_seq or 0) + 1,
+                node_id=node_id,
+                state_blob=state_blob,
+            )
+        )
+        summary = dict(run.summary or {})
+        summary["resume_checkpoint_id"] = checkpoint_id
+        summary["resume_checkpoint_run_id"] = run.workflow_run_id
+        summary["status"] = RUN_STATUS_WAITING_EFFECT
+        summary["steps"] = [_step_to_dict(step) for step in result.steps]
+        summary["node_path"] = [step.node_id for step in result.steps]
+        summary["parked_effects"] = {
+            "state": RUN_STATUS_WAITING_EFFECT,
+            "node_id": node_id,
+            "reason": "effect_dependency_unresolved",
+            "resume_policy": "same_run_same_occurrence",
+            "effects": effects,
+        }
+        run.summary = summary
+
+        self._append_event(
+            session,
+            workflow_run_id=run.workflow_run_id,
+            project_id=run.project_id,
+            event_type="workflow.run.waiting_effect",
+            payload={
+                "node_id": node_id,
+                "proposal_ids": effect_ids,
+                "reason": "effect_dependency_unresolved",
+            },
+            node_id=node_id,
+        )
+        audit_record(
+            session,
+            actor="workflow_run_worker",
+            action="park_workflow_run_for_effect_reconciliation",
+            entity_type="workflow_run",
+            entity_id=run.workflow_run_id,
+            details={"node_id": node_id, "proposal_ids": effect_ids},
+        )
+        session.commit()
+        self._publish(
+            {
+                "type": "workflow.run.waiting_effect",
+                "workflow_id": run.workflow_id,
+                "workflow_version_id": run.workflow_version_id,
+                "workflow_run_id": run.workflow_run_id,
+                "status": run.status,
+                "node_id": node_id,
+                "proposal_ids": effect_ids,
+            }
         )
 
     def _mark_waiting_approval(

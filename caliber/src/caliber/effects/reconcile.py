@@ -32,8 +32,8 @@ what it can prove:
   attempt, and before a guardrail re-runs its agents): while an effect the node, anything upstream of it, or any of their inline
   children (a fan-out, loop or boundary's target and compensation, an agent's handoff targets) asked for is ``dispatched``,
   ``unknown`` or ``reconciled``, the node does not run (:class:`UnknownEffectError`, naming what to reconcile) and nothing
-  absorbs the refusal. No write that depends on an effect nobody can vouch for is made. The refused run is ``failed`` and is not
-  resumed (a follow-up).
+  absorbs the refusal. No write that depends on an effect nobody can vouch for is made. The queued-run worker persists a
+  same-run ``waiting_effect`` checkpoint and the reconciler wakes it only after every dependency is terminal.
 
 Where the connector lives is the callback binding's ``base_url`` (``CALIBER_EFFECT_CALLBACK_CONNECTORS``): the same
 ``(connector, project)`` that may report a receipt is the one the reconciler asks. Scheduling a pass (the owner loop that
@@ -47,14 +47,18 @@ import logging
 import time
 from collections.abc import Callable, Collection, Mapping, Sequence
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Final
 
-from sqlalchemy import and_, or_, select
+from sqlalchemy import and_, or_, select, update
 from sqlalchemy.orm import Session, sessionmaker
 
 from caliber.audit import record as audit_record
-from caliber.db.models import CaliberEffectProposal, CaliberWorkflowRun
+from caliber.db.models import (
+    CaliberEffectProposal,
+    CaliberWorkflowRun,
+    CaliberWorkflowRunCheckpoint,
+)
 from caliber.effects.callbacks import CallbackBinding
 from caliber.effects.connectors import ConnectorCapability, interpret_lookup
 from caliber.effects.connectors import document_request as _document_request
@@ -78,6 +82,12 @@ from caliber.effects.records import (
 )
 from caliber.integrations.openapi.executor import OpenApiExecutionError, execute_openapi_http_tool
 from caliber.ownership import Lease
+from caliber.workflows.run_events import append_run_event
+from caliber.workflows.run_state import (
+    RUN_STATUS_QUEUED,
+    RUN_STATUS_WAITING_EFFECT,
+    assert_run_transition,
+)
 
 logger = logging.getLogger("caliber.effects.reconcile")
 
@@ -104,14 +114,33 @@ _PROOF_REASON: Final = f"{RECONCILER_REASON}:proof"
 class UnknownEffectError(RuntimeError):
     """An effect this node depends on (or asked for earlier) has no final outcome yet: reconcile it first."""
 
-    def __init__(self, open_effects: Sequence[tuple[str, str, str]]) -> None:
+    def __init__(
+        self,
+        open_effects: Sequence[tuple[str, str, str]],
+        *,
+        effect_details: Sequence[EffectDependency] | None = None,
+    ) -> None:
         self.open_effects = tuple(open_effects)
+        self.effect_details = tuple(effect_details or ())
+        self.blocked_node_id: str | None = None
+        self.blocked_inputs: dict[str, Any] | None = None
         listing = ", ".join(
             f"{pid} (node {node}, {state})" for pid, node, state in self.open_effects
         )
         super().__init__(
             f"effect {listing} has no final outcome: reconcile it (a lookup by its key) before any step that depends on it runs"
         )
+
+
+@dataclass(frozen=True)
+class EffectDependency:
+    """The identity evidence a parked run must retain for one open proposal."""
+
+    proposal_id: str
+    node_id: str
+    state: str
+    logical_key: str
+    intent_hash: str
 
 
 @dataclass(frozen=True)
@@ -304,7 +333,10 @@ def reconcile_one(
         answer = lookup(connector, base_url, view.logical_key)
     except OpenApiExecutionError as exc:
         return Reconciliation(proposal_id, LOOKUP_FAILED, seen.state, type(exc).__name__)
-    return _settle(factory, view, seen.version, connector, answer, lease, now)
+    result = _settle(factory, view, seen.version, connector, answer, lease, now)
+    if result.state in (COMMITTED, FAILED):
+        wake_parked_runs(factory, view.proposal_id, settled_state=result.state)
+    return result
 
 
 def _settle(
@@ -474,6 +506,39 @@ def unresolved_effects(
     return [(str(r[0]), str(r[1]), str(r[2])) for r in rows]
 
 
+def unresolved_effect_details(
+    session: Session, workflow_run_id: str, node_ids: Collection[str]
+) -> list[EffectDependency]:
+    """Return the identity evidence needed to explain and resume an effect gate."""
+    if not node_ids:
+        return []
+    rows = session.execute(
+        select(
+            CaliberEffectProposal.proposal_id,
+            CaliberEffectProposal.node_id,
+            CaliberEffectProposal.state,
+            CaliberEffectProposal.logical_key,
+            CaliberEffectProposal.intent_hash,
+        )
+        .where(
+            CaliberEffectProposal.workflow_run_id == workflow_run_id,
+            CaliberEffectProposal.node_id.in_(sorted(node_ids)),
+            CaliberEffectProposal.state.in_(OPEN_STATES),
+        )
+        .order_by(CaliberEffectProposal.node_id, CaliberEffectProposal.proposal_id)
+    ).all()
+    return [
+        EffectDependency(
+            proposal_id=str(row[0]),
+            node_id=str(row[1]),
+            state=str(row[2]),
+            logical_key=str(row[3]),
+            intent_hash=str(row[4]),
+        )
+        for row in rows
+    ]
+
+
 def effect_gate(
     factory: sessionmaker[Session], workflow_run_id: str
 ) -> Callable[[Collection[str]], None]:
@@ -482,11 +547,133 @@ def effect_gate(
 
     def gate(node_ids: Collection[str]) -> None:
         with factory() as session:
-            open_effects = unresolved_effects(session, workflow_run_id, node_ids)
-        if open_effects:
-            raise UnknownEffectError(open_effects)
+            details = unresolved_effect_details(session, workflow_run_id, node_ids)
+        if details:
+            raise UnknownEffectError(
+                [(item.proposal_id, item.node_id, item.state) for item in details],
+                effect_details=details,
+            )
 
     return gate
+
+
+def wake_parked_runs(
+    factory: sessionmaker[Session],
+    proposal_id: str,
+    *,
+    settled_state: str,
+) -> list[str]:
+    """Queue parked runs once every dependency in their durable checkpoint is settled.
+
+    This is deliberately called after the proposal settlement transaction commits. The
+    run keeps its original id and checkpoint, so the worker resumes the gated node in
+    place; it never creates a new logical occurrence. A checkpoint with several open
+    proposals wakes only after all of them have reached ``committed`` or ``failed``.
+    """
+    if settled_state not in (COMMITTED, FAILED):
+        return []
+    woken: list[str] = []
+    with factory() as session:
+        runs = (
+            session.execute(
+                select(CaliberWorkflowRun)
+                .where(CaliberWorkflowRun.status == RUN_STATUS_WAITING_EFFECT)
+                .order_by(CaliberWorkflowRun.queued_at.asc(), CaliberWorkflowRun.workflow_run_id)
+            )
+            .scalars()
+            .all()
+        )
+        for run in runs:
+            summary = run.summary if isinstance(run.summary, dict) else {}
+            checkpoint_id = summary.get("resume_checkpoint_id")
+            if not isinstance(checkpoint_id, str) or not checkpoint_id:
+                continue
+            checkpoint = session.get(CaliberWorkflowRunCheckpoint, checkpoint_id)
+            state_blob = checkpoint.state_blob if checkpoint is not None else None
+            if (
+                not isinstance(state_blob, dict)
+                or state_blob.get("kind") != "effect_reconciliation"
+            ):
+                continue
+            effects = state_blob.get("effects")
+            if not isinstance(effects, list):
+                continue
+            proposal_ids = {
+                item.get("proposal_id")
+                for item in effects
+                if isinstance(item, dict) and isinstance(item.get("proposal_id"), str)
+            }
+            if proposal_id not in proposal_ids or not proposal_ids:
+                continue
+            state_rows = session.execute(
+                select(CaliberEffectProposal.proposal_id, CaliberEffectProposal.state).where(
+                    CaliberEffectProposal.proposal_id.in_(sorted(proposal_ids))
+                )
+            ).all()
+            states: dict[str, str] = {
+                str(proposal_id): str(state) for proposal_id, state in state_rows
+            }
+            if set(states) != proposal_ids or any(
+                state in OPEN_STATES for state in states.values()
+            ):
+                continue
+            assert_run_transition(run.status, RUN_STATUS_QUEUED)
+            now = datetime.now(timezone.utc)
+            parked = dict(summary.get("parked_effects") or {})
+            parked["state"] = RUN_STATUS_QUEUED
+            parked["wake_reason"] = "all_effect_dependencies_settled"
+            parked["settled_states"] = {str(key): str(value) for key, value in states.items()}
+            new_summary = {**summary, "status": RUN_STATUS_QUEUED, "parked_effects": parked}
+            updated = session.execute(
+                update(CaliberWorkflowRun)
+                .where(
+                    CaliberWorkflowRun.workflow_run_id == run.workflow_run_id,
+                    CaliberWorkflowRun.status == RUN_STATUS_WAITING_EFFECT,
+                )
+                .values(
+                    status=RUN_STATUS_QUEUED,
+                    claimed_by=None,
+                    claimed_at=None,
+                    lease_expires_at=None,
+                    last_heartbeat_at=now,
+                    current_node_id=None,
+                    error_code=None,
+                    error_summary=None,
+                    summary=new_summary,
+                )
+            )
+            if getattr(updated, "rowcount", 0) != 1:
+                continue
+            append_run_event(
+                session,
+                workflow_run_id=run.workflow_run_id,
+                project_id=run.project_id,
+                event_type="workflow.run.effect_resumed",
+                payload={
+                    "proposal_id": proposal_id,
+                    "settled_state": settled_state,
+                    "node_id": state_blob.get("node_id"),
+                },
+                node_id=state_blob.get("node_id")
+                if isinstance(state_blob.get("node_id"), str)
+                else None,
+            )
+            audit_record(
+                session,
+                actor="reconciler",
+                action="resume_workflow_run_after_effect_settlement",
+                entity_type="workflow_run",
+                entity_id=run.workflow_run_id,
+                details={
+                    "proposal_id": proposal_id,
+                    "settled_state": settled_state,
+                    "proposal_ids": sorted(proposal_ids),
+                },
+            )
+            woken.append(run.workflow_run_id)
+        if woken:
+            session.commit()
+    return woken
 
 
 __all__ = [
@@ -503,6 +690,7 @@ __all__ = [
     "UNVERIFIED",
     "Answer",
     "ConnectorLookup",
+    "EffectDependency",
     "Reconciliation",
     "UnknownEffectError",
     "ask_downstream",
@@ -512,5 +700,7 @@ __all__ = [
     "reconcile_one",
     "reconcile_pass",
     "targets_from_bindings",
+    "unresolved_effect_details",
     "unresolved_effects",
+    "wake_parked_runs",
 ]
