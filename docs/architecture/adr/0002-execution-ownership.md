@@ -230,6 +230,7 @@ and `exempt` rows stay with the module the row names.
 | EP-127 | `caliber/src/caliber/workflows/demo_tools.py::grok_parse` | `caliber/src/caliber/effects/` dispatcher (#520) | routed through the dispatcher: a recorded policy decision only, no EffectRecord or Receipt (ADR 0001) |
 | EP-128 | `caliber/src/caliber/routes/assistant.py::_list_ollama_models` | `caliber/src/caliber/routes/assistant.py` (unchanged) | exempt: see the inventory note for why no model proposal or workflow node reaches it |
 | EP-129 | `caliber/src/caliber/storage/s3.py::S3StorageBackend.copy` | `caliber/src/caliber/storage/s3.py` (unchanged) | exempt: see the inventory note for why no model proposal or workflow node reaches it |
+| EP-130 | `caliber/src/caliber/workflows/step_openai_agents.py::_build_tools` | `caliber/src/caliber/effects/` dispatcher (#520) | routed through the dispatcher: a recorded policy decision only, no EffectRecord or Receipt (ADR 0001) |
 
 ## Consequences
 
