@@ -943,6 +943,7 @@ class OpenAIResponsesWorkflowExecutor:
         parallel_tool_calls: bool = False,
         prompt_cache_enabled: bool = False,
         prompt_cache_retention: str | None = None,
+        step_clock: Callable[[], datetime] | None = None,
     ) -> None:
         if client is not None:
             self._client = client
@@ -967,17 +968,30 @@ class OpenAIResponsesWorkflowExecutor:
         self._parallel_tool_calls = parallel_tool_calls
         self._prompt_cache_enabled = prompt_cache_enabled
         self._prompt_cache_retention = prompt_cache_retention or None
+        self._step_clock = step_clock
 
     def run_step(
         self, request: _agent_step.AgentStepRequest, step_input: _agent_step.AgentStepInput
     ) -> _agent_step.AgentStepResult:
-        """Governed execution is not integrated for this executor yet (B08, #730): refused, no provider is called.
+        """Run one bounded governed Responses step; :meth:`run_agent` remains unchanged."""
+        from caliber.workflows.step_openai_responses import (  # noqa: PLC0415
+            ResponsesStepConfig,
+            run_openai_responses_step,
+        )
 
-        The step is answered with a ``refused`` result (``adapter_not_integrated``) before any client is built or any
-        network is touched; :meth:`run_agent` is unchanged. The task that integrates this adapter replaces this body.
-        """
-        del step_input
-        return _agent_step.refusal(request, _agent_step.ADAPTER_NOT_INTEGRATED)
+        return run_openai_responses_step(
+            ResponsesStepConfig(
+                client=self._client,
+                default_model=self._default_model,
+                reasoning_effort=self._reasoning_effort,
+                parallel_tool_calls=self._parallel_tool_calls,
+                prompt_cache_enabled=self._prompt_cache_enabled,
+                prompt_cache_retention=self._prompt_cache_retention,
+                clock=self._step_clock,
+            ),
+            request,
+            step_input,
+        )
 
     def run_agent(  # noqa: PLR0915 - provider request/response loop with tool replay
         self,
