@@ -12,7 +12,13 @@ import pytest
 from sqlalchemy import select, text, update
 from sqlalchemy.orm import Session, sessionmaker
 
-from caliber.db.models import CaliberAuditLog, CaliberEffectProposal, CaliberEffectReceipt
+from caliber.db.models import (
+    CaliberAuditLog,
+    CaliberEffectProposal,
+    CaliberEffectReceipt,
+    CaliberWorkflowRun,
+    CaliberWorkflowRunCheckpoint,
+)
 from caliber.effects import reconcile
 from caliber.effects.callbacks import CallbackBinding
 from caliber.effects.connectors import ConnectorCapability
@@ -36,6 +42,7 @@ from caliber.effects.reconcile import (
     reconcile_pass,
     targets_from_bindings,
     unresolved_effects,
+    wake_parked_runs,
 )
 from caliber.effects.records import (
     ABANDONED_REASON,
@@ -132,6 +139,114 @@ def _owner(factory: sessionmaker[Session], owner: str = RECONCILER) -> Lease:
 def _state(factory: sessionmaker[Session], proposal_id: str) -> Any:
     with factory() as session:
         return proposal_state(session, proposal_id)
+
+
+def _park_run(factory: sessionmaker[Session], proposal_id: str, *, node_id: str = "final") -> None:
+    """Persist the same checkpoint shape the queue worker writes for a parked run."""
+    from caliber.effects.records import proposal_view
+
+    with factory() as session:
+        run = session.get(CaliberWorkflowRun, "RUN-ep")
+        assert run is not None
+        view = proposal_view(session, proposal_id)
+        checkpoint_id = "checkpoint-effect-1"
+        run.status = "waiting_effect"
+        run.current_node_id = node_id
+        run.error_code = "effect_reconciliation"
+        run.error_summary = "waiting for authoritative effect reconciliation"
+        run.summary = {
+            "status": "waiting_effect",
+            "resume_checkpoint_id": checkpoint_id,
+            "resume_checkpoint_run_id": run.workflow_run_id,
+            "parked_effects": {
+                "state": "waiting_effect",
+                "node_id": node_id,
+                "reason": "effect_dependency_unresolved",
+                "resume_policy": "same_run_same_occurrence",
+                "effects": [
+                    {
+                        "proposal_id": view.proposal_id,
+                        "node_id": "ask",
+                        "state": view.state,
+                        "logical_key": view.logical_key,
+                        "intent_hash": view.intent_hash,
+                    }
+                ],
+            },
+        }
+        session.add(
+            CaliberWorkflowRunCheckpoint(
+                checkpoint_id=checkpoint_id,
+                workflow_run_id=run.workflow_run_id,
+                project_id=run.project_id,
+                sequence=1,
+                node_id=node_id,
+                state_blob={
+                    "kind": "effect_reconciliation",
+                    "node_id": node_id,
+                    "input_by_port": {"input": "hello"},
+                    "effects": [
+                        {
+                            "proposal_id": view.proposal_id,
+                            "node_id": "ask",
+                            "state": view.state,
+                            "logical_key": view.logical_key,
+                            "intent_hash": view.intent_hash,
+                        }
+                    ],
+                    "reason": "effect_dependency_unresolved",
+                    "resume_policy": "same_run_same_occurrence",
+                },
+            )
+        )
+        session.commit()
+
+
+def test_reconciliation_wakes_a_parked_run_after_authoritative_commit(database: Any) -> None:
+    _, factory = database
+    with factory() as session:
+        proposal_id = _unknown(session, "o-parked")
+        view = reconcile.proposal_view(session, proposal_id)
+        session.commit()
+    _park_run(factory, proposal_id)
+    downstream = _Downstream(factory)
+    with factory() as session:
+        downstream.script[view.logical_key] = Answer(200, _stored(session, proposal_id))
+        session.commit()
+
+    result = reconcile_one(
+        factory,
+        proposal_id,
+        lease=_owner(factory),
+        targets=TARGETS,
+        lookup=downstream,
+        now=AT,
+    )
+    assert (result.outcome, result.state) == (RECONCILED_COMMITTED, COMMITTED)
+    with factory() as session:
+        run = session.get(CaliberWorkflowRun, "RUN-ep")
+        assert run is not None
+        assert run.status == "queued"
+        assert run.summary["parked_effects"]["state"] == "queued"
+        assert run.summary["parked_effects"]["wake_reason"] == "all_effect_dependencies_settled"
+        checkpoint_id = run.summary["resume_checkpoint_id"]
+        checkpoint = session.get(CaliberWorkflowRunCheckpoint, checkpoint_id)
+        assert checkpoint is not None and checkpoint.state_blob["kind"] == "effect_reconciliation"
+
+
+def test_parked_run_wakes_after_failed_settlement_and_duplicate_wake_is_noop(database: Any) -> None:
+    _, factory = database
+    with factory() as session:
+        proposal_id = _unknown(session, "o-parked-failed")
+        _move(session, proposal_id, RECONCILED, reason="absence proven")
+        _move(session, proposal_id, FAILED, reason=ABSENCE_PROVEN_REASON)
+        session.commit()
+    _park_run(factory, proposal_id)
+    assert wake_parked_runs(factory, proposal_id, settled_state=FAILED) == ["RUN-ep"]
+    assert wake_parked_runs(factory, proposal_id, settled_state=FAILED) == []
+    with factory() as session:
+        run = session.get(CaliberWorkflowRun, "RUN-ep")
+        assert run is not None and run.status == "queued"
 
 
 # ---------------------------------------------------------------- abandoned dispatches
@@ -1032,9 +1147,12 @@ def test_a_refusing_gate_stops_the_node_before_it_runs_and_the_run_reports_why()
         "hi",
         executor=FakeWorkflowExecutor(),
     )
-    assert result.status == "error"
-    assert "UnknownEffectError" in (result.error or "") and "prop-1" in (result.error or "")
-    assert [step.node_id for step in result.steps] == ["start"]
+    assert result.status == "blocked"
+    assert (result.error or "") == "waiting_effect:agent"
+    checkpoint = result.steps[-1].checkpoint_state
+    assert checkpoint and checkpoint["kind"] == "effect_reconciliation"
+    assert checkpoint["effects"][0]["proposal_id"] == "prop-1"
+    assert [step.node_id for step in result.steps] == ["start", "agent"]
     assert calls == [{"start"}, {"start", "agent"}], (
         "asked once per node, never for the node after the refusal"
     )
@@ -1187,8 +1305,8 @@ def test_an_open_effect_of_an_inline_target_is_not_absorbed_and_blocks_everythin
     )
     executor = FakeWorkflowExecutor()
     result = execute(plan, '["a","b"]', executor=executor)
-    assert result.status == "error", [s.node_id for s in result.steps]
-    assert (result.error or "").startswith("UnknownEffectError"), result.error
+    assert result.status == "blocked", [s.node_id for s in result.steps]
+    assert (result.error or "") == "waiting_effect:wrap", result.error
     assert executor.calls == [], "the provider was never called"
     assert "final" not in [step.node_id for step in result.steps]
     assert any("wrap" in ids and "agent" in ids for ids in asked), (
@@ -1234,7 +1352,7 @@ def test_a_compensation_does_not_run_against_an_effect_nobody_can_vouch_for() ->
         "hi",
         executor=executor,
     )
-    assert result.status == "error" and (result.error or "").startswith("UnknownEffectError")
+    assert result.status == "blocked" and (result.error or "") == "waiting_effect:wrap"
     assert executor.calls == []
 
 
@@ -1275,7 +1393,7 @@ def test_a_node_retry_is_gated_again_before_each_attempt() -> None:
         "hi",
         executor=FakeWorkflowExecutor(),
     )
-    assert result.status == "error" and (result.error or "").startswith("UnknownEffectError")
+    assert result.status == "blocked" and (result.error or "") == "waiting_effect:boom"
     assert sum("boom" in c for c in calls) == 2, "asked on the retry, and a refusal is not retried"
 
 
@@ -1314,7 +1432,7 @@ def test_a_guardrail_retry_is_gated_before_it_runs_the_agent_again(
         "what is your refund policy?",
         executor=_GroundAfterExecutor(),
     )
-    assert result.status == "error" and (result.error or "").startswith("UnknownEffectError")
+    assert result.status == "blocked" and (result.error or "") == "waiting_effect:support_agent"
     assert retrying["started"]
 
 
@@ -1342,8 +1460,8 @@ def test_an_effect_that_goes_unknown_while_the_wrapper_runs_is_still_not_absorbe
         '["a","b"]',
         executor=executor,
     )
-    assert result.status == "error", [(s.node_id, s.status, s.detail) for s in result.steps]
-    assert (result.error or "").startswith("UnknownEffectError") and executor.calls == []
+    assert result.status == "blocked", [(s.node_id, s.status, s.detail) for s in result.steps]
+    assert (result.error or "") == "waiting_effect:agent" and executor.calls == []
 
 
 # ---------------------------------------------------------------- a backlog cannot hide a newer proposal

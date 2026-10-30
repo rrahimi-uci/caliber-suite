@@ -83,7 +83,7 @@ from caliber.effects.operator_view import (
     proposal_states,
 )
 from caliber.effects.receipts import RECEIPT_STATE, ReceiptFacts
-from caliber.effects.reconcile import commit_found
+from caliber.effects.reconcile import commit_found, wake_parked_runs
 from caliber.effects.records import (
     COMMITTED,
     DISPATCHED,
@@ -113,6 +113,7 @@ from caliber.workflows.effect_ledger import (
     list_effects,
     resolve_effect,
 )
+from caliber.workflows.run_state import RUN_STATUS_WAITING_EFFECT
 
 EFFECTS_PATH = "/ajax-api/2.0/mlflow/caliber/system/effects"
 EFFECT_RESOLVE_PATH = "/ajax-api/2.0/mlflow/caliber/system/effects/{effect_key}/resolve"
@@ -159,6 +160,37 @@ def proposal_states_for(source: str, requested: str) -> tuple[str, ...]:
         return proposal_states(requested)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+def _parked_run_rows(session: Session, workflow_run_id: str | None) -> list[dict[str, Any]]:
+    query = (
+        select(CaliberWorkflowRun)
+        .where(CaliberWorkflowRun.status == RUN_STATUS_WAITING_EFFECT)
+        .order_by(CaliberWorkflowRun.queued_at.asc(), CaliberWorkflowRun.workflow_run_id)
+    )
+    if workflow_run_id:
+        query = query.where(CaliberWorkflowRun.workflow_run_id == workflow_run_id)
+    rows = session.execute(query.limit(1000)).scalars().all()
+    parked: list[dict[str, Any]] = []
+    for run in rows:
+        summary = run.summary if isinstance(run.summary, dict) else {}
+        info = summary.get("parked_effects")
+        if not isinstance(info, dict):
+            continue
+        parked.append(
+            {
+                "workflow_run_id": run.workflow_run_id,
+                "workflow_id": run.workflow_id,
+                "status": run.status,
+                "current_node_id": run.current_node_id,
+                "error_code": run.error_code,
+                "reason": info.get("reason"),
+                "resume_policy": info.get("resume_policy"),
+                "effects": info.get("effects", []),
+                "resume_checkpoint_id": summary.get("resume_checkpoint_id"),
+            }
+        )
+    return parked
 
 
 async def list_system_effects(request: Request) -> JSONResponse:
@@ -215,6 +247,7 @@ async def list_system_effects(request: Request) -> JSONResponse:
                 session, states=states, workflow_run_id=run_id or None, limit=limit
             )
             body["lease"] = lease_summary(session)
+            body["parked_runs"] = _parked_run_rows(session, run_id or None)
     return envelope_response_dict(body)
 
 
@@ -702,6 +735,8 @@ def _process_receipt_callback(  # noqa: PLR0911 - one distinct, documented answe
                     details={"delivery": delivery, "receipt_id": receipt_id},
                 )
             session.commit()
+            if outcome.applied and outcome.value is not None:
+                wake_parked_runs(factory, view.proposal_id, settled_state=COMMITTED)
         except InboxPayloadMismatch:
             session.rollback()
             return _callback_reply(409, reason="inbox_payload_mismatch")

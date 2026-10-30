@@ -20,7 +20,13 @@ import pytest
 from sqlalchemy.orm import Session
 from starlette.testclient import TestClient
 
-from caliber.db.models import CaliberAuditLog, CaliberEffectLedger
+from caliber.db.models import (
+    CaliberAuditLog,
+    CaliberEffectLedger,
+    CaliberWorkflowRun,
+    CaliberWorkflowRunCheckpoint,
+    CaliberWorkflowRunEvent,
+)
 from caliber.effects.records import COMMITTED, RECONCILED, UNKNOWN
 from caliber.ownership import release
 from caliber.workflows.effect_ledger import COMPLETED, FAILED, IN_PROGRESS
@@ -212,6 +218,56 @@ def test_lists_legacy_and_proposal_kinds(client: TestClient, db_session: Session
     assert sources["effect_proposal"]["settled_by"] == "reconciler"
     assert sources["effect_proposal"]["safe_actions"] == []
     assert set(data["resolutions"]) == {"skip", "retry"}
+
+
+def test_listing_exposes_parked_runs_and_effect_resume_reason(
+    client: TestClient, db_session: Session
+) -> None:
+    _seed_run(client.app.state.session_factory)  # type: ignore[attr-defined]
+    run = db_session.get(CaliberWorkflowRun, "RUN-ep")
+    assert run is not None
+    checkpoint_id = "CP-parked-effect"
+    run.status = "waiting_effect"
+    run.current_node_id = "ask"
+    run.error_code = "effect_reconciliation"
+    run.error_summary = "waiting for authoritative effect reconciliation"
+    run.summary = {
+        "resume_checkpoint_id": checkpoint_id,
+        "parked_effects": {
+            "state": "waiting_effect",
+            "node_id": "ask",
+            "reason": "effect_dependency_unresolved",
+            "resume_policy": "same_run_same_occurrence",
+            "effects": [{"proposal_id": "prop-parked", "state": "unknown"}],
+        },
+    }
+    db_session.add(
+        CaliberWorkflowRunCheckpoint(
+            checkpoint_id=checkpoint_id,
+            workflow_run_id=run.workflow_run_id,
+            project_id=run.project_id,
+            sequence=1,
+            node_id="ask",
+            state_blob={"kind": "effect_reconciliation", "node_id": "ask"},
+        )
+    )
+    db_session.commit()
+
+    response = client.get(EFFECTS, params={"source": "proposal", "workflow_run_id": "RUN-ep"})
+    assert response.status_code == 200, response.text
+    assert response.json()["data"]["parked_runs"] == [
+        {
+            "workflow_run_id": "RUN-ep",
+            "workflow_id": "wf-ep",
+            "status": "waiting_effect",
+            "current_node_id": "ask",
+            "error_code": "effect_reconciliation",
+            "reason": "effect_dependency_unresolved",
+            "resume_policy": "same_run_same_occurrence",
+            "effects": [{"proposal_id": "prop-parked", "state": "unknown"}],
+            "resume_checkpoint_id": checkpoint_id,
+        }
+    ]
 
 
 def test_a_settled_legacy_claim_offers_no_action(client: TestClient, db_session: Session) -> None:
@@ -878,6 +934,64 @@ def test_callback_commits_after_query(
         assert audit.actor == f"connector:{CONNECTOR}" and audit.entity_id == proposal_id
     assert _count(session_factory, CaliberEffectReceipt) == 1
     assert downstream.mutations() == 1, "the callback sent nothing: it only asked"
+
+
+def test_callback_wakes_a_parked_run_after_commit(
+    callback_client: TestClient, session_factory: sessionmaker[Session], downstream: Any
+) -> None:
+    _seed_run(session_factory)
+    proposal_id, key = _unknown_proposal(session_factory, downstream)
+    checkpoint_id = "CP-callback-parked"
+    with session_factory() as session:
+        run = session.get(CaliberWorkflowRun, "RUN-ep")
+        assert run is not None
+        run.status = "waiting_effect"
+        run.current_node_id = "ask"
+        run.error_code = "effect_reconciliation"
+        run.error_summary = "waiting for authoritative effect reconciliation"
+        run.summary = {
+            "resume_checkpoint_id": checkpoint_id,
+            "parked_effects": {
+                "state": "waiting_effect",
+                "node_id": "ask",
+                "reason": "effect_dependency_unresolved",
+                "resume_policy": "same_run_same_occurrence",
+                "effects": [{"proposal_id": proposal_id, "state": "unknown"}],
+            },
+        }
+        session.add(
+            CaliberWorkflowRunCheckpoint(
+                checkpoint_id=checkpoint_id,
+                workflow_run_id="RUN-ep",
+                project_id="PRJ-ep",
+                sequence=1,
+                node_id="ask",
+                state_blob={
+                    "kind": "effect_reconciliation",
+                    "node_id": "ask",
+                    "input_by_port": {"input": "hello"},
+                    "effects": [{"proposal_id": proposal_id, "state": "unknown"}],
+                },
+            )
+        )
+        session.commit()
+
+    response = _call(callback_client, key, delivery="delivery-parked")
+    assert response.status_code == 200, response.text
+    with session_factory() as session:
+        run = session.get(CaliberWorkflowRun, "RUN-ep")
+        assert run is not None and run.status == "queued"
+        assert run.error_code is None and run.error_summary is None
+        assert dict(run.summary or {})["parked_effects"]["wake_reason"] == (
+            "all_effect_dependencies_settled"
+        )
+        event_types = [
+            event.event_type
+            for event in session.query(CaliberWorkflowRunEvent)
+            .filter(CaliberWorkflowRunEvent.workflow_run_id == "RUN-ep")
+            .all()
+        ]
+        assert "workflow.run.effect_resumed" in event_types
 
 
 def test_callback_is_idempotent(

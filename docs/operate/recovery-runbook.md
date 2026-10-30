@@ -45,7 +45,7 @@ Read this first: it decides which sections you will meet in practice.
 | Effect proposals, receipts, reconciler, operator view | merged as modules and a read-only view (B05.1 to B05.6) | Rows appear in the view only once something writes proposals |
 | The dispatcher that writes and dispatches proposals, and the owner loop that schedules the reconciler | **not merged** (dispatcher B04.1, #724; the owner loop, same-token stuck dispatches and operator resolution are tracked in #997) | No production path creates proposal rows today and no loop runs `reconcile_pass`; a real run's effects go through the **legacy effect ledger** |
 | An audited operator action for an `unknown` proposal | **not merged** (#997) | The view offers none (`safe_actions` is empty) |
-| Parking a gated run and resuming it after reconciliation | **not merged** | A gated run ends `failed` and stays failed |
+| Parking a gated run and resuming it after reconciliation | merged (B05.5c, #996) | A gated run is durably `waiting_effect`; authoritative settlement wakes the same run from its checkpoint |
 
 So today the effect you will actually meet is a **legacy ledger claim** (`caliber_effect_ledger`, status `in_progress`);
 the proposal states below are what the same procedures become when the dispatcher lands, and they are written down now so
@@ -117,7 +117,7 @@ SELECT consumer, source, event_id, status, received_at FROM caliber_inbox_events
 | --- | --- |
 | No `owner` anywhere, two `owner`s, runs not draining after a crash or deploy | [Owner crash and failover](#owner-crash-and-failover) |
 | A legacy claim `in_progress`, or a proposal `dispatched`, `unknown` or `reconciled` | [A stuck or unknown effect](#a-stuck-or-unknown-effect) |
-| A run `failed` with `UnknownEffectError` or an effect that "was claimed but never recorded an outcome" | [A gated or failed run](#a-gated-or-failed-run) |
+| A run `failed` with `UnknownEffectError` or an effect that "was claimed but never recorded an outcome" | [A gated, parked, or failed run](#a-gated-parked-or-failed-run) |
 | A callback or webhook delivered twice, `inbox_payload_mismatch`, an inbox row stuck at `received` | [Callback and webhook redelivery](#callback-and-webhook-redelivery) |
 | Events not arriving, dead outbox rows, dead letters | [Outbox backlog and dead letters](#outbox-backlog-and-dead-letters) |
 | An admission refusal (`bundle_unavailable`, `rule_bundle_refused`), or a run `failed` with `pins_changed` or `context_denied` | [A run refused for its pins or its rule bundle](#a-run-refused-for-its-pins-or-its-rule-bundle) |
@@ -278,33 +278,36 @@ after it may have left: whether it reached the remote system is unknown.
 
 Apply a proposal's key to the legacy resolve endpoint and it is refused (`400`) and changes nothing.
 
-## A gated or failed run
+## A gated, parked, or failed run
 
-**What it looks like.** A run ended `failed`. For a proposal the error starts
-`UnknownEffectError: effect <proposal> (node <n>, unknown) has no final outcome: reconcile it ...` (error code
-`runtime_error`); for a legacy claim the message says the effect `was claimed ... but never recorded an outcome` and names
-the resolve endpoint.
+**What it looks like.** A proposal-gated run is `waiting_effect`, with `error_code=effect_reconciliation`, a current node, and a
+`resume_checkpoint_id` in its summary. The checkpoint kind is `effect_reconciliation`; it records the node inputs and each unresolved
+proposal's id, state, logical key and intent digest. The operator view lists the same run in `parked_runs`, including
+`reason=effect_dependency_unresolved` and `resume_policy=same_run_same_occurrence`. A legacy-claim refusal remains a terminal
+failure whose message names the resolve endpoint.
 
 **Why.** Before every node, at the top of every retry attempt, the runtime checks the effects the node and everything it
 depends on asked for. While one is `dispatched`, `unknown` or `reconciled`, the node does not run and nothing absorbs the
 refusal: no fan-out item, loop iteration or error boundary turns it into a handled error. This is the guarantee, not a
 fault: no write that depends on an effect nobody can vouch for is made.
 
-**A failed run is not resumed.** `failed` is terminal: no transition leaves it, reconciling the effect does not restart the
-run, and `POST /caliber/workflow-runs/{run_id}/retry` creates a **new** run with a new id. Effect identity includes the run
-id, so the new run is a **new logical effect**: it is not gated by the old run's open effect and may ask the downstream for
-the same thing again.
+**A parked run is not manually resumed.** While `waiting_effect`, `POST /caliber/workflow-runs/{run_id}/resume` and retry are
+refused. The reconciler or a verified receipt callback is the only wake-up path. When every checkpointed proposal reaches
+`committed` or `failed`, the platform changes the same run to `queued`, emits `workflow.run.effect_resumed`, and the worker
+resumes from the checkpoint. The run id, logical key and intent digest remain unchanged, so no second logical occurrence or
+mutation is created. A run that is genuinely `failed` remains terminal: no transition leaves it, and retry creates a new run.
 
 **Steps.**
 
-1. Find the effect (view above, `workflow_run_id` filter) and its state.
-2. Settle it first: proposal by the reconciler or a verified callback, legacy claim by the resolve decision with evidence.
-3. Only then decide about a retry, with the owner of the downstream:
+1. Find the run in `parked_runs` (or find its proposal in the view above, using the `workflow_run_id` filter) and inspect its checkpoint reason and effect states.
+2. Do not call `resume` or `retry` while it is `waiting_effect`; settle each proposal by the reconciler or a verified callback.
+3. Wait for `workflow.run.effect_resumed` and the run to return to `queued`. The worker then uses the stored checkpoint and preserves the original occurrence.
+4. If the run is genuinely terminal `failed`, settle the effect first and only then decide about a retry, with the owner of the downstream:
    - effect `committed` (or legacy `skip`): the work is done. Do **not** retry the run; if later nodes must still run, that
      is a design question for the workflow owner, not a button.
    - effect `failed` with proof (or legacy `retry`): a retry is safe with respect to this effect.
    - effect still `unknown`: do not retry. A retry would ask for the effect again.
-4. A run that lease recovery requeued runs again from the beginning. If an effect it claimed is still `in_progress` (or a
+5. A run that lease recovery requeued runs again from the beginning. If an effect it claimed is still `in_progress` (or a
    proposal of it is open), it ends `failed` at that node; it needs no manual retry, and a manual retry does not help it
    (that is a new run, see above). Read its `workflow.run.recovered` event (`GET /caliber/workflow-runs/{run_id}/events`)
    and apply step 3 before anything else.
@@ -416,7 +419,7 @@ text):
 | `authority_denied` (`grant_expired`, `grant_revoked`, `not_a_member`) | submit a new run as someone who may |
 
 The same rule as for effects applies: a refused run is not resumed, and a new run is a new run. For a run that had an
-effect in doubt, settle the effect first ([A gated or failed run](#a-gated-or-failed-run)).
+effect in doubt, settle the effect first ([A gated, parked, or failed run](#a-gated-parked-or-failed-run)).
 
 ## After a restore
 

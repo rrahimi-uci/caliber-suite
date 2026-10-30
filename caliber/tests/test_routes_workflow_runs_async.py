@@ -2450,6 +2450,61 @@ def test_waiting_event_run_can_resume_without_approval(client: TestClient) -> No
     assert resumed_data["error_summary"] is None
 
 
+def test_waiting_effect_run_rejects_manual_resume_until_reconciler_wakes_it(
+    client: TestClient,
+) -> None:
+    _enable_runtime_approvals(client)
+    _wid, vid = create_and_publish(client)
+    created = client.post(
+        f"{PREFIX}/workflow-runs", json={"workflow_version_id": vid, "input": "hello"}
+    )
+    run_id = created.json()["data"]["workflow_run_id"]
+    checkpoint_id = new_workflow_run_checkpoint_id()
+    with client.app.state.session_factory() as session:
+        run = session.get(CaliberWorkflowRun, run_id)
+        assert run is not None
+        run.status = "waiting_effect"
+        run.current_node_id = "agent"
+        run.error_code = "effect_reconciliation"
+        run.error_summary = "waiting for authoritative effect reconciliation"
+        run.summary = {
+            "resume_checkpoint_id": checkpoint_id,
+            "parked_effects": {
+                "state": "waiting_effect",
+                "node_id": "agent",
+                "reason": "effect_dependency_unresolved",
+                "resume_policy": "same_run_same_occurrence",
+                "effects": [{"proposal_id": "prop-wait", "state": "unknown"}],
+            },
+        }
+        session.add(
+            CaliberWorkflowRunCheckpoint(
+                checkpoint_id=checkpoint_id,
+                workflow_run_id=run_id,
+                project_id=run.project_id,
+                sequence=1,
+                node_id="agent",
+                state_blob={
+                    "kind": "effect_reconciliation",
+                    "node_id": "agent",
+                    "input_by_port": {"input": "hello"},
+                    "effects": [{"proposal_id": "prop-wait", "state": "unknown"}],
+                },
+            )
+        )
+        session.commit()
+
+    resumed = client.post(f"{PREFIX}/workflow-runs/{run_id}/resume")
+    assert resumed.status_code == 409, resumed.text
+    assert "not resumable from 'waiting_effect'" in resumed.json()["detail"]
+    retried = client.post(f"{PREFIX}/workflow-runs/{run_id}/retry", json={})
+    assert retried.status_code == 409, retried.text
+    assert "not retryable from status 'waiting_effect'" in retried.json()["detail"]
+    with client.app.state.session_factory() as session:
+        run = session.get(CaliberWorkflowRun, run_id)
+        assert run is not None and run.status == "waiting_effect"
+
+
 def test_waiting_event_manual_resume_stores_expected_event_name_and_synthetic_payload(
     client: TestClient,
 ) -> None:

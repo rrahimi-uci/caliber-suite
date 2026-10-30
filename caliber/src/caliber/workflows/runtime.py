@@ -3852,6 +3852,75 @@ def _interpret(  # noqa: PLR0911, PLR0912, PLR0915 - graph interpreter dispatch
         _deliver_from(nid, only_to=only_to)
         return None
 
+    def _effect_waiting_step(exc: UnknownEffectError) -> NodeStep:
+        """Turn an effect-gate refusal into a durable, input-snapshot checkpoint."""
+        node_id = getattr(exc, "blocked_node_id", None)
+        if not isinstance(node_id, str) or not node_id:
+            node_id = exc.effect_details[0].node_id if exc.effect_details else "unknown"
+        node = ir.nodes.get(node_id)
+        node_type = node.node_type.value if node is not None else "unknown"
+        input_by_port = getattr(exc, "blocked_inputs", None)
+        if not isinstance(input_by_port, dict):
+            input_by_port = {}
+        details: list[dict[str, Any]] = [
+            {
+                "proposal_id": item.proposal_id,
+                "node_id": item.node_id,
+                "state": item.state,
+                "logical_key": item.logical_key,
+                "intent_hash": item.intent_hash,
+            }
+            for item in exc.effect_details
+        ]
+        if not details:
+            details = [
+                {
+                    "proposal_id": proposal_id,
+                    "node_id": effect_node_id,
+                    "state": state,
+                    "logical_key": None,
+                    "intent_hash": None,
+                }
+                for proposal_id, effect_node_id, state in exc.open_effects
+            ]
+        checkpoint_state = {
+            "kind": "effect_reconciliation",
+            "node_id": node_id,
+            "input_by_port": dict(input_by_port),
+            "effects": details,
+            "reason": "effect_dependency_unresolved",
+            "resume_policy": "same_run_same_occurrence",
+        }
+        return NodeStep(
+            node_id=node_id,
+            node_type=node_type,
+            status="blocked",
+            detail=f"waiting_effect:{node_id}",
+            checkpoint_state=checkpoint_state,
+            input_by_port=dict(input_by_port),
+        )
+
+    def _effect_waiting_result(exc: UnknownEffectError) -> WorkflowRunResult:
+        step = _effect_waiting_step(exc)
+        return _finalize_step(
+            nid=step.node_id,
+            node=ir.nodes.get(step.node_id) or ir.nodes[ir.entry_node_id],
+            gathered_inputs=dict(step.input_by_port or {}),
+            step=step,
+            tokens=0,
+            cache_key=None,
+            node_outputs={},
+            extra_guardrail_results=[],
+        ) or WorkflowRunResult(
+            status="blocked",
+            output="",
+            steps=steps,
+            tags=base_tags,
+            tokens=total_tokens,
+            error=step.detail,
+            guardrail_results=guardrail_results,
+        )
+
     def _run_parallel_ready_batch(batch_ids: list[str]) -> list[dict[str, Any]]:
         base_port_values = dict(port_values)
         results_by_node_id: dict[str, dict[str, Any]] = {}
@@ -3970,10 +4039,39 @@ def _interpret(  # noqa: PLR0911, PLR0912, PLR0915 - graph interpreter dispatch
 
                 futures = {spec[0]: pool.submit(_run_pending_spec, spec) for spec in pending_specs}
                 for nid, future in futures.items():
-                    results_by_node_id[nid] = future.result()
+                    try:
+                        results_by_node_id[nid] = future.result()
+                    except UnknownEffectError as exc:
+                        results_by_node_id[nid] = {
+                            "nid": nid,
+                            "node": ir.nodes[nid],
+                            "gathered_inputs": next(
+                                spec[2] for spec in pending_specs if spec[0] == nid
+                            ),
+                            "tokens": 0,
+                            "step": None,
+                            "node_outputs": {},
+                            "extra_guardrail_results": [],
+                            "cache_key": next(spec[3] for spec in pending_specs if spec[0] == nid),
+                            "effect_error": exc,
+                        }
         elif len(pending_specs) == 1:
-            result = _worker(*pending_specs[0])
-            results_by_node_id[result["nid"]] = result
+            try:
+                result = _worker(*pending_specs[0])
+                results_by_node_id[result["nid"]] = result
+            except UnknownEffectError as exc:
+                nid, node, gathered_inputs, cache_key = pending_specs[0]
+                results_by_node_id[nid] = {
+                    "nid": nid,
+                    "node": node,
+                    "gathered_inputs": gathered_inputs,
+                    "tokens": 0,
+                    "step": None,
+                    "node_outputs": {},
+                    "extra_guardrail_results": [],
+                    "cache_key": cache_key,
+                    "effect_error": exc,
+                }
 
         return [results_by_node_id[nid] for nid in batch_ids]
 
@@ -4109,6 +4207,9 @@ def _interpret(  # noqa: PLR0911, PLR0912, PLR0915 - graph interpreter dispatch
                     node = result["node"]
                     if nid in processed:
                         continue
+                    effect_error = result.get("effect_error")
+                    if isinstance(effect_error, UnknownEffectError):
+                        return _effect_waiting_result(effect_error)
                     processed.add(nid)
                     for port, value in result["node_outputs"].items():
                         port_values[(nid, port)] = value
@@ -4218,6 +4319,8 @@ def _interpret(  # noqa: PLR0911, PLR0912, PLR0915 - graph interpreter dispatch
             )
             if blocked_result is not None:
                 return blocked_result
+    except UnknownEffectError as exc:
+        return _effect_waiting_result(exc)
     except GuardrailBlockedError as exc:  # pragma: no cover - converted to step above
         return WorkflowRunResult(
             status="blocked",
@@ -7482,13 +7585,26 @@ def _upstream_node_ids(ir: IRWorkflow, node_id: str) -> frozenset[str]:
     return frozenset(seen)
 
 
-def _check_effect_gate(plan: RuntimePlan, ir: IRWorkflow, node_id: str) -> None:
+def _check_effect_gate(
+    plan: RuntimePlan,
+    ir: IRWorkflow,
+    node_id: str,
+    *,
+    inputs: dict[str, Any] | None = None,
+) -> None:
     """Refuse to run ``node_id`` while an effect it may depend on has no final outcome (B05.5b, #742)."""
     if plan.effect_gate is not None:
-        plan.effect_gate(_upstream_node_ids(ir, node_id))
+        try:
+            plan.effect_gate(_upstream_node_ids(ir, node_id))
+        except UnknownEffectError as exc:
+            if getattr(exc, "blocked_node_id", None) is None:
+                exc.blocked_node_id = node_id
+            if getattr(exc, "blocked_inputs", None) is None and inputs is not None:
+                exc.blocked_inputs = dict(inputs)
+            raise
 
 
-def _run_node_with_policy(
+def _run_node_with_policy(  # noqa: PLR0912, PLR0915 - policy execution has explicit retry/error branches
     node: IRNode,
     ir: IRWorkflow,
     plan: RuntimePlan,
@@ -7527,7 +7643,7 @@ def _run_node_with_policy(
         timeout = node.execution_policy.timeout_seconds
         try:
             # Asked at the top of every attempt: an earlier attempt may have left this node's own effect unknown.
-            _check_effect_gate(plan, ir, node.node_id)
+            _check_effect_gate(plan, ir, node.node_id, inputs=inputs)
             with scope:
 
                 def _execute() -> tuple[int, NodeStep]:
@@ -7599,7 +7715,15 @@ def _run_node_with_policy(
                     }
             _set_context_provenance(plan, node, provenance)
             return tokens, step
-        except UnknownEffectError:
+        except UnknownEffectError as exc:
+            # The gate runs before the node (and inline child) starts. Keep the
+            # exact boundary and gathered inputs on the exception so the outer
+            # interpreter can persist an input-snapshot checkpoint rather than
+            # treating the refusal as an opaque runtime failure.
+            if getattr(exc, "blocked_node_id", None) is None:
+                exc.blocked_node_id = node.node_id
+            if getattr(exc, "blocked_inputs", None) is None:
+                exc.blocked_inputs = dict(inputs)
             raise  # a retry cannot make an effect nobody can vouch for known
         except Exception as exc:
             last_exc = exc
@@ -7654,7 +7778,7 @@ def _retry_blocked_guardrail(
     for _attempt in range(node.max_retries):
         # Re-run each upstream agent to regenerate the guardrail's input.
         for agent in upstream_agents:
-            _check_effect_gate(plan, ir, agent.node_id)
+            _check_effect_gate(plan, ir, agent.node_id, inputs={})
             tokens, agent_step = _run_node(
                 agent,
                 ir,
