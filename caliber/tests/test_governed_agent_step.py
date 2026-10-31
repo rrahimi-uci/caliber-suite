@@ -2012,7 +2012,9 @@ def test_limits_that_cannot_be_read_stop_the_step_before_the_adapter(
 def test_a_clock_that_is_not_an_aware_instant_stops_the_step_before_the_adapter(world: Any) -> None:
     naive = StepClock(now=lambda: datetime(2026, 10, 26, 9, 0, 0), monotonic=lambda: 0.0)
     result, executor, _ = _run(world, [_proposing()], plan=_plan(world, clock=naive))
-    assert "limits_invalid" in (result.error or "")
+    assert (
+        result.error == "ToolExecutionError: governed agent step clock unavailable: clock_invalid"
+    )
     assert executor.step_requests == []
 
 

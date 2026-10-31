@@ -38,8 +38,10 @@ from caliber.workflows.agent_step import (
     AgentStepInput,
     StepCeilings,
     StepClock,
+    StepDeadlineReached,
     StepHandoffTarget,
     StepToolBudgetExceeded,
+    _ToolMeter,
     answer,
     before_work_stop,
     cap_limits,
@@ -492,33 +494,109 @@ def test_the_tool_a_step_gets_keeps_its_signature_and_name() -> None:
     assert wrapped.__name__ == original.__name__
 
 
-def test_racing_calls_cannot_both_take_the_last_slot() -> None:
+def test_racing_calls_cannot_both_take_the_last_slot(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The lock is what keeps it so, and the test makes the race certain instead of likely: a read of the call counter is held
+    open until a second caller has read it too. Without the lock both read 0, both are allowed and both tools run; with it the
+    second caller cannot read until the first has finished, so the first's wait times out and exactly one tool runs."""
+    gate = threading.Barrier(2)
+    racing = threading.Event()
+
+    def read(self: Any) -> int:
+        value = self.__dict__["_n"]
+        if racing.is_set():
+            with contextlib.suppress(threading.BrokenBarrierError):
+                gate.wait(timeout=0.3)
+        return value  # type: ignore[no-any-return]
+
+    def write(self: Any, value: int) -> None:
+        self.__dict__["_n"] = value
+
+    monkeypatch.setattr(_ToolMeter, "_attempted", property(read, write), raising=False)
     ctx = context(max_tool_calls=1)
     outcomes: list[str] = []
 
     def behave(request: AgentStepRequest, step_input: AgentStepInput) -> Any:
         tool = step_input.read_tools[READ_TOOL]
-        gate = threading.Barrier(8)
 
         def worker() -> None:
-            gate.wait()
             try:
                 tool(case_id="x")
                 outcomes.append("ran")
             except StepToolBudgetExceeded:
                 outcomes.append("refused")
 
-        threads = [threading.Thread(target=worker) for _ in range(8)]
+        racing.set()
+        threads = [threading.Thread(target=worker) for _ in range(2)]
         for thread in threads:
             thread.start()
         for thread in threads:
             thread.join()
+        racing.clear()
         return answer(request, "completed", usage=usage(tool_calls=1), usage_source="provider")
 
     result = run(Recorder(behave), ctx)
-    assert outcomes.count("ran") == 1 and outcomes.count("refused") == 7
+    assert sorted(outcomes) == ["ran", "refused"]
     assert len(ctx.read_calls) == 1
     assert result.stop_reason == "max_tool_calls"
+
+
+# a read tool is not started at or after the deadline
+
+
+def test_a_read_tool_is_refused_at_the_deadline_and_never_runs() -> None:
+    ctx = context()
+    clock = FakeStepClock()
+    outcome: list[str] = []
+
+    def behave(request: AgentStepRequest, step_input: AgentStepInput) -> Any:
+        tool = step_input.read_tools[READ_TOOL]
+        clock.advance(599.999999)
+        tool(case_id="in-time")
+        clock.advance(0.000001)  # the deadline, exactly
+        try:
+            tool(case_id="too-late")
+        except StepDeadlineReached as exc:
+            outcome.append(str(exc))
+        return answer(request, "completed", usage=usage(tool_calls=1), usage_source="provider")
+
+    result = run(Recorder(behave), ctx, clock.step_clock())
+    assert [call["case_id"] for call in ctx.read_calls] == ["in-time"]
+    assert outcome == ["the step's deadline is reached"], "a fixed text, no payload"
+    assert result.stop_reason == "deadline", "an adapter that ignores the refusal is still stopped"
+    assert result.proposed_actions == () and result.usage.tool_calls == 1
+
+
+def test_a_read_tool_refused_at_the_deadline_is_not_counted_as_a_call() -> None:
+    ctx = context(max_tool_calls=1)
+    clock = FakeStepClock()
+
+    def behave(request: AgentStepRequest, step_input: AgentStepInput) -> Any:
+        tool = step_input.read_tools[READ_TOOL]
+        clock.advance(601)
+        with contextlib.suppress(StepDeadlineReached):
+            tool(case_id="late")
+        return answer(request, "completed", usage=usage(), usage_source="provider")
+
+    result = run(Recorder(behave), ctx, clock.step_clock())
+    assert ctx.read_calls == []
+    assert result.stop_reason == "deadline", (
+        "not max_tool_calls: the refused call was never counted"
+    )
+    assert result.usage.tool_calls == 0
+
+
+def test_a_clock_stepped_forward_does_not_refuse_a_tool_the_monotonic_clock_allows() -> None:
+    ctx = context()
+    clock = FakeStepClock()
+
+    def behave(request: AgentStepRequest, step_input: AgentStepInput) -> Any:
+        clock.mono += 1
+        clock.wall += timedelta(hours=1)
+        step_input.read_tools[READ_TOOL](case_id="ok")
+        return answer(request, "completed", usage=usage(tool_calls=1), usage_source="provider")
+
+    assert run(Recorder(behave), ctx, clock.step_clock()).stop_reason == "completed"
+    assert len(ctx.read_calls) == 1
 
 
 def test_the_tools_of_a_handoff_target_share_the_steps_budget() -> None:

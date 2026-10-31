@@ -4953,13 +4953,13 @@ def _governed_stop_error(result: _agent_step.AgentStepResult) -> ToolExecutionEr
 def _governed_limits(
     context: _step_proposal.GovernedStepContext, agent: IRAgent
 ) -> _agent_step.StepLimits:
-    """The step's limits: the producer's, brought down to the platform's ceilings; a producer that fails is a fixed refusal."""
+    """The step's limits: the producer's, brought down to the platform's ceilings; a clock or a producer that fails is a fixed refusal."""
     try:
-        return _agent_step.cap_limits(
-            context.limits(agent),
-            context.ceilings,
-            now=_agent_step.read_instant(_agent_step.resolve_clock(context.clock)),
-        )
+        now = _agent_step.read_instant(_agent_step.resolve_clock(context.clock))
+    except Exception:
+        raise ToolExecutionError("governed agent step clock unavailable: clock_invalid") from None
+    try:
+        return _agent_step.cap_limits(context.limits(agent), context.ceilings, now=now)
     except Exception:
         raise ToolExecutionError("governed agent step limits unavailable: limits_invalid") from None
 

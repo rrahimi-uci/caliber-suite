@@ -2669,7 +2669,8 @@ anything the adapter, the manifest author or the model supplies). The interprete
 with `cap_limits`: a count above its ceiling becomes the ceiling, a deadline later than *now + `CALIBER_AGENT_STEP_MAX_SECONDS`* is
 brought forward to it (an earlier deadline is kept exactly as given), and a limit is never raised. A producer whose `limits` raises,
 returns anything but a `StepLimits`, or names a deadline that is not an RFC 3339 instant stops the step with
-`governed agent step limits unavailable: limits_invalid` before the adapter is touched (no text from the producer's failure).
+`governed agent step limits unavailable: limits_invalid` before the adapter is touched (no text from the producer's failure); a context
+clock that is not an aware instant stops it with `governed agent step clock unavailable: clock_invalid`.
 The request schema's own bound is 2147483647; the ceilings are what make a step finite in practice.
 
 | Setting | Default | Accepted | Meaning |
@@ -2691,7 +2692,9 @@ defaults, never uncapped.
    charge). `max_tool_calls` of 0 does not stop a step: it may still answer without a tool.
 2. **During work**: every read tool the adapter is handed (its own and its handoff targets') goes through a platform counter. The
    call past `max_tool_calls` is refused with `StepToolBudgetExceeded` (the tool does not run, the text is fixed), and two calls
-   racing for the last slot cannot both run. An adapter receives its **own copy** of the request, so rewriting the limits of the
+   racing for the last slot cannot both run. A read tool called at or after the deadline (on the platform's monotonic-based
+   clock) is refused the same way with `StepDeadlineReached` (the tool does not run, the call is not counted), and the step ends
+   `deadline` even if the adapter ignores the refusal; a tool call already running is not interrupted. An adapter receives its **own copy** of the request, so rewriting the limits of the
    request it holds changes nothing the platform checks.
 3. **After work**: a `completed` or `proposed_action` result is replaced by the stop of the limit it passed, **its proposal
    dropped** (a step that overran never gets to propose, so no proposal row and no approval request exist), when its reported
@@ -2715,6 +2718,7 @@ is not a finite number, is refused with `ValueError` before the adapter runs.
 | finishes after its deadline | `deadline`, proposal dropped, usage kept | as above |
 | reports usage that contradicts itself (a total below the parts, a boolean or negative count, more than 2147483647) | `error`, `malformed_result`, zero usage, `usage_source: "unknown"` (the reservation is kept, B08.4) | the adapter reporting the provider's own figures |
 | asks for a tool past `max_tool_calls` | the tool is not run; the adapter sees `StepToolBudgetExceeded`; the step ends `max_tool_calls` if it went on | raising the limit within the ceiling |
+| asks for a tool at or after the deadline | the tool is not run and not counted; the adapter sees `StepDeadlineReached`; the step ends `deadline` if it went on | a later deadline within the ceiling on a new run |
 
 **No double counting.** The boundary keeps no state between calls: each call has its own counter and reads only its own result. A
 retry is the next `attempt` of the same occurrence with the full limits, and a resumed step that finds its recorded proposal asks

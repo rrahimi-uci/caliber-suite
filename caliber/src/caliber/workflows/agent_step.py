@@ -40,7 +40,8 @@ request the boundary validated, never from the result. *Before work* (:func:`bef
 to spend, or whose deadline has passed, stops without calling the adapter (``max_turns``, ``max_tokens`` or ``deadline``, zero
 usage, ``usage_source`` ``estimated``: nothing was called, so a reservation for it may be released). *During work* every read
 tool is wrapped so the platform counts the calls itself and refuses the one past ``max_tool_calls``
-(:class:`StepToolBudgetExceeded`); an adapter that swallows the refusal still has it counted. *After work* a ``completed`` or
+(:class:`StepToolBudgetExceeded`) or one started at or after the deadline (:class:`StepDeadlineReached`); an adapter that
+swallows a refusal still has it held against it. *After work* a ``completed`` or
 ``proposed_action`` result is replaced, and its proposal dropped, with the limit's own stop reason (the order is ``max_turns``,
 ``max_tool_calls``, ``max_tokens``, ``deadline``) when the usage it reported is over a limit, when the platform counted more
 tool calls than the limit, or when the platform's own clock says the step finished after its deadline; the usage kept is the
@@ -466,17 +467,28 @@ class StepToolBudgetExceeded(Exception):  # noqa: N818 - what an adapter's tool 
         super().__init__("the step's tool-call limit is reached")
 
 
-class _ToolMeter:
-    """Counts the read-tool calls an adapter attempts, and refuses the one past the limit. The platform's own count of them.
+class StepDeadlineReached(Exception):  # noqa: N818 - what an adapter's tool call raises, named for the limit
+    """A read tool was called at or after the step's deadline: it was not run. The text is fixed; nothing else is carried."""
 
-    A call is counted when it is attempted, before the tool runs, under a lock (an adapter may call tools from several
-    threads), so two calls racing for the last slot cannot both run. Nothing here is shared between steps.
+    def __init__(self) -> None:
+        super().__init__("the step's deadline is reached")
+
+
+class _ToolMeter:
+    """Counts the read-tool calls an adapter attempts, and refuses the one past the limit or at the deadline.
+
+    The platform's own count and clock. A call is counted when it is attempted, before the tool runs, under a lock (an adapter
+    may call tools from several threads), so two calls racing for the last slot cannot both run. A call made when ``expired()``
+    (the deadline is now or past) is refused before it is counted and the refusal is remembered (:attr:`deadline_hit`), whether
+    or not the adapter goes on to ignore it. A call already running is not interrupted. Nothing here is shared between steps.
     """
 
-    def __init__(self, limit: int) -> None:
+    def __init__(self, limit: int, expired: Callable[[], bool] = lambda: False) -> None:
         self._limit = limit
+        self._expired = expired
         self._lock = threading.Lock()
         self._attempted = 0
+        self.deadline_hit = False
 
     @property
     def executed(self) -> int:
@@ -491,6 +503,9 @@ class _ToolMeter:
     def wrap(self, tool: Callable[..., Any]) -> Callable[..., Any]:
         @functools.wraps(tool)
         def metered(*args: Any, **kwargs: Any) -> Any:
+            if self._expired():
+                self.deadline_hit = True
+                raise StepDeadlineReached
             with self._lock:
                 self._attempted += 1
                 allowed = self._attempted <= self._limit
@@ -553,7 +568,7 @@ def _exceeded(
         return "max_tool_calls"
     if usage.total_tokens > limits.max_tokens:
         return "max_tokens"
-    if finished_at > limits.deadline_at:
+    if meter.deadline_hit or finished_at > limits.deadline_at:
         return "deadline"
     return None
 
@@ -627,11 +642,15 @@ def run_agent_step(
         return refusal(checked, ADAPTER_UNSUPPORTED)
     if (stopped := before_work_stop(checked, clock=clock)) is not None:
         return stopped
-    meter = _ToolMeter(checked.limits.max_tool_calls)
+    started_at, started = read_instant(clock), _seconds(clock)
+    deadline = checked.limits.deadline_at
+    meter = _ToolMeter(
+        checked.limits.max_tool_calls,
+        lambda: started_at + timedelta(seconds=max(0.0, _seconds(clock) - started)) >= deadline,
+    )
     # The adapter gets its own copy of the request: ``checked`` (whose limits every check below reads) is never handed out, so
     # an adapter that rewrites the limits of the request it holds (a frozen dataclass can be forced) changes nothing here.
     offered = parse_step_request(checked.record())
-    started_at, started = read_instant(clock), _seconds(clock)
     try:
         returned = adapter.run_step(offered, _metered_input(step_input, meter))
     except Exception as exc:
@@ -784,6 +803,7 @@ __all__ = [
     "ScriptedStep",
     "StepCeilings",
     "StepClock",
+    "StepDeadlineReached",
     "StepHandoffAgents",
     "StepHandoffTarget",
     "StepLimits",
