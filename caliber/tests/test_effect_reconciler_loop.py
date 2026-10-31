@@ -29,7 +29,7 @@ from sqlalchemy import select, text
 from sqlalchemy.orm import Session, sessionmaker
 
 import caliber.orchestrator.effect_reconciler as loop_module
-from caliber.db.models import CaliberWorkerHeartbeat
+from caliber.db.models import CaliberStepTokenReservation, CaliberWorkerHeartbeat
 from caliber.effects import reconcile
 from caliber.effects.reconcile import (
     COMMITTED,
@@ -764,3 +764,108 @@ def test_a_proposal_whose_lookup_raises_does_not_block_the_ones_behind_it(
     ]
     assert _state(factory, first).state == UNKNOWN and _state(factory, second).state == COMMITTED
     assert "PAYLOAD-MARKER-THREE" not in " ".join(records.messages)
+
+
+# ---------------------------------------------------------------- step token reservations (B08.4)
+
+
+def _open_reservation(
+    factory: sessionmaker[Session], *, occurrence: str, deadline: datetime
+) -> str:
+    with factory() as session:
+        row = CaliberStepTokenReservation(
+            reservation_id=f"tres-{occurrence}",
+            workflow_run_id="RUN-ep",
+            node_id="agent",
+            occurrence_id=occurrence,
+            attempt=1,
+            step_request_id=f"step-{occurrence}",
+            reserved_tokens=500,
+            budget_tokens=10_000,
+            deadline_at=deadline,
+        )
+        session.add(row)
+        session.commit()
+        return row.reservation_id
+
+
+def _reservation_state(factory: sessionmaker[Session], reservation_id: str) -> tuple[Any, ...]:
+    with factory() as session:
+        row = session.get(CaliberStepTokenReservation, reservation_id)
+        assert row is not None
+        return (row.state, row.charged_tokens, row.charge_basis)
+
+
+def test_the_grace_setting_defaults_and_is_bounded() -> None:
+    assert EffectReconcilerTask(None, SimpleNamespace())._reservation_grace_seconds == 300.0
+    assert (
+        EffectReconcilerTask(
+            None, _config(agent_reservation_grace_seconds=42)
+        )._reservation_grace_seconds
+        == 42.0
+    )
+    for bad in (0.5, 86401.0, float("nan"), True, "300"):
+        with pytest.raises(ValueError, match="agent_reservation_grace_seconds"):
+            EffectReconcilerTask(None, _config(agent_reservation_grace_seconds=bad))
+
+
+def test_the_owner_finalizes_the_reservations_a_crashed_worker_left_open(database: Any) -> None:
+    _, factory = database
+    stale = _open_reservation(factory, occurrence="stale", deadline=datetime(2026, 1, 1))
+    live = _open_reservation(factory, occurrence="live", deadline=datetime(2099, 1, 1))
+    lease = _lease(factory)
+
+    report = _task(factory, provider=lambda: lease).tick()
+
+    assert report is not None and report.ended == COMPLETE
+    assert _reservation_state(factory, stale) == ("abandoned", 500, "conservative")
+    assert _reservation_state(factory, live) == ("reserved", None, None)
+
+
+def test_a_secondary_finalizes_no_reservation(database: Any) -> None:
+    _, factory = database
+    stale = _open_reservation(factory, occurrence="stale", deadline=datetime(2026, 1, 1))
+    assert _task(factory, provider=lambda: None).tick() is None
+    assert _reservation_state(factory, stale)[0] == "reserved"
+
+
+def test_the_sweep_runs_under_the_exact_lease_and_a_taken_over_lease_finalizes_nothing(
+    database: Any,
+) -> None:
+    _, factory = database
+    stale = _open_reservation(factory, occurrence="stale", deadline=datetime(2026, 1, 1))
+    old = _lease(factory, "owner-old")
+    _lease(factory, "owner-new")  # takeover: ``old`` is stale now
+    with _logged() as records:
+        report = _task(factory, provider=lambda: old).tick()
+    assert report is not None
+    assert _reservation_state(factory, stale)[0] == "reserved"
+    assert any("sweep skipped: the execution-owner lease is gone" in m for m in records.messages)
+
+
+def test_a_stop_in_progress_skips_the_sweep(database: Any) -> None:
+    _, factory = database
+    stale = _open_reservation(factory, occurrence="stale", deadline=datetime(2026, 1, 1))
+    lease = _lease(factory)
+    task = _task(factory, provider=lambda: lease)
+    task._stop_requested.set()
+    task.tick()
+    assert _reservation_state(factory, stale)[0] == "reserved"
+
+
+def test_a_sweep_that_fails_is_logged_by_class_and_never_stops_the_pass(
+    database: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _, factory = database
+
+    def broken(*_args: Any, **_kwargs: Any) -> int:
+        raise RuntimeError("PAYLOAD-MARKER-SWEEP")
+
+    monkeypatch.setattr(loop_module, "abandon_stale", broken)
+    lease = _lease(factory)
+    with _logged() as records:
+        report = _task(factory, provider=lambda: lease).tick()
+    assert report is not None and report.ended == COMPLETE
+    joined = " ".join(records.messages)
+    assert "step token reservation sweep failed (RuntimeError)" in joined
+    assert "PAYLOAD-MARKER-SWEEP" not in joined

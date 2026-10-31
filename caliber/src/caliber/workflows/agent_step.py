@@ -17,16 +17,17 @@ contract and a model provider:
   adapter-supplied object is called after the snapshot. An exception, a timeout, a coroutine, or a malformed result becomes
   a bounded ``error`` or ``refused`` result whose ``error_code`` is a fixed token. **No exception text and no provider
   payload ever reaches a result or a log line**; the exception's class name is logged, and when a result is dropped as
-  malformed the usage *numbers* it reported are logged (B08.4 settles a conservative charge from the request, not from them).
+  malformed the usage *numbers* it reported are logged (the reservation ledger charges the whole reservation for it, not those numbers).
 * :class:`StepScript` is the deterministic, offline scripted adapter :class:`~caliber.workflows.runtime.FakeWorkflowExecutor`
   uses (``step_script=``): it answers a request from a list of scripted outcomes, with no clock, no network and no tool call
   beyond the read tools a scripted step names.
 
 **Refusals and failures are results, and they keep the reservation.** A ``refused`` or ``error`` result the boundary creates
 carries zero usage with ``usage_source`` ``unknown``: that is "the provider may have been called and nothing is known", not
-"nothing was used". B08.4 keeps a conservative charge for every such result. The one deliberate exception is
-:data:`NOT_CALLED_CODES` (``adapter_unsupported``, ``adapter_not_integrated``): the adapter body never ran, so B08.4 may
-release that reservation, and only on those codes. B08.4 must keep the reservation on any ``BaseException`` that escapes
+"nothing was used". The reservation ledger (:mod:`caliber.budget.step_reservation`, B08.4) charges the whole reservation for every
+such result. :data:`NOT_CALLED_CODES` (``adapter_unsupported``, ``adapter_not_integrated``) name a body that never ran, but the
+ledger does not infer "not called" from a result: the interpreter decides before it reserves (an executor that is not an adapter,
+and a step :func:`before_work_stop` stops, reserve nothing). The reservation stays open on any ``BaseException`` that escapes
 (``asyncio.CancelledError``, ``GeneratorExit``, ``KeyboardInterrupt``, ``SystemExit`` propagate out of :func:`run_agent_step`
 because the provider call may have happened).
 
@@ -38,7 +39,7 @@ httpx) to ``failure(request, ADAPTER_TIMEOUT)`` itself.
 calls, tokens and deadline itself, for every adapter alike, and an adapter cannot raise them: the limits are read from the
 request the boundary validated, never from the result. *Before work* (:func:`before_work_stop`) a step with no turns or tokens
 to spend, or whose deadline has passed, stops without calling the adapter (``max_turns``, ``max_tokens`` or ``deadline``, zero
-usage, ``usage_source`` ``estimated``: nothing was called, so a reservation for it may be released). *During work* every read
+usage, ``usage_source`` ``estimated``: nothing was called, and no reservation is made for it). *During work* every read
 tool is wrapped so the platform counts the calls itself and refuses the one past ``max_tool_calls``
 (:class:`StepToolBudgetExceeded`) or one started at or after the deadline (:class:`StepDeadlineReached`); an adapter that
 swallows a refusal still has it held against it. *After work* a ``completed`` or
@@ -50,10 +51,12 @@ reported one, with ``tool_calls`` raised to the platform's own count when that i
 them: they bound what is *recorded* and stop the proposal, while an adapter's own in-loop checks (defence in depth) bound what is
 *spent*. The deadline is read from an injectable :class:`StepClock` (wall time for the absolute deadline, a monotonic clock for
 how long the step took, so a clock that is stepped mid-step cannot extend it). Nothing here carries state between calls: a retry
-is a new attempt with a fresh budget and a resumed step that finds its proposal is not asked again; summing attempts is B08.4.
+is a new attempt with a fresh budget and a resumed step that finds its proposal is not asked again; the reservation ledger sums
+attempts against the run (B08.4).
 
-**Not here.** The token reservation is B08.4, and mapping a model's tool call to a :class:`ProposedAction` bound to the
-protected-effect inventory is B08.2. The four provider adapters (B08.openai-chat, -responses, -agents, anthropic) replace their
+**Not here.** The token reservation (:mod:`caliber.budget.step_reservation`, B08.4; the interpreter takes it before this boundary
+is called and settles it after) and the mapping of a model's tool call to a :class:`ProposedAction` bound to the
+protected-effect inventory (B08.2) are the platform's, outside this boundary. The four provider adapters (B08.openai-chat, -responses, -agents, anthropic) replace their
 :data:`ADAPTER_NOT_INTEGRATED` refusal in ``caliber.workflows.runtime`` one by one; until then they refuse governed execution.
 """
 
@@ -123,7 +126,7 @@ TOOL_NOT_READ_CLASS: Final = "tool_not_read_class"
 TOOL_ERROR: Final = "tool_error"
 #: A scripted adapter was asked for more steps than it was given (a test bug, never a silent pass).
 SCRIPT_EXHAUSTED: Final = "script_exhausted"
-#: Codes of a step whose adapter body never ran: B08.4 may release such a reservation deliberately; any other result keeps it.
+#: Codes of a step whose adapter body never ran. Informational: the reservation ledger (B08.4) never releases on a result (the interpreter reserves nothing for a step it knows will not call an adapter), so these keep their charge too.
 NOT_CALLED_CODES: Final = frozenset({ADAPTER_UNSUPPORTED, ADAPTER_NOT_INTEGRATED})
 
 #: The completion tokens the scripted adapter's default result reports (the prompt is one token a word of input).
@@ -263,7 +266,7 @@ def answer(
 
 
 def refusal(request: AgentStepRequest, error_code: str) -> AgentStepResult:
-    """``refused``: the step was not run. Zero usage, source ``unknown``: the reservation is kept, not released (B08.4)."""
+    """``refused``: the step was not run. Zero usage, source ``unknown``: the whole reservation is charged, never released (B08.4)."""
     return answer(request, "refused", usage_source="unknown", error_code=error_code)
 
 
@@ -541,8 +544,8 @@ def before_work_stop(
 ) -> AgentStepResult | None:
     """The stop for a step that may not start, or ``None``: no turn or no token to spend, or a deadline that is now or past.
 
-    The adapter has not been called, so the result carries zero usage with ``usage_source`` ``estimated`` and the step's
-    reservation, if one was made, may be released (B08.4). ``max_tool_calls`` of zero does not stop a step: it may still
+    The adapter has not been called, so the result carries zero usage with ``usage_source`` ``estimated``. The interpreter asks
+    this before it reserves tokens, so a step stopped here has no reservation (B08.4). ``max_tool_calls`` of zero does not stop a step: it may still
     answer without a tool. A limit is checked against the platform's clock only.
     """
     limits = request.limits

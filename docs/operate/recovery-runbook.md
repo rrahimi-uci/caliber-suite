@@ -122,6 +122,7 @@ SELECT consumer, source, event_id, status, received_at FROM caliber_inbox_events
 | A callback or webhook delivered twice, `inbox_payload_mismatch`, an inbox row stuck at `received` | [Callback and webhook redelivery](#callback-and-webhook-redelivery) |
 | Events not arriving, dead outbox rows, dead letters | [Outbox backlog and dead letters](#outbox-backlog-and-dead-letters) |
 | An admission refusal (`bundle_unavailable`, `rule_bundle_refused`), or a run `failed` with `pins_changed` or `context_denied` | [A run refused for its pins or its rule bundle](#a-run-refused-for-its-pins-or-its-rule-bundle) |
+| A governed step refused with `token_budget_exhausted` or `reservation_replayed`, or a reservation still `reserved` long after its step | [A governed step refused for its token budget, or left a reservation open](#a-governed-step-refused-for-its-token-budget-or-left-a-reservation-open) |
 | A restore | [After a restore](#after-a-restore) |
 
 ## Owner crash and failover
@@ -348,6 +349,47 @@ mutation is created. A run that is genuinely `failed` remains terminal: no trans
    and apply step 3 before anything else.
 
 **Never.** Retry the run "to see whether it works now" while its effect is open.
+
+## A governed step refused for its token budget, or left a reservation open
+
+**What it looks like.** A run `failed` with `governed agent step token reservation refused: token_budget_exhausted (budget=B
+committed=C requested=R)`, or `... reservation_replayed`, or `... store_failed`; or a row of `caliber_step_token_reservations`
+that stays `reserved` after its step should have ended.
+
+```sql
+-- what a run has counted: an open reservation counts at its whole ceiling, a final one at its charge
+SELECT state, count(*) AS n, sum(coalesce(charged_tokens, reserved_tokens)) AS tokens
+FROM caliber_step_token_reservations WHERE workflow_run_id = :run GROUP BY state;
+
+-- open reservations past their deadline (the owner finalizes them after CALIBER_AGENT_RESERVATION_GRACE_SECONDS)
+SELECT reservation_id, workflow_run_id, node_id, occurrence_id, attempt, reserved_tokens, deadline_at
+FROM caliber_step_token_reservations WHERE state = 'reserved' AND deadline_at < now() ORDER BY deadline_at;
+```
+
+**Why.** A governed step reserves its `max_tokens` ceiling against the run's budget (`CALIBER_AGENT_RUN_MAX_TOKENS`) before its
+adapter is called, and is charged what it reported only when the platform believes it; every other result keeps the whole
+reservation. This is the guarantee, not a fault: a call whose outcome nobody knows stays charged.
+
+**Steps.**
+
+1. `token_budget_exhausted`: the run has spent or reserved its budget. Nothing was reserved by the refused step and its adapter was not
+   called. Raise `CALIBER_AGENT_RUN_MAX_TOKENS` (a restart applies it) and start a new run; do not edit or delete a reservation row
+   (the database refuses both, and no operator action lowers a charge).
+2. `reservation_replayed`: this step (run, node, occurrence, attempt) already holds a reservation, so a provider call for it may already
+   have spent. The platform does not call again on that strength. The node's own in-process retry is the next attempt and reserves
+   afresh; if the run has no retry left, start a new run. **After a crash or a process-level re-execution the attempt counter restarts at
+   1, so the resumed governed node is refused with this code and the run fails: a governed step cannot be resumed after a crash, only a
+   new run proceeds (known limit, follow-up #1073).** It fails closed: no second provider spend happens under one reservation.
+3. A reservation still `reserved`: its worker died or was cancelled. It is already counted in full. The execution owner's reconciler
+   loop moves it to `abandoned` (still at its whole reservation) once its step's deadline plus the grace has passed; if it does not
+   (`caliber_worker_heartbeats` shows no live `effect_reconciler`, or the loop is turned off), the row stays open and keeps counting,
+   which is safe. Start the loop by fixing the owner (see [Owner crash and failover](#owner-crash-and-failover)); do not update the row.
+   A worker that returns after the owner abandoned its reservation cannot lower the charge, and an overrun it reports after that
+   (past the step's deadline plus the grace) is not recorded.
+4. `store_failed`: the database could not take the reservation (or migration `0133` has not run). Nothing was reserved and the adapter
+   was not called. Fix the database or run the migration, then retry.
+
+**Never.** Delete or edit a reservation to "give the tokens back". The provider may have charged them.
 
 ## Callback and webhook redelivery
 

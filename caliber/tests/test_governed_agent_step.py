@@ -25,6 +25,7 @@ from caliber.db.models import (
     CaliberEffectProposal,
     CaliberRuntimeApprovalRequest,
     CaliberToolRegistry,
+    CaliberWorkflowRun,
 )
 from caliber.effects import step_proposal
 from caliber.effects.dispatcher import EffectRefused, UnsupportedEffectPath
@@ -226,6 +227,18 @@ def _plan(
         context_recorder=recorder if recorder is not None else Recorder(),
         governed_agent_steps=_context(factory, **context_changes) if governed else None,
     )
+
+
+def _another_run(factory: Callable[[], Session], run_id: str) -> str:
+    """A second run of the seeded workflow (the template holds ``RUN``); returns its id."""
+    with factory() as session:
+        session.add(
+            CaliberWorkflowRun(
+                workflow_run_id=run_id, workflow_id="wf-ep", project_id="PRJ-ep", status="running"
+            )
+        )
+        session.commit()
+    return run_id
 
 
 def _fail(factory: Callable[[], Session], proposal_id: str) -> None:
@@ -1285,9 +1298,12 @@ def test_a_tool_the_platform_cannot_place_is_not_handed_to_the_adapter_as_read(
     class Lookalike(ToolTrust):
         pass
 
-    for classifier in (explode, lambda b: Lookalike(b.local_name, "read", True, "dispatch")):
+    classifiers = (explode, lambda b: Lookalike(b.local_name, "read", True, "dispatch"))
+    for index, classifier in enumerate(classifiers):
         seen.clear()
-        plan = _plan(world, classify_tool=classifier)
+        # One reservation per step (B08.4): each pass is its own run, not a replay of the same step.
+        run_id = _another_run(world, f"RUN-placed-{index}")
+        plan = _plan(world, classify_tool=classifier, workflow_run_id=run_id)
         execute(
             plan,
             "go",

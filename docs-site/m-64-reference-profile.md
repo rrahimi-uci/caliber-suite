@@ -2817,7 +2817,7 @@ checked = approval_valid_at_commit(
 An agent step is one bounded unit of model work in a workflow node. Two control records (ADR 0003) describe it, and
 `caliber.contracts.agent_step` is the gate in front of both: it validates a record and refuses it **before anything is
 dispatched**. This page is the contract; the adapters that produce results (B08.1b onwards), the limit enforcement
-([B08.3](#central-step-limits-turns-tool-calls-tokens-and-the-deadline-b083-752)) and the token budget (B08.4) build on it and are not part of it.
+([B08.3](#central-step-limits-turns-tool-calls-tokens-and-the-deadline-b083-752)) and the token reservation ([B08.4](#token-reservations-reserved-before-the-call-charged-conservatively-settled-once-b084-761)) build on it and are not part of it.
 
 - **`agent_step_request` v1** names the step (`step_request_id`, `workflow_run_id`, `node_id`, the durable `occurrence_id`
   and the `attempt`), what it was given (`run_manifest_digest` and `context_manifest_digest`, each 64 lowercase hex digits),
@@ -2856,7 +2856,7 @@ dispatched**. This page is the contract; the adapters that produce results (B08.
 - **Usage and the token reservation.** `usage.total_tokens` is what a budget settles against: it may not be less than
   `prompt_tokens + completion_tokens`, and `cached_prompt_tokens` may not exceed `prompt_tokens`. When a call failed or the
   provider gave no usage, report `usage_source` `estimated` or `unknown` rather than figures that look genuine. **A refused or
-  malformed result does not release the step's token reservation**: B08.4 keeps a conservative charge for it.
+  malformed result does not release the step's token reservation**: the [reservation ledger](#token-reservations-reserved-before-the-call-charged-conservatively-settled-once-b084-761) charges the whole reservation for it.
 - **Integers are integers.** `1.0` is not an integer for these two kinds; `attempt: 1.0` is refused, not coerced.
 
 ```python
@@ -2903,7 +2903,7 @@ the other limits are checked by the platform around the provider call (B08.3), n
 
 `caliber.workflows.agent_step` is the seam between the agent-step contracts above and a model provider. It adds no route, no
 table and no setting. It defines what an executor must do to take part in *governed* execution and how the platform treats
-the answer; the limits ([B08.3](#central-step-limits-turns-tool-calls-tokens-and-the-deadline-b083-752)), the token reservation (B08.4) and turning a model's tool call into a recorded proposal (B08.2)
+the answer; the limits ([B08.3](#central-step-limits-turns-tool-calls-tokens-and-the-deadline-b083-752)), the token reservation ([B08.4](#token-reservations-reserved-before-the-call-charged-conservatively-settled-once-b084-761)) and turning a model's tool call into a recorded proposal (B08.2)
 build on it.
 
 - **`AgentStepAdapter`** (`caliber.workflows.runtime.AgentStepAdapter` is the same protocol) is
@@ -2936,10 +2936,12 @@ build on it.
      name and the step id are logged, and a result dropped as malformed logs the usage *numbers* it reported. `BaseException`
      (`KeyboardInterrupt`, `SystemExit`, `asyncio.CancelledError`, `GeneratorExit`) propagates.
 - **Refusals and failures keep the reservation.** A `refused` or `error` result the boundary creates carries zero usage with
-  `usage_source: "unknown"`: "the provider may have been called and nothing is known", never "nothing was used". B08.4 keeps a
-  conservative charge for each of them, and **for any `BaseException` that escapes**, because the provider call may have
-  happened. The only deliberate exception is `NOT_CALLED_CODES` (`adapter_unsupported`, `adapter_not_integrated`): the adapter
-  body never ran, so B08.4 may release such a reservation, and only for those codes.
+  `usage_source: "unknown"`: "the provider may have been called and nothing is known", never "nothing was used". The ledger
+  charges the whole reservation for each of them, and **for any `BaseException` that escapes** it leaves the reservation open at
+  its whole ceiling, because the provider call may have happened. `NOT_CALLED_CODES` (`adapter_unsupported`,
+  `adapter_not_integrated`) mark a body that never ran, but the ledger does not infer "not called" from a result an adapter
+  could write itself: the platform decides before it reserves (an executor that is not an adapter, and a step `before_work_stop`
+  stops, reserve nothing), and every reservation it does take is kept.
 - **Timeouts.** The boundary maps `TimeoutError` (`asyncio.TimeoutError` is the same class from Python 3.11) to
   `adapter_timeout` and nothing else; it does not know a provider's exception types. A provider adapter (#727-#730) catches its
   SDK's timeouts (openai, anthropic, httpx) and returns `failure(request, ADAPTER_TIMEOUT)` itself.
@@ -2985,7 +2987,7 @@ if result.stop_reason == "proposed_action":
 Failures the boundary returns (all `stop_reason` `error` unless noted). Every result the boundary creates has
 `usage_source: "unknown"`, no proposal and the asked step's identity; an adapter's own failure keeps the usage it reports.
 Recovery is always the same shape: the occurrence is retried as the next `attempt`, after the reservation of this one is settled
-(B08.4):
+([B08.4](#token-reservations-reserved-before-the-call-charged-conservatively-settled-once-b084-761)):
 
 | the adapter | result | recover by |
 | --- | --- | --- |
@@ -2999,8 +3001,8 @@ Recovery is always the same shape: the occurrence is retried as the next `attemp
 
 An invalid *request*, or a step input for another node, is not a result: `run_agent_step` raises `ContractValidationError` (for
 example `attempt: violates minimum 1`) before anything runs. The request's limits are enforced by this boundary for every adapter
-([below](#central-step-limits-turns-tool-calls-tokens-and-the-deadline-b083-752)). Not covered here, so not claimed: no token
-reservation is made (B08.4) and a blocking adapter is not interrupted. The interpreter calls
+([below](#central-step-limits-turns-tool-calls-tokens-and-the-deadline-b083-752)). The interpreter reserves the step's tokens before calling it and
+settles them after ([B08.4](#token-reservations-reserved-before-the-call-charged-conservatively-settled-once-b084-761)). Not covered here, so not claimed: a blocking adapter is not interrupted. The interpreter calls
 `run_agent_step` only for a plan that carries a governed-step context, and then records the proposal it returns
 ([Governed agent steps: a protected action is a proposal](#governed-agent-steps-a-protected-action-is-a-proposal-b082-744)).
 
@@ -3083,7 +3085,7 @@ now). It takes the step's request and `AgentStepInput` and answers with the type
   log carries the step id, the exception's class name, a fixed reason token and counts.
 
 Results this adapter returns (recover as for any step: the occurrence is retried as the next `attempt`, after this one's reservation
-is settled, B08.4):
+is settled, [B08.4](#token-reservations-reserved-before-the-call-charged-conservatively-settled-once-b084-761)):
 
 | the provider or model | result | recover by |
 | --- | --- | --- |
@@ -3275,8 +3277,7 @@ defaults, never uncapped.
 
 1. **Before work** (`before_work_stop`): a step with `max_turns` of 0, with `max_tokens` of 0, or whose deadline is now or past
    (on the platform's clock) stops with that reason and **the adapter is not called**: zero usage, `usage_source: "estimated"`
-   (nothing was called, so a reservation made for it may be released by B08.4; no step that is stopped here has a provider
-   charge). `max_tool_calls` of 0 does not stop a step: it may still answer without a tool.
+   (nothing was called; the interpreter checks this before it reserves, so a step stopped here reserves nothing, B08.4). `max_tool_calls` of 0 does not stop a step: it may still answer without a tool.
 2. **During work**: every read tool the adapter is handed (its own and its handoff targets') goes through a platform counter. The
    call past `max_tool_calls` is refused with `StepToolBudgetExceeded` (the tool does not run, the text is fixed), and two calls
    racing for the last slot cannot both run. A read tool called at or after the deadline (on the platform's monotonic-based
@@ -3303,15 +3304,15 @@ is not a finite number, is refused with `ValueError` before the adapter runs.
 | has no turn or no token to spend, or its deadline has passed | `max_turns`, `max_tokens` or `deadline`, usage 0, `estimated`; the adapter was not called; the run error is `governed agent step stopped: max_tokens (turns=0 tool_calls=0 tokens=0)` | a larger limit from the producer (within the ceilings) on a new run |
 | reports usage over a limit, or the platform counted a call past it | the limit's stop, proposal dropped, the reported usage kept; `governed agent step stopped: max_tokens (turns=1 tool_calls=0 tokens=15)`; no proposal and no approval request | the node's retry is the next attempt with a fresh budget |
 | finishes after its deadline | `deadline`, proposal dropped, usage kept | as above |
-| reports usage that contradicts itself (a total below the parts, a boolean or negative count, more than 2147483647) | `error`, `malformed_result`, zero usage, `usage_source: "unknown"` (the reservation is kept, B08.4) | the adapter reporting the provider's own figures |
+| reports usage that contradicts itself (a total below the parts, a boolean or negative count, more than 2147483647) | `error`, `malformed_result`, zero usage, `usage_source: "unknown"` (the whole reservation is charged, B08.4) | the adapter reporting the provider's own figures |
 | asks for a tool past `max_tool_calls` | the tool is not run; the adapter sees `StepToolBudgetExceeded`; the step ends `max_tool_calls` if it went on | raising the limit within the ceiling |
 | asks for a tool at or after the deadline | the tool is not run and not counted; the adapter sees `StepDeadlineReached`; the step ends `deadline` if it went on | a later deadline within the ceiling on a new run |
 
 **No double counting.** The boundary keeps no state between calls: each call has its own counter and reads only its own result. A
 retry is the next `attempt` of the same occurrence with the full limits, and a resumed step that finds its recorded proposal asks
-nobody and reports no usage. Adding the usage of several attempts to one budget is B08.4's ledger, not this check.
+nobody and reports no usage. Adding the usage of several attempts to one budget is the [reservation ledger](#token-reservations-reserved-before-the-call-charged-conservatively-settled-once-b084-761), not this check.
 
-**For B08.4 and B08.5.** `before_work_stop(request, clock=...)` is the pre-work check a reservation should call first (a step it
+**For B08.5.** `before_work_stop(request, clock=...)` is the pre-work check the reservation calls first (a step it
 stops needs no reservation); the stop reasons are `caliber.workflows.agent_step.LIMIT_STOPS`. The conformance harness
 (`caliber/tests/agent_step_conformance.py`) gains `FakeStepClock`, `fixed_clock`, `limits_changes` and `stop_before_work`, and every
 `run_scenario` runs on a fixed clock (`StepContext.clock`); `caliber/tests/test_agent_step_bounds.py` runs the five executors over
@@ -3319,8 +3320,118 @@ tripwire clients through `stop_before_work`.
 
 Not covered, so not claimed: the platform cannot observe a provider's turns or tokens, only what the adapter reports, so for those two
 the check bounds what is *recorded* and stops the proposal, while an adapter's own in-loop checks bound what is *spent* (a lying
-adapter can under-report tokens; the reservation, B08.4, is what charges a conservative figure). A blocking provider call is not
-interrupted. The usage of a stopped step is in its result and in the run error text; persisting it in a ledger is B08.4.
+adapter can under-report tokens; the [reservation](#token-reservations-reserved-before-the-call-charged-conservatively-settled-once-b084-761)
+charges a conservative figure unless a trusted result says less). A blocking provider call is not interrupted. The usage of a stopped step
+is in its result and in the run error text, and its charge is persisted by the reservation ledger.
+
+## Token reservations: reserved before the call, charged conservatively, settled once (B08.4, #761)
+
+The platform cannot observe a provider's tokens, only what the adapter reports, and a crash, a timeout or a refused result leaves
+nobody knowing what was charged. So a governed step's **ceiling is reserved first**, a charge is lowered only on a figure the
+platform believes, and nothing is ever released on a guess. `caliber.budget.step_reservation` holds the ledger (table
+`caliber_step_token_reservations`, migration `0133`); the interpreter reserves in `_run_governed_step`, immediately before
+`run_agent_step`, and settles right after it returns. It is **not** a second budget authority for later milestones: the per-run figure
+below is the Beta per-step ledger, and the persistent budgets of M08 extend this table rather than add another.
+
+**The reservation.** One row per `(workflow_run_id, node_id, occurrence_id, attempt)` (unique, and the step's `step_request_id` is
+stored with it). Its `reserved_tokens` is the step's `limits.max_tokens` after the B08.3 ceilings, and it is taken **before the adapter
+is called**, in one transaction under the run's row lock (`FOR UPDATE`, the first lock of the run, proposal, request order every
+writer of a run uses; on SQLite, which has no row lock and whose driver reads outside a transaction, the same section starts with
+`BEGIN IMMEDIATE`): two workers asking together are serialized, so the sum of what a run has reserved or been charged plus the new
+ceiling can never pass the run's budget. Past it the step is refused with a typed, payload-free run error and **the adapter is never
+called**:
+
+```text
+governed agent step token reservation refused: token_budget_exhausted (budget=39999 committed=0 requested=40000)
+```
+
+| Setting | Default | Accepted | Meaning |
+| --- | --- | --- | --- |
+| `CALIBER_AGENT_RUN_MAX_TOKENS` | `2000000` | 1 to 1000000000 | The most tokens one run's governed steps may reserve and be charged in total. Reaches a live step through `GovernedStepContext.run_token_budget` (the producer passes `config.agent_run_max_tokens`); a context that names none is bounded at this default, never unbounded. A ceiling larger than the whole budget refuses every step. |
+| `CALIBER_AGENT_RESERVATION_GRACE_SECONDS` | `300` | 1 to 86400, finite | How long past its step's deadline an open reservation is left before the execution owner finalizes it as `abandoned`. |
+
+A value outside its bounds stops the service at startup, naming the setting; the context and the reservation functions refuse a budget
+that is not an integer in those bounds (a boolean is not a count).
+
+**Idempotent, and a replay is not a second call.** A duplicate request for the same step returns the **same** reservation (`created`
+false) and never reserves twice, whatever the budget is by then. A step that is handed a reservation it did not create (a restarted
+run and the one that was never stopped both reach it, or the same attempt runs again after a crash) is refused with
+`governed agent step token reservation refused: reservation_replayed` and its adapter is not called: the earlier call may have spent,
+and the platform will not call the provider again on that strength. A retry of the node is the next `attempt` and takes its **own**
+reservation, so the attempts of one occurrence add up against the run. A step the platform stops before work
+(`before_work_stop`: no turn or token, a deadline already past) and an executor that is not an adapter reach no provider and reserve
+nothing, so nothing is ever released for them. **There is no release.**
+
+**What is charged.** `charge_for` decides, from the stored ceiling and the result, never from a caller's copy:
+
+| the result | charge | basis |
+| --- | --- | --- |
+| a figure **above** the reservation (an overrun), from any source | the figure, in full (the overage included) | `reported` |
+| a step that ran to an answer, `usage_source` `provider` (or absent: the contract reads that as the provider), a non-zero total at or below the reservation | the reported total; the unused part goes back to the run | `reported` |
+| `refused`, `error`, an `estimated` or `unknown` source, a zero total, a malformed or inconsistent usage, no result | the **whole reservation** | `conservative` |
+
+Believing a figure can only lower a charge when the result is one the platform trusts; believing a figure above the reservation can
+only raise it, so that is always done. **What this does not do:** it cannot verify a provider's number. The adapters are the platform's
+own code and report the provider's usage; this ledger refuses to let a result that carries no usable figure shrink a charge, and stores
+what the adapter said (`reported_tokens`, `usage_source`, `stop_reason` and a fixed-token `error_code`, never free text) for audit.
+
+**Settled once.** `settle_step_tokens` is a compare-and-set from `reserved` to `settled` on the stored row: a retry, a duplicate, a
+settlement racing the janitor finds a final row, changes nothing and gets that row back, so a charge is never written twice and never
+lowered after the fact. A store that fails to settle leaves the reservation **open**, which counts at its whole ceiling (it can only
+overcharge); the step still goes on with the result in hand, the failure is logged by exception class only.
+
+**Open counts in full; nothing is released.** A reservation is `reserved` from the moment it is taken. An exception out of the adapter
+that is not a result, a cancellation, a `KeyboardInterrupt` or a worker that is killed leaves it open at its whole ceiling, because
+the provider may have been called. There is no operator action that lowers a charge: nothing the platform can check would back it
+(the same rule as for effect proposals). A run that needs more budget gets a larger `CALIBER_AGENT_RUN_MAX_TOKENS`.
+
+**Abandoned, owner only.** After each pass the execution owner's effect reconciler loop (the same lease, compared in the transaction
+that writes) runs `abandon_stale`: a reservation still open past its step's deadline plus `CALIBER_AGENT_RESERVATION_GRACE_SECONDS`
+moves to `abandoned` **at its whole reservation**, oldest first and bounded per pass. The run's total does not move; the row only stops
+being open. A worker that returns after that finds a final row and its settlement changes nothing, **including an overrun**: a step that
+returns usage above its reservation after the sweep abandoned it (more than the step's deadline plus the grace) keeps the abandoned
+charge, the reservation, and the overage is not recorded (very unlikely: a provider timeout is capped at the remaining step deadline). The sweep runs only where the reconciler loop
+does (the reference profile, with `CALIBER_EFFECT_RECONCILER_ENABLED` on, its default); elsewhere, or with it off, open rows stay open
+and keep counting in full, which is safe. A process that does not hold the lease changes nothing.
+
+**Final means final.** The ORM refuses every edit and delete of a reservation. The database refuses the same: CHECK constraints keep
+every figure non-negative, a `conservative` charge equal to the reservation, a `reported` charge equal to the reported figure, an
+`abandoned` row conservative, and a final row complete; a trigger refuses any UPDATE of a `settled` or `abandoned` row and any change
+to the identity and the reserved figures of an open one, and refuses DELETE (PostgreSQL also TRUNCATE, and revokes both from
+`PUBLIC`).
+
+**Migration and rollout.** `0133` only adds the table and its guards (nothing else references it and nothing reads it before the code
+that writes it). Run it before the new code serves: a process on the new code with no table refuses a governed step with
+`governed agent step token reservation refused: store_failed` and never calls its adapter. Rolling back the code leaves the table
+unread; downgrading the migration drops the table and loses the charges counted against runs, so never do it where they matter.
+
+| the step | result | recover by |
+| --- | --- | --- |
+| would take the run past its budget | `token_budget_exhausted`, nothing reserved, adapter not called | a larger `CALIBER_AGENT_RUN_MAX_TOKENS` (a new run: a finished run's budget is its own) |
+| runs again on an attempt that holds a reservation (a node retry in the same process, or a process-level re-execution) | `reservation_replayed`, adapter not called | a node retry is the next attempt and reserves afresh; after a crash the attempt counter restarts at 1, so the resumed governed node is refused and the run fails: start a new run (see the known limit below) |
+| the store cannot reserve | `store_failed`, adapter not called | the database; nothing was reserved |
+| the worker died or was cancelled mid-call | the reservation stays `reserved`, counted in full, then `abandoned` after the grace | nothing: it is already charged; see the [recovery runbook](m-65-recovery-runbook.md#a-governed-step-refused-for-its-token-budget-or-left-a-reservation-open) |
+
+**Known limit: crash recovery of a governed step is terminal (follow-up #1073).** The attempt counter (`_STEP_ATTEMPT`) restarts at 1 on every
+process-level re-execution of a run. After a crash between the reservation and the settlement (or between the settlement and the
+recording of the proposal) the resumed governed node reaches the same `(run, node, occurrence, attempt)`, finds the reservation, and is
+refused with `reservation_replayed`: the run fails and only a new run proceeds. That fails closed and avoids a second provider spend
+under one reservation, but it means a governed step cannot be resumed after a crash. The follow-up is to persist or derive the attempt so
+a legitimate resume reuses or supersedes the open reservation safely.
+
+Deleting a workflow whose runs hold reservations is refused with `409` (`cannot delete workflow: its runs have step token
+reservations`), like run manifests and effect proposals.
+
+Reading it back: `caliber.budget.step_reservation.run_token_usage(session_factory, run_id)` returns what a run has counted and how many
+reservations are open and final. No route lists reservations yet.
+
+**For B08.5 and the conformance task (#769).** `reserve_step_tokens(session_factory, request, run_budget_tokens=...)` returns a
+`StepReservation` (`created`, `state`, `reserved_tokens`, `charged_tokens`, `charge_basis`) or raises `ReservationRefused` whose `code`
+is one of `token_budget_exhausted`, `reservation_replayed`, `request_invalid`, `budget_invalid`, `run_not_found`,
+`reservation_mismatch`; `settle_step_tokens(session_factory, reservation, result)` returns the final row; `charge_for(reserved, result)`
+is the pure rule; `abandon_stale(session_factory, lease, grace_seconds=...)` is the owner janitor. The scenario
+`tests/egi_scenarios/test_v08_timeout_retry.py::test_budget_refuses_before_call` and the PostgreSQL races in
+`tests/egi_scenarios/test_b08_token_reservation.py` are the oracle.
 
 ## Policy decisions
 
