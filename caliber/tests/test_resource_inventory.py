@@ -66,7 +66,11 @@ _EXPECTED_COUNTS = {
     # +1 (`B05.4a`): CaliberEffectReceipt is an immutable child of an effect proposal (FK `proposal_id`) with no project
     # column of its own: the proposal, and through it the run, supplies the boundary. Confirmed by direct look; it is
     # written and read only through `caliber.effects.receipts`, never listed through a route.
-    SCOPING_UNSCOPED: 58,
+    # +1 (release evaluation recovery): CaliberWorkspaceReleaseEvaluationAttempt is an immutable child of a release evaluation (FK
+    # `evaluation_id`) with no project column of its own: the evaluation, and through it the release, supplies the
+    # project boundary, like the other subordinate audit rows above. Confirmed by direct look; it is written and read
+    # only by the release evaluator and never listed through a route.
+    SCOPING_UNSCOPED: 59,
     # -1 (`P1-E`): CaliberPersonalAccessToken gained project_id (optional
     # PAT project binding) and moves from owned_catalog to project_only --
     # see below.
