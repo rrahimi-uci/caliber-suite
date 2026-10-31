@@ -366,6 +366,15 @@ def _node_step_id(workflow_run_id: str, node_id: str, occurrence_id: str) -> str
     return "ns-" + hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
 
+def node_step_id_for(workflow_run_id: str, node_id: str, occurrence_id: str) -> str:
+    """The ``node_step_id`` a context manifest of this node occurrence is stored under.
+
+    The one join key between a step's context manifest and the effect proposal of the same ``(run, node, occurrence)``
+    (B11.3b): readers compute it with this function and never re-derive the format.
+    """
+    return _node_step_id(workflow_run_id, node_id, occurrence_id)
+
+
 @dataclass(frozen=True)
 class PackedContext:
     """What :func:`pack_context` decided: the segments to give the provider, and what the manifest records of it."""
@@ -790,6 +799,7 @@ __all__ = [
     "build_context_manifest",
     "load_context_manifest",
     "next_revision",
+    "node_step_id_for",
     "pack_context",
     "read_context_manifest",
     "store_context_manifest",

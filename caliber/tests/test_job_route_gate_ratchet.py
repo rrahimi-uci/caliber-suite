@@ -85,6 +85,7 @@ def test_every_job_route_function_applies_the_project_gate() -> None:
         "jobs.get_job_targets",
         "jobs.apply_job",
         "jobs._recheck_claim",
+        "jobs._verified_claim_snapshot",
         "jobs._request_changes_sync",
         "quality_reviews._submit_quality_review_sync",
         "quality_reviews._list_quality_reviews_sync",

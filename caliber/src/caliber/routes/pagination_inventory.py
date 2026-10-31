@@ -157,6 +157,12 @@ _PAGINATION_NOTES: dict[tuple[str, str], PaginationNote] = {
         "workflow_versions.py::list_runs_route; the one route with real cursor "
         "pagination -- `limit`+opaque `cursor`, computes genuine `has_more`/`next_cursor`",
     ),
+    _key("/workflow-runs/{run_id}/causal-links"): PaginationNote(
+        PaginationShape.CURSOR,
+        "workflow_runs.py::get_workflow_run_causal_links; `section` picks one of three keyset-paginated "
+        "lists, `limit` (default 50, cap 200) + opaque `cursor` (the id of the last row; ordered "
+        "(timestamp, id)), genuine `has_more`/`next_cursor` inside `data`",
+    ),
     _key("/workflow-runs/{run_id}/events"): PaginationNote(
         PaginationShape.SEQUENCE_WATERMARK,
         "workflow_runs.py::list_workflow_run_events; `after`+`limit` via the "
