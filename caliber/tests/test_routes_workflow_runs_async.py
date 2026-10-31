@@ -2671,6 +2671,66 @@ def test_a_rejected_bound_request_is_refused_as_decided_without_claiming_dispatc
     assert "rejected" not in body["detail"] and "approved" not in body["detail"]
 
 
+def test_a_legacy_request_with_a_consumed_mark_is_refused_as_consumed(client: TestClient) -> None:
+    _enable_runtime_approvals(client)
+    _wid, vid = create_and_publish(client)
+    created = client.post(
+        f"{PREFIX}/workflow-runs", json={"workflow_version_id": vid, "input": "hello"}
+    )
+    run_id = created.json()["data"]["workflow_run_id"]
+    legacy_id = _seed_waiting_approval(
+        client, run_id, approval_status="pending", checkpoint_input_by_port={"input": "hello"}
+    )
+    with client.app.state.session_factory() as session:
+        row = session.get(CaliberRuntimeApprovalRequest, legacy_id)
+        assert row is not None
+        row.consumed_at = datetime.now(timezone.utc)
+        session.commit()
+
+    response = client.post(
+        f"{PREFIX}/workflow-runs/{run_id}/approval/approve", json={"runtime_approval_id": legacy_id}
+    )
+
+    assert response.status_code == 409, response.text
+    assert response.json()["reason_code"] == "already_consumed"
+    assert _approval_row(client, legacy_id).status == "pending"
+
+
+def test_the_lock_wait_helper_maps_only_a_lock_timeout_to_a_busy_503() -> None:
+    """``55P03`` is the retryable ``approval_busy`` (and the transaction is rolled back); any other database error propagates."""
+    from sqlalchemy.exc import OperationalError
+
+    from caliber.routes import workflow_runs as routes
+    from caliber.routes._errors import CaliberHTTPException
+
+    class DriverError(Exception):
+        def __init__(self, sqlstate: str) -> None:
+            super().__init__("driver error")
+            self.sqlstate = sqlstate
+
+    class FakeSession:
+        def __init__(self, sqlstate: str) -> None:
+            self.sqlstate = sqlstate
+            self.rolled_back = False
+
+        def execute(self, _statement: object) -> object:
+            raise OperationalError("SELECT 1", {}, DriverError(self.sqlstate))
+
+        def rollback(self) -> None:
+            self.rolled_back = True
+
+    busy_session = FakeSession("55P03")
+    with pytest.raises(CaliberHTTPException) as busy:
+        routes._execute_locked(busy_session, object())  # type: ignore[arg-type]
+    assert (busy.value.status_code, busy.value.reason_code) == (503, "approval_busy")
+    assert busy_session.rolled_back
+
+    other = FakeSession("40001")
+    with pytest.raises(OperationalError):
+        routes._execute_locked(other, object())  # type: ignore[arg-type]
+    assert not other.rolled_back
+
+
 def test_a_bound_request_never_shadows_a_legacy_node_level_request(client: TestClient) -> None:
     """The default selection is the newest pending request of the node. A bound one created later must not be picked."""
     _enable_runtime_approvals(client)

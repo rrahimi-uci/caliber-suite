@@ -32,6 +32,7 @@ import caliber.effects.dispatcher as dispatcher_module
 from caliber.db.models import (
     CaliberEffectProposal,
     CaliberEventOutbox,
+    CaliberProject,
     CaliberProjectMember,
     CaliberRuntimeApprovalRequest,
     CaliberWorkflowRun,
@@ -655,6 +656,40 @@ def test_every_approver_of_the_quorum_is_rechecked_at_the_claim(
         restored = _dispatch(app, proposal_id, approval_id, lease)
         assert isinstance(restored, EffectOutcome) and restored.state == "committed"
         assert backend.calls == 1
+
+
+def test_an_approver_who_owns_the_project_counts_only_with_the_owner_scopes(
+    approver: ReferenceApp, monkeypatch: pytest.MonkeyPatch, backend: CountingBackend
+) -> None:
+    """The owner's project role needs the operator and approver scopes; without them it is an editor's, which may not approve."""
+    _run, approval_id, proposal_id, lease = _prepare(approver, monkeypatch, occurrence="owner")
+    with approver.session_factory() as session:
+        project = session.get(CaliberProject, PROJECT_A)
+        assert project is not None
+        project.owner = APPROVER_A
+        session.commit()
+
+    _refused(
+        _dispatch(
+            approver,
+            proposal_id,
+            approval_id,
+            lease,
+            approver_scopes=frozenset({"caliber.approver", "caliber.viewer"}),
+        ),
+        "role_revoked",
+    )
+    _unconsumed(approver, approval_id, proposal_id)
+
+    outcome = _dispatch(
+        approver,
+        proposal_id,
+        approval_id,
+        lease,
+        approver_scopes=frozenset({"caliber.approver", "caliber.operator"}),
+    )
+    assert isinstance(outcome, EffectOutcome) and outcome.state == "committed"
+    assert backend.calls == 1
 
 
 def test_a_decision_recorded_around_the_route_with_too_few_approvers_is_not_a_quorum(
