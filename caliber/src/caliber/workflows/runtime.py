@@ -2534,8 +2534,16 @@ class RuntimePlan:
     effect_ledger: Any | None = None
     #: B04.2 context for manifest-backed webhook/API nodes. A plan with a
     #: workflow version but no context refuses these nodes rather than falling
-    #: back to the legacy raw sender.
+    #: back to the legacy raw sender, unless ``legacy_guarded_effects`` is set.
     governed_effects: GovernedEffectContext | None = None
+    #: The non-reference (development) profile's compatibility mode (#1068). When ``True`` and no ``governed_effects`` is
+    #: bound, a manifest-backed plan runs a protected webhook/API node through ``_perform_guarded_effect`` and a protected
+    #: registered or OpenAPI tool inline, exactly as before the dispatcher routing, instead of refusing. It is **not** the
+    #: governed path: no exact-intent approval, no execution-owner lease, no proposal and no receipt. ``build_plan`` sets it
+    #: from the deployment profile (``config.profile != "reference"``); the default ``False`` keeps every other plan, and
+    #: every reference-profile plan, fail-closed. It never overrides a bound context (a bound context is always used) and
+    #: never relaxes a refusal that is not about a missing context (EP-055, a registry mismatch, an unsupported path).
+    legacy_guarded_effects: bool = False
     #: B08.2 context for governed agent steps (``caliber.effects.step_proposal``). ``None`` (every plan the runtime builds
     #: today) runs agent nodes exactly as before. With one, an agent node runs through ``run_agent_step``: the adapter is
     #: handed only the tools the platform classified ``read``, a protected action it proposes becomes a recorded ``proposed``
@@ -5412,13 +5420,15 @@ def _perform_http_effect(
     """Route a manifest HTTP node through proposal, approval and dispatch.
 
     Plans without a workflow version are the legacy/test execution surface and
-    retain the existing ledger behavior. A manifest-backed plan must provide a
-    complete governed context; missing authority or receipt verification is a
-    refusal, never an implicit allow or a raw sender call.
+    retain the existing ledger behavior, and so does a manifest-backed plan with
+    no context whose ``legacy_guarded_effects`` is set (the development profile,
+    #1068; it is not the governed path). Otherwise a manifest-backed plan must
+    provide a complete governed context; missing authority or receipt
+    verification is a refusal, never an implicit allow or a raw sender call.
     """
     sender = plan.webhook_sender or partial(_default_webhook_sender, policy=plan.egress_policy)
     if plan.governed_effects is None:
-        if plan.workflow_version_id is None:
+        if plan.workflow_version_id is None or plan.legacy_guarded_effects:
             return _perform_guarded_effect(
                 plan, node_id=node_id, request=request, perform=lambda: sender(request)
             )
@@ -5519,7 +5529,9 @@ def _governed_tool_route(
     Only a plan wired to the registry (an identity reader, as ``build_plan`` binds) or to an authority (a governed
     context) is governed: a plan that has neither, such as a standalone export or a test plan, keeps calling the tool
     directly, as do previews, which never reach a real effect. OpenAPI bindings are routed by
-    :func:`_governed_openapi_route` (B04.4) and MCP bindings by their own B04 task. The decision is made from the
+    :func:`_governed_openapi_route` (B04.4) and MCP bindings by their own B04 task. A protected tool with no governed
+    context is refused, except in a plan whose ``legacy_guarded_effects`` is set (the development profile, #1068), where it
+    runs inline as before the dispatcher. The decision is made from the
     tool's **registry row** (``plan.registered_tool_identity``), never from ``binding.side_effect_level`` or the
     binding's names, which a workflow or an export author wrote.
     """
@@ -5557,6 +5569,10 @@ def _governed_tool_route(
     if route.route == INLINE:
         return None
     if plan.governed_effects is None:
+        if plan.legacy_guarded_effects:
+            # Development profile, no authority bound (#1068): the pre-dispatcher behavior. The tool runs inline behind the
+            # node's own approval gate; there is no proposal, exact-intent approval or lease.
+            return None
         raise ToolExecutionError(
             f"{node_id!r} requires a governed effect context to run protected registered tool "
             f"{binding.local_name!r}"
@@ -5672,6 +5688,9 @@ def _governed_openapi_route(
     if route.route == INLINE:
         return None
     if plan.governed_effects is None:
+        if plan.legacy_guarded_effects:
+            # Development profile, no authority bound (#1068): the pre-dispatcher behavior, the call runs inline.
+            return None
         raise ToolExecutionError(
             f"{node_id!r} requires a governed effect context to run protected OpenAPI tool {name!r}"
         )

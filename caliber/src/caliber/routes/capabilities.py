@@ -108,6 +108,8 @@ async def get_capabilities(request: Request) -> JSONResponse:
         supports_resume=queue_enabled and checkpointing,
         runtime_approvals_enabled=runtime_approvals,
         checkpointing_enabled=checkpointing,
+        # The same predicate ``AdmissionSettings.from_config`` uses for ``lineage_required``: the reference profile.
+        lineage_required=getattr(config, "profile", "") == "reference",
         event_backend=str(config.workflow_run_event_backend),
         approval_readiness={
             "status": "ready" if not approval_blockers else "configuration_required",

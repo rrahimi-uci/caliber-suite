@@ -5,14 +5,20 @@ name: Cookbook labs
 # documents them (scripts/cookbook-run-all.sh). The cookbook is executable documentation,
 # and a lab that only passes against a stub server is a claim nobody has checked.
 #
-# Why this is its own workflow: a full pass takes about half an hour (one stack and one
-# browser run per lab), so it is not a required check on every PR. It runs weekly (upstream
-# drift: MLflow, the MiniLM model, Playwright), on demand, and on pull requests that change
-# a lab, its script or spec, or the runner. It uses the simulated tier (no model key): the
-# labs are written for it, and each README says what the simulated run proves.
+# Why this is its own workflow: a full pass takes about fifty minutes on a hosted runner (one
+# stack and one browser run per lab, about 3,100 s measured on 2026-10-31), so it is not a
+# required check on every PR. It runs weekly (upstream drift: MLflow, the MiniLM model,
+# Playwright), on demand, on pull requests that change a lab, its script or spec, or the
+# runner, AND on every change to the code those labs execute (the workflow runtime, the
+# effect dispatcher, integrations, policy, the profile and its settings) both on pull
+# requests and as a run on `main` after the merge. The path list used to cover only the lab
+# files, so the fail-closed dispatcher routing (#1040, #1045, #1060) broke eight labs and no
+# run noticed until a later PR touched a cookbook file (#1068). It uses the simulated tier
+# (no model key): the labs are written for it, and each README says what the simulated run
+# proves.
 #
-# A failed scheduled run is reported by GitHub to the person who last edited the cron line
-# below. It never blocks a merge.
+# A failed scheduled or `main` run is reported by GitHub to the person who last edited the
+# cron line below or pushed the commit. It never blocks a merge.
 
 on:
   schedule:
@@ -32,13 +38,48 @@ on:
       - "caliber/caliber-ui/playwright.labs.config.ts"
       - "scripts/cookbook-*"
       - ".github/workflows/cookbook-labs.yml"
+      # The code the labs execute: what runs a workflow node, the effect dispatcher and its
+      # connectors, integrations (OpenAPI tools), the policy and profile that decide whether
+      # an effect is allowed, and the run worker and routes that start a run.
+      - "caliber/src/caliber/workflows/**"
+      - "caliber/src/caliber/effects/**"
+      - "caliber/src/caliber/integrations/**"
+      - "caliber/src/caliber/policy/**"
+      - "caliber/src/caliber/orchestrator/workflow_run_worker.py"
+      - "caliber/src/caliber/routes/workflow_runs.py"
+      - "caliber/src/caliber/routes/workflow_versions.py"
+      - "caliber/src/caliber/profile.py"
+      - "caliber/src/caliber/config.py"
+  push:
+    branches: [main]
+    paths:
+      - "docs-site/cookbooks/**"
+      - "sdk/caliber-sdk/examples/cookbooks/**"
+      - "caliber/caliber-ui/e2e/cookbooks/labs/**"
+      - "caliber/caliber-ui/playwright.labs.config.ts"
+      - "scripts/cookbook-*"
+      - ".github/workflows/cookbook-labs.yml"
+      # The code the labs execute: what runs a workflow node, the effect dispatcher and its
+      # connectors, integrations (OpenAPI tools), the policy and profile that decide whether
+      # an effect is allowed, and the run worker and routes that start a run.
+      - "caliber/src/caliber/workflows/**"
+      - "caliber/src/caliber/effects/**"
+      - "caliber/src/caliber/integrations/**"
+      - "caliber/src/caliber/policy/**"
+      - "caliber/src/caliber/orchestrator/workflow_run_worker.py"
+      - "caliber/src/caliber/routes/workflow_runs.py"
+      - "caliber/src/caliber/routes/workflow_versions.py"
+      - "caliber/src/caliber/profile.py"
+      - "caliber/src/caliber/config.py"
 
 permissions:
   contents: read
 
 concurrency:
   group: cookbook-labs-${{ github.ref }}
-  cancel-in-progress: true
+  # A newer push to a pull request supersedes its older run; runs on `main` are never cancelled,
+  # so a merge that breaks a lab is not hidden by the next merge.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   labs:

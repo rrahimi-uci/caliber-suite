@@ -1154,3 +1154,40 @@ def test_build_plan_binds_a_fresh_registry_identity_reader(db_session: Session) 
     db_session.commit()
     changed = plan.registered_tool_identity("open_ticket", "1.0")
     assert changed is not None and changed.side_effect_level == "write"
+
+
+@pytest.mark.parametrize(
+    ("profile", "legacy"),
+    [("development", True), ("reference", False)],
+)
+def test_build_plan_allows_the_legacy_guarded_path_only_outside_the_reference_profile(
+    db_session: Session, profile: str, legacy: bool
+) -> None:
+    """#1068: with no governed context bound yet (#1051), only the reference profile refuses protected effects."""
+    _seed_workflow(db_session)
+    db_session.add(_version())
+    db_session.commit()
+    version = db_session.get(CaliberWorkflowVersion, "wfv-1")
+    assert version is not None
+
+    plan = promoter.build_plan(
+        db_session,
+        version,
+        resolver=fake_resolver(),
+        config=CaliberConfig(profile=profile),
+    )
+
+    assert plan.legacy_guarded_effects is legacy
+    assert plan.governed_effects is None
+
+
+def test_build_plan_without_a_config_is_the_development_profile(db_session: Session) -> None:
+    _seed_workflow(db_session)
+    db_session.add(_version())
+    db_session.commit()
+    version = db_session.get(CaliberWorkflowVersion, "wfv-1")
+    assert version is not None
+
+    plan = promoter.build_plan(db_session, version, resolver=fake_resolver())
+
+    assert plan.legacy_guarded_effects is True

@@ -75,9 +75,13 @@ The current CI pipeline keeps this explicit:
   (`scripts/cookbook-run-all.sh`): a fresh stack per lab, the lab's SDK example
   script and its Playwright spec, then a cross-lab journey on one shared stack.
   It runs weekly (Wednesdays 06:23 UTC), on manual dispatch (optionally a
-  comma list of labs), and on pull requests that change a lab, its script or
-  spec, or the runner, with the simulated providers and no model key. It is not
-  a required check (a full pass takes about half an hour). The SDK example
+  comma list of labs), and on pull requests **and pushes to `main`** that change
+  a lab, its script or spec, or the runner, or the code the labs execute (the
+  workflow runtime, effect dispatcher, integrations, policy, run worker and
+  routes, `profile.py` and `config.py`), with the simulated providers and no
+  model key. It is not a required check (a full pass takes about fifty minutes
+  on a hosted runner); the `main` run is what stops a merge that breaks a lab
+  from staying unnoticed (#1068). The SDK example
   tests, which replay each script against a stateful stand-in server, run on
   every pull request in the backend-core SDK slice
 
