@@ -24,6 +24,7 @@ from sqlalchemy import Engine
 from sqlalchemy.orm import Session, sessionmaker
 from starlette.testclient import TestClient
 
+from caliber.candidate_digest import candidate_digest
 from caliber.config import CaliberConfig
 from caliber.db.models import (
     CaliberAgentConfig,
@@ -292,6 +293,7 @@ def seeded_db(db_session: Session) -> Session:
             current_stage="done",
             bundle_targets=[],
             candidate={"content": "x", "artifact_type": "prompt"},
+            candidate_digest=candidate_digest({"content": "x", "artifact_type": "prompt"}),
         )
     )
     db_session.flush()

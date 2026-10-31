@@ -26,8 +26,11 @@ the surrounding transaction (and the commit).
 
 from __future__ import annotations
 
+import hmac
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+from typing import Any
 
 from sqlalchemy.orm import Session
 from starlette.exceptions import HTTPException
@@ -38,6 +41,7 @@ from caliber.bundle import (
     promote_bundle,
     resolve_bundle_targets,
 )
+from caliber.candidate_digest import candidate_digest
 from caliber.db.models import (
     CaliberApprovalRequest,
     CaliberRefinementJob,
@@ -73,6 +77,30 @@ APPLY_SEPARATION_DETAIL: dict[str, str] = {
         "re-run the calibration so it records its requester, then have a different authorized person apply it"
     ),
 }
+#: ``reason_code`` of the 403 when, inside the Apply claim, the caller no longer holds ``release.apply`` on the job's
+#: project (or can no longer see the job): the permission is rechecked at the claim, not trusted from the request start.
+APPLY_PERMISSION_REVOKED = "apply_permission_revoked"
+#: ``reason_code`` of the 409 when the candidate about to be promoted is not the one that cleared the eval gate (B06.4, #753).
+APPLY_CANDIDATE_CHANGED = "apply_candidate_changed"
+#: ``reason_code`` of the 409 when the job has no recorded digest of an evaluated candidate, so the candidate cannot be verified.
+APPLY_CANDIDATE_UNVERIFIED = "apply_candidate_unverified"
+#: ``reason_code`` of the 503 when the claim could not get its row locks within the lock timeout: nothing was decided.
+APPLY_BUSY = "apply_busy"
+#: The refusal message for each claim-time recheck. Static on purpose: no job id, account, digest or candidate content.
+APPLY_RECHECK_DETAIL: dict[str, str] = {
+    APPLY_PERMISSION_REVOKED: (
+        "your permission to apply candidates in this project is no longer in force; nothing was applied"
+    ),
+    APPLY_CANDIDATE_CHANGED: (
+        "the candidate is not the one that was evaluated; nothing was applied, "
+        "re-run the evaluation and apply the new candidate"
+    ),
+    APPLY_CANDIDATE_UNVERIFIED: (
+        "this candidate has no recorded evaluation digest, so it cannot be verified; nothing was applied, "
+        "re-run the evaluation so it records one"
+    ),
+    APPLY_BUSY: "this candidate is being changed or applied right now; nothing was applied, retry shortly",
+}
 
 
 def _identity_key(value: str | None) -> str:
@@ -87,8 +115,8 @@ def apply_separation_refusal(*, requester: str | None, approver: str) -> str | N
     ``requester`` is the job's stored ``triggered_by`` (written from the authenticated identity) and ``approver`` is the
     authenticated caller; neither comes from the request body.
 
-    This is the single implementation of the Apply separation rule; the exact-candidate recheck inside the Apply claim
-    (B06.4, #753) should call it rather than re-implement it. It deliberately does not reuse
+    This is the single implementation of the Apply separation rule: the route calls it before the claim and again, on the
+    row-locked job, inside the claim (B06.4, #753). It deliberately does not reuse
     :func:`caliber.workflows.approval_policy.assert_distinct_actor`, which compares exactly (``@Alice`` and ``@alice``
     differ) and lets an unknown initiator pass, both of which are wrong for a reference-profile Apply.
 
@@ -103,6 +131,31 @@ def apply_separation_refusal(*, requester: str | None, approver: str) -> str | N
     approver_key = _identity_key(approver)
     if not approver_key or approver_key == requester_key:
         return APPLY_SELF_APPROVAL
+    return None
+
+
+def apply_candidate_refusal(
+    *, recorded_digest: str | None, candidate: Mapping[str, Any] | None
+) -> str | None:
+    """Why ``candidate`` may not be promoted on the strength of ``recorded_digest``, or ``None`` when it may (B06.4, #753).
+
+    Pure. ``recorded_digest`` is the digest the eval stage stored when the candidate cleared the gate
+    (``CaliberRefinementJob.candidate_digest``) and ``candidate`` is the content the Apply claim is about to promote.
+
+    * :data:`APPLY_CANDIDATE_UNVERIFIED`: nothing was recorded (a blank digest), so there is nothing to verify against.
+    * :data:`APPLY_CANDIDATE_CHANGED`: the candidate is missing or empty, cannot be digested, or its digest differs.
+      The comparison is constant-time; the digests are public hashes, so this is hygiene rather than a defence.
+    """
+    if not recorded_digest:
+        return APPLY_CANDIDATE_UNVERIFIED
+    if not candidate:
+        return APPLY_CANDIDATE_CHANGED
+    try:
+        actual = candidate_digest(candidate)
+    except ValueError:
+        return APPLY_CANDIDATE_CHANGED
+    if not hmac.compare_digest(actual.encode("ascii"), recorded_digest.encode("utf-8", "replace")):
+        return APPLY_CANDIDATE_CHANGED
     return None
 
 

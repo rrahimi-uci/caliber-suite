@@ -6,6 +6,7 @@ import pytest
 from sqlalchemy.orm import Session
 from starlette.testclient import TestClient
 
+from caliber.candidate_digest import candidate_digest
 from caliber.db.models import (
     CaliberAgentConfig,
     CaliberRefinementJob,
@@ -117,6 +118,7 @@ def test_apply_endpoint_increments_metrics(client: TestClient, db_session: Sessi
             bundle_targets=[],
             eval_results={},
             candidate={"content": "new", "artifact_type": "prompt"},
+            candidate_digest=candidate_digest({"content": "new", "artifact_type": "prompt"}),
         )
     )
     db_session.add(
