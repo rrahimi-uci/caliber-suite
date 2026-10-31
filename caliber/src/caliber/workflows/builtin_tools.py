@@ -252,18 +252,30 @@ def reserved_tool_name(name: str) -> str | None:
     surrounding whitespace and case are ignored, and so are the ``tool.`` prefix and the ``.vN`` suffix a
     manifest reference adds (:func:`caliber.workflows.tools.family_name`), so ``Grep_Files`` and
     ``tool.grep_files.v2`` are the built-in's name too. CALIBER's own seeding writes rows directly and never calls this.
+
+    The names of the trusted connectors (``caliber.profile.REFERENCE_CONNECTORS``: ``document_request``,
+    ``document-request`` and ``http``) are reserved the same way, so a user tool cannot pose as a connector; the
+    dispatcher admits a connector by its implementation, capability and configuration, never by such a name (B12.3a, #738).
     """
+    from caliber.profile import reserved_connector_names  # noqa: PLC0415
     from caliber.workflows.tools import family_name  # noqa: PLC0415
 
+    connectors = reserved_connector_names()
     folded = name.strip().casefold()
     for candidate in (folded, family_name(folded)):
-        if candidate in BUILTIN_TOOL_NAMES:
+        if candidate in BUILTIN_TOOL_NAMES or candidate in connectors:
             return candidate
     return None
 
 
 def reserved_tool_name_message(name: str, builtin: str) -> str:
     """The sentence a refusal carries: what is reserved, why, and what to do instead."""
+    if builtin not in BUILTIN_TOOL_NAMES:
+        return (
+            f"{RESERVED_TOOL_NAME_CODE}: tool name {name!r} is reserved for the trusted connector "
+            f"{builtin!r}, which the dispatcher admits by its implementation and capability record, "
+            "never by a name; register your tool under a different name"
+        )
     return (
         f"{RESERVED_TOOL_NAME_CODE}: tool name {name!r} is reserved for the built-in CALIBER tool "
         f"{builtin!r}, which the protected-effect inventory classifies by name; register your tool "
@@ -306,16 +318,30 @@ def audit_reserved_name_squatters(session: Session) -> list[CaliberToolRegistry]
         blocks_seed = row.name in BUILTIN_TOOL_NAMES and row.version == BUILTIN_TOOL_VERSION
         if row.tool_id not in _reported_squatters:
             _reported_squatters.add(row.tool_id)
-            logger.error(
-                "tool registry row %s (%r version %r, owner %r) holds a name reserved for the built-in "
-                "%r but is not the seeded row, so it is not trusted as a built-in%s",
-                row.tool_id,
-                row.name,
-                row.version,
-                row.owner,
-                reserved_tool_name(row.name),
-                "; it also prevents the real built-in from being seeded" if blocks_seed else "",
-            )
+            reserved = reserved_tool_name(row.name)
+            if reserved in BUILTIN_TOOL_NAMES:
+                logger.error(
+                    "tool registry row %s (%r version %r, owner %r) holds a name reserved for the built-in "
+                    "%r but is not the seeded row, so it is not trusted as a built-in%s",
+                    row.tool_id,
+                    row.name,
+                    row.version,
+                    row.owner,
+                    reserved,
+                    "; it also prevents the real built-in from being seeded" if blocks_seed else "",
+                )
+            else:
+                logger.error(
+                    "tool registry row %s (%r version %r, owner %r) holds a name reserved for the trusted effect "
+                    "connector %r; it is a user tool, never that connector, and no new version can be registered "
+                    "under the name: register the tool again under a different name, repoint the workflows that "
+                    "use it, then archive this row",
+                    row.tool_id,
+                    row.name,
+                    row.version,
+                    row.owner,
+                    reserved,
+                )
         already = session.execute(
             select(CaliberAuditLog.log_id).where(
                 CaliberAuditLog.action == RESERVED_NAME_SQUATTER_ACTION,

@@ -16,7 +16,7 @@ from caliber.db.models import (
     CaliberProjectMember,
     CaliberRuntimeApprovalRequest,
 )
-from caliber.effects.dispatcher import EffectRefused, dispatch
+from caliber.effects.dispatcher import EffectRefused, dispatch, submit_proposal
 from caliber.effects.receipts import ReceiptFacts
 from caliber.effects.records import proposal_state, record_proposal
 from caliber.egress import EgressPolicy
@@ -54,6 +54,7 @@ from tests.egi_scenarios.test_v05_revocation_while_waiting import _approved, _wa
 from tests.test_effect_proposals import _intent
 from tests.test_mlflow_tracing import FakeMlflow
 from tests.test_workflow_webhook_node import _manifest as webhook_manifest
+from tests.workflow_helpers import make_tool_payload
 
 
 def test_dispatcher_uses_canonical_approval_and_registered_connector(
@@ -427,3 +428,125 @@ def test_an_unknown_approval_id_is_never_linked_from_a_span(
     check = next(span for span in fake.spans if span.name == "effect.approval.commit_check")
     assert _causal(check) == {"caliber.proposal_id": proposal_id}
     assert check.attributes["caliber.refusal_code"] == "not_found"
+
+
+def test_untrusted_connectors_are_refused_on_the_public_and_dispatcher_paths(
+    reference_app: ReferenceApp, two_workspaces: Workspaces, downstream: Downstream
+) -> None:
+    """B12.3a (#738): a user tool called ``document_request`` and unpinned connectors never reach the downstream.
+
+    Registration goes through the public ``POST /tools`` route, the proposals and dispatch through the real
+    dispatcher on the reference database, and the independent downstream fixture counts every mutation.
+    """
+    reference_app.client.app.state.config = reference_app.client.app.state.config.model_copy(  # type: ignore[attr-defined]
+        update={"admin_users": "@egi-admin"}
+    )
+    prefix = "/ajax-api/2.0/mlflow/caliber"
+    admin = reference_app.headers("@egi-admin", "")
+    token = reference_app.client.get(f"{prefix}/csrf", headers=admin).json()["data"]["token"]
+    spoof = reference_app.client.post(
+        f"{prefix}/tools",
+        json=make_tool_payload("document_request"),
+        headers={**admin, "X-CALIBER-CSRF": token},
+    )
+    assert spoof.status_code == 409, spoof.text
+    assert "reserved_tool_name" in spoof.text and "trusted connector" in spoof.text
+    listed = reference_app.client.get(f"{prefix}/tools", headers=admin).json()["data"]
+    assert [row for row in listed if row["name"] == "document_request"] == []
+
+    run_id = _waiting_run(reference_app)
+    with reference_app.session_factory() as session:
+        before = len(session.scalars(select(CaliberEffectProposal.proposal_id)).all())
+        with pytest.raises(EffectRefused) as bare:
+            submit_proposal(
+                session,
+                workflow_run_id=run_id,
+                node_id="agent",
+                occurrence_id="occ-spoof",
+                connector="document-request",
+                connector_version="1",
+                effect_class_name="irreversible_write",
+                resource="cases/MORT-2026-000184/document-requests",
+                args={"document_type": "pay_statement"},
+                tool_name="document_request",
+                caliber_defined=False,
+            )
+        assert bare.value.code == "connector_not_admitted"
+        session.rollback()
+        assert len(session.scalars(select(CaliberEffectProposal.proposal_id)).all()) == before
+
+    approval_id, proposal_id = _request(
+        reference_app,
+        run_id,
+        "occ-b12-3a",
+        connector_version="1",
+        resource="cases/MORT-2026-000184/document-requests",
+        args={"document_type": "pay_statement"},
+        expected_resource_version="1",
+    )
+    _approved(reference_app, run_id, approval_id)
+    with reference_app.session_factory() as session:
+        lease = acquire(session, "egi-b12-3a", ttl_seconds=600)
+        assert lease is not None
+        session.commit()
+    for backend_kind, config, code in (
+        ("mcp_stdio", {}, "unsupported_backend"),
+        ("host_file_export", {}, "unsupported_backend"),
+        ("document_request", {"base_url": "file:///etc/passwd"}, "connector_config_not_admitted"),
+        (
+            "document_request",
+            {"base_url": downstream.base_url, "headers": {}},
+            "connector_config_not_admitted",
+        ),
+    ):
+        with pytest.raises(EffectRefused) as refused:
+            dispatch(
+                reference_app.session_factory,
+                proposal_id,
+                approval_id=approval_id,
+                approver_scopes=frozenset({"caliber.approver", "caliber.viewer"}),
+                lease=lease,
+                backend_kind=backend_kind,
+                backend_config=config,
+                current_resource_version="1",
+                evidence_hash=EVIDENCE,
+                approval_validator=approval_valid_at_commit,
+                now=T0 + timedelta(minutes=2),
+            )
+        assert refused.value.code == code
+    assert downstream.mutations() == 0
+    with reference_app.session_factory() as session:
+        approval = session.get(CaliberRuntimeApprovalRequest, approval_id)
+        assert approval is not None and approval.consumed_at is None
+        assert proposal_state(session, proposal_id).state == "proposed"
+
+
+def test_an_admission_refusal_binds_no_row_to_the_span(
+    reference_app: ReferenceApp, two_workspaces: Workspaces, downstream: Downstream
+) -> None:
+    """B12.3a with B11.3a: admission refuses before the claim, so no id is read, bound or linked."""
+    _run_id, approval_id, proposal_id = _approved_request(reference_app)
+    fake = FakeMlflow()
+    set_tracer(Tracer(mlflow_module=fake))
+
+    with pytest.raises(EffectRefused) as refused:
+        _dispatch_traced(
+            reference_app,
+            downstream,
+            proposal_id,
+            approval_id,
+            backend_config={"base_url": "file:///etc/passwd"},
+        )
+
+    assert refused.value.code == "connector_config_not_admitted"
+    dispatched = next(span for span in fake.spans if span.name == "effect.dispatch")
+    assert _causal(dispatched) == {}, "nothing was read from a row, so nothing is linked"
+    assert dispatched.attributes["caliber.refusal_code"] == "connector_config_not_admitted"
+    for span in fake.spans:
+        assert approval_id not in repr(span.attributes)
+    assert not [span for span in fake.spans if span.name == "effect.approval.commit_check"]
+    assert downstream.mutations() == 0
+    with reference_app.session_factory() as session:
+        approval = session.get(CaliberRuntimeApprovalRequest, approval_id)
+        assert approval is not None and approval.consumed_at is None
+        assert proposal_state(session, proposal_id).state == "proposed"

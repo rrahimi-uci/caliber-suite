@@ -28,7 +28,14 @@ from typing import Any, Protocol
 
 from sqlalchemy.orm import Session
 
+from caliber import profile as _profile
 from caliber.db.models import CaliberRuntimeApprovalRequest, CaliberWorkflowRun
+from caliber.effects.admission import (
+    AdmissionRefused,
+    AdmittedConnector,
+    admit,
+    check_config,
+)
 from caliber.effects.connectors import (
     Classified,
     ConnectorCapability,
@@ -151,11 +158,19 @@ class PrivateBackend(Protocol):
 
 @dataclass(frozen=True)
 class BackendRegistration:
-    """A private transport bound to the connector identity it is allowed to send."""
+    """A private transport bound to the connector identity it is allowed to send.
+
+    Registering one does not admit it: ``capability`` (its documented promise) and ``configuration`` (the wire
+    configuration it sends with) are what :func:`admit_backend` compares with the pinned record in
+    ``caliber.profile.REFERENCE_CONNECTORS``, together with the transport's own implementation identity. A registration
+    without a capability record, or whose record does not match, is never dispatched through.
+    """
 
     backend: PrivateBackend | Callable[[EffectRequest, Mapping[str, Any] | None], TransportResult]
     connector: str
     connector_version: str
+    capability: ConnectorCapability | None = None
+    configuration: Mapping[str, Any] | None = None
 
 
 class _Backend:
@@ -284,20 +299,86 @@ class _TransportRefusedError(RuntimeError):
         super().__init__(code)
 
 
+#: What the document-request transport sends with, apart from the downstream's address (an operator setting): the
+#: operations it builds (method, path, key header, content types, attempts) and the resource it accepts. Its digest is
+#: pinned in ``caliber.profile.REFERENCE_CONNECTORS``, so a transport that starts sending elsewhere is not admitted.
+DOCUMENT_REQUEST_CONFIGURATION: Mapping[str, Any] = {
+    "submit": _document_request.submit_config("<downstream>"),
+    "lookup": _document_request.lookup_config("<downstream>"),
+    "resource": _CASE_RESOURCE.pattern,
+}
+#: The generic HTTP transport has no fixed destination; what it sends with is the key header and the two callables
+#: the caller must supply (a sender and an authoritative receipt verifier).
+HTTP_CONFIGURATION: Mapping[str, Any] = {
+    "idempotency_key_header": HTTP_CAPABILITY.idempotency_key_header,
+    "receipt_verifier": "required",
+    "sender": "required",
+}
+
 # Backend names are intentionally explicit.  Future B04 children add their
 # private adapters here; an arbitrary caller-supplied kind never gets a callable.
+# Being listed is not being admitted: :func:`admit_backend` is the gate (B12.3a, #738).
 BACKENDS: dict[str, BackendRegistration] = {
     "document_request": BackendRegistration(
         backend=_Backend(),
         connector=_document_request.CONNECTOR,
         connector_version=_document_request.VERSION,
+        capability=_document_request.CAPABILITY,
+        configuration=DOCUMENT_REQUEST_CONFIGURATION,
     ),
     "http": BackendRegistration(
         backend=_HttpBackend(),
         connector=HTTP_CONNECTOR,
         connector_version=HTTP_VERSION,
+        capability=HTTP_CAPABILITY,
+        configuration=HTTP_CONFIGURATION,
     ),
 }
+
+
+def admit_backend(backend_kind: object) -> AdmittedConnector:
+    """Admit the transport registered under ``backend_kind``, or refuse before anything is recorded or sent.
+
+    Admission binds the registered transport's implementation identity, its capability record and its wire
+    configuration to the pinned record in ``caliber.profile.REFERENCE_CONNECTORS``; ``backend_kind`` only selects which
+    record to check and is never trusted on its own. Call it with a kind your own code chose (a constant, or one derived
+    from a trusted registry identity), never one a manifest, a tool name, a client or a model supplied: this is how a
+    custom tool called ``document_request`` stays untrusted. A kind with no registration is
+    :class:`UnsupportedEffectPath` ``unsupported_backend``; any other mismatch is :class:`UnsupportedEffectPath` with
+    one of ``caliber.effects.admission.REFUSAL_CODES``.
+    """
+    if not isinstance(backend_kind, str) or backend_kind not in BACKENDS:
+        raise UnsupportedEffectPath("unsupported_backend")
+    return _admit_registration(backend_kind, BACKENDS[backend_kind])
+
+
+def _admit_registration(backend_kind: str, registration: BackendRegistration) -> AdmittedConnector:
+    """Admit exactly this registration object, so the one that is admitted is the one that is used."""
+    try:
+        return admit(
+            _profile.REFERENCE_CONNECTORS,
+            backend_kind,
+            backend=registration.backend,
+            connector=registration.connector,
+            connector_version=registration.connector_version,
+            capability=registration.capability,
+            configuration=registration.configuration,
+        )
+    except AdmissionRefused as exc:
+        raise UnsupportedEffectPath(exc.code) from exc
+
+
+def _verified_admission(admission: object, fields: Mapping[str, Any]) -> AdmittedConnector:
+    """``admission`` re-verified against the live registry, and bound to the connector the intent names."""
+    if not isinstance(admission, AdmittedConnector):
+        raise UnsupportedEffectPath("connector_not_admitted")
+    live = admit_backend(admission.backend_kind)
+    if live != admission or (fields.get("connector"), fields.get("connector_version")) != (
+        live.connector,
+        live.connector_version,
+    ):
+        raise UnsupportedEffectPath("connector_not_admitted")
+    return live
 
 
 def _inventory_effect_class(
@@ -411,6 +492,7 @@ def submit_proposal(
     resource: str | None = None,
     args: Mapping[str, Any] | None = None,
     expected_resource_version: str | None = None,
+    admission: AdmittedConnector | None = None,
 ) -> RecordedProposal:
     """Validate inventory-bound intent and persist a proposal without dispatching.
 
@@ -418,6 +500,11 @@ def submit_proposal(
     first-party built-in identity.  Untrusted or unknown tools consequently use
     the inventory's fail-closed class.  ``action`` and the explicit fields are
     convenience forms of the same immutable intent; they cannot disagree.
+
+    ``admission`` (:func:`admit_backend`, called by trusted code with a backend kind it chose) is required: a proposal
+    that only *names* a connector, in an action, a manifest or a tool call, is refused with ``connector_not_admitted``
+    before anything is written, so no approval is ever requested for a connector nobody admitted. The intent's
+    connector and version must be the admitted ones.
     """
     if action is not None and proposed_action is not None:
         raise EffectRefused("conflicting_proposed_actions")
@@ -432,6 +519,7 @@ def submit_proposal(
         args=args,
         expected_resource_version=expected_resource_version,
     )
+    _verified_admission(admission, fields)
     resolved_class = _inventory_effect_class(
         tool_name,
         caliber_defined=caliber_defined,
@@ -532,8 +620,7 @@ def _claim_dispatch(
     approval_id: str,
     approver_scopes: frozenset[str] | set[str],
     lease: Lease,
-    backend_connector: str,
-    backend_connector_version: str,
+    admitted: AdmittedConnector,
     current_resource_version: str | object | None,
     evidence_hash: str | None,
     approval_validator: Callable[..., ApprovalCommit],
@@ -559,8 +646,8 @@ def _claim_dispatch(
         view = proposal_view(session, proposal_id)
         intent_record = read_proposal(session, proposal_id)
         if (
-            view.connector != backend_connector
-            or view.connector_version != backend_connector_version
+            view.connector != admitted.connector
+            or view.connector_version != admitted.connector_version
         ):
             raise EffectRefused("backend_intent_mismatch")
         try:
@@ -631,6 +718,7 @@ def _claim_dispatch(
                 "attempt": 1,
                 "owner_id": lease.owner_id,
                 "dispatch_token": lease.fencing_token,
+                "connector_admission": admitted.evidence(),
             },
             correlation_id=intent_record["workflow_run_id"],
             now=now,
@@ -678,7 +766,14 @@ def dispatch(
         if approval_validator is not approval_valid_at_commit:
             raise EffectRefused("approval_validator_untrusted")
 
+        # Admission comes before the claim: a transport nobody admitted, or settings it does not accept, is refused
+        # with the proposal still ``proposed`` and its approval unconsumed.
         registration = BACKENDS[backend_kind]
+        admitted = _admit_registration(backend_kind, registration)
+        try:
+            check_config(admitted, backend_config)
+        except AdmissionRefused as exc:
+            raise UnsupportedEffectPath(exc.code) from exc
         try:
             claim = _claim_dispatch(
                 session_or_factory,
@@ -686,8 +781,7 @@ def dispatch(
                 approval_id=approval_id,
                 approver_scopes=approver_scopes,
                 lease=lease,
-                backend_connector=registration.connector,
-                backend_connector_version=registration.connector_version,
+                admitted=admitted,
                 current_resource_version=current_resource_version,
                 evidence_hash=evidence_hash,
                 approval_validator=approval_valid_at_commit,
@@ -732,7 +826,9 @@ def dispatch(
 
 __all__ = [
     "BACKENDS",
+    "DOCUMENT_REQUEST_CONFIGURATION",
     "HTTP_CAPABILITY",
+    "HTTP_CONFIGURATION",
     "HTTP_CONNECTOR",
     "HTTP_VERSION",
     "BackendRegistration",
@@ -742,6 +838,7 @@ __all__ = [
     "PrivateBackend",
     "TransportResult",
     "UnsupportedEffectPath",
+    "admit_backend",
     "dispatch",
     "submit_proposal",
 ]

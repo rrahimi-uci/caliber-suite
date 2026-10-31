@@ -380,3 +380,30 @@ def test_an_edited_built_in_owner_can_be_repaired_but_a_squatter_cannot_take_it(
     assert refused.status_code == 409, refused.text
     assert RESERVED_TOOL_OWNER_CODE in refused.json()["detail"]
     assert reserved_tool_owner_message() == refused.json()["detail"]
+
+
+def test_the_audit_flags_a_tool_registered_under_a_connector_name_before_the_rule(
+    db_session: Session, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A legacy ``document_request`` row is untrusted and reported, not rewritten (B12.3a, #738)."""
+    legacy = _squatter(name="document_request", owner="@someone")
+    db_session.add(legacy)
+    db_session.commit()
+    with caplog.at_level("ERROR", logger="caliber.workflows.builtin_tools"):
+        found = audit_reserved_name_squatters(db_session)
+    db_session.commit()
+    assert [row.tool_id for row in found] == [legacy.tool_id]
+    (message,) = [r.getMessage() for r in caplog.records if legacy.tool_id in r.getMessage()]
+    assert "trusted effect connector 'document_request'" in message
+    assert "built-in" not in message, "a connector name is not described as a built-in tool"
+    assert "no new version can be registered" in message
+    assert "different name" in message, "the log says how to recover"
+    (record,) = db_session.query(CaliberAuditLog).filter(
+        CaliberAuditLog.action == RESERVED_NAME_SQUATTER_ACTION
+    )
+    assert record.details["reserved_for"] == "document_request"
+    assert record.details["blocks_seed"] is False
+    db_session.expire_all()
+    assert db_session.get(type(legacy), legacy.tool_id).owner == "@someone", (
+        "the row is not rewritten"
+    )

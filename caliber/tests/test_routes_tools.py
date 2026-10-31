@@ -1407,3 +1407,35 @@ def test_patch_can_lower_the_level_and_drop_approval_together(client: TestClient
     )
     assert r.status_code == 200, r.text
     assert r.json()["data"]["requires_approval"] is False
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "document_request",
+        "document-request",
+        "Document_Request",
+        " document-request ",
+        "tool.document_request.v2",
+        "http",
+    ],
+)
+def test_a_tool_cannot_register_under_a_trusted_connectors_name(
+    client: TestClient, name: str
+) -> None:
+    """A user tool called ``document_request`` is never the reference connector (B12.3a, #738)."""
+    before = {row["tool_id"] for row in client.get(f"{PREFIX}/tools").json()["data"]}
+    r = client.post(f"{PREFIX}/tools", json=make_tool_payload(name, version="9.9"))
+    assert r.status_code == 409, r.text
+    detail = r.json()["detail"]
+    assert "reserved_tool_name" in detail
+    assert "trusted connector" in detail
+    assert "different name" in detail
+    after = {row["tool_id"] for row in client.get(f"{PREFIX}/tools").json()["data"]}
+    assert after == before, "a refused registration creates no row"
+
+
+def test_a_name_that_only_resembles_a_connector_still_registers(client: TestClient) -> None:
+    for name in ("document_request_v2", "my_document_request", "document_requests", "http_get"):
+        r = client.post(f"{PREFIX}/tools", json=make_tool_payload(name))
+        assert r.status_code == 201, (name, r.text)

@@ -39,8 +39,6 @@ from caliber.db.models import (
 )
 from caliber.effects.connectors import Classified, TransportOutcome
 from caliber.effects.dispatcher import (
-    BACKENDS,
-    BackendRegistration,
     EffectRefused,
     TransportResult,
     dispatch,
@@ -52,7 +50,7 @@ from caliber.orchestrator.workflow_run_worker import WorkflowRunWorker
 from caliber.redaction import build_redactor
 from caliber.workflows.approval_policy import ApprovalCommit, ApprovalCommitRefused
 from caliber.workflows.runtime import NodeStep, WorkflowRunResult
-from tests.effect_helpers import leased
+from tests.effect_helpers import admit_fake_backend, leased
 from tests.test_effect_dispatcher import AT, _approval, _submit, _validator
 from tests.test_effect_dispatcher import _Backend as _VerifiedBackend
 from tests.test_effect_proposals import _seed_run
@@ -300,7 +298,7 @@ def _trust_row_decision(monkeypatch: pytest.MonkeyPatch, decision_id: str) -> An
 
 
 def _register(monkeypatch: pytest.MonkeyPatch, backend: Any) -> None:
-    monkeypatch.setitem(BACKENDS, "test", BackendRegistration(backend, "document-request", "1"))
+    admit_fake_backend(monkeypatch, "test", backend)
 
 
 def _dispatch(factory: Any, case: Armed, validator: Any, **overrides: Any) -> Any:
