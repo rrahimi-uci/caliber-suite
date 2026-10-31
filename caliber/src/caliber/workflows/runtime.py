@@ -46,6 +46,7 @@ from typing import Any, NoReturn, Protocol
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from caliber.auth import CaliberIdentity
+from caliber.budget import step_reservation as _step_reservation
 from caliber.config import provider_request_timeout
 from caliber.context.authorize import ContextDenied
 from caliber.effects import step_proposal as _step_proposal
@@ -4964,6 +4965,63 @@ def _governed_limits(
         raise ToolExecutionError("governed agent step limits unavailable: limits_invalid") from None
 
 
+def _reserve_step_tokens(
+    context: _step_proposal.GovernedStepContext,
+    executor: WorkflowExecutor,
+    request: _agent_step.AgentStepRequest,
+) -> _step_reservation.StepReservation | None:
+    """Reserve the step's token ceiling before its adapter is called (B08.4), or ``None`` for a step that will not call one.
+
+    A step the platform stops before work (:func:`~caliber.workflows.agent_step.before_work_stop`: no turn or token, a deadline
+    already past) and an executor that is not an adapter never reach a provider, so they reserve nothing. Every other step does,
+    and the reservation is taken here, before any adapter code runs. A budget that is exhausted, a store that fails and a
+    reservation this step already holds (an earlier call of the same run, node, occurrence and attempt may have spent: the platform
+    will not call the provider again for it) are fixed-code run errors, and the adapter is never called.
+    """
+    if (
+        not isinstance(executor, _agent_step.AgentStepAdapter)
+        or _agent_step.before_work_stop(request, clock=context.clock) is not None
+    ):
+        return None
+    try:
+        reservation = _step_reservation.reserve_step_tokens(
+            context.session_factory, request, run_budget_tokens=context.run_token_budget
+        )
+    except _step_reservation.ReservationRefused as exc:
+        raise ToolExecutionError(f"governed agent step token reservation refused: {exc}") from None
+    except Exception:
+        # A store failure carries the statement's parameters; none of it reaches the run error, only a fixed code.
+        raise ToolExecutionError(
+            "governed agent step token reservation refused: store_failed"
+        ) from None
+    if not reservation.created:
+        raise ToolExecutionError(
+            f"governed agent step token reservation refused: {_step_reservation.RESERVATION_REPLAYED}"
+        )
+    return reservation
+
+
+def _settle_step_tokens(
+    context: _step_proposal.GovernedStepContext,
+    reservation: _step_reservation.StepReservation,
+    result: _agent_step.AgentStepResult,
+) -> None:
+    """Settle the step's reservation from its result, once. A failure here keeps the reservation open (counted in full).
+
+    The provider has been called and the result is in hand, so a settlement the store cannot take is not a reason to discard it:
+    the reservation stays ``reserved`` and counts at its whole ceiling until the janitor finalizes it, which can only overcharge,
+    never undercharge. Only the exception's class is logged.
+    """
+    try:
+        _step_reservation.settle_step_tokens(context.session_factory, reservation, result)
+    except Exception as exc:
+        logger.warning(
+            "governed agent step %s: token settlement failed (%s); the reservation stays open at its whole ceiling",
+            reservation.step_request_id,
+            type(exc).__name__,
+        )
+
+
 def _run_governed_step(
     context: _step_proposal.GovernedStepContext,
     executor: WorkflowExecutor,
@@ -4999,7 +5057,12 @@ def _run_governed_step(
         history=tuple(history),
         read_tools=_governed_read_tools(trust, tool_callables),
     )
+    reservation = _reserve_step_tokens(context, executor, request)
+    # Nothing between the reservation and the settlement may release it: an exception or a cancellation out of the adapter leaves
+    # it open, counted in full, for the owner janitor to finalize (B08.4); only the result of a step that returned settles it.
     result = _agent_step.run_agent_step(executor, request, step_input, clock=context.clock)
+    if reservation is not None:
+        _settle_step_tokens(context, reservation, result)
     if result.stop_reason == "proposed_action":
         try:
             proposal = _step_proposal.record_step_proposal(context, request, result, trust)
