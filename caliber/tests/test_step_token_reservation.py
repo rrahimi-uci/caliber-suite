@@ -1,7 +1,7 @@
 """B08.4 (#761): a governed step's tokens are reserved before its adapter is called, charged conservatively, settled once.
 
-SQLite throughout (the development dialect, and the migrated schema with its triggers); the PostgreSQL races, where the run's row
-lock is what serializes concurrent workers, live in ``tests/egi_scenarios/test_b08_token_reservation.py``.
+SQLite throughout (the development dialect, and the migrated schema with its triggers), including one 8-thread race that needs
+the exclusive start; the PostgreSQL races, where the run's row lock is what serializes concurrent workers, live in ``tests/egi_scenarios/test_b08_token_reservation.py``.
 
 What is pinned, and what each pin is for:
 
@@ -18,6 +18,8 @@ What is pinned, and what each pin is for:
 from __future__ import annotations
 
 import logging
+import threading
+import time
 from collections.abc import Callable
 from dataclasses import replace
 from datetime import datetime, timedelta, timezone
@@ -58,7 +60,7 @@ from caliber.config import (
 )
 from caliber.contracts.agent_step import StepLimits, StepUsage
 from caliber.db.immutable import ImmutableRecordError
-from caliber.db.models import CaliberStepTokenReservation
+from caliber.db.models import CaliberStepTokenReservation, CaliberWorkflowRun
 from caliber.ownership import LeaseLost, release
 from caliber.workflows.agent_step import AgentStepResult, ScriptedStep, answer
 from caliber.workflows.runtime import FakeWorkflowExecutor, execute
@@ -277,7 +279,7 @@ def test_the_same_step_under_another_request_id_is_a_mismatch_not_a_second_reser
 def test_a_first_reservation_that_loses_a_race_for_the_key_returns_the_winners_row(
     world: Any, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """SQLite has no row lock; the unique key decides, and the loser reads the winner's row instead of failing."""
+    """Defence in depth: if the run lock ever did not serialize, the unique key does, and the loser reads the winner's row."""
     winner = _reserve(world, _step())
     real = step_reservation._existing
     calls: list[int] = []
@@ -1091,3 +1093,77 @@ def test_two_runs_each_get_their_own_budget_through_the_runtime(world: Any) -> N
         result = _go(_plan(world, workflow_run_id=run_id, run_token_budget=CEILING), executor)
         assert result.status == "blocked", result.error
     assert len(_all(world)) == 2
+
+
+# ------------------------------------------------------------------------------------- the SQLite race and the delete guard
+
+
+def test_concurrent_workers_on_sqlite_cannot_reserve_more_than_the_run_budget(
+    world: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """pysqlite reads outside a transaction, so without an exclusive start every worker sees the same total (8 of 8 admitted)."""
+    real = step_reservation._counted
+
+    def slow(session: Session, workflow_run_id: str) -> int:
+        total = real(session, workflow_run_id)
+        time.sleep(0.05)  # hold every worker between its read and its write
+        return total
+
+    monkeypatch.setattr(step_reservation, "_counted", slow)
+    workers, admitted_steps = 8, 3
+    budget = admitted_steps * CEILING
+    barrier = threading.Barrier(workers)
+    outcomes: list[Any] = [None] * workers
+
+    def work(n: int) -> None:
+        barrier.wait(30)
+        try:
+            outcomes[n] = _reserve(
+                world, _step(occurrence_id=f"occ-{n}", step_request_id=f"s{n}"), budget
+            )
+        except BaseException as exc:
+            outcomes[n] = exc
+
+    threads = [threading.Thread(target=work, args=(n,)) for n in range(workers)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(60)
+    assert not any(thread.is_alive() for thread in threads), "a worker is stuck"
+
+    created = [o for o in outcomes if isinstance(o, StepReservation)]
+    refused = [o for o in outcomes if isinstance(o, ReservationRefused)]
+    assert len(created) + len(refused) == workers, f"an unexpected failure: {outcomes!r}"
+    assert len(created) == admitted_steps and {r.code for r in refused} == {TOKEN_BUDGET_EXHAUSTED}
+    assert len(_all(world)) == admitted_steps
+    assert run_token_usage(world, RUN).counted_tokens == budget
+
+
+def test_deleting_a_workflow_whose_runs_hold_token_reservations_is_a_409(
+    client: Any, db_session: Session
+) -> None:
+    from tests.workflow_helpers import PREFIX, create_workflow
+
+    kept = create_workflow(client, "Has Reservation")
+    db_session.add(CaliberWorkflowRun(workflow_run_id="RUN-tr", workflow_id=kept))
+    db_session.commit()
+    db_session.add(
+        CaliberStepTokenReservation(
+            reservation_id="tres-del",
+            workflow_run_id="RUN-tr",
+            node_id="agent",
+            occurrence_id="occ-1",
+            attempt=1,
+            step_request_id="step-1",
+            reserved_tokens=10,
+            budget_tokens=10,
+            deadline_at=datetime(2099, 1, 1),
+        )
+    )
+    db_session.commit()
+
+    refused = client.delete(f"{PREFIX}/workflows/{kept}")
+    assert refused.status_code == 409, refused.text
+    assert "step token reservations" in refused.text
+    assert client.get(f"{PREFIX}/workflows/{kept}").status_code == 200
+    assert db_session.get(CaliberStepTokenReservation, "tres-del") is not None

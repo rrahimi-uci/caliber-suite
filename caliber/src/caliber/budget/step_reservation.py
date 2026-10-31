@@ -63,6 +63,7 @@ from caliber.contracts.agent_step import (
 )
 from caliber.contracts.registry import ContractValidationError, UnsupportedSchemaVersion
 from caliber.db.models import CaliberStepTokenReservation, CaliberWorkflowRun
+from caliber.db.transactions import begin_sqlite_write_transaction
 from caliber.ownership import Lease, assert_fenced, database_now
 
 logger = logging.getLogger("caliber.budget.step_reservation")
@@ -231,7 +232,12 @@ def charge_for(reserved_tokens: int, result: object) -> Charge:
 
 
 def _lock_run(session: Session, workflow_run_id: str) -> None:
-    """Lock the run's row (``FOR UPDATE``; a no-op on SQLite, where a write transaction is exclusive) until the caller ends."""
+    """Serialize on the run until the caller's transaction ends: its row ``FOR UPDATE`` on PostgreSQL, a write lock on SQLite.
+
+    ``FOR UPDATE`` is a no-op on SQLite, and pysqlite runs a SELECT outside any transaction, so SQLite is made exclusive
+    explicitly (``BEGIN IMMEDIATE``, before the first read) or two threads read the same total and both reserve.
+    """
+    begin_sqlite_write_transaction(session)
     found = session.execute(
         select(CaliberWorkflowRun.workflow_run_id)
         .where(CaliberWorkflowRun.workflow_run_id == workflow_run_id)
@@ -333,8 +339,9 @@ def reserve_step_tokens(
             try:
                 session.commit()
             except IntegrityError:
-                # SQLite has no row lock to serialize two first reservations of one step; the unique key did. The loser reads
-                # the winner's row on the next turn and returns it (created false), exactly as the PostgreSQL path would.
+                # Defence in depth: the run lock already serializes two first reservations of one step, and the unique key
+                # still refuses a second row if it ever did not. The loser reads the winner's row on the next turn and returns
+                # it (created false).
                 session.rollback()
                 if last_turn:
                     raise
@@ -437,6 +444,9 @@ def abandon_stale(
     table = cast(Table, CaliberStepTokenReservation.__table__)
     with session_factory() as session:
         assert_fenced(session, lease)
+        # A value read from the database's clock is only ever earlier than the true time, so this cutoff can only delay an
+        # abandonment, never bring one forward: the direction ``ownership.database_now`` is safe in ("never for deciding
+        # expiry" is about granting authority on a stale reading; here a stale reading abandons later, and nothing is released).
         cutoff = database_now(session) - timedelta(seconds=float(grace_seconds))
         stale = (
             session.execute(

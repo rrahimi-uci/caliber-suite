@@ -48,7 +48,9 @@ ROUNDS = 5
 
 def _postgres_only(app: ReferenceApp) -> None:
     if app.dialect != "postgresql":
-        pytest.skip("the row lock is proven on PostgreSQL; SQLite serializes every writer")
+        pytest.skip(
+            "the row lock is proven on PostgreSQL; the SQLite race is in tests/test_step_token_reservation.py"
+        )
 
 
 def _step(run_id: str, occurrence: str, attempt: int = 1) -> Any:

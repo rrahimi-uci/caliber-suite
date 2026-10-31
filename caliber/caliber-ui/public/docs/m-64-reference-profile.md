@@ -3300,7 +3300,8 @@ below is the Beta per-step ledger, and the persistent budgets of M08 extend this
 **The reservation.** One row per `(workflow_run_id, node_id, occurrence_id, attempt)` (unique, and the step's `step_request_id` is
 stored with it). Its `reserved_tokens` is the step's `limits.max_tokens` after the B08.3 ceilings, and it is taken **before the adapter
 is called**, in one transaction under the run's row lock (`FOR UPDATE`, the first lock of the run, proposal, request order every
-writer of a run uses): two workers asking together are serialized, so the sum of what a run has reserved or been charged plus the new
+writer of a run uses; on SQLite, which has no row lock and whose driver reads outside a transaction, the same section starts with
+`BEGIN IMMEDIATE`): two workers asking together are serialized, so the sum of what a run has reserved or been charged plus the new
 ceiling can never pass the run's budget. Past it the step is refused with a typed, payload-free run error and **the adapter is never
 called**:
 
@@ -3351,7 +3352,9 @@ the provider may have been called. There is no operator action that lowers a cha
 **Abandoned, owner only.** After each pass the execution owner's effect reconciler loop (the same lease, compared in the transaction
 that writes) runs `abandon_stale`: a reservation still open past its step's deadline plus `CALIBER_AGENT_RESERVATION_GRACE_SECONDS`
 moves to `abandoned` **at its whole reservation**, oldest first and bounded per pass. The run's total does not move; the row only stops
-being open. A worker that returns after that finds a final row and its settlement changes nothing. The sweep runs only where the reconciler loop
+being open. A worker that returns after that finds a final row and its settlement changes nothing, **including an overrun**: a step that
+returns usage above its reservation after the sweep abandoned it (more than the step's deadline plus the grace) keeps the abandoned
+charge, the reservation, and the overage is not recorded (very unlikely: a provider timeout is capped at the remaining step deadline). The sweep runs only where the reconciler loop
 does (the reference profile, with `CALIBER_EFFECT_RECONCILER_ENABLED` on, its default); elsewhere, or with it off, open rows stay open
 and keep counting in full, which is safe. A process that does not hold the lease changes nothing.
 
@@ -3369,9 +3372,19 @@ unread; downgrading the migration drops the table and loses the charges counted 
 | the step | result | recover by |
 | --- | --- | --- |
 | would take the run past its budget | `token_budget_exhausted`, nothing reserved, adapter not called | a larger `CALIBER_AGENT_RUN_MAX_TOKENS` (a new run: a finished run's budget is its own) |
-| runs again on an attempt that holds a reservation | `reservation_replayed`, adapter not called | the node's retry is the next attempt; otherwise a new run |
+| runs again on an attempt that holds a reservation (a node retry in the same process, or a process-level re-execution) | `reservation_replayed`, adapter not called | a node retry is the next attempt and reserves afresh; after a crash the attempt counter restarts at 1, so the resumed governed node is refused and the run fails: start a new run (see the known limit below) |
 | the store cannot reserve | `store_failed`, adapter not called | the database; nothing was reserved |
 | the worker died or was cancelled mid-call | the reservation stays `reserved`, counted in full, then `abandoned` after the grace | nothing: it is already charged; see the [recovery runbook](m-65-recovery-runbook.md#a-governed-step-refused-for-its-token-budget-or-left-a-reservation-open) |
+
+**Known limit: crash recovery of a governed step is terminal (follow-up #1073).** The attempt counter (`_STEP_ATTEMPT`) restarts at 1 on every
+process-level re-execution of a run. After a crash between the reservation and the settlement (or between the settlement and the
+recording of the proposal) the resumed governed node reaches the same `(run, node, occurrence, attempt)`, finds the reservation, and is
+refused with `reservation_replayed`: the run fails and only a new run proceeds. That fails closed and avoids a second provider spend
+under one reservation, but it means a governed step cannot be resumed after a crash. The follow-up is to persist or derive the attempt so
+a legitimate resume reuses or supersedes the open reservation safely.
+
+Deleting a workflow whose runs hold reservations is refused with `409` (`cannot delete workflow: its runs have step token
+reservations`), like run manifests and effect proposals.
 
 Reading it back: `caliber.budget.step_reservation.run_token_usage(session_factory, run_id)` returns what a run has counted and how many
 reservations are open and final. No route lists reservations yet.
