@@ -2497,7 +2497,7 @@ reference profile and every existing plan run agent nodes exactly as before). Wi
    **Which backends an agent step may reach, and the resource contract.** Only backends in
    `step_proposal.AGENT_STEP_BACKENDS` (today `document_request`) are reachable; a tool mapped to any other
    (`http`, whose destination is an arbitrary URL and whose egress check runs at dispatch, after an approval would be spent; a
-   registered-tool backend, whose configuration `resource` is a literal template) is refused, `backend_not_for_agent_steps`. A
+   `registered_tool` backend of B04.3, whose configuration `resource` is the literal template `registered-tool/<name>/<version>`) is refused, `backend_not_for_agent_steps`. A
    reachable backend must declare a resource **pattern**: its trusted configuration's `resource` is a regular expression the
    destination must fully match (`resource_not_admitted`, also when there is none).
    **The proposal is bound, never trusted.** The class is the strictest among the tools that map to that backend (a tool the

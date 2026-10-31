@@ -1689,31 +1689,38 @@ def test_a_tool_mapped_to_http_is_refused_whatever_the_destination(
     assert canaries.mutations == [] and _rows(world) == ([], [])
 
 
-def test_a_backend_with_a_literal_resource_template_is_not_reachable_from_an_agent_step(
-    world: Any, monkeypatch: pytest.MonkeyPatch
+def test_the_real_registered_tool_backend_is_not_reachable_from_an_agent_step(
+    world: Any,
 ) -> None:
-    """The resource contract: only a backend that declares a resource *pattern* (a regular expression) is reachable.
+    """The resource contract against the real ``registered_tool`` backend (B04.3).
 
-    A registered-tool style backend whose configuration holds a literal template is refused explicitly, not by accident of
-    the template failing to match as a pattern.
+    Its trusted configuration holds a *literal* resource template (``registered-tool/<name>/<version>``), not a pattern, so it
+    is not an allow-listed agent-step backend: a tool mapped to it is refused explicitly (``backend_not_for_agent_steps``),
+    whatever destination the model proposes, and nothing is recorded.
     """
     import caliber.effects.dispatcher as dispatcher_module
+    from caliber.effects.registered_tools import tool_resource
 
-    literal = replace(
-        dispatcher_module.BACKENDS["document_request"],
-        connector="registered-tool",
-        configuration={"resource": "registered-tool/some-tool/1"},
-    )
-    monkeypatch.setitem(dispatcher_module.BACKENDS, "registered_tool", literal)
+    registration = dispatcher_module.BACKENDS["registered_tool"]
     assert "registered_tool" not in step_proposal.AGENT_STEP_BACKENDS
+    assert registration.configuration is not None
+    assert registration.configuration["resource"] == tool_resource("<name>", "<version>")
     request = _request()
-    action = _action(
-        connector="registered-tool", resource="registered-tool/some-tool/1", args={"x": 1}
-    )
-    context = _context(world, tool_backends={PROTECTED_ID: "registered_tool"})
-    with pytest.raises(EffectRefused) as refused:
-        record_step_proposal(context, request, _result(request, action), _tools())
-    assert refused.value.code == "backend_not_for_agent_steps"
+    for resource in (
+        tool_resource(PROTECTED, "1.0"),
+        tool_resource("<name>", "<version>"),
+        "anything",
+    ):
+        action = _action(
+            connector=registration.connector,
+            connector_version=registration.connector_version,
+            resource=resource,
+            args={"x": 1},
+        )
+        context = _context(world, tool_backends={PROTECTED_ID: "registered_tool"})
+        with pytest.raises(EffectRefused) as refused:
+            record_step_proposal(context, request, _result(request, action), _tools())
+        assert refused.value.code == "backend_not_for_agent_steps"
     assert _rows(world) == ([], [])
 
 
