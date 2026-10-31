@@ -14,6 +14,10 @@ called ``document_request`` (or a proposal that claims the ``document-request`` 
 at submit and at dispatch. Anything unmatched is refused with one short, stable, payload-free code, before a proposal is
 recorded or an approval is consumed.
 
+This is identity and declared shape, not integrity: in-process code that forges a class's ``__module__`` and ``__qualname__`` is
+admitted, and the configuration digest covers declared constants, not behaviour. What it keeps out is data (a manifest, a tool
+name, a client request, a model's output) posing as a connector.
+
 This module is pure: it reads no database and sends nothing. The dispatcher supplies the registered transport.
 """
 
@@ -170,15 +174,22 @@ def admit(
 
 
 def _valid_base_url(value: object) -> bool:
-    if not isinstance(value, str) or not value.strip():
+    """An ``http(s)`` URL with a host, a valid port if any, and no userinfo, whitespace, control characters, query or fragment.
+
+    This is a shape check only: the egress policy (``caliber.egress``) still decides at send time whether the host may be
+    reached; it needs a policy and name resolution, which this pure module does not have.
+    """
+    if not isinstance(value, str) or not value:
+        return False
+    if any(ch.isspace() or not ch.isprintable() for ch in value):
         return False
     try:
         parts = urlsplit(value)
+        _ = parts.port  # raises ValueError for a non-numeric or out-of-range port
         return (
             parts.scheme in ("http", "https")
             and bool(parts.hostname)
-            and parts.username is None
-            and parts.password is None
+            and "@" not in parts.netloc
             and not parts.query
             and not parts.fragment
         )
@@ -191,11 +202,10 @@ def _valid_max_attempts(value: object) -> bool:
 
 
 def _valid_timeout(value: object) -> bool:
-    return (
-        type(value) in (int, float)
-        and math.isfinite(float(value))  # type: ignore[arg-type]
-        and 0 < float(value) <= MAX_TIMEOUT_SECONDS  # type: ignore[arg-type]
-    )
+    # Compared without converting an ``int`` to ``float``: ``float(10**400)`` raises ``OverflowError``.
+    if type(value) is int:
+        return 0 < value <= MAX_TIMEOUT_SECONDS
+    return type(value) is float and math.isfinite(value) and 0 < value <= MAX_TIMEOUT_SECONDS
 
 
 #: What each setting a trusted record may list must satisfy. A key with no checker here is never admitted, so a record
@@ -224,7 +234,11 @@ def check_config(admitted: AdmittedConnector, config: Mapping[str, Any] | None) 
         raise AdmissionRefused(CONFIG_NOT_ADMITTED)
     for key in keys:
         check = _CONFIG_CHECKS.get(key)
-        if check is None or not check(settings[key]):
+        try:
+            admitted_value = check is not None and check(settings[key])
+        except Exception:  # a check that cannot decide refuses: the contract is a typed code, never an arbitrary error
+            admitted_value = False
+        if not admitted_value:
             raise AdmissionRefused(CONFIG_NOT_ADMITTED)
 
 

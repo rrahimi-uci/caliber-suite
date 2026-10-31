@@ -1101,15 +1101,25 @@ compares the transport registered under `kind` with it, and `caliber.effects.adm
 | the implementation | `module:qualname` of the registered transport's class (or function), read from the object: a subclass, a lookalike class or a bare function is a different implementation | `connector_implementation_mismatch` |
 | the capability record | the registration carries a `ConnectorCapability` and its `digest()` equals the pinned one; every risk it carries (`write_not_exactly_once`, `key_retention_unconfirmed`) must be listed in the record's `accepted_risks` | `connector_capability_unproven` (none, not a record, or an unaccepted risk), `connector_capability_mismatch` (another digest: a changed promise is a new digest) |
 | the wire configuration | the digest of what the transport sends with (for the document-request connector: the submit and lookup operations, the key header and the accepted resource shape) equals the pinned one | `connector_configuration_mismatch` |
-| the settings handed to `dispatch` | only the record's `config_keys`, every `required_config_keys` present, each value bounded: a `base_url` is `http(s)` with a host and no credentials, query or fragment; `max_attempts` is 1 to 5; `timeout_seconds` is finite, above 0 and at most 300 | `connector_config_not_admitted` |
+| the settings handed to `dispatch` | only the record's `config_keys`, every `required_config_keys` present, each value bounded: a `base_url` is `http(s)` with a host, a valid port, and no userinfo, whitespace, control characters, query or fragment; `max_attempts` is 1 to 5; `timeout_seconds` is finite, above 0 and at most 300 | `connector_config_not_admitted` |
 
 The reference profile admits two connectors: `document_request` (connector `document-request`, version 1: the Beta reference
 connector, which has a stable key, a precondition and a lookup by key; its key retention is unconfirmed, and that risk is
 accepted by name) and the generic `http` transport that governed webhook and API nodes use (it promises no exactly-once
-behaviour, so every effect through it needs the caller's own receipt verifier). **Everything else is refused**: MCP stdio and
-remote hosts, host-file exports, PostgreSQL MCP writes and any transport added to `BACKENDS` without a reviewed record. Each has
-no record in the table, so it is `unsupported_backend` (no registration) or `connector_not_admitted` (registered, not pinned), and
-the host-file and database-write tools are also `unsupported_effect_path` through the protected-effect inventory (EP-055, EP-114).
+behaviour, so every effect through it needs the caller's own receipt verifier). **The dispatcher refuses everything else**: MCP
+stdio and remote hosts, host-file exports, PostgreSQL MCP writes and any transport added to `BACKENDS` without a reviewed record.
+Each has no record in the table, so a proposal or dispatch that goes through the dispatcher is `unsupported_backend` (no
+registration) or `connector_not_admitted` (registered, not pinned), and the host-file and database-write tools are also
+`unsupported_effect_path` through the protected-effect inventory (EP-055, EP-114).
+
+**What is not gated yet.** Only the dispatcher is gated. The paths that would reach MCP, host files or a database write do not go
+through it today, so **these tools still execute outside the dispatcher until the later B04 and B12 work**: the runtime's MCP
+node and MCP-bound tool callables and the MCP gateway (EP-007, EP-008, EP-035 to EP-037) move behind it in B04.5 (#759); model-selected
+calls in B04.6 (#768); the raising of `unsupported_in_reference_profile` for every inventory row marked `refuse`, which is what
+stops the host-file tools (EP-055) and the first-party database MCP write tools (EP-114) at run time, in B04.7 (#774); and the
+startup refusal of an MCP stdio or remote-host allowlist entry that the profile does not list in B12.3b (#746). Until those land, a
+reference deployment must not register the first-party database MCP server and must not wire the host-file tools into a workflow
+(see "Refused until explicitly supported" below).
 
 Where it is enforced:
 
@@ -1124,8 +1134,10 @@ Where it is enforced:
 - **A user tool cannot pose as a connector.** Tool registration (`POST /tools`) and the assistant's tool publisher refuse the
   names `document_request`, `document-request` and `http` (and their `tool.<name>.vN` and case variants) with `409 reserved_tool_name`,
   like a built-in's name. A tool already registered under such a name before this rule is not rewritten; it is untrusted, is
-  never classified as a connector, and is flagged once by the reserved-name audit (`flag_reserved_tool_name`). Register it again
-  under a different name.
+  never classified as a connector, and is flagged once by the reserved-name audit (`flag_reserved_tool_name`, plus one `ERROR` log
+  per process that names the connector, not a built-in). **Upgrade impact:** no new version can be registered under such a name
+  (`409 reserved_tool_name`), so a deployment with a tool called `http` (the most likely collision) registers it again under a
+  different name, repoints the workflows that use it, then archives the old row.
 
 Refusal and recovery (every code is stable and carries no payload, setting or URL):
 
@@ -1147,10 +1159,25 @@ except UnsupportedEffectPath as refused:
     logger.error("connector not admitted: %s", refused.code)  # e.g. connector_implementation_mismatch
 ```
 
-Not here: the pin binds the transport's code and shape, not the downstream's address. The address a dispatch uses is validated
-(http or https, no credentials) and still passes the egress policy; binding it to the `CALIBER_EFFECT_CALLBACK_CONNECTORS`
-entry the reconciler asks for belongs with the callers that wire the connector (B04.3 and later). **Configuration and rollback:**
-no new setting and no migration. Reverting the change restores the unchecked registry lookup; proposals already recorded are unaffected.
+What admission is not:
+
+- **Identity, not integrity.** The pins say which code and which declared shape were reviewed. A class that forges its
+  `__module__` and `__qualname__`, or a registry entry replaced by in-process code that also controls `profile.py`, is admitted:
+  code running inside the server process is trusted and is outside this control's threat model. The "configuration digest" covers
+  the *declared* wire constants (operations, key header, accepted resource shape), not what the transport's code does with them,
+  and the capability digest covers the documented promise, not a measurement of it. Behaviour is covered by the connector tests,
+  not by the pin.
+- **Data cannot mint an admission, code can.** A manifest, a tool name, a client request or a model's output cannot produce an
+  `AdmittedConnector`. `submit_proposal` re-verifies the value it is given against the live registry; an equal object built by hand
+  from the public table passes that check (it carries no secret). That is harmless, because only trusted code reaches it and the
+  object grants nothing a call to `admit_backend` would not, but it is not an unforgeable capability.
+- **The address is not pinned.** The pin binds the transport's code and shape, not the downstream's address. The address a
+  dispatch uses is validated for shape only (http or https, a host, a valid port, no userinfo, whitespace or control
+  characters, query or fragment: a pure check with no name resolution) and the executor still applies the egress policy at send time;
+  binding it to the `CALIBER_EFFECT_CALLBACK_CONNECTORS` entry the reconciler asks for belongs with the callers that wire the
+  connector (B04.3 and later).
+
+**Configuration and rollback:** no new setting and no migration. Reverting the change restores the unchecked registry lookup; proposals already recorded are unaffected.
 
 ## Connectors: what they promise and what an answer proves
 

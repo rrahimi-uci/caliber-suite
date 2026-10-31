@@ -746,6 +746,27 @@ def test_check_config_accepts_bounded_document_request_settings(config: dict[str
         {"base_url": "https://d.example.test", "timeout_seconds": 300.01},
         {"base_url": "https://d.example.test", "timeout_seconds": "5"},
         {"base_url": "https://d.example.test", "timeout_seconds": True},
+        # An int too large to convert to float is refused with the typed code, not an OverflowError.
+        {"base_url": "https://d.example.test", "timeout_seconds": 10**400},
+        {"base_url": "https://d.example.test", "timeout_seconds": -(10**400)},
+        # Ports are parsed: non-numeric and out-of-range ports are refused.
+        {"base_url": "https://d.example.test:99999"},
+        {"base_url": "http://h.com:abc"},
+        {"base_url": "http://h.com:-1"},
+        # Whitespace and control characters anywhere, including leading and trailing.
+        {"base_url": " https://d.example.test"},
+        {"base_url": "https://d.example.test "},
+        {"base_url": "https://d.example.test\n"},
+        {"base_url": "https://d.example.test\r\nHost: evil"},
+        {"base_url": "https://d .example.test"},
+        {"base_url": "https://d.example.test/a\tb"},
+        {"base_url": "https://d.example.test\x00"},
+        {"base_url": "https://d.example.test\u00a0"},
+        # Userinfo in any spelling, including an empty one.
+        {"base_url": "https://@d.example.test"},
+        {"base_url": "https://user@d.example.test"},
+        {"base_url": "https://:pw@d.example.test"},
+        {"base_url": "https://d.example.test@evil.example"},
     ],
 )
 def test_check_config_refuses_unbounded_or_unknown_document_request_settings(
@@ -755,6 +776,36 @@ def test_check_config_refuses_unbounded_or_unknown_document_request_settings(
         admission.check_config(_document_admitted(), config)
     assert refused.value.code == admission.CONFIG_NOT_ADMITTED
     assert str(refused.value) == admission.CONFIG_NOT_ADMITTED
+
+
+def test_check_config_accepts_the_edge_values_of_a_valid_base_url_and_timeout() -> None:
+    for config in (
+        {"base_url": "https://d.example.test:65535/api/v1"},
+        {"base_url": "http://[::1]:8080"},
+        {"base_url": "http://127.0.0.1:1"},
+        {"base_url": "https://d.example.test", "timeout_seconds": 1},
+    ):
+        admission.check_config(_document_admitted(), config)
+
+
+def test_the_timeout_check_itself_never_raises_on_huge_numbers() -> None:
+    """Refused by the check, not rescued by the guard around it: ``float(10**400)`` is an OverflowError."""
+    assert admission._valid_timeout(10**400) is False
+    assert admission._valid_timeout(-(10**400)) is False
+    assert admission._valid_timeout(float("1e308")) is False
+    assert admission._valid_timeout(300) is True
+
+
+def test_a_check_that_cannot_decide_refuses_with_the_typed_code(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def explode(_value: object) -> bool:
+        raise RuntimeError("a check bug")
+
+    monkeypatch.setitem(admission._CONFIG_CHECKS, "base_url", explode)
+    with pytest.raises(admission.AdmissionRefused) as refused:
+        admission.check_config(_document_admitted(), {"base_url": "https://d.example.test"})
+    assert refused.value.code == admission.CONFIG_NOT_ADMITTED
 
 
 def test_check_config_for_the_generic_transport_needs_both_callables_and_nothing_more() -> None:
@@ -866,7 +917,8 @@ def test_untrusted_connector_refused(
         with factory() as session, pytest.raises(UnsupportedEffectPath) as stolen:
             submit_proposal(session, **submit, admission=trusted)
         assert stolen.value.code == code
-        # 3. A hand-built admission whose evidence is not the verified one is refused (data cannot mint trust).
+        # 3. A hand-built admission whose evidence differs from the live registry's is refused. (An *equal* hand-built one
+        #    is accepted: it carries no secret, so this is not an unforgeable capability; see the operator page.)
         (real,) = [t for t in REFERENCE_CONNECTORS if t.backend_kind == "document_request"]
         forged = admission.AdmittedConnector(
             backend_kind="document_request",

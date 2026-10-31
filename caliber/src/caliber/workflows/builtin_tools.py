@@ -318,16 +318,30 @@ def audit_reserved_name_squatters(session: Session) -> list[CaliberToolRegistry]
         blocks_seed = row.name in BUILTIN_TOOL_NAMES and row.version == BUILTIN_TOOL_VERSION
         if row.tool_id not in _reported_squatters:
             _reported_squatters.add(row.tool_id)
-            logger.error(
-                "tool registry row %s (%r version %r, owner %r) holds a name reserved for the built-in "
-                "%r but is not the seeded row, so it is not trusted as a built-in%s",
-                row.tool_id,
-                row.name,
-                row.version,
-                row.owner,
-                reserved_tool_name(row.name),
-                "; it also prevents the real built-in from being seeded" if blocks_seed else "",
-            )
+            reserved = reserved_tool_name(row.name)
+            if reserved in BUILTIN_TOOL_NAMES:
+                logger.error(
+                    "tool registry row %s (%r version %r, owner %r) holds a name reserved for the built-in "
+                    "%r but is not the seeded row, so it is not trusted as a built-in%s",
+                    row.tool_id,
+                    row.name,
+                    row.version,
+                    row.owner,
+                    reserved,
+                    "; it also prevents the real built-in from being seeded" if blocks_seed else "",
+                )
+            else:
+                logger.error(
+                    "tool registry row %s (%r version %r, owner %r) holds a name reserved for the trusted effect "
+                    "connector %r; it is a user tool, never that connector, and no new version can be registered "
+                    "under the name: register the tool again under a different name, repoint the workflows that "
+                    "use it, then archive this row",
+                    row.tool_id,
+                    row.name,
+                    row.version,
+                    row.owner,
+                    reserved,
+                )
         already = session.execute(
             select(CaliberAuditLog.log_id).where(
                 CaliberAuditLog.action == RESERVED_NAME_SQUATTER_ACTION,
