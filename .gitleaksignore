@@ -21,3 +21,10 @@
 # This entry only silences the already-pushed historical commit, which cannot be un-pushed
 # without rewriting shared PR history.
 b087200387d325942a5bb8a57f8a184c2398bcd4:sdk/caliber-sdk/tests/test_resources_source_connection.py:private-key:112
+
+# B08.2 (#744): two test fixtures in the first commit of PR #1047 were flagged as generic API keys: a planted marker string that
+# asserts no model-supplied value reaches an error or log line, and an Idempotency-Key header *name* with a throwaway value sent to
+# the local downstream fixture. Neither is a credential. The follow-up commit marks the lines `gitleaks:allow`; this entry silences
+# the already-pushed historical commit, which cannot be rewritten (force-push is blocked).
+0e0612520b8570d01735845400488c9c6c8fd022:caliber/tests/egi_scenarios/test_v03_context_injection.py:generic-api-key:253
+0e0612520b8570d01735845400488c9c6c8fd022:caliber/tests/test_governed_agent_step.py:generic-api-key:67
