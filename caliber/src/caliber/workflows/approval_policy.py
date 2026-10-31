@@ -62,6 +62,7 @@ from caliber.db.models import (
     CaliberWorkflowRun,
 )
 from caliber.effects.records import ProposalError, read_proposal
+from caliber.observability.span_attributes import GovernedSpan, governed_span
 from caliber.policy.grants import AUTHORITY_UNAVAILABLE
 from caliber.resource_access import (
     ACTION_APPROVE,
@@ -332,7 +333,7 @@ def _is_digest(value: object) -> bool:
     )
 
 
-def approval_valid_at_commit(  # noqa: PLR0912, PLR0915 - one fail-closed commit gate owns all pins
+def approval_valid_at_commit(
     session: Session,
     *,
     approval_id: str,
@@ -369,7 +370,38 @@ def approval_valid_at_commit(  # noqa: PLR0912, PLR0915 - one fail-closed commit
     run id and grant id before calling :func:`decide`; the approving principal is
     checked separately from the request row and is never substituted into that
     grant.
+
+    The check runs inside an ``effect.approval.commit_check`` span (B11.3a) that names the rows the
+    check has actually bound: ``caliber.proposal_id`` once the locked proposal is read,
+    ``caliber.approval_id`` once the request is bound to that proposal's exact intent, and
+    ``caliber.decision_id`` from the run's current policy decision on success.  A refusal adds its
+    stable ``caliber.refusal_code`` (never a message, scope or id the caller supplied).
     """
+    with governed_span("effect.approval.commit_check", span_type="CHAIN") as span:
+        return _recheck_approval(
+            session,
+            approval_id=approval_id,
+            proposal_id=proposal_id,
+            approver_scopes=approver_scopes,
+            current_resource_version=current_resource_version,
+            evidence_hash=evidence_hash,
+            now=now,
+            span=span,
+        )
+
+
+def _recheck_approval(  # noqa: PLR0912, PLR0915 - one fail-closed commit gate owns all pins
+    session: Session,
+    *,
+    approval_id: str,
+    proposal_id: str,
+    approver_scopes: frozenset[str] | set[str],
+    current_resource_version: str | object | None = _CURRENT_RESOURCE_VERSION_MISSING,
+    evidence_hash: str | None = None,
+    now: datetime | None = None,
+    span: GovernedSpan,
+) -> ApprovalCommit:
+    """The checks of :func:`approval_valid_at_commit`; ``span`` receives only ids read from rows."""
     moment = now if now is not None else datetime.now(timezone.utc)
     if not isinstance(moment, datetime) or moment.tzinfo is None:
         raise ApprovalCommitRefused(REFUSAL_AUTHORITY_UNAVAILABLE)
@@ -397,6 +429,7 @@ def approval_valid_at_commit(  # noqa: PLR0912, PLR0915 - one fail-closed commit
     ).scalar_one_or_none()
     if proposal is None:
         raise ApprovalCommitRefused(REFUSAL_NOT_FOUND)
+    span.bind(proposal_id=proposal.proposal_id)
 
     approval = session.execute(
         select(CaliberRuntimeApprovalRequest)
@@ -458,6 +491,8 @@ def approval_valid_at_commit(  # noqa: PLR0912, PLR0915 - one fail-closed commit
     assert isinstance(approval.intent_hash, str)
     assert isinstance(approval.evidence_hash, str)
     assert isinstance(approval.policy_digest, str)
+    # Every pin that binds this request to this proposal's exact intent, policy and evidence has held.
+    span.bind(approval_id=approval.runtime_approval_id)
 
     expected_version = proposal.expected_resource_version
     if current_resource_version is _CURRENT_RESOURCE_VERSION_MISSING:
@@ -516,6 +551,7 @@ def approval_valid_at_commit(  # noqa: PLR0912, PLR0915 - one fail-closed commit
     if run_identity is None:
         raise ApprovalCommitRefused(REFUSAL_ROLE_REVOKED)
 
+    span.bind(decision_id=run_identity.decision.decision_id)
     return ApprovalCommit(
         run_id=run.workflow_run_id,
         approval_id=approval.runtime_approval_id,

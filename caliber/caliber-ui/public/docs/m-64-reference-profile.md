@@ -36,6 +36,7 @@ An unknown profile name is a configuration error. `GET /ajax-api/2.0/mlflow/cali
 | `egress_policy_disabled` | `egress_policy_enabled` | `CALIBER_EGRESS_POLICY_ENABLED` | true | The egress policy is what stops a tool or webhook from reaching internal addresses. |
 | `mcp_insecure_http` | `mcp_allow_insecure_http` | `CALIBER_MCP_ALLOW_INSECURE_HTTP` | false | Plain-HTTP MCP servers send tool calls and results in the clear. |
 | `self_approval_allowed` | `approval_allow_self_approval` | `CALIBER_APPROVAL_ALLOW_SELF_APPROVAL` | false | The account that started a run could approve its own protected action. |
+| `apply_distinct_approver_disabled` | `apply_require_distinct_approver` | `CALIBER_APPLY_REQUIRE_DISTINCT_APPROVER` | true | The account that requested a refinement job could apply its own candidate to production, and a job with no recorded requester could be applied unreviewed. |
 | `memory_inference_enabled` | `memory_infer` | `CALIBER_MEMORY_INFER` | false while CALIBER_MEMORY_ENABLED is true | LLM-inferred memory writes create durable, free-form facts nobody owns; the owned memory lifecycle does not exist yet. |
 | `fault_barriers_enabled` | `fault_barriers` | `CALIBER_FAULT_BARRIERS` | unset | An armed fault barrier makes the process exit on purpose; it exists only for scenario tests. |
 
@@ -136,6 +137,81 @@ bypass the source-trace authorization check. An authorized example records the `
 
 The development profile retains its earlier behavior; these payload gates are part of the reference-profile contract.
 
+## Governed effect spans: the ids that link a trace to its rows (B11.3a, #737)
+
+A governed effect crosses four persisted records: the effect **proposal**, the policy **decision** that authorised the
+run, the runtime **approval** that was consumed, and the **effect** itself, which is its verified receipt. The spans of
+that path name those rows, so an operator can go from a trace to the database without reading any payload. The module is
+`caliber.observability.span_attributes`; B11.3b (#745) reads the same attributes back as a causal chain.
+
+| Span (type) | Opened by | Attributes it can carry |
+| --- | --- | --- |
+| `effect.approval.commit_check` (`CHAIN`) | `approval_valid_at_commit` | `caliber.proposal_id` once the locked proposal is read; `caliber.approval_id` once the request is bound to that proposal's exact intent, policy and evidence; `caliber.decision_id` from the run's current policy decision, only when every check passed |
+| `effect.dispatch` (`TOOL`) | `dispatch` | `caliber.proposal_id` from the proposal read; `caliber.approval_id` and `caliber.decision_id` from the validator's answer; `caliber.effect_id` after the settlement has committed |
+| `effect.receipt.write` (`CHAIN`) | `record_receipt` | `caliber.proposal_id`; the proposal's recorded approval (`caliber.approval_id` for an exact-intent approval, `caliber.decision_id` for a policy decision); `caliber.effect_id` once the receipt is stored in the caller's transaction |
+
+`run_tags(ctx, node_id=..., proposal_id=..., decision_id=..., approval_id=..., effect_id=...)` accepts the same four
+ids for a caller that has read them from a row, and emits each as `caliber.<name>` only when given.
+
+**An id is a link only if a row backs it.** An attribute is absent, never blank or guessed, when the platform has not
+read that row: a proposal that never reached a verified receipt has no `caliber.effect_id` (`unknown` and `failed`
+included), the receipt-write span has no `caliber.decision_id` for an exact-intent approval (the proposal row does not
+store it), and the approval id a caller passes to `dispatch` is a claim until the validator has bound it to the
+proposal, so a refused dispatch never carries it. `caliber.effect_id` is the **receipt id**: the platform's only record
+that the downstream effect happened and was read back.
+
+**What can reach a span.** Four keys, one allow-list, no payload:
+
+- Only the four keys above, `caliber.refusal_code` and the tracer's own `caliber.status`, `caliber.error_type` and
+  `caliber.error` are set on these spans. No URL, argument, request, response, scope, approver, evidence hash or
+  exception message is ever an attribute.
+- A value must be a plain string that is an opaque identifier: ASCII letters, digits, `.`, `_`, `:`, `-`, starting
+  with a letter, at most 128 characters. Anything else (a number, an email address, whitespace, a path, a longer
+  string) is **dropped, not truncated**: a truncated id would name a different row.
+- A workflow manifest cannot assert a link. Its `mlflow.trace_group_tags` are merged into the run tags first, and the
+  five reserved keys are removed from them, so a tag named `caliber.proposal_id` is ignored.
+- A failure inside one of these spans is recorded as the exception *type* and, only when it is a platform refusal
+  (`ProposalError`, `EffectRefused`, `ApprovalCommitRefused`), its stable `caliber.refusal_code` such as
+  `stale_version`; the `code` of any other exception is not copied. The exception is re-raised after the span has
+  closed, so MLflow's own exception event, which keeps the message, never sees it **on these three spans**. The
+  re-raised exception still passes through any enclosing span (the workflow node span, `trace_run`), where MLflow
+  records its message as it did before this change.
+- Tracing never changes the outcome of an effect: a redactor or tracer failure while setting one of these attributes is
+  logged at debug level and the attribute is absent (the value is never sent unredacted).
+
+**Who can see them.** The ids, `caliber.refusal_code` and the existing run, node and job ids are on
+`profile.SAFE_SPAN_ATTRIBUTES`, so a caller who may see a trace but not read its payload (B11.4b, above) sees them; every
+other span attribute stays `[redacted:attributes.<key>]`, which includes `caliber.error`. An id does not widen who can
+open a trace: the trace, and then the row, still follow experiment and project visibility. `caliber.approval_id` is also
+the name of an existing *release* tag (`AP-...`, a prompt-version approval, see the prompts architecture page); on these
+spans it is always a runtime approval (`RAP-...`), told apart by the span name.
+
+**Refusal and recovery, with exact examples.**
+
+- *A stale approval.* The recheck finds the resource moved on. The `effect.approval.commit_check` span has
+  `caliber.proposal_id`, `caliber.approval_id`, `caliber.refusal_code = stale_version` and `caliber.status = failed`, and no
+  `caliber.decision_id`; `effect.dispatch` has `caliber.proposal_id` and the same code. Nothing was sent, the approval is
+  unconsumed and the proposal is still `proposed`. Recovery: request a new approval for the current resource version.
+- *An approval id that is not this run's.* The recheck answers `not_found`; no span carries that id, only the proposal
+  (read from the row) and the code. Recovery: use the id returned when the request was created.
+- *A lease lost after the effect was sent.* `effect.dispatch` has the proposal, approval and decision (the claim had
+  committed), `caliber.refusal_code = lease_lost` and no `caliber.effect_id`; no receipt exists and the proposal stays
+  `dispatched`. Recovery is unchanged: the reconciler asks the downstream by key under the new lease.
+- *An answer nobody could verify* (an ambiguous transport result, or a 2xx the downstream's own query did not confirm).
+  The proposal becomes `unknown`; `effect.dispatch` completes without `caliber.effect_id`. A missing effect id is the
+  signal, not an error.
+
+**Not covered, said plainly.** The node span of a workflow run does not carry these ids (the dispatcher's own spans do, and the same ids are in the
+database); the legacy effect-ledger path used
+by a plan with no governed context emits none; and the receipt-write span describes a *write*: if the caller's
+transaction is rolled back afterwards, the dispatch span, which names the effect only after commit, is the authority.
+Tracing is inert unless MLflow is installed and tracing is enabled, and an exporter failure never changes what the effect
+does.
+
+**Configuration, migration and rollback.** No new setting, no migration and no stored data change. The spans open inside
+the transaction that holds the approval locks, but make no database call of their own. Rolling
+back is reverting the change; traces already recorded keep their attributes.
+
 ## A configuration that passes
 
 ```ini
@@ -152,6 +228,7 @@ CALIBER_CSRF_SIGNING_SECRET_ENV=CALIBER_CSRF_SIGNING_SECRET
 CALIBER_EGRESS_POLICY_ENABLED=true
 CALIBER_MCP_ALLOW_INSECURE_HTTP=false
 CALIBER_APPROVAL_ALLOW_SELF_APPROVAL=false
+CALIBER_APPLY_REQUIRE_DISTINCT_APPROVER=true
 ```
 
 Two of the variables name *other* variables that hold secrets (`CALIBER_BOOTSTRAP_PASSWORD` and
@@ -715,8 +792,8 @@ see the trace but not read its payload returns the same shape with every governe
 whole-trace `request` and `response`. Real tracers also put the same payload in other attributes
 (`mlflow.spanInputs`, `mlflow.spanOutputs`, `mlflow.chat.messages`, `caliber.tool.input`, `caliber.tool.output`), so
 redaction is **fail-closed**: *every* span attribute that is not on the short list of known payload-free ones
-(`profile.SAFE_SPAN_ATTRIBUTES`: run, node and job ids, status, model name, token and cost counts, tool name and
-latency, span type) is redacted as `[redacted:attributes.<key>]`. Keys are never deleted or added, and everything
+(`profile.SAFE_SPAN_ATTRIBUTES`: run, node, job, proposal, decision, approval and effect ids, refusal code, status, model
+name, token and cost counts, tool name and latency, span type) is redacted as `[redacted:attributes.<key>]`. Keys are never deleted or added, and everything
 else (span ids, names, times, status, `attributes.caliber.run_id`, tokens, cost) is identical to what an editor sees. `GET /observability/traces`
 redacts `request_preview` and `response_preview` the same way, and `GET /observability/metrics` is computed from the
 redacted summaries (the numbers are unchanged; no payload appears). The run trace (`GET /workflow-runs/{id}/trace`)
@@ -1005,7 +1082,7 @@ with session_factory() as session:
   public OpenAPI route itself.
 
 ```python
-from caliber.effects.dispatcher import EffectRefused, dispatch, submit_proposal
+from caliber.effects.dispatcher import EffectRefused, admit_backend, dispatch, submit_proposal
 
 proposal = submit_proposal(
     session,
@@ -1013,6 +1090,7 @@ proposal = submit_proposal(
     node_id="ask",
     occurrence_id=occurrence_id,
     action=proposed_action,
+    admission=admit_backend("document_request"),  # a kind your own code chose; see "Trusted connector admission"
 )
 session.commit()
 try:
@@ -1073,6 +1151,96 @@ except StaleVersion as stale:
 - **Limits.** The occurrence id is allocated and persisted by the caller before the effect is attempted; this module records
   it and cannot tell whether a caller reused one wrongly. `deployment` is this installation's one configured organization
   (ADR 0001). Connector capability, receipts and reconciliation remain separate services below.
+
+### Trusted connector admission (B12.3a, #738)
+
+A private transport is **admitted** by what CALIBER can check about the code that will send, never by a name. The pinned
+record is `caliber.profile.REFERENCE_CONNECTORS` (ADR 0001, "trusted connectors only"); `caliber.effects.dispatcher.admit_backend(kind)`
+compares the transport registered under `kind` with it, and `caliber.effects.admission` holds the pure rules.
+
+| what is bound | how it is checked | refused with |
+| --- | --- | --- |
+| the connector id and version | the registration must name the record's `connector` and `connector_version` | `connector_not_admitted` |
+| the implementation | `module:qualname` of the registered transport's class (or function), read from the object: a subclass, a lookalike class or a bare function is a different implementation | `connector_implementation_mismatch` |
+| the capability record | the registration carries a `ConnectorCapability` and its `digest()` equals the pinned one; every risk it carries (`write_not_exactly_once`, `key_retention_unconfirmed`) must be listed in the record's `accepted_risks` | `connector_capability_unproven` (none, not a record, or an unaccepted risk), `connector_capability_mismatch` (another digest: a changed promise is a new digest) |
+| the wire configuration | the digest of what the transport sends with (for the document-request connector: the submit and lookup operations, the key header and the accepted resource shape) equals the pinned one | `connector_configuration_mismatch` |
+| the settings handed to `dispatch` | only the record's `config_keys`, every `required_config_keys` present, each value bounded: a `base_url` is `http(s)` with a host, a valid port, and no userinfo, whitespace, control characters, query or fragment; `max_attempts` is 1 to 5; `timeout_seconds` is finite, above 0 and at most 300 | `connector_config_not_admitted` |
+
+The reference profile admits two connectors: `document_request` (connector `document-request`, version 1: the Beta reference
+connector, which has a stable key, a precondition and a lookup by key; its key retention is unconfirmed, and that risk is
+accepted by name) and the generic `http` transport that governed webhook and API nodes use (it promises no exactly-once
+behaviour, so every effect through it needs the caller's own receipt verifier). **The dispatcher refuses everything else**: MCP
+stdio and remote hosts, host-file exports, PostgreSQL MCP writes and any transport added to `BACKENDS` without a reviewed record.
+Each has no record in the table, so a proposal or dispatch that goes through the dispatcher is `unsupported_backend` (no
+registration) or `connector_not_admitted` (registered, not pinned), and the host-file and database-write tools are also
+`unsupported_effect_path` through the protected-effect inventory (EP-055, EP-114).
+
+**What is not gated yet.** Only the dispatcher is gated. The paths that would reach MCP, host files or a database write do not go
+through it today, so **these tools still execute outside the dispatcher until the later B04 and B12 work**: the runtime's MCP
+node and MCP-bound tool callables and the MCP gateway (EP-007, EP-008, EP-035 to EP-037) move behind it in B04.5 (#759); model-selected
+calls in B04.6 (#768); the raising of `unsupported_in_reference_profile` for every inventory row marked `refuse`, which is what
+stops the host-file tools (EP-055) and the first-party database MCP write tools (EP-114) at run time, in B04.7 (#774); and the
+startup refusal of an MCP stdio or remote-host allowlist entry that the profile does not list in B12.3b (#746). Until those land, a
+reference deployment must not register the first-party database MCP server and must not wire the host-file tools into a workflow
+(see "Refused until explicitly supported" below).
+
+Where it is enforced:
+
+- **`submit_proposal` requires `admission=admit_backend(kind)`.** A proposal that only *names* a connector (in an action, a
+  manifest, a tool call or a model's output) is refused with `connector_not_admitted` before a row is written, so no approval is
+  requested for it. The admission is re-verified against the live registry on every submit, and the intent's connector and
+  version must be the admitted ones. Call `admit_backend` with a kind your own code chose, never one that came from data.
+- **`dispatch` admits the transport itself, before the claim.** A transport nobody pinned, or settings it does not accept, is
+  refused with the proposal still `proposed`, its approval unconsumed and no connector called. The transport's identity digests
+  (implementation, capability and configuration, never settings or payloads) are written into the `effect.proposal.dispatched`
+  outbox event as `connector_admission`.
+- **A user tool cannot pose as a connector.** Tool registration (`POST /tools`) and the assistant's tool publisher refuse the
+  names `document_request`, `document-request` and `http` (and their `tool.<name>.vN` and case variants) with `409 reserved_tool_name`,
+  like a built-in's name. A tool already registered under such a name before this rule is not rewritten; it is untrusted, is
+  never classified as a connector, and is flagged once by the reserved-name audit (`flag_reserved_tool_name`, plus one `ERROR` log
+  per process that names the connector, not a built-in). **Upgrade impact:** no new version can be registered under such a name
+  (`409 reserved_tool_name`), so a deployment with a tool called `http` (the most likely collision) registers it again under a
+  different name, repoints the workflows that use it, then archives the old row.
+
+Refusal and recovery (every code is stable and carries no payload, setting or URL):
+
+| code | meaning | recovery |
+| --- | --- | --- |
+| `unsupported_backend` | no transport is registered under that kind | use a registered kind; an MCP, host-file or database-write path is not supported in the reference profile |
+| `connector_not_admitted` | no pinned record for the transport, or the proposal names a connector the admission does not cover | submit with `admission=admit_backend(<the kind that carries this connector>)`; an unpinned transport needs a reviewed record in `REFERENCE_CONNECTORS` |
+| `connector_implementation_mismatch` | the registered transport is not the pinned implementation | restore the shipped transport; do not subclass or replace it |
+| `connector_capability_unproven` / `connector_capability_mismatch` | no capability record, an unaccepted risk, or a changed promise | restore the record; a changed promise is a code change that updates the pin in review |
+| `connector_configuration_mismatch` | the transport's wire configuration is not the pinned one | restore the shipped configuration |
+| `connector_config_not_admitted` | `backend_config` has an unknown or missing key or an out-of-bounds value | pass only `base_url` (and optionally `max_attempts`, `timeout_seconds`) for `document_request`; `sender` and `receipt_verifier` for `http` |
+
+```python
+from caliber.effects.dispatcher import UnsupportedEffectPath, admit_backend
+
+try:
+    admission = admit_backend("document_request")
+except UnsupportedEffectPath as refused:
+    logger.error("connector not admitted: %s", refused.code)  # e.g. connector_implementation_mismatch
+```
+
+What admission is not:
+
+- **Identity, not integrity.** The pins say which code and which declared shape were reviewed. A class that forges its
+  `__module__` and `__qualname__`, or a registry entry replaced by in-process code that also controls `profile.py`, is admitted:
+  code running inside the server process is trusted and is outside this control's threat model. The "configuration digest" covers
+  the *declared* wire constants (operations, key header, accepted resource shape), not what the transport's code does with them,
+  and the capability digest covers the documented promise, not a measurement of it. Behaviour is covered by the connector tests,
+  not by the pin.
+- **Data cannot mint an admission, code can.** A manifest, a tool name, a client request or a model's output cannot produce an
+  `AdmittedConnector`. `submit_proposal` re-verifies the value it is given against the live registry; an equal object built by hand
+  from the public table passes that check (it carries no secret). That is harmless, because only trusted code reaches it and the
+  object grants nothing a call to `admit_backend` would not, but it is not an unforgeable capability.
+- **The address is not pinned.** The pin binds the transport's code and shape, not the downstream's address. The address a
+  dispatch uses is validated for shape only (http or https, a host, a valid port, no userinfo, whitespace or control
+  characters, query or fragment: a pure check with no name resolution) and the executor still applies the egress policy at send time;
+  binding it to the `CALIBER_EFFECT_CALLBACK_CONNECTORS` entry the reconciler asks for belongs with the callers that wire the
+  connector (B04.3 and later).
+
+**Configuration and rollback:** no new setting and no migration. Reverting the change restores the unchecked registry lookup; proposals already recorded are unaffected.
 
 ## Connectors: what they promise and what an answer proves
 
@@ -1661,12 +1829,70 @@ creator authority, and client-supplied owner or creator values cannot replace
 the authenticated requester.
 
 This is provenance, not permission: apply still rechecks the current project
-permission, distinct approver, and exact candidate digest. Rows written before
+permission and, under the two-person rule below (B06.3), the distinct approver;
+the exact-candidate-digest recheck inside the claim is B06.4 (#753), not yet
+here. Rows written before
 B06.2 remain explicitly unknown (`triggered_by = NULL`); operators recover
 those rows through the current authorization boundary or create a new job via a
 path that can declare its requester. No new migration or public API/SDK field
 is required because migration `0131` introduced the column and it remains an
 ORM-only field.
+
+### Apply: a distinct approver (B06.3, #747)
+
+`CALIBER_APPLY_REQUIRE_DISTINCT_APPROVER` (`apply_require_distinct_approver`, default `false`) is the
+two-person rule for `POST /ajax-api/2.0/mlflow/caliber/jobs/{job_id}/apply`. With it on:
+
+| the job's `triggered_by` | the authenticated caller | result |
+| --- | --- | --- |
+| a different account | holds `caliber.operator` and `release.apply` on the job's project | applied, as before |
+| the caller (compared trimmed and case-folded, so `@Reza` is not a second person to `@reza`) | any | `403`, `reason_code` `apply_self_approval` |
+| `NULL`, empty or blank (a legacy job, or a creation path that declared no requester) | any | `403`, `reason_code` `apply_creator_unknown` |
+
+Where the identities come from: the requester is the job row's `triggered_by`, written from the
+authenticated request identity when the job was created (B06.2); the approver is the authenticated caller
+of the Apply request. Neither is read from the request body, query string or model output, and the setting
+is server configuration, so a client cannot turn the rule off or name a different requester.
+
+**The reference profile.** The setting must be on: `CALIBER_PROFILE=reference` refuses to start without it
+(`apply_distinct_approver_disabled`, in the table above). The rule is also applied at request time whenever the
+profile is `reference`, whatever the flag says, so a process that somehow reached a request in that state
+still refuses, and an unreadable configuration is treated as the reference profile.
+
+**Development compatibility, separately.** With the default profile and the flag off, Apply behaves exactly
+as it did in the alpha: the requester may apply their own candidate and a legacy job with no recorded
+requester is applied. That is a declared development-only compatibility, not a reference behaviour; a
+single-operator install that turns the flag on cannot apply its own jobs and needs a second operator.
+
+**Refusals** are `403` with a static, payload-free message (no job id, account name, candidate text or
+digest) and a stable `reason_code`:
+
+```json
+{"detail": "the account that requested this candidate cannot apply it; a different authorized person must apply it", "status_code": 403, "reason_code": "apply_self_approval"}
+```
+
+```json
+{"detail": "this candidate has no recorded requester, so a distinct approver cannot be verified; re-run the calibration so it records its requester, then have a different authorized person apply it", "status_code": 403, "reason_code": "apply_creator_unknown"}
+```
+
+Both refusals happen after the project-permission check (a non-member still gets `404`, a member without
+`release.apply` still gets `403` without a reason code) and before the claim, the approval anchor, the
+promoter call and any audit write, so a refused Apply changes nothing: the job stays `candidate_ready`. The
+database enforces the same separation inside the atomic claim (`UPDATE ... WHERE status = 'candidate_ready'`
+and the requester, trimmed of ASCII whitespace and lower-cased, is neither NULL, blank nor equal to the
+caller, trimmed and lower-cased the same way), so a requester that changed after the check, even to a case
+or whitespace variant of the caller, still cannot claim. The SQL lower-casing is ASCII-only on SQLite; the
+check before the claim applies the full case-fold. If the server has no configuration object at all, the
+rule is applied as in the reference profile rather than failing the request.
+
+**Recovery.** `apply_self_approval`: ask a different account with `release.apply` on the project to
+apply it. `apply_creator_unknown`: the job has no verifiable requester and **there is no reviewed-provenance
+override yet**: the job is refused, never passed. Re-run the calibration through the prompt, skill, workflow
+or assistant path, which records the requester, and have a different account apply the new job. Do not set
+`triggered_by` by hand from timestamps, owners or other mutable fields.
+
+**Not in this slice.** The exact-candidate-digest recheck and the revoked-permission race inside the claim
+transaction are B06.4 (#753). The refusal writes no audit row, like the existing project-permission refusals.
 
 ## Approval requests: bound to the exact intent (B06.1, #706)
 
@@ -2426,7 +2652,9 @@ trusts a tool's name only when the tool really is CALIBER's own.
 `memory_add`. The comparison is stricter than the resolver's exact match: case and surrounding spaces are ignored, and so are a
 `tool.` prefix and a `.vN` suffix, so `Grep_Files`, ` grep_files ` and `tool.grep_files.v2` are all reserved. A name
 that merely contains one (`grep_files_v2`, `my_grep_files`) is free. The rule applies in every profile, to every
-owner, module and version.
+owner, module and version. The names of the trusted connectors (`document_request`, `document-request`, `http`; see
+[Trusted connector admission](#trusted-connector-admission-b123a-738)) are reserved the same way, with a message that names
+the connector instead of a built-in tool.
 
 **Where it is enforced.** `POST /tools`, `POST /openapi-integrations/{id}/tool-drafts/{draft_id}/publish` and the
 Aria publisher (`AssistantPublisher`, for a tool draft). Nothing is written when a name is refused. CALIBER's own

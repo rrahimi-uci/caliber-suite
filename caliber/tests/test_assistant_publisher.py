@@ -523,3 +523,30 @@ class TestPublishUnknownType:
         )
         assert not result["success"]
         assert "unknown" in result["error"].lower()
+
+
+class TestTrustedConnectorNamesAreReserved:
+    @pytest.mark.parametrize(
+        "name", ["document_request", "document-request", "Document_Request", "tool.http.v1"]
+    )
+    def test_a_tool_draft_named_like_a_connector_is_refused_and_nothing_is_registered(
+        self,
+        publisher: AssistantPublisher,
+        session_factory: sessionmaker[Session],
+        name: str,
+    ) -> None:
+        from caliber.db.models import CaliberToolRegistry
+
+        result = publisher.publish(
+            artifact_type="tool",
+            artifact={"name": name},
+            draft_id="ADRF-connector-name",
+            session_factory=session_factory,
+            user=USER,
+        )
+        assert result["success"] is False
+        assert result["code"] == "reserved_tool_name"
+        assert "trusted connector" in result["error"]
+        assert "different name" in result["error"]
+        with session_factory() as db:
+            assert db.query(CaliberToolRegistry).count() == 0

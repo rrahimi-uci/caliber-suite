@@ -42,6 +42,10 @@ SAFE_SPAN_ATTRIBUTES: Final[frozenset[str]] = frozenset(
         "caliber.node_id",
         "caliber.job_id",
         "caliber.approval_id",
+        "caliber.proposal_id",
+        "caliber.decision_id",
+        "caliber.effect_id",
+        "caliber.refusal_code",
         "caliber.source",
         "caliber.status",
         "caliber.stage.status",
@@ -64,6 +68,68 @@ SAFE_SPAN_ATTRIBUTES: Final[frozenset[str]] = frozenset(
 )
 
 
+@dataclass(frozen=True)
+class TrustedConnector:
+    """One private transport the reference profile admits, pinned by what CALIBER can verify about it (B12.3a, #738).
+
+    ``implementation`` is ``module:qualname`` of the registered transport class; ``capability_digest`` is
+    :meth:`caliber.effects.connectors.ConnectorCapability.digest` of its capability record and ``configuration_digest`` the
+    digest of its wire configuration (:func:`caliber.effects.admission.configuration_digest`). ``accepted_risks`` names every
+    risk the capability record carries that the profile accepts, so a transport cannot be admitted with a weakness nobody
+    named. ``config_keys`` are the only settings dispatch may hand the transport, ``required_config_keys`` the ones it
+    must. The values are pinned here, not computed from the registered objects, so changing a transport's promise or
+    wire shape fails admission until a reviewer changes the pin.
+    """
+
+    backend_kind: str
+    connector: str
+    connector_version: str
+    implementation: str
+    capability_digest: str
+    configuration_digest: str
+    accepted_risks: tuple[str, ...]
+    config_keys: tuple[str, ...]
+    required_config_keys: tuple[str, ...]
+
+
+#: The only connectors the reference profile admits. Admission binds a transport's implementation, capability record and
+#: configuration, never a tool or connector *name* a caller, a manifest or a model supplies: a custom tool called
+#: ``document_request`` is not this connector. MCP stdio and remote hosts, host-file exports and PostgreSQL MCP writes are
+#: not listed, so they are refused until their dispatcher contracts exist (ADR 0001, #534).
+REFERENCE_CONNECTORS: Final[tuple[TrustedConnector, ...]] = (
+    TrustedConnector(
+        backend_kind="document_request",
+        connector="document-request",
+        connector_version="1",
+        implementation="caliber.effects.dispatcher:_Backend",
+        capability_digest="sha256:6a174c4bcd3c3ba0d66d972536840b0b31c224d195299b150a4ae89a02421bf1",
+        configuration_digest="sha256:9c9fed2385a51d4a7741455a33c46de061a8bc55f81f486d6734e15c3a4913e6",
+        accepted_risks=("key_retention_unconfirmed",),
+        config_keys=("base_url", "max_attempts", "timeout_seconds"),
+        required_config_keys=("base_url",),
+    ),
+    TrustedConnector(
+        backend_kind="http",
+        connector="http",
+        connector_version="1",
+        implementation="caliber.effects.dispatcher:_HttpBackend",
+        capability_digest="sha256:9ff6abe2c9c957f2c3083ab553a80ad9cbe87c624635f4ec78dc00ef18ab5e29",
+        configuration_digest="sha256:d9242a5e4448cc62152084fc1b32f4c1bbfe312cb9bf10c72f3078c3d10811bf",
+        accepted_risks=("write_not_exactly_once", "key_retention_unconfirmed"),
+        config_keys=("sender", "receipt_verifier"),
+        required_config_keys=("sender", "receipt_verifier"),
+    ),
+)
+
+
+def reserved_connector_names() -> frozenset[str]:
+    """Every name a trusted connector goes by (its backend kind and its connector id).
+
+    Tool registration reserves them, so a user tool cannot be called ``document_request`` (B12.3a, #738).
+    """
+    return frozenset(name for t in REFERENCE_CONNECTORS for name in (t.backend_kind, t.connector))
+
+
 def payload_governance_active(config: object | None) -> bool:
     """Whether trace payloads are governed (redacted unless the caller may read them): the reference profile.
 
@@ -71,6 +137,21 @@ def payload_governance_active(config: object | None) -> bool:
     the cautious one.
     """
     return config is None or getattr(config, "profile", "") == "reference"
+
+
+def apply_distinct_approver_required(config: object | None) -> bool:
+    """Whether Apply must be done by someone other than the job's requester (the two-person rule).
+
+    True when ``CALIBER_APPLY_REQUIRE_DISTINCT_APPROVER`` is on, **and always in the reference profile**: the
+    startup check already refuses a reference process with the flag off, and this keeps the rule closed if a
+    process ever reaches a request in that state anyway. A missing config is treated as the reference profile,
+    the same cautious answer :func:`payload_governance_active` gives.
+    """
+    return (
+        config is None
+        or getattr(config, "profile", "") == "reference"
+        or getattr(config, "apply_require_distinct_approver", False) is True
+    )
 
 
 @dataclass(frozen=True)
@@ -153,6 +234,13 @@ REFERENCE_REQUIREMENTS: tuple[Requirement, ...] = (
         "CALIBER_APPROVAL_ALLOW_SELF_APPROVAL",
         "false",
         "The account that started a run could approve its own protected action.",
+    ),
+    Requirement(
+        "apply_distinct_approver_disabled",
+        "apply_require_distinct_approver",
+        "CALIBER_APPLY_REQUIRE_DISTINCT_APPROVER",
+        "true",
+        "The account that requested a refinement job could apply its own candidate to production, and a job with no recorded requester could be applied unreviewed.",
     ),
     Requirement(
         "memory_inference_enabled",
@@ -262,6 +350,16 @@ def reference_profile_violations(config: CaliberConfig) -> list[ProfileViolation
                 "true",
                 "CALIBER_APPROVAL_ALLOW_SELF_APPROVAL",
                 "false",
+            )
+        )
+    if not config.apply_require_distinct_approver:
+        found.append(
+            _violation(
+                "apply_distinct_approver_disabled",
+                "apply_require_distinct_approver",
+                "false",
+                "CALIBER_APPLY_REQUIRE_DISTINCT_APPROVER",
+                "true",
             )
         )
     if config.memory_enabled and config.memory_infer:
