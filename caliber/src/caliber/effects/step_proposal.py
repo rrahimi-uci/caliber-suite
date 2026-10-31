@@ -72,6 +72,13 @@ NO_PROPOSED_ACTION: Final = "no_proposed_action"
 NO_PROTECTED_TOOL: Final = "no_protected_tool"
 CONNECTOR_NOT_MAPPED: Final = "connector_not_mapped"
 CONNECTOR_AMBIGUOUS: Final = "connector_ambiguous"
+BACKEND_NOT_FOR_AGENT_STEPS: Final = "backend_not_for_agent_steps"
+#: The backend kinds a *model's* proposal may reach. Each must have a destination the platform checks at proposal time: the
+#: admitted ``document_request`` connector declares a resource pattern (``BACKENDS[kind].configuration["resource"]``, a regular
+#: expression the destination must fully match). ``http`` is not here (its destination is an arbitrary URL and the egress check
+#: runs at dispatch, after an approval would be spent) and neither is a backend whose configuration holds a literal resource
+#: template rather than a pattern. A producer that maps a tool to one of those gets ``backend_not_for_agent_steps``.
+AGENT_STEP_BACKENDS: Final = frozenset({"document_request"})
 RESOURCE_NOT_ADMITTED: Final = "resource_not_admitted"
 STEP_MISMATCH: Final = "step_mismatch"
 INTENT_MISMATCH: Final = "intent_mismatch"
@@ -97,16 +104,24 @@ class ToolTrust:
     caliber_defined: bool
     #: ``dispatch`` or ``refuse`` (:func:`~caliber.effects.inventory.tool_disposition`).
     disposition: str
+    #: ``(name, version)`` of the registry row the binding resolved to and whose module and callable match the binding, or
+    #: ``None`` (an MCP tool, an unresolved or mismatched binding). **This, not the local name a manifest author chose, is what
+    #: ``GovernedStepContext.tool_backends`` is keyed by**: a local name is an alias anyone can give any tool.
+    registry: tuple[str, str] | None = None
 
 
 #: ``binding -> trust``. It must fail closed: a tool it cannot place is :func:`untrusted_tool`, never ``read``.
 ToolClassifier = Callable[[IRToolBinding], ToolTrust]
 
 
-def untrusted_tool(name: str) -> ToolTrust:
+def untrusted_tool(name: str, registry: tuple[str, str] | None = None) -> ToolTrust:
     """A tool the platform cannot vouch for: the inventory's fail-closed class, routed through the dispatcher."""
     return ToolTrust(
-        name=name, effect_class=FAIL_CLOSED, caliber_defined=False, disposition="dispatch"
+        name=name,
+        effect_class=FAIL_CLOSED,
+        caliber_defined=False,
+        disposition="dispatch",
+        registry=registry,
     )
 
 
@@ -150,6 +165,7 @@ def registry_tool_classifier(session_factory: Callable[[], Session]) -> ToolClas
             or row.callable_name != binding.callable_name
         ):
             return untrusted_tool(name)
+        identity = (row.name, row.version)
         trusted = is_builtin_tool(
             name=row.name,
             owner=row.owner,
@@ -163,9 +179,10 @@ def registry_tool_classifier(session_factory: Callable[[], Session]) -> ToolClas
                 effect_class=effect_class(row.name, caliber_defined=trusted),
                 caliber_defined=trusted,
                 disposition=tool_disposition(row.name, caliber_defined=trusted),
+                registry=identity,
             )
         except (InventoryError, OSError):
-            return untrusted_tool(name)
+            return untrusted_tool(name, identity)
 
     return classify
 
@@ -195,11 +212,12 @@ class GovernedStepContext:
     requested_by: str
     approval_ttl_seconds: int
     approval_policy: ApprovalPolicy = field(default_factory=ApprovalPolicy)
-    #: Which backend kind (``caliber.effects.dispatcher.BACKENDS``) each tool sends through, by the tool's local name. This is
-    #: what ties a proposal to a connector, and it is the producer's to build from trusted configuration: nothing a model, a
-    #: manifest author or a tool call supplies may write it. A tool absent from it can be classified but never proposed
+    #: Which backend kind (``caliber.effects.dispatcher.BACKENDS``, and one of :data:`AGENT_STEP_BACKENDS`) each registered tool
+    #: sends through, keyed by the tool's registry identity ``(name, version)`` (``ToolTrust.registry``), never by a local name.
+    #: This is what ties a proposal to a connector, and it is the producer's to build from trusted configuration: nothing a
+    #: model, a manifest author or a tool call supplies may write it. A tool absent from it can be classified but never proposed
     #: through; an empty map (the default) records no proposal at all.
-    tool_backends: Mapping[str, str] = field(default_factory=dict)
+    tool_backends: Mapping[tuple[str, str], str] = field(default_factory=dict)
 
 
 def stored_context_manifest_digest(
@@ -310,25 +328,31 @@ def _backend_of_record(
 ) -> tuple[str, ToolTrust]:
     """The backend kind and tool a proposal is held to, from the context's trusted map and never from the model.
 
-    ``context.tool_backends`` says which backend kind each of the platform's tools sends through (it is the producer's, built
-    from trusted configuration; a model, a manifest or a tool call never writes it). Only the agent's non-read tools that are in
-    it count. The connector the model *named* is used for one thing, to choose among them: it must be the connector of a mapped
-    tool's registered backend, or the proposal is refused (``connector_not_mapped``). The tool of record is then the strictest
-    of the tools that map to that backend, so a class cannot come from a tool that has nothing to do with the connector.
+    ``context.tool_backends`` says which backend kind each *registered tool* sends through, keyed by the registry identity
+    ``(name, version)`` the classifier proved (never by the local name a manifest author chose, which anyone can give any tool).
+    It is the producer's, built from trusted configuration; a model, a manifest or a tool call never writes it. Only the agent's
+    non-read tools whose registry identity is in it count. The connector the model *named* is used for one thing, to choose among
+    them: it must be the connector of a mapped tool's registered backend, or the proposal is refused (``connector_not_mapped``).
+    The backend must be one an agent step may use (:data:`AGENT_STEP_BACKENDS`). The tool of record is then the strictest of the
+    tools that map to that backend, so a class cannot come from a tool that has nothing to do with the connector.
     """
-    mapped = {
-        name: kind
-        for name, kind in context.tool_backends.items()
-        if name in tools and tools[name].effect_class != "read" and kind in BACKENDS
-    }
     if not any(trust.effect_class != "read" for trust in tools.values()):
         raise EffectRefused(NO_PROTECTED_TOOL)
+    mapped = {
+        name: context.tool_backends[trust.registry]
+        for name, trust in tools.items()
+        if trust.effect_class != "read"
+        and trust.registry is not None
+        and context.tool_backends.get(trust.registry) in BACKENDS
+    }
     kinds = {kind for kind in mapped.values() if BACKENDS[kind].connector == connector}
     if not kinds:
         raise EffectRefused(CONNECTOR_NOT_MAPPED)
     if len(kinds) > 1:
         raise EffectRefused(CONNECTOR_AMBIGUOUS)
     (kind,) = kinds
+    if kind not in AGENT_STEP_BACKENDS:
+        raise EffectRefused(BACKEND_NOT_FOR_AGENT_STEPS)
     tool = protected_tool_of_record(
         {name: tools[name] for name, mapped_kind in mapped.items() if mapped_kind == kind}
     )
@@ -372,8 +396,10 @@ def record_step_proposal(
     action = result.proposed_actions[0]
     kind, tool = _backend_of_record(context, tools, action.connector)
     admitted = admit_backend(kind)
+    # The admitted configuration's ``resource`` is a regular expression the destination must fully match; an agent step may only
+    # reach a backend that declares one (a literal template, or none, is refused rather than waved through).
     pattern = (BACKENDS[kind].configuration or {}).get("resource")
-    if isinstance(pattern, str) and re.fullmatch(pattern, action.resource) is None:
+    if not isinstance(pattern, str) or re.fullmatch(pattern, action.resource) is None:
         raise EffectRefused(RESOURCE_NOT_ADMITTED)
     try:
         bound = action.bound_to(tool.effect_class, connector_version=admitted.connector_version)
@@ -521,8 +547,10 @@ def reask_approval(context: GovernedStepContext, prior: PriorProposal) -> StepPr
 
 
 __all__ = [
+    "AGENT_STEP_BACKENDS",
     "APPROVAL_EVIDENCE_UNAVAILABLE",
     "APPROVAL_REJECTED",
+    "BACKEND_NOT_FOR_AGENT_STEPS",
     "CLAIM_MISMATCH",
     "CONNECTOR_AMBIGUOUS",
     "CONNECTOR_NOT_MAPPED",

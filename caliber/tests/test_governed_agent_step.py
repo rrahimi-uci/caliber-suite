@@ -68,6 +68,8 @@ PLANTED = "planted-argument-value"
 CONNECTOR = "document-request"
 RESOURCE = "cases/MORT-2026-000184/document-requests"
 PROTECTED = "request_missing_document"
+#: The registry identity of the protected tool (name, version): what ``tool_backends`` is keyed by, never the local name.
+PROTECTED_ID = (PROTECTED, "1.0")
 READ = "list_workdir_files"
 LIMITS = StepLimits(
     max_turns=8, max_tool_calls=4, max_tokens=20000, deadline="2099-01-01T00:00:00Z"
@@ -135,6 +137,14 @@ def _resolver() -> InMemoryToolResolver:
                 allow_in_preview=True,
             ),
             ToolRegistryEntry(
+                name="write_workdir_file",
+                version="1.0",
+                module_path=BUILTIN_TOOL_MODULE,
+                callable_name="write_workdir_file",
+                side_effect_level="write",
+                requires_approval=True,
+            ),
+            ToolRegistryEntry(
                 name=PROTECTED,
                 version="1.0",
                 module_path="downstream_tools",
@@ -188,7 +198,7 @@ def _context(factory: Callable[[], Session], **changes: Any) -> GovernedStepCont
         "requested_by": "editor-1",
         "approval_ttl_seconds": 3600,
         # the producer's trusted map of which backend each tool sends through (never anything the model said)
-        "tool_backends": {PROTECTED: "document_request"},
+        "tool_backends": {PROTECTED_ID: "document_request"},
     }
     fields.update(changes)
     return GovernedStepContext(**fields)
@@ -267,8 +277,12 @@ def test_a_seeded_read_builtin_is_read_and_a_custom_tool_is_the_fail_closed_clas
     bindings = {binding.local_name: binding for binding in agent.tools}
     read = classify(bindings[READ])
     assert (read.effect_class, read.caliber_defined, read.name) == ("read", True, READ)
+    assert read.registry == (READ, "1.0")
     protected = classify(bindings[PROTECTED])
     assert (protected.effect_class, protected.caliber_defined) == ("irreversible_write", False)
+    assert protected.registry == PROTECTED_ID, (
+        "an untrusted tool still has the registry identity it can be mapped by"
+    )
     assert protected.disposition == "dispatch"
 
 
@@ -362,7 +376,9 @@ def test_an_unloadable_inventory_is_the_fail_closed_class(
         raise step_proposal.InventoryError("no table")
 
     monkeypatch.setattr(step_proposal, "effect_class", refuse)
-    assert registry_tool_classifier(world)(_binding()) == untrusted_tool("list_workdir_files")
+    assert registry_tool_classifier(world)(_binding()) == untrusted_tool(
+        "list_workdir_files", ("list_workdir_files", "1.0")
+    )
 
 
 # ------------------------------------------------------------------------------------ tool of record
@@ -420,8 +436,13 @@ def _result(request: AgentStepRequest, action: ProposedAction | None = None, **c
 
 
 def _tools(**classes: str) -> dict[str, ToolTrust]:
-    tools = {PROTECTED: untrusted_tool(PROTECTED)}
-    tools.update({name: ToolTrust(name, cls, True, "dispatch") for name, cls in classes.items()})
+    tools = {PROTECTED: untrusted_tool(PROTECTED, PROTECTED_ID)}
+    tools.update(
+        {
+            name: ToolTrust(name, cls, True, "dispatch", (name, "1.0"))
+            for name, cls in classes.items()
+        }
+    )
     return tools
 
 
@@ -574,8 +595,10 @@ def test_the_backend_kind_comes_from_the_trusted_map_not_from_the_proposal(world
     request = _request()
     for mapping in (
         {},
-        {PROTECTED: "no_such_backend"},
-        {"not_a_tool_of_this_agent": "document_request"},
+        {PROTECTED_ID: "no_such_backend"},
+        {("not_a_tool_of_this_agent", "1.0"): "document_request"},
+        {(PROTECTED, "9.9"): "document_request"},
+        {("other_name", "1.0"): "document_request"},
     ):
         with pytest.raises(EffectRefused) as refused:
             record_step_proposal(
@@ -588,8 +611,8 @@ def test_the_backend_kind_comes_from_the_trusted_map_not_from_the_proposal(world
 def test_a_read_tool_is_never_a_route_to_a_connector(world: Any) -> None:
     request = _request()
     tools = {
-        PROTECTED: ToolTrust(PROTECTED, "read", True, "dispatch"),
-        "other": untrusted_tool("other"),
+        PROTECTED: ToolTrust(PROTECTED, "read", True, "dispatch", PROTECTED_ID),
+        "other": untrusted_tool("other", ("other", "1.0")),
     }
     with pytest.raises(EffectRefused) as refused:
         record_step_proposal(_context(world), request, _result(request), tools)
@@ -605,9 +628,10 @@ def test_two_backends_for_one_connector_are_ambiguous_and_refused(
     monkeypatch.setitem(dispatcher_module.BACKENDS, "document_request_twin", twin)
     request = _request()
     context = _context(
-        world, tool_backends={PROTECTED: "document_request", "other": "document_request_twin"}
+        world,
+        tool_backends={PROTECTED_ID: "document_request", ("other", "1.0"): "document_request_twin"},
     )
-    tools = {**_tools(), "other": untrusted_tool("other")}
+    tools = {**_tools(), "other": untrusted_tool("other", ("other", "1.0"))}
     with pytest.raises(EffectRefused) as refused:
         record_step_proposal(context, request, _result(request), tools)
     assert refused.value.code == "connector_ambiguous"
@@ -652,7 +676,7 @@ def test_the_admission_is_the_trusted_kinds_and_is_what_submit_proposal_receives
 def test_a_refused_tool_path_is_never_proposed(world: Any) -> None:
     context = _context(world)
     request = _request()
-    tools = {PROTECTED: ToolTrust(PROTECTED, "irreversible_write", False, "refuse")}
+    tools = {PROTECTED: ToolTrust(PROTECTED, "irreversible_write", False, "refuse", PROTECTED_ID)}
     with pytest.raises(UnsupportedEffectPath):
         record_step_proposal(context, request, _result(request), tools)
     assert _rows(world) == ([], [])
@@ -662,11 +686,20 @@ def test_the_class_is_the_strictest_of_the_tools_that_map_to_the_connector(world
     """A v1 proposal names no tool, so the tools that send through the named connector are all it could be: the strictest wins."""
     request = _request()
     lesser = {
-        "write_workdir_file": ToolTrust("write_workdir_file", "reversible_write", True, "dispatch")
+        "write_workdir_file": ToolTrust(
+            "write_workdir_file",
+            "reversible_write",
+            True,
+            "dispatch",
+            ("write_workdir_file", "1.0"),
+        )
     }
     mapped_both = _context(
         world,
-        tool_backends={PROTECTED: "document_request", "write_workdir_file": "document_request"},
+        tool_backends={
+            PROTECTED_ID: "document_request",
+            ("write_workdir_file", "1.0"): "document_request",
+        },
     )
     tools = {**_tools(), **lesser}
     with pytest.raises(EffectRefused) as refused:
@@ -675,7 +708,9 @@ def test_the_class_is_the_strictest_of_the_tools_that_map_to_the_connector(world
         )
     assert refused.value.code == "claim_mismatch"
     # a stricter tool that does not send through this connector does not raise the class
-    only_lesser_mapped = _context(world, tool_backends={"write_workdir_file": "document_request"})
+    only_lesser_mapped = _context(
+        world, tool_backends={("write_workdir_file", "1.0"): "document_request"}
+    )
     recorded = record_step_proposal(
         only_lesser_mapped,
         request,
@@ -748,7 +783,7 @@ def test_a_classifier_that_disagrees_with_the_inventory_cannot_record_a_differen
 ) -> None:
     """The stored intent must be the bound one: a trust the inventory does not confirm is an ``intent_mismatch``, rolled back."""
     request = _request()
-    forged = {PROTECTED: ToolTrust(PROTECTED, "reversible_write", False, "dispatch")}
+    forged = {PROTECTED: ToolTrust(PROTECTED, "reversible_write", False, "dispatch", PROTECTED_ID)}
     with pytest.raises(EffectRefused) as refused:
         record_step_proposal(
             _context(world),
@@ -1519,6 +1554,248 @@ def test_a_node_retry_asks_the_model_again_only_when_nothing_was_recorded(world:
     assert len({r.step_request_id for r in executor.step_requests}) == 2
     proposals, requests = _rows(world)
     assert len(proposals) == 1 and len(requests) == 1
+
+
+# ------------------------------------------------------------------- identity, store failures, backends, parallel
+
+
+def _aliased(local_name: str, registry_ref: str) -> dict[str, Any]:
+    """The agent's protected tool bound under ``local_name`` to the registry tool ``registry_ref`` names."""
+    manifest = _manifest()
+    manifest["nodes"]["agent"]["tools"] = [READ, local_name]
+    manifest["tools"] = {
+        READ: manifest["tools"][READ],
+        local_name: {
+            "registry_ref": registry_ref,
+            "version_constraint": ">=1.0,<2.0",
+            "requires_approval": True,
+        },
+    }
+    return manifest
+
+
+def test_a_local_name_is_not_an_identity_an_aliased_builtin_is_not_the_mapped_tool(
+    world: Any,
+) -> None:
+    """The review probe: a manifest author binds the built-in ``write_workdir_file`` (reversible) under the *mapped name*.
+
+    The map is keyed by registry identity, so the alias gets no route to ``document-request``: nothing is recorded as the lesser
+    class and nobody is asked.
+    """
+    manifest = _aliased(PROTECTED, "tool.write_workdir_file.v1")
+    lying = _action(effect_class="reversible_write")
+    result, executor, canaries = _run(
+        world, [_proposing(lying)], plan=_plan(world, manifest=manifest)
+    )
+    assert result.status == "error"
+    assert (
+        result.error
+        == "ToolExecutionError: governed agent step proposal refused: connector_not_mapped"
+    )
+    assert canaries.mutations == [] and _rows(world) == ([], [])
+    (asked,) = executor.step_requests
+    assert asked.node_id == "agent"
+
+
+def test_the_mapped_tool_under_another_local_name_is_still_the_mapped_tool(world: Any) -> None:
+    manifest = _aliased("renamed_by_the_author", f"tool.{PROTECTED}.v1")
+    result, _, _ = _run(world, [_proposing()], plan=_plan(world, manifest=manifest))
+    assert result.status == "blocked"
+    (proposal,) = _rows(world)[0]
+    assert proposal.effect_class == "irreversible_write"
+
+
+def test_the_registry_identity_is_what_the_trust_carries_and_the_map_keys() -> None:
+    other_version = ToolTrust(
+        PROTECTED, "irreversible_write", False, "dispatch", (PROTECTED, "2.0")
+    )
+    unmapped = ToolTrust("x", "irreversible_write", False, "dispatch")
+    request = _request()
+    context = _context(None)  # the map is all this reads
+    for tools in ({PROTECTED: other_version}, {PROTECTED: unmapped}):
+        with pytest.raises(EffectRefused) as refused:
+            record_step_proposal(context, request, _result(request), tools)
+        assert refused.value.code == "connector_not_mapped"
+
+
+def test_a_store_failure_never_carries_the_actions_arguments(
+    world: Any, monkeypatch: pytest.MonkeyPatch, caplog: Any
+) -> None:
+    from sqlalchemy.exc import OperationalError
+
+    def deadlock(*_args: Any, **_kwargs: Any) -> Any:
+        raise OperationalError(
+            "INSERT INTO caliber_effect_proposals",
+            {"args": {"document_type": PLANTED}},
+            Exception("deadlock detected " + PLANTED),
+        )
+
+    caplog.set_level(logging.DEBUG)
+    monkeypatch.setattr(step_proposal, "submit_proposal", deadlock)
+    result, _, canaries = _run(world, [_proposing(_action(args={"document_type": PLANTED}))])
+    assert result.status == "error"
+    assert result.error == "ToolExecutionError: governed agent step proposal failed: store_failed"
+    assert PLANTED not in (result.error or "") and PLANTED not in caplog.text
+    assert canaries.mutations == [] and _rows(world) == ([], [])
+
+
+def test_a_store_failure_while_re_asking_is_a_fixed_code(
+    world: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _run(world, [_proposing()])
+
+    def broken(*_args: Any, **_kwargs: Any) -> Any:
+        raise RuntimeError("lock timeout " + PLANTED)
+
+    monkeypatch.setattr(step_proposal, "reask_approval", broken)
+    result, executor, _ = _run(world, [])
+    assert result.error == "ToolExecutionError: governed agent step approval failed: store_failed"
+    assert PLANTED not in (result.error or "") and executor.step_requests == []
+
+
+@pytest.mark.parametrize(
+    "destination",
+    [
+        "file:///etc/passwd",
+        "http://169.254.169.254/latest/meta-data",
+        "https://user:pass@attacker.example/x",
+        "http://localhost:8080/admin",
+        "http://[::1]/x",
+    ],
+)
+def test_a_tool_mapped_to_http_is_refused_whatever_the_destination(
+    world: Any, destination: str
+) -> None:
+    """``http`` has no resource pattern and its egress check runs at dispatch, after an approval was spent: not for agent steps."""
+    request = _request()
+    action = _action(
+        connector="http",
+        connector_version="1",
+        effect_class="irreversible_write",
+        resource=destination,
+        args={"url": destination, "method": "POST"},
+    )
+    context = _context(world, tool_backends={PROTECTED_ID: "http"})
+    with pytest.raises(EffectRefused) as refused:
+        record_step_proposal(context, request, _result(request, action), _tools())
+    assert refused.value.code == "backend_not_for_agent_steps"
+    assert _rows(world) == ([], [])
+    result, _, canaries = _run(
+        world, [_proposing(action)], plan=_plan(world, tool_backends={PROTECTED_ID: "http"})
+    )
+    assert result.error == (
+        "ToolExecutionError: governed agent step proposal refused: backend_not_for_agent_steps"
+    )
+    assert canaries.mutations == [] and _rows(world) == ([], [])
+
+
+def test_a_backend_with_a_literal_resource_template_is_not_reachable_from_an_agent_step(
+    world: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The resource contract: only a backend that declares a resource *pattern* (a regular expression) is reachable.
+
+    A registered-tool style backend whose configuration holds a literal template is refused explicitly, not by accident of
+    the template failing to match as a pattern.
+    """
+    import caliber.effects.dispatcher as dispatcher_module
+
+    literal = replace(
+        dispatcher_module.BACKENDS["document_request"],
+        connector="registered-tool",
+        configuration={"resource": "registered-tool/some-tool/1"},
+    )
+    monkeypatch.setitem(dispatcher_module.BACKENDS, "registered_tool", literal)
+    assert "registered_tool" not in step_proposal.AGENT_STEP_BACKENDS
+    request = _request()
+    action = _action(
+        connector="registered-tool", resource="registered-tool/some-tool/1", args={"x": 1}
+    )
+    context = _context(world, tool_backends={PROTECTED_ID: "registered_tool"})
+    with pytest.raises(EffectRefused) as refused:
+        record_step_proposal(context, request, _result(request, action), _tools())
+    assert refused.value.code == "backend_not_for_agent_steps"
+    assert _rows(world) == ([], [])
+
+
+def test_an_allowed_backend_must_declare_a_resource_pattern(
+    world: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from tests.effect_helpers import admit_fake_backend
+
+    admit_fake_backend(monkeypatch, "fake_kind", object(), connector="fake-conn")
+    monkeypatch.setattr(
+        step_proposal, "AGENT_STEP_BACKENDS", frozenset({"document_request", "fake_kind"})
+    )
+    request = _request()
+    action = _action(connector="fake-conn", resource="anything/at/all")
+    context = _context(world, tool_backends={PROTECTED_ID: "fake_kind"})
+    with pytest.raises(EffectRefused) as refused:
+        record_step_proposal(context, request, _result(request, action), _tools())
+    assert refused.value.code == "resource_not_admitted"
+    assert _rows(world) == ([], [])
+
+
+def _parallel_manifest() -> dict[str, Any]:
+    manifest = _manifest()
+    agent = manifest["nodes"]["agent"]
+    nodes: dict[str, Any] = {
+        "start": manifest["nodes"]["start"],
+        "parallel": {
+            "id": "parallel",
+            "type": "parallel",
+            "inputs": {"input": {"type": "string"}},
+            "outputs": {"output": {"type": "string"}},
+        },
+        "agent": agent,
+        "agent_two": {**agent, "id": "agent_two", "name": "second-agent"},
+        "join": {
+            "id": "join",
+            "type": "join",
+            "mode": "all",
+            "inputs": {"left": {"type": "string"}, "right": {"type": "string"}},
+            "outputs": {"output": {"type": "string"}},
+        },
+        "final": manifest["nodes"]["final"],
+    }
+    manifest["nodes"] = nodes
+    manifest["edges"] = [
+        {"id": "e1", "from": "start", "to": "parallel", "map": {"msg": "input"}},
+        {"id": "e2", "from": "parallel", "to": "agent", "map": {"output": "input"}},
+        {"id": "e3", "from": "parallel", "to": "agent_two", "map": {"output": "input"}},
+        {"id": "e4", "from": "agent", "to": "join", "map": {"final_output": "left"}},
+        {"id": "e5", "from": "agent_two", "to": "join", "map": {"final_output": "right"}},
+        {"id": "e6", "from": "join", "to": "final", "map": {"output": "response"}},
+    ]
+    return manifest
+
+
+def test_governed_agents_in_parallel_branches_are_refused_and_leave_no_rows(world: Any) -> None:
+    """Siblings under a ``parallel`` node would each record a request while the run parks behind only the first."""
+    executor = FakeWorkflowExecutor(step_script=[_proposing(), _proposing()])
+    canaries = Canaries()
+    result = execute(
+        _plan(world, manifest=_parallel_manifest()),
+        "go",
+        executor=executor,
+        extra_tools=canaries.tools(),
+    )
+    assert result.status == "error"
+    assert result.error is not None and result.error.startswith(
+        "ToolExecutionError: governed agent steps cannot run in parallel branches: agent "
+    )
+    assert "follows parallel node 'parallel'" in result.error
+    assert executor.step_requests == [] and result.steps == []
+    assert canaries.mutations == [] and _rows(world) == ([], [])
+
+
+def test_the_same_parallel_graph_still_runs_without_a_governed_context(world: Any) -> None:
+    result = execute(
+        _plan(world, governed=False, manifest=_parallel_manifest()),
+        "go",
+        executor=FakeWorkflowExecutor(),
+        extra_tools=Canaries().tools(),
+    )
+    assert result.status == "completed", result.error
 
 
 # ------------------------------------------------------------------- resuming a parked governed step

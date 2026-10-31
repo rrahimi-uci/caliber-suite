@@ -95,7 +95,7 @@ def test_two_workers_proposing_one_step_record_one_effect_and_ask_once(
     context = _context(reference_app.session_factory, workflow_run_id=run_id)
     request = _request(workflow_run_id=run_id, node_id=NODE)
     result = _result(request)
-    tools = {PROTECTED: untrusted_tool(PROTECTED)}
+    tools = {PROTECTED: untrusted_tool(PROTECTED, (PROTECTED, "1.0"))}
 
     # Worker A holds its uncommitted proposal and request while worker B arrives and has to wait for it.
     a_inside, b_started = threading.Event(), threading.Event()
@@ -140,7 +140,7 @@ def test_several_occurrences_of_one_node_leave_exactly_one_live_request_and_no_d
     _postgres_only(reference_app)
     run_id = _waiting_run(reference_app)
     context = _context(reference_app.session_factory, workflow_run_id=run_id)
-    tools = {PROTECTED: untrusted_tool(PROTECTED)}
+    tools = {PROTECTED: untrusted_tool(PROTECTED, (PROTECTED, "1.0"))}
     occurrences = [f"occ-{number}" for number in range(6)]
     barrier = threading.Barrier(len(occurrences))
 
@@ -180,7 +180,10 @@ def test_two_resumes_of_a_lapsed_request_ask_once(
     context = _context(reference_app.session_factory, workflow_run_id=run_id)
     request = _request(workflow_run_id=run_id, node_id=NODE)
     recorded = record_step_proposal(
-        context, request, _result(request), {PROTECTED: untrusted_tool(PROTECTED)}
+        context,
+        request,
+        _result(request),
+        {PROTECTED: untrusted_tool(PROTECTED, (PROTECTED, "1.0"))},
     )
     with reference_app.session_factory() as session:
         old = session.get(CaliberRuntimeApprovalRequest, recorded.approval_request_id)

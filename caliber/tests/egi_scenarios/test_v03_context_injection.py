@@ -201,7 +201,7 @@ def _govern_the_worker(
             limits=lambda agent: StepLimits(8, 4, 20000, "2099-01-01T00:00:00Z"),
             requested_by=EDITOR_A,
             approval_ttl_seconds=3600,
-            tool_backends={PROTECTED_TOOL: "document_request"},
+            tool_backends={(PROTECTED_TOOL, "1.0"): "document_request"},
         )
         return plan
 

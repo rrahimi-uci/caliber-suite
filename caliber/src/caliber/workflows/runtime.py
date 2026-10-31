@@ -4895,6 +4895,14 @@ def _governed_plan_refusal(ir: IRWorkflow) -> str | None:
     waits on. A handoff would let a *different* agent's protected tool propose through this node's step. Both are refused up
     front, before any node runs and so before any proposal exists.
     """
+    for edge in ir.edges:
+        if isinstance(ir.nodes.get(edge.from_node), IRParallel) and isinstance(
+            ir.nodes.get(edge.to_node), IRAgent
+        ):
+            return (
+                f"governed agent steps cannot run in parallel branches: agent {edge.to_node!r} "
+                f"follows parallel node {edge.from_node!r}"
+            )
     for node in ir.nodes.values():
         if isinstance(node, IRAgent):
             if node.handoffs:
@@ -4961,6 +4969,10 @@ def _run_governed_step(
             proposal = _step_proposal.record_step_proposal(context, request, result, trust)
         except EffectRefused as exc:
             raise ToolExecutionError(f"governed agent step proposal refused: {exc.code}") from None
+        except Exception:
+            # A store failure (a deadlock, a lock timeout) carries the statement's parameters, which are the model's arguments:
+            # none of it reaches the run error or a log line, only a fixed code.
+            raise ToolExecutionError("governed agent step proposal failed: store_failed") from None
         raise _step_proposal.StepParked(
             proposal, step_request_id=step_request_id, usage=result.usage
         )
@@ -5069,6 +5081,10 @@ def _run_governed_agent_node(
             except EffectRefused as exc:
                 raise ToolExecutionError(
                     f"governed agent step approval refused: {exc.code}"
+                ) from None
+            except Exception:
+                raise ToolExecutionError(
+                    "governed agent step approval failed: store_failed"
                 ) from None
             return _governed_parked_step(node, proposal, step_request_id=None, usage=None)
         raise UnknownEffectError([(prior.proposal_id, nid, prior.state)])
