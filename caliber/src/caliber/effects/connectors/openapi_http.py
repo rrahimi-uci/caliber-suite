@@ -18,9 +18,12 @@ What the proposal records, and where each part comes from:
   authoritative receipt verifier must confirm.
 
 **Retries.** The transport retries only when the request really carries an idempotency key: an operation whose row binds no
-key header is sent once, even for a method the executor would otherwise retry (``PUT``, ``DELETE``). The dispatcher itself
-never sends an ambiguous effect twice; a timeout after the downstream committed leaves the proposal ``unknown`` for the
-reconciler, which has no lookup for this connector and so never guesses.
+key header is sent once, even for a method the executor would otherwise retry (``PUT``, ``DELETE``). The dispatcher does not
+redrive an ambiguous effect: a timeout after the downstream committed leaves the proposal ``unknown`` for the reconciler,
+which has no lookup for this connector and so never guesses. Within **one** dispatch, though, the executor's bounded retry
+(the row's ``max_attempts``, at most 5) repeats a request that carries the key. That is an accepted risk, not a guarantee:
+the capability record leaves key scope and retention unconfirmed, so a downstream that does not honour the key may commit
+twice. Leave ``max_attempts`` at 1 unless the downstream is known to.
 
 This module is pure: it reads no database and sends nothing.
 """
@@ -116,7 +119,8 @@ def transport_request(
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     """The executor's ``(execution_config, input_data)`` for a recorded proposal, or :class:`OpenApiPreflightError`.
 
-    The recorded input is re-checked against the trusted operation exactly as at proposal time, and what it resolves to must
+    The recorded input is re-checked against the trusted operation exactly as at proposal time (including the egress policy, so a
+    destination that stopped being allowed after the approval fails here), and what it resolves to must
     be the recorded ``resource``: a proposal whose operation, method or server is not the one the row describes is refused
     before anything is sent. The stable key and the precondition are put on the request here and nowhere else: the key only
     when the row binds a key header, the precondition only when it binds one and the proposal recorded a value. A recorded

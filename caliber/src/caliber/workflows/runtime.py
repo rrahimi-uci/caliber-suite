@@ -4942,12 +4942,33 @@ def _governed_plan_refusal(ir: IRWorkflow) -> str | None:
 
 
 def _governed_stop_error(result: _agent_step.AgentStepResult) -> ToolExecutionError:
-    """The run error for a step that stopped without completing or proposing: its stop reason and fixed error code, no payload."""
+    """The run error for a step that stopped without completing or proposing: its stop reason and fixed error code, no payload.
+
+    A limit stop (``max_turns``, ``max_tool_calls``, ``max_tokens``, ``deadline``) also records the usage the step is charged,
+    as numbers, so the run's error says what the step spent (B08.4 settles it from the result, not from this text).
+    """
     code = result.error_code
     detail = result.stop_reason
     if isinstance(code, str) and _SAFE_STEP_CODE.fullmatch(code):
         detail = f"{detail} ({code})"
+    if result.stop_reason in _agent_step.LIMIT_STOPS:
+        usage = result.usage
+        detail = f"{detail} (turns={usage.turns} tool_calls={usage.tool_calls} tokens={usage.total_tokens})"
     return ToolExecutionError(f"governed agent step stopped: {detail}")
+
+
+def _governed_limits(
+    context: _step_proposal.GovernedStepContext, agent: IRAgent
+) -> _agent_step.StepLimits:
+    """The step's limits: the producer's, brought down to the platform's ceilings; a clock or a producer that fails is a fixed refusal."""
+    try:
+        now = _agent_step.read_instant(_agent_step.resolve_clock(context.clock))
+    except Exception:
+        raise ToolExecutionError("governed agent step clock unavailable: clock_invalid") from None
+    try:
+        return _agent_step.cap_limits(context.limits(agent), context.ceilings, now=now)
+    except Exception:
+        raise ToolExecutionError("governed agent step limits unavailable: limits_invalid") from None
 
 
 def _run_governed_step(
@@ -4977,7 +4998,7 @@ def _run_governed_step(
         run_manifest_digest=context.run_manifest_digest,
         context_manifest_digest=context.context_manifest_digest(step_request_id),
         grant_id=context.grant_id,
-        limits=context.limits(agent),
+        limits=_governed_limits(context, agent),
     )
     step_input = _agent_step.AgentStepInput(
         agent=agent,
@@ -4985,7 +5006,7 @@ def _run_governed_step(
         history=tuple(history),
         read_tools=_governed_read_tools(trust, tool_callables),
     )
-    result = _agent_step.run_agent_step(executor, request, step_input)
+    result = _agent_step.run_agent_step(executor, request, step_input, clock=context.clock)
     if result.stop_reason == "proposed_action":
         try:
             proposal = _step_proposal.record_step_proposal(context, request, result, trust)

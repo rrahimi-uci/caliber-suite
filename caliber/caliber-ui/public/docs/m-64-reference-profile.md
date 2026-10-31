@@ -202,9 +202,22 @@ resolved and nothing is sent at that point; the transport applies the egress pol
   `expected_resource_version` (so the approval is bound to it and the approver's check compares it with the current version),
   and the transport sends it as the bound header. A recorded precondition the row cannot send is refused, never dropped.
 - The transport retries only when the request really carries an emitted key: a row with no key header is sent **once**, even
-  for a method the executor would otherwise retry (`PUT`, `DELETE`). With a key, the executor's own bounded retry repeats the
-  same key. The dispatcher itself never sends an ambiguous effect a second time, and the binding's `max_retries` is ignored
-  for a governed call.
+  for a method the executor would otherwise retry (`PUT`, `DELETE`). With a key, the executor's own bounded retry (the row's
+  `max_attempts`, at most 5) repeats the same key **within one dispatch**. The dispatcher does not redrive an ambiguous
+  effect after that dispatch, and the binding's `max_retries` is ignored for a governed call. The in-dispatch retry is an
+  **accepted risk**, not a guarantee: the capability record leaves key scope and retention unconfirmed, so a downstream that
+  does not honour the key can commit twice. Leave `max_attempts` at 1 unless the downstream is known to replay a key.
+
+**Headers, and what is stored.** `header_params` may not set a method-override header (`X-HTTP-Method-Override`,
+`X-HTTP-Method`, `X-Method-Override`) or a framing or hop-by-hop header (`Host`, `Content-Length`, `Content-Encoding`,
+`Transfer-Encoding`, `Connection`, `Keep-Alive`, `Proxy-Connection`, `Proxy-Authorization`, `TE`, `Trailer`, `Upgrade`,
+`Expect`; case-insensitive): classification uses the row's method, and a downstream that honours an override would turn a read into a
+write. The check applies to **every** call of the executor, an inline `GET` included, and is refused as
+`openapi_header_forbidden` (a governed call, before the proposal) or as an executor error that names no header (an inline call).
+It does not cover a method override carried in a query parameter or a body field a particular downstream might honour. The
+input is recorded **verbatim**: `body`, `header_params`, `query_params` and `path_params` are stored in the proposal's
+`args.input` (`caliber_effect_proposals`) and shown to the approver, so **credentials belong in the row's `auth_binding`
+(a secret reference resolved at send time), never in the call's input**. The proposal never records the auth binding.
 
 **What an answer proves.** The `openapi-http` capability record promises nothing about a downstream: no key scope or
 retention, no lookup by key, no documented rejection status. So a 2xx is a claim that the run's authoritative
@@ -224,6 +237,7 @@ OpenAPI effect proposal refused: openapi_key_override_refused   # a caller-suppl
 OpenAPI effect proposal refused: openapi_precondition_conflict  # If-Match and expected_resource_version disagree, or are blank
 OpenAPI effect proposal refused: openapi_config_invalid         # the row's server or path cannot be used (credentials, query, scheme)
 OpenAPI effect proposal refused: openapi_auth_unsupported       # the row binds an auth kind the executor does not support
+OpenAPI effect proposal refused: openapi_header_forbidden       # header_params sets a method-override, framing or hop-by-hop header
 OpenAPI tool 'tickets' refused: openapi_operation_unresolved    # a pack operation the row does not bind
 OpenAPI tool 'tickets' refused: unsupported_effect_path         # no readable OpenAPI row for the tool
 OpenAPI effect authorization was not granted                    # no exact approval: the proposal stays `proposed`
@@ -238,8 +252,14 @@ Recovery: a refusal before the proposal needs the input, the row or the egress a
 occurrence). An `unknown` effect is settled by the receipt verifier, a receipt callback or an operator (see the
 [recovery runbook](m-65-recovery-runbook.md)), never by running the node again.
 
+**After the approval.** The backend rebuilds the request from the row and the recorded arguments and checks it again,
+the egress policy included. Any failure at that point (a recorded proposal that is not the row's operation, or a destination
+that **stopped** passing the egress policy since the proposal, a transient DNS or allowlist change included) sends nothing and
+settles the proposal `failed` with the reason `not_sent`; the dispatch's internal refusal code is not surfaced, and **the
+approval is already consumed**: ask for a new proposal (run the node again after fixing the cause).
+
 **Not covered by this change, and still outside the dispatcher:** model-chosen tool calls inside an agent step (B04.6,
-#768), the Aria assistant's published-tool call (inventory EP-034: there is no workflow run to propose into), standalone
+#768), the Aria assistant's published-tool call (inventory EP-034: there is no workflow run to propose into; owned by #1063), standalone
 exports and plans a caller builds itself (#1051: `build_plan` binds the registry reader but no governed context, so a
 deployed workflow's **protected** OpenAPI nodes are refused until #1051 binds one; read-class `GET` nodes still run),
 and the operator's draft preview route (EP-033, exempt). The raw executor's remaining callers are pinned by
@@ -2311,8 +2331,8 @@ checked = approval_valid_at_commit(
 
 An agent step is one bounded unit of model work in a workflow node. Two control records (ADR 0003) describe it, and
 `caliber.contracts.agent_step` is the gate in front of both: it validates a record and refuses it **before anything is
-dispatched**. This page is the contract; the adapters that produce results (B08.1b onwards) and the limit and budget
-enforcement (B08.3, B08.4) build on it and are not part of it.
+dispatched**. This page is the contract; the adapters that produce results (B08.1b onwards), the limit enforcement
+([B08.3](#central-step-limits-turns-tool-calls-tokens-and-the-deadline-b083-752)) and the token budget (B08.4) build on it and are not part of it.
 
 - **`agent_step_request` v1** names the step (`step_request_id`, `workflow_run_id`, `node_id`, the durable `occurrence_id`
   and the `attempt`), what it was given (`run_manifest_digest` and `context_manifest_digest`, each 64 lowercase hex digits),
@@ -2398,8 +2418,8 @@ the other limits are checked by the platform around the provider call (B08.3), n
 
 `caliber.workflows.agent_step` is the seam between the agent-step contracts above and a model provider. It adds no route, no
 table and no setting. It defines what an executor must do to take part in *governed* execution and how the platform treats
-the answer; the limits (B08.3), the token reservation (B08.4) and turning a model's tool call into a recorded proposal (B08.2)
-build on it and are not part of it.
+the answer; the limits ([B08.3](#central-step-limits-turns-tool-calls-tokens-and-the-deadline-b083-752)), the token reservation (B08.4) and turning a model's tool call into a recorded proposal (B08.2)
+build on it.
 
 - **`AgentStepAdapter`** (`caliber.workflows.runtime.AgentStepAdapter` is the same protocol) is
   `run_step(request: AgentStepRequest, step_input: AgentStepInput) -> AgentStepResult`, a plain function (an `async def` is
@@ -2493,8 +2513,9 @@ Recovery is always the same shape: the occurrence is retried as the next `attemp
 | is a scripted step naming a tool outside `read_tools` | `refused`, `tool_not_read_class` | naming only read tools, or proposing the call |
 
 An invalid *request*, or a step input for another node, is not a result: `run_agent_step` raises `ContractValidationError` (for
-example `attempt: violates minimum 1`) before anything runs. Not covered here, so not claimed: limits are not enforced by this
-boundary (B08.3), no token reservation is made (B08.4) and a blocking adapter is not interrupted. The interpreter calls
+example `attempt: violates minimum 1`) before anything runs. The request's limits are enforced by this boundary for every adapter
+([below](#central-step-limits-turns-tool-calls-tokens-and-the-deadline-b083-752)). Not covered here, so not claimed: no token
+reservation is made (B08.4) and a blocking adapter is not interrupted. The interpreter calls
 `run_agent_step` only for a plan that carries a governed-step context, and then records the proposal it returns
 ([Governed agent steps: a protected action is a proposal](#governed-agent-steps-a-protected-action-is-a-proposal-b082-744)).
 
@@ -2561,7 +2582,8 @@ now). It takes the step's request and `AgentStepInput` and answers with the type
   first is proposed and the rest are dropped (v1 allows one action per step); parallel tool use is turned off in the request. A reply
   that mixes read and protected calls runs none of the reads. Handoff targets are not offered, and a structured-output schema is not
   applied (a step's result carries no output text).
-- **Limits** are those of the request, checked around every provider call (the platform checks them again, B08.3). Before a turn:
+- **Limits** are those of the request, checked around every provider call (the platform checks them again, whatever the adapter
+  reports: [central step limits](#central-step-limits-turns-tool-calls-tokens-and-the-deadline-b083-752)). Before a turn:
   `max_turns`, then the deadline, then the tokens left, each a stop reason that keeps the usage so far; before each read tool:
   `max_tool_calls` (and the deadline); and no read tool is run when no turn is left to use its result. A call's `max_tokens` is the
   smaller of the executor's cap and the tokens left, its timeout the smaller of the provider timeout and the time to the deadline,
@@ -2614,7 +2636,7 @@ returning an aware `datetime`, default the UTC clock), is what a step's deadline
   source `estimated`, and the provider is not touched. A response the provider cut off (`finish_reason: length`) is `max_tokens`
   and its tool calls are not acted on. Each call is also bounded: the SDK's retries are off (`with_options(max_retries=0)`), its
   timeout is the time left to the deadline (at most `CALIBER_PROVIDER_REQUEST_TIMEOUT_SECONDS`) and the remaining token budget is
-  sent as `max_completion_tokens`. The platform still enforces the limits against the returned usage (B08.3).
+  sent as `max_completion_tokens`. The platform still enforces the limits against the returned usage ([B08.3](#central-step-limits-turns-tool-calls-tokens-and-the-deadline-b083-752)).
 - **Usage is the provider's**, summed over turns, with `usage_source: "provider"` and `cached_prompt_tokens` only when the
   provider reported them. A response with no usage object is estimated by word count and reported `estimated`; a total below
   `prompt + completion` is raised to it; a figure that is not a plain non-negative integer (or exceeds 2147483647) is
@@ -2707,11 +2729,12 @@ Refusals are `EffectRefused` with a fixed code and no value from the model; the 
 | the agent has a handoff, sits as the inline target of a fan-out, loop or error boundary, or is a branch of a `parallel` node | the run is refused before any node runs (`do not follow handoffs` / `cannot run inline` / `cannot run in parallel branches`), no proposal or request exists | giving the governed agent its own sequential node in the graph |
 | the store fails while recording (a deadlock, a lock timeout) | run error `governed agent step proposal failed: store_failed`; the statement's parameters, which are the model's arguments, reach no error or log | retrying the node |
 | a tool is mapped to `http` or to a literal-template backend | `backend_not_for_agent_steps`, nothing recorded | mapping only `document_request`-style backends |
-| stops on a limit, refuses or fails | run error `governed agent step stopped: <stop reason> (<fixed code>)` | as for the step (limits and reservations are B08.3 and B08.4) |
+| stops on a limit, refuses or fails | run error `governed agent step stopped: <stop reason> (<fixed code>)`; a limit stop carries its usage as numbers: `governed agent step stopped: max_tokens (turns=3 tool_calls=1 tokens=4100)` | as for the step; the limits are [central](#central-step-limits-turns-tool-calls-tokens-and-the-deadline-b083-752), reservations are B08.4 |
 | its approval request was rejected, then the run is resumed | `approval_rejected` | a new run |
 
 ```python
 from caliber.effects.step_proposal import GovernedStepContext, registry_tool_classifier, stored_context_manifest_digest
+from caliber.workflows.agent_step import StepCeilings
 
 plan.governed_agent_steps = GovernedStepContext(
     session_factory=session_factory,
@@ -2720,19 +2743,99 @@ plan.governed_agent_steps = GovernedStepContext(
     grant_id=run_manifest["grant_id"],                 # the one grant the step runs under
     classify_tool=registry_tool_classifier(session_factory),
     context_manifest_digest=stored_context_manifest_digest(session_factory, run_id),
-    limits=lambda agent: step_limits,                  # carried in the request; enforced by B08.3
+    limits=lambda agent: step_limits,                  # the producer's; capped at the ceilings, enforced by the platform (B08.3)
     requested_by=run_initiator,
     approval_ttl_seconds=configured_ttl_seconds(config),
     tool_backends={("request_missing_document", "1.0"): "document_request"},  # registry identity -> backend, the producer's
+    ceilings=StepCeilings.from_config(config),         # optional: the CALIBER_AGENT_STEP_MAX_* ceilings (defaults when absent)
 )
 ```
 
 Not covered, so not claimed: dispatching an approved proposal (B04.6 routes model-selected calls through the dispatcher; until then
-an approved proposal stays `proposed` and the run stays `waiting_approval`), enforcing the limits (B08.3), the token reservation
+an approved proposal stays `proposed` and the run stays `waiting_approval`), the token reservation
 (B08.4), handoffs, inline targets and parallel branches (refused), and the output text of a governed step (a step that completes is refused). The
 v1 proposal still carries no tool name, so within a connector the class is the strictest of the tools that map to it; an additive
 contract change (the tool name in the envelope) would make it exact. Telling the model the connector, version and class to claim
 is an adapter concern.
+
+## Central step limits: turns, tool calls, tokens and the deadline (B08.3, #752)
+
+The limits of an agent step (`max_turns`, `max_tool_calls`, `max_tokens` and the `deadline` of the request) are enforced by the
+platform in `caliber.workflows.agent_step.run_agent_step`, the one boundary every adapter goes through, and not by each adapter. The
+adapters keep their own in-loop checks (they are the only code that can stop a provider call that is under way), but the platform
+does not rely on them and does not take an adapter's or a model's word for what a step used. It adds no table, route or migration.
+
+**Where the limits come from.** `GovernedStepContext.limits(agent)` is the producer's (trusted run or step configuration, never
+anything the adapter, the manifest author or the model supplies). The interpreter then brings them down to the platform's
+**ceilings** (`GovernedStepContext.ceilings`, default `StepCeilings()`, built from settings with `StepCeilings.from_config(config)`)
+with `cap_limits`: a count above its ceiling becomes the ceiling, a deadline later than *now + `CALIBER_AGENT_STEP_MAX_SECONDS`* is
+brought forward to it (an earlier deadline is kept exactly as given), and a limit is never raised. A producer whose `limits` raises,
+returns anything but a `StepLimits`, or names a deadline that is not an RFC 3339 instant stops the step with
+`governed agent step limits unavailable: limits_invalid` before the adapter is touched (no text from the producer's failure); a context
+clock that is not an aware instant stops it with `governed agent step clock unavailable: clock_invalid`.
+The request schema's own bound is 2147483647; the ceilings are what make a step finite in practice.
+
+| Setting | Default | Accepted | Meaning |
+| --- | --- | --- | --- |
+| `CALIBER_AGENT_STEP_MAX_TURNS` | `25` | 1 to 1000 | The most provider turns one step may be given. |
+| `CALIBER_AGENT_STEP_MAX_TOOL_CALLS` | `50` | 0 to 1000 | The most read-tool calls one step may make (`0` allows none). |
+| `CALIBER_AGENT_STEP_MAX_TOKENS` | `200000` | 1 to 10000000 | The most tokens (prompt plus completion) one step may use. |
+| `CALIBER_AGENT_STEP_MAX_SECONDS` | `600` | 1 to 86400, finite | The longest window, from the moment the step is asked, a deadline may reach. |
+
+A value outside its bounds stops the service at startup, naming the setting. Like the context caps, the ceilings reach a live step
+once the producer of the governed context passes `StepCeilings.from_config(config)`; a context that names none is capped at these
+defaults, never uncapped.
+
+**What the boundary does, for every adapter alike:**
+
+1. **Before work** (`before_work_stop`): a step with `max_turns` of 0, with `max_tokens` of 0, or whose deadline is now or past
+   (on the platform's clock) stops with that reason and **the adapter is not called**: zero usage, `usage_source: "estimated"`
+   (nothing was called, so a reservation made for it may be released by B08.4; no step that is stopped here has a provider
+   charge). `max_tool_calls` of 0 does not stop a step: it may still answer without a tool.
+2. **During work**: every read tool the adapter is handed (its own and its handoff targets') goes through a platform counter. The
+   call past `max_tool_calls` is refused with `StepToolBudgetExceeded` (the tool does not run, the text is fixed), and two calls
+   racing for the last slot cannot both run. A read tool called at or after the deadline (on the platform's monotonic-based
+   clock) is refused the same way with `StepDeadlineReached` (the tool does not run, the call is not counted), and the step ends
+   `deadline` even if the adapter ignores the refusal; a tool call already running is not interrupted. An adapter receives its **own copy** of the request, so rewriting the limits of the
+   request it holds changes nothing the platform checks.
+3. **After work**: a `completed` or `proposed_action` result is replaced by the stop of the limit it passed, **its proposal
+   dropped** (a step that overran never gets to propose, so no proposal row and no approval request exist), when its reported
+   `turns`, `tool_calls` or `total_tokens` is over the limit, when the platform counted a tool call past the limit (even if the
+   adapter swallowed the refusal and reported fewer), or when the platform's own clock says the step finished after its deadline.
+   Several limits passed are named in the order `max_turns`, `max_tool_calls`, `max_tokens`, `deadline`. The usage kept is the
+   reported one (what was spent is recorded), with `tool_calls` raised to the platform's own count when that is higher. A
+   `refused`, `error` or limit stop the adapter reports itself is returned as it is.
+
+**Exactly the limit is within it.** `max_tokens: 100` with `total_tokens: 100` completes; 101 stops with `max_tokens`. The same holds
+for turns and tool calls. A deadline stops a step that is *at or past* it before work, and one that finished *after* it after work
+(finishing exactly at the deadline is within it). The deadline is read from `StepClock`: the absolute deadline against wall time
+at the start, and how long the step took against a **monotonic** clock, so a wall clock stepped mid-step (an NTP correction) can
+neither extend nor spuriously cut a step. Tests inject a fake clock; a clock that is not an aware instant, or whose monotonic reading
+is not a finite number, is refused with `ValueError` before the adapter runs.
+
+| the step | result | recover by |
+| --- | --- | --- |
+| has no turn or no token to spend, or its deadline has passed | `max_turns`, `max_tokens` or `deadline`, usage 0, `estimated`; the adapter was not called; the run error is `governed agent step stopped: max_tokens (turns=0 tool_calls=0 tokens=0)` | a larger limit from the producer (within the ceilings) on a new run |
+| reports usage over a limit, or the platform counted a call past it | the limit's stop, proposal dropped, the reported usage kept; `governed agent step stopped: max_tokens (turns=1 tool_calls=0 tokens=15)`; no proposal and no approval request | the node's retry is the next attempt with a fresh budget |
+| finishes after its deadline | `deadline`, proposal dropped, usage kept | as above |
+| reports usage that contradicts itself (a total below the parts, a boolean or negative count, more than 2147483647) | `error`, `malformed_result`, zero usage, `usage_source: "unknown"` (the reservation is kept, B08.4) | the adapter reporting the provider's own figures |
+| asks for a tool past `max_tool_calls` | the tool is not run; the adapter sees `StepToolBudgetExceeded`; the step ends `max_tool_calls` if it went on | raising the limit within the ceiling |
+| asks for a tool at or after the deadline | the tool is not run and not counted; the adapter sees `StepDeadlineReached`; the step ends `deadline` if it went on | a later deadline within the ceiling on a new run |
+
+**No double counting.** The boundary keeps no state between calls: each call has its own counter and reads only its own result. A
+retry is the next `attempt` of the same occurrence with the full limits, and a resumed step that finds its recorded proposal asks
+nobody and reports no usage. Adding the usage of several attempts to one budget is B08.4's ledger, not this check.
+
+**For B08.4 and B08.5.** `before_work_stop(request, clock=...)` is the pre-work check a reservation should call first (a step it
+stops needs no reservation); the stop reasons are `caliber.workflows.agent_step.LIMIT_STOPS`. The conformance harness
+(`caliber/tests/agent_step_conformance.py`) gains `FakeStepClock`, `fixed_clock`, `limits_changes` and `stop_before_work`, and every
+`run_scenario` runs on a fixed clock (`StepContext.clock`); `caliber/tests/test_agent_step_bounds.py` runs the five executors over
+tripwire clients through `stop_before_work`.
+
+Not covered, so not claimed: the platform cannot observe a provider's turns or tokens, only what the adapter reports, so for those two
+the check bounds what is *recorded* and stops the proposal, while an adapter's own in-loop checks bound what is *spent* (a lying
+adapter can under-report tokens; the reservation, B08.4, is what charges a conservative figure). A blocking provider call is not
+interrupted. The usage of a stopped step is in its result and in the run error text; persisting it in a ledger is B08.4.
 
 ## Policy decisions
 

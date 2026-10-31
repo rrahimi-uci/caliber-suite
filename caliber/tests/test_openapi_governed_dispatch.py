@@ -333,9 +333,10 @@ def test_a_post_reaches_the_downstream_only_after_the_claim_and_with_the_stable_
     assert "d-0" in result.output
 
 
-def test_the_proposal_records_the_row_operation_and_the_input_and_nothing_secret(
+def test_the_proposal_records_the_row_operation_and_the_input_verbatim_but_not_the_auth_binding(
     factory: sessionmaker[Session], server: Server
 ) -> None:
+    """What is stored is the caller's input as given (so credentials never belong in it) and never the row's auth binding."""
     cfg = config(
         server.url,
         auth_binding={
@@ -345,7 +346,13 @@ def test_the_proposal_records_the_row_operation_and_the_input_and_nothing_secret
     )
     entry = entry_for("open_ticket", "write", cfg)
     run = OpenApiRun(factory, entry)
-    run.execute()
+    run.execute(
+        {
+            "body": {"summary": "disk full"},
+            "header_params": {"X-Trace": "t-1"},
+            "query_params": {"q": "a"},
+        }
+    )
 
     (proposal,) = proposals(factory)
     with factory() as session:
@@ -353,8 +360,12 @@ def test_the_proposal_records_the_row_operation_and_the_input_and_nothing_secret
     assert recorded["args"] == {
         "tool": "open_ticket",
         "version": "1.0",
-        "input": {"body": {"summary": "disk full"}},
-    }
+        "input": {
+            "body": {"summary": "disk full"},
+            "header_params": {"X-Trace": "t-1"},
+            "query_params": {"q": "a"},
+        },
+    }, "the caller's header_params and query_params are stored verbatim"
     assert "B044_TOKEN" not in json.dumps(recorded)
 
 
@@ -1351,3 +1362,60 @@ def test_a_recorded_input_that_still_carries_a_precondition_is_not_sent(server: 
 
     assert refused.value.code == openapi_http.INTENT_MISMATCH
     assert server.requests == []
+
+
+# ---------------------------------------------------------------- method-override and framing headers
+
+
+@pytest.mark.parametrize(
+    "header",
+    [
+        "X-HTTP-Method-Override",
+        "x-http-method-override",
+        "X-HTTP-Method",
+        "X-Method-Override",
+        "Transfer-Encoding",
+        "Content-Length",
+        "Host",
+        "Connection",
+        "Upgrade",
+        " X-HTTP-Method-Override ",
+    ],
+)
+def test_an_inline_read_cannot_carry_a_method_override_or_framing_header(
+    factory: sessionmaker[Session], server: Server, header: str
+) -> None:
+    """A GET classified read by the row's method must not be turned into a write by a header the downstream honours."""
+    cfg = config(server.url, method="GET", path="/tickets", idempotency_key_header=None)
+    run = OpenApiRun(factory, entry_for("list_tickets", "read", cfg))
+
+    result = run.execute({"header_params": {header: "DELETE"}})
+
+    assert result.status == "error"
+    assert "may not set a method-override, framing or hop-by-hop header" in (result.error or "")
+    assert "DELETE" not in (result.error or "")
+    assert server.requests == [] and proposals(factory) == []
+
+
+@pytest.mark.parametrize("header", ["X-HTTP-Method-Override", "transfer-encoding", "Host"])
+def test_a_governed_write_cannot_carry_a_method_override_or_framing_header(
+    factory: sessionmaker[Session], server: Server, header: str
+) -> None:
+    run = OpenApiRun(factory, entry_for("open_ticket", "write", config(server.url)))
+
+    result = run.execute({"body": {}, "header_params": {header: "x"}})
+
+    assert "OpenAPI effect proposal refused: openapi_header_forbidden" in (result.error or "")
+    assert run.authorized == [] and proposals(factory) == [] and server.requests == []
+
+
+def test_an_ordinary_header_is_still_sent_inline(
+    factory: sessionmaker[Session], server: Server
+) -> None:
+    cfg = config(server.url, method="GET", path="/tickets", idempotency_key_header=None)
+    run = OpenApiRun(factory, entry_for("list_tickets", "read", cfg))
+
+    result = run.execute({"header_params": {"X-Trace": "t-1"}})
+
+    assert result.status == "completed", result.error
+    assert server.requests[0]["headers"]["x-trace"] == "t-1"

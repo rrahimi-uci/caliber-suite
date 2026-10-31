@@ -692,6 +692,41 @@ def test_preflight_leaves_a_precondition_alone_for_an_operation_that_binds_no_he
     assert checked.replay_input["expected_resource_version"] == "3"
 
 
+@pytest.mark.parametrize(
+    "header",
+    ["X-HTTP-Method-Override", "x-method-override", "X-HTTP-Method", "Transfer-Encoding", "Host"],
+)
+def test_the_executor_and_the_preflight_both_refuse_a_method_override_or_framing_header(
+    local_server, header: str
+) -> None:
+    server, handler = local_server
+    config = _config(server_url=f"http://127.0.0.1:{server.server_address[1]}")
+    bind_egress_policy(EgressPolicy(allowed_hosts=frozenset({"127.0.0.1"})))
+    input_data = {"path_params": {"ticket_id": "T-1"}, "header_params": {header: "DELETE"}}
+
+    with pytest.raises(OpenApiExecutionError) as refused:
+        execute_openapi_http_tool(execution_config=config, input_schema=None, input_data=input_data)
+    assert refused.value.never_sent is True
+    assert "DELETE" not in str(refused.value) and header not in str(refused.value)
+    error = _refused("openapi_header_forbidden", config, input_data)
+    assert "DELETE" not in str(error)
+    assert handler.received == []
+
+
+def test_an_ordinary_header_param_still_reaches_the_downstream(local_server) -> None:
+    server, handler = local_server
+    config = _config(server_url=f"http://127.0.0.1:{server.server_address[1]}")
+    bind_egress_policy(EgressPolicy(allowed_hosts=frozenset({"127.0.0.1"})))
+
+    execute_openapi_http_tool(
+        execution_config=config,
+        input_schema=None,
+        input_data={"path_params": {"ticket_id": "T-1"}, "header_params": {"X-Trace": "t"}},
+    )
+
+    assert handler.received[0]["headers"]["X-Trace"] == "t"
+
+
 def test_the_preflight_and_the_executor_agree_on_the_url_the_request_would_use(
     local_server,
 ) -> None:

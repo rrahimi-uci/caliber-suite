@@ -52,6 +52,35 @@ _REDACTED_RESPONSE_HEADERS = frozenset(
     }
 )
 
+#: Request headers a caller-supplied ``header_params`` may never set (lower case). A method-override header lets a ``GET``
+#: the platform classified as a read act as a write at a downstream that honours it, and the hop-by-hop and framing headers
+#: are the transport's to set, so a caller could use them to smuggle or re-route a request. The refusal never names the
+#: header or its value.
+_FORBIDDEN_REQUEST_HEADERS = frozenset(
+    {
+        "x-http-method-override",
+        "x-http-method",
+        "x-method-override",
+        "transfer-encoding",
+        "content-length",
+        "content-encoding",
+        "host",
+        "connection",
+        "keep-alive",
+        "proxy-connection",
+        "proxy-authorization",
+        "te",
+        "trailer",
+        "upgrade",
+        "expect",
+    }
+)
+
+
+def _has_forbidden_header(header_params: dict[str, Any]) -> bool:
+    return any(name.strip().lower() in _FORBIDDEN_REQUEST_HEADERS for name in header_params)
+
+
 #: Status codes worth one more attempt. A 5xx or 429 is plausibly transient; a 4xx
 #: is the caller's problem and retrying only burns the upstream's rate budget.
 _RETRYABLE_STATUS = frozenset({429, 500, 502, 503, 504})
@@ -217,6 +246,10 @@ def _prepare_request(
     path_params = _as_mapping(input_data.get("path_params"))
     query_params = _as_mapping(input_data.get("query_params"))
     header_params = _as_mapping(input_data.get("header_params"))
+    if _has_forbidden_header(header_params):
+        raise OpenApiExecutionError(
+            "header_params may not set a method-override, framing or hop-by-hop header"
+        )
     body = input_data.get("body")
 
     url = server_url + _render_path(path, path_params)
@@ -448,6 +481,7 @@ PREFLIGHT_KEY_OVERRIDE = "openapi_key_override_refused"
 PREFLIGHT_PRECONDITION_CONFLICT = "openapi_precondition_conflict"
 PREFLIGHT_EGRESS_BLOCKED = "openapi_egress_blocked"
 PREFLIGHT_AUTH_UNSUPPORTED = "openapi_auth_unsupported"
+PREFLIGHT_HEADER_FORBIDDEN = "openapi_header_forbidden"
 PREFLIGHT_REFUSAL_CODES = (
     PREFLIGHT_CONFIG_INVALID,
     PREFLIGHT_INPUT_INVALID,
@@ -456,6 +490,7 @@ PREFLIGHT_REFUSAL_CODES = (
     PREFLIGHT_PRECONDITION_CONFLICT,
     PREFLIGHT_EGRESS_BLOCKED,
     PREFLIGHT_AUTH_UNSUPPORTED,
+    PREFLIGHT_HEADER_FORBIDDEN,
 )
 _AUTH_KINDS = frozenset(
     {
@@ -574,7 +609,8 @@ def preflight_governed_openapi_request(
 
     Nothing is sent and no secret is resolved. The input must satisfy the tool's schema; a pack's operation must be one the
     configuration binds; the server must be a plain ``http(s)`` origin (its text goes into the proposal's resource); the
-    request URL and an OAuth token URL must pass the egress policy (the transport applies it again when it connects).
+    request URL and an OAuth token URL must pass the egress policy (the transport applies it again when it connects);
+    ``header_params`` may not set a method-override, framing or hop-by-hop header (:data:`PREFLIGHT_HEADER_FORBIDDEN`).
     When the operation binds an idempotency key header, **the platform owns the key**: an ``idempotency_key`` input or a
     ``header_params`` entry for that header is refused (:data:`PREFLIGHT_KEY_OVERRIDE`) rather than sent next to the
     proposal's key. When it binds a precondition header, the ``expected_resource_version`` input and a ``header_params``
@@ -589,6 +625,8 @@ def preflight_governed_openapi_request(
         raise OpenApiPreflightError(PREFLIGHT_INPUT_INVALID) from None
     _check_server_url(server_url)
     header_params = _as_mapping(input_data.get("header_params"))
+    if _has_forbidden_header(header_params):
+        raise OpenApiPreflightError(PREFLIGHT_HEADER_FORBIDDEN)
     try:
         url = server_url + _render_path(path, _as_mapping(input_data.get("path_params")))
     except OpenApiExecutionError:
