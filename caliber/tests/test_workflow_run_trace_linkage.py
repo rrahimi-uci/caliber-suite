@@ -29,6 +29,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from starlette.testclient import TestClient
 
 import caliber.effects.dispatcher as dispatcher_module
+from caliber.audit import configure_redactor
 from caliber.db.models import (
     CaliberEffectProposal,
     CaliberEffectReceipt,
@@ -48,6 +49,7 @@ from caliber.effects.receipts import record_receipt
 from caliber.effects.records import POLICY_DECISION, ProposalError, proposal_state
 from caliber.observability.mlflow_tracing import Tracer, set_tracer
 from caliber.orchestrator.workflow_run_worker import WorkflowRunWorker
+from caliber.redaction import build_redactor
 from caliber.workflows.approval_policy import ApprovalCommit, ApprovalCommitRefused
 from caliber.workflows.runtime import NodeStep, WorkflowRunResult
 from tests.effect_helpers import leased
@@ -509,3 +511,48 @@ def test_receipt_write_refusals_are_coded_and_unknown_proposals_are_not_linked(
     assert "123-45-6789" not in repr(unknown.attributes)
     assert _causal(malformed) == {}
     assert malformed.attributes["caliber.refusal_code"] == "bad_field"
+
+
+class _RaisingRedactor:
+    def redact_value(self, _value: object) -> object:
+        raise RuntimeError("redactor down")
+
+
+@pytest.fixture
+def failing_redactor() -> Iterator[None]:
+    configure_redactor(_RaisingRedactor())  # type: ignore[arg-type]
+    yield
+    configure_redactor(build_redactor(enabled=False, extra_patterns="", replacement="[REDACTED]"))
+
+
+def test_a_failing_redactor_never_fails_the_effect_it_traces(
+    factory: sessionmaker[Session],
+    armed: Armed,
+    monkeypatch: pytest.MonkeyPatch,
+    fake: FakeMlflow,
+    failing_redactor: None,
+) -> None:
+    """The bind after the settlement commit is the last thing dispatch does: it cannot undo a committed effect."""
+    validator = _trust_row_decision(monkeypatch, armed.decision_id)
+    _register(monkeypatch, _VerifiedBackend(factory, armed.proposal_id))
+
+    outcome = _dispatch(factory, armed, validator)
+
+    assert outcome.state == "committed" and outcome.receipt_id is not None
+    with factory() as session:
+        assert session.scalars(select(CaliberEffectReceipt.receipt_id)).one() == outcome.receipt_id
+        assert proposal_state(session, armed.proposal_id).state == "committed"
+    for span in fake.spans:
+        assert not [key for key in span.attributes if key.startswith("caliber.")], span.name
+    assert {span.name for span in fake.spans} == {"effect.dispatch", "effect.receipt.write"}
+
+
+def test_a_failing_redactor_does_not_fail_a_receipt_write(
+    factory: sessionmaker[Session], fake: FakeMlflow, failing_redactor: None
+) -> None:
+    with factory() as session:
+        proposal_id = _proposal(session)
+        recorded = record_receipt(session, proposal_id, _facts(session, proposal_id), now=AT)
+        assert recorded.created
+    (span,) = _named(fake, "effect.receipt.write")
+    assert _causal(span) == {}

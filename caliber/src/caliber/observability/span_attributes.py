@@ -89,6 +89,20 @@ def causal_attributes(
     return attributes
 
 
+def _platform_refusals() -> tuple[type[BaseException], ...]:
+    """The refusal types whose ``code`` is a stable platform vocabulary.
+
+    Imported lazily: each of these modules opens spans through this one.  Any other exception that
+    happens to carry a ``code`` attribute (a driver, a client library) is foreign and its code is
+    not copied to a span.
+    """
+    from caliber.effects.dispatcher import EffectRefused  # noqa: PLC0415 - import cycle
+    from caliber.effects.records import ProposalError  # noqa: PLC0415 - import cycle
+    from caliber.workflows.approval_policy import ApprovalCommitRefusedError  # noqa: PLC0415
+
+    return (ProposalError, EffectRefused, ApprovalCommitRefusedError)
+
+
 def without_reserved_keys(tags: Mapping[str, str]) -> dict[str, str]:
     """``tags`` without any key only trusted code may set (a manifest cannot assert a causal link)."""
     return {key: value for key, value in tags.items() if key not in RESERVED_SPAN_KEYS}
@@ -120,16 +134,27 @@ class GovernedSpan:
             approval_id=approval_id,
             effect_id=effect_id,
         ).items():
-            self._span.set_attribute(key, value)
+            # Tracing must never change what a governed effect does, and this runs after the effect's own
+            # transaction has committed: a redactor or tracer failure is logged and the attribute is absent.
+            try:
+                self._span.set_attribute(key, value)
+            except Exception:
+                logger.debug("failed binding span attribute %s", key, exc_info=True)
 
     def record_failure(self, exc: BaseException) -> None:
-        """Mark the span failed from the exception's *type* and stable ``code`` only, never its message."""
-        code = getattr(exc, "code", None)
+        """Mark the span failed from the exception's *type* and, for a platform refusal, its stable ``code``.
+
+        The message is never recorded, and neither is the ``code`` of a foreign exception.
+        """
+        code = getattr(exc, "code", None) if isinstance(exc, _platform_refusals()) else None
         label = code if isinstance(code, str) and _CODE.fullmatch(code) else None
-        if label is not None:
-            self._span.set_attribute(REFUSAL_CODE_KEY, label)
-        self._span.set_attribute("caliber.error_type", type(exc).__name__)
-        self._span.mark_error(label or type(exc).__name__)
+        try:
+            if label is not None:
+                self._span.set_attribute(REFUSAL_CODE_KEY, label)
+            self._span.set_attribute("caliber.error_type", type(exc).__name__)
+            self._span.mark_error(label or type(exc).__name__)
+        except Exception:  # never let tracing replace the exception being recorded
+            logger.debug("failed recording a failure on span %s", self._span.name, exc_info=True)
 
 
 @contextmanager
@@ -151,17 +176,15 @@ def governed_span(
     configured.
     """
     failure: Exception | None = None
-    with get_tracer().span(
-        name,
-        span_type=span_type,
-        attributes=causal_attributes(
+    with get_tracer().span(name, span_type=span_type) as span:
+        handle = GovernedSpan(span)
+        # Bound after the span opens, not passed to it: opening sanitizes its start attributes with no guard.
+        handle.bind(
             proposal_id=proposal_id,
             decision_id=decision_id,
             approval_id=approval_id,
             effect_id=effect_id,
-        ),
-    ) as span:
-        handle = GovernedSpan(span)
+        )
         try:
             yield handle
         except Exception as exc:

@@ -10,6 +10,8 @@ from __future__ import annotations
 import pytest
 
 from caliber.audit import configure_redactor
+from caliber.effects.dispatcher import EffectRefused
+from caliber.effects.records import ProposalError
 from caliber.observability.mlflow_tracing import Tracer, set_tracer
 from caliber.observability.span_attributes import (
     CAUSAL_ATTRIBUTE_KEYS,
@@ -23,6 +25,7 @@ from caliber.observability.span_attributes import (
 from caliber.observability.trace_access import redact_trace_detail
 from caliber.profile import SAFE_SPAN_ATTRIBUTES
 from caliber.redaction import build_redactor
+from caliber.workflows.approval_policy import ApprovalCommitRefused
 from caliber.workflows.runtime import CaliberRunContext, run_tags
 from tests.test_mlflow_tracing import FakeMlflow
 
@@ -206,26 +209,39 @@ def test_governed_span_sends_only_validated_ids_to_the_tracer() -> None:
     assert fake.span_exits == [("effect.x", None)]
 
 
-class _RefusalError(RuntimeError):
-    def __init__(self, code: str, message: str) -> None:
+class _ForeignError(RuntimeError):
+    """What a driver or client library raises: it can carry a ``code`` that is not ours."""
+
+    def __init__(self, code: object, message: str) -> None:
         super().__init__(message)
         self.code = code
 
 
-def test_a_refusal_is_recorded_by_code_and_type_only_and_reraised_unchanged() -> None:
+def _platform_refusals(secret: str) -> list[BaseException]:
+    return [
+        ProposalError("stale_version", secret),
+        EffectRefused("stale_version", secret),
+        ApprovalCommitRefused("stale_version", secret),
+    ]
+
+
+@pytest.mark.parametrize("index", [0, 1, 2], ids=["proposal-error", "effect-refused", "approval"])
+def test_a_platform_refusal_is_recorded_by_code_and_type_only_and_reraised_unchanged(
+    index: int,
+) -> None:
     fake = FakeMlflow()
     set_tracer(Tracer(mlflow_module=fake))
     secret = "ssn 123-45-6789 token=abc123 jane@example.com"
-    raised = _RefusalError("stale_version", secret)
+    raised = _platform_refusals(secret)[index]
 
-    with pytest.raises(_RefusalError) as caught:
+    with pytest.raises(type(raised)) as caught:
         with governed_span("effect.x", proposal_id=PROPOSAL):
             raise raised
 
     assert caught.value is raised
     (recorded,) = fake.spans
     assert recorded.attributes[REFUSAL_CODE_KEY] == "stale_version"
-    assert recorded.attributes["caliber.error_type"] == "_RefusalError"
+    assert recorded.attributes["caliber.error_type"] == type(raised).__name__
     assert recorded.attributes["caliber.status"] == "failed"
     assert recorded.attributes["caliber.error"] == "stale_version"
     assert secret not in repr(recorded.attributes)
@@ -234,21 +250,67 @@ def test_a_refusal_is_recorded_by_code_and_type_only_and_reraised_unchanged() ->
     assert fake.span_exits == [("effect.x", None)]
 
 
-@pytest.mark.parametrize(
-    "code",
-    ["Stale", "has space", "x" * 65, "9lives", "", None, 7, "ssn-123-45-6789", "a@b.co"],
-)
-def test_an_unstable_code_is_not_copied_to_the_span(code: object) -> None:
+def test_a_foreign_exception_with_a_matching_code_is_recorded_by_type_only() -> None:
     fake = FakeMlflow()
     set_tracer(Tracer(mlflow_module=fake))
-    error = RuntimeError("boom")
-    error.code = code  # type: ignore[attr-defined]
-    with pytest.raises(RuntimeError):
+    with pytest.raises(_ForeignError):
         with governed_span("effect.x"):
-            raise error
+            raise _ForeignError("stale_version", "driver says: secret")
     (recorded,) = fake.spans
     assert REFUSAL_CODE_KEY not in recorded.attributes
-    assert recorded.attributes["caliber.error"] == "RuntimeError"
+    assert recorded.attributes["caliber.error_type"] == "_ForeignError"
+    assert recorded.attributes["caliber.error"] == "_ForeignError"
+    assert "stale_version" not in repr(recorded.attributes)
+    assert "secret" not in repr(recorded.attributes)
+
+
+@pytest.mark.parametrize(
+    "code",
+    ["Stale", "has space", "x" * 65, "9lives", "", "ssn-123-45-6789", "a@b.co"],
+)
+def test_an_unstable_platform_code_is_not_copied_to_the_span(code: str) -> None:
+    fake = FakeMlflow()
+    set_tracer(Tracer(mlflow_module=fake))
+    with pytest.raises(ProposalError):
+        with governed_span("effect.x"):
+            raise ProposalError(code, "boom")
+    (recorded,) = fake.spans
+    assert REFUSAL_CODE_KEY not in recorded.attributes
+    assert recorded.attributes["caliber.error"] == "ProposalError"
+
+
+class _RaisingRedactor:
+    def redact_value(self, _value: object) -> object:
+        raise RuntimeError("redactor down")
+
+
+class _RaisingSpan:
+    name = "raising"
+
+    def set_attribute(self, _key: str, _value: object) -> None:
+        raise RuntimeError("tracer down")
+
+    def mark_error(self, _message: object = None) -> None:
+        raise RuntimeError("tracer down")
+
+
+def test_a_failing_redactor_drops_the_attribute_and_never_fails_the_body() -> None:
+    fake = FakeMlflow()
+    set_tracer(Tracer(mlflow_module=fake))
+    configure_redactor(_RaisingRedactor())  # type: ignore[arg-type]
+    with governed_span("effect.x", proposal_id=PROPOSAL) as span:
+        span.bind(effect_id=EFFECT)
+    (recorded,) = fake.spans
+    assert not [key for key in recorded.attributes if key.startswith("caliber.")]
+    assert span.attributes == {}
+
+
+def test_a_failing_span_cannot_replace_the_exception_it_records() -> None:
+    from caliber.observability.span_attributes import GovernedSpan
+
+    handle = GovernedSpan(_RaisingSpan())  # type: ignore[arg-type]
+    handle.bind(proposal_id=PROPOSAL)  # swallowed
+    handle.record_failure(ProposalError("stale_version", "x"))  # swallowed
 
 
 def test_an_exception_without_a_code_is_recorded_by_type_only() -> None:
