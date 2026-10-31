@@ -70,7 +70,10 @@ _EXPECTED_COUNTS = {
     # `evaluation_id`) with no project column of its own: the evaluation, and through it the release, supplies the
     # project boundary, like the other subordinate audit rows above. Confirmed by direct look; it is written and read
     # only by the release evaluator and never listed through a route.
-    SCOPING_UNSCOPED: 59,
+    # +1 (`B08.4`): CaliberStepTokenReservation is an immutable-once-final child of a workflow run (FK `workflow_run_id`) with no
+    # project column of its own, like CaliberEffectProposal: the run supplies the project boundary. Confirmed by direct look; it is
+    # written and read only through `caliber.budget.step_reservation`, never listed through a route.
+    SCOPING_UNSCOPED: 60,
     # -1 (`P1-E`): CaliberPersonalAccessToken gained project_id (optional
     # PAT project binding) and moves from owned_catalog to project_only --
     # see below.

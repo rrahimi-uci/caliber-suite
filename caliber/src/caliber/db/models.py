@@ -2407,6 +2407,104 @@ def _effect_receipt_digest_matches_bytes(_mapper: Any, _connection: Any, target:
         raise ValueError("receipt_digest must be the lowercase SHA-256 of receipt_bytes")
 
 
+class CaliberStepTokenReservation(Base):
+    """The tokens one governed agent step was admitted to spend, reserved before its adapter is called (B08.4, #761).
+
+    One row per ``(workflow_run_id, node_id, occurrence_id, attempt)`` (unique: a duplicate request finds the same row and
+    never reserves twice). ``reserved_tokens`` is the step's ``max_tokens`` ceiling, taken under the run's row lock so
+    concurrent workers cannot together reserve more than the run's budget (``budget_tokens`` records the budget it was
+    admitted under). A row is ``reserved`` (open: the call may be running or may have crashed) until
+    ``caliber.budget.step_reservation`` moves it exactly once to ``settled`` (the step returned) or ``abandoned`` (the
+    janitor found it open past the step's deadline plus a grace). ``charged_tokens`` is then what counts against the run:
+    ``basis`` ``reported`` is the usage a provider-sourced result reported (``charged_tokens = reported_tokens``, which may
+    be below the reservation, or above it: an overage is charged in full), ``conservative`` is the whole reservation for
+    anything missing, malformed, estimated or ambiguous (``charged_tokens = reserved_tokens``, never below it). While a row is
+    open it counts at ``reserved_tokens``, so a crashed worker's reservation is never released. A final row is immutable (the
+    ORM refuses every edit, and database triggers, migration 0133, refuse any UPDATE of a final row, any change to the
+    identity columns, DELETE and TRUNCATE); CHECK constraints keep the figures non-negative and the charge consistent
+    with its basis.
+    """
+
+    __tablename__ = "caliber_step_token_reservations"
+    __table_args__ = (
+        Index("ix_step_token_reservations_run", "workflow_run_id", "state"),
+        Index("ix_step_token_reservations_open", "state", "deadline_at"),
+        UniqueConstraint(
+            "workflow_run_id",
+            "node_id",
+            "occurrence_id",
+            "attempt",
+            name="uq_step_token_reservation_step",
+        ),
+        CheckConstraint("reserved_tokens > 0", name="ck_step_token_reservation_reserved"),
+        CheckConstraint("budget_tokens > 0", name="ck_step_token_reservation_budget"),
+        CheckConstraint("attempt >= 1", name="ck_step_token_reservation_attempt"),
+        CheckConstraint(
+            "state IN ('reserved', 'settled', 'abandoned')", name="ck_step_token_reservation_state"
+        ),
+        CheckConstraint(
+            "charge_basis IS NULL OR charge_basis IN ('reported', 'conservative')",
+            name="ck_step_token_reservation_basis",
+        ),
+        CheckConstraint(
+            "(charged_tokens IS NULL OR charged_tokens >= 0) "
+            "AND (reported_tokens IS NULL OR reported_tokens >= 0)",
+            name="ck_step_token_reservation_nonnegative",
+        ),
+        CheckConstraint(
+            "(state = 'reserved' AND charged_tokens IS NULL AND charge_basis IS NULL "
+            "AND settled_at IS NULL) OR (state IN ('settled', 'abandoned') "
+            "AND charged_tokens IS NOT NULL AND charge_basis IS NOT NULL AND settled_at IS NOT NULL)",
+            name="ck_step_token_reservation_final_shape",
+        ),
+        CheckConstraint(
+            "charge_basis IS NULL OR charge_basis <> 'conservative' OR charged_tokens = reserved_tokens",
+            name="ck_step_token_reservation_conservative",
+        ),
+        CheckConstraint(
+            "charge_basis IS NULL OR charge_basis <> 'reported' "
+            "OR (reported_tokens IS NOT NULL AND charged_tokens = reported_tokens)",
+            name="ck_step_token_reservation_reported",
+        ),
+        CheckConstraint(
+            "state <> 'abandoned' OR charge_basis = 'conservative'",
+            name="ck_step_token_reservation_abandoned",
+        ),
+        CheckConstraint(
+            "length(node_id) > 0 AND length(occurrence_id) > 0 AND length(step_request_id) > 0",
+            name="ck_step_token_reservation_identity",
+        ),
+    )
+
+    reservation_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    workflow_run_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("caliber_workflow_runs.workflow_run_id")
+    )
+    node_id: Mapped[str] = mapped_column(String(128))
+    occurrence_id: Mapped[str] = mapped_column(String(128))
+    attempt: Mapped[int] = mapped_column(Integer)
+    step_request_id: Mapped[str] = mapped_column(String(128))
+    reserved_tokens: Mapped[int] = mapped_column(BigInteger)
+    budget_tokens: Mapped[int] = mapped_column(BigInteger)
+    #: The step's own deadline (UTC, naive): an open reservation older than this plus a grace is abandoned by the janitor.
+    deadline_at: Mapped[datetime] = mapped_column(DateTime)
+    state: Mapped[str] = mapped_column(String(16), default="reserved", server_default="reserved")
+    charged_tokens: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    charge_basis: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    #: What the adapter reported (audit only; never trusted to *lower* a charge unless the basis is ``reported``).
+    reported_tokens: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    usage_source: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    stop_reason: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    error_code: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    settled_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+
+# Every column is frozen for the ORM: a reservation moves only through ``caliber.budget.step_reservation`` (a Core
+# compare-and-set from ``reserved``), never by editing an instance.
+guard_immutable(CaliberStepTokenReservation)
+
+
 class CaliberRunGrant(Base):
     """What one workflow run may do, for whom, in which project, until when (B03.2, #664).
 

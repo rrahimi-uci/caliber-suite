@@ -38,6 +38,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
+from caliber.config import AGENT_RUN_MAX_TOKENS_BOUNDS, AGENT_RUN_MAX_TOKENS_DEFAULT
 from caliber.contracts.agent_step import StepLimits
 from caliber.db.models import (
     CaliberEffectProposal,
@@ -231,6 +232,15 @@ class GovernedStepContext:
     ceilings: StepCeilings = field(default_factory=StepCeilings)
     #: The clock a step's deadline is read from (wall time and a monotonic clock); ``None`` is the platform's own, a fake one in tests.
     clock: StepClock | None = None
+    #: The most tokens the run's governed steps may reserve and be charged in total (``CALIBER_AGENT_RUN_MAX_TOKENS``; B08.4). A step's
+    #: ``max_tokens`` ceiling is reserved against it before the adapter is called. The default is the setting's own, so a context
+    #: that names none is bounded, not unbounded.
+    run_token_budget: int = AGENT_RUN_MAX_TOKENS_DEFAULT
+
+    def __post_init__(self) -> None:
+        low, high = AGENT_RUN_MAX_TOKENS_BOUNDS
+        if type(self.run_token_budget) is not int or not low <= self.run_token_budget <= high:
+            raise ValueError(f"run_token_budget must be an integer from {low} to {high}")
 
 
 def stored_context_manifest_digest(

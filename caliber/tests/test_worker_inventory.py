@@ -130,6 +130,7 @@ def test_effect_reconciler_is_listed_owner_only_with_its_tables() -> None:
     assert descriptor.tables == (
         "CaliberEffectProposal",
         "CaliberEffectReceipt",
+        "CaliberStepTokenReservation",
         "CaliberAuditLog",
         "CaliberWorkerHeartbeat",
     )

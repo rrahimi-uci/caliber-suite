@@ -28,6 +28,10 @@ having to remember to. It adds no second lease protocol and no second queue:
 * **Targets** are the connector bindings of ``CALIBER_EFFECT_CALLBACK_CONNECTORS`` (the same ``(connector, project)`` that
   may report a receipt is the one asked). With none bound the pass still abandons the dispatches of lost leases and expires
   stuck in-flight ones; lookups report ``not_bound`` and nothing is settled by guessing.
+* **Step token reservations.** After each pass the same lease finalizes the step token reservations of governed agent steps that a
+  crashed or cancelled worker left open past the step's deadline plus ``CALIBER_AGENT_RESERVATION_GRACE_SECONDS`` as ``abandoned``,
+  at their whole reservation (:func:`caliber.budget.step_reservation.abandon_stale`): it never gives tokens back, so a run's
+  budget does not move, the row only stops being open. A failure there never stops the loop.
 * **Liveness.** It writes its own ``caliber_worker_heartbeats`` row (kind ``effect_reconciler``) on every tick, idle ones
   included, and on progress inside a long pass; a clean stop removes it.
 
@@ -55,6 +59,8 @@ from typing import Any
 from sqlalchemy import event, text
 from sqlalchemy.orm import Session, sessionmaker
 
+from caliber.budget.step_reservation import abandon_stale
+from caliber.config import AGENT_RESERVATION_GRACE_BOUNDS, AGENT_RESERVATION_GRACE_DEFAULT
 from caliber.effects.callbacks import parse_bindings
 from caliber.effects.reconcile import (
     Lookup,
@@ -73,7 +79,7 @@ from caliber.observability.worker_registry import (
     record_heartbeat,
     stale_after_seconds,
 )
-from caliber.ownership import Lease
+from caliber.ownership import Lease, LeaseLost
 
 logger = logging.getLogger("caliber.orchestrator.effect_reconciler")
 
@@ -156,6 +162,12 @@ class EffectReconcilerTask:
             DEFAULT_IN_FLIGHT_MAX_SECONDS,
             MIN_IN_FLIGHT_MAX_SECONDS,
             86400.0,
+        )
+        self._reservation_grace_seconds = _bounded_seconds(
+            config,
+            "agent_reservation_grace_seconds",
+            AGENT_RESERVATION_GRACE_DEFAULT,
+            *AGENT_RESERVATION_GRACE_BOUNDS,
         )
         self._execution_lease_seconds = _bounded_seconds(
             config, "execution_lease_seconds", _DEFAULT_EXECUTION_LEASE_SECONDS, 1.0, 3600.0
@@ -252,7 +264,27 @@ class EffectReconcilerTask:
             if lease is None:
                 logger.debug("effect reconciler is not the execution owner; nothing reconciled")
                 return None
-            return self._pass(lease)
+            report = self._pass(lease)
+            self._abandon_reservations(lease)
+            return report
+
+    def _abandon_reservations(self, lease: Lease) -> None:
+        """Finalize step token reservations a crashed worker left open past their deadline (B08.4), under the same lease.
+
+        It never gives tokens back: an abandoned reservation is charged in full, so the only thing that moves is that the row stops
+        being open. A lease that is no longer held, a stop in progress or a store that fails ends it quietly (the next tick tries
+        again); nothing but a count and an exception class is logged.
+        """
+        if self._stop_requested.is_set():
+            return
+        try:
+            abandon_stale(self._open, lease, grace_seconds=self._reservation_grace_seconds)
+        except LeaseLost:
+            logger.info("step token reservation sweep skipped: the execution-owner lease is gone")
+        except Exception as exc:
+            logger.warning(
+                "step token reservation sweep failed (%s); retrying next tick", type(exc).__name__
+            )
 
     def _pass(self, lease: Lease) -> PassReport:
         after = self._cursor[1] if self._cursor and self._cursor[0] == lease.fencing_token else None

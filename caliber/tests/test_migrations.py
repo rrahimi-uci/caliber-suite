@@ -39,10 +39,17 @@ from alembic import command
 from alembic.config import Config
 from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.exc import IntegrityError, SAWarning
+from sqlalchemy.orm import Session
 
 from caliber.candidate_digest import CANDIDATE_DIGEST_LENGTH, candidate_digest
 from caliber.db import Base
-from caliber.db.models import CaliberRefinementJob
+from caliber.db.models import (
+    CaliberProject,
+    CaliberRefinementJob,
+    CaliberStepTokenReservation,
+    CaliberWorkflow,
+    CaliberWorkflowRun,
+)
 from tests.dialect_helpers import DIALECTS, dialect_database_url
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -360,6 +367,177 @@ def test_0132_backfills_only_claimable_jobs_with_the_runtime_digest_and_reverses
                     text("SELECT count(*) FROM caliber_refinement_jobs")
                 ).scalar_one()
             assert remaining == len(rows)
+        finally:
+            engine.dispose()
+            os.environ.pop("CALIBER_DATABASE_URL", None)
+
+
+def test_step_token_reservation_model_contract() -> None:
+    """B08.4: the model carries the unique step key, the non-negative figures and the charge/basis consistency."""
+    table = CaliberStepTokenReservation.__table__
+    assert {c.name for c in table.constraints if isinstance(c, sa.CheckConstraint)} == {
+        "ck_step_token_reservation_reserved",
+        "ck_step_token_reservation_budget",
+        "ck_step_token_reservation_attempt",
+        "ck_step_token_reservation_state",
+        "ck_step_token_reservation_basis",
+        "ck_step_token_reservation_nonnegative",
+        "ck_step_token_reservation_final_shape",
+        "ck_step_token_reservation_conservative",
+        "ck_step_token_reservation_reported",
+        "ck_step_token_reservation_abandoned",
+        "ck_step_token_reservation_identity",
+    }
+    unique = {
+        tuple(column.name for column in c.columns)
+        for c in table.constraints
+        if isinstance(c, sa.UniqueConstraint)
+    }
+    assert unique == {("workflow_run_id", "node_id", "occurrence_id", "attempt")}
+    assert isinstance(table.c.reserved_tokens.type, sa.BigInteger)
+    assert table.c.charged_tokens.nullable is True and table.c.reserved_tokens.nullable is False
+
+
+_RESERVATION_INSERT = text(
+    "INSERT INTO caliber_step_token_reservations (reservation_id, workflow_run_id, node_id, occurrence_id, "
+    "attempt, step_request_id, reserved_tokens, budget_tokens, deadline_at) "
+    "VALUES (:rid, 'RUN-0133', 'agent', :occ, 1, :step, 1000, 5000, '2099-01-01 00:00:00')"
+)
+_SETTLE = text(
+    "UPDATE caliber_step_token_reservations SET state = 'settled', charged_tokens = 300, "
+    "charge_basis = 'reported', reported_tokens = 300, settled_at = '2026-10-31 00:00:00' "
+    "WHERE reservation_id = :rid"
+)
+
+
+def _seed_run_0133(engine: sa.engine.Engine) -> None:
+    with Session(engine) as session:
+        session.add_all(
+            [
+                CaliberProject(project_id="PRJ-0133", name="P", owner="@t"),
+                CaliberWorkflow(workflow_id="wf-0133", project_id="PRJ-0133", name="W", owner="@t"),
+                CaliberWorkflowRun(
+                    workflow_run_id="RUN-0133",
+                    workflow_id="wf-0133",
+                    project_id="PRJ-0133",
+                    status="running",
+                ),
+            ]
+        )
+        session.commit()
+
+
+@pytest.mark.slow
+@pytest.mark.parametrize("dialect", DIALECTS)
+def test_0133_creates_the_reservation_table_enforces_it_and_reverses(
+    dialect: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """B08.4: the table appears at 0133 only, refuses what the code never writes, keeps a final row final, and downgrades.
+
+    Run on PostgreSQL as well as SQLite: the migration-parity job must exercise the real DDL (the trigger functions, the
+    REVOKE and the TRUNCATE trigger), not only SQLite's development path.
+    """
+    with dialect_database_url(dialect, tmp_path, "step_token_reservations") as db_url:
+        monkeypatch.setenv("CALIBER_DATABASE_URL", db_url)
+        monkeypatch.chdir(PROJECT_ROOT)
+        cfg = Config(str(ALEMBIC_INI))
+        command.upgrade(cfg, "0132")
+        engine = create_engine(db_url)
+        try:
+            assert "caliber_step_token_reservations" not in inspect(engine).get_table_names()
+            command.upgrade(cfg, "0133")
+
+            inspector = inspect(engine)
+            assert "caliber_step_token_reservations" in inspector.get_table_names()
+            columns = {
+                c["name"]: c for c in inspector.get_columns("caliber_step_token_reservations")
+            }
+            assert set(columns) == {c.name for c in CaliberStepTokenReservation.__table__.columns}
+            assert columns["reserved_tokens"]["nullable"] is False
+            assert columns["charged_tokens"]["nullable"] is True
+            _seed_run_0133(engine)
+
+            with engine.begin() as connection:
+                connection.execute(
+                    _RESERVATION_INSERT, {"rid": "tres-a", "occ": "o1", "step": "s1"}
+                )
+                connection.execute(
+                    _RESERVATION_INSERT, {"rid": "tres-b", "occ": "o2", "step": "s2"}
+                )
+            with (
+                pytest.raises(IntegrityError),
+                engine.begin() as connection,
+            ):  # the step key is unique
+                connection.execute(
+                    _RESERVATION_INSERT, {"rid": "tres-c", "occ": "o1", "step": "s3"}
+                )
+            with (
+                pytest.raises(IntegrityError),
+                engine.begin() as connection,
+            ):  # a CHECK: no negative figure
+                connection.execute(
+                    text(
+                        "UPDATE caliber_step_token_reservations SET state = 'settled', charged_tokens = -1, "
+                        "charge_basis = 'reported', reported_tokens = -1, settled_at = '2026-10-31 00:00:00' "
+                        "WHERE reservation_id = 'tres-a'"
+                    )
+                )
+            with (
+                pytest.raises(IntegrityError),
+                engine.begin() as connection,
+            ):  # an open row's figures are frozen
+                connection.execute(
+                    text(
+                        "UPDATE caliber_step_token_reservations SET reserved_tokens = 1 "
+                        "WHERE reservation_id = 'tres-a'"
+                    )
+                )
+            with (
+                pytest.raises(IntegrityError),
+                engine.begin() as connection,
+            ):  # an open row cannot be deleted
+                connection.execute(
+                    text(
+                        "DELETE FROM caliber_step_token_reservations WHERE reservation_id = 'tres-a'"
+                    )
+                )
+
+            with engine.begin() as connection:  # the one allowed move: open to final, once
+                connection.execute(_SETTLE, {"rid": "tres-a"})
+            for statement in (
+                "UPDATE caliber_step_token_reservations SET charged_tokens = 0 WHERE reservation_id = 'tres-a'",
+                "UPDATE caliber_step_token_reservations SET state = 'reserved' WHERE reservation_id = 'tres-a'",
+                "DELETE FROM caliber_step_token_reservations WHERE reservation_id = 'tres-a'",
+            ):
+                with pytest.raises(IntegrityError), engine.begin() as connection:
+                    connection.execute(text(statement))
+            if dialect == "postgresql":
+                with pytest.raises(IntegrityError), engine.begin() as connection:
+                    connection.execute(text("TRUNCATE caliber_step_token_reservations"))
+            with engine.connect() as connection:
+                rows = dict(
+                    connection.execute(
+                        text(
+                            "SELECT reservation_id, state FROM caliber_step_token_reservations "
+                            "ORDER BY reservation_id"
+                        )
+                    ).all()
+                )
+            assert rows == {"tres-a": "settled", "tres-b": "reserved"}
+
+            command.downgrade(cfg, "0132")
+            assert "caliber_step_token_reservations" not in inspect(engine).get_table_names()
+            if dialect == "postgresql":
+                with engine.connect() as connection:
+                    left = connection.execute(
+                        text(
+                            "SELECT count(*) FROM pg_proc WHERE proname LIKE "
+                            "'caliber_step_token_reservations_%'"
+                        )
+                    ).scalar_one()
+                assert left == 0, "the trigger functions go with the table"
+            command.upgrade(cfg, "0133")  # and the migration can run again
+            assert "caliber_step_token_reservations" in inspect(engine).get_table_names()
         finally:
             engine.dispose()
             os.environ.pop("CALIBER_DATABASE_URL", None)
