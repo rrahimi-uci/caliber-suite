@@ -31,6 +31,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from caliber.audit import record as audit_record
 from caliber.auth import CaliberIdentity
+from caliber.candidate_digest import candidate_digest
 from caliber.config import CaliberConfig
 from caliber.db.models import (
     CaliberEvalDataset,
@@ -700,6 +701,8 @@ def run_workflow_eval(
     # the terminal ``candidate_ready`` state for an operator to Apply later.
     job.status = "candidate_ready"
     job.current_stage = "done"
+    # Bind a later Apply to exactly the content this gate cleared (B06.4, #753).
+    job.candidate_digest = candidate_digest(job.candidate)
     audit_record(
         session,
         actor=actor,
@@ -819,6 +822,8 @@ def _run_workflow_calibration_eval(
     # operator promotes the selected winner later via the Apply endpoint.
     job.status = "candidate_ready"
     job.current_stage = "done"
+    # Bind a later Apply to exactly the content this gate cleared (B06.4, #753).
+    job.candidate_digest = candidate_digest(job.candidate)
     audit_record(
         session,
         actor=actor,

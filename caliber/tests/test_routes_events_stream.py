@@ -14,6 +14,7 @@ import pytest
 from sqlalchemy.orm import Session
 from starlette.testclient import TestClient
 
+from caliber.candidate_digest import candidate_digest
 from caliber.db.models import (
     CaliberAgentConfig,
     CaliberRefinementJob,
@@ -130,6 +131,9 @@ def test_apply_publishes_applied_event_to_bus(client: TestClient) -> None:
                 bundle_targets=[],
                 eval_results={},
                 candidate={"content": "new prompt", "artifact_type": "prompt"},
+                candidate_digest=candidate_digest(
+                    {"content": "new prompt", "artifact_type": "prompt"}
+                ),
             )
         )
         session.commit()

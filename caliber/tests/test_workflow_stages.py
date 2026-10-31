@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 
 import caliber.orchestrator.workflow_stages as stages
 from caliber.auth import CaliberIdentity
+from caliber.candidate_digest import candidate_digest
 from caliber.db.models import (
     CaliberAgentConfig,
     CaliberApprovalRequest,
@@ -417,6 +418,7 @@ def test_run_workflow_eval_rejects_failed_gate(
     assert updated.status == "rejected"
     assert updated.current_stage == "done"
     assert "quality dropped" in (updated.error_message or "")
+    assert updated.candidate_digest is None
     assert db_session.query(CaliberApprovalRequest).count() == 0
 
 
@@ -454,6 +456,7 @@ def test_run_workflow_eval_marks_candidate_ready_on_pass(
     assert updated.current_stage == "done"
     assert db_session.query(CaliberApprovalRequest).count() == 0
     assert updated.candidate == {"candidate_manifest": base, "baseline_manifest": base}
+    assert updated.candidate_digest == candidate_digest(updated.candidate)
 
 
 def test_run_workflow_eval_forwards_manifest_aware_executor_factories(
@@ -886,6 +889,7 @@ def test_run_workflow_calibration_eval_reuses_selected_winner_scores(
     assert updated.eval_results["calibration"] is True
     assert db_session.query(CaliberApprovalRequest).count() == 0
     assert updated.candidate["calibration_winner_id"] == "cal-1"
+    assert updated.candidate_digest == candidate_digest(updated.candidate)
 
     job.candidate = {"candidate_manifest": {}, "baseline_manifest": "not a dict"}
     db_session.commit()

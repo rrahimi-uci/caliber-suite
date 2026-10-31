@@ -19,6 +19,7 @@ CALIBER_DIR = REPO_ROOT / "caliber"
 SLICES: dict[str, tuple[str, ...]] = {
     "api": (
         "tests/test_routes_jobs_apply.py",
+        "tests/test_apply_claim_recheck.py",
         "tests/test_routes_jobs_isolation.py",
         "tests/test_routes_jobs.py",
         "tests/test_job_route_gate_ratchet.py",

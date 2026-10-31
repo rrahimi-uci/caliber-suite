@@ -15,6 +15,7 @@ from typing import Any
 import pytest
 from sqlalchemy import func, select, update
 
+from caliber.candidate_digest import candidate_digest
 from caliber.db.models import (
     CaliberAgentConfig,
     CaliberApprovalRequest,
@@ -33,6 +34,12 @@ from tests.egi_scenarios.conftest import (
 PREFIX = "/ajax-api/2.0/mlflow/caliber"
 AGENT_ID = "b063-agent"
 CANDIDATE_BODY = "b063 candidate body"
+CANDIDATE = {
+    "artifact_type": "prompt",
+    "content": CANDIDATE_BODY,
+    "rationale": "r",
+    "diff_summary": "+1 / -1",
+}
 
 
 def _seed_job(app: ReferenceApp, job_id: str, requester: str | None) -> None:
@@ -78,12 +85,8 @@ def _seed_job(app: ReferenceApp, job_id: str, requester: str | None) -> None:
                 bundle_targets=[],
                 diagnosis={"root_cause": "x", "confidence": 0.9, "alternatives": []},
                 eval_results={"gate": {"passed": True}},
-                candidate={
-                    "artifact_type": "prompt",
-                    "content": CANDIDATE_BODY,
-                    "rationale": "r",
-                    "diff_summary": "+1 / -1",
-                },
+                candidate=CANDIDATE,
+                candidate_digest=candidate_digest(CANDIDATE),
             )
         )
         session.commit()

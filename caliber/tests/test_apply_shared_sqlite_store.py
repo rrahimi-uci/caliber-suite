@@ -41,6 +41,7 @@ _SCRIPT = textwrap.dedent(
     import mlflow
     from starlette.testclient import TestClient
 
+    from caliber.candidate_digest import candidate_digest
     from caliber.config import CaliberConfig
     from caliber.db.base import Base
     from caliber.db.models import (
@@ -68,6 +69,12 @@ _SCRIPT = textwrap.dedent(
     mlflow.genai.register_prompt(name="shared-store-prompt", template="v1 {{x}}")
     mlflow.genai.set_prompt_alias("shared-store-prompt", alias="prod", version=1)
 
+    candidate = {
+        "artifact_type": "prompt",
+        "content": "v2 {{x}}",
+        "rationale": "shared store regression",
+        "diff_summary": "+1 / -1",
+    }
     with app.state.session_factory() as session:
         session.add(
             CaliberAgentConfig(
@@ -105,12 +112,8 @@ _SCRIPT = textwrap.dedent(
                 attempt_count=1,
                 bundle_targets=[],
                 eval_results={"gate": {"passed": True}},
-                candidate={
-                    "artifact_type": "prompt",
-                    "content": "v2 {{x}}",
-                    "rationale": "shared store regression",
-                    "diff_summary": "+1 / -1",
-                },
+                candidate=candidate,
+                candidate_digest=candidate_digest(candidate),
             )
         )
         session.commit()

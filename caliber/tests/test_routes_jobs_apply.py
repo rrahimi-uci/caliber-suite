@@ -12,6 +12,7 @@ import pytest
 from sqlalchemy.orm import Session
 from starlette.testclient import TestClient
 
+from caliber.candidate_digest import candidate_digest
 from caliber.db.models import (
     CaliberAgentConfig,
     CaliberApprovalRequest,
@@ -34,6 +35,7 @@ def _seed_candidate_ready_job(
     candidate: dict[str, object] | None = None,
     artifact_type: str = "prompt",
     skill_name: str | None = None,
+    recorded_digest: bool = True,
 ) -> None:
     if session.get(CaliberAgentConfig, "support-agent") is None:
         session.add(
@@ -60,6 +62,12 @@ def _seed_candidate_ready_job(
             )
         )
         session.flush()
+    candidate_payload = candidate or {
+        "artifact_type": "prompt",
+        "content": "rewritten prompt body",
+        "rationale": "applies tool-use directive",
+        "diff_summary": "+5 / -3",
+    }
     session.add(
         CaliberRefinementJob(
             job_id=job_id,
@@ -74,13 +82,9 @@ def _seed_candidate_ready_job(
             bundle_targets=[],
             diagnosis={"root_cause": "x", "confidence": 0.9, "alternatives": []},
             eval_results={"gate": {"passed": True}},
-            candidate=candidate
-            or {
-                "artifact_type": "prompt",
-                "content": "rewritten prompt body",
-                "rationale": "applies tool-use directive",
-                "diff_summary": "+5 / -3",
-            },
+            candidate=candidate_payload,
+            # What the eval stage records when the gate clears: the digest Apply rechecks (B06.4, #753).
+            candidate_digest=candidate_digest(candidate_payload) if recorded_digest else None,
         )
     )
     session.commit()

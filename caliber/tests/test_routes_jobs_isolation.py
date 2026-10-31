@@ -24,6 +24,7 @@ from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session
 from starlette.testclient import TestClient
 
+from caliber.candidate_digest import candidate_digest
 from caliber.db.models import (
     CaliberAgentConfig,
     CaliberApprovalRequest,
@@ -42,6 +43,14 @@ JOB_ID = "RFN-ISO-1"
 AGENT_ID = "iso-agent"
 
 _PROJECT_HEADER = {"X-CALIBER-Project": PROJECT_ID}
+
+
+_SECRET_CANDIDATE = {
+    "artifact_type": "prompt",
+    "content": "SECRET-CANDIDATE-BODY",
+    "rationale": "r",
+    "diff_summary": "+1 / -1",
+}
 
 
 def _as(user: str, *, project: bool = True) -> dict[str, str]:
@@ -121,12 +130,8 @@ def _seed_job(
             bundle_targets=[],
             diagnosis={"root_cause": "SECRET-DIAGNOSIS", "confidence": 0.9, "alternatives": []},
             eval_results={"gate": {"passed": True}},
-            candidate={
-                "artifact_type": "prompt",
-                "content": "SECRET-CANDIDATE-BODY",
-                "rationale": "r",
-                "diff_summary": "+1 / -1",
-            },
+            candidate=_SECRET_CANDIDATE,
+            candidate_digest=candidate_digest(_SECRET_CANDIDATE),
         )
     )
     session.commit()
