@@ -247,7 +247,14 @@ class TraceSpan:
     _attachments: dict[str, Any] = field(default_factory=dict, repr=False)
 
     def set_attribute(self, key: str, value: Any) -> None:
-        clean = sanitize_trace_value(value, max_bytes=self._max_attribute_bytes)
+        try:
+            clean = sanitize_trace_value(value, max_bytes=self._max_attribute_bytes)
+        except Exception:
+            # A redactor that fails must not fail the traced code, and the value must not go out unredacted.
+            logger.debug(
+                "dropping span attribute %s: it could not be sanitized", key, exc_info=True
+            )
+            return
         self.attributes[str(key)] = clean
         setter = getattr(self._span, "set_attribute", None)
         if not callable(setter):

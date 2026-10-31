@@ -151,6 +151,81 @@ bypass the source-trace authorization check. An authorized example records the `
 
 The development profile retains its earlier behavior; these payload gates are part of the reference-profile contract.
 
+## Governed effect spans: the ids that link a trace to its rows (B11.3a, #737)
+
+A governed effect crosses four persisted records: the effect **proposal**, the policy **decision** that authorised the
+run, the runtime **approval** that was consumed, and the **effect** itself, which is its verified receipt. The spans of
+that path name those rows, so an operator can go from a trace to the database without reading any payload. The module is
+`caliber.observability.span_attributes`; B11.3b (#745) reads the same attributes back as a causal chain.
+
+| Span (type) | Opened by | Attributes it can carry |
+| --- | --- | --- |
+| `effect.approval.commit_check` (`CHAIN`) | `approval_valid_at_commit` | `caliber.proposal_id` once the locked proposal is read; `caliber.approval_id` once the request is bound to that proposal's exact intent, policy and evidence; `caliber.decision_id` from the run's current policy decision, only when every check passed |
+| `effect.dispatch` (`TOOL`) | `dispatch` | `caliber.proposal_id` from the proposal read; `caliber.approval_id` and `caliber.decision_id` from the validator's answer; `caliber.effect_id` after the settlement has committed |
+| `effect.receipt.write` (`CHAIN`) | `record_receipt` | `caliber.proposal_id`; the proposal's recorded approval (`caliber.approval_id` for an exact-intent approval, `caliber.decision_id` for a policy decision); `caliber.effect_id` once the receipt is stored in the caller's transaction |
+
+`run_tags(ctx, node_id=..., proposal_id=..., decision_id=..., approval_id=..., effect_id=...)` accepts the same four
+ids for a caller that has read them from a row, and emits each as `caliber.<name>` only when given.
+
+**An id is a link only if a row backs it.** An attribute is absent, never blank or guessed, when the platform has not
+read that row: a proposal that never reached a verified receipt has no `caliber.effect_id` (`unknown` and `failed`
+included), the receipt-write span has no `caliber.decision_id` for an exact-intent approval (the proposal row does not
+store it), and the approval id a caller passes to `dispatch` is a claim until the validator has bound it to the
+proposal, so a refused dispatch never carries it. `caliber.effect_id` is the **receipt id**: the platform's only record
+that the downstream effect happened and was read back.
+
+**What can reach a span.** Four keys, one allow-list, no payload:
+
+- Only the four keys above, `caliber.refusal_code` and the tracer's own `caliber.status`, `caliber.error_type` and
+  `caliber.error` are set on these spans. No URL, argument, request, response, scope, approver, evidence hash or
+  exception message is ever an attribute.
+- A value must be a plain string that is an opaque identifier: ASCII letters, digits, `.`, `_`, `:`, `-`, starting
+  with a letter, at most 128 characters. Anything else (a number, an email address, whitespace, a path, a longer
+  string) is **dropped, not truncated**: a truncated id would name a different row.
+- A workflow manifest cannot assert a link. Its `mlflow.trace_group_tags` are merged into the run tags first, and the
+  five reserved keys are removed from them, so a tag named `caliber.proposal_id` is ignored.
+- A failure inside one of these spans is recorded as the exception *type* and, only when it is a platform refusal
+  (`ProposalError`, `EffectRefused`, `ApprovalCommitRefused`), its stable `caliber.refusal_code` such as
+  `stale_version`; the `code` of any other exception is not copied. The exception is re-raised after the span has
+  closed, so MLflow's own exception event, which keeps the message, never sees it **on these three spans**. The
+  re-raised exception still passes through any enclosing span (the workflow node span, `trace_run`), where MLflow
+  records its message as it did before this change.
+- Tracing never changes the outcome of an effect: a redactor or tracer failure while setting one of these attributes is
+  logged at debug level and the attribute is absent (the value is never sent unredacted).
+
+**Who can see them.** The ids, `caliber.refusal_code` and the existing run, node and job ids are on
+`profile.SAFE_SPAN_ATTRIBUTES`, so a caller who may see a trace but not read its payload (B11.4b, above) sees them; every
+other span attribute stays `[redacted:attributes.<key>]`, which includes `caliber.error`. An id does not widen who can
+open a trace: the trace, and then the row, still follow experiment and project visibility. `caliber.approval_id` is also
+the name of an existing *release* tag (`AP-...`, a prompt-version approval, see the prompts architecture page); on these
+spans it is always a runtime approval (`RAP-...`), told apart by the span name.
+
+**Refusal and recovery, with exact examples.**
+
+- *A stale approval.* The recheck finds the resource moved on. The `effect.approval.commit_check` span has
+  `caliber.proposal_id`, `caliber.approval_id`, `caliber.refusal_code = stale_version` and `caliber.status = failed`, and no
+  `caliber.decision_id`; `effect.dispatch` has `caliber.proposal_id` and the same code. Nothing was sent, the approval is
+  unconsumed and the proposal is still `proposed`. Recovery: request a new approval for the current resource version.
+- *An approval id that is not this run's.* The recheck answers `not_found`; no span carries that id, only the proposal
+  (read from the row) and the code. Recovery: use the id returned when the request was created.
+- *A lease lost after the effect was sent.* `effect.dispatch` has the proposal, approval and decision (the claim had
+  committed), `caliber.refusal_code = lease_lost` and no `caliber.effect_id`; no receipt exists and the proposal stays
+  `dispatched`. Recovery is unchanged: the reconciler asks the downstream by key under the new lease.
+- *An answer nobody could verify* (an ambiguous transport result, or a 2xx the downstream's own query did not confirm).
+  The proposal becomes `unknown`; `effect.dispatch` completes without `caliber.effect_id`. A missing effect id is the
+  signal, not an error.
+
+**Not covered, said plainly.** The node span of a workflow run does not carry these ids (the dispatcher's own spans do, and the same ids are in the
+database); the legacy effect-ledger path used
+by a plan with no governed context emits none; and the receipt-write span describes a *write*: if the caller's
+transaction is rolled back afterwards, the dispatch span, which names the effect only after commit, is the authority.
+Tracing is inert unless MLflow is installed and tracing is enabled, and an exporter failure never changes what the effect
+does.
+
+**Configuration, migration and rollback.** No new setting, no migration and no stored data change. The spans open inside
+the transaction that holds the approval locks, but make no database call of their own. Rolling
+back is reverting the change; traces already recorded keep their attributes.
+
 ## A configuration that passes
 
 ```ini
@@ -731,8 +806,8 @@ see the trace but not read its payload returns the same shape with every governe
 whole-trace `request` and `response`. Real tracers also put the same payload in other attributes
 (`mlflow.spanInputs`, `mlflow.spanOutputs`, `mlflow.chat.messages`, `caliber.tool.input`, `caliber.tool.output`), so
 redaction is **fail-closed**: *every* span attribute that is not on the short list of known payload-free ones
-(`profile.SAFE_SPAN_ATTRIBUTES`: run, node and job ids, status, model name, token and cost counts, tool name and
-latency, span type) is redacted as `[redacted:attributes.<key>]`. Keys are never deleted or added, and everything
+(`profile.SAFE_SPAN_ATTRIBUTES`: run, node, job, proposal, decision, approval and effect ids, refusal code, status, model
+name, token and cost counts, tool name and latency, span type) is redacted as `[redacted:attributes.<key>]`. Keys are never deleted or added, and everything
 else (span ids, names, times, status, `attributes.caliber.run_id`, tokens, cost) is identical to what an editor sees. `GET /observability/traces`
 redacts `request_preview` and `response_preview` the same way, and `GET /observability/metrics` is computed from the
 redacted summaries (the numbers are unchanged; no payload appears). The run trace (`GET /workflow-runs/{id}/trace`)
