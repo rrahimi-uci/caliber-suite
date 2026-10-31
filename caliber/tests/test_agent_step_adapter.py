@@ -73,6 +73,9 @@ from tests.agent_step_conformance import (
     run_scenario,
 )
 
+# The step fixtures carry a fixed deadline: the boundary reads its clock, not the date the suite runs on (B08.3).
+pytestmark = pytest.mark.usefixtures("fixed_step_clock")
+
 
 class Spy:
     """An adapter that returns whatever it is given (or raises it) and counts its calls."""
@@ -533,7 +536,12 @@ def test_a_conformant_adapter_is_called_once_with_the_validated_request() -> Non
     assert result.stop_reason == "completed"
     ((seen_request, seen_input),) = spy.calls
     assert seen_request == ctx.request
-    assert seen_input is ctx.step_input
+    # The adapter is handed the same step, with its read tools going through the platform's own counter (B08.3).
+    assert seen_input.agent is ctx.step_input.agent
+    assert seen_input.input_text == ctx.step_input.input_text
+    assert seen_input.history == ctx.step_input.history
+    assert set(seen_input.read_tools) == set(ctx.step_input.read_tools)
+    assert seen_input.read_tools[READ_TOOL] is not ctx.step_input.read_tools[READ_TOOL]
 
 
 def test_the_protocol_is_the_one_runtime_exports() -> None:

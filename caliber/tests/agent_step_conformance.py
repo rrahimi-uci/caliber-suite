@@ -26,7 +26,11 @@ adapter whatever its provider:
   ``malformed_result`` for output that cannot be read. The adapter itself, called directly, returns that typed result: an
   adapter never raises;
 * the provider's payload, planted as :data:`SECRET_MARKER`, is in neither the result nor any log record (the loggers are
-  lowered to DEBUG for the run).
+  lowered to DEBUG for the run);
+* the platform, not the adapter, enforces the request's limits (B08.3, #752): :func:`fixed_clock`, :func:`limits_changes` and
+  :func:`stop_before_work` let B08.5 (#769) show, for each adapter and each of turns, tool calls, tokens and the deadline, that
+  a step with no budget never reaches its provider and that one which passes a limit stops with the typed reason. Every
+  :func:`run_scenario` runs on :attr:`StepContext.clock` (a fixed one, so no deadline depends on the date the suite runs on).
 
 A driver implements :class:`AdapterDriver`; ``unsupported`` names scenarios its transport cannot express, but never
 ``completes``, ``proposes_protected_tool`` or ``claims_commit``. Nothing here calls a provider or reads a clock. Importing it
@@ -39,6 +43,7 @@ import json
 import logging
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from datetime import datetime, timedelta, timezone
 from enum import StrEnum
 from functools import cached_property
 from typing import Any, Protocol
@@ -63,6 +68,7 @@ from caliber.workflows.agent_step import (
     MALFORMED_RESULT,
     SCRIPT_EXHAUSTED,
     AgentStepInput,
+    StepClock,
     run_agent_step,
 )
 from caliber.workflows.ir import IRAgent, IRToolBinding, NodeType
@@ -79,6 +85,42 @@ PLATFORM_CODES = frozenset(
     {ADAPTER_NOT_INTEGRATED, ADAPTER_UNSUPPORTED, SCRIPT_EXHAUSTED, ADAPTER_ERROR}
 )
 _BUDGET_STOPS = ("max_turns", "max_tool_calls", "max_tokens")
+
+#: The instant every conformance step starts at: ten minutes before the fixture deadline of ``2026-10-26T09:10:00Z``.
+FIXED_NOW = datetime(2026, 10, 26, 9, 0, 0, tzinfo=timezone.utc)
+
+
+class FakeStepClock:
+    """A platform clock that only moves when a test moves it: wall time and a monotonic reading, advanced together."""
+
+    def __init__(self, now: datetime = FIXED_NOW) -> None:
+        self.wall = now
+        self.mono = 0.0
+
+    def advance(self, seconds: float) -> None:
+        """Time passes: both readings move."""
+        self.wall += timedelta(seconds=seconds)
+        self.mono += seconds
+
+    def step_clock(self) -> StepClock:
+        return StepClock(now=lambda: self.wall, monotonic=lambda: self.mono)
+
+
+def fixed_clock() -> StepClock:
+    """A clock that never moves, at :data:`FIXED_NOW`."""
+    return FakeStepClock().step_clock()
+
+
+def limits_changes(**changes: Any) -> dict[str, Any]:
+    """``make_request(**limits_changes(max_turns=0))``: the default limits with ``changes`` applied (``limits`` as a record)."""
+    limits: dict[str, Any] = {
+        "max_turns": 8,
+        "max_tool_calls": 4,
+        "max_tokens": 20000,
+        "deadline": "2026-10-26T09:10:00Z",
+    }
+    limits.update(changes)
+    return {"limits": limits}
 
 
 class Scenario(StrEnum):
@@ -141,6 +183,8 @@ class StepContext:
     #: default :attr:`staged_usage` cannot be produced by its loop (three turns and no tool call, for a budget stop). A driver
     #: sets it before its transport answers; the tokens it states are the ones the stub must report. Additive (B08.anthropic).
     usage_override: StepUsage | None = None
+    #: The platform's clock for the step (B08.3); fixed, so a deadline never depends on the date the suite runs on.
+    clock: StepClock = field(default_factory=fixed_clock)
 
     def provider_called(self) -> None:
         """A driver's stubbed transport calls this each time the provider would be called."""
@@ -303,7 +347,9 @@ def _capture_logs() -> tuple[_LogCapture, Callable[[], None]]:
 def _run(driver: AdapterDriver, ctx: StepContext) -> AgentStepResult:
     _ACTIVE.append(ctx)
     try:
-        return run_agent_step(driver.adapter_for(ctx.scenario, ctx), ctx.request, ctx.step_input)
+        return run_agent_step(
+            driver.adapter_for(ctx.scenario, ctx), ctx.request, ctx.step_input, clock=ctx.clock
+        )
     finally:
         _ACTIVE.pop()
 
@@ -334,6 +380,23 @@ def run_scenario(driver: AdapterDriver, scenario: Scenario) -> tuple[AgentStepRe
     if scenario in _FAILURES:
         _adapter_returns_typed_failure(driver, scenario, result)
     return result, ctx
+
+
+def stop_before_work(adapter: object, ctx: StepContext, expected_reason: str) -> AgentStepResult:
+    """Run ``adapter`` through the boundary for a step that may not start: it is never called, whatever it is.
+
+    Asserts the typed stop (``expected_reason``), the zero ``estimated`` usage and that no proposal, provider call or tool ran;
+    ``ctx`` carries the request (see :func:`limits_changes`). The adapter's own checks are not what is being tested: for a
+    real executor the provider client is a tripwire, for a driver ``ctx.provider_calls`` stays 0.
+    """
+    result = run_agent_step(adapter, ctx.request, ctx.step_input, clock=ctx.clock)
+    assert result.stop_reason == expected_reason, result.stop_reason
+    assert result.proposed_actions == () and result.error_code is None
+    assert result.usage == StepUsage(0, 0, 0, 0, 0)
+    assert result.usage_source == "estimated"
+    assert ctx.provider_calls == 0 and ctx.read_calls == [] and ctx.protected_calls == []
+    parse_step_result(result.record(), ctx.request)
+    return result
 
 
 def _adapter_returns_typed_failure(

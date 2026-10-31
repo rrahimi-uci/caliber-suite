@@ -110,6 +110,18 @@ CONTEXT_SECTIONS: Final = ("retrieved", "history")
 DEFAULT_CONTEXT_SECTION_CAPS: Final = '{"retrieved": 4000, "history": 2000}'
 
 
+#: The platform ceilings of one governed agent step (B08.3). A step's own limits (``AgentStepRequest.limits``) are capped at these
+#: before the step runs, and the bounds are what the settings accept: finite and small enough that no step is unbounded.
+AGENT_STEP_MAX_TURNS_DEFAULT: Final = 25
+AGENT_STEP_MAX_TURNS_BOUNDS: Final = (1, 1000)
+AGENT_STEP_MAX_TOOL_CALLS_DEFAULT: Final = 50
+AGENT_STEP_MAX_TOOL_CALLS_BOUNDS: Final = (0, 1000)
+AGENT_STEP_MAX_TOKENS_DEFAULT: Final = 200_000
+AGENT_STEP_MAX_TOKENS_BOUNDS: Final = (1, 10_000_000)
+AGENT_STEP_MAX_SECONDS_DEFAULT: Final = 600.0
+AGENT_STEP_MAX_SECONDS_BOUNDS: Final = (1.0, 86400.0)
+
+
 def parse_section_caps(raw: str) -> dict[str, int]:
     """The per-section token caps in ``raw`` (a JSON object), or ``ValueError`` saying what is wrong.
 
@@ -1837,6 +1849,42 @@ class CaliberConfig(BaseModel):
         parse_section_caps(value)
         return value
 
+    agent_step_max_turns: int = Field(
+        default=AGENT_STEP_MAX_TURNS_DEFAULT,
+        ge=AGENT_STEP_MAX_TURNS_BOUNDS[0],
+        le=AGENT_STEP_MAX_TURNS_BOUNDS[1],
+        description=(
+            "The most provider turns one governed agent step may be given (1 to 1000). A step's own limit is capped at this "
+            "before it runs and enforced by the platform, whatever the adapter reports. Applies to the producer that builds "
+            "the governed step context with ``StepCeilings.from_config``; a context without one uses the default."
+        ),
+    )
+    agent_step_max_tool_calls: int = Field(
+        default=AGENT_STEP_MAX_TOOL_CALLS_DEFAULT,
+        ge=AGENT_STEP_MAX_TOOL_CALLS_BOUNDS[0],
+        le=AGENT_STEP_MAX_TOOL_CALLS_BOUNDS[1],
+        description=(
+            "The most read-tool calls one governed agent step may make (0 to 1000; 0 allows none). The platform counts the "
+            "calls itself and refuses the one past the limit."
+        ),
+    )
+    agent_step_max_tokens: int = Field(
+        default=AGENT_STEP_MAX_TOKENS_DEFAULT,
+        ge=AGENT_STEP_MAX_TOKENS_BOUNDS[0],
+        le=AGENT_STEP_MAX_TOKENS_BOUNDS[1],
+        description="The most tokens (prompt plus completion) one governed agent step may use (1 to 10000000).",
+    )
+    agent_step_max_seconds: float = Field(
+        default=AGENT_STEP_MAX_SECONDS_DEFAULT,
+        ge=AGENT_STEP_MAX_SECONDS_BOUNDS[0],
+        le=AGENT_STEP_MAX_SECONDS_BOUNDS[1],
+        allow_inf_nan=False,
+        description=(
+            "The longest wall-clock window one governed agent step may be given, from the moment it is asked (1 to 86400, "
+            "finite). A step's deadline later than this is brought forward to it."
+        ),
+    )
+
     effect_callback_connectors: str = Field(
         default="[]",
         description=(
@@ -2623,6 +2671,10 @@ _ENV_VAR_TABLE: list[tuple[str, str, Any]] = [
     ("CALIBER_PII_REDACTION_REPLACEMENT", "pii_redaction_replacement", str),
     ("CALIBER_PII_REDACTION_EXTRA_PATTERNS", "pii_redaction_extra_patterns", str),
     ("CALIBER_CONTEXT_SECTION_CAPS", "context_section_caps", str),
+    ("CALIBER_AGENT_STEP_MAX_TURNS", "agent_step_max_turns", int),
+    ("CALIBER_AGENT_STEP_MAX_TOOL_CALLS", "agent_step_max_tool_calls", int),
+    ("CALIBER_AGENT_STEP_MAX_TOKENS", "agent_step_max_tokens", int),
+    ("CALIBER_AGENT_STEP_MAX_SECONDS", "agent_step_max_seconds", float),
     ("CALIBER_EFFECT_CALLBACK_CONNECTORS", "effect_callback_connectors", str),
     ("CALIBER_EFFECT_RECONCILER_ENABLED", "effect_reconciler_enabled", _flag),
     ("CALIBER_EFFECT_RECONCILER_INTERVAL_SECONDS", "effect_reconciler_interval_seconds", float),
