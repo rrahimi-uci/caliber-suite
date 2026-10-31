@@ -1443,6 +1443,34 @@ def test_a_resumed_step_whose_effect_committed_completes(
     assert step.output == f"effect {proposals[0].proposal_id} committed"
 
 
+def test_a_committed_agent_without_declared_outputs_publishes_its_final_output(
+    world: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    manifest = _manifest()
+    del manifest["nodes"]["final"]
+    manifest["edges"] = [manifest["edges"][0]]
+    manifest["nodes"]["agent"]["outputs"] = {}
+    _run(world, [_proposing()], plan=_plan(world, manifest=manifest))
+    _settle(world, "committed", monkeypatch)
+    result, executor, _ = _run(world, [], plan=_plan(world, manifest=manifest))
+    assert result.status == "completed" and executor.step_requests == []
+
+
+def test_a_fan_out_over_a_node_that_is_not_an_agent_is_not_refused(world: Any) -> None:
+    manifest = _inline_manifest("for_each")
+    del manifest["nodes"]["agent"]
+    manifest["nodes"]["worker"] = {
+        "id": "worker",
+        "type": "python_code",
+        "code": 'return {"text": "ok", "result": {}}',
+        "inputs": {"input": {"type": "string"}},
+        "outputs": {"text": {"type": "string"}, "result": {"type": "structured"}},
+    }
+    manifest["nodes"]["parent"]["target_node_id"] = "worker"
+    ir = _plan(world, manifest=manifest).ir
+    assert runtime_module._governed_plan_refusal(ir) is None
+
+
 def test_a_resumed_step_whose_effect_failed_fails_the_node(
     world: Any, monkeypatch: pytest.MonkeyPatch
 ) -> None:
