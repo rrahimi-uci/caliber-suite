@@ -1418,6 +1418,8 @@ def test_patch_can_lower_the_level_and_drop_approval_together(client: TestClient
         " document-request ",
         "tool.document_request.v2",
         "http",
+        "openapi_http",
+        "OpenAPI-HTTP",
     ],
 )
 def test_a_tool_cannot_register_under_a_trusted_connectors_name(
