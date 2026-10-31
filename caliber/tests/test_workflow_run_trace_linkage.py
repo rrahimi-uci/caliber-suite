@@ -218,7 +218,7 @@ CAUSAL_KEYS = (
     "caliber.approval_id",
     "caliber.effect_id",
 )
-SECRET = "ssn 123-45-6789 token=sk-live-abc jane@example.com"
+SECRET = "ssn 123-45-6789 token=abc123 jane@example.com"
 
 
 @pytest.fixture
@@ -380,7 +380,7 @@ def test_a_refused_dispatch_names_only_what_was_read_and_never_a_message(
     assert _causal(span) == {"caliber.proposal_id": armed.proposal_id}
     assert span.attributes["caliber.refusal_code"] == "stale_version"
     assert span.attributes["caliber.status"] == "failed"
-    for leaked in ("RAP-forged00", "123-45-6789", "sk-live", "jane@example.com"):
+    for leaked in ("RAP-forged00", "123-45-6789", "abc123", "jane@example.com"):
         assert leaked not in repr(span.attributes)
     # No exception reached MLflow, so its exception event cannot carry the message either.
     assert fake.span_exits == [("effect.dispatch", None)]
