@@ -599,7 +599,9 @@ def test_a_settle_failure_under_the_current_lease_is_recovered_by_the_owner_loop
     real = transport.execute_openapi_http_tool
 
     def verification_fails(**kwargs: Any) -> Any:
-        if kwargs["execution_config"]["method"] == "GET":  # the receipt verification, after the send
+        if (
+            kwargs["execution_config"]["method"] == "GET"
+        ):  # the receipt verification, after the send
             raise ConnectionError("the verifier lost its connection")
         return real(**kwargs)
 
