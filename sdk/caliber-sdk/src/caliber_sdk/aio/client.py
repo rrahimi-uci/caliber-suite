@@ -41,7 +41,7 @@ from ..errors import CaliberConfigError
 from ..models._decode import decode, decode_list
 from ..models.core import Capabilities, Identity, WorkflowRunCapabilities
 from ..models.operations import Job
-from ..models.workflows import FAILED_RUN_STATES, AdmissionManifest, WorkflowRun
+from ..models.workflows import FAILED_RUN_STATES, AdmissionManifest, CausalLinks, WorkflowRun
 from ..resources.system import CapabilitiesAPI
 from ..resources.workflows import WorkflowRunFailed
 from ._base import _AsyncResource
@@ -258,6 +258,27 @@ class AsyncWorkflowRunsAPI(_AsyncResource):
         """
         return decode(
             AdmissionManifest, await self._get(f"/workflow-runs/{run_id}/admission-manifest")
+        )
+
+    async def causal_links(
+        self,
+        run_id: str,
+        *,
+        section: str | None = None,
+        limit: int | None = None,
+        cursor: str | None = None,
+    ) -> CausalLinks:
+        """One page of the run's persisted causal links.
+
+        Same as the sync ``runs.causal_links``.
+        """
+        params = {
+            key: value
+            for key, value in (("section", section), ("limit", limit), ("cursor", cursor))
+            if value is not None
+        }
+        return CausalLinks.from_payload(
+            await self._get(f"/workflow-runs/{run_id}/causal-links", params=params or None)
         )
 
     async def list(self, workflow_id: str, *, status: str | None = None) -> list[WorkflowRun]:
