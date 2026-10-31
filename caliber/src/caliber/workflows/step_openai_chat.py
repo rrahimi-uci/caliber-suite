@@ -31,9 +31,9 @@ handling, the same tool-call execution helper), but as a *proposing* adapter (se
   read is ``malformed_result``. Exception text, the provider's response, tool arguments and tool names are never placed in a
   result or a log line: only the exception's class name and the step id are logged. ``run_step`` never raises for these.
 
-Not here: handoffs (``run_agent`` ignores them too), structured output (a step result has no output field), the platform's
-enforcement of the limits and the token reservation (B08.3, B08.4) and binding a proposal to the protected-effect inventory
-(B08.2).
+Not here: handoffs (``run_agent`` ignores them too), structured output (a step result has no output field), the token
+reservation (B08.4) and binding a proposal to the protected-effect inventory (B08.2). The platform enforces the limits again
+in ``run_agent_step`` whatever this adapter reports (B08.3).
 """
 
 from __future__ import annotations

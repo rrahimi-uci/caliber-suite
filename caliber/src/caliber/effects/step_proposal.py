@@ -61,7 +61,13 @@ from caliber.effects.inventory import (
 )
 from caliber.effects.records import PROPOSED, ProposalError, logical_key
 from caliber.run_manifest import canonical_bytes
-from caliber.workflows.agent_step import AgentStepRequest, AgentStepResult, StepUsage
+from caliber.workflows.agent_step import (
+    AgentStepRequest,
+    AgentStepResult,
+    StepCeilings,
+    StepClock,
+    StepUsage,
+)
 from caliber.workflows.approval_policy import ApprovalPolicy, approval_refusal
 from caliber.workflows.approval_requests import ApprovalRequestError, create_approval_request
 from caliber.workflows.builtin_tools import is_builtin_tool
@@ -206,7 +212,9 @@ class GovernedStepContext:
     classify_tool: ToolClassifier
     #: ``step_request_id -> sha256 hex`` of the context manifest recorded for that step before the provider sees anything.
     context_manifest_digest: Callable[[str], str]
-    #: The limits the step runs under (B08.3 enforces them; this only carries them in the request).
+    #: The limits the step runs under, from the producer's trusted configuration. The platform brings them down to
+    #: :attr:`ceilings` (:func:`caliber.workflows.agent_step.cap_limits`) and enforces them in ``run_agent_step`` (B08.3): an
+    #: adapter never sees a limit it could change, and what it reports is checked against them.
     limits: Callable[[IRAgent], StepLimits]
     #: Who the approval request names as its requester (a printable id, at most 256 characters).
     requested_by: str
@@ -218,6 +226,11 @@ class GovernedStepContext:
     #: model, a manifest author or a tool call supplies may write it. A tool absent from it can be classified but never proposed
     #: through; an empty map (the default) records no proposal at all.
     tool_backends: Mapping[tuple[str, str], str] = field(default_factory=dict)
+    #: The most any step may be given (``CALIBER_AGENT_STEP_MAX_*``; build with ``StepCeilings.from_config``). The default is the
+    #: settings' own defaults, so a context that names none is capped, not uncapped.
+    ceilings: StepCeilings = field(default_factory=StepCeilings)
+    #: The clock a step's deadline is read from (wall time and a monotonic clock); ``None`` is the platform's own, a fake one in tests.
+    clock: StepClock | None = None
 
 
 def stored_context_manifest_digest(
