@@ -63,6 +63,7 @@ from caliber.effects.records import (
 )
 from caliber.events.outbox import enqueue
 from caliber.integrations.openapi import executor as _raw_connector_transport
+from caliber.observability.span_attributes import GovernedSpan, governed_span
 from caliber.ownership import Lease
 from caliber.workflows.agent_step import ProposedAction
 from caliber.workflows.approval_policy import (
@@ -608,6 +609,8 @@ class _Claim:
     request: EffectRequest
     lease: Lease
     attempt: int
+    approval_id: str
+    decision_id: str
 
 
 def _claim_dispatch(
@@ -622,10 +625,18 @@ def _claim_dispatch(
     evidence_hash: str | None,
     approval_validator: Callable[..., ApprovalCommit],
     now: datetime | None,
+    span: GovernedSpan,
 ) -> _Claim | EffectOutcome:
-    """Atomically validate, consume, claim and enqueue one approved proposal."""
+    """Atomically validate, consume, claim and enqueue one approved proposal.
+
+    ``span`` is the dispatch span.  It is given ids only after they have been read from a row: the
+    proposal's from the proposal read, the approval's and the decision's from the validator's
+    ``ApprovalCommit`` (never from the caller's ``approval_id`` argument, which is a claim until the
+    validator has bound it to this proposal).
+    """
     with _session_scope(session_or_factory) as session:
         state = proposal_state(session, proposal_id)
+        span.bind(proposal_id=state.proposal_id)
         if state.state == DISPATCHED:
             return EffectOutcome(
                 proposal_id, DISPATCHED, reason="already_dispatched", applied=False
@@ -660,6 +671,7 @@ def _claim_dispatch(
             raise EffectRefused("approval_validator_failed") from exc
         if not isinstance(checked, ApprovalCommit) or checked.proposal_id != proposal_id:
             raise EffectRefused("approval_validator_invalid")
+        span.bind(approval_id=checked.approval_id, decision_id=checked.decision_id)
 
         approved = transition(
             session,
@@ -716,6 +728,8 @@ def _claim_dispatch(
             request=EffectRequest(view=proposal_view(session, proposal_id), intent=intent_record),
             lease=lease,
             attempt=1,
+            approval_id=checked.approval_id,
+            decision_id=checked.decision_id,
         )
 
 
@@ -740,17 +754,19 @@ def dispatch(
     captured by the execution owner; it is checked again in the claim and in
     every settlement write.
     """
-    if approval_validator is None:
-        raise EffectRefused("approval_validator_missing")
-    if lease is None:
-        raise EffectRefused("lease_missing")
-    if not isinstance(backend_kind, str) or backend_kind not in BACKENDS:
-        raise UnsupportedEffectPath("unsupported_backend")
-    if not isinstance(approval_id, str) or not approval_id.strip():
-        raise EffectRefused("proposal_not_approved")
-    if approval_validator is not approval_valid_at_commit:
-        raise EffectRefused("approval_validator_untrusted")
+    with governed_span("effect.dispatch", span_type="TOOL") as span:
+        if approval_validator is None:
+            raise EffectRefused("approval_validator_missing")
+        if lease is None:
+            raise EffectRefused("lease_missing")
+        if not isinstance(backend_kind, str) or backend_kind not in BACKENDS:
+            raise UnsupportedEffectPath("unsupported_backend")
+        if not isinstance(approval_id, str) or not approval_id.strip():
+            raise EffectRefused("proposal_not_approved")
+        if approval_validator is not approval_valid_at_commit:
+            raise EffectRefused("approval_validator_untrusted")
 
+<<<<<<< HEAD
     # Admission comes before the claim: a transport nobody admitted, or settings it does not accept, is refused with
     # the proposal still ``proposed`` and its approval unconsumed.
     registration = BACKENDS[backend_kind]
@@ -787,21 +803,58 @@ def dispatch(
             state = proposal_state(session, proposal_id)
             settled = settle_dispatch(
                 session,
+=======
+        registration = BACKENDS[backend_kind]
+        try:
+            claim = _claim_dispatch(
+                session_or_factory,
+>>>>>>> origin/main
                 proposal_id,
-                expected_version=state.version,
-                owner_id=captured_lease.owner_id,
-                attempt=attempt,
-                lease=captured_lease,
-                outcome=transport.outcome,
-                verify=transport.verify or (lambda: None),
+                approval_id=approval_id,
+                approver_scopes=approver_scopes,
+                lease=lease,
+                backend_connector=registration.connector,
+                backend_connector_version=registration.connector_version,
+                current_resource_version=current_resource_version,
+                evidence_hash=evidence_hash,
+                approval_validator=approval_valid_at_commit,
                 now=now,
+                span=span,
             )
-            session.commit()
-            return _outcome_from_settled(
-                proposal_id, transport.outcome, settled, transport.response
-            )
-    except ProposalError as exc:
-        raise EffectRefused(exc.code) from exc
+        except ProposalError as exc:
+            raise EffectRefused(exc.code) from exc
+        if isinstance(claim, EffectOutcome):
+            return claim
+        request, captured_lease, attempt = claim.request, claim.lease, claim.attempt
+        try:
+            transport = _backend_call(registration.backend, request, backend_config)
+        except Exception as exc:
+            transport = TransportResult(classify_error(exc))
+
+        try:
+            with _session_scope(session_or_factory) as session:
+                state = proposal_state(session, proposal_id)
+                settled = settle_dispatch(
+                    session,
+                    proposal_id,
+                    expected_version=state.version,
+                    owner_id=captured_lease.owner_id,
+                    attempt=attempt,
+                    lease=captured_lease,
+                    outcome=transport.outcome,
+                    verify=transport.verify or (lambda: None),
+                    now=now,
+                )
+                session.commit()
+                outcome = _outcome_from_settled(
+                    proposal_id, transport.outcome, settled, transport.response
+                )
+            # The effect is the verified receipt; it exists only for a committed settlement and is
+            # named here after the transaction that wrote it has committed.
+            span.bind(effect_id=outcome.receipt_id)
+            return outcome
+        except ProposalError as exc:
+            raise EffectRefused(exc.code) from exc
 
 
 __all__ = [

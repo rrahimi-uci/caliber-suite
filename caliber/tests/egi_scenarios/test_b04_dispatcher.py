@@ -11,14 +11,21 @@ from sqlalchemy import select
 
 from caliber.db.models import (
     CaliberEffectProposal,
+    CaliberEffectReceipt,
+    CaliberPolicyDecision,
     CaliberProjectMember,
     CaliberRuntimeApprovalRequest,
 )
+<<<<<<< HEAD
 from caliber.effects.dispatcher import EffectRefused, dispatch, submit_proposal
+=======
+from caliber.effects.dispatcher import EffectRefused, dispatch
+>>>>>>> origin/main
 from caliber.effects.receipts import ReceiptFacts
-from caliber.effects.records import proposal_state
+from caliber.effects.records import proposal_state, record_proposal
 from caliber.egress import EgressPolicy
 from caliber.integrations.openapi.executor import bind_egress_policy
+from caliber.observability.mlflow_tracing import Tracer, set_tracer
 from caliber.ownership import acquire
 from caliber.run_manifest import canonical_bytes
 from caliber.workflows.approval_policy import ApprovalPolicy, approval_valid_at_commit
@@ -48,6 +55,8 @@ from tests.egi_scenarios.test_v04_stale_approval import (
     _request,
 )
 from tests.egi_scenarios.test_v05_revocation_while_waiting import _approved, _waiting_run
+from tests.test_effect_proposals import _intent
+from tests.test_mlflow_tracing import FakeMlflow
 from tests.test_workflow_webhook_node import _manifest as webhook_manifest
 from tests.workflow_helpers import make_tool_payload
 
@@ -212,6 +221,7 @@ def test_webhook_runtime_uses_registered_http_dispatcher_and_verified_receipt(
         assert proposal.receipt_id is not None
 
 
+<<<<<<< HEAD
 def test_untrusted_connectors_are_refused_on_the_public_and_dispatcher_paths(
     reference_app: ReferenceApp, two_workspaces: Workspaces, downstream: Downstream
 ) -> None:
@@ -261,12 +271,42 @@ def test_untrusted_connectors_are_refused_on_the_public_and_dispatcher_paths(
         reference_app,
         run_id,
         "occ-b12-3a",
+=======
+# ---------------------------------------------------------------------------
+# B11.3a (#737): the spans of the governed path name the rows that authorised the effect
+# ---------------------------------------------------------------------------
+
+_CAUSAL = ("caliber.proposal_id", "caliber.decision_id", "caliber.approval_id", "caliber.effect_id")
+
+
+def _causal(span: Any) -> dict[str, Any]:
+    return {key: span.attributes[key] for key in _CAUSAL if key in span.attributes}
+
+
+def _approved_request(reference_app: ReferenceApp) -> tuple[str, str, str]:
+    """An approved, bound request for a versioned document request: ``(run, approval, proposal)`` ids."""
+    with reference_app.session_factory() as session:
+        member = session.execute(
+            select(CaliberProjectMember).where(
+                CaliberProjectMember.project_id == PROJECT_A,
+                CaliberProjectMember.user_id == APPROVER_A,
+            )
+        ).scalar_one()
+        member.role = "reviewer"
+        session.commit()
+    run_id = _waiting_run(reference_app)
+    approval_id, proposal_id = _request(
+        reference_app,
+        run_id,
+        "occ-b11-3a",
+>>>>>>> origin/main
         connector_version="1",
         resource="cases/MORT-2026-000184/document-requests",
         args={"document_type": "pay_statement"},
         expected_resource_version="1",
     )
     _approved(reference_app, run_id, approval_id)
+<<<<<<< HEAD
     with reference_app.session_factory() as session:
         lease = acquire(session, "egi-b12-3a", ttl_seconds=600)
         assert lease is not None
@@ -297,7 +337,186 @@ def test_untrusted_connectors_are_refused_on_the_public_and_dispatcher_paths(
             )
         assert refused.value.code == code
     assert downstream.mutations() == 0
+=======
+    return run_id, approval_id, proposal_id
+
+
+def _dispatch_traced(
+    reference_app: ReferenceApp,
+    downstream: Downstream,
+    proposal_id: str,
+    approval_id: str,
+    **overrides: Any,
+) -> Any:
+    with reference_app.session_factory() as session:
+        lease = acquire(session, "egi-b11-3a", ttl_seconds=600)
+        assert lease is not None
+        session.commit()
+    arguments: dict[str, Any] = {
+        "approval_id": approval_id,
+        "approver_scopes": frozenset({"caliber.approver", "caliber.viewer"}),
+        "lease": lease,
+        "backend_kind": "document_request",
+        "backend_config": {"base_url": downstream.base_url},
+        "current_resource_version": "1",
+        "evidence_hash": EVIDENCE,
+        "approval_validator": approval_valid_at_commit,
+        "now": T0 + timedelta(minutes=2),
+    }
+    arguments.update(overrides)
+    bind_egress_policy(EgressPolicy(allowed_hosts=frozenset({"127.0.0.1"})))
+    try:
+        return dispatch(reference_app.session_factory, proposal_id, **arguments)
+    finally:
+        bind_egress_policy(None)
+
+
+def test_governed_path_spans_carry_the_ids_of_the_persisted_rows(
+    reference_app: ReferenceApp, two_workspaces: Workspaces, downstream: Downstream
+) -> None:
+    """Real validator, real lease, real downstream: every id on the spans is a row the database holds."""
+    run_id, approval_id, proposal_id = _approved_request(reference_app)
+    fake = FakeMlflow()
+    set_tracer(Tracer(mlflow_module=fake))
+
+    result = _dispatch_traced(reference_app, downstream, proposal_id, approval_id)
+
+    assert result.state == "committed" and downstream.mutations() == 1
+    with reference_app.session_factory() as session:
+        proposal = session.get(CaliberEffectProposal, proposal_id)
+        approval = session.get(CaliberRuntimeApprovalRequest, approval_id)
+        receipt = session.scalars(
+            select(CaliberEffectReceipt).where(CaliberEffectReceipt.proposal_id == proposal_id)
+        ).one()
+        decisions = {
+            row.decision_id
+            for row in session.scalars(
+                select(CaliberPolicyDecision).where(CaliberPolicyDecision.workflow_run_id == run_id)
+            )
+        }
+        assert proposal is not None and approval is not None
+        assert proposal.receipt_id == receipt.receipt_id and approval.consumed_at is not None
+
+    check = next(span for span in fake.spans if span.name == "effect.approval.commit_check")
+    dispatched = next(span for span in fake.spans if span.name == "effect.dispatch")
+    written = next(span for span in fake.spans if span.name == "effect.receipt.write")
+
+    decision_id = dispatched.attributes["caliber.decision_id"]
+    assert decision_id in decisions
+    assert _causal(dispatched) == {
+        "caliber.proposal_id": proposal.proposal_id,
+        "caliber.decision_id": decision_id,
+        "caliber.approval_id": approval.runtime_approval_id,
+        "caliber.effect_id": receipt.receipt_id,
+    }
+    # The commit-time recheck names the same proposal, approval and decision, and has no outcome yet.
+    assert _causal(check) == {
+        "caliber.proposal_id": proposal_id,
+        "caliber.decision_id": decision_id,
+        "caliber.approval_id": approval_id,
+    }
+    assert _causal(written) == {
+        "caliber.proposal_id": proposal_id,
+        "caliber.approval_id": approval_id,
+        "caliber.effect_id": receipt.receipt_id,
+    }
+    for span in (check, dispatched, written):
+        assert span.attributes["caliber.status"] == "completed"
+        # Nothing but the allow-listed ids (and the tracer's own status) is on a governed-effect span.
+        assert set(span.attributes) <= {*_CAUSAL, "caliber.status"}
+
+
+def test_a_refused_recheck_names_what_it_bound_and_its_code_and_nothing_else(
+    reference_app: ReferenceApp, two_workspaces: Workspaces, downstream: Downstream
+) -> None:
+    _run_id, approval_id, proposal_id = _approved_request(reference_app)
+    fake = FakeMlflow()
+    set_tracer(Tracer(mlflow_module=fake))
+
+    with pytest.raises(EffectRefused) as refused:
+        _dispatch_traced(
+            reference_app, downstream, proposal_id, approval_id, current_resource_version="2"
+        )
+
+    assert refused.value.code == "stale_version"
+    assert downstream.mutations() == 0
+    check = next(span for span in fake.spans if span.name == "effect.approval.commit_check")
+    dispatched = next(span for span in fake.spans if span.name == "effect.dispatch")
+    # The request was bound to the proposal's exact intent before the resource version was compared, so the id is
+    # a real link; the decision is only known once every check has passed, so it is absent.
+    assert _causal(check) == {
+        "caliber.proposal_id": proposal_id,
+        "caliber.approval_id": approval_id,
+    }
+    assert check.attributes["caliber.refusal_code"] == "stale_version"
+    assert check.attributes["caliber.status"] == "failed"
+    # The dispatch span only names ids the validator returned, which it never did.
+    assert _causal(dispatched) == {"caliber.proposal_id": proposal_id}
+    assert dispatched.attributes["caliber.refusal_code"] == "stale_version"
+    assert not [span for span in fake.spans if span.name == "effect.receipt.write"]
+>>>>>>> origin/main
     with reference_app.session_factory() as session:
         approval = session.get(CaliberRuntimeApprovalRequest, approval_id)
         assert approval is not None and approval.consumed_at is None
         assert proposal_state(session, proposal_id).state == "proposed"
+<<<<<<< HEAD
+=======
+
+
+def test_another_proposals_approval_is_not_linked_by_a_refused_recheck(
+    reference_app: ReferenceApp, two_workspaces: Workspaces, downstream: Downstream
+) -> None:
+    """An approval row that exists but is bound to a different proposal is not a link for this one."""
+    run_id, approval_id, _proposal_id = _approved_request(reference_app)
+    with reference_app.session_factory() as session:
+        other_proposal = record_proposal(
+            session,
+            workflow_run_id=run_id,
+            node_id="other_node",
+            occurrence_id="occ-b11-3a-other",
+            intent=_intent(
+                connector_version="1",
+                resource="cases/MORT-2026-000184/document-requests",
+                args={"document_type": "bank_statement"},
+                expected_resource_version="1",
+            ),
+        ).proposal_id
+        session.commit()
+    fake = FakeMlflow()
+    set_tracer(Tracer(mlflow_module=fake))
+
+    with pytest.raises(EffectRefused) as refused:
+        _dispatch_traced(reference_app, downstream, other_proposal, approval_id)
+
+    assert refused.value.code == "intent_mismatch"
+    assert downstream.mutations() == 0
+    for span in fake.spans:
+        assert span.attributes.get("caliber.approval_id") is None
+        assert span.attributes.get("caliber.decision_id") is None
+        assert span.attributes["caliber.proposal_id"] == other_proposal
+    check = next(span for span in fake.spans if span.name == "effect.approval.commit_check")
+    assert check.attributes["caliber.refusal_code"] == "intent_mismatch"
+    with reference_app.session_factory() as session:
+        approval = session.get(CaliberRuntimeApprovalRequest, approval_id)
+        assert approval is not None and approval.consumed_at is None
+
+
+def test_an_unknown_approval_id_is_never_linked_from_a_span(
+    reference_app: ReferenceApp, two_workspaces: Workspaces, downstream: Downstream
+) -> None:
+    _run_id, _approval_id, proposal_id = _approved_request(reference_app)
+    fake = FakeMlflow()
+    set_tracer(Tracer(mlflow_module=fake))
+
+    with pytest.raises(EffectRefused) as refused:
+        _dispatch_traced(reference_app, downstream, proposal_id, "RAP-forged00")
+
+    assert refused.value.code == "not_found"
+    for span in fake.spans:
+        assert "caliber.approval_id" not in span.attributes
+        assert "caliber.decision_id" not in span.attributes
+        assert "RAP-forged00" not in repr(span.attributes)
+    check = next(span for span in fake.spans if span.name == "effect.approval.commit_check")
+    assert _causal(check) == {"caliber.proposal_id": proposal_id}
+    assert check.attributes["caliber.refusal_code"] == "not_found"
+>>>>>>> origin/main

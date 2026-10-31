@@ -42,6 +42,10 @@ SAFE_SPAN_ATTRIBUTES: Final[frozenset[str]] = frozenset(
         "caliber.node_id",
         "caliber.job_id",
         "caliber.approval_id",
+        "caliber.proposal_id",
+        "caliber.decision_id",
+        "caliber.effect_id",
+        "caliber.refusal_code",
         "caliber.source",
         "caliber.status",
         "caliber.stage.status",
@@ -135,6 +139,21 @@ def payload_governance_active(config: object | None) -> bool:
     return config is None or getattr(config, "profile", "") == "reference"
 
 
+def apply_distinct_approver_required(config: object | None) -> bool:
+    """Whether Apply must be done by someone other than the job's requester (the two-person rule).
+
+    True when ``CALIBER_APPLY_REQUIRE_DISTINCT_APPROVER`` is on, **and always in the reference profile**: the
+    startup check already refuses a reference process with the flag off, and this keeps the rule closed if a
+    process ever reaches a request in that state anyway. A missing config is treated as the reference profile,
+    the same cautious answer :func:`payload_governance_active` gives.
+    """
+    return (
+        config is None
+        or getattr(config, "profile", "") == "reference"
+        or getattr(config, "apply_require_distinct_approver", False) is True
+    )
+
+
 @dataclass(frozen=True)
 class ProfileViolation:
     """One setting that the reference profile does not allow."""
@@ -215,6 +234,13 @@ REFERENCE_REQUIREMENTS: tuple[Requirement, ...] = (
         "CALIBER_APPROVAL_ALLOW_SELF_APPROVAL",
         "false",
         "The account that started a run could approve its own protected action.",
+    ),
+    Requirement(
+        "apply_distinct_approver_disabled",
+        "apply_require_distinct_approver",
+        "CALIBER_APPLY_REQUIRE_DISTINCT_APPROVER",
+        "true",
+        "The account that requested a refinement job could apply its own candidate to production, and a job with no recorded requester could be applied unreviewed.",
     ),
     Requirement(
         "memory_inference_enabled",
@@ -324,6 +350,16 @@ def reference_profile_violations(config: CaliberConfig) -> list[ProfileViolation
                 "true",
                 "CALIBER_APPROVAL_ALLOW_SELF_APPROVAL",
                 "false",
+            )
+        )
+    if not config.apply_require_distinct_approver:
+        found.append(
+            _violation(
+                "apply_distinct_approver_disabled",
+                "apply_require_distinct_approver",
+                "false",
+                "CALIBER_APPLY_REQUIRE_DISTINCT_APPROVER",
+                "true",
             )
         )
     if config.memory_enabled and config.memory_infer:

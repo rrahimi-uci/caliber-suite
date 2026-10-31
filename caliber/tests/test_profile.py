@@ -13,6 +13,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -26,6 +27,7 @@ import caliber.profile as profile_module
 import tests.test_effect_dispatcher as dispatcher_tests
 from caliber.config import CaliberConfig, ConfigError
 from caliber.db.migrate import build_config
+<<<<<<< HEAD
 from caliber.db.models import (
     CaliberEffectProposal,
     CaliberEventOutbox,
@@ -43,6 +45,13 @@ from caliber.effects.dispatcher import (
 from caliber.effects.receipts import ReceiptFacts
 from caliber.effects.records import Intent, proposal_state, record_proposal
 from caliber.profile import REFERENCE_CONNECTORS, ProfileViolation, reference_profile_violations
+=======
+from caliber.profile import (
+    ProfileViolation,
+    apply_distinct_approver_required,
+    reference_profile_violations,
+)
+>>>>>>> origin/main
 from caliber.server import create_app
 from tests.dialect_helpers import POSTGRES_TEST_URL, dialect_database_url
 from tests.effect_helpers import admit_fake_backend, leased
@@ -64,6 +73,7 @@ SAFE: dict[str, Any] = {
     "egress_policy_enabled": True,
     "mcp_allow_insecure_http": False,
     "approval_allow_self_approval": False,
+    "apply_require_distinct_approver": True,
 }
 
 #: code -> (settings that make it the *only* violation, the env var its message must name)
@@ -90,6 +100,10 @@ UNSAFE: dict[str, tuple[dict[str, Any], str]] = {
     "self_approval_allowed": (
         {"approval_allow_self_approval": True},
         "CALIBER_APPROVAL_ALLOW_SELF_APPROVAL",
+    ),
+    "apply_distinct_approver_disabled": (
+        {"apply_require_distinct_approver": False},
+        "CALIBER_APPLY_REQUIRE_DISTINCT_APPROVER",
     ),
     "memory_inference_enabled": (
         {"memory_enabled": True, "memory_infer": True},
@@ -146,6 +160,62 @@ def test_each_unsafe_setting_alone_is_one_violation(app_config: CaliberConfig, c
     assert violation.env_var == env_var
     assert env_var in violation.message
     assert "for the reference profile" in violation.message
+
+
+def test_apply_flag_is_a_reference_violation(app_config: CaliberConfig) -> None:
+    """B06.3 (#747): the reference profile refuses to start with the two-person Apply rule off."""
+    off = _config(app_config, apply_require_distinct_approver=False)
+    (violation,) = reference_profile_violations(off)
+    assert violation.code == "apply_distinct_approver_disabled"
+    assert violation.setting == "apply_require_distinct_approver"
+    assert violation.env_var == "CALIBER_APPLY_REQUIRE_DISTINCT_APPROVER"
+    with pytest.raises(ConfigError) as refused:
+        create_app(off)
+    assert "CALIBER_APPLY_REQUIRE_DISTINCT_APPROVER=true" in str(refused.value)
+    assert reference_profile_violations(_config(app_config)) == []
+
+
+def test_apply_flag_defaults_off_and_is_read_from_the_environment() -> None:
+    """The development profile keeps today's behaviour unless an operator opts in."""
+    assert CaliberConfig.load(environ={}).apply_require_distinct_approver is False
+    on = CaliberConfig.load(environ={"CALIBER_APPLY_REQUIRE_DISTINCT_APPROVER": "true"})
+    assert on.apply_require_distinct_approver is True
+    # Like every flag here, an unrecognised spelling is false: the reference profile then refuses it.
+    unrecognised = CaliberConfig.load(environ={"CALIBER_APPLY_REQUIRE_DISTINCT_APPROVER": "maybe"})
+    assert unrecognised.apply_require_distinct_approver is False
+
+
+def test_the_development_profile_does_not_flag_the_apply_setting(app_config: CaliberConfig) -> None:
+    """The profile check is only run for ``reference``; development starts with the flag off."""
+    off = app_config.model_copy(
+        update={"profile": "development", "apply_require_distinct_approver": False}
+    )
+    assert TestClient(create_app(off)).get(HEALTH).status_code == 200
+
+
+@pytest.mark.parametrize(
+    ("profile", "flag", "required"),
+    [
+        ("development", False, False),
+        ("development", True, True),
+        ("reference", True, True),
+        # The startup check refuses this pair; the runtime rule stays closed if a process is in it anyway.
+        ("reference", False, True),
+    ],
+)
+def test_apply_distinct_approver_required_matrix(profile: str, flag: bool, required: bool) -> None:
+    config = CaliberConfig.model_construct(profile=profile, apply_require_distinct_approver=flag)
+    assert apply_distinct_approver_required(config) is required
+
+
+def test_apply_distinct_approver_required_is_closed_without_a_config() -> None:
+    assert apply_distinct_approver_required(None) is True
+
+
+def test_a_truthy_non_boolean_flag_does_not_switch_the_rule_on() -> None:
+    """Only a real ``True`` counts: an object that merely looks truthy on a development config is not the flag."""
+    config = SimpleNamespace(profile="development", apply_require_distinct_approver="yes")
+    assert apply_distinct_approver_required(config) is False
 
 
 def test_a_trusted_header_config_with_a_proxy_secret_is_allowed(app_config: CaliberConfig) -> None:
@@ -276,6 +346,11 @@ MESSAGES: dict[str, tuple[str, str]] = {
         "approval_allow_self_approval is true; "
         "set CALIBER_APPROVAL_ALLOW_SELF_APPROVAL=false for the reference profile",
     ),
+    "apply_distinct_approver_disabled": (
+        "apply_require_distinct_approver",
+        "apply_require_distinct_approver is false; "
+        "set CALIBER_APPLY_REQUIRE_DISTINCT_APPROVER=true for the reference profile",
+    ),
 }
 
 
@@ -305,7 +380,7 @@ def test_the_refusal_counts_and_bullets_every_violation(app_config: CaliberConfi
     with pytest.raises(ConfigError) as refused:
         create_app(_config(app_config, **every_unsafe))
     lines = str(refused.value).splitlines()
-    assert lines[0] == "reference profile refused (9 violations):"
+    assert lines[0] == "reference profile refused (10 violations):"
     assert len(lines) == 1 + len(UNSAFE)
     assert all(line.startswith("- ") for line in lines[1:])
 
