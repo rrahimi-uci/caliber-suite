@@ -15,10 +15,12 @@ from typing import Any
 
 import pytest
 from sqlalchemy import delete, func, select, update
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 from starlette.testclient import TestClient
 
 from caliber.apply import (
+    APPLY_BUSY,
     APPLY_CANDIDATE_CHANGED,
     APPLY_CANDIDATE_UNVERIFIED,
     APPLY_CREATOR_UNKNOWN,
@@ -37,7 +39,7 @@ from caliber.db.models import (
     CaliberRefinementJob,
 )
 from caliber.resource_access import ROLE_EDITOR, ROLE_VIEWER
-from caliber.routes._job_access import lock_job_and_authority
+from caliber.routes._job_access import is_lock_timeout, lock_job_and_authority
 from tests.test_apply_distinct_approver import (
     JOB_ID,
     OTHER,
@@ -269,6 +271,7 @@ def test_every_recheck_refusal_has_a_static_message_without_identifiers() -> Non
         APPLY_PERMISSION_REVOKED,
         APPLY_CANDIDATE_CHANGED,
         APPLY_CANDIDATE_UNVERIFIED,
+        APPLY_BUSY,
     }
     for message in APPLY_RECHECK_DETAIL.values():
         assert "@" not in message and "RFN" not in message and "sha256" not in message
@@ -678,6 +681,137 @@ def test_a_candidate_edited_after_the_recheck_is_caught_before_it_is_snapshotted
     assert response.json()["reason_code"] == APPLY_CANDIDATE_CHANGED
     _assert_payload_free(response)
     _assert_refused_and_nothing_changed(job, db_session, code=APPLY_CANDIDATE_CHANGED)
+
+
+@pytest.mark.parametrize(
+    "revoke",
+    [_deactivate, _lower_to_viewer, _remove],
+    ids=["deactivated", "lowered-to-viewer", "removed"],
+)
+def test_a_permission_revoked_between_the_recheck_and_the_claim_update_is_refused(
+    project_job: TestClient,
+    db_session: Session,
+    monkeypatch: pytest.MonkeyPatch,
+    revoke: Any,
+) -> None:
+    """Without row locks (SQLite) the grant can go away after the recheck; the check after the UPDATE catches it.
+
+    The revocation lands after ``_recheck_claim`` returned and before the claim UPDATE. The UPDATE still matches, so only
+    the authority check that runs once the UPDATE holds the write lock refuses, and the claim rolls back with it.
+    """
+    import caliber.routes.jobs as jobs_route
+
+    real_recheck = jobs_route._recheck_claim
+
+    def recheck_then_revoke(session: Session, **kwargs: Any) -> CaliberRefinementJob:
+        locked = real_recheck(session, **kwargs)
+        revoke(session)
+        return locked
+
+    monkeypatch.setattr(jobs_route, "_recheck_claim", recheck_then_revoke)
+    response = _apply(project_job, OTHER, project=True)
+    assert response.status_code == 403
+    assert response.json()["reason_code"] == APPLY_PERMISSION_REVOKED
+    _assert_payload_free(response)
+    _assert_refused_and_nothing_changed(project_job, db_session, code=APPLY_PERMISSION_REVOKED)
+
+
+def test_a_revocation_committed_by_another_connection_right_after_the_recheck_is_refused(
+    project_job: TestClient, db_session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The probe that found the gap: a membership deactivation committed on another connection after the recheck.
+
+    On SQLite nothing holds the membership row, so the recheck's answer is stale by the time the claim UPDATE runs; the
+    authority check after the UPDATE reads the committed revocation and refuses before anything is committed.
+    """
+    import caliber.routes.jobs as jobs_route
+
+    real_recheck = jobs_route._recheck_claim
+
+    def recheck_then_revoke_elsewhere(session: Session, **kwargs: Any) -> CaliberRefinementJob:
+        locked = real_recheck(session, **kwargs)
+        db_session.execute(
+            update(CaliberProjectMember)
+            .where(CaliberProjectMember.member_id == "M-other")
+            .values(status="deactivated")
+        )
+        db_session.commit()
+        return locked
+
+    monkeypatch.setattr(jobs_route, "_recheck_claim", recheck_then_revoke_elsewhere)
+    response = _apply(project_job, OTHER, project=True)
+    assert response.status_code == 403
+    assert response.json()["reason_code"] == APPLY_PERMISSION_REVOKED
+    db_session.expire_all()
+    member = db_session.get(CaliberProjectMember, "M-other")
+    assert member is not None and member.status == "deactivated"
+    _assert_refused_and_nothing_changed(project_job, db_session, code=APPLY_PERMISSION_REVOKED)
+
+
+def _lock_timeout_error(sqlstate: str) -> OperationalError:
+    class _OrigError(Exception):
+        pass
+
+    orig = _OrigError("canceling statement due to lock timeout")
+    orig.sqlstate = sqlstate  # type: ignore[attr-defined]
+    return OperationalError("SELECT ... FOR UPDATE", {}, orig)
+
+
+@pytest.mark.parametrize(
+    ("error", "expected"),
+    [
+        (_lock_timeout_error("55P03"), True),
+        (_lock_timeout_error("40001"), False),
+        (_lock_timeout_error(""), False),
+        (RuntimeError("55P03"), False),
+    ],
+    ids=["lock-not-available", "serialization-failure", "blank", "not-a-database-error"],
+)
+def test_only_a_postgresql_lock_timeout_is_recognised(error: BaseException, expected: bool) -> None:
+    assert is_lock_timeout(error) is expected
+
+
+def test_pgcode_is_also_recognised() -> None:
+    class _LegacyError(Exception):
+        pgcode = "55P03"
+
+    assert is_lock_timeout(OperationalError("x", {}, _LegacyError()))
+
+
+def test_a_lock_timeout_in_the_claim_is_a_payload_free_503_with_nothing_written(
+    job: TestClient, db_session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import caliber.routes.jobs as jobs_route
+
+    def timed_out(*args: Any, **kwargs: Any) -> None:
+        raise _lock_timeout_error("55P03")
+
+    monkeypatch.setattr(jobs_route, "lock_job_and_authority", timed_out)
+    response = _apply(job, OTHER)
+    assert response.status_code == 503
+    assert response.json()["reason_code"] == APPLY_BUSY
+    assert response.json()["detail"] == APPLY_RECHECK_DETAIL[APPLY_BUSY]
+    _assert_payload_free(response)
+    assert _job_status(db_session) == "candidate_ready"
+    assert job.app.state.promoter.calls == []  # type: ignore[attr-defined]
+    assert _count(db_session, CaliberApprovalRequest) == 0
+    assert _refusals(db_session) == []  # nothing was decided, so nothing is a refusal
+    monkeypatch.undo()
+    assert _apply(job, OTHER).status_code == 200  # retryable
+
+
+def test_any_other_database_error_in_the_claim_is_not_swallowed(
+    job: TestClient, db_session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import caliber.routes.jobs as jobs_route
+
+    def broken(*args: Any, **kwargs: Any) -> None:
+        raise _lock_timeout_error("40001")
+
+    monkeypatch.setattr(jobs_route, "lock_job_and_authority", broken)
+    with pytest.raises(OperationalError):
+        _apply(job, OTHER)
+    assert _job_status(db_session) == "candidate_ready"
 
 
 def test_a_claim_that_matches_nothing_yet_rechecks_clean_is_still_refused(

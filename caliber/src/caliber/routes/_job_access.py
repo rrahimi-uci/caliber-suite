@@ -28,7 +28,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from sqlalchemy import Select, or_, select
+from sqlalchemy import Select, or_, select, text
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 from starlette.exceptions import HTTPException
 
@@ -83,6 +84,21 @@ def load_visible_job(
     return job
 
 
+#: How long, on PostgreSQL, the Apply claim waits for a row lock before it gives up (``SET LOCAL lock_timeout``). A lock
+#: is held by a transaction that is about to commit (another claim, a membership or candidate edit), so a wait is short;
+#: a stuck one must not pin a request handler. Fixed, not a setting: it only bounds a wait, it never changes an outcome.
+LOCK_TIMEOUT_MS = 5000
+_LOCK_NOT_AVAILABLE = "55P03"
+
+
+def is_lock_timeout(exc: BaseException) -> bool:
+    """Whether ``exc`` is PostgreSQL's ``lock_not_available`` (SQLSTATE 55P03), what ``lock_timeout`` raises."""
+    if not isinstance(exc, OperationalError):
+        return False
+    orig = exc.orig
+    return (getattr(orig, "sqlstate", None) or getattr(orig, "pgcode", None)) == _LOCK_NOT_AVAILABLE
+
+
 def lock_job_and_authority(
     session: Session, job_id: str, *, user_id: str
 ) -> CaliberRefinementJob | None:
@@ -97,9 +113,13 @@ def lock_job_and_authority(
     Locks are taken in a fixed order: the job (``FOR UPDATE``), its agent, the agent's project, then the caller's
     membership row in that project (each ``FOR SHARE``, so concurrent applies do not serialise on them while any writer of
     those rows does). SQLite has no row locks and ignores the clause; its single-writer file lock is the equivalent.
+    On PostgreSQL the waits are bounded by :data:`LOCK_TIMEOUT_MS`; a wait that runs out raises ``OperationalError``
+    (:func:`is_lock_timeout`), which the caller maps to a retryable refusal.
     Every statement refreshes the identity map first, otherwise ``session.get`` in :func:`load_visible_job` would answer
     from objects loaded before the lock.
     """
+    if session.get_bind().dialect.name == "postgresql":
+        session.execute(text(f"SET LOCAL lock_timeout = {int(LOCK_TIMEOUT_MS)}"))
     job = session.execute(
         select(CaliberRefinementJob)
         .where(CaliberRefinementJob.job_id == job_id)

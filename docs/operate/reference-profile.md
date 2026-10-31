@@ -2065,6 +2065,8 @@ what it locked, in this order:
 | 4 | the job is still `candidate_ready` | `409`, no `reason_code` (the existing status conflict) |
 | 5 | the candidate about to be promoted is the one that cleared the eval gate | `409`, `apply_candidate_changed`, or `apply_candidate_unverified` when no digest was recorded |
 
+A lock wait that runs out before step 1 ends is `503` `apply_busy` (below). After the claim `UPDATE`, rows 2 and 5 are checked once more before anything is committed (see SQLite, below).
+
 **The exact candidate.** When the eval gate passes, the stage that moves a job to `candidate_ready` stores the
 SHA-256 of the candidate's canonical JSON on the job (`caliber_refinement_jobs.candidate_digest`, `sha256:` plus
 64 hex digits; migration `0132`). The claim recomputes the digest of the candidate it is about to promote and
@@ -2081,8 +2083,17 @@ caller's membership row `FOR SHARE` before anything is read for the decision, in
 predicate. A revocation or a candidate edit that is mid-transaction when the claim starts makes the claim wait
 and then refuse; one that arrives while the claim is in flight waits for the claim to commit, so the apply that
 passed its checks is the apply that was authorised. Two concurrent applies cannot both claim: the second waits and
-sees `applying`. SQLite has no row locks and ignores the clause; its single-writer database lock and the
-conditional `UPDATE` are the equivalent, and the reference profile requires PostgreSQL.
+sees `applying`. The waits are bounded by a fixed 5 second `lock_timeout` (not a setting); a wait that runs
+out is answered `503`, `reason_code` `apply_busy`, retryable, with nothing decided or written and no audit row.
+
+**What SQLite does and does not cover.** SQLite has no row locks and ignores the `FOR UPDATE` / `FOR SHARE`
+clauses, so the recheck's answer is not held between the recheck and the claim: a grant can be revoked on
+another connection in that gap. Two things close it. The claim `UPDATE` is conditional (status, recorded digest,
+requester), and once it has run, and so holds SQLite's single write lock, the route reads the caller's authority
+again and verifies the candidate snapshot against the recorded digest before anything is committed; a failure
+rolls the claim back (`apply_permission_revoked` / `apply_candidate_changed`). What remains is the interval
+after that check and before the commit, during which SQLite's write lock keeps other writers out. This is the
+development profile; the reference profile requires PostgreSQL, where the row locks above are what is relied on.
 
 **Refusals** are static and payload-free (no job id, account, digest or candidate text):
 
@@ -2096,6 +2107,10 @@ conditional `UPDATE` are the equivalent, and the reference profile requires Post
 
 ```json
 {"detail": "this candidate has no recorded evaluation digest, so it cannot be verified; nothing was applied, re-run the evaluation so it records one", "status_code": 409, "reason_code": "apply_candidate_unverified"}
+```
+
+```json
+{"detail": "this candidate is being changed or applied right now; nothing was applied, retry shortly", "status_code": 503, "reason_code": "apply_busy"}
 ```
 
 **Audit (#1050).** Each refusal at or after the separation check (`apply_self_approval`, `apply_creator_unknown`,
@@ -2113,7 +2128,10 @@ fresh digest, then apply. Do not edit `candidate_digest` by hand: the digest is 
 and a hand-written one defeats it. `apply_permission_revoked`: ask a project owner to restore the grant, or have
 an authorised account apply it.
 
-**Upgrade and limits.** Migration `0132` is additive. It backfills `candidate_digest` for jobs that are
+**Upgrade and limits.** Migration `0132` is additive, but not safe for a mixed-version rollout: a job that an
+old process moves to `candidate_ready` after the upgrade records no digest, and the new Apply refuses it
+(`apply_candidate_unverified`, with no override). Drain old writers (the workers that run the eval stages) before
+migrating, or re-run the evaluation of any job they finish in the window. The migration backfills `candidate_digest` for jobs that are
 `candidate_ready` or `applying` at upgrade time from their *current* candidate, since that is the only
 evaluated candidate such a row can name (a trust-on-upgrade step: an edit made before the upgrade is not
 detectable); every other row stays `NULL`, and a job without a candidate stays `NULL` and is refused at Apply.

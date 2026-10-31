@@ -22,16 +22,26 @@ import pytest
 from sqlalchemy import select, text, update
 from starlette.testclient import TestClient
 
-from caliber.apply import APPLY_CANDIDATE_CHANGED, APPLY_PERMISSION_REVOKED
+from caliber.apply import APPLY_BUSY, APPLY_CANDIDATE_CHANGED, APPLY_PERMISSION_REVOKED
 from caliber.candidate_digest import candidate_digest
 from caliber.db.models import (
+    CaliberAgentConfig,
     CaliberApprovalRequest,
     CaliberAuditLog,
+    CaliberProject,
     CaliberProjectMember,
     CaliberRefinementJob,
 )
-from tests.egi_scenarios.conftest import EDITOR_A, EDITOR_B, ReferenceApp, Workspaces
+from tests.egi_scenarios.conftest import (
+    EDITOR_A,
+    EDITOR_B,
+    PROJECT_A,
+    PROJECT_B,
+    ReferenceApp,
+    Workspaces,
+)
 from tests.egi_scenarios.test_b06_apply_distinct_approver import (
+    AGENT_ID,
     CANDIDATE,
     PREFIX,
     _apply,
@@ -242,6 +252,109 @@ def test_apply_waits_for_an_uncommitted_revocation_and_then_refuses(
     _assert_refused_cleanly(
         reference_app, "RFN-B064-REVOKE", code=APPLY_PERMISSION_REVOKED, actor=EDITOR_B
     )
+
+
+def test_apply_waits_for_an_uncommitted_ownership_transfer_and_then_refuses(
+    reference_app: ReferenceApp, two_workspaces: Workspaces
+) -> None:
+    """The caller is the project's owner (no membership row); the project is being handed to someone else.
+
+    ``project_role`` reads ``project.owner``, so the project row is what decides this caller's access. Without the
+    ``FOR SHARE`` on it the claim reads the committed owner (still the caller), proceeds, and the transfer commits after a
+    promotion it was meant to stop.
+    """
+    _require_postgresql(reference_app)
+    _seed_job(reference_app, "RFN-B064-OWNER", EDITOR_A)
+    with reference_app.session_factory() as session:
+        session.execute(
+            update(CaliberAgentConfig)
+            .where(CaliberAgentConfig.agent_id == AGENT_ID)
+            .values(owner=EDITOR_B)
+        )
+        session.execute(
+            update(CaliberProject)
+            .where(CaliberProject.project_id == PROJECT_A)
+            .values(owner=EDITOR_B)
+        )
+        session.commit()
+    with reference_app.session_factory() as transfer:
+        transfer.execute(
+            update(CaliberProject)
+            .where(CaliberProject.project_id == PROJECT_A)
+            .values(owner="@egi")
+        )
+        transfer.flush()
+        apply = _Request(reference_app, EDITOR_B, "RFN-B064-OWNER").start()
+        _wait_until_blocked(reference_app, "caliber_projects", "for share")
+        assert apply.thread.is_alive()
+        transfer.commit()
+    response = apply.result()
+    assert response.status_code == 403, response.text
+    assert response.json()["reason_code"] == APPLY_PERMISSION_REVOKED
+    _assert_refused_cleanly(
+        reference_app, "RFN-B064-OWNER", code=APPLY_PERMISSION_REVOKED, actor=EDITOR_B
+    )
+
+
+def test_apply_waits_for_an_uncommitted_agent_move_and_then_refuses(
+    reference_app: ReferenceApp, two_workspaces: Workspaces
+) -> None:
+    """The job's agent is being moved to another project: the agent row decides visibility and which project to check.
+
+    Without the ``FOR SHARE`` on it the claim reads the committed agent (still in the caller's project) and proceeds.
+    """
+    _require_postgresql(reference_app)
+    _make_editor_b_a_member_of_project_a(reference_app)
+    _seed_job(reference_app, "RFN-B064-MOVE", EDITOR_A)
+    with reference_app.session_factory() as mover:
+        mover.execute(
+            update(CaliberAgentConfig)
+            .where(CaliberAgentConfig.agent_id == AGENT_ID)
+            .values(project_id=PROJECT_B)
+        )
+        mover.flush()
+        apply = _Request(reference_app, EDITOR_B, "RFN-B064-MOVE").start()
+        # Only the apply request is waiting, and its truncated SELECT still names the table in every column.
+        _wait_until_blocked(reference_app, "caliber_agent_config")
+        assert apply.thread.is_alive()
+        mover.commit()
+    response = apply.result()
+    assert response.status_code == 403, response.text
+    assert response.json()["reason_code"] == APPLY_PERMISSION_REVOKED
+    _assert_refused_cleanly(
+        reference_app, "RFN-B064-MOVE", code=APPLY_PERMISSION_REVOKED, actor=EDITOR_B
+    )
+
+
+def test_a_lock_that_is_never_released_ends_in_a_retryable_payload_free_503(
+    reference_app: ReferenceApp, two_workspaces: Workspaces, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A stuck writer cannot pin the request handler: the claim's lock wait is bounded and nothing is decided."""
+    import caliber.routes._job_access as job_access
+
+    _require_postgresql(reference_app)
+    _make_editor_b_a_member_of_project_a(reference_app)
+    _seed_job(reference_app, "RFN-B064-BUSY", EDITOR_A)
+    monkeypatch.setattr(job_access, "LOCK_TIMEOUT_MS", 300)
+    with reference_app.session_factory() as stuck:
+        stuck.execute(
+            update(CaliberProjectMember)
+            .where(CaliberProjectMember.member_id == MEMBER_ID)
+            .values(role="editor")
+        )
+        stuck.flush()  # the membership row stays locked
+        started = time.monotonic()
+        response = _apply(reference_app, EDITOR_B, "RFN-B064-BUSY")
+        waited = time.monotonic() - started
+        stuck.rollback()
+    assert response.status_code == 503, response.text
+    assert response.json()["reason_code"] == APPLY_BUSY
+    assert "RFN-B064" not in response.text and "sha256:" not in response.text
+    assert waited < 10
+    assert _state(reference_app, "RFN-B064-BUSY") == ("candidate_ready", 0)
+    assert _promotions(reference_app) == 0
+    assert _refusals(reference_app, "RFN-B064-BUSY") == []
+    assert _apply(reference_app, EDITOR_B, "RFN-B064-BUSY").status_code == 200
 
 
 def test_a_revocation_that_arrives_mid_claim_waits_for_the_claim_it_raced(

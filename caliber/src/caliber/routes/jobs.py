@@ -13,6 +13,7 @@ from datetime import datetime, timezone
 from typing import Any, Final, NoReturn
 
 from sqlalchemy import Select, delete, func, literal, select, update
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 from starlette.applications import Starlette
 from starlette.concurrency import run_in_threadpool
@@ -22,6 +23,7 @@ from starlette.responses import JSONResponse
 from starlette.routing import Route
 
 from caliber.apply import (
+    APPLY_BUSY,
     APPLY_PERMISSION_REVOKED,
     APPLY_RECHECK_DETAIL,
     APPLY_SEPARATION_DETAIL,
@@ -57,6 +59,7 @@ from caliber.routes._errors import CaliberHTTPException
 from caliber.routes._job_access import (
     ACTION_APPLY,
     ACTION_REVIEW,
+    is_lock_timeout,
     load_visible_job,
     lock_job_and_authority,
     scope_jobs_to_visible_agents,
@@ -555,6 +558,7 @@ def _recheck_claim(
     Run inside the claim transaction, so the rows read here cannot change before the claim commits (see
     :func:`~caliber.routes._job_access.lock_job_and_authority`). Raises, in this order and before anything is written:
 
+    0. ``503`` :data:`~caliber.apply.APPLY_BUSY` when, on PostgreSQL, a row lock is not granted within the lock timeout;
     1. ``404`` when the job no longer exists;
     2. ``403`` :data:`~caliber.apply.APPLY_PERMISSION_REVOKED` when the caller no longer holds ``release.apply`` on the
        job's project or can no longer see the job (the request-start check is not trusted);
@@ -565,7 +569,18 @@ def _recheck_claim(
 
     Returns the locked job, which the caller then claims with a conditional UPDATE.
     """
-    locked = lock_job_and_authority(session, job_id, user_id=identity.user_id)
+    try:
+        locked = lock_job_and_authority(session, job_id, user_id=identity.user_id)
+    except OperationalError as exc:
+        if not is_lock_timeout(exc):
+            raise
+        # Nothing was decided and nothing was written: release what the aborted transaction held and say so.
+        session.rollback()
+        raise CaliberHTTPException(
+            status_code=503,
+            detail=APPLY_RECHECK_DETAIL[APPLY_BUSY],
+            reason_code=APPLY_BUSY,
+        ) from None
     if locked is None:
         raise HTTPException(status_code=404, detail=f"refinement job {job_id!r} not found")
     try:
@@ -602,6 +617,54 @@ def _recheck_claim(
             detail=APPLY_RECHECK_DETAIL[digest_code],
         )
     return locked
+
+
+def _verified_claim_snapshot(
+    session: Any,
+    *,
+    identity: CaliberIdentity,
+    actor: str,
+    job_id: str,
+    evaluated_digest: str | None,
+) -> dict[str, Any]:
+    """After the claim UPDATE, recheck authority and return the candidate to snapshot, verified against its digest (B06.4).
+
+    Nothing is committed yet, so a refusal here rolls the claim back with it.
+
+    * Authority once more, now that the UPDATE holds the write lock. PostgreSQL already holds the membership rows
+      locked from the recheck; SQLite has no row locks, so this is what makes the permission check atomic with the claim
+      there: a grant revoked between the recheck and the UPDATE is seen here. ``expire_all`` so the check reads the
+      rows, not what was loaded before.
+    * What the approval anchor snapshots, and the promoter then reads, against the digest the gate recorded: the
+      conditional UPDATE cannot compare JSON content on every dialect, so on one without row locks this is what stops a
+      candidate edited after the recheck.
+    """
+    session.expire_all()
+    try:
+        load_visible_job(session, identity, job_id, action=ACTION_APPLY)
+    except HTTPException:
+        _refuse_apply(
+            session,
+            job_id=job_id,
+            actor=actor,
+            status_code=403,
+            reason_code=APPLY_PERMISSION_REVOKED,
+            detail=APPLY_RECHECK_DETAIL[APPLY_PERMISSION_REVOKED],
+        )
+    job = session.get(CaliberRefinementJob, job_id, populate_existing=True)
+    assert job is not None
+    snapshot = dict(job.candidate or {})
+    digest_code = apply_candidate_refusal(recorded_digest=evaluated_digest, candidate=snapshot)
+    if digest_code is not None:
+        _refuse_apply(
+            session,
+            job_id=job_id,
+            actor=actor,
+            status_code=409,
+            reason_code=digest_code,
+            detail=APPLY_RECHECK_DETAIL[digest_code],
+        )
+    return snapshot
 
 
 async def apply_job(request: Request) -> JSONResponse:
@@ -680,24 +743,15 @@ async def apply_job(request: Request) -> JSONResponse:
                 status_code=409,
                 detail=f"job {job_id!r} cannot be applied: it changed while being claimed",
             )
-        job = session.get(CaliberRefinementJob, job_id, populate_existing=True)
-        assert job is not None
-        # What the approval anchor snapshots, and what the promoter then reads, is checked against the digest the
-        # gate recorded: the conditional UPDATE above cannot compare JSON content on every dialect, so on one without
-        # row locks this is what stops a candidate edited after the recheck. Nothing is committed yet.
-        candidate_snapshot = dict(job.candidate or {})
-        digest_code = apply_candidate_refusal(
-            recorded_digest=evaluated_digest, candidate=candidate_snapshot
+        candidate_snapshot = _verified_claim_snapshot(
+            session,
+            identity=identity,
+            actor=actor,
+            job_id=job_id,
+            evaluated_digest=evaluated_digest,
         )
-        if digest_code is not None:
-            _refuse_apply(
-                session,
-                job_id=job_id,
-                actor=actor,
-                status_code=409,
-                reason_code=digest_code,
-                detail=APPLY_RECHECK_DETAIL[digest_code],
-            )
+        job = session.get(CaliberRefinementJob, job_id)
+        assert job is not None
 
         now = datetime.now(timezone.utc)
         approval = CaliberApprovalRequest(

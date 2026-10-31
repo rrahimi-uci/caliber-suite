@@ -84,6 +84,8 @@ APPLY_PERMISSION_REVOKED = "apply_permission_revoked"
 APPLY_CANDIDATE_CHANGED = "apply_candidate_changed"
 #: ``reason_code`` of the 409 when the job has no recorded digest of an evaluated candidate, so the candidate cannot be verified.
 APPLY_CANDIDATE_UNVERIFIED = "apply_candidate_unverified"
+#: ``reason_code`` of the 503 when the claim could not get its row locks within the lock timeout: nothing was decided.
+APPLY_BUSY = "apply_busy"
 #: The refusal message for each claim-time recheck. Static on purpose: no job id, account, digest or candidate content.
 APPLY_RECHECK_DETAIL: dict[str, str] = {
     APPLY_PERMISSION_REVOKED: (
@@ -97,6 +99,7 @@ APPLY_RECHECK_DETAIL: dict[str, str] = {
         "this candidate has no recorded evaluation digest, so it cannot be verified; nothing was applied, "
         "re-run the evaluation so it records one"
     ),
+    APPLY_BUSY: "this candidate is being changed or applied right now; nothing was applied, retry shortly",
 }
 
 

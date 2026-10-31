@@ -5,8 +5,10 @@ moment the eval gate cleared (``candidate_ready``). The Apply claim recomputes t
 to promote and refuses on a mismatch, so a candidate edited after the gate is never promoted on the strength of an
 evaluation of different content.
 
-The column is nullable and the migration is additive, safe for rolling deployment: an older writer leaves it NULL and
-an older reader ignores it. Jobs already waiting to be applied (``candidate_ready``) or mid-claim (``applying``, which
+The column is nullable and the migration is additive for the schema: an older reader ignores it. It is not safe for a
+mixed-version rollout of the writers: a job an old process moves to ``candidate_ready`` after this revision records no
+digest, and the new Apply refuses it (``apply_candidate_unverified``, no override), so drain old writers first or
+re-run the evaluation of any job they finish in the window. Jobs already waiting to be applied (``candidate_ready``) or mid-claim (``applying``, which
 returns to ``candidate_ready`` on a failed release) are backfilled from their current candidate: at upgrade time that is
 the only evaluated candidate the row can name, and leaving them NULL would strand every in-flight candidate behind a
 refusal. A candidate that cannot be digested (no candidate, or not a JSON object) stays NULL and is refused at Apply.
