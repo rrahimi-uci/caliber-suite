@@ -77,6 +77,7 @@ from caliber.llm.models import (
 )
 from caliber.mcp_gateway import McpGatewayError, invoke_tool_by_server_id_sync
 from caliber.observability.mlflow_tracing import Tracer, get_tracer, model_cost_usd
+from caliber.observability.span_attributes import causal_attributes, without_reserved_keys
 from caliber.ownership import Lease
 from caliber.tool_sandbox.models import ToolSandboxRunRequest
 from caliber.tool_sandbox.service import (
@@ -269,8 +270,23 @@ def _bind_managed_file_resolver(
         _MANAGED_FILE_RESOLVER.reset(token)
 
 
-def run_tags(ctx: CaliberRunContext, *, node_id: str | None = None) -> dict[str, str]:
-    """Build the ``caliber.*`` run/span tag dict for a run (plan §11.1)."""
+def run_tags(
+    ctx: CaliberRunContext,
+    *,
+    node_id: str | None = None,
+    proposal_id: str | None = None,
+    decision_id: str | None = None,
+    approval_id: str | None = None,
+    effect_id: str | None = None,
+) -> dict[str, str]:
+    """Build the ``caliber.*`` run/span tag dict for a run (plan §11.1).
+
+    The four causal ids (B11.3a) are persisted-row identifiers the *caller* has read from the
+    database; each is emitted as ``caliber.<name>`` only when given and only if it is an opaque
+    identifier (:func:`caliber.observability.span_attributes.causal_attributes`).  The run's
+    manifest-supplied ``trace_group_tags`` can never set those keys, so a workflow author cannot
+    forge a causal link.
+    """
     tags: dict[str, str] = {
         "caliber.workflow_id": ctx.workflow_id,
         "caliber.workflow_version": ctx.workflow_version,
@@ -290,8 +306,16 @@ def run_tags(ctx: CaliberRunContext, *, node_id: str | None = None) -> dict[str,
         tags["caliber.preview"] = "true"
     if node_id:
         tags["caliber.node_id"] = node_id
+    tags.update(
+        causal_attributes(
+            proposal_id=proposal_id,
+            decision_id=decision_id,
+            approval_id=approval_id,
+            effect_id=effect_id,
+        )
+    )
     if ctx.trace_group_tags:
-        return {**ctx.trace_group_tags, **tags}
+        return {**without_reserved_keys(ctx.trace_group_tags), **tags}
     return tags
 
 
