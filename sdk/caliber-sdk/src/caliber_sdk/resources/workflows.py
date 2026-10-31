@@ -334,9 +334,10 @@ class WorkflowRunsAPI(Resource):
         ``section`` is ``"effects"`` (the default), ``"context_manifests"`` or
         ``"policy_decisions"``;
         ``limit`` is 1 to 200 (default 50). While ``has_more``, pass ``next_cursor`` back as
-        ``cursor``. A link the platform has no row for is ``missing`` (with a ``code``), never
-        filled in; a run you cannot read, another project's run and an unknown id are the same
-        :class:`~caliber_sdk.CaliberNotFoundError`."""
+        ``cursor``. A link is ``linked``, ``not_required``, ``pending`` (in flight), ``missing``
+        (a broken chain, with a ``code``) or ``unrecorded`` (not stored against the effect), and a
+        row is never filled in; a run you cannot read, another project's run and an unknown id are
+        the same :class:`~caliber_sdk.CaliberNotFoundError`."""
         params = {
             key: value
             for key, value in (("section", section), ("limit", limit), ("cursor", cursor))

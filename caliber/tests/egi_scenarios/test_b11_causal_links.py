@@ -138,8 +138,9 @@ def test_before_the_dispatch_the_effect_is_named_but_has_no_effect_id(armed: Arm
     approval = waiting["approval"]
     assert (approval["status"], approval["approval_id"]) == ("pending", armed.approval_id)
     assert approval["request_status"] == "approved" and approval["consumed_at"] is None
-    assert (waiting["effect"]["status"], waiting["effect"]["code"]) == ("missing", "not_dispatched")
-    assert waiting["effect"]["effect_id"] is None and "effect" in waiting["missing_links"]
+    assert (waiting["effect"]["status"], waiting["effect"]["code"]) == ("pending", "not_dispatched")
+    assert waiting["effect"]["effect_id"] is None
+    assert waiting["missing_links"] == [], "approved work waiting for its dispatch is not a broken chain"
     assert "caliber.effect_id" not in waiting["span_attributes"]
 
 
@@ -161,7 +162,8 @@ def test_a_dispatched_effect_names_the_rows_its_spans_carried(
     assert effect["decision"]["status"] == "unrecorded", (
         "the commit-time decision is stored per run"
     )
-    assert effect["missing_links"] == ["context_manifest", "decision"]
+    assert effect["missing_links"] == [], "a committed, receipted, approved effect is not broken"
+    assert effect["unrecorded_links"] == ["context_manifest", "decision"]
 
     # the same ids the spans of that dispatch carried (B11.3a)
     recorded = [s for s in spans.spans if s.name.startswith("effect.")]

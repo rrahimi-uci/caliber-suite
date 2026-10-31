@@ -102,7 +102,8 @@ def _effects_page(**overrides: Any) -> dict[str, Any]:
                     "caliber.approval_id": "rap-1",
                     "caliber.effect_id": "rcpt-1",
                 },
-                "missing_links": ["decision"],
+                "missing_links": [],
+                "unrecorded_links": ["decision"],
             },
             {
                 "proposal_id": "prop-2",
@@ -115,14 +116,15 @@ def _effects_page(**overrides: Any) -> dict[str, Any]:
                 "effect_class": "read",
                 "intent_hash": "sha256:" + "c" * 64,
                 "context_manifest": {
-                    "status": "missing",
+                    "status": "unrecorded",
                     "code": "no_context_manifest_for_node_step",
                 },
                 "approval": {"status": "not_required", "code": "approved_by_policy_decision"},
                 "decision": {"status": "linked", "decision_id": "pd-1", "result": "allow"},
-                "effect": {"status": "missing", "code": "outcome_pending"},
+                "effect": {"status": "pending", "code": "outcome_pending"},
                 "span_attributes": {"caliber.proposal_id": "prop-2", "caliber.decision_id": "pd-1"},
-                "missing_links": ["context_manifest", "effect"],
+                "missing_links": [],
+                "unrecorded_links": ["context_manifest"],
             },
         ],
         "context_manifests": [],
@@ -174,14 +176,14 @@ def test_causal_links_decodes_every_record_into_its_typed_model_and_hits_its_own
     assert isinstance(complete.effect, CausalEffectOutcomeLink)
     assert complete.effect.effect_id == "rcpt-1" and complete.effect.committed is True
     assert complete.span_attributes["caliber.effect_id"] == "rcpt-1"
-    assert complete.missing_links == ["decision"]
+    assert complete.missing_links == [] and complete.unrecorded_links == ["decision"]
     assert (waiting.effect.status, waiting.effect.code, waiting.effect.effect_id) == (
-        "missing",
+        "pending",
         "outcome_pending",
         None,
     )
     assert waiting.effect.committed is False and "caliber.effect_id" not in waiting.span_attributes
-    assert waiting.context_manifest.status == "missing"
+    assert waiting.context_manifest.status == "unrecorded"
     assert page.has_more is True and page.limit == 50 and page.next_cursor == "cHJvcC0y"
 
 

@@ -283,10 +283,12 @@ class CausalEffect:
     """One effect proposal and the persisted records that authorised and settled it.
 
     Each link has a ``status``: ``linked`` (a persisted row of this run), ``not_required``,
-    ``pending`` (a row that is not yet part of the chain), ``missing`` (the chain needs a row
-    and there is none) or ``unrecorded`` (the platform does not store this link against the
-    effect). ``missing_links`` names the links that are ``missing`` or ``unrecorded``; an
-    absent ``caliber.effect_id`` in ``span_attributes`` is the same marker.
+    ``pending`` (the effect is in flight and the row is expected to appear), ``missing`` (the
+    chain needs a row, the effect is settled and there is none: a broken chain) or
+    ``unrecorded`` (the platform does not store this link against the effect, so it is neither
+    followable nor broken). ``missing_links`` names the ``missing`` links and
+    ``unrecorded_links`` the ``unrecorded`` ones. ``span_attributes`` is a union derived from
+    the resolved rows, not what any one span carries.
     """
 
     proposal_id: str = ""
@@ -306,6 +308,7 @@ class CausalEffect:
     effect: CausalEffectOutcomeLink = field(default_factory=CausalEffectOutcomeLink)
     span_attributes: dict[str, str] = field(default_factory=dict)
     missing_links: list[str] = field(default_factory=list)
+    unrecorded_links: list[str] = field(default_factory=list)
     extra: dict[str, Any] = field(default_factory=dict)
 
 

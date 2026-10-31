@@ -311,20 +311,31 @@ not one per effect.
 
 **What an effect shows.** For each proposal: `proposal_id`, `node_id`, `occurrence_id`, `node_step_id`, `state`,
 `connector`, `connector_version`, `effect_class`, `intent_hash` and the two timestamps, then four links, each with a
-`status` and, when it is not simply `linked`, a stable `code`:
+`status` and, when it is not simply `linked`, a stable `code`. The statuses: `linked` (a row of this run), `not_required` (the record shows the link is not on this effect's path), `pending` (the effect is still in flight, so the row is expected to appear), `missing` (the chain needs a row, the effect is settled or the stored id names nothing, and there is none: **a broken chain**) and `unrecorded` (the platform does not store this link against the effect, so it can be neither followed nor called broken). In-flight work is never `missing`:
 
 | Link | `linked` | Other statuses and codes |
 | --- | --- | --- |
-| `context_manifest` | the latest context manifest of this node occurrence (highest attempt, then highest revision), by id, revision, attempt and digest | `missing` / `no_context_manifest_for_node_step` (a step that was not an agent step has none) |
-| `approval` | an exact-intent approval request the proposal records, bound to this proposal in this run: ids, digests, request status, `superseded_by`, requested, decided, expires and consumed timestamps | `not_required` / `approved_by_policy_decision`; `pending` / `approval_not_consumed` (a request exists but the dispatcher has not consumed it; its id and status are shown); `missing` / `approval_not_requested`, `approval_row_missing` |
-| `decision` | the policy decision a *policy-approved read* records: id, action, result, reason codes, policy version, input hash, evaluated-at | `unrecorded` / `decision_recorded_per_run_only`; `missing` / `not_approved_yet`, `decision_row_missing` |
-| `effect` | the verified receipt: `effect_id` (the receipt id, **the id `caliber.effect_id` carries**), attempt, receipt and response digests, verified-at, and `committed` (true when the proposal records that receipt as the one that settled it) | `missing` with `not_dispatched`, `outcome_pending`, `outcome_unknown`, `reconciled_without_receipt`, `failed_without_receipt` or `receipt_row_missing`, by the proposal's state |
+| `context_manifest` | the latest context manifest of this node occurrence (highest attempt, then highest revision), by id, revision, attempt and digest | `unrecorded` / `no_context_manifest_for_node_step` (a step that is not an agent step has none, and the proposal does not say which kind of step it came from, so its absence is neither followable nor proven broken) |
+| `approval` | an exact-intent approval request the proposal records, bound to this proposal in this run: ids, digests, request status, `superseded_by`, requested, decided, expires and consumed timestamps | `not_required` / `approved_by_policy_decision`; `pending` / `approval_not_consumed` (a request exists but the dispatcher has not consumed it; its id and status are shown), `approval_not_requested`; `not_required` / `failed_before_approval` (settled `failed` with no approval ever recorded); `missing` / `approval_row_missing` (the stored approval id names no row bound to this proposal in this run) |
+| `decision` | the policy decision a *policy-approved read* records: id, action, result, reason codes, policy version, input hash, evaluated-at | `unrecorded` / `decision_recorded_per_run_only` (exact-intent approvals, below); `pending` / `not_approved_yet`; `not_required` / `failed_before_approval`; `missing` / `decision_row_missing` |
+| `effect` | the verified receipt: `effect_id` (the receipt id, **the id `caliber.effect_id` carries**), attempt, receipt and response digests, verified-at, and `committed` (true when the proposal records that receipt as the one that settled it) | `pending` with `not_dispatched`, `outcome_pending`, `outcome_unknown` or `reconciled_without_receipt`, by the proposal's state (the effect is not settled); `not_required` / `failed_without_receipt` (settled `failed`: nothing was verified and nothing will be); `missing` / `receipt_row_missing` (settled `committed`, which requires a receipt, but no receipt row is there) |
 
-`missing_links` lists the links whose status is `missing` or `unrecorded`. **A missing `effect_id` is the marker for an
-effect that has no verified receipt**, in the API as on the span; it is never filled in from a neighbouring row, a
-timestamp or the proposal's state. `span_attributes` is the `caliber.*` attribute map the platform sets on that effect's
-spans, derived from the same rows by the same allow-list function (`causal_attributes`); it is **not read from the tracing
-backend**, so it states what the spans carry by construction and cannot confirm a trace was exported.
+`missing_links` lists only the `missing` links (a broken chain) and `unrecorded_links` the `unrecorded` ones, so a
+complete chain (`missing_links == []`) is distinguishable from a broken one, and a healthy exact-intent effect has
+`missing_links == []` with `unrecorded_links` naming `decision` (and `context_manifest` for a non-agent step). **An absent
+`effect_id` is the marker for an effect that has no verified receipt**, in the API as on the span; it is never filled in
+from a neighbouring row, a timestamp or the proposal's state.
+
+`span_attributes` is the `caliber.*` attribute map that the effect's resolved rows support, built by the same allow-list
+function (`causal_attributes`). It is a **derived union, not what any one span carries**: each span binds only the ids it
+had read when it closed (the receipt span binds the proposal's recorded approval ref even if that row is gone, and the
+dispatch span carries the commit-time `decision_id`, which is not persisted against the effect and so is not listed
+here). An id is listed only when its row resolved for this run. Nothing is read from the tracing backend, so it cannot
+confirm that a trace was exported.
+
+**Digests.** `manifest_digest` (run and context manifests), `receipt_digest` and a policy decision's `input_hash` are bare
+lowercase SHA-256 hex (64 characters). `intent_hash`, `evidence_hash`, `policy_digest` and `response_digest` are
+`sha256:`-prefixed (71 characters). They are stored in those forms and returned unchanged; compare like with like.
 
 **The decision of an exact-intent approval is not stored against the effect.** The commit-time check records a run
 decision (`resource.execute` on `workflow:<id>`, the run authority) and the dispatch span names it, but the proposal row stores only the
@@ -332,8 +343,10 @@ approval id, so for an exact-intent effect `decision` is `unrecorded` and its `c
 `span_attributes`. That decision *is* persisted, per run: `section=policy_decisions` lists the run's decisions
 (`decision_id`, `grant_id`, `action`, `resource`, `result`, `reason_codes`, `policy_version`, `input_hash`,
 `evaluated_at`), so the `caliber.decision_id` on a span can be checked against a row, but nothing says which effect asked.
-Persisting the pairing would change the proposal's frozen columns and needs its own migration; this endpoint does not
-guess it.
+Persisting the pairing needs its own migration and must not touch the proposal's frozen columns (follow-up #1061); this
+endpoint does not guess it. **Until #1061 lands, a consumer such as the evidence package (B14.1, #818) should treat
+`decision: unrecorded` on an exact-intent effect as "run authority asserted per run only": include the run's
+`policy_decisions` section in the package and do not fail the chain or invent a pairing.**
 
 **Whole-run markers.** `run_manifest` is `linked` (id, schema version, digest, creation time; the manifest body stays at
 `/admission-manifest`), `legacy` (`legacy_run_has_no_manifest`: a run admitted before manifests has none and never will)
@@ -357,12 +370,12 @@ approval, by the proposal, so a stored id that names another run's row is report
 - *`?section=payloads`:* `400 section must be one of effects, context_manifests, policy_decisions`. *`?limit=500`:*
   `400 limit must be between 1 and 200`. *A cursor kept from another run or a tampered one:* `400 cursor is invalid`;
   start again without `cursor`.
-- *A proposal with `effect.status = missing` and `code = outcome_unknown`:* the downstream's answer could not be verified.
+- *A proposal with `effect.status = pending` and `code = outcome_unknown`:* the downstream's answer could not be verified.
   There is no `effect_id` to find; the reconciler asks the downstream by key (see **Reconciler** below). Reading this
   endpoint does nothing to it.
 
 **Consistency.** A page is assembled from a handful of reads in one request, not from one snapshot: an effect being
-dispatched while you read can show an approval as `pending` and its receipt as `missing`, and a later read shows both
+dispatched while you read can show an approval as `pending` and its effect as `pending`, and a later read shows both
 linked. A link that appears is always a row that exists; none is ever inferred.
 
 **SDK, configuration and rollback.** `client.workflows.runs.causal_links(run_id, section=, limit=, cursor=)` (sync) and
@@ -2301,8 +2314,8 @@ checked = approval_valid_at_commit(
 
 An agent step is one bounded unit of model work in a workflow node. Two control records (ADR 0003) describe it, and
 `caliber.contracts.agent_step` is the gate in front of both: it validates a record and refuses it **before anything is
-dispatched**. This page is the contract; the adapters that produce results (B08.1b onwards) and the limit and budget
-enforcement (B08.3, B08.4) build on it and are not part of it.
+dispatched**. This page is the contract; the adapters that produce results (B08.1b onwards), the limit enforcement
+([B08.3](#central-step-limits-turns-tool-calls-tokens-and-the-deadline-b083-752)) and the token budget (B08.4) build on it and are not part of it.
 
 - **`agent_step_request` v1** names the step (`step_request_id`, `workflow_run_id`, `node_id`, the durable `occurrence_id`
   and the `attempt`), what it was given (`run_manifest_digest` and `context_manifest_digest`, each 64 lowercase hex digits),
@@ -2388,8 +2401,8 @@ the other limits are checked by the platform around the provider call (B08.3), n
 
 `caliber.workflows.agent_step` is the seam between the agent-step contracts above and a model provider. It adds no route, no
 table and no setting. It defines what an executor must do to take part in *governed* execution and how the platform treats
-the answer; the limits (B08.3), the token reservation (B08.4) and turning a model's tool call into a recorded proposal (B08.2)
-build on it and are not part of it.
+the answer; the limits ([B08.3](#central-step-limits-turns-tool-calls-tokens-and-the-deadline-b083-752)), the token reservation (B08.4) and turning a model's tool call into a recorded proposal (B08.2)
+build on it.
 
 - **`AgentStepAdapter`** (`caliber.workflows.runtime.AgentStepAdapter` is the same protocol) is
   `run_step(request: AgentStepRequest, step_input: AgentStepInput) -> AgentStepResult`, a plain function (an `async def` is
@@ -2483,8 +2496,9 @@ Recovery is always the same shape: the occurrence is retried as the next `attemp
 | is a scripted step naming a tool outside `read_tools` | `refused`, `tool_not_read_class` | naming only read tools, or proposing the call |
 
 An invalid *request*, or a step input for another node, is not a result: `run_agent_step` raises `ContractValidationError` (for
-example `attempt: violates minimum 1`) before anything runs. Not covered here, so not claimed: limits are not enforced by this
-boundary (B08.3), no token reservation is made (B08.4) and a blocking adapter is not interrupted. The interpreter calls
+example `attempt: violates minimum 1`) before anything runs. The request's limits are enforced by this boundary for every adapter
+([below](#central-step-limits-turns-tool-calls-tokens-and-the-deadline-b083-752)). Not covered here, so not claimed: no token
+reservation is made (B08.4) and a blocking adapter is not interrupted. The interpreter calls
 `run_agent_step` only for a plan that carries a governed-step context, and then records the proposal it returns
 ([Governed agent steps: a protected action is a proposal](#governed-agent-steps-a-protected-action-is-a-proposal-b082-744)).
 
@@ -2551,7 +2565,8 @@ now). It takes the step's request and `AgentStepInput` and answers with the type
   first is proposed and the rest are dropped (v1 allows one action per step); parallel tool use is turned off in the request. A reply
   that mixes read and protected calls runs none of the reads. Handoff targets are not offered, and a structured-output schema is not
   applied (a step's result carries no output text).
-- **Limits** are those of the request, checked around every provider call (the platform checks them again, B08.3). Before a turn:
+- **Limits** are those of the request, checked around every provider call (the platform checks them again, whatever the adapter
+  reports: [central step limits](#central-step-limits-turns-tool-calls-tokens-and-the-deadline-b083-752)). Before a turn:
   `max_turns`, then the deadline, then the tokens left, each a stop reason that keeps the usage so far; before each read tool:
   `max_tool_calls` (and the deadline); and no read tool is run when no turn is left to use its result. A call's `max_tokens` is the
   smaller of the executor's cap and the tokens left, its timeout the smaller of the provider timeout and the time to the deadline,
@@ -2604,7 +2619,7 @@ returning an aware `datetime`, default the UTC clock), is what a step's deadline
   source `estimated`, and the provider is not touched. A response the provider cut off (`finish_reason: length`) is `max_tokens`
   and its tool calls are not acted on. Each call is also bounded: the SDK's retries are off (`with_options(max_retries=0)`), its
   timeout is the time left to the deadline (at most `CALIBER_PROVIDER_REQUEST_TIMEOUT_SECONDS`) and the remaining token budget is
-  sent as `max_completion_tokens`. The platform still enforces the limits against the returned usage (B08.3).
+  sent as `max_completion_tokens`. The platform still enforces the limits against the returned usage ([B08.3](#central-step-limits-turns-tool-calls-tokens-and-the-deadline-b083-752)).
 - **Usage is the provider's**, summed over turns, with `usage_source: "provider"` and `cached_prompt_tokens` only when the
   provider reported them. A response with no usage object is estimated by word count and reported `estimated`; a total below
   `prompt + completion` is raised to it; a figure that is not a plain non-negative integer (or exceeds 2147483647) is
@@ -2697,11 +2712,12 @@ Refusals are `EffectRefused` with a fixed code and no value from the model; the 
 | the agent has a handoff, sits as the inline target of a fan-out, loop or error boundary, or is a branch of a `parallel` node | the run is refused before any node runs (`do not follow handoffs` / `cannot run inline` / `cannot run in parallel branches`), no proposal or request exists | giving the governed agent its own sequential node in the graph |
 | the store fails while recording (a deadlock, a lock timeout) | run error `governed agent step proposal failed: store_failed`; the statement's parameters, which are the model's arguments, reach no error or log | retrying the node |
 | a tool is mapped to `http` or to a literal-template backend | `backend_not_for_agent_steps`, nothing recorded | mapping only `document_request`-style backends |
-| stops on a limit, refuses or fails | run error `governed agent step stopped: <stop reason> (<fixed code>)` | as for the step (limits and reservations are B08.3 and B08.4) |
+| stops on a limit, refuses or fails | run error `governed agent step stopped: <stop reason> (<fixed code>)`; a limit stop carries its usage as numbers: `governed agent step stopped: max_tokens (turns=3 tool_calls=1 tokens=4100)` | as for the step; the limits are [central](#central-step-limits-turns-tool-calls-tokens-and-the-deadline-b083-752), reservations are B08.4 |
 | its approval request was rejected, then the run is resumed | `approval_rejected` | a new run |
 
 ```python
 from caliber.effects.step_proposal import GovernedStepContext, registry_tool_classifier, stored_context_manifest_digest
+from caliber.workflows.agent_step import StepCeilings
 
 plan.governed_agent_steps = GovernedStepContext(
     session_factory=session_factory,
@@ -2710,19 +2726,99 @@ plan.governed_agent_steps = GovernedStepContext(
     grant_id=run_manifest["grant_id"],                 # the one grant the step runs under
     classify_tool=registry_tool_classifier(session_factory),
     context_manifest_digest=stored_context_manifest_digest(session_factory, run_id),
-    limits=lambda agent: step_limits,                  # carried in the request; enforced by B08.3
+    limits=lambda agent: step_limits,                  # the producer's; capped at the ceilings, enforced by the platform (B08.3)
     requested_by=run_initiator,
     approval_ttl_seconds=configured_ttl_seconds(config),
     tool_backends={("request_missing_document", "1.0"): "document_request"},  # registry identity -> backend, the producer's
+    ceilings=StepCeilings.from_config(config),         # optional: the CALIBER_AGENT_STEP_MAX_* ceilings (defaults when absent)
 )
 ```
 
 Not covered, so not claimed: dispatching an approved proposal (B04.6 routes model-selected calls through the dispatcher; until then
-an approved proposal stays `proposed` and the run stays `waiting_approval`), enforcing the limits (B08.3), the token reservation
+an approved proposal stays `proposed` and the run stays `waiting_approval`), the token reservation
 (B08.4), handoffs, inline targets and parallel branches (refused), and the output text of a governed step (a step that completes is refused). The
 v1 proposal still carries no tool name, so within a connector the class is the strictest of the tools that map to it; an additive
 contract change (the tool name in the envelope) would make it exact. Telling the model the connector, version and class to claim
 is an adapter concern.
+
+## Central step limits: turns, tool calls, tokens and the deadline (B08.3, #752)
+
+The limits of an agent step (`max_turns`, `max_tool_calls`, `max_tokens` and the `deadline` of the request) are enforced by the
+platform in `caliber.workflows.agent_step.run_agent_step`, the one boundary every adapter goes through, and not by each adapter. The
+adapters keep their own in-loop checks (they are the only code that can stop a provider call that is under way), but the platform
+does not rely on them and does not take an adapter's or a model's word for what a step used. It adds no table, route or migration.
+
+**Where the limits come from.** `GovernedStepContext.limits(agent)` is the producer's (trusted run or step configuration, never
+anything the adapter, the manifest author or the model supplies). The interpreter then brings them down to the platform's
+**ceilings** (`GovernedStepContext.ceilings`, default `StepCeilings()`, built from settings with `StepCeilings.from_config(config)`)
+with `cap_limits`: a count above its ceiling becomes the ceiling, a deadline later than *now + `CALIBER_AGENT_STEP_MAX_SECONDS`* is
+brought forward to it (an earlier deadline is kept exactly as given), and a limit is never raised. A producer whose `limits` raises,
+returns anything but a `StepLimits`, or names a deadline that is not an RFC 3339 instant stops the step with
+`governed agent step limits unavailable: limits_invalid` before the adapter is touched (no text from the producer's failure); a context
+clock that is not an aware instant stops it with `governed agent step clock unavailable: clock_invalid`.
+The request schema's own bound is 2147483647; the ceilings are what make a step finite in practice.
+
+| Setting | Default | Accepted | Meaning |
+| --- | --- | --- | --- |
+| `CALIBER_AGENT_STEP_MAX_TURNS` | `25` | 1 to 1000 | The most provider turns one step may be given. |
+| `CALIBER_AGENT_STEP_MAX_TOOL_CALLS` | `50` | 0 to 1000 | The most read-tool calls one step may make (`0` allows none). |
+| `CALIBER_AGENT_STEP_MAX_TOKENS` | `200000` | 1 to 10000000 | The most tokens (prompt plus completion) one step may use. |
+| `CALIBER_AGENT_STEP_MAX_SECONDS` | `600` | 1 to 86400, finite | The longest window, from the moment the step is asked, a deadline may reach. |
+
+A value outside its bounds stops the service at startup, naming the setting. Like the context caps, the ceilings reach a live step
+once the producer of the governed context passes `StepCeilings.from_config(config)`; a context that names none is capped at these
+defaults, never uncapped.
+
+**What the boundary does, for every adapter alike:**
+
+1. **Before work** (`before_work_stop`): a step with `max_turns` of 0, with `max_tokens` of 0, or whose deadline is now or past
+   (on the platform's clock) stops with that reason and **the adapter is not called**: zero usage, `usage_source: "estimated"`
+   (nothing was called, so a reservation made for it may be released by B08.4; no step that is stopped here has a provider
+   charge). `max_tool_calls` of 0 does not stop a step: it may still answer without a tool.
+2. **During work**: every read tool the adapter is handed (its own and its handoff targets') goes through a platform counter. The
+   call past `max_tool_calls` is refused with `StepToolBudgetExceeded` (the tool does not run, the text is fixed), and two calls
+   racing for the last slot cannot both run. A read tool called at or after the deadline (on the platform's monotonic-based
+   clock) is refused the same way with `StepDeadlineReached` (the tool does not run, the call is not counted), and the step ends
+   `deadline` even if the adapter ignores the refusal; a tool call already running is not interrupted. An adapter receives its **own copy** of the request, so rewriting the limits of the
+   request it holds changes nothing the platform checks.
+3. **After work**: a `completed` or `proposed_action` result is replaced by the stop of the limit it passed, **its proposal
+   dropped** (a step that overran never gets to propose, so no proposal row and no approval request exist), when its reported
+   `turns`, `tool_calls` or `total_tokens` is over the limit, when the platform counted a tool call past the limit (even if the
+   adapter swallowed the refusal and reported fewer), or when the platform's own clock says the step finished after its deadline.
+   Several limits passed are named in the order `max_turns`, `max_tool_calls`, `max_tokens`, `deadline`. The usage kept is the
+   reported one (what was spent is recorded), with `tool_calls` raised to the platform's own count when that is higher. A
+   `refused`, `error` or limit stop the adapter reports itself is returned as it is.
+
+**Exactly the limit is within it.** `max_tokens: 100` with `total_tokens: 100` completes; 101 stops with `max_tokens`. The same holds
+for turns and tool calls. A deadline stops a step that is *at or past* it before work, and one that finished *after* it after work
+(finishing exactly at the deadline is within it). The deadline is read from `StepClock`: the absolute deadline against wall time
+at the start, and how long the step took against a **monotonic** clock, so a wall clock stepped mid-step (an NTP correction) can
+neither extend nor spuriously cut a step. Tests inject a fake clock; a clock that is not an aware instant, or whose monotonic reading
+is not a finite number, is refused with `ValueError` before the adapter runs.
+
+| the step | result | recover by |
+| --- | --- | --- |
+| has no turn or no token to spend, or its deadline has passed | `max_turns`, `max_tokens` or `deadline`, usage 0, `estimated`; the adapter was not called; the run error is `governed agent step stopped: max_tokens (turns=0 tool_calls=0 tokens=0)` | a larger limit from the producer (within the ceilings) on a new run |
+| reports usage over a limit, or the platform counted a call past it | the limit's stop, proposal dropped, the reported usage kept; `governed agent step stopped: max_tokens (turns=1 tool_calls=0 tokens=15)`; no proposal and no approval request | the node's retry is the next attempt with a fresh budget |
+| finishes after its deadline | `deadline`, proposal dropped, usage kept | as above |
+| reports usage that contradicts itself (a total below the parts, a boolean or negative count, more than 2147483647) | `error`, `malformed_result`, zero usage, `usage_source: "unknown"` (the reservation is kept, B08.4) | the adapter reporting the provider's own figures |
+| asks for a tool past `max_tool_calls` | the tool is not run; the adapter sees `StepToolBudgetExceeded`; the step ends `max_tool_calls` if it went on | raising the limit within the ceiling |
+| asks for a tool at or after the deadline | the tool is not run and not counted; the adapter sees `StepDeadlineReached`; the step ends `deadline` if it went on | a later deadline within the ceiling on a new run |
+
+**No double counting.** The boundary keeps no state between calls: each call has its own counter and reads only its own result. A
+retry is the next `attempt` of the same occurrence with the full limits, and a resumed step that finds its recorded proposal asks
+nobody and reports no usage. Adding the usage of several attempts to one budget is B08.4's ledger, not this check.
+
+**For B08.4 and B08.5.** `before_work_stop(request, clock=...)` is the pre-work check a reservation should call first (a step it
+stops needs no reservation); the stop reasons are `caliber.workflows.agent_step.LIMIT_STOPS`. The conformance harness
+(`caliber/tests/agent_step_conformance.py`) gains `FakeStepClock`, `fixed_clock`, `limits_changes` and `stop_before_work`, and every
+`run_scenario` runs on a fixed clock (`StepContext.clock`); `caliber/tests/test_agent_step_bounds.py` runs the five executors over
+tripwire clients through `stop_before_work`.
+
+Not covered, so not claimed: the platform cannot observe a provider's turns or tokens, only what the adapter reports, so for those two
+the check bounds what is *recorded* and stops the proposal, while an adapter's own in-loop checks bound what is *spent* (a lying
+adapter can under-report tokens; the reservation, B08.4, is what charges a conservative figure). A blocking provider call is not
+interrupted. The usage of a stopped step is in its result and in the run error text; persisting it in a ledger is B08.4.
 
 ## Policy decisions
 

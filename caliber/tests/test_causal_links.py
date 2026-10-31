@@ -315,6 +315,7 @@ def test_chain_complete(world: World) -> None:
     effect = _by_node(world)["complete"]
     assert effect["proposal_id"] == world.effects["complete"]
     assert effect["state"] == "committed" and effect["missing_links"] == []
+    assert effect["unrecorded_links"] == [], "a complete chain has neither kind"
     assert (effect["approval"]["status"], effect["approval"]["code"]) == (
         "not_required",
         "approved_by_policy_decision",
@@ -356,7 +357,8 @@ def test_an_exact_intent_effect_links_its_approval_and_says_its_decision_is_reco
         "decision_recorded_per_run_only",
     ), "the commit-time decision is not stored against the effect, so it is not guessed"
     assert effect["decision"]["decision_id"] is None
-    assert effect["missing_links"] == ["context_manifest", "decision"]
+    assert effect["missing_links"] == [], "nothing here is broken"
+    assert effect["unrecorded_links"] == ["context_manifest", "decision"]
     assert effect["span_attributes"] == {
         "caliber.proposal_id": world.effects["exact"],
         "caliber.approval_id": "rap-occ-exact",
@@ -369,33 +371,33 @@ def test_an_exact_intent_effect_links_its_approval_and_says_its_decision_is_reco
     [
         (
             "bare",
-            ("missing", "approval_not_requested"),
-            ("missing", "not_approved_yet"),
-            ("missing", "not_dispatched"),
+            ("pending", "approval_not_requested"),
+            ("pending", "not_approved_yet"),
+            ("pending", "not_dispatched"),
         ),
         (
             "asking",
             ("pending", "approval_not_consumed"),
-            ("missing", "not_approved_yet"),
-            ("missing", "not_dispatched"),
+            ("pending", "not_approved_yet"),
+            ("pending", "not_dispatched"),
         ),
         (
             "dispatched",
             ("not_required", "approved_by_policy_decision"),
             ("linked", None),
-            ("missing", "outcome_pending"),
+            ("pending", "outcome_pending"),
         ),
         (
             "unknown",
             ("not_required", "approved_by_policy_decision"),
             ("linked", None),
-            ("missing", "outcome_unknown"),
+            ("pending", "outcome_unknown"),
         ),
         (
             "failed",
-            ("missing", "approval_not_requested"),
-            ("missing", "not_approved_yet"),
-            ("missing", "failed_without_receipt"),
+            ("not_required", "failed_before_approval"),
+            ("not_required", "failed_before_approval"),
+            ("not_required", "failed_without_receipt"),
         ),
     ],
 )
@@ -406,7 +408,8 @@ def test_missing_link_reported(
     decision: tuple[str, str | None],
     effect: tuple[str, str],
 ) -> None:
-    """A link with no persisted row is said to be missing, with the reason, and is never filled in."""
+    """An effect with no receipt yet has no ``effect_id``, with the reason; work in flight is ``pending`` and a
+    settled effect that never needed the link is ``not_required``, so healthy work is not reported broken."""
     found = _by_node(world)[name]
     assert (found["approval"]["status"], found["approval"]["code"]) == approval
     assert (found["decision"]["status"], found["decision"]["code"]) == decision
@@ -414,7 +417,7 @@ def test_missing_link_reported(
     assert (
         found["effect"]["effect_id"] is None and "caliber.effect_id" not in found["span_attributes"]
     )
-    assert "effect" in found["missing_links"]
+    assert found["missing_links"] == [], "in-flight and failed-early work is not a broken chain"
     if name == "asking":
         assert found["approval"]["approval_id"] == "rap-asking", (
             "a pending request is named, not hidden"
@@ -428,14 +431,19 @@ def test_missing_link_reported(
         )
 
 
-def test_a_step_with_no_context_manifest_says_so(world: World) -> None:
+def test_a_step_with_no_context_manifest_says_so_without_calling_the_chain_broken(
+    world: World,
+) -> None:
     for name in ("bare", "exact"):
-        context = _by_node(world)[name]["context_manifest"]
+        found = _by_node(world)[name]
+        context = found["context_manifest"]
         assert (context["status"], context["code"]) == (
-            "missing",
+            "unrecorded",
             "no_context_manifest_for_node_step",
         )
         assert context["context_manifest_id"] is None
+        assert "context_manifest" in found["unrecorded_links"]
+        assert "context_manifest" not in found["missing_links"]
 
 
 def test_acceptance_and_evidence_are_stated_absent_not_synthesized(world: World) -> None:
@@ -1099,6 +1107,64 @@ def test_an_approval_of_this_proposal_that_belongs_to_another_run_is_not_followe
         None,
     )
     assert "rap-wrong-run" not in response.text
+
+
+def test_the_live_join_from_a_stored_context_manifest_to_its_proposal(
+    client: Any, seeded: World
+) -> None:
+    """A manifest written by the real store and a proposal written by the real recorder join on ``node_step_id``.
+
+    Nothing here seeds ``node_step_id`` through ``node_step_id_for``: the store derives it from the record's ``step``, so a
+    change in either side's format would break the join and fail this test. The latest attempt of the occurrence is linked.
+    """
+    from datetime import datetime, timezone
+
+    from caliber.context.manifest import (
+        ContextSegment,
+        build_context_manifest,
+        store_context_manifest,
+    )
+    from caliber.run_manifest import DeploymentScope
+
+    with seeded.factory() as session:
+        proposal_id = _at(session, PROPOSED, occurrence="occ-live-join")
+        ids = {}
+        for attempt in (1, 2):
+            built = build_context_manifest(
+                context_manifest_id=f"cm-live-{attempt}",
+                workflow_run_id=RUN,
+                step_request_id=f"sr-live-{attempt}",
+                revision=1,
+                scope=DeploymentScope.fixed("PRJ-ep"),
+                segments=[
+                    ContextSegment(
+                        tier="instruction",
+                        kind="workflow_instruction",
+                        source={"kind": "prompt", "reference": "support@4"},
+                        content="You answer support questions.",
+                        tokens=10,
+                    )
+                ],
+                token_budget=100,
+                created_at=datetime(2026, 10, 27, 12, 0, attempt, tzinfo=timezone.utc),
+                step={"node_id": "ask", "occurrence_id": "occ-live-join", "attempt": attempt},
+            )
+            row = store_context_manifest(session, built)
+            ids[attempt] = (row.context_manifest_id, row.manifest_digest)
+        session.commit()
+    effects = {
+        e["proposal_id"]: e
+        for e in client.get(_url(), params={"limit": 200}).json()["data"]["effects"]
+    }
+    context = effects[proposal_id]["context_manifest"]
+    assert context["status"] == "linked" and context["attempt"] == 2
+    assert (context["context_manifest_id"], context["manifest_digest"]) == ids[2]
+    assert effects[proposal_id]["node_step_id"] == f"{RUN}:ask:occ-live-join"
+    listed = client.get(_url(), params={"section": "context_manifests", "limit": 200}).json()[
+        "data"
+    ]
+    stored = {m["context_manifest_id"]: m for m in listed["context_manifests"]}
+    assert stored["cm-live-1"]["node_step_id"] == effects[proposal_id]["node_step_id"]
 
 
 def test_an_approval_that_names_another_proposal_is_not_followed(

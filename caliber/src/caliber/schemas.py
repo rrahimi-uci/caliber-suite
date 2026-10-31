@@ -1841,12 +1841,13 @@ class AdmissionManifestSchema(BaseModel):
 #: ``linked``        a persisted row this record names exists and belongs to this run
 #: ``not_required``  the record shows the link is not part of this effect's path (a policy decision approved it, so
 #:                   there is no runtime approval)
-#: ``pending``       a row exists but has not yet been consumed by the step that would make it part of the chain
-#: ``missing``       the chain needs a row here and the platform has none (``code`` says why; never synthesized)
-#: ``unrecorded``    the platform does not persist this link against the effect at all (``code`` says where else to look)
+#: ``pending``       the effect is still in flight and the row is expected to appear (or exists but is not yet
+#:                   consumed); ``code`` says what it waits on
+#: ``missing``       the chain needs a row here, the effect is settled (or the id names nothing) and the platform has
+#:                   none: a broken chain (``code`` says why; never synthesized)
+#: ``unrecorded``    the platform does not persist this link against the effect, so it can be neither followed nor
+#:                   called broken (``code`` says where else to look)
 CausalLinkStatus = Literal["linked", "not_required", "pending", "missing", "unrecorded"]
-#: The two states that mean a reader cannot follow the link to a persisted row (listed in ``missing_links``).
-CausalLinkProblem = Literal["missing", "unrecorded"]
 
 
 class CausalRunManifestLinkSchema(BaseModel):
@@ -1987,10 +1988,13 @@ class CausalEffectSchema(BaseModel):
     approval: CausalApprovalLinkSchema
     decision: CausalDecisionLinkSchema
     effect: CausalEffectOutcomeLinkSchema
-    #: The ``caliber.*`` attributes the platform sets on this effect's spans, from the same rows (not read from the tracing backend).
+    #: The ``caliber.*`` attributes this effect's resolved rows support: a derived union, not what any one span carries and not
+    #: read from the tracing backend (each span binds only the ids it had read, and the dispatch span's decision id is not here).
     span_attributes: dict[str, str] = Field(default_factory=dict)
-    #: Which of ``context_manifest``, ``approval``, ``decision`` and ``effect`` have no persisted row to follow.
+    #: Which of ``context_manifest``, ``approval``, ``decision`` and ``effect`` are ``missing``: a broken chain.
     missing_links: list[str] = Field(default_factory=list)
+    #: Which of them are ``unrecorded``: not stored against the effect, so neither followable nor broken.
+    unrecorded_links: list[str] = Field(default_factory=list)
 
 
 class CausalLinksSchema(BaseModel):

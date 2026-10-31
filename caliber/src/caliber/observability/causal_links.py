@@ -9,10 +9,14 @@ proposal, the approval request, the policy decision and the verified receipt (wh
   any column that names a person (``requested_by``, ``decided_by``, ``subject_user_id``) or carries prose
   (``decision_reason``, ``purpose``).  The response schema forbids extra fields, so a column added later cannot reach a
   caller by accident.
-* **Missing is stated, never synthesized.**  A link with no persisted row is reported as ``missing`` with a stable
-  code, and a link the platform does not record against the effect at all is ``unrecorded`` (the commit-time run
-  decision of an exact-intent approval: it is persisted per run, see the ``policy_decisions`` section).  Nothing is
-  inferred from timestamps or neighbours.
+* **Absence is stated, never synthesized.**  A link is one of ``linked`` (a row of this run), ``not_required`` (the
+  record shows it is not part of this effect's path), ``pending`` (the effect is still in flight and the row is
+  expected to appear), ``missing`` (the chain needs a row, the effect is settled or the id names nothing, and there is
+  none: a broken chain) or ``unrecorded`` (the platform does not store this link against the effect, so it can be
+  neither followed nor called broken: the commit-time run decision of an exact-intent approval, persisted per run, see
+  the ``policy_decisions`` section; a node occurrence with no context manifest).  Nothing is inferred from timestamps
+  or neighbours.  An effect's ``missing_links`` lists only the broken ones and ``unrecorded_links`` the others, so a
+  complete chain is distinguishable from a broken one.
 * **Scoped to the run.**  Every query is filtered by the run the caller was authorized for, including the by-id lookups
   of approvals and decisions, so an id stored on one run's proposal can never pull in another run's row.
 * **Bounded.**  A page is at most :data:`MAX_LIMIT` rows of one *section* and a request costs a fixed handful of
@@ -42,7 +46,7 @@ from caliber.db.models import (
     CaliberRuntimeApprovalRequest,
     CaliberWorkflowRun,
 )
-from caliber.effects.records import EXACT_INTENT_APPROVAL, POLICY_DECISION
+from caliber.effects.records import EXACT_INTENT_APPROVAL, POLICY_DECISION, SETTLED
 from caliber.observability.span_attributes import causal_attributes
 
 Section = Literal["effects", "context_manifests", "policy_decisions"]
@@ -59,8 +63,6 @@ NOT_REQUIRED: Final = "not_required"
 PENDING: Final = "pending"
 MISSING: Final = "missing"
 UNRECORDED: Final = "unrecorded"
-#: The statuses that mean a reader cannot follow the link to a persisted row.
-UNRESOLVED: Final = frozenset({MISSING, UNRECORDED})
 
 # Codes: stable, lower snake case, never a message.
 MANIFEST_LEGACY: Final = "legacy_run_has_no_manifest"
@@ -72,6 +74,7 @@ APPROVAL_NOT_CONSUMED: Final = "approval_not_consumed"
 APPROVED_BY_POLICY: Final = "approved_by_policy_decision"
 DECISION_ROW_MISSING: Final = "decision_row_missing"
 DECISION_NOT_APPROVED_YET: Final = "not_approved_yet"
+FAILED_BEFORE_APPROVAL: Final = "failed_before_approval"
 DECISION_PER_RUN_ONLY: Final = "decision_recorded_per_run_only"
 EFFECT_RECEIPT_MISSING: Final = "receipt_row_missing"
 ACCEPTANCE_NOT_AVAILABLE: Final = "acceptance_record_not_available"
@@ -86,6 +89,8 @@ _NO_RECEIPT_CODE: Final = {
     "failed": "failed_without_receipt",
     "committed": EFFECT_RECEIPT_MISSING,
 }
+#: A settled proposal's state cannot change, so an absent row stays absent; every other state is in flight.
+_SETTLED_STATES: Final = frozenset(SETTLED)
 
 
 class CausalLinksCursorError(ValueError):
@@ -392,9 +397,12 @@ def _approval_link(proposal: Any, by_id: dict[str, Any], latest: dict[str, Any])
         if row is None or row.proposal_id != proposal.proposal_id:
             return {"status": MISSING, "code": APPROVAL_ROW_MISSING}
         return _approval_fields(row, LINKED, None)
+    if proposal.state in _SETTLED_STATES:
+        # settled with no approval recorded: it failed before one was needed (a committed effect always has one)
+        return {"status": NOT_REQUIRED, "code": FAILED_BEFORE_APPROVAL}
     row = latest.get(proposal.proposal_id)
     if row is None:
-        return {"status": MISSING, "code": APPROVAL_NOT_REQUESTED}
+        return {"status": PENDING, "code": APPROVAL_NOT_REQUESTED}
     return _approval_fields(row, PENDING, APPROVAL_NOT_CONSUMED)
 
 
@@ -432,16 +440,22 @@ def _decision_link(proposal: Any, rows: dict[str, Any]) -> dict[str, Any]:
         }
     if proposal.approval_kind == EXACT_INTENT_APPROVAL:
         return {"status": UNRECORDED, "code": DECISION_PER_RUN_ONLY}
-    return {"status": MISSING, "code": DECISION_NOT_APPROVED_YET}
+    if proposal.state in _SETTLED_STATES:
+        return {"status": NOT_REQUIRED, "code": FAILED_BEFORE_APPROVAL}
+    return {"status": PENDING, "code": DECISION_NOT_APPROVED_YET}
 
 
 def _effect_link(proposal: Any, receipts: dict[str, Any]) -> dict[str, Any]:
     row = receipts.get(proposal.proposal_id)
     if row is None:
-        return {
-            "status": MISSING,
-            "code": _NO_RECEIPT_CODE.get(proposal.state, EFFECT_RECEIPT_MISSING),
-        }
+        code = _NO_RECEIPT_CODE.get(proposal.state, EFFECT_RECEIPT_MISSING)
+        # committed requires a receipt: its row being gone is a broken chain
+        if proposal.state == "committed":
+            return {"status": MISSING, "code": code}
+        # failed: nothing was verified and nothing will be, so no receipt is expected
+        if proposal.state in _SETTLED_STATES:
+            return {"status": NOT_REQUIRED, "code": code}
+        return {"status": PENDING, "code": code}
     return {
         "status": LINKED,
         "effect_id": row.receipt_id,
@@ -456,7 +470,8 @@ def _effect_link(proposal: Any, receipts: dict[str, Any]) -> dict[str, Any]:
 def _context_link(run_id: str, proposal: Any, contexts: dict[str, Any]) -> dict[str, Any]:
     row = contexts.get(node_step_id_for(run_id, proposal.node_id, proposal.occurrence_id))
     if row is None:
-        return {"status": MISSING, "code": CONTEXT_NOT_FOUND}
+        # a step that is not an agent step has none, and the proposal does not say which kind of step it was
+        return {"status": UNRECORDED, "code": CONTEXT_NOT_FOUND}
     return {
         "status": LINKED,
         "context_manifest_id": row.context_manifest_id,
@@ -528,7 +543,10 @@ def _effects(
                 **links,
                 "span_attributes": _span_attributes(proposal, links),
                 "missing_links": [
-                    name for name, link in links.items() if link["status"] in UNRESOLVED
+                    name for name, link in links.items() if link["status"] == MISSING
+                ],
+                "unrecorded_links": [
+                    name for name, link in links.items() if link["status"] == UNRECORDED
                 ],
             }
         )
@@ -536,11 +554,12 @@ def _effects(
 
 
 def _span_attributes(proposal: Any, links: dict[str, dict[str, Any]]) -> dict[str, str]:
-    """The ``caliber.*`` attributes the platform sets on this effect's spans, through the same allow-list function.
+    """The ``caliber.*`` attributes this effect's rows support, through the same allow-list function.
 
-    Ids come from the resolved rows above, so an id that names no row of this run is absent here exactly as a
-    missing link is absent from the span.  The ``decision_id`` of an exact-intent approval is the run decision read at
-    commit time; it is not persisted against the effect and so is not listed (see the ``policy_decisions`` section).
+    This is a union derived from the resolved rows, **not** what any one span carries: each span binds only the ids it
+    had read when it closed (the receipt span binds the proposal's recorded approval ref even when that row is gone,
+    and the dispatch span carries the commit-time ``decision_id``, which is not persisted against the effect and so is
+    not listed here; see the ``policy_decisions`` section).  An id appears only when its row resolved for this run.
     """
 
     def linked(link: str, key: str) -> str | None:
