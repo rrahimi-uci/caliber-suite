@@ -7,6 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 
 from caliber.artifact_store import FakeArtifactStore
+from caliber.candidate_digest import candidate_digest
 from caliber.config import CaliberConfig
 from caliber.db.models import (
     CaliberAgentConfig,
@@ -101,6 +102,9 @@ def test_run_eval_passing_marks_candidate_ready(db_session: Session) -> None:
     # to promote via the Apply endpoint.
     assert job.candidate is not None
     assert job.candidate["content"] == "rewritten prompt body"
+    # The gate cleared this exact content: its digest is what a later Apply rechecks (B06.4, #753).
+    assert job.candidate_digest == candidate_digest(job.candidate)
+    assert job.candidate_digest is not None and job.candidate_digest.startswith("sha256:")
 
 
 def test_run_eval_passing_creates_no_approval(db_session: Session) -> None:
@@ -209,6 +213,8 @@ def test_run_eval_rejecting_marks_job_rejected(db_session: Session) -> None:
     assert job.current_stage == "done"
     assert job.error_message is not None
     assert "regression gate failed" in job.error_message
+    # A rejected candidate is never claimable, so no digest is recorded for it.
+    assert job.candidate_digest is None
 
 
 def test_run_eval_rejection_does_not_create_approval(db_session: Session) -> None:

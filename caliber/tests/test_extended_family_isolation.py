@@ -47,6 +47,7 @@ import pytest
 from sqlalchemy.orm import Session
 from starlette.testclient import TestClient
 
+from caliber.candidate_digest import candidate_digest
 from caliber.db.models import (
     CaliberCalibrationJob,
     CaliberKnowledgeBase,
@@ -1109,6 +1110,7 @@ def _ready_skill_job(client: TestClient, db_session: Session, world: World) -> s
         "baseline_content": "Do {{x}} again.",
         "rationale": "isolation test",
     }
+    job.candidate_digest = candidate_digest(job.candidate)
     job.eval_results = {
         "candidate": {"overall": 0.9},
         "baseline": {"overall": 0.8},

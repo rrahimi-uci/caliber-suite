@@ -77,12 +77,14 @@ def test_every_job_route_function_applies_the_project_gate() -> None:
         f"load_visible_job / scope_jobs_to_visible_agents: {ungated}"
     )
     # Sanity: the walk really found every gated entry point -- list, detail,
-    # targets, Apply, request-changes, and quality-review submit and list.
+    # targets, Apply (its early gate, and the claim's recheck of the same gate inside the
+    # claim transaction, B06.4), request-changes, and quality-review submit and list.
     assert gate_callers == {
         "jobs.list_jobs",
         "jobs.get_job",
         "jobs.get_job_targets",
         "jobs.apply_job",
+        "jobs._recheck_claim",
         "jobs._request_changes_sync",
         "quality_reviews._submit_quality_review_sync",
         "quality_reviews._list_quality_reviews_sync",

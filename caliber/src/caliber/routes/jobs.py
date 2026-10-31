@@ -10,7 +10,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Sequence
 from datetime import datetime, timezone
-from typing import Any, Final
+from typing import Any, Final, NoReturn
 
 from sqlalchemy import Select, delete, func, literal, select, update
 from sqlalchemy.orm import Session
@@ -22,8 +22,11 @@ from starlette.responses import JSONResponse
 from starlette.routing import Route
 
 from caliber.apply import (
+    APPLY_PERMISSION_REVOKED,
+    APPLY_RECHECK_DETAIL,
     APPLY_SEPARATION_DETAIL,
     apply_candidate,
+    apply_candidate_refusal,
     apply_separation_refusal,
 )
 from caliber.audit import record as audit_record
@@ -55,6 +58,7 @@ from caliber.routes._job_access import (
     ACTION_APPLY,
     ACTION_REVIEW,
     load_visible_job,
+    lock_job_and_authority,
     scope_jobs_to_visible_agents,
 )
 from caliber.schemas import (
@@ -499,13 +503,105 @@ def _with_distinct_requester(statement: Any, actor: str, *, dialect: str) -> Any
     )
 
 
-def _require_distinct_approver(requester: str | None, approver: str) -> None:
-    """Raise the typed 403 when ``approver`` may not apply a job ``requester`` asked for (B06.3, #747)."""
-    code = apply_separation_refusal(requester=requester, approver=approver)
-    if code is not None:
-        raise CaliberHTTPException(
-            status_code=403, detail=APPLY_SEPARATION_DETAIL[code], reason_code=code
+def _refuse_apply(
+    session: Any, *, job_id: str, actor: str, status_code: int, reason_code: str, detail: str
+) -> NoReturn:
+    """Refuse an Apply with a typed, payload-free error and record the refusal (B06.4, #753; #1050).
+
+    Everything the attempt held is rolled back first, so the refusal changes no job, approval or promoter state and
+    releases the row locks; the audit row is then written in a transaction of its own. It carries the job id, the caller
+    and the reason code only, never candidate text, a digest or the requester. A refusal that cannot be recorded is still
+    a refusal (logged, not turned into a 500), because the audit row is evidence of the attempt, not part of the decision.
+    """
+    session.rollback()
+    try:
+        audit_record(
+            session,
+            actor=actor,
+            action="apply_refused",
+            entity_type="refinement_job",
+            entity_id=job_id,
+            details={"reason_code": reason_code},
+            severity="high",
         )
+        session.commit()
+    except Exception:
+        session.rollback()
+        logger.exception("could not audit refused apply of job=%s (%s)", job_id, reason_code)
+    raise CaliberHTTPException(status_code=status_code, detail=detail, reason_code=reason_code)
+
+
+def _refuse_unless_distinct(
+    session: Any, *, job_id: str, requester: str | None, actor: str
+) -> None:
+    """Refuse (403, audited) when ``actor`` may not apply a job ``requester`` asked for (B06.3, #747)."""
+    code = apply_separation_refusal(requester=requester, approver=actor)
+    if code is not None:
+        _refuse_apply(
+            session,
+            job_id=job_id,
+            actor=actor,
+            status_code=403,
+            reason_code=code,
+            detail=APPLY_SEPARATION_DETAIL[code],
+        )
+
+
+def _recheck_claim(
+    session: Any, *, identity: CaliberIdentity, actor: str, job_id: str, require_distinct: bool
+) -> CaliberRefinementJob:
+    """Lock the job and what authorises the caller, then recheck every Apply precondition on what is locked (B06.4, #753).
+
+    Run inside the claim transaction, so the rows read here cannot change before the claim commits (see
+    :func:`~caliber.routes._job_access.lock_job_and_authority`). Raises, in this order and before anything is written:
+
+    1. ``404`` when the job no longer exists;
+    2. ``403`` :data:`~caliber.apply.APPLY_PERMISSION_REVOKED` when the caller no longer holds ``release.apply`` on the
+       job's project or can no longer see the job (the request-start check is not trusted);
+    3. the separation refusals (``403``) of :func:`caliber.apply.apply_separation_refusal`, when the rule is in force;
+    4. ``409`` when the job is no longer ``candidate_ready``;
+    5. ``409`` :data:`~caliber.apply.APPLY_CANDIDATE_UNVERIFIED` / :data:`~caliber.apply.APPLY_CANDIDATE_CHANGED` when the
+       candidate to be promoted is not the one whose digest the eval gate recorded.
+
+    Returns the locked job, which the caller then claims with a conditional UPDATE.
+    """
+    locked = lock_job_and_authority(session, job_id, user_id=identity.user_id)
+    if locked is None:
+        raise HTTPException(status_code=404, detail=f"refinement job {job_id!r} not found")
+    try:
+        load_visible_job(session, identity, job_id, action=ACTION_APPLY)
+    except HTTPException:
+        _refuse_apply(
+            session,
+            job_id=job_id,
+            actor=actor,
+            status_code=403,
+            reason_code=APPLY_PERMISSION_REVOKED,
+            detail=APPLY_RECHECK_DETAIL[APPLY_PERMISSION_REVOKED],
+        )
+    if require_distinct:
+        _refuse_unless_distinct(session, job_id=job_id, requester=locked.triggered_by, actor=actor)
+    if locked.status != "candidate_ready":
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"job {job_id!r} cannot be applied: "
+                f"current status is {locked.status!r} (expected 'candidate_ready')"
+            ),
+        )
+    digest_code = apply_candidate_refusal(
+        recorded_digest=locked.candidate_digest, candidate=locked.candidate
+    )
+    if digest_code is not None:
+        _refuse_apply(
+            session,
+            job_id=job_id,
+            actor=actor,
+            status_code=409,
+            reason_code=digest_code,
+            detail=APPLY_RECHECK_DETAIL[digest_code],
+        )
+    return locked
 
 
 async def apply_job(request: Request) -> JSONResponse:
@@ -532,23 +628,38 @@ async def apply_job(request: Request) -> JSONResponse:
         visible_job = load_visible_job(session, identity, job_id, action=ACTION_APPLY)
         # Two-person rule (B06.3, #747): when it is in force (the flag, or always in the reference
         # profile) the authenticated caller must not be the account that requested the job, and a job
-        # with no recorded requester is refused. Both refusals precede the claim, the approval anchor,
-        # the promoter and every write, and carry a static, payload-free message.
-        # A missing config is treated as the reference profile (fail closed), not a 500.
+        # with no recorded requester is refused. A missing config is treated as the reference profile
+        # (fail closed), not a 500. This is the cheap early refusal; the claim below repeats it, with
+        # every other precondition, on the row-locked job.
         require_distinct = apply_distinct_approver_required(
             getattr(request.app.state, "config", None)
         )
         if require_distinct:
-            _require_distinct_approver(visible_job.triggered_by, actor)
-        # Claim with a conditional write rather than relying only on
-        # SELECT FOR UPDATE (which SQLite ignores). The claim and the approval
-        # anchor are committed *before* the promoter runs (see below), so a
-        # racing request observes rowcount=0 before any provider effect, and
+            _refuse_unless_distinct(
+                session, job_id=job_id, requester=visible_job.triggered_by, actor=actor
+            )
+        # The claim (B06.4, #753). Everything the decision rests on is rechecked here, inside the
+        # transaction that commits the claim, on rows locked for it: the caller's current project
+        # permission, the distinct requester, the job status and the exact candidate digest. Nothing
+        # that was true when the request began is trusted, and a refusal rolls back before any write.
+        # The write itself is still a conditional UPDATE, because SELECT ... FOR UPDATE is a no-op on
+        # SQLite and the predicate is what makes the claim atomic there. The claim and the approval
+        # anchor are committed *before* the promoter runs (see below), so a racing request observes
+        # rowcount=0 (or waits for this commit and sees ``applying``) before any provider effect, and
         # the write lock is never held across the provider call.
+        locked = _recheck_claim(
+            session,
+            identity=identity,
+            actor=actor,
+            job_id=job_id,
+            require_distinct=require_distinct,
+        )
+        evaluated_digest = locked.candidate_digest
         claim_statement = (
             update(CaliberRefinementJob)
             .where(CaliberRefinementJob.job_id == job_id)
             .where(CaliberRefinementJob.status == "candidate_ready")
+            .where(CaliberRefinementJob.candidate_digest == evaluated_digest)
         )
         if require_distinct:
             claim_statement = _with_distinct_requester(
@@ -556,24 +667,36 @@ async def apply_job(request: Request) -> JSONResponse:
             )
         claim = session.execute(claim_statement.values(status="applying"))
         if int(getattr(claim, "rowcount", 0) or 0) != 1:
-            current = session.get(CaliberRefinementJob, job_id, populate_existing=True)
-            if current is None:
-                raise HTTPException(status_code=404, detail=f"refinement job {job_id!r} not found")
-            if require_distinct:
-                _require_distinct_approver(current.triggered_by, actor)
-            raise HTTPException(
-                status_code=409,
-                detail=(
-                    f"job {job_id!r} cannot be applied: "
-                    f"current status is {current.status!r} (expected 'candidate_ready')"
-                ),
+            # The locked read passed but the conditional write matched nothing: the row changed in the
+            # gap SQLite leaves open. Recheck for the precise refusal; if it somehow passes, still refuse.
+            _recheck_claim(
+                session,
+                identity=identity,
+                actor=actor,
+                job_id=job_id,
+                require_distinct=require_distinct,
             )
-        job = session.get(CaliberRefinementJob, job_id)
-        assert job is not None
-        if not job.candidate:
             raise HTTPException(
                 status_code=409,
-                detail=f"job {job_id!r} has no candidate to promote",
+                detail=f"job {job_id!r} cannot be applied: it changed while being claimed",
+            )
+        job = session.get(CaliberRefinementJob, job_id, populate_existing=True)
+        assert job is not None
+        # What the approval anchor snapshots, and what the promoter then reads, is checked against the digest the
+        # gate recorded: the conditional UPDATE above cannot compare JSON content on every dialect, so on one without
+        # row locks this is what stops a candidate edited after the recheck. Nothing is committed yet.
+        candidate_snapshot = dict(job.candidate or {})
+        digest_code = apply_candidate_refusal(
+            recorded_digest=evaluated_digest, candidate=candidate_snapshot
+        )
+        if digest_code is not None:
+            _refuse_apply(
+                session,
+                job_id=job_id,
+                actor=actor,
+                status_code=409,
+                reason_code=digest_code,
+                detail=APPLY_RECHECK_DETAIL[digest_code],
             )
 
         now = datetime.now(timezone.utc)
@@ -584,7 +707,7 @@ async def apply_job(request: Request) -> JSONResponse:
             status="approved",
             attempt_number=job.attempt_count or 1,
             eval_results=job.eval_results,
-            candidate_snapshot=dict(job.candidate),
+            candidate_snapshot=candidate_snapshot,
             diagnosis_snapshot=dict(job.diagnosis) if job.diagnosis else None,
             approved_by=actor,
             approved_at=now,
@@ -627,6 +750,7 @@ async def apply_job(request: Request) -> JSONResponse:
                     "artifact_ref": outcome.promotion.get("artifact_ref"),
                     "checkpoint_ids": outcome.checkpoint_ids,
                     "simulated": simulated,
+                    "candidate_digest": evaluated_digest,
                 },
             )
             session.commit()

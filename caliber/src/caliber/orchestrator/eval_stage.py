@@ -26,6 +26,7 @@ from sqlalchemy.orm import Session
 
 from caliber.artifact_store import ArtifactStore
 from caliber.audit import record as audit_record
+from caliber.candidate_digest import candidate_digest
 from caliber.config import CaliberConfig
 from caliber.db.models import (
     CaliberAgentConfig,
@@ -187,6 +188,8 @@ def run_eval(  # noqa: PLR0915 — sequential stage: pass→candidate_ready, fai
         )
         job.status = "candidate_ready"
         job.current_stage = "done"
+        # Bind a later Apply to exactly the content this gate cleared (B06.4, #753).
+        job.candidate_digest = candidate_digest(job.candidate)
         audit_record(
             session,
             actor=actor,

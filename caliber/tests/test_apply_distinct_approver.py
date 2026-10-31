@@ -362,31 +362,85 @@ def test_a_requester_rewritten_after_the_check_cannot_claim(
 ) -> None:
     """The route's up-front check read a distinct requester; the row then changed before the claim.
 
-    The claim UPDATE carries the same normalised separation (trim and lower-case on both sides; NULL or blank
-    matches nothing), so it matches no row: the route answers the typed refusal from the *current* row and nothing
-    is claimed, approved or promoted. An exact-only predicate would let a case or whitespace variant of the caller
-    claim.
+    The claim rechecks the separation (B06.4, #753) with the shared helper on the row it has just locked, so the
+    route answers the typed refusal from the *current* row and nothing is claimed, approved or promoted.
     """
     import caliber.routes.jobs as jobs_route
 
     real_load = jobs_route.load_visible_job
+    calls: list[str] = []
 
     def load_then_rewrite(session: Session, *args: Any, **kwargs: Any) -> CaliberRefinementJob:
         loaded = real_load(session, *args, **kwargs)
-        # Rewritten in the caller's own transaction, without refreshing the object the check will read.
-        session.execute(
-            update(CaliberRefinementJob)
-            .where(CaliberRefinementJob.job_id == JOB_ID)
-            .values(triggered_by=rewritten)
-            .execution_options(synchronize_session=False)
-        )
-        assert loaded.triggered_by == REQUESTER  # the stale value the up-front check will see
+        calls.append("load")
+        if (
+            len(calls) == 1
+        ):  # only after the up-front check; the claim's own recheck reads the row as it is
+            # Rewritten in the caller's own transaction, without refreshing the object the check will read.
+            session.execute(
+                update(CaliberRefinementJob)
+                .where(CaliberRefinementJob.job_id == JOB_ID)
+                .values(triggered_by=rewritten)
+                .execution_options(synchronize_session=False)
+            )
+            assert loaded.triggered_by == REQUESTER  # the stale value the up-front check will see
         return loaded
 
     monkeypatch.setattr(jobs_route, "load_visible_job", load_then_rewrite)
     response = _apply(job, OTHER)
     assert response.status_code == 403
     assert response.json()["reason_code"] == code
+    assert len(calls) == 2  # the up-front load and the claim's recheck
+    _assert_nothing_happened(job, db_session)
+
+
+@pytest.mark.parametrize(
+    ("rewritten", "code"),
+    [
+        (OTHER, APPLY_SELF_APPROVAL),
+        (OTHER.upper(), APPLY_SELF_APPROVAL),
+        (f"  {OTHER}\t", APPLY_SELF_APPROVAL),
+        ("", APPLY_CREATOR_UNKNOWN),
+        (None, APPLY_CREATOR_UNKNOWN),
+    ],
+    ids=["exact", "upper", "padded", "blank", "null"],
+)
+def test_the_claim_update_repeats_the_separation_in_sql(
+    job: TestClient,
+    db_session: Session,
+    monkeypatch: pytest.MonkeyPatch,
+    rewritten: str | None,
+    code: str,
+) -> None:
+    """Defence in depth: a requester rewritten between the claim's recheck and its UPDATE still cannot claim.
+
+    The UPDATE carries the same normalised separation (trim and lower-case on both sides; NULL or blank matches nothing),
+    so it matches no row; the route then rechecks and answers the typed refusal from the current row. An exact-only
+    predicate would let a case or whitespace variant of the caller claim.
+    """
+    import caliber.routes.jobs as jobs_route
+
+    real_recheck = jobs_route._recheck_claim
+    calls: list[str] = []
+
+    def recheck_then_rewrite(session: Session, **kwargs: Any) -> CaliberRefinementJob:
+        calls.append("recheck")
+        first = len(calls) == 1
+        locked = real_recheck(session, **kwargs)
+        if first:  # the gap between the recheck and the UPDATE
+            session.execute(
+                update(CaliberRefinementJob)
+                .where(CaliberRefinementJob.job_id == JOB_ID)
+                .values(triggered_by=rewritten)
+                .execution_options(synchronize_session=False)
+            )
+        return locked
+
+    monkeypatch.setattr(jobs_route, "_recheck_claim", recheck_then_rewrite)
+    response = _apply(job, OTHER)
+    assert response.status_code == 403
+    assert response.json()["reason_code"] == code
+    assert len(calls) == 2  # the recheck, then the recheck the empty claim triggers
     _assert_nothing_happened(job, db_session)
 
 

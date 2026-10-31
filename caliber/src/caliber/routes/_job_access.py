@@ -33,7 +33,12 @@ from sqlalchemy.orm import Session
 from starlette.exceptions import HTTPException
 
 from caliber.auth import CaliberIdentity
-from caliber.db.models import CaliberAgentConfig, CaliberRefinementJob
+from caliber.db.models import (
+    CaliberAgentConfig,
+    CaliberProject,
+    CaliberProjectMember,
+    CaliberRefinementJob,
+)
 from caliber.db.scoping import apply_visibility_filter, get_visible
 from caliber.resource_access import require_project_access_if_scoped
 
@@ -75,6 +80,55 @@ def load_visible_job(
         raise _not_found(job_id)
     if action is not None:
         require_project_access_if_scoped(session, identity, agent.project_id, action)
+    return job
+
+
+def lock_job_and_authority(
+    session: Session, job_id: str, *, user_id: str
+) -> CaliberRefinementJob | None:
+    """Row-lock a job and every row that decides ``user_id``'s access to it, then drop stale session state (B06.4, #753).
+
+    Returns the job as the database holds it now, or ``None`` when it no longer exists. Call it inside the transaction
+    that will write the job, then re-run :func:`load_visible_job`: that check now reads rows that cannot change until
+    the transaction ends, so a membership revoked, a role lowered, a project handed to another owner or an agent moved
+    to another project is either seen here or waits behind this transaction. There is no gap between the check and the
+    write for a revocation to land in.
+
+    Locks are taken in a fixed order: the job (``FOR UPDATE``), its agent, the agent's project, then the caller's
+    membership row in that project (each ``FOR SHARE``, so concurrent applies do not serialise on them while any writer of
+    those rows does). SQLite has no row locks and ignores the clause; its single-writer file lock is the equivalent.
+    Every statement refreshes the identity map first, otherwise ``session.get`` in :func:`load_visible_job` would answer
+    from objects loaded before the lock.
+    """
+    job = session.execute(
+        select(CaliberRefinementJob)
+        .where(CaliberRefinementJob.job_id == job_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    ).scalar_one_or_none()
+    if job is None:
+        return None
+    agent = session.execute(
+        select(CaliberAgentConfig)
+        .where(CaliberAgentConfig.agent_id == job.agent_id)
+        .with_for_update(read=True)
+        .execution_options(populate_existing=True)
+    ).scalar_one_or_none()
+    if agent is not None and agent.project_id is not None:
+        session.execute(
+            select(CaliberProject.project_id)
+            .where(CaliberProject.project_id == agent.project_id)
+            .with_for_update(read=True)
+        ).all()
+        session.execute(
+            select(CaliberProjectMember.member_id)
+            .where(
+                CaliberProjectMember.project_id == agent.project_id,
+                CaliberProjectMember.user_id == user_id,
+            )
+            .with_for_update(read=True)
+        ).all()
+    session.expire_all()
     return job
 
 
