@@ -67,7 +67,7 @@ from caliber.effects.records import (
     record_proposal,
     transition,
 )
-from caliber.integrations.openapi.executor import OpenApiExecutionError, execute_openapi_http_tool
+from caliber.integrations.openapi.executor import OpenApiExecutionError, _send_raw
 from tests.dialect_helpers import DIALECTS, POSTGRES_TEST_URL
 from tests.effect_helpers import leased
 from tests.test_effect_proposals import _seed_run
@@ -997,7 +997,7 @@ def test_200_without_query_match_is_unknown(
 
 def _dispatch(downstream: Any, session: Session, proposal_id: str) -> Classified:
     view = proposal_view(session, proposal_id)
-    result = execute_openapi_http_tool(
+    result = _send_raw(
         execution_config=submit_config(downstream.base_url),
         input_schema=None,
         input_data=submit_input(
@@ -1011,7 +1011,7 @@ def _dispatch(downstream: Any, session: Session, proposal_id: str) -> Classified
 
 
 def _lookup(downstream: Any, key: str) -> dict[str, Any]:
-    return execute_openapi_http_tool(
+    return _send_raw(
         execution_config=lookup_config(downstream.base_url),
         input_schema=None,
         input_data=lookup_input(key),
@@ -1110,7 +1110,7 @@ def test_a_lookup_that_finds_nothing_or_something_else_is_not_a_receipt(
             assert nothing["status_code"] == 404
             assert facts_from_lookup(view, lookup_status=404, lookup_body=nothing["json"]) is None
             # the downstream holds a *different* request under that key (another document type)
-            execute_openapi_http_tool(
+            _send_raw(
                 execution_config=submit_config(downstream.base_url),
                 input_schema=None,
                 input_data=submit_input(

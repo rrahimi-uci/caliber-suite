@@ -40,7 +40,7 @@ from caliber.effects.records import (
     proposal_view,
     transition,
 )
-from caliber.integrations.openapi.executor import OpenApiExecutionError, execute_openapi_http_tool
+from caliber.integrations.openapi.executor import OpenApiExecutionError, _send_raw
 from caliber.ownership import acquire
 from tests.egi_scenarios.conftest import Downstream
 from tests.egi_scenarios.test_v07_restart_exactly_once import (  # noqa: F401 - fixtures re-used here
@@ -81,7 +81,7 @@ def _dispatch_and_time_out(
     downstream.set_fault("delay_response_seconds", seconds=LATE_ANSWER_SECONDS)
     started = time.monotonic()
     with pytest.raises(OpenApiExecutionError) as timed_out:
-        execute_openapi_http_tool(
+        _send_raw(
             execution_config=submit_config(
                 downstream.base_url, timeout_seconds=CONNECTOR_TIMEOUT_SECONDS
             ),

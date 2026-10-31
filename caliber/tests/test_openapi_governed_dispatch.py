@@ -553,17 +553,38 @@ def test_a_governed_context_without_a_registry_reader_refuses_the_call(
     assert server.requests == []
 
 
-def test_an_ungoverned_plan_keeps_calling_the_tool_directly(
+def test_an_ungoverned_plan_can_no_longer_send_a_write_directly(
     factory: sessionmaker[Session], server: Server
 ) -> None:
-    """A plan with neither a registry reader nor a context (an export, a test plan) is unchanged (#1051)."""
+    """A plan with neither a registry reader nor a context (an export, a test plan) used to call the tool directly (#1051).
+
+    The public entry now refuses a protected method, so such a plan fails closed instead of sending a write nobody approved.
+    """
     entry = entry_for("open_ticket", "write", config(server.url))
     run = OpenApiRun(factory, entry, context=False, lookup=False)
 
     result = run.execute()
 
+    assert result.status == "error"
+    assert "unsupported_effect_path" in (result.error or "")
+    assert server.requests == []
+    assert proposals(factory) == []
+
+
+def test_an_ungoverned_plan_still_reads_directly(
+    factory: sessionmaker[Session], server: Server
+) -> None:
+    entry = entry_for(
+        "get_ticket",
+        "read",
+        config(server.url, method="GET", path="/tickets/T-1", idempotency_key_header=None),
+    )
+    run = OpenApiRun(factory, entry, context=False, lookup=False)
+
+    result = run.execute({"query_params": {"x": "1"}})
+
     assert result.status == "completed", result.error
-    assert len(server.requests) == 1
+    assert [r["method"] for r in server.requests] == ["GET"]
     assert proposals(factory) == []
 
 

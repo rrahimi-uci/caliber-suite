@@ -26,7 +26,7 @@ from sqlalchemy.orm import Session
 from caliber.effects.connectors.document_request import submit_config, submit_input
 from caliber.effects.records import DISPATCHED, proposal_state, proposal_view, transition
 from caliber.egress import EgressPolicy
-from caliber.integrations.openapi.executor import bind_egress_policy, execute_openapi_http_tool
+from caliber.integrations.openapi.executor import _send_raw, bind_egress_policy
 from caliber.ownership import acquire
 
 LEASE_SECONDS = 600.0
@@ -72,7 +72,7 @@ def main(argv: list[str] | None = None) -> None:
     _mark(args.marker, "dispatched")
     if args.stop_at == "before_send":
         time.sleep(FOREVER)
-    execute_openapi_http_tool(
+    _send_raw(
         execution_config=submit_config(args.base_url, timeout_seconds=60.0),
         input_schema=None,
         input_data=submit_input(

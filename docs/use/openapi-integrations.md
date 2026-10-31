@@ -85,7 +85,7 @@ leaving the draft in an ambiguous state.
 | bundle several operations behind one tool | `generate_tool_drafts(..., group_as_pack=True)` |
 | test a draft before publishing | `preview_tool_draft()` — refused unless `allow_in_preview` is set |
 | understand why a dependency is only advisory | [Architecture §7](../16-openapi-integrations/architecture.md#7-security-and-trust-boundaries) — only deterministic rules auto-wire |
-| call a published tool from an Aria session | use `openapi_tool.list` / `openapi_tool.invoke` for the stable bridge (`invoke` only runs read-only tools that do not need approval), or call the dynamically projected published tool directly when the current mode exposes its side-effect tier |
+| call a published tool from an Aria session | use `openapi_tool.list` / `openapi_tool.invoke` for the stable bridge (`invoke` only runs read-only tools that do not need approval), or call the dynamically projected published tool directly when the current mode exposes its side-effect tier. Only a tool whose operation reads (`GET`, `HEAD`, `OPTIONS`) runs from Aria: a write is refused with `unsupported_effect_path` and nothing is sent (a write goes through a workflow tool node, which records an approvable proposal) |
 
 ## 3. Common failure modes
 
@@ -99,7 +99,7 @@ leaving the draft in an ambiguous state.
 | A dependency never shows up as canonical | it was a low-confidence, same-tag-only signal — advisory hints require operator confirmation, they never auto-wire |
 | A published tool is refused in a workflow: `OpenAPI effect proposal refused: <code>` | the call is protected (any method but `GET`, `HEAD` or `OPTIONS`, or a tool published as `write` or `external_action`) and failed a check before an approval was requested: `openapi_egress_blocked` (the server or OAuth token URL is not allowed by the egress policy), `openapi_input_invalid` (the input breaks the tool's schema), `openapi_key_override_refused` (do not send an idempotency key: the platform sends its own), `openapi_precondition_conflict` (`expected_resource_version` and the `If-Match` header disagree). Nothing was sent. See [Governed OpenAPI tools](../operate/reference-profile.md#governed-openapi-tools-b044) |
 | A published write tool is `unknown` after the downstream timed out | the request left and the answer never came, so CALIBER does not resend it: settle it with the receipt verifier, a receipt callback or an operator, not by running the node again |
-| A tool works from a workflow but not from Aria | check whether it is approval-gated or whether the current Aria mode hides its side-effect tier. A `read` tool that does not need approval is projected in every mode. A `write` / `external_action` tool is projected only in Design (`build`) mode with the approval mode set to "Legacy auto" or "Full autonomy". A tool that requires approval is never projected as a direct Aria tool |
+| A tool works from a workflow but not from Aria | check whether it is approval-gated or whether the current Aria mode hides its side-effect tier. A `read` tool that does not need approval is projected in every mode. A `write` / `external_action` tool is projected only in Design (`build`) mode with the approval mode set to "Legacy auto" or "Full autonomy". A tool that requires approval is never projected as a direct Aria tool. A projected `write` / `external_action` tool answers `unsupported_effect_path` when called (the public executor refuses a protected method), as does a tool published as `read` whose operation is a `POST` |
 
 ## 4. Related docs
 

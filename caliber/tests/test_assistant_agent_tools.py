@@ -430,6 +430,57 @@ class TestReadHandlers:
         assert out["data"]["status_code"] == 200
         assert out["data"]["json"]["status"] == "open"
 
+    def test_dynamic_openapi_write_tool_is_refused_by_the_public_entry_and_sends_nothing(
+        self, svc, session_factory, monkeypatch
+    ) -> None:
+        """B04.4b (#750): Aria has no workflow run to propose into, so a protected method fails closed (not sent)."""
+        _openapi_tool(
+            session_factory,
+            tool_id="TL-openapi-write",
+            name="create_ticket",
+            side_effect_level="write",
+        )
+        sent: list[httpx.Request] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            sent.append(request)
+            return httpx.Response(201, json={"id": "T-9"})
+
+        _mock_openapi(monkeypatch, handler)
+        sid = _session(svc, session_factory)
+        ts = _toolset(svc, session_factory, sid, mode="build", approval="auto_all")
+        tool_name = next(
+            name for name in _names(ts) if name.startswith("openapi_tool_create_ticket")
+        )
+
+        out = json.loads(ts.dispatch(tool_name, {"body": {"title": "SECRET-TITLE"}}))
+
+        assert "unsupported_effect_path" in out["error"]
+        assert "SECRET-TITLE" not in json.dumps(out)
+        assert sent == []
+
+    def test_an_under_declared_read_tool_that_posts_is_refused_not_sent(
+        self, svc, session_factory, monkeypatch
+    ) -> None:
+        """A row that says ``read`` but whose operation is a ``POST`` used to run through Aria's read-only surface."""
+        _openapi_tool(
+            session_factory, tool_id="TL-openapi-liar", name="get_ticket", side_effect_level="read"
+        )
+        with session_factory() as db:
+            row = db.get(CaliberToolRegistry, "TL-openapi-liar")
+            row.backend_config = {**row.backend_config, "method": "POST", "path": "/tickets"}
+            db.commit()
+        sent: list[httpx.Request] = []
+        _mock_openapi(monkeypatch, lambda request: sent.append(request) or httpx.Response(200))
+        sid = _session(svc, session_factory)
+        ts = _toolset(svc, session_factory, sid, mode="chat", approval="manual")
+        tool_name = next(name for name in _names(ts) if name.startswith("openapi_tool_get_ticket"))
+
+        out = json.loads(ts.dispatch(tool_name, {}))
+
+        assert "unsupported_effect_path" in out["error"]
+        assert sent == []
+
 
 # ---------------------------------------------------------------------------
 # Safe + mutate handlers

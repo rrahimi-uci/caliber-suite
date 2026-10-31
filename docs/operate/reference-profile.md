@@ -191,14 +191,28 @@ nothing: the binding's `backend_config` and `input_schema` must equal the row's,
 | a tool with no readable row, a row that is not an OpenAPI tool, or an operation the row does not bind | refused before anything is recorded or sent |
 | a binding whose configuration or schema differs from the row | refused: `registered tool '<name>' does not match its registry row` |
 | a protected call in a plan with no governed context, or replaced by an injected callable | refused: nothing is recorded or sent |
+| a protected method reaching the **public** OpenAPI entry from anywhere else (an export, a model-chosen call, Aria, an ungoverned plan) | refused before anything is prepared or sent: `unsupported_effect_path` |
 
 The proposal (`connector: openapi-http`, always recorded `irreversible_write`, because the inventory does not list a registered
 tool) holds the resource `openapi/<METHOD> <server><path template>`, built from the row, and the arguments
 `{"tool", "version", "input"}`. Dispatch rechecks the exact approval and the captured `execution-owner` lease in one
 transaction, consumes the approval and writes the dispatch event **before** the private `openapi_http` backend sends. That
-backend is the only caller of the raw OpenAPI transport for a governed call: it rebuilds the request from the row and the
+backend sends through the **private raw transport**: it rebuilds the request from the row and the
 **recorded** arguments, requires the result to be the recorded resource (method, server and path) and sends nothing
-otherwise, so what is sent is what the approver saw, and it can never reach the dispatcher again.
+otherwise, so what is sent is what the approver saw, and it can never reach the dispatcher or the public entry again.
+
+**The public entry reads; the private transport sends.** `execute_openapi_http_tool` (and `bind_openapi_http_tool`, which wraps
+it) is the public entry of the OpenAPI executor. It sends only an operation whose method reads (`GET`, `HEAD`, `OPTIONS`):
+any other method is refused with `unsupported_effect_path` before the input is validated, a secret is resolved or anything is
+sent, so no caller of it can perform a protected effect without a recorded, approved proposal. The method is read from the
+tool's **configuration** (a pack's operation is chosen by the input), never from a claim. A configuration that resolves to no
+operation gets the executor's ordinary configuration refusal instead. The send itself is the module-private `_send_raw`, which
+only three modules may name: the dispatcher's private backends (document request and `openapi_http`) and the operator's draft
+preview route (EP-033, exempt: a human fires one call, gated by `allow_in_preview`). It never calls the public entry, so a
+dispatched effect cannot re-enter the dispatcher or the public path. `tests/test_effect_path_matrix.py` fails when any other
+production module names `_send_raw` (`test_the_private_raw_transport_is_named_only_by_pinned_modules`) or the public entry
+(`test_the_raw_openapi_executor_is_named_only_by_pinned_callers`). A read-method tool is still classified by the registry row
+**before** it reaches the public entry (a `GET` declared `write` is dispatched), and Aria checks a tool's declared level itself.
 
 **Everything that can be refused without sending is refused before the proposal is recorded**, so no approval is requested or
 spent for a call that cannot be made: the input against the row's schema, the server (a plain `http(s)` origin with no
@@ -254,6 +268,7 @@ OpenAPI effect proposal refused: openapi_auth_unsupported       # the row binds 
 OpenAPI effect proposal refused: openapi_header_forbidden       # header_params sets a method-override, framing or hop-by-hop header
 OpenAPI tool 'tickets' refused: openapi_operation_unresolved    # a pack operation the row does not bind
 OpenAPI tool 'tickets' refused: unsupported_effect_path         # no readable OpenAPI row for the tool
+unsupported_effect_path: a protected OpenAPI call is sent only by the effect dispatcher   # a non-read method at the public entry
 OpenAPI effect authorization was not granted                    # no exact approval: the proposal stays `proposed`
 OpenAPI effect dispatch refused: proposal_not_approved          # not approved, or the node already ran
 OpenAPI effect did not commit: ambiguous:http_503               # unknown: the answer proves nothing, nothing is resent
@@ -272,13 +287,17 @@ that **stopped** passing the egress policy since the proposal, a transient DNS o
 settles the proposal `failed` with the reason `not_sent`; the dispatch's internal refusal code is not surfaced, and **the
 approval is already consumed**: ask for a new proposal (run the node again after fixing the cause).
 
-**Not covered by this change, and still outside the dispatcher:** model-chosen tool calls inside an agent step (B04.6,
-#768), the Aria assistant's published-tool call (inventory EP-034: there is no workflow run to propose into; owned by #1063), standalone
-exports and plans a caller builds itself (#1051: `build_plan` binds the registry reader but no governed context, so a
-deployed workflow's **protected** OpenAPI nodes are refused until #1051 binds one; read-class `GET` nodes still run),
-and the operator's draft preview route (EP-033, exempt). The raw executor's remaining callers are pinned by
-`tests/test_effect_path_matrix.py::test_the_raw_openapi_executor_is_named_only_by_pinned_callers`, so a new one fails
-until it is routed or pinned with a reason.
+**Not routed through the dispatcher, and what they can do now (B04.4b).** Model-chosen tool calls inside an agent step (B04.6,
+#768), the Aria assistant's published-tool call (inventory EP-034: there is no workflow run to propose into; owned by #1063),
+standalone exports and plans a caller builds itself (#1051: `build_plan` binds the registry reader but no governed context, so a
+deployed workflow's **protected** OpenAPI nodes are refused until #1051 binds one; read-class `GET` nodes still run) all reach
+the **public** entry, which refuses a protected method with `unsupported_effect_path`. So none of them can perform an OpenAPI
+write any more: they can read, and a write needs the governed route above. This is a behavior change for an Aria deployment in
+`build` mode with `auto_all` approval that exposed a write tool (it now answers the refusal and sends nothing), for a tool
+declared `read` whose operation is a `POST` (refused rather than sent), and for a standalone export whose tool writes. The
+operator's draft preview route (EP-033, exempt) still previews any method through the private transport. The callers of the
+public entry are pinned by `tests/test_effect_path_matrix.py::test_the_raw_openapi_executor_is_named_only_by_pinned_callers`, so a
+new one fails until it is routed or pinned with a reason.
 
 **Configuration, migration and rollback.** No new setting, no route and no migration. The two names `openapi_http` and
 `openapi-http` become reserved tool names like the other connectors (`409 reserved_tool_name`); a tool already registered
@@ -1595,13 +1614,17 @@ Before the dispatcher (B04.1) sends an effect it needs two things that are not g
   printable ASCII characters without surrounding whitespace and a `case_id` that is not one safe path segment, before any
   request is built.
 
+The dispatcher's private `document_request` backend does the following; it sends through the private raw transport
+(`_send_raw`), because the public `execute_openapi_http_tool` refuses a `POST` (`unsupported_effect_path`). Application code
+does not call it: a write is a proposal.
+
 ```python
 from caliber.effects.connectors import classify_error, classify_result
 from caliber.effects.connectors.document_request import CAPABILITY, submit_config, submit_input
-from caliber.integrations.openapi.executor import OpenApiExecutionError, execute_openapi_http_tool
+from caliber.integrations.openapi.executor import OpenApiExecutionError, _send_raw
 
 try:
-    result = execute_openapi_http_tool(
+    result = _send_raw(
         execution_config=submit_config(server_url),
         input_schema=None,
         input_data=submit_input(

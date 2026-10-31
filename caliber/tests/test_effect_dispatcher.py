@@ -632,7 +632,7 @@ def test_document_request_backend_classifies_transport_and_verifies_receipt(
 
     monkeypatch.setattr(
         dispatcher_module._raw_connector_transport,
-        "execute_openapi_http_tool",
+        "_send_raw",
         execute,
     )
     result = dispatcher_module._Backend().perform(
@@ -666,7 +666,7 @@ def test_document_request_backend_never_upgrades_transport_evidence(
 
     monkeypatch.setattr(
         dispatcher_module._raw_connector_transport,
-        "execute_openapi_http_tool",
+        "_send_raw",
         execute,
     )
     result = dispatcher_module._Backend().perform(
@@ -680,7 +680,7 @@ def test_document_request_backend_supports_unversioned_intent(
 ) -> None:
     monkeypatch.setattr(
         dispatcher_module._raw_connector_transport,
-        "execute_openapi_http_tool",
+        "_send_raw",
         lambda **_kwargs: {"status_code": 412, "json": {}},
     )
     result = dispatcher_module._Backend().perform(
