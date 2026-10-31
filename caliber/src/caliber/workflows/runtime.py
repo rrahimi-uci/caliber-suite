@@ -2504,8 +2504,8 @@ class RuntimePlan:
     #: back to the legacy raw sender.
     governed_effects: GovernedEffectContext | None = None
     #: Reads a registry tool's own row by ``(name, version)`` (B04.3, #741). The registry row, not the manifest binding, says
-    #: whether a tool is CALIBER's own and how risky it is; ``build_plan`` binds this to the database. A manifest-backed plan
-    #: without it cannot verify any tool, so every registered Python tool is treated as unverified and fails closed.
+    #: whether a tool is CALIBER's own and how risky it is; ``build_plan`` binds this to the database. A plan with neither this
+    #: reader nor a governed context is not governed: registered tools keep running as before.
     registered_tool_identity: Callable[[str, str], RegisteredToolIdentity | None] | None = None
     #: Called with the ids of a node and of everything upstream of it before the node runs, outside its retries (B05.5b,
     #: #742). Raises ``caliber.effects.reconcile.UnknownEffectError`` while an effect those nodes asked for has no final
@@ -5117,6 +5117,10 @@ def _submit_authorize_dispatch(
             session.commit()
     except EffectRefused as exc:
         raise ToolExecutionError(f"{label} proposal refused: {exc.code}") from exc
+    if recorded.state != "proposed":
+        # A retry of a node whose effect was already claimed or settled (for example ``unknown``): asking for a new
+        # approval and dispatching again could only refuse, and would hide what really happened to the first attempt.
+        raise ToolExecutionError(f"{label} was already recorded as {recorded.state}; not run again")
 
     try:
         authorization = context.authorize(recorded)
@@ -5152,8 +5156,9 @@ def _governed_tool_route(
 ) -> ToolRoute | None:
     """The dispatcher route of a registered Python tool node, or ``None`` when it runs inline as before.
 
-    Only a manifest-backed plan (one with a workflow version or a governed context) is governed: legacy and test plans
-    keep calling the tool directly, as do previews, which never reach a real effect. OpenAPI and MCP bindings are routed by
+    Only a plan wired to the registry (an identity reader, as ``build_plan`` binds) or to an authority (a governed
+    context) is governed: a plan that has neither, such as a standalone export or a test plan, keeps calling the tool
+    directly, as do previews, which never reach a real effect. OpenAPI and MCP bindings are routed by
     their own B04 tasks. The decision is made from the tool's **registry row** (``plan.registered_tool_identity``), never
     from ``binding.side_effect_level`` or the binding's names, which a workflow or an export author wrote.
     """
@@ -5161,7 +5166,7 @@ def _governed_tool_route(
         preview
         or binding.binding_type != "registered_function"
         or binding.execution_backend != "python_callable"
-        or (plan.workflow_version_id is None and plan.governed_effects is None)
+        or (plan.registered_tool_identity is None and plan.governed_effects is None)
     ):
         return None
     identity: RegisteredToolIdentity | None = None
@@ -5233,7 +5238,7 @@ def _perform_registered_tool_effect(
             "occurrence_id": _STEP_OCCURRENCE.get() or node_id,
             "connector": REGISTERED_TOOL_CONNECTOR,
             "connector_version": REGISTERED_TOOL_VERSION,
-            "effect_class_name": route.effect_class,
+            "min_effect_class": route.effect_class,
             "resource": tool_resource(name, version),
             "args": tool_intent_args(
                 name=name, version=version, arguments=proposal_args, input_text=fallback_input

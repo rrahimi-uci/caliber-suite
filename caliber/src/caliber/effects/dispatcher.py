@@ -37,7 +37,7 @@ from caliber.effects.connectors import (
     classify_result,
 )
 from caliber.effects.connectors import document_request as _document_request
-from caliber.effects.inventory import effect_class, tool_disposition
+from caliber.effects.inventory import EFFECT_CLASSES, effect_class, tool_disposition
 from caliber.effects.receipts import ReceiptFacts, Settled, settle_dispatch
 from caliber.effects.records import (
     APPROVED,
@@ -365,6 +365,7 @@ def _inventory_effect_class(
     *,
     caliber_defined: bool,
     claimed: str | None,
+    floor: str | None = None,
 ) -> str:
     name = "" if tool_name is None else tool_name
     disposition = tool_disposition(name, caliber_defined=caliber_defined)
@@ -380,6 +381,11 @@ def _inventory_effect_class(
         "irreversible_write",
     ):
         raise EffectRefused("invalid_effect_class")
+    if floor is not None:
+        if floor not in EFFECT_CLASSES:
+            raise EffectRefused("invalid_effect_class")
+        # A trusted caller's floor can only make the record stricter, never weaker.
+        resolved = max(resolved, floor, key=EFFECT_CLASSES.index)
     return resolved
 
 
@@ -465,6 +471,7 @@ def submit_proposal(
     intent: Intent | None = None,
     tool_name: str | None = None,
     caliber_defined: bool = False,
+    min_effect_class: str | None = None,
     connector: str | None = None,
     connector_version: str | None = None,
     effect_class_name: str | None = None,
@@ -478,6 +485,10 @@ def submit_proposal(
     first-party built-in identity.  Untrusted or unknown tools consequently use
     the inventory's fail-closed class.  ``action`` and the explicit fields are
     convenience forms of the same immutable intent; they cannot disagree.
+
+    ``min_effect_class`` is a floor from a caller that has classified the tool from its own trusted registry row (B04.3):
+    the recorded class is the stricter of the inventory's answer and the floor. Unlike ``effect_class_name`` it is not a
+    claim, so it is never taken from a model or a manifest.
     """
     if action is not None and proposed_action is not None:
         raise EffectRefused("conflicting_proposed_actions")
@@ -496,6 +507,7 @@ def submit_proposal(
         tool_name,
         caliber_defined=caliber_defined,
         claimed=fields.get("effect_class"),
+        floor=min_effect_class,
     )
     try:
         bound_intent = Intent(

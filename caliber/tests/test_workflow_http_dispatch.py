@@ -86,7 +86,7 @@ def _direct_http_plan(
 
 
 def _fake_recorded_proposal(*_args: Any, **_kwargs: Any) -> SimpleNamespace:
-    return SimpleNamespace(proposal_id="proposal-direct-http")
+    return SimpleNamespace(proposal_id="proposal-direct-http", state="proposed")
 
 
 def _run_direct_http_effect(plan: RuntimePlan) -> Any:

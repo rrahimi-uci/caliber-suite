@@ -31,6 +31,7 @@ from caliber.effects.receipts import ReceiptFacts
 from caliber.effects.registered_tools import (
     RegisteredToolIdentity,
     load_registered_tool_identity,
+    route_registered_tool,
 )
 from caliber.ids import new_tool_id
 from caliber.workflows.builtin_tools import (
@@ -352,6 +353,76 @@ def test_the_tool_runs_with_the_arguments_that_were_proposed(
     assert tool.calls == [((), {"summary": "disk full"})]
 
 
+def test_the_tool_receives_the_recorded_arguments_not_the_callers_live_objects(
+    factory: sessionmaker[Session],
+) -> None:
+    """The recorded intent is plain JSON: a tuple the caller holds is a list in the proposal, and the tool gets the list."""
+    entry = tool_entry("open_ticket", "write")
+    seed_row(factory, entry)
+    tool = Tool()
+    run = Run(factory, entry, tool)
+    binding = run.plan.ir.nodes["tool_node"].binding  # type: ignore[attr-defined]
+    live = {"tags": ("a", "b"), "n": 1}
+
+    result = runtime_module._perform_registered_tool_effect(
+        run.plan,
+        node_id="tool_node",
+        binding=binding,
+        route=route_registered_tool(_read_identity(factory, "open_ticket", "1.0")),
+        fn=tool,
+        arguments=live,
+        fallback_input="text",
+    )
+
+    assert result == {"ticket": "T-1"}
+    assert tool.calls == [((), {"tags": ["a", "b"], "n": 1})]
+    assert isinstance(tool.calls[0][1]["tags"], list)
+
+
+def test_a_floor_makes_the_recorded_class_stricter_and_never_weaker(
+    factory: sessionmaker[Session],
+) -> None:
+    from caliber.effects.dispatcher import submit_proposal
+
+    def record(node: str, **kwargs: Any) -> str:
+        with factory() as session:
+            recorded = submit_proposal(
+                session,
+                workflow_run_id=RUN_ID,
+                node_id=node,
+                occurrence_id=node,
+                connector="registered_tool",
+                connector_version="1",
+                resource=f"registered-tool/{node}/1.0",
+                args={"tool": node},
+                **kwargs,
+            )
+            session.commit()
+            row = session.get(CaliberEffectProposal, recorded.proposal_id)
+            assert row is not None
+            return row.effect_class
+
+    # a trusted built-in whose inventory class is ``read``
+    assert record("n1", tool_name="list_workdir_files", caliber_defined=True) == "read"
+    assert (
+        record(
+            "n2",
+            tool_name="list_workdir_files",
+            caliber_defined=True,
+            min_effect_class="irreversible_write",
+        )
+        == "irreversible_write"
+    )
+    # a floor below the inventory's class does not weaken it
+    assert (
+        record("n3", tool_name="write_workdir_file", caliber_defined=True, min_effect_class="read")
+        == "reversible_write"
+    )
+    with pytest.raises(EffectRefused) as refused:
+        record("n4", tool_name="list_workdir_files", caliber_defined=True, min_effect_class="nope")
+    assert refused.value.code == "invalid_effect_class"
+
+
 def test_replaying_a_finished_node_does_not_run_the_tool_again(
     factory: sessionmaker[Session],
 ) -> None:
@@ -362,20 +433,41 @@ def test_replaying_a_finished_node_does_not_run_the_tool_again(
     first = Run(factory, entry, tool)
     assert first.execute().status == "completed"
 
-    second_authorizations: list[str] = []
-
-    def authorize(proposal: Any) -> EffectAuthorization:
-        second_authorizations.append(proposal.proposal_id)
-        return grant(factory, proposal.proposal_id, approval_id="rap-second")
-
-    second = Run(factory, entry, tool, authorize=authorize)
+    second = Run(factory, entry, tool)
     result = second.execute()
 
     assert result.status == "error"
-    assert "registered tool effect dispatch refused: proposal_not_approved" in (result.error or "")
+    assert "was already recorded as committed; not run again" in (result.error or "")
     assert len(tool.calls) == 1
     assert len(proposals(factory)) == 1
-    assert second_authorizations == first.authorized
+    assert second.authorized == [], (
+        "a finished effect is not authorized or dispatched a second time"
+    )
+
+
+def test_a_retry_after_an_unknown_effect_keeps_the_first_accurate_error(
+    factory: sessionmaker[Session],
+) -> None:
+    entry = tool_entry("open_ticket", "write")
+    seed_row(factory, entry)
+
+    class Exploding(Tool):
+        def __call__(self, *args: Any, **kwargs: Any) -> Any:
+            super().__call__(*args, **kwargs)
+            raise RuntimeError("boom")
+
+    tool = Exploding()
+    first = Run(factory, entry, tool)
+    assert "did not commit" in (first.execute().error or "")
+
+    second = Run(factory, entry, tool)
+    result = second.execute()
+
+    assert result.status == "error"
+    assert "was already recorded as unknown; not run again" in (result.error or "")
+    assert "authorization failed" not in (result.error or "")
+    assert second.authorized == []
+    assert len(tool.calls) == 1
 
 
 def test_an_external_action_tool_is_recorded_as_irreversible_and_dispatched(
@@ -661,16 +753,39 @@ def test_a_name_that_is_not_in_the_registry_is_unverified_and_fails_closed(
     assert proposals(factory)[0].effect_class == "irreversible_write"
 
 
-def test_a_plan_with_no_identity_source_fails_closed(factory: sessionmaker[Session]) -> None:
+def test_a_plan_wired_to_neither_the_registry_nor_an_authority_is_not_governed(
+    factory: sessionmaker[Session],
+) -> None:
+    """A standalone export or test plan has no registry to read and no authority to ask: its tools run as before."""
     entry = tool_entry("lookup_policy", "read")
-    seed_row(factory, entry)
     tool = Tool()
 
     result = Run(factory, entry, tool, lookup=False, context=False).execute()
 
-    assert result.status == "error"
-    assert "requires a governed effect context" in (result.error or "")
-    assert tool.calls == []
+    assert result.status == "completed", result.error
+    assert len(tool.calls) == 1
+
+
+def test_an_exported_workflow_with_a_version_label_keeps_running_its_read_tools() -> None:
+    """The exported-runtime entry point, given a ``workflow_version_id`` label but no registry: not refused."""
+    from caliber.workflows.export_runtime import execute_exported_workflow
+
+    entry = tool_entry("lookup_policy", "read")
+    resolver = InMemoryToolResolver([entry])
+    tool = Tool(result={"policy": "30-day refund"})
+    resolver.register(entry, tool)
+    ir = build_ir(parse_manifest(tool_manifest("lookup_policy")), resolver, version="1")
+
+    result = execute_exported_workflow(
+        ir,
+        "refund policy",
+        resolver=resolver,
+        workflow_version_id="exported-version-1",
+        executor=FakeWorkflowExecutor(),
+    )
+
+    assert result.status == "completed", result.error
+    assert len(tool.calls) == 1
 
 
 def test_an_unreadable_registry_is_a_refusal_not_a_guess(factory: sessionmaker[Session]) -> None:
@@ -743,6 +858,64 @@ def test_a_row_squatting_on_a_builtin_name_is_fail_closed_whatever_it_declares(
     assert result.status == "error"
     assert "requires a governed effect context" in (result.error or "")
     assert tool.calls == []
+
+
+def test_a_squatter_that_declares_read_is_recorded_irreversible_write_not_the_builtins_read(
+    factory: sessionmaker[Session],
+) -> None:
+    """With a governed context the squatter reaches ``submit_proposal``, which must not take the built-in's class."""
+    entry = tool_entry("list_workdir_files", "read")
+    seed_row(factory, entry, owner="@someone")
+    tool = Tool()
+
+    result = Run(factory, entry, tool).execute()
+
+    assert result.status == "completed", result.error
+    assert len(tool.calls) == 1
+    (proposal,) = proposals(factory)
+    assert proposal.effect_class == "irreversible_write"
+
+
+def test_a_squatter_named_like_a_refused_builtin_is_not_refused_by_name_and_is_fail_closed(
+    factory: sessionmaker[Session],
+) -> None:
+    """The refusal is the built-in's, matched by trusted identity: an impostor is dispatched at the fail-closed class."""
+    entry = tool_entry("grep_files", "read")
+    seed_row(factory, entry, owner="@someone")
+    tool = Tool()
+
+    result = Run(factory, entry, tool).execute()
+
+    assert result.status == "completed", result.error
+    assert len(tool.calls) == 1
+    (proposal,) = proposals(factory)
+    assert proposal.effect_class == "irreversible_write"
+
+
+def test_a_builtin_row_edited_to_a_stricter_level_is_recorded_at_that_level(
+    factory: sessionmaker[Session],
+) -> None:
+    """The record, not only the route, is at least as strict as the row's declared level."""
+    with factory() as session:
+        register_builtin_tools(session)
+        row = session.execute(
+            select(CaliberToolRegistry).where(CaliberToolRegistry.name == "list_workdir_files")
+        ).scalar_one()
+        row.side_effect_level = "external_action"
+        session.commit()
+    entry = tool_entry(
+        "list_workdir_files",
+        "read",
+        module_path=_builtin_module("list_workdir_files"),
+        callable_name="list_workdir_files",
+    )
+    tool = Tool()
+
+    result = Run(factory, entry, tool).execute()
+
+    assert result.status == "completed", result.error
+    (proposal,) = proposals(factory)
+    assert proposal.effect_class == "irreversible_write"
 
 
 def test_the_real_builtin_read_tool_runs_inline(factory: sessionmaker[Session]) -> None:
@@ -821,7 +994,9 @@ def test_a_plan_without_a_workflow_version_keeps_calling_tools_directly(
     seed_row(factory, entry)
     tool = Tool()
 
-    result = Run(factory, entry, tool, workflow_version_id=None, context=False).execute()
+    result = Run(
+        factory, entry, tool, workflow_version_id=None, lookup=False, context=False
+    ).execute()
 
     assert result.status == "completed", result.error
     assert len(tool.calls) == 1

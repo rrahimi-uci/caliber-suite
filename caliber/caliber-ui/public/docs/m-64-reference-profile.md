@@ -89,8 +89,9 @@ execution-owner lease and endpoint-specific verifier; no new environment variabl
 A workflow `tool` node that names a registered Python tool is routed by the tool's **registry row**, read from the
 database for the tool being run: its name, owner, version, module, callable and declared side-effect level. The
 manifest binding, an exported bundle and the model do not decide it (`IRToolBinding` and `ToolRegistryEntry` carry
-no owner, so there is nothing in them to forge). Manifest-backed plans (a workflow version) are governed; previews,
-legacy plans without a workflow version, OpenAPI bindings (B04.4) and MCP bindings (B04.5) keep their own paths.
+no owner, so there is nothing in them to forge). A plan is governed when it is wired to the registry (`build_plan` binds the row reader, so every deployed workflow
+version run is) or to an authority (a governed context). Previews, standalone exports and test plans with neither,
+OpenAPI bindings (B04.4) and MCP bindings (B04.5) keep their own paths.
 
 | the registry row is | the tool node |
 | --- | --- |
@@ -99,7 +100,7 @@ legacy plans without a workflow version, OpenAPI bindings (B04.4) and MCP bindin
 | any other CALIBER built-in | proposed, approved and dispatched at the inventory class (or the declared class when stricter) |
 | a row that reuses a built-in's reserved name without being the seed's own row, a tool with no readable row, or an unrecognised declared level | classified `irreversible_write`, the fail-closed class, and dispatched; never inline |
 | an administrator-registered tool declared `read` | runs inline, as before |
-| an administrator-registered tool declared `write` or `external_action` | proposed, approved and dispatched; the proposal records `irreversible_write` because the inventory does not list it |
+| an administrator-registered tool declared `write` or `external_action` | proposed, approved and dispatched; the proposal records `irreversible_write` because the inventory does not list it; the recorded class is always the stricter of the inventory's class and the class the row's declared level implies |
 | a row whose module, callable or backend differs from the binding | refused: `registered tool '<name>' does not match its registry row` |
 
 A protected call follows the same boundary as the governed HTTP nodes: the runtime records an immutable proposal
@@ -129,8 +130,9 @@ Recovery: a `proposed` effect needs an exact approval, after which the run can b
 is reused for the same node occurrence, so the tool still runs once); an `unknown` effect is settled by the reconciler
 (B05) or an operator, never by re-running the node; a manifest-backed deployment whose run owner has not bound a
 governed context must keep protected registered tools out of its workflows, because it refuses them (read-class tools
-are unaffected). The plan's `registered_tool_identity` reader is bound by `build_plan`; a plan built without it treats
-every registered Python tool as unverified and fail-closed.
+are unaffected). The plan's `registered_tool_identity` reader is bound by `build_plan`. A standalone export, which has no registry to
+read and no authority to ask, is not governed and keeps calling its tools directly (the module-import paths stay
+inventory rows EP-015, EP-016 and EP-019, refused by #774).
 
 Two limits. An administrator-registered tool declared `read` is trusted as read-class: its declared level is part of the
 definition the deployment bundle pins and re-verifies before a run (`deployment_bundle.tool_snapshot`), but the platform
