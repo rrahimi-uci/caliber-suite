@@ -40,6 +40,7 @@ from alembic.config import Config
 from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.exc import IntegrityError, SAWarning
 
+from caliber.candidate_digest import CANDIDATE_DIGEST_LENGTH, candidate_digest
 from caliber.db import Base
 from caliber.db.models import CaliberRefinementJob
 from tests.dialect_helpers import DIALECTS, dialect_database_url
@@ -253,6 +254,112 @@ def test_0131_adds_optional_triggered_by_without_backfill_and_reverses(
                     .all()
                 )
             assert remaining == ["RFN-0131-declared", "RFN-0131-legacy"]
+        finally:
+            engine.dispose()
+            os.environ.pop("CALIBER_DATABASE_URL", None)
+
+
+def test_refinement_job_candidate_digest_model_contract() -> None:
+    """B06.4: the recorded digest is optional and exactly ``sha256:`` plus 64 hex digits wide."""
+    column = CaliberRefinementJob.__table__.c.candidate_digest
+
+    assert column.nullable is True
+    assert isinstance(column.type, sa.String)
+    assert column.type.length == CANDIDATE_DIGEST_LENGTH == 71
+
+
+@pytest.mark.slow
+@pytest.mark.parametrize("dialect", DIALECTS)
+def test_0132_backfills_only_claimable_jobs_with_the_runtime_digest_and_reverses(
+    dialect: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """B06.4: jobs waiting to be applied keep working; nothing else is stamped; the digest matches the runtime's.
+
+    ``candidate_ready`` and ``applying`` jobs (the latter returns to ``candidate_ready`` on a failed release) get the
+    digest of their current candidate, byte-identical to :func:`caliber.candidate_digest.candidate_digest` (the
+    migration inlines the algorithm so a shipped revision cannot drift). A job with no candidate or an empty one stays
+    NULL and is refused at Apply; every other status stays NULL. Downgrade drops only the column.
+    """
+    ready = {
+        "artifact_type": "prompt",
+        "content": 'b\u00e9ta \u2603 "q"',
+        "score": 0.1,
+        "n": [1, 2],
+    }
+    rows = {
+        "RFN-0132-ready": ("candidate_ready", ready),
+        "RFN-0132-applying": ("applying", {"content": "applying candidate"}),
+        "RFN-0132-applied": ("applied", {"content": "already applied"}),
+        "RFN-0132-rejected": ("rejected", {"content": "rejected candidate"}),
+        "RFN-0132-nocandidate": ("candidate_ready", None),
+        "RFN-0132-empty": ("candidate_ready", {}),
+    }
+    with dialect_database_url(dialect, tmp_path, "refinement_job_candidate_digest") as db_url:
+        monkeypatch.setenv("CALIBER_DATABASE_URL", db_url)
+        monkeypatch.chdir(PROJECT_ROOT)
+        cfg = Config(str(ALEMBIC_INI))
+        command.upgrade(cfg, "0131")
+        engine = create_engine(db_url)
+        try:
+            with engine.begin() as connection:
+                connection.execute(
+                    text(
+                        "INSERT INTO caliber_agent_config "
+                        "(agent_id, experiment_id, name, owner, artifact_types, "
+                        "eval_thresholds, optimizer_config, approval_policy) VALUES "
+                        "('agent-0132', 'exp-0132', 'Agent 0132', '@owner', '[]', '{}', '{}', '{}')"
+                    )
+                )
+                connection.execute(
+                    text(
+                        "INSERT INTO caliber_verification_queue "
+                        "(item_id, agent_id, category, free_text, severity) VALUES "
+                        "('FB-0132', 'agent-0132', 'hallucination', 'looks off', 'critical')"
+                    )
+                )
+                for job_id, (status, candidate) in rows.items():
+                    connection.execute(
+                        sa.text(
+                            "INSERT INTO caliber_refinement_jobs "
+                            "(job_id, agent_id, primary_item_id, artifact_type, bundle_targets, status, candidate) "
+                            "VALUES (:job_id, 'agent-0132', 'FB-0132', 'prompt', '[]', :status, :candidate)"
+                        ).bindparams(sa.bindparam("candidate", type_=sa.JSON)),
+                        {"job_id": job_id, "status": status, "candidate": candidate},
+                    )
+
+            command.upgrade(cfg, "0132")
+
+            columns = {
+                column["name"]: column
+                for column in inspect(engine).get_columns("caliber_refinement_jobs")
+            }
+            assert columns["candidate_digest"]["nullable"] is True
+            assert columns["candidate_digest"]["type"].length == 71
+            with engine.connect() as connection:
+                digests = dict(
+                    connection.execute(
+                        text("SELECT job_id, candidate_digest FROM caliber_refinement_jobs")
+                    ).all()
+                )
+            assert digests == {
+                "RFN-0132-ready": candidate_digest(ready),
+                "RFN-0132-applying": candidate_digest({"content": "applying candidate"}),
+                "RFN-0132-applied": None,
+                "RFN-0132-rejected": None,
+                "RFN-0132-nocandidate": None,
+                "RFN-0132-empty": None,
+            }
+
+            command.downgrade(cfg, "0131")
+
+            assert "candidate_digest" not in {
+                column["name"] for column in inspect(engine).get_columns("caliber_refinement_jobs")
+            }
+            with engine.connect() as connection:
+                remaining = connection.execute(
+                    text("SELECT count(*) FROM caliber_refinement_jobs")
+                ).scalar_one()
+            assert remaining == len(rows)
         finally:
             engine.dispose()
             os.environ.pop("CALIBER_DATABASE_URL", None)

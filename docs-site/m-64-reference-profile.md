@@ -2188,9 +2188,9 @@ creator authority, and client-supplied owner or creator values cannot replace
 the authenticated requester.
 
 This is provenance, not permission: apply still rechecks the current project
-permission and, under the two-person rule below (B06.3), the distinct approver;
-the exact-candidate-digest recheck inside the claim is B06.4 (#753), not yet
-here. Rows written before
+permission and, under the two-person rule below (B06.3), the distinct approver,
+and the claim now rechecks both, with the exact candidate digest, inside its own
+transaction (B06.4, [below](#apply-the-claim-rechecks-everything-b064-753)). Rows written before
 B06.2 remain explicitly unknown (`triggered_by = NULL`); operators recover
 those rows through the current authorization boundary or create a new job via a
 path that can declare its requester. No new migration or public API/SDK field
@@ -2235,9 +2235,10 @@ digest) and a stable `reason_code`:
 ```
 
 Both refusals happen after the project-permission check (a non-member still gets `404`, a member without
-`release.apply` still gets `403` without a reason code) and before the claim, the approval anchor, the
-promoter call and any audit write, so a refused Apply changes nothing: the job stays `candidate_ready`. The
-database enforces the same separation inside the atomic claim (`UPDATE ... WHERE status = 'candidate_ready'`
+`release.apply` still gets `403` without a reason code) and before the claim, the approval anchor and the
+promoter call, so a refused Apply changes no job, approval or release state: the job stays `candidate_ready`.
+Since B06.4 the refusal is recorded in the audit log (below). The claim repeats the check on the row-locked
+job with the same helper, and the database enforces the same separation inside the atomic claim (`UPDATE ... WHERE status = 'candidate_ready'`
 and the requester, trimmed of ASCII whitespace and lower-cased, is neither NULL, blank nor equal to the
 caller, trimmed and lower-cased the same way), so a requester that changed after the check, even to a case
 or whitespace variant of the caller, still cannot claim. The SQL lower-casing is ASCII-only on SQLite; the
@@ -2250,8 +2251,96 @@ override yet**: the job is refused, never passed. Re-run the calibration through
 or assistant path, which records the requester, and have a different account apply the new job. Do not set
 `triggered_by` by hand from timestamps, owners or other mutable fields.
 
-**Not in this slice.** The exact-candidate-digest recheck and the revoked-permission race inside the claim
-transaction are B06.4 (#753). The refusal writes no audit row, like the existing project-permission refusals.
+### Apply: the claim rechecks everything (B06.4, #753)
+
+Apply authorises at the start of the request, but the decision that matters is the one at the claim, the
+write that moves the job from `candidate_ready` to `applying` and commits the approval anchor before the
+promoter runs. Inside that transaction the route now locks the rows the decision rests on and rechecks, on
+what it locked, in this order:
+
+| order | recheck | refusal |
+| --- | --- | --- |
+| 1 | the job still exists | `404` |
+| 2 | the caller still holds `release.apply` on the job's project and can still see the job (membership, role, project owner and the agent's project are read after being locked) | `403`, `reason_code` `apply_permission_revoked` |
+| 3 | the two-person rule above, when in force, with the same `apply_separation_refusal` helper as the early check | `403`, `apply_self_approval` or `apply_creator_unknown` |
+| 4 | the job is still `candidate_ready` | `409`, no `reason_code` (the existing status conflict) |
+| 5 | the candidate about to be promoted is the one that cleared the eval gate | `409`, `apply_candidate_changed`, or `apply_candidate_unverified` when no digest was recorded |
+
+A lock wait that runs out before step 1 ends is `503` `apply_busy` (below). After the claim `UPDATE`, rows 2 and 5 are checked once more before anything is committed (see SQLite, below).
+
+**The exact candidate.** When the eval gate passes, the stage that moves a job to `candidate_ready` stores the
+SHA-256 of the candidate's canonical JSON on the job (`caliber_refinement_jobs.candidate_digest`, `sha256:` plus
+64 hex digits; migration `0132`). The claim recomputes the digest of the candidate it is about to promote and
+refuses on any difference. The approval anchor's `candidate_snapshot`, which is what the promoter reads, is
+taken from that same locked row and checked against the recorded digest once more before anything is committed,
+so the digest names exactly the content that is promoted even on a database without row locks. The recorded digest also appears in the `apply_candidate` audit row, so a
+promoted version can be traced to the exact content that was evaluated. The check applies in every profile: it
+is an integrity check, not the two-person policy. A job with no recorded digest is refused
+(`apply_candidate_unverified`), never trusted.
+
+**No gap between check and write.** On PostgreSQL the job is locked `FOR UPDATE` and its agent, project and the
+caller's membership row `FOR SHARE` before anything is read for the decision, in that order, and the conditional
+`UPDATE` of the claim still carries the status, the recorded digest and (when the rule is on) the requester
+predicate. A revocation or a candidate edit that is mid-transaction when the claim starts makes the claim wait
+and then refuse; one that arrives while the claim is in flight waits for the claim to commit, so the apply that
+passed its checks is the apply that was authorised. Two concurrent applies cannot both claim: the second waits and
+sees `applying`. The waits are bounded by a fixed 5 second `lock_timeout` (not a setting); a wait that runs
+out is answered `503`, `reason_code` `apply_busy`, retryable, with nothing decided or written and no audit row.
+
+**What SQLite does and does not cover.** SQLite has no row locks and ignores the `FOR UPDATE` / `FOR SHARE`
+clauses, so the recheck's answer is not held between the recheck and the claim: a grant can be revoked on
+another connection in that gap. Two things close it. The claim `UPDATE` is conditional (status, recorded digest,
+requester), and once it has run, and so holds SQLite's single write lock, the route reads the caller's authority
+again and verifies the candidate snapshot against the recorded digest before anything is committed; a failure
+rolls the claim back (`apply_permission_revoked` / `apply_candidate_changed`). What remains is the interval
+after that check and before the commit, during which SQLite's write lock keeps other writers out. This is the
+development profile; the reference profile requires PostgreSQL, where the row locks above are what is relied on.
+
+**Refusals** are static and payload-free (no job id, account, digest or candidate text):
+
+```json
+{"detail": "the candidate is not the one that was evaluated; nothing was applied, re-run the evaluation and apply the new candidate", "status_code": 409, "reason_code": "apply_candidate_changed"}
+```
+
+```json
+{"detail": "your permission to apply candidates in this project is no longer in force; nothing was applied", "status_code": 403, "reason_code": "apply_permission_revoked"}
+```
+
+```json
+{"detail": "this candidate has no recorded evaluation digest, so it cannot be verified; nothing was applied, re-run the evaluation so it records one", "status_code": 409, "reason_code": "apply_candidate_unverified"}
+```
+
+```json
+{"detail": "this candidate is being changed or applied right now; nothing was applied, retry shortly", "status_code": 503, "reason_code": "apply_busy"}
+```
+
+**Audit (#1050).** Each refusal at or after the separation check (`apply_self_approval`, `apply_creator_unknown`,
+`apply_permission_revoked`, `apply_candidate_changed`, `apply_candidate_unverified`) writes one `apply_refused`
+audit row, `severity` `high`, on the job, with the caller as actor and `{"reason_code": ...}` as its only
+detail. It is written in a transaction of its own after the attempt is rolled back, so the refusal still
+changes no job, approval or release state, and a failure to write it is logged without turning the refusal into
+a `500`. The existing `404` and role `403` of the early project-permission check, and the status `409`, write
+nothing. There is no rate limit on these rows beyond the platform's request limits: only an authenticated
+caller holding `release.apply` can produce one.
+
+**Recovery.** `apply_candidate_changed` and `apply_candidate_unverified`: the content or its evidence is not
+what was evaluated. Re-run the evaluation (a new candidate, or a request for changes) so the gate records a
+fresh digest, then apply. Do not edit `candidate_digest` by hand: the digest is evidence of what was evaluated,
+and a hand-written one defeats it. `apply_permission_revoked`: ask a project owner to restore the grant, or have
+an authorised account apply it.
+
+**Upgrade and limits.** Migration `0132` is additive, but not safe for a mixed-version rollout: a job that an
+old process moves to `candidate_ready` after the upgrade records no digest, and the new Apply refuses it
+(`apply_candidate_unverified`, with no override). Drain old writers (the workers that run the eval stages) before
+migrating, or re-run the evaluation of any job they finish in the window. The migration backfills `candidate_digest` for jobs that are
+`candidate_ready` or `applying` at upgrade time from their *current* candidate, since that is the only
+evaluated candidate such a row can name (a trust-on-upgrade step: an edit made before the upgrade is not
+detectable); every other row stays `NULL`, and a job without a candidate stays `NULL` and is refused at Apply.
+Rolling back drops only the column. The digest covers the candidate content, not the evaluation results stored
+beside it, and it is not a defence against someone who can write to the database and rewrite both the
+candidate and the digest: it catches an edit after the gate by any path that does not also re-record the gate's
+evidence. The permission recheck covers the project grant and visibility; the caller's platform scopes come
+from the request's credential as resolved at its start.
 
 ## Approval requests: bound to the exact intent (B06.1, #706)
 

@@ -18,6 +18,7 @@ import pytest
 from sqlalchemy.orm import Session
 from starlette.testclient import TestClient
 
+from caliber.candidate_digest import candidate_digest
 from caliber.db.models import (
     CaliberAgentConfig,
     CaliberRefinementJob,
@@ -484,6 +485,9 @@ def test_worker_tick_exception_logged() -> None:
 # ══════════════════════════════════════════════════════════════════════
 
 
+_NO_CONTENT_CANDIDATE = {"artifact_type": "prompt", "content": None, "rationale": "fix"}
+
+
 def test_apply_empty_candidate_content(client: TestClient, db_session: Session) -> None:
     """Applying a candidate_ready job whose candidate has no content → 409."""
     from caliber.db.models import CaliberVerificationItem
@@ -518,11 +522,8 @@ def test_apply_empty_candidate_content(client: TestClient, db_session: Session) 
         artifact_type="prompt",
         status="candidate_ready",
         current_stage="done",
-        candidate={
-            "artifact_type": "prompt",
-            "content": None,
-            "rationale": "fix",
-        },
+        candidate=_NO_CONTENT_CANDIDATE,
+        candidate_digest=candidate_digest(_NO_CONTENT_CANDIDATE),
     )
     db_session.add(job)
     db_session.commit()
