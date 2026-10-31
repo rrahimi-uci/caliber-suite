@@ -120,7 +120,10 @@ when their token carries the global `caliber.operator` scope and even when the
 request names the project in `X-CALIBER-Project`. A member whose role is too
 weak receives a permission error. `caliber.admin` can read every project's jobs
 but, like every other role-gated action, is not an implicit member, so applying
-or rolling back needs a real role in that project.
+or rolling back needs a real role in that project. Apply checks the caller's
+project role again inside its claim, so a grant revoked while the request is in
+flight is refused (`403`, `reason_code` `apply_permission_revoked`) and nothing is
+applied.
 
 ### Skills, tools, workflows and knowledge bases follow the project
 
@@ -154,8 +157,13 @@ sweeps every one of these routes as an outsider, a viewer, a reviewer and an edi
 
 - **Traces are not project-scoped.** The observability pages and the trace and metric routes are open
   to every signed-in user, so anyone who can sign in can read traces and their payloads.
-- **Apply has no second approver.** An `owner` or `editor` reviews and applies in one step. The approval
-  record created at Apply time is an audit and rollback anchor that names who applied.
+- **Apply has no second approver unless the two-person rule is on, which is off in the development default.**
+  With `CALIBER_APPLY_REQUIRE_DISTINCT_APPROVER` unset or `false`, an `owner` or `editor` reviews and applies in
+  one step, even a job they requested, and a job with no recorded requester is applied. With it `true`, which the
+  reference profile requires, the account that requested the job is refused (`403`, `reason_code`
+  `apply_self_approval`) and so is a job with no recorded requester (`apply_creator_unknown`). Either way the
+  approval record created at Apply time is an audit and rollback anchor that names who applied. See
+  [Apply: refusal catalogue, audit and recovery](../operate/reference-profile.md#apply-refusal-catalogue-audit-and-recovery-b065-762).
 - **CSRF protection is off by default.** `CALIBER_CSRF_ENABLED` is false unless you set it, which assumes
   a loopback or trusted-network deployment. Enable it, with a signing secret, before exposing CALIBER more
   widely. See [Alpha scope and limitations](../start/alpha-scope.md).

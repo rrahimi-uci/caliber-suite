@@ -12,7 +12,7 @@
 | **Key surfaces** | `caliber/src/caliber/routes/prompts.py`, `Prompts.tsx`, and `PromptBuilder.tsx`, mounted under `/ajax-api/2.0/mlflow/caliber`. |
 | **Runtime model** | One route entry point fans out to MLflow, `prompt_template_library.py`, `prompt_targets.py`, the DB, and the shared refinement pipeline. |
 | **Runtime identity** | A hidden `CaliberAgentConfig` prompt target keyed on prompt name gives each prompt an `agent_id`. |
-| **Trust / safety** | Authoring is non-live: create/version endpoints only register immutable drafts. Alias release and rollback need `operator` scope and use a committed, idempotent release intent before MLflow is mutated. An admin inherits operator; `approver` is a sibling role and cannot release without separate operator/admin authority. For a prompt that belongs to a project, release and rollback also need the project's `release.apply` action (owners and editors), and deleting a prompt needs `admin`. Template-preview and test-render are read-only, non-executing transformations. |
+| **Trust / safety** | Authoring is non-live: create/version endpoints only register immutable drafts. Alias release and rollback need `operator` scope and use a committed, idempotent release intent before MLflow is mutated. An admin inherits operator; `approver` is a sibling role and cannot release without separate operator/admin authority. For a prompt that belongs to a project, release and rollback also need the project's `release.apply` action (owners and editors), and deleting a prompt needs `admin`. Applying a calibration candidate (`POST /jobs/{job_id}/apply`, not alias release or rollback) is a two-person action when `CALIBER_APPLY_REQUIRE_DISTINCT_APPROVER` is on, which the reference profile requires: the account that requested the job cannot apply it, a job with no recorded requester is refused, and the claim rechecks the caller's current permission and the exact candidate digest that cleared the eval gate, so a refused Apply changes nothing and is recorded as an `apply_refused` audit row ([Apply approval chain](m-64-reference-profile.md#apply-refusal-catalogue-audit-and-recovery-b065-762)). Template-preview and test-render are read-only, non-executing transformations. |
 | **Calibration** | Optimization and calibration enqueue `CaliberVerificationItem` and `CaliberRefinementJob` into the shared pipeline. |
 
 The sections below start from this picture and drill down into the detail behind each dimension.
@@ -293,6 +293,11 @@ outgoing version and advisory verdict before MLflow is mutated, allowing exact
 rollback and recovery after an ambiguous provider failure. The advisory verdict
 never blocks direct operator rotation. Incomplete provider effects remain a
 reconciliation boundary, surfaced by the operation list and reconcile endpoint.
+
+Apply decides at its claim. Inside the claim transaction it locks the job and the rows that decide the caller's access and
+rechecks the caller's current project permission, the two-person rule when it is in force, the job status and the exact digest
+of the candidate that cleared the eval gate; a refusal that decides on the caller or the candidate is typed, payload-free and
+audited, and no refusal changes any state (the reason codes, recovery and audit rows are in [the Apply approval chain](m-64-reference-profile.md#apply-refusal-catalogue-audit-and-recovery-b065-762)).
 
 Apply is intent-first. `POST /jobs/{job_id}/apply` commits the claim
 (`candidate_ready` to `applying`) and the approval anchor before it calls the promoter,

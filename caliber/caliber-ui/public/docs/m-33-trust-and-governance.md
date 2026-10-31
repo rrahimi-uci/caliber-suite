@@ -79,8 +79,12 @@ CALIBER separates:
 In a project these are different roles. Anyone who is a member can read, and `viewer` can do nothing else.
 `reviewer` can record evidence, run evaluations and calibrations, request changes on a candidate and approve a
 run that is waiting for approval. `editor` and `owner` can author assets, publish, and Apply a candidate. Apply
-has no second approver: an `owner` or `editor` reviews and applies in one step, and the approval record it
-creates is an audit and rollback anchor. A member whose role is too weak gets 403 and a person outside the
+has a second approver only when the two-person rule is on (`CALIBER_APPLY_REQUIRE_DISTINCT_APPROVER`, which the
+reference profile requires and the development default leaves off): then the account that requested the job
+cannot apply it, and a job with no recorded requester is refused. With the rule off an `owner` or `editor`
+reviews and applies in one step. Either way the approval record Apply creates is an audit and rollback anchor,
+and Apply rechecks the caller's current permission and the exact candidate that cleared the evaluation gate at
+its claim ([Apply: refusal catalogue, audit and recovery](m-64-reference-profile.md#apply-refusal-catalogue-audit-and-recovery-b065-762)). A member whose role is too weak gets 403 and a person outside the
 project gets 404; the per-action table is in [Auth and project scoping](m-31-auth-and-project-scoping.md).
 
 That is why the governance story must be read across several surfaces rather
