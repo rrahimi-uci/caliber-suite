@@ -237,6 +237,7 @@ and `exempt` rows stay with the module the row names.
 | EP-130 | `caliber/src/caliber/workflows/step_openai_agents.py::_build_tools` | `caliber/src/caliber/effects/` dispatcher (#520) | routed through the dispatcher: a recorded policy decision only, no EffectRecord or Receipt (ADR 0001) |
 | EP-131 | `caliber/src/caliber/workflows/runtime.py::_perform_http_effect` | `caliber/src/caliber/effects/` dispatcher (#520, #522) | governed manifest calls use the dispatcher; legacy plans retain the ledger-backed `_perform_guarded_effect` path |
 | EP-132 | `caliber/src/caliber/workflows/runtime.py::_perform_registered_tool_effect` | `caliber/src/caliber/effects/` dispatcher (#520, #741) | registered Python tool nodes are routed from the tool's registry row: protected calls use the dispatcher's `registered_tool` backend, read-class calls stay inline, refused built-ins never run |
+| EP-133 | `caliber/src/caliber/workflows/runtime.py::_perform_openapi_tool_effect` | `caliber/src/caliber/effects/` dispatcher (#520, #750) | registered OpenAPI tool nodes are routed from the tool's registry row: a `GET` of a read row stays inline, every other call uses the dispatcher's `openapi_http` backend, and a tool with no readable OpenAPI row is refused |
 
 ## Consequences
 

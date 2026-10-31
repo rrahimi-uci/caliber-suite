@@ -50,6 +50,7 @@ from caliber.effects.connectors import (
     classify_result,
 )
 from caliber.effects.connectors import document_request as _document_request
+from caliber.effects.connectors import openapi_http as _openapi_http
 from caliber.effects.inventory import EFFECT_CLASSES, effect_class, tool_disposition
 from caliber.effects.receipts import ReceiptFacts, Settled, settle_dispatch
 from caliber.effects.records import (
@@ -79,6 +80,7 @@ from caliber.effects.registered_tools import (
 )
 from caliber.events.outbox import enqueue
 from caliber.integrations.openapi import executor as _raw_connector_transport
+from caliber.integrations.openapi.executor import OpenApiPreflightError
 from caliber.observability.span_attributes import GovernedSpan, governed_span
 from caliber.ownership import Lease
 from caliber.workflows.agent_step import ProposedAction
@@ -358,6 +360,68 @@ class _RegisteredToolBackend:
         return TransportResult(classified, verify, response=response)
 
 
+class _OpenApiBackend:
+    """Private adapter that sends a registered OpenAPI tool's operation (B04.4, #750).
+
+    ``config`` carries two runtime-owned values: ``operation`` (:class:`~caliber.effects.connectors.openapi_http.OpenApiOperation`,
+    built from the tool's **registry row**) and ``receipt_verifier`` (the same authoritative check the HTTP backend requires).
+    The request is rebuilt from the operation and the arguments **recorded in the proposal**, and what that resolves to must
+    be the proposal's resource (method, server and path): what is sent is what the approver saw. This is the one caller of the
+    raw transport for a governed OpenAPI call, so a call through here can never reach the dispatcher again.
+
+    The stable logical key is the idempotency key, and only for an operation whose row binds a key header; an operation with
+    no key header is sent once. A timeout or a dropped answer after the downstream committed is ``ambiguous`` and leaves the
+    proposal ``unknown``: this backend never sends it a second time, and the connector has no lookup by key, so only the
+    run's receipt verifier or a callback can settle it.
+    """
+
+    def perform(self, request: EffectRequest, config: Mapping[str, Any] | None) -> TransportResult:
+        if (
+            request.view.connector != _openapi_http.CONNECTOR
+            or request.view.connector_version != _openapi_http.VERSION
+        ):
+            raise _TransportRefusedError("connector_binding_mismatch")
+        settings = dict(config or {})
+        operation = settings.get("operation")
+        verifier = settings.get("receipt_verifier")
+        if not isinstance(operation, _openapi_http.OpenApiOperation) or not callable(verifier):
+            raise _TransportRefusedError("backend_config_missing")
+        args = request.intent.get("args")
+        if not isinstance(args, Mapping):
+            raise _TransportRefusedError("connector_intent_unsupported")
+        try:
+            execution_config, input_data = _openapi_http.transport_request(
+                operation,
+                resource=request.view.resource,
+                args=args,
+                expected_resource_version=request.view.expected_resource_version,
+                logical_key=request.view.logical_key,
+            )
+        except OpenApiPreflightError as exc:
+            raise _TransportRefusedError("connector_intent_unsupported") from exc
+        try:
+            result = _raw_connector_transport.execute_openapi_http_tool(
+                execution_config=execution_config,
+                input_schema=None,  # validated against the row's schema by transport_request
+                input_data=input_data,
+                egress_policy=operation.egress_policy,
+            )
+        except Exception as exc:
+            return TransportResult(classify_error(exc))
+        response = dict(result)
+        classified = classify_result(response, capability=_openapi_http.CAPABILITY)
+        if classified.outcome is not TransportOutcome.COMMITTED_RECEIPT:
+            return TransportResult(classified, response=response)
+
+        def verify() -> ReceiptFacts | None:
+            facts = verifier(request, response)
+            if facts is not None and not isinstance(facts, ReceiptFacts):
+                raise _TransportRefusedError("receipt_verifier_invalid")
+            return facts
+
+        return TransportResult(classified, verify, response=response)
+
+
 class _TransportRefusedError(RuntimeError):
     """A backend refused before sending anything; it is not a downstream result."""
 
@@ -409,6 +473,10 @@ REGISTERED_TOOL_CONFIGURATION: Mapping[str, Any] = {
     "resource": tool_resource("<name>", "<version>"),
 }
 
+#: What the OpenAPI transport sends with (B04.4): the connector contract's own configuration, pinned by digest.
+OPENAPI_HTTP_CAPABILITY = _openapi_http.CAPABILITY
+OPENAPI_HTTP_CONFIGURATION = _openapi_http.CONFIGURATION
+
 # Backend names are intentionally explicit.  Future B04 children add their
 # private adapters here; an arbitrary caller-supplied kind never gets a callable.
 # Being listed is not being admitted: :func:`admit_backend` is the gate (B12.3a, #738).
@@ -433,6 +501,13 @@ BACKENDS: dict[str, BackendRegistration] = {
         connector_version=REGISTERED_TOOL_VERSION,
         capability=REGISTERED_TOOL_CAPABILITY,
         configuration=REGISTERED_TOOL_CONFIGURATION,
+    ),
+    _openapi_http.BACKEND_KIND: BackendRegistration(
+        backend=_OpenApiBackend(),
+        connector=_openapi_http.CONNECTOR,
+        connector_version=_openapi_http.VERSION,
+        capability=OPENAPI_HTTP_CAPABILITY,
+        configuration=OPENAPI_HTTP_CONFIGURATION,
     ),
 }
 
@@ -1005,6 +1080,8 @@ __all__ = [
     "HTTP_CONFIGURATION",
     "HTTP_CONNECTOR",
     "HTTP_VERSION",
+    "OPENAPI_HTTP_CAPABILITY",
+    "OPENAPI_HTTP_CONFIGURATION",
     "BackendRegistration",
     "EffectOutcome",
     "EffectRefused",
