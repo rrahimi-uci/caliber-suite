@@ -140,7 +140,9 @@ def test_before_the_dispatch_the_effect_is_named_but_has_no_effect_id(armed: Arm
     assert approval["request_status"] == "approved" and approval["consumed_at"] is None
     assert (waiting["effect"]["status"], waiting["effect"]["code"]) == ("pending", "not_dispatched")
     assert waiting["effect"]["effect_id"] is None
-    assert waiting["missing_links"] == [], "approved work waiting for its dispatch is not a broken chain"
+    assert waiting["missing_links"] == [], (
+        "approved work waiting for its dispatch is not a broken chain"
+    )
     assert "caliber.effect_id" not in waiting["span_attributes"]
 
 
