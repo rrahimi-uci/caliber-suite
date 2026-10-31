@@ -201,6 +201,7 @@ def _govern_the_worker(
             limits=lambda agent: StepLimits(8, 4, 20000, "2099-01-01T00:00:00Z"),
             requested_by=EDITOR_A,
             approval_ttl_seconds=3600,
+            tool_backends={PROTECTED_TOOL: "document_request"},
         )
         return plan
 
@@ -250,7 +251,7 @@ def test_unapproved_tool_becomes_proposal_not_effect(
     def mutate(**arguments: Any) -> Any:
         return downstream.client.post(
             f"/cases/{arguments['case_id']}/document-requests",
-            headers={"Idempotency-Key": "b08-2-would-mutate"},  # gitleaks:allow
+            headers={"Idempotency-Key": "mutation-canary-1"},
             json={"document_type": arguments["document_type"]},
         )
 

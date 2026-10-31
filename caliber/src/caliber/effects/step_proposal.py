@@ -9,11 +9,13 @@ This module is what the platform does with it, in the interpreter and never in a
    CALIBER seeded is looked up by name, every other tool, and every MCP tool, is the inventory's fail-closed class). Tools classified
    ``read`` are the only ones an adapter is handed (:func:`caliber.workflows.agent_step.filter_read_tools`); everything else is
    proposed, never run.
-2. **Bind.** A proposal carries no tool name (the v1 contract has none), so the platform cannot say *which* protected tool the
-   model meant. It therefore binds to the **strictest** class among the agent's non-read tools, and to the connector version the
-   dispatcher has registered for the connector the proposal names (:data:`caliber.effects.dispatcher.BACKENDS`; a connector the
-   dispatcher cannot dispatch is refused here, so no approver is asked about an effect nobody could perform).
-   :meth:`ProposedAction.bound_to` refuses a claim that differs (``claim_mismatch``): it is never repaired and never trusted.
+2. **Tie the proposal to the agent by a trusted map, then bind.** A proposal carries no tool name (the v1 contract has none) and the
+   connector it names is the model's word. :attr:`GovernedStepContext.tool_backends` (the producer's, from trusted configuration) says
+   which backend kind each tool sends through; the proposal's connector must be the connector of a mapped, non-read tool's backend
+   (``connector_not_mapped`` otherwise), the backend kind is admitted (:func:`caliber.effects.dispatcher.admit_backend`) and the
+   destination must fit the admitted connector's resource pattern. The class is the strictest among the tools that map to that
+   backend and the version is the admitted one. :meth:`ProposedAction.bound_to` refuses a claim that differs
+   (``claim_mismatch``): it is never repaired and never trusted.
 3. **Record.** :func:`caliber.effects.dispatcher.submit_proposal` stores the bound action as a ``proposed`` effect for the node's
    durable occurrence (one logical effect per ``(run, node, occurrence)``; a retry finds the same row) and, in the same
    transaction, the approval request bound to that exact intent (:func:`caliber.workflows.approval_requests.create_approval_request`).
@@ -26,7 +28,8 @@ parks the run (:class:`StepParked`) behind the request; see :mod:`caliber.workfl
 from __future__ import annotations
 
 import hashlib
-from collections.abc import Callable
+import re
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Final
@@ -46,6 +49,7 @@ from caliber.effects.dispatcher import (
     BACKENDS,
     EffectRefused,
     UnsupportedEffectPath,
+    admit_backend,
     submit_proposal,
 )
 from caliber.effects.inventory import (
@@ -66,7 +70,9 @@ from caliber.workflows.ir import IRAgent, IRToolBinding
 #: Why a step's proposal was refused (``EffectRefused.code``); fixed tokens, never a value from the model.
 NO_PROPOSED_ACTION: Final = "no_proposed_action"
 NO_PROTECTED_TOOL: Final = "no_protected_tool"
-NOT_A_PROTECTED_ACTION: Final = "not_a_protected_action"
+CONNECTOR_NOT_MAPPED: Final = "connector_not_mapped"
+CONNECTOR_AMBIGUOUS: Final = "connector_ambiguous"
+RESOURCE_NOT_ADMITTED: Final = "resource_not_admitted"
 STEP_MISMATCH: Final = "step_mismatch"
 INTENT_MISMATCH: Final = "intent_mismatch"
 APPROVAL_EVIDENCE_UNAVAILABLE: Final = "approval_evidence_unavailable"
@@ -189,6 +195,11 @@ class GovernedStepContext:
     requested_by: str
     approval_ttl_seconds: int
     approval_policy: ApprovalPolicy = field(default_factory=ApprovalPolicy)
+    #: Which backend kind (``caliber.effects.dispatcher.BACKENDS``) each tool sends through, by the tool's local name. This is
+    #: what ties a proposal to a connector, and it is the producer's to build from trusted configuration: nothing a model, a
+    #: manifest author or a tool call supplies may write it. A tool absent from it can be classified but never proposed
+    #: through; an empty map (the default) records no proposal at all.
+    tool_backends: Mapping[str, str] = field(default_factory=dict)
 
 
 def stored_context_manifest_digest(
@@ -294,6 +305,38 @@ def protected_tool_of_record(tools: dict[str, ToolTrust]) -> ToolTrust:
     )
 
 
+def _backend_of_record(
+    context: GovernedStepContext, tools: Mapping[str, ToolTrust], connector: str
+) -> tuple[str, ToolTrust]:
+    """The backend kind and tool a proposal is held to, from the context's trusted map and never from the model.
+
+    ``context.tool_backends`` says which backend kind each of the platform's tools sends through (it is the producer's, built
+    from trusted configuration; a model, a manifest or a tool call never writes it). Only the agent's non-read tools that are in
+    it count. The connector the model *named* is used for one thing, to choose among them: it must be the connector of a mapped
+    tool's registered backend, or the proposal is refused (``connector_not_mapped``). The tool of record is then the strictest
+    of the tools that map to that backend, so a class cannot come from a tool that has nothing to do with the connector.
+    """
+    mapped = {
+        name: kind
+        for name, kind in context.tool_backends.items()
+        if name in tools and tools[name].effect_class != "read" and kind in BACKENDS
+    }
+    if not any(trust.effect_class != "read" for trust in tools.values()):
+        raise EffectRefused(NO_PROTECTED_TOOL)
+    kinds = {kind for kind in mapped.values() if BACKENDS[kind].connector == connector}
+    if not kinds:
+        raise EffectRefused(CONNECTOR_NOT_MAPPED)
+    if len(kinds) > 1:
+        raise EffectRefused(CONNECTOR_AMBIGUOUS)
+    (kind,) = kinds
+    tool = protected_tool_of_record(
+        {name: tools[name] for name, mapped_kind in mapped.items() if mapped_kind == kind}
+    )
+    if tool.disposition == "refuse":
+        raise UnsupportedEffectPath(UNSUPPORTED_EFFECT_PATH)
+    return kind, tool
+
+
 def record_step_proposal(
     context: GovernedStepContext,
     request: AgentStepRequest,
@@ -305,9 +348,10 @@ def record_step_proposal(
     ``tools`` is the platform's classification of **every** tool bound to the agent (``local_name -> ToolTrust``). Raises
     :class:`~caliber.effects.dispatcher.EffectRefused` with a fixed code and nothing recorded when: the result holds no single
     action (``no_proposed_action``), the step is not the context's run (``step_mismatch``), the agent has no protected tool
-    (``no_protected_tool``), the tool of record is a read (``not_a_protected_action``), its disposition refuses the path or the
-    connector is not one the dispatcher can perform (``unsupported_effect_path``), the model's claimed class or connector version
-    is not the platform's (``claim_mismatch``), or the stored effect differs from the bound action (``intent_mismatch``,
+    (``no_protected_tool``), no mapped tool sends through the named connector (``connector_not_mapped``, ``connector_ambiguous``),
+    the tool's disposition refuses the path (``unsupported_effect_path``) or the backend is not admitted (the admission's code), the
+    destination does not fit the connector (``resource_not_admitted``), the model's claimed class or connector version is not the
+    platform's (``claim_mismatch``), or the stored effect differs from the bound action (``intent_mismatch``,
     ``intent_conflict`` for the same occurrence with another intent). The effect and the request are written in one
     transaction: both exist or neither does.
     """
@@ -326,20 +370,13 @@ def record_step_proposal(
     ):
         raise EffectRefused(STEP_MISMATCH)
     action = result.proposed_actions[0]
-    tool = protected_tool_of_record(tools)
-    if (
-        tool.effect_class == "read"
-    ):  # pragma: no cover - protected_tool_of_record never returns a read tool
-        raise EffectRefused(NOT_A_PROTECTED_ACTION)
-    if tool.disposition == "refuse":
-        raise UnsupportedEffectPath(UNSUPPORTED_EFFECT_PATH)
-    registration = next(
-        (item for item in BACKENDS.values() if item.connector == action.connector), None
-    )
-    if registration is None:
-        raise UnsupportedEffectPath(UNSUPPORTED_EFFECT_PATH)
+    kind, tool = _backend_of_record(context, tools, action.connector)
+    admitted = admit_backend(kind)
+    pattern = (BACKENDS[kind].configuration or {}).get("resource")
+    if isinstance(pattern, str) and re.fullmatch(pattern, action.resource) is None:
+        raise EffectRefused(RESOURCE_NOT_ADMITTED)
     try:
-        bound = action.bound_to(tool.effect_class, connector_version=registration.connector_version)
+        bound = action.bound_to(tool.effect_class, connector_version=admitted.connector_version)
     except ProposalError as exc:
         raise EffectRefused(exc.code) from None
     with context.session_factory() as session:
@@ -355,6 +392,7 @@ def record_step_proposal(
             action=bound,
             tool_name=tool.name,
             caliber_defined=tool.caliber_defined,
+            admission=admitted,
         )
         if proposal.intent_hash != bound.intent_hash:
             session.rollback()
@@ -486,12 +524,14 @@ __all__ = [
     "APPROVAL_EVIDENCE_UNAVAILABLE",
     "APPROVAL_REJECTED",
     "CLAIM_MISMATCH",
+    "CONNECTOR_AMBIGUOUS",
+    "CONNECTOR_NOT_MAPPED",
     "CONTEXT_MANIFEST_MISSING",
     "INTENT_MISMATCH",
-    "NOT_A_PROTECTED_ACTION",
     "NO_PROPOSED_ACTION",
     "NO_PROTECTED_TOOL",
     "PROPOSED_ACTION",
+    "RESOURCE_NOT_ADMITTED",
     "STEP_MISMATCH",
     "UNSUPPORTED_EFFECT_PATH",
     "GovernedStepContext",

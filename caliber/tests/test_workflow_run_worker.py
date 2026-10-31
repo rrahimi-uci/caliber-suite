@@ -2649,6 +2649,7 @@ def _governed_agent_run(client, monkeypatch: pytest.MonkeyPatch, script: list) -
             limits=lambda agent: StepLimits(8, 4, 20000, "2099-01-01T00:00:00Z"),
             requested_by="worker-test",
             approval_ttl_seconds=3600,
+            tool_backends={"escalate": "document_request"},
         )
         return plan
 
