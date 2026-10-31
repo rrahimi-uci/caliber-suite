@@ -426,6 +426,10 @@ def _names_the_raw_executor(node: Any, raw: set[str]) -> bool:
         return node.name in raw
     if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
         return node.name in raw
+    if isinstance(node, ast.Constant):
+        # ``getattr(executor, "_send_raw")``, ``vars(executor)["_send_raw"]``, ``importlib`` style access. Only an exact
+        # string is seen: a name assembled from pieces is not (a docstring that merely mentions it is a longer string).
+        return isinstance(node.value, str) and node.value in raw
     return False
 
 
@@ -464,6 +468,8 @@ def test_the_private_raw_transport_is_named_only_by_pinned_modules() -> None:
         "x = _send_raw\n",
         "def _send_raw():\n    pass\n",
         "from caliber.integrations.openapi.executor import _send_raw as send\n",
+        'import importlib\nimportlib.import_module("x").__dict__["_send_raw"]\n',
+        'getattr(executor, "_send_raw")(**kwargs)\n',
     ],
 )
 def test_the_raw_transport_scan_sees_every_spelling_of_the_name(source: str) -> None:
@@ -476,6 +482,15 @@ def test_the_raw_transport_scan_ignores_the_public_entry() -> None:
     import ast
 
     source = "from caliber.integrations.openapi.executor import execute_openapi_http_tool\n"
+    assert not any(
+        _names_the_raw_executor(node, {"_send_raw"}) for node in ast.walk(ast.parse(source))
+    )
+
+
+def test_the_raw_transport_scan_ignores_prose_that_only_mentions_the_name() -> None:
+    import ast
+
+    source = '"""Sends through ``executor._send_raw`` (the private transport)."""\nx = "other"\n'
     assert not any(
         _names_the_raw_executor(node, {"_send_raw"}) for node in ast.walk(ast.parse(source))
     )

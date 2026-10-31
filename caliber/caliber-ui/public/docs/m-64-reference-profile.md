@@ -279,9 +279,12 @@ standalone exports and plans a caller builds itself (#1051: `build_plan` binds t
 deployed workflow's **protected** OpenAPI nodes are refused until #1051 binds one; read-class `GET` nodes still run) all reach
 the **public** entry, which refuses a protected method with `unsupported_effect_path`. So none of them can perform an OpenAPI
 write any more: they can read, and a write needs the governed route above. This is a behavior change for an Aria deployment in
-`build` mode with `auto_all` approval that exposed a write tool (it now answers the refusal and sends nothing), for a tool
-declared `read` whose operation is a `POST` (refused rather than sent), and for a standalone export whose tool writes. The
-operator's draft preview route (EP-033, exempt) still previews any method through the private transport. The callers of the
+`build` mode with `auto_all` or `full_autonomy` approval, which no longer offers a write or external-action tool to the model
+(it could only fail), for a tool declared `read` whose operation is a `POST` (refused rather than sent), and for a standalone
+export whose tool writes. The operator's draft preview route (EP-033, exempt) still previews any method through the private
+transport, and **that exemption is self-approvable**: one operator can set `allow_in_preview` on a draft and then fire a
+`POST`, `PUT`, `PATCH` or `DELETE` with no second person, no proposal, no lease and no receipt (it is audited). The reference
+profile does not close that yet; making preview read-only there is #1072. The callers of the
 public entry are pinned by `tests/test_effect_path_matrix.py::test_the_raw_openapi_executor_is_named_only_by_pinned_callers`, so a
 new one fails until it is routed or pinned with a reason.
 

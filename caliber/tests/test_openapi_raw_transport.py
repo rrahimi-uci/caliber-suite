@@ -557,3 +557,35 @@ def test_an_input_that_cannot_be_copied_is_refused_as_not_sent() -> None:
         )
 
     assert refused.value.never_sent is True  # type: ignore[attr-defined]
+
+
+# ------------------------------------------------------------ a read carries no body
+
+
+@pytest.mark.parametrize("method", sorted(READ_METHODS))
+def test_a_read_never_carries_a_request_body(method: str) -> None:
+    """``HEAD`` and ``OPTIONS`` with a body are a request-smuggling surface; the executor drops it for every read method."""
+    from caliber.integrations.openapi.executor import _request_kwargs
+
+    for body in ({"a": 1}, ["a"], "text", b"bytes"):
+        kwargs = _request_kwargs(
+            method=method,
+            headers={},
+            body=body,
+            request_content_types=["application/json"],
+            query_params={"q": "1"},
+        )
+        assert kwargs == {"headers": {}, "params": {"q": "1"}}, (method, body)
+
+
+def test_a_write_still_carries_its_body() -> None:
+    from caliber.integrations.openapi.executor import _request_kwargs
+
+    kwargs = _request_kwargs(
+        method="POST",
+        headers={},
+        body={"a": 1},
+        request_content_types=["application/json"],
+        query_params={},
+    )
+    assert kwargs["json"] == {"a": 1}

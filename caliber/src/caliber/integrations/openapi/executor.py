@@ -1119,7 +1119,8 @@ def _request_kwargs(
     kwargs: dict[str, Any] = {"headers": headers}
     if query_params:
         kwargs["params"] = query_params
-    if method == "GET":
+    # A read carries no body: a body on HEAD or OPTIONS is a request-smuggling surface.
+    if method in READ_METHODS:
         return kwargs
     if isinstance(body, (dict, list)):
         if _prefers_json(request_content_types):
