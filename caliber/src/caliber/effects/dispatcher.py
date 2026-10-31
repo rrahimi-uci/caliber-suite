@@ -54,6 +54,11 @@ from caliber.effects.records import (
     record_proposal,
     transition,
 )
+from caliber.effects.registered_tools import (
+    REGISTERED_TOOL_CONNECTOR,
+    REGISTERED_TOOL_VERSION,
+    tool_resource,
+)
 from caliber.events.outbox import enqueue
 from caliber.integrations.openapi import executor as _raw_connector_transport
 from caliber.ownership import Lease
@@ -273,6 +278,57 @@ class _HttpBackend:
         return TransportResult(classified, verify, response=response)
 
 
+class _RegisteredToolBackend:
+    """Private adapter that runs a registry tool for the workflow runtime (B04.3, #741).
+
+    ``config`` carries two runtime-owned callables: ``invoker(arguments, input_text)``, which runs the tool the runtime
+    already bound, and ``receipt_verifier``, the same authoritative check the HTTP backend requires. The invoker is
+    called with the arguments **recorded in the proposal**, never with what the caller still holds in memory, so what
+    runs is what the approver saw. A local callable has no downstream key to replay, so this backend makes no
+    exactly-once claim: a tool that raises or times out leaves the proposal ``unknown`` (it may have acted), and
+    nothing here calls it a second time.
+    """
+
+    def perform(self, request: EffectRequest, config: Mapping[str, Any] | None) -> TransportResult:
+        if (
+            request.view.connector != REGISTERED_TOOL_CONNECTOR
+            or request.view.connector_version != REGISTERED_TOOL_VERSION
+        ):
+            raise _TransportRefusedError("connector_binding_mismatch")
+        settings = dict(config or {})
+        invoker = settings.get("invoker")
+        verifier = settings.get("receipt_verifier")
+        if not callable(invoker) or not callable(verifier):
+            raise _TransportRefusedError("backend_config_missing")
+        args = request.intent.get("args")
+        if not isinstance(args, Mapping):
+            raise _TransportRefusedError("connector_intent_unsupported")
+        name, version = args.get("tool"), args.get("version")
+        arguments, input_text = args.get("arguments"), args.get("input")
+        if (
+            not isinstance(name, str)
+            or not isinstance(version, str)
+            or request.view.resource != tool_resource(name, version)
+            or not isinstance(arguments, Mapping)
+            or not isinstance(input_text, str)
+        ):
+            raise _TransportRefusedError("connector_intent_unsupported")
+        try:
+            result = invoker(dict(arguments), input_text)
+        except Exception as exc:
+            return TransportResult(classify_error(exc))
+        response = {"result": result}
+        classified = Classified(TransportOutcome.COMMITTED_RECEIPT, "tool_returned", None, 1)
+
+        def verify() -> ReceiptFacts | None:
+            facts = verifier(request, response)
+            if facts is not None and not isinstance(facts, ReceiptFacts):
+                raise _TransportRefusedError("receipt_verifier_invalid")
+            return facts
+
+        return TransportResult(classified, verify, response=response)
+
+
 class _TransportRefusedError(RuntimeError):
     """A backend refused before sending anything; it is not a downstream result."""
 
@@ -295,6 +351,11 @@ BACKENDS: dict[str, BackendRegistration] = {
         backend=_HttpBackend(),
         connector=HTTP_CONNECTOR,
         connector_version=HTTP_VERSION,
+    ),
+    "registered_tool": BackendRegistration(
+        backend=_RegisteredToolBackend(),
+        connector=REGISTERED_TOOL_CONNECTOR,
+        connector_version=REGISTERED_TOOL_VERSION,
     ),
 }
 

@@ -600,6 +600,7 @@ jobs:
           tests/test_approval_supersession.py
           tests/test_routes_system_effects.py
           tests/test_effect_reconcile.py
+          tests/test_registered_tool_dispatch.py
           tests/test_context_sources.py
           tests/test_context_manifest.py
           tests/test_workspace_release_evaluator.py
