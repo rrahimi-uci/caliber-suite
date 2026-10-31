@@ -508,11 +508,15 @@ def _recheck_approval(  # noqa: PLR0912, PLR0915 - one fail-closed commit gate o
     if stored_policy.required_role not in scopes:
         raise ApprovalCommitRefused(REFUSAL_ROLE_REVOKED)
     try:
-        assert_distinct_actor(
-            approval.decided_by,
-            run.created_by,
-            allow_self=stored_policy.allow_self_approval,
-        )
+        # Neither the run's initiator nor whoever asked for this approval may be the approver; the decision route
+        # enforced both when it recorded the decision, and the row is checked again here because the claim must not
+        # rely on a writer that ran earlier.
+        for initiator in (run.created_by, approval.requested_by):
+            assert_distinct_actor(
+                approval.decided_by,
+                initiator,
+                allow_self=stored_policy.allow_self_approval,
+            )
     except ApprovalPolicyError:
         raise ApprovalCommitRefused(REFUSAL_SELF_APPROVAL) from None
 

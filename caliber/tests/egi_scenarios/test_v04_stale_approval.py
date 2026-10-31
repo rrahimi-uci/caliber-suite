@@ -88,7 +88,13 @@ def _waiting_run(app: ReferenceApp) -> str:
 
 
 def _request(
-    app: ReferenceApp, run_id: str, occurrence: str, *, now: datetime = T0, **intent: Any
+    app: ReferenceApp,
+    run_id: str,
+    occurrence: str,
+    *,
+    now: datetime = T0,
+    requested_by: str = EDITOR_A,
+    **intent: Any,
 ) -> tuple[str, str]:
     """A bound request for the proposal of ``occurrence`` at ``NODE``: ``(request_id, proposal_id)``."""
     with app.session_factory() as session:
@@ -106,7 +112,7 @@ def _request(
             proposal=proposal,
             policy=ApprovalPolicy(),
             evidence_hash=EVIDENCE,
-            requested_by=EDITOR_A,
+            requested_by=requested_by,
             ttl_seconds=TTL,
             now=now,
         )
@@ -337,5 +343,4 @@ def test_a_request_for_another_node_does_not_supersede_and_a_legacy_request_is_u
     mine_response = _decide(app, run_id, "approve", mine)
     assert mine_response.status_code == 200, mine_response.text
     other_response = _decide(app, run_id, "approve", other)
-    assert other_response.status_code == 409, other_response.text
-    assert "current waiting node" in other_response.json()["detail"]
+    _assert_refused(other_response, "approval_not_current", other, NODE)

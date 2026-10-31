@@ -1379,14 +1379,21 @@ with session_factory() as session:
   the proposal and approval, consumes the approval, moves `proposed -> approved -> dispatched`, and enqueues
   `effect.proposal.dispatched`; only after commit does it invoke the registered private backend. A backend is never the
   public OpenAPI route itself.
-- **The approval route records; the dispatcher consumes.** `POST .../workflow-runs/{run_id}/approval/approve` and
-  `.../approval/reject` accept an explicit proposal-bound `runtime_approval_id` after locking the run and request. They
-  persist the decision, audit row and workflow event but leave `consumed_at` unset. Expired or superseded requests are
-  refused without a write; a request that the dispatcher already claimed returns `409 already_consumed`. The dispatcher
-  then rechecks the exact intent, evidence and current approver authority in its run-first claim transaction and sets
-  `consumed_at` in the same commit as `proposed -> approved -> dispatched` and the outbox row. If the process dies after
-  that commit and before the remote call, the durable dispatched row and outbox entry remain recoverable; retry/reconciliation
-  reads the proposal state and does not send a second unproven dispatch.
+- **The approval route records; the dispatcher consumes (B06.4, #735).** `POST .../workflow-runs/{run_id}/approval/approve` and
+  `.../approval/reject` decide a proposal-bound request when its `runtime_approval_id` is named, whatever backend its proposal
+  will use: the route reads only the request row. It takes the run lock, then the request lock (the order the dispatcher and the
+  request writer use), reads the clock only once it holds them, and records the decision, the audit row and the workflow event.
+  It never sets `consumed_at` and never calls a backend. The approver is the authenticated principal (the body forbids any
+  other field), who must hold the request's `required_role` scope and the project `approve` action, and who is not the run's
+  initiator or the request's `requested_by` unless `CALIBER_APPROVAL_ALLOW_SELF_APPROVAL` is set. A request the route cannot
+  decide is a `409` with a stable `reason_code` and a static, payload-free message, and nothing is written: `already_consumed`,
+  `superseded`, `expired`, `approval_not_current` (another node's request), `already_decided` (approved, waiting for dispatch).
+  The dispatcher then rechecks the exact intent, evidence, policy, version and the approver's *current* authority in its claim
+  transaction (run, proposal, request locks, under the lease the execution owner captured), and sets `consumed_at` in the same
+  commit as `proposed -> approved -> dispatched` and the outbox row, so concurrent dispatchers consume once. If the process dies
+  after that commit and before the remote call, the durable dispatched row and outbox entry remain recoverable; a retry reads
+  the proposal state (`already_dispatched`) and does not send again. A decision does not wake the run: the run stays
+  `waiting_approval` until `POST .../resume` (operator scope) requeues it.
 
 ```python
 from caliber.effects.dispatcher import EffectRefused, admit_backend, dispatch, submit_proposal
@@ -2369,8 +2376,8 @@ from the request's credential as resolved at its start.
 A protected effect is approved by a person, and the approval has to say *what* it approves. `create_approval_request`
 (`caliber/src/caliber/workflows/approval_requests.py`) records a `pending` row in `caliber_runtime_approval_requests` that is bound to one
 effect proposal and to what the approver is shown (ADR 0003 `approval_request`; migration `0127`). It runs in the caller's transaction and
-never commits. **The route does not decide a live such request yet** (see "Not wired yet" below): this is the recorded question, not yet an
-answerable approval. A request has a lifetime and is replaced by a newer one for the same step (see "Expiry" and "Supersession", B06.2, #712).
+never commits. The decision routes answer it by naming its `runtime_approval_id` (B06.4, #735, below); the dispatcher consumes the decision.
+A request has a lifetime and is replaced by a newer one for the same step (see "Expiry" and "Supersession", B06.2, #712).
 
 - **What is bound.** `proposal_id`, the proposal's full `intent_hash` (`sha256:` and 64 hex digits, the digest every consumer reuses),
   its `expected_resource_version` (the downstream version the approval is valid for, or `NULL`), the `evidence_hash` of what the approver
@@ -2429,9 +2436,9 @@ answerable approval. A request has a lifetime and is replaced by a newer one for
   the fact. `status`, the decision columns, `policy_snapshot`, `superseded_by` and `consumed_at` still move. PostgreSQL also enforces
   the proposal foreign key (SQLite does not enforce foreign keys in this repository).
 - **Decision versus commit.** The decision routes (`approve` and `reject`) record an explicit decision for a request that has a `proposal_id`,
-  but never consume it: they answer `409` with a `reason_code` and a static message that carries no id, hash or requester for `superseded`,
-  `expired` or `already_consumed` (B06.2/B06.4, above), and write nothing for those terminal states. This is intentional: the HTTP decision is
-  not effect consumption. At the dispatch
+  but never consume it. For a bound request they answer `409` with a `reason_code` and a static message that carries no id, hash, requester or
+  approver, and write nothing, for `already_consumed`, `superseded`, `expired`, `approval_not_current` and `already_decided` (B06.2/B06.4, above
+  and below). This is intentional: the HTTP decision is not effect consumption. At the dispatch
   boundary B06.3's `approval_valid_at_commit` rechecks the exact stored proposal, evidence and policy pins, expiry, supersession,
   consumption, and the current downstream version before any connector call. It then calls the B03.4 identity path, which invokes `decide`
   with the run manifest's original subject, workload, purpose, run id and grant id. The actual approver is checked separately against the
@@ -2475,7 +2482,9 @@ except ApprovalRequestError as refused:
 session.commit()  # the caller owns the transaction; the proposal row stays locked until then
 ```
 
-Deciding such a request through the API today (the same three answers for `approve` and `reject`; none of them writes anything):
+Deciding such a request through the API (the same answers for `approve` and `reject`). A live request that the caller may decide answers
+`200` and records the decision (`approve` answers `status: pending` with `remaining_approvals` until the node's quorum is met). The refusals
+write nothing:
 
 ```text
 POST /ajax-api/2.0/mlflow/caliber/workflow-runs/{run_id}/approval/approve   {"runtime_approval_id": "<bound request>"}
@@ -2490,10 +2499,28 @@ POST /ajax-api/2.0/mlflow/caliber/workflow-runs/{run_id}/approval/approve   {"ru
 409 {"detail": "this approval request has expired and can no longer be decided; ask for a new approval of the step",
      "status_code": 409, "reason_code": "expired"}
 
-# already consumed by the dispatcher; the decision is terminal and cannot be changed.
+# already consumed by the dispatcher; the decision is terminal and cannot be changed (a late reject does not fail the run).
+# Recovery: none needed; read the proposal's state (`dispatched`, `committed`, `unknown`) and let the reconciler settle it.
 409 {"detail": "this approval decision was already consumed by dispatch",
      "status_code": 409, "reason_code": "already_consumed"}
+
+# approved already, waiting for the dispatcher to consume it. Recovery: none; resume the run (POST .../resume) if it is still parked.
+409 {"detail": "this approval request already holds a decision; dispatch consumes it, it cannot be decided again",
+     "status_code": 409, "reason_code": "already_decided"}
+
+# the request belongs to another node than the one the run waits at. Recovery: decide the request of the node the run is waiting at.
+409 {"detail": "this approval request is not for the step the run is waiting at",
+     "status_code": 409, "reason_code": "approval_not_current"}
+
+# the caller requested this approval (or started the run) and self-approval is not enabled: a second person must decide.
+403 {"detail": "the account that triggered this run cannot approve it; a second person must decide (set CALIBER_APPROVAL_ALLOW_SELF_APPROVAL=true for a single-operator install)"}
 ```
+
+What the dispatcher answers when it later claims the decision (`EffectRefused.code`; the approval stays unconsumed and no backend is called):
+`not_approved` (not decided yet, or rejected), `already_consumed`, `expired`, `superseded`, `role_revoked` (the approver's scope, project role or
+membership changed since they decided), `self_approval`, `intent_mismatch`, `stale_version`, `lease_lost` / `stale_owner` (the captured execution-owner
+lease is no longer the held one). Recovery for each is to ask again (a new request) or to let the current owner retry; a retry after the claim
+committed is `already_dispatched` and sends nothing.
 
 Creating a replacement, with the deployment's window:
 
@@ -2915,10 +2942,10 @@ reference profile and every existing plan run agent nodes exactly as before). Wi
 4. **The node parks.** The step returns `blocked` (`waiting_approval:<node>`) with a `runtime_approval` checkpoint that names the
    proposal and the request (identifiers and the intent hash, never the action's arguments). The worker parks the run
    `waiting_approval` on that very request and creates no node-level duplicate; it refuses to park a run behind a request that is
-   not live and bound to this run, node and proposal. The routes accept the checkpoint kind (`runtime_approval`), **but a parked run
-   cannot be approved yet**: until the bound-approval decision is wired (PR #1042, B06.4, issue #735, open when this was written)
-   the decision route answers `409 approval_bound_not_wired` for a live request bound to a proposal. Once #1042 lands the request
-   is decided by naming its `runtime_approval_id` while the run is `waiting_approval` at that node.
+   not live and bound to this run, node and proposal. The routes accept the checkpoint kind (`runtime_approval`), and the parked run is decided by naming
+   the request's `runtime_approval_id` while the run is `waiting_approval` at that node (B06.4, #735; the default selection with no id never picks
+   a bound request). The decision does not resume the run: an operator's `POST .../resume` does, and the dispatcher consumes the approval when the
+   step's effect is claimed.
 5. **A resumed or retried step does not ask the model again.** Before the provider is called the node looks for its occurrence's
    proposal: `committed` completes the node, `failed` fails it, `proposed` parks it again behind its live request (re-asked when the
    last one expired, was superseded or was consumed; a *rejected* request is final, `approval_rejected`), and any state in between

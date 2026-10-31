@@ -19,11 +19,10 @@ or a later one of the same node (a changed intent); a request for another node o
 does a legacy node-level request (no ``proposal_id``), which binds no intent a change could void, nor one that is rejected,
 already consumed or already superseded.
 
-**Decision and consumption.** The decision route records a *live* bound request's
-approval or rejection by explicit request id, but does not consume it or recheck the
-effect. The dispatcher rechecks the exact intent and approver authority, then
-consumes the decision atomically with its dispatched claim. The legacy selector
-continues to ignore bound rows when no request id is supplied.
+**Decision and consumption.** The decision routes record a *live* bound request's approval or rejection when its request id is
+named (never by the default selection, which ignores bound rows), but neither consume it nor recheck the effect. The dispatcher
+rechecks the exact intent and the approver's current authority, then consumes the decision (``consumed_at``) in the transaction that
+claims dispatch (B06.4, #735).
 
 **Locking.** Creators serialize on the *run* row, then the proposal row (always in that order), both ``FOR UPDATE`` (a no-op on
 SQLite, where a write transaction is exclusive). The run lock is what makes supersession safe: two creators for different
@@ -211,10 +210,9 @@ def create_approval_request(
     module docstring for what is left alone and for the lock order (run, proposal, then the superseded requests). Nothing else
     on those rows moves. The requests a call replaced are those whose ``superseded_by`` is the returned request's id.
 
-    The decision route records an explicit decision for the bound request and
-    leaves ``consumed_at`` untouched. B06.3's dispatcher-time recheck compares the
-    approver with the run initiator and verifies the proposal's current authority
-    before consumption.
+    The decision route records an explicit decision for the bound request and leaves ``consumed_at`` untouched. The
+    dispatcher's recheck (:func:`~caliber.workflows.approval_policy.approval_valid_at_commit`) compares the approver with
+    the run's initiator and with ``requested_by`` and verifies the approver's current authority before it consumes.
     """
     checked_policy = _checked_policy(policy)
     evidence = _checked_digest("evidence_hash", evidence_hash)

@@ -1,31 +1,42 @@
-"""B06.4: approval decisions and dispatcher consumption are one safe boundary.
+"""B06.4 (#735): approval decisions and dispatcher consumption are one safe boundary.
 
-The HTTP route writes only the decision. The dispatcher rechecks the exact
-approval and consumes it in the same PostgreSQL transaction that claims the
-proposal and outbox event. These scenarios exercise contention and the crash
-window after that commit, where the durable ``dispatched`` state is the recovery
-record and a retry must not invoke the downstream a second time.
+The HTTP routes only *record* a decision. The dispatcher rechecks the exact approval and consumes it
+(``consumed_at``) in the PostgreSQL transaction that also claims the proposal (``proposed -> approved -> dispatched``) and
+enqueues the outbox row, under the execution-owner lease the owner captured. These scenarios drive the real decision routes
+and the real dispatcher against the migrated reference app:
+
+* **Races** (PostgreSQL only). Contenders are *made* to meet: an independent connection holds the run row lock, the contenders
+  are started one by one and each is observed waiting on that lock (``pg_stat_activity``) before the lock is released. The
+  arrival order is therefore the lock queue order and both orders are run, so no scenario depends on a lucky interleaving.
+* **Refusals** (both dialects). Expiry (to the microsecond), revocation, supersession, a stale lease, self-approval, replay and
+  a decision retried after consumption: each is a stable, payload-free code, the approval stays unconsumed, and the downstream
+  transport is never reached.
+* **Crash after the claim commit** leaves the durable ``dispatched`` row and its outbox entry, and a retry never sends again.
 """
 
 from __future__ import annotations
 
 import threading
+import time
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from datetime import timedelta
 from typing import Any
 
 import pytest
-from sqlalchemy import select
+from sqlalchemy import create_engine, func, select, text
+from sqlalchemy.orm import Session, sessionmaker
+from starlette.testclient import TestClient
 
+import caliber.effects.dispatcher as dispatcher_module
 from caliber.db.models import (
-    CaliberEffectProposal,
     CaliberEventOutbox,
     CaliberProjectMember,
     CaliberRuntimeApprovalRequest,
+    CaliberWorkflowRun,
 )
 from caliber.effects.connectors import Classified, TransportOutcome
 from caliber.effects.dispatcher import (
-    BACKENDS,
-    BackendRegistration,
     EffectOutcome,
     EffectRefused,
     TransportResult,
@@ -35,23 +46,34 @@ from caliber.effects.receipts import ReceiptFacts
 from caliber.effects.records import proposal_state
 from caliber.ownership import acquire
 from caliber.workflows.approval_policy import approval_valid_at_commit
+from tests.effect_helpers import admit_fake_backend, leased
 from tests.egi_scenarios.conftest import (
     APPROVER_A,
+    EDITOR_A,
     PROJECT_A,
     ReferenceApp,
     Workspaces,
 )
-from tests.egi_scenarios.test_b02_admission import _call
-from tests.egi_scenarios.test_v04_stale_approval import EVIDENCE, T0, _request
-from tests.egi_scenarios.test_v05_revocation_while_waiting import _waiting_run
+from tests.egi_scenarios.test_b02_admission import PREFIX
+from tests.egi_scenarios.test_v04_stale_approval import (
+    EVIDENCE,
+    MICROSECOND,
+    T0,
+    TTL,
+    _request,
+    _waiting_run,
+)
+
+BACKEND_KIND = "b064"
+DOWNSTREAM_ID = "b064-downstream-1"
 
 
 class CrashAfterClaim(BaseException):
-    """A process-level crash, which the dispatcher must not translate to settlement."""
+    """A process-level crash, which the dispatcher must not translate into a settlement."""
 
 
 class CountingBackend:
-    """A deterministic private transport that returns a verifiable receipt."""
+    """A deterministic private transport that returns a verifiable receipt and counts how often it was reached."""
 
     def __init__(self, *, crash: bool = False) -> None:
         self.crash = crash
@@ -71,7 +93,7 @@ class CountingBackend:
             connector_version=view.connector_version,
             resource=view.resource,
             intent_hash=view.intent_hash,
-            downstream_request_id="b064-downstream-1",
+            downstream_request_id=DOWNSTREAM_ID,
             response_digest="sha256:" + "a" * 64,
         )
         return TransportResult(
@@ -80,8 +102,31 @@ class CountingBackend:
         )
 
 
+class Worker(threading.Thread):
+    """A thread that keeps what its target returned, or raised, so a failure surfaces in the test and not in the thread."""
+
+    def __init__(self, target: Callable[[], Any]) -> None:
+        super().__init__(daemon=True)
+        self._target_fn = target
+        self.result: Any = None
+        self.error: BaseException | None = None
+
+    def run(self) -> None:
+        try:
+            self.result = self._target_fn()
+        except BaseException as exc:
+            self.error = exc
+
+    def finished(self, timeout: float = 30) -> Any:
+        self.join(timeout)
+        assert not self.is_alive(), "the contender never finished (a lock was not released)"
+        assert self.error is None, repr(self.error)
+        return self.result
+
+
 @pytest.fixture
 def approver(reference_app: ReferenceApp, two_workspaces: Workspaces) -> ReferenceApp:
+    """The reference app where ``approver_a`` holds the project role that may approve (the seeded member is an editor)."""
     with reference_app.session_factory() as session:
         member = session.execute(
             select(CaliberProjectMember).where(
@@ -94,261 +139,597 @@ def approver(reference_app: ReferenceApp, two_workspaces: Workspaces) -> Referen
     return reference_app
 
 
+@pytest.fixture
+def backend(monkeypatch: pytest.MonkeyPatch) -> CountingBackend:
+    """An admitted fake transport under :data:`BACKEND_KIND`, reached only through the real dispatcher claim."""
+    fake = CountingBackend()
+    admit_fake_backend(monkeypatch, BACKEND_KIND, fake)
+    return fake
+
+
 def _prepare(
     app: ReferenceApp,
     monkeypatch: pytest.MonkeyPatch,
     *,
     occurrence: str,
     decide: bool = True,
-) -> tuple[str, str, Any]:
-    """Create a live bound request, optionally decide it through HTTP, and capture a lease."""
+    requested_by: str = EDITOR_A,
+) -> tuple[str, str, str, Any]:
+    """A live bound request for a waiting run, decided through HTTP unless ``decide`` is false, and a captured lease.
+
+    Returns ``(run_id, approval_id, proposal_id, lease)``.
+    """
     run_id = _waiting_run(app)
     monkeypatch.setattr("caliber.routes.workflow_runs._utc_now", lambda: T0 + timedelta(minutes=1))
     approval_id, proposal_id = _request(
         app,
         run_id,
         occurrence,
+        requested_by=requested_by,
         connector_version="1",
         resource="cases/MORT-2026-000184/document-requests",
         args={"document_type": "pay_statement"},
         expected_resource_version="1",
     )
     if decide:
-        decided = _call(
-            app,
-            "POST",
-            APPROVER_A,
-            PROJECT_A,
-            f"/workflow-runs/{run_id}/approval/approve",
-            {"runtime_approval_id": approval_id, "reason": "ship it"},
-        )
+        decided = _decide(app, run_id, approval_id)
         assert decided.status_code == 200, decided.text
     with app.session_factory() as session:
         lease = acquire(session, f"b064-{occurrence}", ttl_seconds=600)
         assert lease is not None
         session.commit()
-    return approval_id, proposal_id, lease
+    return run_id, approval_id, proposal_id, lease
 
 
-def _dispatch_kwargs(approval_id: str, lease: Any) -> dict[str, Any]:
-    return {
+def _decide(
+    app: ReferenceApp,
+    run_id: str,
+    approval_id: str,
+    *,
+    action: str = "approve",
+    user: str = APPROVER_A,
+) -> Any:
+    # A client of its own: the shared one runs every request on one event loop and these handlers block it while they wait for
+    # a row lock, which would serialize two decisions in the *test client* instead of in the database.
+    client = TestClient(app.client.app)
+    headers = app.headers(user, PROJECT_A)
+    token = client.get(f"{PREFIX}/csrf", headers=headers).json()["data"]["token"]
+    return client.request(
+        "POST",
+        f"{PREFIX}/workflow-runs/{run_id}/approval/{action}",
+        json={"runtime_approval_id": approval_id, "reason": "ship it"},
+        headers={**headers, "X-CALIBER-CSRF": token},
+    )
+
+
+def _dispatch(
+    app: ReferenceApp, proposal_id: str, approval_id: str, lease: Any, **overrides: Any
+) -> EffectOutcome | EffectRefused:
+    """Run the real dispatcher; a refusal is returned (it is a result here), anything else propagates."""
+    kwargs: dict[str, Any] = {
         "approval_id": approval_id,
         "approver_scopes": frozenset({"caliber.approver", "caliber.viewer"}),
         "lease": lease,
-        "backend_kind": "b064",
+        "backend_kind": BACKEND_KIND,
         "approval_validator": approval_valid_at_commit,
         "current_resource_version": "1",
         "evidence_hash": EVIDENCE,
         "now": T0 + timedelta(minutes=2),
     }
+    kwargs.update(overrides)
+    try:
+        return dispatch(app.session_factory, proposal_id, **kwargs)
+    except EffectRefused as refused:
+        return refused
 
 
-def test_concurrent_approve_and_dispatch_are_serialized_and_recoverable(  # noqa: PLR0915 - complete cross-transaction scenario
-    approver: ReferenceApp,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """PostgreSQL serializes the decision/claim race; exactly one retry can finish it."""
-    if approver.dialect != "postgresql":
-        pytest.skip("concurrent approval/dispatch requires PostgreSQL row locks")
-    approval_id, proposal_id, lease = _prepare(
-        approver, monkeypatch, occurrence="approve-dispatch-race", decide=False
-    )
-    backend = CountingBackend()
-    monkeypatch.setitem(
-        BACKENDS,
-        "b064",
-        BackendRegistration(backend, "document-request", "1"),
-    )
-    barrier = threading.Barrier(2)
-    observed: list[tuple[str, object]] = []
-    observed_lock = threading.Lock()
+def _refused(result: object, code: str) -> None:
+    assert isinstance(result, EffectRefused), repr(result)
+    assert result.code == code, result.code
 
-    def approve() -> None:
-        barrier.wait()
-        response = _call(
-            approver,
-            "POST",
-            APPROVER_A,
-            PROJECT_A,
-            f"/workflow-runs/{_run_for(approver, proposal_id)}/approval/approve",
-            {"runtime_approval_id": approval_id, "reason": "raced"},
-        )
-        with observed_lock:
-            observed.append(("approve", response))
 
-    def dispatch_once() -> None:
-        barrier.wait()
-        try:
-            result = dispatch(
-                approver.session_factory,
-                proposal_id,
-                **_dispatch_kwargs(approval_id, lease),
-            )
-        except EffectRefused as exc:
-            result = exc
-        except BaseException as exc:
-            result = exc
-        with observed_lock:
-            observed.append(("dispatch", result))
-
-    threads = [threading.Thread(target=approve), threading.Thread(target=dispatch_once)]
-    for thread in threads:
-        thread.start()
-    for thread in threads:
-        thread.join(timeout=20)
-        assert not thread.is_alive(), "the PostgreSQL lock race did not complete"
-
-    approval_response = next(value for name, value in observed if name == "approve")
-    dispatch_result = next(value for name, value in observed if name == "dispatch")
-    assert not isinstance(dispatch_result, BaseException) or isinstance(
-        dispatch_result, EffectRefused
-    ), repr(dispatch_result)
-    if isinstance(dispatch_result, EffectRefused):
-        assert dispatch_result.code == "not_approved"
-    assert approval_response.status_code in {200, 409}
-    if approval_response.status_code == 409:
-        assert approval_response.json()["reason_code"] == "already_consumed"
-    with approver.session_factory() as session:
+def _unconsumed(app: ReferenceApp, approval_id: str, proposal_id: str) -> None:
+    """The refusal left the approval unconsumed, the proposal ``proposed`` and no outbox row (nothing was claimed)."""
+    with app.session_factory() as session:
         row = session.get(CaliberRuntimeApprovalRequest, approval_id)
-        assert row is not None
-        consumed = row.consumed_at is not None
-    if not consumed:
-        # The dispatcher may have validated the still-pending request before the
-        # route won the run lock. A clean retry after the HTTP commit is the
-        # recoverable outcome this race is required to prove.
-        assert approval_response.status_code == 200
-        retried = dispatch(
-            approver.session_factory,
-            proposal_id,
-            **_dispatch_kwargs(approval_id, lease),
+        assert row is not None and row.consumed_at is None
+        assert proposal_state(session, proposal_id).state == "proposed"
+        assert (
+            session.execute(
+                select(func.count())
+                .select_from(CaliberEventOutbox)
+                .where(CaliberEventOutbox.aggregate_id == proposal_id)
+            ).scalar_one()
+            == 0
         )
-        assert retried.state == "committed"
-    with approver.session_factory() as session:
+
+
+def _consumed_once(app: ReferenceApp, approval_id: str, proposal_id: str, state: str) -> None:
+    with app.session_factory() as session:
         row = session.get(CaliberRuntimeApprovalRequest, approval_id)
         assert row is not None and row.consumed_at is not None
-        state = proposal_state(session, proposal_id)
-        run_id = session.execute(
-            select(CaliberEffectProposal.workflow_run_id).where(
-                CaliberEffectProposal.proposal_id == proposal_id
-            )
-        ).scalar_one()
-        assert state.state in {"dispatched", "committed"}
-        assert session.execute(
+        assert proposal_state(session, proposal_id).state == state
+        outbox = session.execute(
             select(CaliberEventOutbox.event_id).where(
                 CaliberEventOutbox.aggregate_id == proposal_id
             )
-        ).scalar_one()
-    assert run_id
-    assert backend.calls == 1
+        ).all()
+        assert len(outbox) == 1, "one claim, one outbox row"
 
 
-def test_two_concurrent_dispatchers_consume_one_approval(
-    approver: ReferenceApp,
-    monkeypatch: pytest.MonkeyPatch,
+# ------------------------------------------------------------------------------ refusals (both dialects)
+
+
+def test_the_decision_is_recorded_and_only_dispatch_consumes_it(
+    approver: ReferenceApp, monkeypatch: pytest.MonkeyPatch, backend: CountingBackend
 ) -> None:
-    """Two owners may race, but the locked approval and proposal admit one transport call."""
-    if approver.dialect != "postgresql":
-        pytest.skip("concurrent dispatch requires PostgreSQL row locks")
-    approval_id, proposal_id, lease = _prepare(approver, monkeypatch, occurrence="two-dispatchers")
-    backend = CountingBackend()
-    monkeypatch.setitem(
-        BACKENDS,
-        "b064",
-        BackendRegistration(backend, "document-request", "1"),
-    )
-    barrier = threading.Barrier(2)
-    results: list[object] = []
-    results_lock = threading.Lock()
-
-    def dispatch_once() -> None:
-        barrier.wait()
-        try:
-            result: object = dispatch(
-                approver.session_factory,
-                proposal_id,
-                **_dispatch_kwargs(approval_id, lease),
-            )
-        except EffectRefused as exc:
-            result = exc
-        except BaseException as exc:
-            result = exc
-        with results_lock:
-            results.append(result)
-
-    threads = [threading.Thread(target=dispatch_once), threading.Thread(target=dispatch_once)]
-    for thread in threads:
-        thread.start()
-    for thread in threads:
-        thread.join(timeout=20)
-        assert not thread.is_alive(), "the PostgreSQL dispatch race did not complete"
-
-    assert len(results) == 2
-    assert backend.calls == 1
-    successful = [result for result in results if isinstance(result, EffectOutcome)]
-    assert len(successful) == 1
-    assert successful[0].state == "committed"
-    refusals = [result for result in results if isinstance(result, EffectRefused)]
-    assert len(refusals) == 1
-    assert refusals[0].code in {"already_consumed", "proposal_not_approved"}
-    unexpected = [
-        result
-        for result in results
-        if isinstance(result, BaseException) and not isinstance(result, EffectRefused)
-    ]
-    assert unexpected == [], repr(unexpected)
+    _run, approval_id, proposal_id, lease = _prepare(approver, monkeypatch, occurrence="record")
     with approver.session_factory() as session:
         row = session.get(CaliberRuntimeApprovalRequest, approval_id)
-        assert row is not None and row.consumed_at is not None
-        assert proposal_state(session, proposal_id).state == "committed"
+        assert row is not None
+        assert (row.status, row.decided_by, row.consumed_at) == ("approved", APPROVER_A, None)
+    assert backend.calls == 0
+    _unconsumed(approver, approval_id, proposal_id)
+
+    outcome = _dispatch(approver, proposal_id, approval_id, lease)
+
+    assert isinstance(outcome, EffectOutcome) and outcome.state == "committed"
+    assert backend.calls == 1
+    _consumed_once(approver, approval_id, proposal_id, "committed")
+
+
+@pytest.mark.parametrize(
+    ("offset", "code"),
+    [
+        (timedelta(seconds=TTL) - MICROSECOND, None),
+        (timedelta(seconds=TTL), "expired"),
+        (timedelta(seconds=TTL) + MICROSECOND, "expired"),
+        (timedelta(days=30), "expired"),
+    ],
+)
+def test_an_approval_that_expires_before_dispatch_is_not_consumed(
+    approver: ReferenceApp,
+    monkeypatch: pytest.MonkeyPatch,
+    backend: CountingBackend,
+    offset: timedelta,
+    code: str | None,
+) -> None:
+    """Decided in time, dispatched at the last microsecond (consumed) or at/after expiry (refused, unconsumed, zero sends)."""
+    _run, approval_id, proposal_id, lease = _prepare(approver, monkeypatch, occurrence="expiry")
+
+    result = _dispatch(approver, proposal_id, approval_id, lease, now=T0 + offset)
+
+    if code is None:
+        assert isinstance(result, EffectOutcome) and result.state == "committed"
+        assert backend.calls == 1
+        _consumed_once(approver, approval_id, proposal_id, "committed")
+    else:
+        _refused(result, code)
+        assert backend.calls == 0
+        _unconsumed(approver, approval_id, proposal_id)
+
+
+@pytest.mark.parametrize("revocation", ["role_downgraded", "member_deactivated", "scope_dropped"])
+def test_an_approver_revoked_after_deciding_is_not_consumed(
+    approver: ReferenceApp,
+    monkeypatch: pytest.MonkeyPatch,
+    backend: CountingBackend,
+    revocation: str,
+) -> None:
+    """The approver's *current* authority is rechecked at the claim, not the authority they had when they clicked."""
+    _run, approval_id, proposal_id, lease = _prepare(approver, monkeypatch, occurrence="revoked")
+    scopes = frozenset({"caliber.approver", "caliber.viewer"})
+    if revocation == "scope_dropped":
+        scopes = frozenset({"caliber.viewer"})
+    else:
+        with approver.session_factory() as session:
+            member = session.execute(
+                select(CaliberProjectMember).where(
+                    CaliberProjectMember.project_id == PROJECT_A,
+                    CaliberProjectMember.user_id == APPROVER_A,
+                )
+            ).scalar_one()
+            if revocation == "role_downgraded":
+                member.role = "viewer"
+            else:
+                member.status = "deactivated"
+                member.deactivated_at = T0
+            session.commit()
+
+    result = _dispatch(approver, proposal_id, approval_id, lease, approver_scopes=scopes)
+
+    _refused(result, "role_revoked")
+    assert backend.calls == 0
+    _unconsumed(approver, approval_id, proposal_id)
+
+
+def test_an_approval_superseded_after_the_decision_is_not_consumed(
+    approver: ReferenceApp, monkeypatch: pytest.MonkeyPatch, backend: CountingBackend
+) -> None:
+    run_id, approval_id, proposal_id, lease = _prepare(approver, monkeypatch, occurrence="old")
+    newer_id, _newer_proposal = _request(approver, run_id, "new", now=T0 + timedelta(minutes=1))
+
+    result = _dispatch(approver, proposal_id, approval_id, lease)
+
+    _refused(result, "superseded")
+    assert backend.calls == 0
+    with approver.session_factory() as session:
+        old = session.get(CaliberRuntimeApprovalRequest, approval_id)
+        assert old is not None and (old.status, old.superseded_by) == ("superseded", newer_id)
+        assert old.consumed_at is None
+    # The newer request is the live question; the HTTP route refuses the superseded one with a stable code.
+    refused = _decide(approver, run_id, approval_id)
+    assert refused.status_code == 409 and refused.json()["reason_code"] == "superseded"
+
+
+def test_a_stale_lease_cannot_claim_and_leaves_the_approval_unconsumed(
+    approver: ReferenceApp, monkeypatch: pytest.MonkeyPatch, backend: CountingBackend
+) -> None:
+    """A takeover makes the captured lease stale: the old owner's claim is refused and nothing it did is half-recorded."""
+    _run, approval_id, proposal_id, stale = _prepare(approver, monkeypatch, occurrence="takeover")
+    with approver.session_factory() as session:
+        taken = leased(session, "b064-new-owner")
+        session.commit()
+    assert taken.fencing_token != stale.fencing_token
+
+    result = _dispatch(approver, proposal_id, approval_id, stale)
+
+    assert isinstance(result, EffectRefused) and result.code in {"lease_lost", "stale_owner"}
+    assert backend.calls == 0
+    _unconsumed(approver, approval_id, proposal_id)
+    # The current owner claims it normally.
+    current = _dispatch(approver, proposal_id, approval_id, taken)
+    assert isinstance(current, EffectOutcome) and current.state == "committed"
+    assert backend.calls == 1
+
+
+def test_the_requester_cannot_be_the_approver_at_decision_or_at_claim(
+    approver: ReferenceApp, monkeypatch: pytest.MonkeyPatch, backend: CountingBackend
+) -> None:
+    """The principal comes from the authenticated request, never the body: an approver who also asked is refused twice."""
+    run_id, approval_id, proposal_id, lease = _prepare(
+        approver, monkeypatch, occurrence="requester", decide=False, requested_by=APPROVER_A
+    )
+
+    at_decision = _decide(approver, run_id, approval_id)
+
+    assert at_decision.status_code == 403, at_decision.text
+    assert "second person" in at_decision.json()["detail"]
+    with approver.session_factory() as session:
+        row = session.get(CaliberRuntimeApprovalRequest, approval_id)
+        assert row is not None and (row.status, row.decided_by) == ("pending", None)
+        # A decision recorded around the route (a bug elsewhere, a manual edit) is still refused by the claim.
+        row.status = "approved"
+        row.decided_by = APPROVER_A
+        row.decided_at = T0 + timedelta(minutes=1)
+        session.commit()
+
+    result = _dispatch(approver, proposal_id, approval_id, lease)
+
+    _refused(result, "self_approval")
+    assert backend.calls == 0
+    _unconsumed(approver, approval_id, proposal_id)
+
+
+def test_a_replay_after_the_claim_is_stable_and_never_sends_again(
+    approver: ReferenceApp, monkeypatch: pytest.MonkeyPatch, backend: CountingBackend
+) -> None:
+    """Dispatch twice and decide again: the decision is terminal (``already_consumed``) and the downstream is reached once."""
+    run_id, approval_id, proposal_id, lease = _prepare(approver, monkeypatch, occurrence="replay")
+    first = _dispatch(approver, proposal_id, approval_id, lease)
+    assert isinstance(first, EffectOutcome) and first.state == "committed"
+
+    again = _dispatch(approver, proposal_id, approval_id, lease)
+
+    _refused(again, "proposal_not_approved")
+    assert backend.calls == 1
+    _consumed_once(approver, approval_id, proposal_id, "committed")
+    before = _run_state(approver, run_id)
+    for action in ("approve", "reject"):
+        late = _decide(approver, run_id, approval_id, action=action)
+        assert late.status_code == 409, late.text
+        body = late.json()
+        assert body["reason_code"] == "already_consumed" and body["status_code"] == 409
+        for secret in (approval_id, proposal_id, APPROVER_A, EDITOR_A):
+            assert secret not in late.text, "the refusal must carry no id or principal"
+    assert _run_state(approver, run_id) == before, (
+        "a late reject must not fail a run whose effect was sent"
+    )
+
+
+def _run_state(app: ReferenceApp, run_id: str) -> tuple[Any, ...]:
+    with app.session_factory() as session:
+        run = session.get(CaliberWorkflowRun, run_id)
+        assert run is not None
+        return (run.status, run.error_code, run.completed_at, run.current_node_id)
 
 
 def test_crash_after_claim_leaves_a_recoverable_dispatched_state(
-    approver: ReferenceApp,
-    monkeypatch: pytest.MonkeyPatch,
+    approver: ReferenceApp, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """A crash after the claim commit leaves durable recovery evidence and no retry call."""
-    approval_id, proposal_id, lease = _prepare(
-        approver, monkeypatch, occurrence="crash-after-claim"
-    )
-    backend = CountingBackend(crash=True)
-    monkeypatch.setitem(
-        BACKENDS,
-        "b064",
-        BackendRegistration(backend, "document-request", "1"),
-    )
+    """A crash after the claim commit leaves durable recovery evidence; a retry reads it and does not send again."""
+    crashing = CountingBackend(crash=True)
+    admit_fake_backend(monkeypatch, BACKEND_KIND, crashing)
+    _run, approval_id, proposal_id, lease = _prepare(approver, monkeypatch, occurrence="crash")
+
     with pytest.raises(CrashAfterClaim):
-        dispatch(
-            approver.session_factory,
-            proposal_id,
-            **_dispatch_kwargs(approval_id, lease),
-        )
+        _dispatch(approver, proposal_id, approval_id, lease)
 
     with approver.session_factory() as session:
-        row = session.get(CaliberRuntimeApprovalRequest, approval_id)
-        assert row is not None and row.consumed_at is not None
-        assert proposal_state(session, proposal_id).state == "dispatched"
         outbox = session.execute(
             select(CaliberEventOutbox).where(CaliberEventOutbox.aggregate_id == proposal_id)
         ).scalar_one()
         assert outbox.event_type == "effect.proposal.dispatched"
+    _consumed_once(approver, approval_id, proposal_id, "dispatched")
 
-    backend.crash = False
-    recovered = dispatch(
-        approver.session_factory,
-        proposal_id,
-        **_dispatch_kwargs(approval_id, lease),
+    crashing.crash = False
+    recovered = _dispatch(approver, proposal_id, approval_id, lease)
+
+    assert isinstance(recovered, EffectOutcome)
+    assert (recovered.state, recovered.applied, recovered.reason) == (
+        "dispatched",
+        False,
+        "already_dispatched",
     )
-    assert recovered.state == "dispatched"
-    assert recovered.applied is False
-    assert backend.calls == 1
+    assert crashing.calls == 1
+    _consumed_once(approver, approval_id, proposal_id, "dispatched")
 
 
-def _run_for(app: ReferenceApp, proposal_id: str) -> str:
-    with app.session_factory() as session:
-        return str(
-            session.execute(
-                select(CaliberEffectProposal.workflow_run_id).where(
-                    CaliberEffectProposal.proposal_id == proposal_id
+# ------------------------------------------------------------------------------ races (PostgreSQL)
+
+
+def _need_postgresql(app: ReferenceApp) -> None:
+    if app.dialect != "postgresql":
+        pytest.skip("the race needs PostgreSQL row locks")
+
+
+@contextmanager
+def _holding_run_lock(app: ReferenceApp, run_id: str) -> Iterator[Session]:
+    """An independent connection that holds ``FOR UPDATE`` on the run row until the block ends (yielded for probes)."""
+    engine = create_engine(app.database_url)
+    holder = sessionmaker(bind=engine)()
+    try:
+        holder.execute(
+            select(CaliberWorkflowRun.workflow_run_id)
+            .where(CaliberWorkflowRun.workflow_run_id == run_id)
+            .with_for_update()
+        ).one()
+        yield holder
+    finally:
+        holder.rollback()
+        holder.close()
+        engine.dispose()
+
+
+def _lock_waiters(app: ReferenceApp) -> int:
+    """Sessions of this database waiting for a lock (by wait event: PostgreSQL truncates long statement text)."""
+    with app.session_factory() as observer:
+        return int(
+            observer.execute(
+                text(
+                    "SELECT count(*) FROM pg_stat_activity WHERE datname = current_database() "
+                    "AND wait_event_type = 'Lock'"
                 )
             ).scalar_one()
         )
+
+
+def _queue(app: ReferenceApp, contenders: list[Callable[[], Any]]) -> list[Worker]:
+    """Start each contender in turn, and wait until it is observed waiting before the next one starts.
+
+    Called while the run lock is held, so each contender queues behind it in the order given. The caller releases the lock,
+    and the contenders then take it one at a time in exactly that order.
+    """
+    workers: list[Worker] = []
+    for position, contender in enumerate(contenders, start=1):
+        worker = Worker(contender)
+        worker.start()
+        workers.append(worker)
+        deadline = time.monotonic() + 20
+        while _lock_waiters(app) < position and time.monotonic() < deadline:
+            time.sleep(
+                0.02
+            )  # polling for the lock wait to be observed, not waiting for a race to happen
+        assert _lock_waiters(app) >= position, f"contender {position} never queued on the lock"
+        assert worker.is_alive()
+    return workers
+
+
+def test_two_consumers_one_dispatch(
+    approver: ReferenceApp, monkeypatch: pytest.MonkeyPatch, backend: CountingBackend
+) -> None:
+    """Two owners present the same approval together: exactly one claim, one outbox row, one send; the other is refused."""
+    _need_postgresql(approver)
+    run_id, approval_id, proposal_id, lease = _prepare(
+        approver, monkeypatch, occurrence="two-consumers"
+    )
+
+    def consume() -> EffectOutcome | EffectRefused:
+        return _dispatch(approver, proposal_id, approval_id, lease)
+
+    with _holding_run_lock(approver, run_id):
+        workers = _queue(approver, [consume, consume])
+    results = [worker.finished() for worker in workers]
+
+    winner, loser = results  # the lock queue order: the first contender claims
+    assert isinstance(winner, EffectOutcome) and winner.state == "committed"
+    _refused(loser, "already_consumed")
+    assert backend.calls == 1
+    _consumed_once(approver, approval_id, proposal_id, "committed")
+
+
+@pytest.mark.parametrize("first", ["approve", "dispatch"])
+def test_a_decision_and_a_dispatch_racing_serialize_and_leave_one_recoverable_claim(
+    approver: ReferenceApp,
+    monkeypatch: pytest.MonkeyPatch,
+    backend: CountingBackend,
+    first: str,
+) -> None:
+    """The decision and the dispatch meet on the run lock. Whichever arrives first, nothing is consumed twice.
+
+    * decision first: it commits, the dispatch then sees ``approved`` and claims it (``committed``, one send);
+    * dispatch first: it sees a still-pending request and refuses ``not_approved`` *without* consuming anything, the decision
+      then commits, and a retry of the dispatch claims it (one send, recoverable).
+    """
+    _need_postgresql(approver)
+    run_id, approval_id, proposal_id, lease = _prepare(
+        approver, monkeypatch, occurrence=f"race-{first}", decide=False
+    )
+
+    def approve() -> Any:
+        return _decide(approver, run_id, approval_id)
+
+    def dispatch_now() -> EffectOutcome | EffectRefused:
+        return _dispatch(approver, proposal_id, approval_id, lease)
+
+    order = [approve, dispatch_now] if first == "approve" else [dispatch_now, approve]
+    with _holding_run_lock(approver, run_id):
+        workers = _queue(approver, order)
+    results = [worker.finished() for worker in workers]
+    decision = results[order.index(approve)]
+    dispatched = results[order.index(dispatch_now)]
+
+    assert decision.status_code == 200, decision.text
+    if first == "approve":
+        assert isinstance(dispatched, EffectOutcome) and dispatched.state == "committed"
+    else:
+        _refused(dispatched, "not_approved")
+        _unconsumed(approver, approval_id, proposal_id)
+        assert backend.calls == 0
+        retried = _dispatch(approver, proposal_id, approval_id, lease)
+        assert isinstance(retried, EffectOutcome) and retried.state == "committed"
+    assert backend.calls == 1
+    _consumed_once(approver, approval_id, proposal_id, "committed")
+
+
+@pytest.mark.parametrize("first", ["approve", "reject"])
+def test_approve_and_reject_racing_leave_exactly_one_decision(
+    approver: ReferenceApp, monkeypatch: pytest.MonkeyPatch, first: str
+) -> None:
+    """Two decisions for one request: the second sees the first under the lock and is refused with a stable answer."""
+    _need_postgresql(approver)
+    run_id, approval_id, proposal_id, _lease = _prepare(
+        approver, monkeypatch, occurrence=f"decide-{first}", decide=False
+    )
+    contenders = {
+        "approve": lambda: _decide(approver, run_id, approval_id, action="approve"),
+        "reject": lambda: _decide(approver, run_id, approval_id, action="reject"),
+    }
+    names = ["approve", "reject"] if first == "approve" else ["reject", "approve"]
+    with _holding_run_lock(approver, run_id):
+        workers = _queue(approver, [contenders[name] for name in names])
+    answers = dict(zip(names, (worker.finished() for worker in workers), strict=True))
+
+    assert answers[first].status_code == 200, answers[first].text
+    second = "reject" if first == "approve" else "approve"
+    assert answers[second].status_code == 409, answers[second].text
+    if first == "approve":
+        # The approval holds; the run still waits for dispatch to consume it.
+        assert answers[second].json()["reason_code"] == "already_decided"
+    with approver.session_factory() as session:
+        row = session.get(CaliberRuntimeApprovalRequest, approval_id)
+        assert row is not None and row.consumed_at is None
+        assert row.status == ("approved" if first == "approve" else "rejected")
+    _unconsumed(approver, approval_id, proposal_id)
+
+
+@pytest.mark.parametrize("action", ["approve", "reject"])
+def test_a_decision_waits_for_the_run_lock_before_it_touches_the_request_row(
+    approver: ReferenceApp, monkeypatch: pytest.MonkeyPatch, action: str
+) -> None:
+    """The lock order is run, then request: a decision queued behind the run lock holds no request lock yet.
+
+    The dispatcher and the request writer both take the run lock first and the request row second. A decision route that took
+    the request row first and then wanted the run (a reject updates it) could deadlock against a dispatcher that holds the run
+    and wants the request. While this connection holds the run lock, a queued decision must therefore not own the request row:
+    ``FOR UPDATE NOWAIT`` on it succeeds.
+    """
+    _need_postgresql(approver)
+    run_id, approval_id, _proposal_id, _lease = _prepare(
+        approver, monkeypatch, occurrence=f"order-{action}", decide=False
+    )
+    with _holding_run_lock(approver, run_id) as holder:
+        workers = _queue(approver, [lambda: _decide(approver, run_id, approval_id, action=action)])
+        probe = holder.execute(
+            select(CaliberRuntimeApprovalRequest.runtime_approval_id)
+            .where(CaliberRuntimeApprovalRequest.runtime_approval_id == approval_id)
+            .with_for_update(nowait=True)
+        ).scalar_one()
+        assert probe == approval_id
+    assert workers[0].finished().status_code == 200
+
+
+@pytest.mark.parametrize("first", ["supersede", "dispatch"])
+def test_supersession_and_dispatch_racing_never_consume_a_replaced_approval(
+    approver: ReferenceApp,
+    monkeypatch: pytest.MonkeyPatch,
+    backend: CountingBackend,
+    first: str,
+) -> None:
+    """A newer request for the step races the dispatch of the old one: consumed first stays consumed, else it is refused."""
+    _need_postgresql(approver)
+    run_id, approval_id, proposal_id, lease = _prepare(
+        approver, monkeypatch, occurrence=f"supersede-{first}"
+    )
+    created: dict[str, str] = {}
+
+    def supersede() -> str:
+        new_id, _ = _request(approver, run_id, f"newer-{first}", now=T0 + timedelta(minutes=1))
+        created["id"] = new_id
+        return new_id
+
+    def dispatch_now() -> EffectOutcome | EffectRefused:
+        return _dispatch(approver, proposal_id, approval_id, lease)
+
+    order = [supersede, dispatch_now] if first == "supersede" else [dispatch_now, supersede]
+    with _holding_run_lock(approver, run_id):
+        workers = _queue(approver, order)
+    results = [worker.finished() for worker in workers]
+    dispatched = results[order.index(dispatch_now)]
+
+    with approver.session_factory() as session:
+        old = session.get(CaliberRuntimeApprovalRequest, approval_id)
+        newer = session.get(CaliberRuntimeApprovalRequest, created["id"])
+        assert old is not None and newer is not None
+        assert newer.status == "pending", "the newer request is the live question either way"
+        if first == "supersede":
+            assert (old.status, old.superseded_by, old.consumed_at) == (
+                "superseded",
+                newer.runtime_approval_id,
+                None,
+            )
+        else:
+            assert (old.status, old.superseded_by) == ("approved", None)
+            assert old.consumed_at is not None
+    if first == "supersede":
+        _refused(dispatched, "superseded")
+        assert backend.calls == 0
+        _unconsumed(approver, approval_id, proposal_id)
+    else:
+        assert isinstance(dispatched, EffectOutcome) and dispatched.state == "committed"
+        assert backend.calls == 1
+        _consumed_once(approver, approval_id, proposal_id, "committed")
+
+
+def test_the_claim_is_one_transaction_a_failed_enqueue_consumes_nothing(
+    approver: ReferenceApp, monkeypatch: pytest.MonkeyPatch, backend: CountingBackend
+) -> None:
+    """Consumption, the state moves and the outbox row commit together: a failure inside the claim rolls all of them back."""
+    _run, approval_id, proposal_id, lease = _prepare(approver, monkeypatch, occurrence="atomic")
+    real_enqueue = dispatcher_module.enqueue
+
+    def boom(*_args: Any, **_kwargs: Any) -> None:
+        raise RuntimeError("the outbox is unavailable")
+
+    monkeypatch.setattr(dispatcher_module, "enqueue", boom)
+    with pytest.raises(RuntimeError, match="outbox is unavailable"):
+        _dispatch(approver, proposal_id, approval_id, lease)
+
+    assert backend.calls == 0
+    _unconsumed(approver, approval_id, proposal_id)
+
+    monkeypatch.setattr(dispatcher_module, "enqueue", real_enqueue)
+    retried = _dispatch(approver, proposal_id, approval_id, lease)
+    assert isinstance(retried, EffectOutcome) and retried.state == "committed"
+    assert backend.calls == 1
+    _consumed_once(approver, approval_id, proposal_id, "committed")
