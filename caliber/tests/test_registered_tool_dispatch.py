@@ -379,10 +379,54 @@ def test_the_tool_receives_the_recorded_arguments_not_the_callers_live_objects(
     assert isinstance(tool.calls[0][1]["tags"], list)
 
 
+def test_the_registered_tool_connector_is_admitted_and_only_for_its_own_settings(
+    factory: sessionmaker[Session],
+) -> None:
+    """A proposal with no admission, and dispatch settings the pinned record does not list, are refused."""
+    from caliber.effects.dispatcher import admit_backend, submit_proposal
+
+    admitted = admit_backend("registered_tool")
+    assert (admitted.connector, admitted.connector_version) == ("registered_tool", "1")
+    with factory() as session, pytest.raises(EffectRefused) as refused:
+        submit_proposal(
+            session,
+            workflow_run_id=RUN_ID,
+            node_id="n",
+            occurrence_id="n",
+            connector="registered_tool",
+            connector_version="1",
+            resource="registered-tool/n/1.0",
+            args={"tool": "n"},
+        )
+    assert refused.value.code == "connector_not_admitted"
+
+    entry = tool_entry("open_ticket", "write")
+    seed_row(factory, entry)
+    tool = Tool()
+    run = Run(factory, entry, tool, authorize=lambda _proposal: None)
+    run.execute()
+    (proposal_id,) = run.authorized
+    with factory() as session:
+        lease = leased(session, "runtime-owner")
+        session.commit()
+    with pytest.raises(EffectRefused) as refused:
+        dispatch(
+            factory,
+            proposal_id,
+            approval_id="rap-x",
+            lease=lease,
+            backend_kind="registered_tool",
+            backend_config={"invoker": tool, "receipt_verifier": verifier, "base_url": "http://x"},
+            approval_validator=runtime_module.approval_valid_at_commit,
+        )
+    assert refused.value.code == "connector_config_not_admitted"
+    assert tool.calls == []
+
+
 def test_a_floor_makes_the_recorded_class_stricter_and_never_weaker(
     factory: sessionmaker[Session],
 ) -> None:
-    from caliber.effects.dispatcher import submit_proposal
+    from caliber.effects.dispatcher import admit_backend, submit_proposal
 
     def record(node: str, **kwargs: Any) -> str:
         with factory() as session:
@@ -395,6 +439,7 @@ def test_a_floor_makes_the_recorded_class_stricter_and_never_weaker(
                 connector_version="1",
                 resource=f"registered-tool/{node}/1.0",
                 args={"tool": node},
+                admission=admit_backend("registered_tool"),
                 **kwargs,
             )
             session.commit()

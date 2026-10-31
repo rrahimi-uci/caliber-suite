@@ -53,6 +53,7 @@ from caliber.effects.dispatcher import (
     HTTP_VERSION,
     EffectRefused,
     EffectRequest,
+    admit_backend,
     dispatch,
     submit_proposal,
 )
@@ -5137,6 +5138,7 @@ def _submit_authorize_dispatch(
                 session,
                 workflow_run_id=context.workflow_run_id,
                 **proposal,
+                admission=admit_backend(backend_kind),
             )
             session.commit()
     except EffectRefused as exc:

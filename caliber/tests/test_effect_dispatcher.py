@@ -20,11 +20,10 @@ from caliber.db.models import (
 )
 from caliber.effects.connectors import Classified, TransportOutcome
 from caliber.effects.dispatcher import (
-    BACKENDS,
-    BackendRegistration,
     EffectRefused,
     TransportResult,
     UnsupportedEffectPath,
+    admit_backend,
     dispatch,
     submit_proposal,
 )
@@ -42,13 +41,15 @@ from caliber.effects.records import (
 )
 from caliber.observability.span_attributes import governed_span
 from caliber.workflows.approval_policy import ApprovalCommit, ApprovalCommitRefused
-from tests.effect_helpers import leased
+from tests.effect_helpers import admit_fake_backend, leased
 from tests.test_effect_proposals import _seed_run
 from tests.test_event_outbox import _database
 
 AT = datetime(2026, 3, 4, 5, 6, 7, tzinfo=timezone.utc)
 EVIDENCE = "sha256:" + "e" * 64
 POLICY = "sha256:" + "p" * 64
+#: Settings the admitted document-request connector accepts; nothing is sent in these tests.
+_DOC_CONFIG = {"base_url": "http://127.0.0.1:9"}
 
 
 def _submit(session: Session, *, tool_name: str = "write_workdir_file") -> str:
@@ -66,6 +67,7 @@ def _submit(session: Session, *, tool_name: str = "write_workdir_file") -> str:
         },
         tool_name=tool_name,
         caliber_defined=True,
+        admission=admit_backend("document_request"),
     )
     session.commit()
     return recorded.proposal_id
@@ -88,6 +90,7 @@ def _submit_http(session: Session) -> str:
             "timeout_seconds": 5,
             "body": {"value": "hello"},
         },
+        admission=admit_backend("http"),
     )
     session.commit()
     return recorded.proposal_id
@@ -199,6 +202,13 @@ class _Backend:
         )
 
 
+class _Idle:
+    """A transport that is only admitted, for tests that submit and never dispatch."""
+
+    def perform(self, _request: Any, _config: Any) -> TransportResult:
+        pytest.fail("an idle transport must not be called")
+
+
 def test_submit_proposal_uses_inventory_effect_class(
     tmp_path: Any, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -232,6 +242,7 @@ def test_refuses_required_dispatch_preconditions(
             "approver_scopes": {"caliber.approver"},
             "lease": lease,
             "backend_kind": "document_request",
+            "backend_config": _DOC_CONFIG,
             "approval_validator": _validator,
         }
         if case == "missing_validator":
@@ -270,11 +281,7 @@ def test_valid_path_commits_with_receipt_and_calls_backend_after_claim_commit(
             lease = leased(session, "dispatcher")
             session.commit()
         backend = _Backend(factory, proposal_id)
-        monkeypatch.setitem(
-            BACKENDS,
-            "test",
-            BackendRegistration(backend, "document-request", "1"),
-        )
+        admit_fake_backend(monkeypatch, "test", backend)
         result = dispatch(
             factory,
             proposal_id,
@@ -697,6 +704,7 @@ def test_backend_call_accepts_callable_and_rejects_untyped_result() -> None:
 def test_submit_proposal_accepts_each_intent_form_and_uses_fail_closed_class(
     tmp_path: Any, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    admission = admit_fake_backend(monkeypatch, "idle", _Idle(), connector="test-connector")
     with _database("sqlite", tmp_path, monkeypatch) as (_, factory):
         _seed_run(factory)
         with factory() as session:
@@ -713,6 +721,7 @@ def test_submit_proposal_accepts_each_intent_form_and_uses_fail_closed_class(
                 node_id="agent",
                 occurrence_id="occ-action",
                 action=action,
+                admission=admission,
             )
             intent_record = submit_proposal(
                 session,
@@ -726,6 +735,7 @@ def test_submit_proposal_accepts_each_intent_form_and_uses_fail_closed_class(
                     resource="test/intent",
                     args={"value": "intent"},
                 ),
+                admission=admission,
             )
             explicit_record = submit_proposal(
                 session,
@@ -737,6 +747,7 @@ def test_submit_proposal_accepts_each_intent_form_and_uses_fail_closed_class(
                 effect_class_name="read",
                 resource="test/explicit",
                 args={"value": "explicit"},
+                admission=admission,
             )
             session.commit()
         with factory() as session:
@@ -753,6 +764,7 @@ def test_submit_proposal_accepts_each_intent_form_and_uses_fail_closed_class(
 def test_submit_proposal_refuses_conflicts_inventory_and_bad_action(
     tmp_path: Any, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    admission = admit_fake_backend(monkeypatch, "idle", _Idle(), connector="test-connector")
     with _database("sqlite", tmp_path, monkeypatch) as (_, factory):
         _seed_run(factory)
         action = {
@@ -771,6 +783,7 @@ def test_submit_proposal_refuses_conflicts_inventory_and_bad_action(
                     occurrence_id="occ-conflict",
                     action=action,
                     proposed_action=action,
+                    admission=admission,
                 )
             with pytest.raises(EffectRefused, match="conflicting_intent_inputs"):
                 submit_proposal(
@@ -786,6 +799,7 @@ def test_submit_proposal_refuses_conflicts_inventory_and_bad_action(
                         resource="test/other",
                         args={},
                     ),
+                    admission=admission,
                 )
             with pytest.raises(EffectRefused, match="conflicting_intent_inputs"):
                 submit_proposal(
@@ -795,6 +809,7 @@ def test_submit_proposal_refuses_conflicts_inventory_and_bad_action(
                     occurrence_id="occ-conflicting-explicit",
                     action=action,
                     resource="test/different",
+                    admission=admission,
                 )
             with pytest.raises(EffectRefused, match="invalid_proposed_action"):
                 submit_proposal(
@@ -803,6 +818,7 @@ def test_submit_proposal_refuses_conflicts_inventory_and_bad_action(
                     node_id="agent",
                     occurrence_id="occ-invalid",
                     action=object(),  # type: ignore[arg-type]
+                    admission=admission,
                 )
             with pytest.raises(UnsupportedEffectPath, match="unsupported_effect_path"):
                 submit_proposal(
@@ -813,6 +829,7 @@ def test_submit_proposal_refuses_conflicts_inventory_and_bad_action(
                     action=action,
                     tool_name="sandbox_python",
                     caliber_defined=True,
+                    admission=admission,
                 )
             with pytest.raises(EffectRefused, match="invalid_effect_class"):
                 submit_proposal(
@@ -821,6 +838,7 @@ def test_submit_proposal_refuses_conflicts_inventory_and_bad_action(
                     node_id="agent",
                     occurrence_id="occ-class",
                     action={**action, "effect_class": "not-a-class"},
+                    admission=admission,
                 )
 
 
@@ -846,6 +864,7 @@ def test_dispatch_rejects_untrusted_validator_without_claim(
                 approver_scopes={"caliber.approver"},
                 lease=lease,
                 backend_kind="document_request",
+                backend_config=_DOC_CONFIG,
                 approval_validator=validator,
             )
         assert refused.value.code == "approval_validator_untrusted"
@@ -894,6 +913,7 @@ def test_dispatch_maps_validator_failures_to_stable_refusals(
                 approver_scopes={"caliber.approver"},
                 lease=lease,
                 backend_kind="document_request",
+                backend_config=_DOC_CONFIG,
                 approval_validator=validator,
             )
         assert refused.value.code == expected
@@ -911,12 +931,11 @@ def test_dispatch_refuses_a_backend_registration_that_does_not_match_intent(
             approval_id = _approval(session, proposal_id)
             lease = leased(session, "dispatcher")
             session.commit()
-        monkeypatch.setitem(
-            BACKENDS,
+        admit_fake_backend(
+            monkeypatch,
             "mismatch",
-            BackendRegistration(
-                lambda _request, _config: pytest.fail("transport called"), "other", "1"
-            ),
+            lambda _request, _config: pytest.fail("transport called"),
+            connector="other",
         )
         with pytest.raises(EffectRefused) as refused:
             dispatch(
@@ -966,6 +985,7 @@ def test_dispatch_refuses_a_consumed_approval_after_validation(
                 approver_scopes={"caliber.approver"},
                 lease=lease,
                 backend_kind="document_request",
+                backend_config=_DOC_CONFIG,
                 approval_validator=_validator,
             )
 
@@ -997,6 +1017,7 @@ def test_dispatch_refuses_when_the_proposal_run_is_missing_after_claim(
                 approver_scopes={"caliber.approver"},
                 lease=lease,
                 backend_kind="document_request",
+                backend_config=_DOC_CONFIG,
                 approval_validator=_validator,
             )
 
@@ -1018,11 +1039,7 @@ def test_dispatch_maps_settlement_proposal_error_to_public_refusal(
                     Classified(TransportOutcome.PROVEN_NOT_SENT, "not-sent", 0, 0)
                 )
 
-        monkeypatch.setitem(
-            BACKENDS,
-            "settle-error",
-            BackendRegistration(Backend(), "document-request", "1"),
-        )
+        admit_fake_backend(monkeypatch, "settle-error", Backend())
 
         def refuse_settlement(*_args: Any, **_kwargs: Any) -> Any:
             raise ProposalError("settlement_corrupt", "settlement is corrupt")
@@ -1061,6 +1078,7 @@ def test_dispatch_rejects_consumed_approval_without_claim(
                 approver_scopes={"caliber.approver"},
                 lease=lease,
                 backend_kind="document_request",
+                backend_config=_DOC_CONFIG,
                 approval_validator=_validator,
             )
         assert refused.value.code == "approval_refused"
@@ -1092,11 +1110,7 @@ def test_dispatch_settles_noncommitted_transport_evidence(
             def perform(self, _request: Any, _config: Any) -> TransportResult:
                 return TransportResult(Classified(outcome, "test", 412, 1))
 
-        monkeypatch.setitem(
-            BACKENDS,
-            "outcome",
-            BackendRegistration(Backend(), "document-request", "1"),
-        )
+        admit_fake_backend(monkeypatch, "outcome", Backend())
         result = dispatch(
             factory,
             proposal_id,
@@ -1145,8 +1159,7 @@ def test_claim_returns_existing_in_flight_proposal_without_backend(
             approval_id="approval",
             approver_scopes=set(),
             lease=object(),  # type: ignore[arg-type]
-            backend_connector="document-request",
-            backend_connector_version="1",
+            admitted=admit_backend("document_request"),
             current_resource_version=None,
             evidence_hash=None,
             approval_validator=dispatcher_module.approval_valid_at_commit,
@@ -1174,6 +1187,7 @@ def test_dispatch_returns_existing_claim_without_calling_backend(
         approver_scopes=set(),
         lease=object(),  # type: ignore[arg-type]
         backend_kind="document_request",
+        backend_config=_DOC_CONFIG,
         approval_validator=dispatcher_module.approval_valid_at_commit,
     )
     assert result is expected
@@ -1197,6 +1211,7 @@ def test_session_scope_and_naive_utc_cover_direct_session_path(
 def test_submit_proposal_maps_recording_error_to_public_refusal(
     tmp_path: Any, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    admission = admit_fake_backend(monkeypatch, "idle", _Idle(), connector="test-connector")
     with _database("sqlite", tmp_path, monkeypatch) as (_, factory):
         with factory() as session:
             with pytest.raises(EffectRefused) as refused:
@@ -1212,6 +1227,7 @@ def test_submit_proposal_maps_recording_error_to_public_refusal(
                         "resource": "test/resource",
                         "args": {},
                     },
+                    admission=admission,
                 )
             assert refused.value.code == "run_not_found"
 
@@ -1238,6 +1254,7 @@ def test_claim_rejects_untrusted_validator_before_transaction(
                 approver_scopes={"caliber.approver"},
                 lease=lease,
                 backend_kind="document_request",
+                backend_config=_DOC_CONFIG,
                 approval_validator=validator,
             )
         assert refused.value.code == "approval_validator_untrusted"
@@ -1258,11 +1275,7 @@ def test_dispatch_classifies_backend_exception_as_ambiguous(
             def perform(self, _request: Any, _config: Any) -> TransportResult:
                 raise RuntimeError("transport failed")
 
-        monkeypatch.setitem(
-            BACKENDS,
-            "raises",
-            BackendRegistration(Backend(), "document-request", "1"),
-        )
+        admit_fake_backend(monkeypatch, "raises", Backend())
         result = dispatch(
             factory,
             proposal_id,
