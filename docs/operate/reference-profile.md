@@ -1381,19 +1381,35 @@ with session_factory() as session:
   public OpenAPI route itself.
 - **The approval route records; the dispatcher consumes (B06.4, #735).** `POST .../workflow-runs/{run_id}/approval/approve` and
   `.../approval/reject` decide a proposal-bound request when its `runtime_approval_id` is named, whatever backend its proposal
-  will use: the route reads only the request row. It takes the run lock, then the request lock (the order the dispatcher and the
-  request writer use), reads the clock only once it holds them, and records the decision, the audit row and the workflow event.
-  It never sets `consumed_at` and never calls a backend. The approver is the authenticated principal (the body forbids any
-  other field), who must hold the request's `required_role` scope and the project `approve` action, and who is not the run's
-  initiator or the request's `requested_by` unless `CALIBER_APPROVAL_ALLOW_SELF_APPROVAL` is set. A request the route cannot
-  decide is a `409` with a stable `reason_code` and a static, payload-free message, and nothing is written: `already_consumed`,
-  `superseded`, `expired`, `approval_not_current` (another node's request), `already_decided` (approved, waiting for dispatch).
-  The dispatcher then rechecks the exact intent, evidence, policy, version and the approver's *current* authority in its claim
-  transaction (run, proposal, request locks, under the lease the execution owner captured), and sets `consumed_at` in the same
-  commit as `proposed -> approved -> dispatched` and the outbox row, so concurrent dispatchers consume once. If the process dies
-  after that commit and before the remote call, the durable dispatched row and outbox entry remain recoverable; a retry reads
-  the proposal state (`already_dispatched`) and does not send again. A decision does not wake the run: the run stays
-  `waiting_approval` until `POST .../resume` (operator scope) requeues it.
+  will use: the route reads only the request row. Order of work: the project `approve` action (a caller who is refused never
+  takes a lock), then the run lock, then the request lock (the order the dispatcher and the request writer use), then the
+  caller's authority over *this* request (the node's `required_role` scope, and for an approval not being the requester;
+  `403`), and only then the stable state refusals below, so a project member who may not decide a request learns nothing of its
+  state. The decision, audit row and workflow event are recorded; the route never sets `consumed_at` and never calls a backend.
+  The approver is the authenticated principal (the body forbids any other field) and may not be the run's initiator or the
+  request's `requested_by` unless `CALIBER_APPROVAL_ALLOW_SELF_APPROVAL` is set. A request the route cannot decide is a `409`
+  with a stable `reason_code` and a static, payload-free message, nothing written: `already_consumed`, `superseded`, `expired`,
+  `approval_not_current` (another node's request), `already_decided` (approved or rejected). On PostgreSQL the route's lock
+  waits are bounded by `SET LOCAL lock_timeout` (5 s, the Apply claim's bound); a wait that runs out is `503` `approval_busy`
+  (retryable, nothing decided, nothing held), because these handlers run on the event loop and a stuck lock must not pin one.
+  **Clock.** Expiry is judged by the application clock (`datetime.now(timezone.utc)`) read after the run lock is won, the same
+  clock that wrote `expires_at` (so a request is never judged by two clocks); at the claim it is the dispatcher's `now`
+  (defaulting to the same clock). The database clock is deliberately not used (`ownership.database_now` is "never for
+  deciding expiry"): nodes that share a database need synchronized clocks, and a request is honoured or refused by the node's
+  clock to within its skew, which is why the window is half-open and the tests pin the microsecond.
+  The dispatcher then rechecks the exact intent, evidence, policy, version and **every approver's** *current* authority in
+  its claim transaction (run, proposal, request locks, under the lease the execution owner captured): each approver of the
+  quorum must still hold the project `approve` action and not be the run's initiator or the requester, and the quorum
+  (`approval_count`) must be met by approvers who remain authorized (`role_revoked` / `self_approval` otherwise,
+  `not_approved` when the recorded approvers are fewer than the quorum). The platform scopes are one set the producer
+  attests for the approving principals; membership and role are read per approver. It sets `consumed_at` in the same commit as
+  `proposed -> approved -> dispatched` and the outbox row, so concurrent dispatchers consume once. If the process dies after
+  that commit and before the remote call, the durable dispatched row and outbox entry remain recoverable; a retry reads the
+  proposal state (`already_dispatched`) and does not send again.
+  **A decision does not wake the run.** It stays `waiting_approval` until `POST .../resume` (operator scope) requeues it.
+  **Limits.** An approved decision that dispatch has not consumed cannot be withdrawn, other than by revoking the approver's
+  project role (the claim rechecks it) or by superseding the request; rejecting a bound request fails the run but leaves its
+  proposal `proposed`, and no reaper settles proposals of ended runs. Both are tracked in #1074.
 
 ```python
 from caliber.effects.dispatcher import EffectRefused, admit_backend, dispatch, submit_proposal
@@ -2765,21 +2781,27 @@ POST /ajax-api/2.0/mlflow/caliber/workflow-runs/{run_id}/approval/approve   {"ru
 409 {"detail": "this approval decision was already consumed by dispatch",
      "status_code": 409, "reason_code": "already_consumed"}
 
-# approved already, waiting for the dispatcher to consume it. Recovery: none; resume the run (POST .../resume) if it is still parked.
-409 {"detail": "this approval request already holds a decision; dispatch consumes it, it cannot be decided again",
+# approved or rejected already (an approval waits for the dispatcher to consume it). Recovery: none; resume the run (POST .../resume) if it is
+# still parked behind an approval.
+409 {"detail": "this approval request already holds a decision and cannot be decided again; an approval is consumed when its effect is dispatched",
      "status_code": 409, "reason_code": "already_decided"}
 
 # the request belongs to another node than the one the run waits at. Recovery: decide the request of the node the run is waiting at.
 409 {"detail": "this approval request is not for the step the run is waiting at",
      "status_code": 409, "reason_code": "approval_not_current"}
 
+# a lock is held too long (PostgreSQL lock_timeout, 5 s): nothing was decided or held. Recovery: retry shortly.
+503 {"detail": "this approval is being decided or dispatched right now; nothing was decided, retry shortly",
+     "status_code": 503, "reason_code": "approval_busy"}
+
 # the caller requested this approval (or started the run) and self-approval is not enabled: a second person must decide.
 403 {"detail": "the account that triggered this run cannot approve it; a second person must decide (set CALIBER_APPROVAL_ALLOW_SELF_APPROVAL=true for a single-operator install)"}
 ```
 
 What the dispatcher answers when it later claims the decision (`EffectRefused.code`; the approval stays unconsumed and no backend is called):
-`not_approved` (not decided yet, or rejected), `already_consumed`, `expired`, `superseded`, `role_revoked` (the approver's scope, project role or
-membership changed since they decided), `self_approval`, `intent_mismatch`, `stale_version`, `lease_lost` / `stale_owner` (the captured execution-owner
+`not_approved` (not decided yet, rejected, or fewer recorded approvers than the quorum), `already_consumed`, `expired`, `superseded`, `role_revoked` (an
+approver's scope, project role or membership changed since they decided, so the quorum is no longer met), `self_approval` (an approver is now the run's initiator
+or the requester), `intent_mismatch`, `stale_version`, `lease_lost` / `stale_owner` (the captured execution-owner
 lease is no longer the held one). Recovery for each is to ask again (a new request) or to let the current owner retry; a retry after the claim
 committed is `already_dispatched` and sends nothing.
 

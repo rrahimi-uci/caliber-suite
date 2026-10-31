@@ -94,6 +94,7 @@ def _request(
     *,
     now: datetime = T0,
     requested_by: str = EDITOR_A,
+    policy: ApprovalPolicy | None = None,
     **intent: Any,
 ) -> tuple[str, str]:
     """A bound request for the proposal of ``occurrence`` at ``NODE``: ``(request_id, proposal_id)``."""
@@ -110,7 +111,7 @@ def _request(
         request = create_approval_request(
             session,
             proposal=proposal,
-            policy=ApprovalPolicy(),
+            policy=policy or ApprovalPolicy(),
             evidence_hash=EVIDENCE,
             requested_by=requested_by,
             ttl_seconds=TTL,

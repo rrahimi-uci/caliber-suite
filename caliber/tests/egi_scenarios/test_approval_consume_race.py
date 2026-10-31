@@ -47,7 +47,7 @@ from caliber.effects.receipts import ReceiptFacts
 from caliber.effects.records import proposal_state
 from caliber.effects.step_proposal import record_step_proposal, untrusted_tool
 from caliber.ownership import acquire
-from caliber.workflows.approval_policy import approval_valid_at_commit
+from caliber.workflows.approval_policy import ApprovalPolicy, approval_valid_at_commit
 from tests.effect_helpers import admit_fake_backend, leased
 from tests.egi_scenarios.conftest import (
     APPROVER_A,
@@ -125,6 +125,8 @@ class Worker(threading.Thread):
             self.error = exc
 
     def finished(self, timeout: float = 30) -> Any:
+        if self.ident is None:
+            self.start()
         self.join(timeout)
         assert not self.is_alive(), "the contender never finished (a lock was not released)"
         assert self.error is None, repr(self.error)
@@ -161,6 +163,7 @@ def _prepare(
     occurrence: str,
     decide: bool = True,
     requested_by: str = EDITOR_A,
+    policy: ApprovalPolicy | None = None,
 ) -> tuple[str, str, str, Any]:
     """A live bound request for a waiting run, decided through HTTP unless ``decide`` is false, and a captured lease.
 
@@ -173,6 +176,7 @@ def _prepare(
         run_id,
         occurrence,
         requested_by=requested_by,
+        policy=policy,
         connector_version="1",
         resource="cases/MORT-2026-000184/document-requests",
         args={"document_type": "pay_statement"},
@@ -534,6 +538,148 @@ def test_a_governed_agent_steps_own_request_is_decided_over_http_and_consumed_on
     _consumed_once(approver, recorded.approval_request_id, recorded.proposal_id, "committed")
 
 
+APPROVER_B = "approver_b"
+QUORUM_OF_TWO = ApprovalPolicy(approval_count=2)
+
+
+@pytest.fixture
+def two_approvers(approver: ReferenceApp) -> ReferenceApp:
+    """The reference app where ``approver_a`` and ``approver_b`` may both approve in project A."""
+    with approver.session_factory() as session:
+        session.add(
+            CaliberProjectMember(
+                member_id="egi-m-approver-b",
+                project_id=PROJECT_A,
+                user_id=APPROVER_B,
+                role="reviewer",
+                created_by="@egi",
+            )
+        )
+        session.commit()
+    # ``approver_b`` holds the approver scope like ``approver_a`` does (the listed approvers).
+    approver.client.app.state.config = approver.client.app.state.config.model_copy(  # type: ignore[attr-defined]
+        update={"approver_users": f"{APPROVER_A},{APPROVER_B}"}
+    )
+    return approver
+
+
+def _set_member_role(app: ReferenceApp, user: str, role: str) -> None:
+    with app.session_factory() as session:
+        member = session.execute(
+            select(CaliberProjectMember).where(
+                CaliberProjectMember.project_id == PROJECT_A,
+                CaliberProjectMember.user_id == user,
+            )
+        ).scalar_one()
+        member.role = role
+        session.commit()
+
+
+def test_a_bound_quorum_of_two_is_completed_over_http_and_consumed_once(
+    two_approvers: ReferenceApp, monkeypatch: pytest.MonkeyPatch, backend: CountingBackend
+) -> None:
+    """One approver is not a quorum of two: the claim waits for a second, distinct, still-authorized approver."""
+    app = two_approvers
+    run_id, approval_id, proposal_id, lease = _prepare(
+        app, monkeypatch, occurrence="quorum", decide=False, policy=QUORUM_OF_TWO
+    )
+
+    first = _decide(app, run_id, approval_id)
+    assert first.status_code == 200, first.text
+    ack = first.json()["data"]
+    assert (ack["status"], ack["approvals"], ack["remaining_approvals"]) == ("pending", 1, 1)
+    assert _decide(app, run_id, approval_id).status_code == 403, (
+        "the same person is not a second approver"
+    )
+    _refused(_dispatch(app, proposal_id, approval_id, lease), "not_approved")
+    _unconsumed(app, approval_id, proposal_id)
+
+    second = _decide(app, run_id, approval_id, user=APPROVER_B)
+    assert second.status_code == 200, second.text
+    with app.session_factory() as session:
+        row = session.get(CaliberRuntimeApprovalRequest, approval_id)
+        assert row is not None and (row.status, row.decided_by) == ("approved", APPROVER_B)
+        assert (row.policy_snapshot or {})["approvals"] == [APPROVER_A, APPROVER_B]
+    assert backend.calls == 0
+
+    outcome = _dispatch(app, proposal_id, approval_id, lease)
+
+    assert isinstance(outcome, EffectOutcome) and outcome.state == "committed", repr(outcome)
+    assert backend.calls == 1
+    _consumed_once(app, approval_id, proposal_id, "committed")
+
+
+@pytest.mark.parametrize(
+    ("change", "code"),
+    [
+        ("first_downgraded", "role_revoked"),
+        ("last_downgraded", "role_revoked"),
+        ("first_is_now_the_initiator", "self_approval"),
+    ],
+)
+def test_every_approver_of_the_quorum_is_rechecked_at_the_claim(
+    two_approvers: ReferenceApp,
+    monkeypatch: pytest.MonkeyPatch,
+    backend: CountingBackend,
+    change: str,
+    code: str,
+) -> None:
+    """The regression behind the review: A approves, A loses the role, B approves; the claim must not consume it."""
+    app = two_approvers
+    run_id, approval_id, proposal_id, lease = _prepare(
+        app, monkeypatch, occurrence=f"recheck-{change}", decide=False, policy=QUORUM_OF_TWO
+    )
+    assert _decide(app, run_id, approval_id).status_code == 200
+    if change == "first_downgraded":
+        _set_member_role(app, APPROVER_A, "viewer")  # revoked before the last approver decides
+    assert _decide(app, run_id, approval_id, user=APPROVER_B).status_code == 200
+    if change == "last_downgraded":
+        _set_member_role(app, APPROVER_B, "viewer")
+    if change == "first_is_now_the_initiator":
+        with app.session_factory() as session:
+            run = session.get(CaliberWorkflowRun, run_id)
+            assert run is not None
+            run.created_by = APPROVER_A
+            session.commit()
+
+    result = _dispatch(app, proposal_id, approval_id, lease)
+
+    _refused(result, code)
+    assert backend.calls == 0
+    _unconsumed(app, approval_id, proposal_id)
+    if change != "first_is_now_the_initiator":
+        # Restoring the role restores the quorum: the refusal was the revocation, nothing else.
+        _set_member_role(
+            app, APPROVER_A if change == "first_downgraded" else APPROVER_B, "reviewer"
+        )
+        restored = _dispatch(app, proposal_id, approval_id, lease)
+        assert isinstance(restored, EffectOutcome) and restored.state == "committed"
+        assert backend.calls == 1
+
+
+def test_a_decision_recorded_around_the_route_with_too_few_approvers_is_not_a_quorum(
+    approver: ReferenceApp, monkeypatch: pytest.MonkeyPatch, backend: CountingBackend
+) -> None:
+    """``approved`` with one recorded approver under a quorum of two (a writer that skipped the route) is not consumed."""
+    _run, approval_id, proposal_id, lease = _prepare(
+        approver, monkeypatch, occurrence="short-quorum", decide=False, policy=QUORUM_OF_TWO
+    )
+    with approver.session_factory() as session:
+        row = session.get(CaliberRuntimeApprovalRequest, approval_id)
+        assert row is not None
+        row.status = "approved"
+        row.decided_by = APPROVER_A
+        row.decided_at = T0 + timedelta(minutes=1)
+        row.policy_snapshot = {**(row.policy_snapshot or {}), "approvals": [APPROVER_A]}
+        session.commit()
+
+    result = _dispatch(approver, proposal_id, approval_id, lease)
+
+    _refused(result, "not_approved")
+    assert backend.calls == 0
+    _unconsumed(approver, approval_id, proposal_id)
+
+
 # ------------------------------------------------------------------------------ races (PostgreSQL)
 
 
@@ -690,6 +836,83 @@ def test_approve_and_reject_racing_leave_exactly_one_decision(
         assert row is not None and row.consumed_at is None
         assert row.status == ("approved" if first == "approve" else "rejected")
     _unconsumed(approver, approval_id, proposal_id)
+
+
+@contextmanager
+def _holding_request_lock(app: ReferenceApp, approval_id: str) -> Iterator[Session]:
+    """An independent connection that holds ``FOR UPDATE`` on one approval request row until the block ends."""
+    engine = create_engine(app.database_url)
+    holder = sessionmaker(bind=engine)()
+    try:
+        holder.execute(
+            select(CaliberRuntimeApprovalRequest.runtime_approval_id)
+            .where(CaliberRuntimeApprovalRequest.runtime_approval_id == approval_id)
+            .with_for_update()
+        ).one()
+        yield holder
+    finally:
+        holder.rollback()
+        holder.close()
+        engine.dispose()
+
+
+@pytest.mark.parametrize("held", ["run", "request"])
+def test_a_decision_that_cannot_get_its_lock_is_a_retryable_503_and_decides_nothing(
+    approver: ReferenceApp, monkeypatch: pytest.MonkeyPatch, held: str
+) -> None:
+    """A stuck lock must not pin the handler: after the lock timeout the answer is ``503 approval_busy``, nothing is decided."""
+    _need_postgresql(approver)
+    monkeypatch.setattr("caliber.routes.workflow_runs.LOCK_TIMEOUT_MS", 300)
+    run_id, approval_id, proposal_id, _lease = _prepare(
+        approver, monkeypatch, occurrence=f"busy-{held}", decide=False
+    )
+    holding = (
+        _holding_run_lock(approver, run_id)
+        if held == "run"
+        else _holding_request_lock(approver, approval_id)
+    )
+    before = _run_state(approver, run_id)
+    with holding as holder:
+        busy = Worker(lambda: _decide(approver, run_id, approval_id)).finished(timeout=20)
+        if held == "request":
+            # The aborted decision gave back the run lock it had taken: nothing is left queued behind it.
+            holder.execute(
+                select(CaliberWorkflowRun.workflow_run_id)
+                .where(CaliberWorkflowRun.workflow_run_id == run_id)
+                .with_for_update(nowait=True)
+            ).one()
+
+    assert busy.status_code == 503, busy.text
+    body = busy.json()
+    assert body["reason_code"] == "approval_busy" and body["status_code"] == 503
+    for secret in (approval_id, proposal_id, run_id, APPROVER_A):
+        assert secret not in busy.text
+    with approver.session_factory() as session:
+        row = session.get(CaliberRuntimeApprovalRequest, approval_id)
+        assert row is not None and (row.status, row.decided_by, row.consumed_at) == (
+            "pending",
+            None,
+            None,
+        )
+    assert _run_state(approver, run_id) == before
+    retried = _decide(approver, run_id, approval_id)  # the lock is free again
+    assert retried.status_code == 200, retried.text
+
+
+def test_a_caller_without_the_approve_role_is_refused_before_the_run_lock(
+    approver: ReferenceApp, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A project editor who may not approve gets a ``403`` at once; they never queue behind (or hold up) a dispatcher."""
+    _need_postgresql(approver)
+    monkeypatch.setattr("caliber.routes.workflow_runs.LOCK_TIMEOUT_MS", 300)
+    run_id, approval_id, _proposal_id, _lease = _prepare(
+        approver, monkeypatch, occurrence="no-role", decide=False
+    )
+    with _holding_run_lock(approver, run_id):
+        refused = Worker(lambda: _decide(approver, run_id, approval_id, user=EDITOR_A)).finished(
+            timeout=20
+        )
+    assert refused.status_code == 403, refused.text
 
 
 def test_a_stale_owner_is_refused_before_it_waits_for_any_row_lock(

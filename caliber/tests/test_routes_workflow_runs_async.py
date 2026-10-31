@@ -2544,6 +2544,7 @@ def test_the_body_cannot_name_the_approver_or_consume_the_request(
 def test_a_bound_quorum_accumulates_distinct_approvers_and_never_consumes(
     client: TestClient,
 ) -> None:
+    """The first approver of two is recorded (the second, and the claim, are in ``test_approval_consume_race``)."""
     run_id, bound_id, _proposal_id = _parked_bound(client, approval_count=2)
     path = f"{PREFIX}/workflow-runs/{run_id}/approval/approve"
 
@@ -2589,6 +2590,85 @@ def test_the_clock_is_read_after_the_run_lock_is_won(
     assert response.status_code == 409, response.text
     assert response.json()["reason_code"] == "expired"
     assert _approval_row(client, bound_id).status == "pending"
+
+
+def _scopes_of(monkeypatch: pytest.MonkeyPatch, *scopes: str) -> None:
+    from caliber.routes import workflow_runs as routes
+
+    monkeypatch.setattr(routes, "current_scopes", lambda request: frozenset(scopes))
+
+
+@pytest.mark.parametrize("state", ["consumed", "superseded", "expired"])
+@pytest.mark.parametrize("action", ["approve", "reject"])
+def test_a_caller_without_the_node_scope_learns_nothing_about_the_request_state(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch, state: str, action: str
+) -> None:
+    """The authority check comes first: the stable state codes are for callers who may decide the request."""
+    run_id, bound_id, _proposal_id = _parked_bound(client)
+    with client.app.state.session_factory() as session:
+        row = session.get(CaliberRuntimeApprovalRequest, bound_id)
+        assert row is not None
+        if state == "consumed":
+            row.consumed_at = datetime.now(timezone.utc)
+        elif state == "superseded":
+            row.status = "superseded"
+            row.superseded_by = "RAP-newer"
+        else:
+            row.expires_at = datetime.now(timezone.utc) - timedelta(hours=1)
+        session.commit()
+    _scopes_of(monkeypatch, "caliber.viewer")
+
+    response = client.post(
+        f"{PREFIX}/workflow-runs/{run_id}/approval/{action}", json={"runtime_approval_id": bound_id}
+    )
+
+    assert response.status_code == 403, response.text
+    assert "reason_code" not in response.json()
+    assert state not in response.text
+
+
+def test_the_requester_learns_nothing_about_the_state_of_their_own_request(
+    client: TestClient,
+) -> None:
+    run_id, bound_id, _proposal_id = _parked_bound(client, requested_by="@test", allow_self=False)
+    with client.app.state.session_factory() as session:
+        run = session.get(CaliberWorkflowRun, run_id)
+        row = session.get(CaliberRuntimeApprovalRequest, bound_id)
+        assert run is not None and row is not None
+        run.created_by = "someone_else"
+        row.consumed_at = datetime.now(timezone.utc)
+        session.commit()
+
+    response = client.post(
+        f"{PREFIX}/workflow-runs/{run_id}/approval/approve", json={"runtime_approval_id": bound_id}
+    )
+
+    assert response.status_code == 403, response.text
+    assert "reason_code" not in response.json()
+
+
+def test_a_rejected_bound_request_is_refused_as_decided_without_claiming_dispatch(
+    client: TestClient,
+) -> None:
+    """``already_decided`` covers a rejection too, so its message says nothing about what dispatch will do with it."""
+    run_id, bound_id, _proposal_id = _parked_bound(client)
+    with client.app.state.session_factory() as session:
+        row = session.get(CaliberRuntimeApprovalRequest, bound_id)
+        assert row is not None
+        row.status = "rejected"
+        row.decided_by = "approver_a"
+        row.decided_at = datetime.now(timezone.utc)
+        session.commit()
+
+    response = client.post(
+        f"{PREFIX}/workflow-runs/{run_id}/approval/approve", json={"runtime_approval_id": bound_id}
+    )
+
+    assert response.status_code == 409, response.text
+    body = response.json()
+    assert body["reason_code"] == "already_decided"
+    assert "dispatch consumes it" not in body["detail"]
+    assert "rejected" not in body["detail"] and "approved" not in body["detail"]
 
 
 def test_a_bound_request_never_shadows_a_legacy_node_level_request(client: TestClient) -> None:

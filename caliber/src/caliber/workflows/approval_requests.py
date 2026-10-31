@@ -21,7 +21,7 @@ already consumed or already superseded.
 
 **Decision and consumption.** The decision routes record a *live* bound request's approval or rejection when its request id is
 named (never by the default selection, which ignores bound rows), but neither consume it nor recheck the effect. The dispatcher
-rechecks the exact intent and the approver's current authority, then consumes the decision (``consumed_at``) in the transaction that
+rechecks the exact intent and the current authority of every approver of the quorum, then consumes the decision (``consumed_at``) in the transaction that
 claims dispatch (B06.4, #735).
 
 **Locking.** Creators serialize on the *run* row, then the proposal row (always in that order), both ``FOR UPDATE`` (a no-op on

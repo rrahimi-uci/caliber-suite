@@ -365,6 +365,11 @@ def approval_valid_at_commit(
     digest shown to the approver; when omitted, the stored digest is still checked
     for shape and remains the evidence pin carried into the claim.
 
+    Every approver recorded for the quorum (``policy_snapshot['approvals']`` and ``decided_by``) is re-derived here, not
+    only the last one: each must still hold the project ``approve`` action and not be the run's initiator or the requester,
+    and ``approval_count`` approvers must remain authorized (otherwise ``role_revoked`` / ``self_approval``, or
+    ``not_approved`` when fewer approvers were recorded than the quorum).
+
     The run authority check deliberately delegates to :func:`identity_for_run`.
     That function loads the manifest's exact original subject, workload, purpose,
     run id and grant id before calling :func:`decide`; the approving principal is
@@ -507,42 +512,45 @@ def _recheck_approval(  # noqa: PLR0912, PLR0915 - one fail-closed commit gate o
     scopes = frozenset(approver_scopes)
     if stored_policy.required_role not in scopes:
         raise ApprovalCommitRefused(REFUSAL_ROLE_REVOKED)
-    try:
-        # Neither the run's initiator nor whoever asked for this approval may be the approver; the decision route
-        # enforced both when it recorded the decision, and the row is checked again here because the claim must not
-        # rely on a writer that ran earlier.
-        for initiator in (run.created_by, approval.requested_by):
-            assert_distinct_actor(
-                approval.decided_by,
-                initiator,
-                allow_self=stored_policy.allow_self_approval,
-            )
-    except ApprovalPolicyError:
-        raise ApprovalCommitRefused(REFUSAL_SELF_APPROVAL) from None
-
+    # Every approver of the quorum is re-derived, not only the one who decided last: an earlier approver whose project
+    # role was lowered, whose membership ended, or who turns out to be the run's initiator or the requester no longer
+    # counts, and the quorum must still be met by the approvers who remain authorized. The last approver
+    # (``decided_by``) is checked first and refuses with its own code, as a single approver always did. ``scopes`` is the
+    # one set the producer attests for the approving principals (a platform scope is a property of a presented token,
+    # there is no store to re-read it from); membership and role are read per approver, under a share lock.
+    recorded = (approval.policy_snapshot or {}).get("approvals")
+    earlier = [
+        a for a in (recorded if isinstance(recorded, list) else []) if isinstance(a, str) and a
+    ]
+    approvers = list(dict.fromkeys([approval.decided_by, *earlier]))
+    project = None
     if run.project_id is not None:
         project = session.execute(
             select(CaliberProject)
             .where(CaliberProject.project_id == run.project_id)
             .with_for_update(read=True)
         ).scalar_one_or_none()
-        member = session.execute(
-            select(CaliberProjectMember)
-            .where(
-                CaliberProjectMember.project_id == run.project_id,
-                CaliberProjectMember.user_id == approval.decided_by,
-            )
-            .with_for_update(read=True)
-        ).scalar_one_or_none()
-        role = None
-        if project is not None and project.owner == approval.decided_by:
-            role = ROLE_OWNER
-            if not scopes >= OWNER_ROLE_REQUIRED_SCOPES:
-                role = ROLE_EDITOR
-        elif member is not None and member.status == "active" and member.deactivated_at is None:
-            role = member.role
-        if role not in PROJECT_ACTIONS[ACTION_APPROVE]:
-            raise ApprovalCommitRefused(REFUSAL_ROLE_REVOKED)
+    valid: list[str] = []
+    first_refusal: str | None = None
+    for approver in approvers:
+        refusal = _approver_refusal(
+            session,
+            run=run,
+            project=project,
+            approver=approver,
+            requested_by=approval.requested_by,
+            scopes=scopes,
+            allow_self=stored_policy.allow_self_approval,
+        )
+        if refusal is None:
+            valid.append(approver)
+            continue
+        if approver == approval.decided_by:
+            raise ApprovalCommitRefused(refusal)
+        first_refusal = first_refusal or refusal
+    if len(valid) < stored_policy.approval_count:
+        # A quorum that is not met by approvers who are still authorized: the revoked one's reason, else a short list.
+        raise ApprovalCommitRefused(first_refusal or REFUSAL_NOT_APPROVED)
 
     try:
         run_identity = identity_for_run(session, run, now=moment)
@@ -569,6 +577,49 @@ def _recheck_approval(  # noqa: PLR0912, PLR0915 - one fail-closed commit gate o
         decision_id=run_identity.decision.decision_id,
         run_identity=run_identity,
     )
+
+
+def _approver_refusal(
+    session: Session,
+    *,
+    run: CaliberWorkflowRun,
+    project: CaliberProject | None,
+    approver: str,
+    requested_by: str | None,
+    scopes: frozenset[str],
+    allow_self: bool,
+) -> str | None:
+    """Why ``approver`` no longer counts toward the quorum (a refusal code), or ``None`` when still authorized.
+
+    Neither the run's initiator nor whoever asked for this approval may be an approver (the decision route enforced both
+    when it recorded the decision; the claim must not rely on a writer that ran earlier), and, in a project, the approver
+    needs the ``approve`` action by their *current* membership and role.
+    """
+    try:
+        for initiator in (run.created_by, requested_by):
+            assert_distinct_actor(approver, initiator, allow_self=allow_self)
+    except ApprovalPolicyError:
+        return REFUSAL_SELF_APPROVAL
+    if run.project_id is None:
+        return None
+    member = session.execute(
+        select(CaliberProjectMember)
+        .where(
+            CaliberProjectMember.project_id == run.project_id,
+            CaliberProjectMember.user_id == approver,
+        )
+        .with_for_update(read=True)
+    ).scalar_one_or_none()
+    role = None
+    if project is not None and project.owner == approver:
+        role = ROLE_OWNER
+        if not scopes >= OWNER_ROLE_REQUIRED_SCOPES:
+            role = ROLE_EDITOR
+    elif member is not None and member.status == "active" and member.deactivated_at is None:
+        role = member.role
+    if role not in PROJECT_ACTIONS[ACTION_APPROVE]:
+        return REFUSAL_ROLE_REVOKED
+    return None
 
 
 def _proposal_run_id(session: Session, proposal_id: str) -> str:

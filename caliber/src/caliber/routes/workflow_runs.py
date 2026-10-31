@@ -9,8 +9,8 @@ from copy import deepcopy
 from datetime import datetime, timezone
 from typing import Any, Literal, cast
 
-from sqlalchemy import func, select
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy import Result, func, select, text
+from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.orm import Session
 from starlette.applications import Starlette
 from starlette.exceptions import HTTPException
@@ -45,6 +45,7 @@ from caliber.routes._deps import (
     scoped_child_or_404,
 )
 from caliber.routes._errors import CaliberHTTPException
+from caliber.routes._job_access import LOCK_TIMEOUT_MS, is_lock_timeout
 from caliber.run_manifest import canonical_bytes, digest_of
 from caliber.schemas import (
     AdmissionManifestSchema,
@@ -1919,14 +1920,49 @@ async def retry_workflow_run(request: Request) -> JSONResponse:  # noqa: PLR0912
     return envelope_response(data, status_code=202)
 
 
+#: ``reason_code`` of the 503 when a decision cannot get its row lock in time (PostgreSQL ``lock_timeout``): nothing was decided.
+APPROVAL_BUSY = "approval_busy"
+_APPROVAL_BUSY_DETAIL = (
+    "this approval is being decided or dispatched right now; nothing was decided, retry shortly"
+)
+
+
+def _approval_busy(session: Session) -> CaliberHTTPException:
+    """Release what the aborted transaction held and answer the retryable, payload-free ``503``."""
+    session.rollback()
+    return CaliberHTTPException(
+        status_code=503, detail=_APPROVAL_BUSY_DETAIL, reason_code=APPROVAL_BUSY
+    )
+
+
+def _execute_locked(session: Session, statement: Any) -> Result[Any]:
+    """Run a ``FOR UPDATE`` statement; a lock wait that outlasts the lock timeout is :func:`_approval_busy`."""
+    try:
+        return session.execute(statement)
+    except OperationalError as exc:
+        if not is_lock_timeout(exc):
+            raise
+        raise _approval_busy(session) from None
+
+
 def _lock_workflow_run(session: Session, run: CaliberWorkflowRun) -> CaliberWorkflowRun:
-    """Refresh and lock a visible run before writing an approval decision."""
-    return session.execute(
+    """Refresh and lock a visible run before writing an approval decision (the first lock of the order run, request).
+
+    On PostgreSQL the waits of this transaction are bounded by ``SET LOCAL lock_timeout`` (the Apply claim's bound,
+    :data:`~caliber.routes._job_access.LOCK_TIMEOUT_MS`): a lock is held by a transaction about to commit (a dispatcher's
+    claim, a request writer), so a wait is short, and a stuck one must not pin a handler that runs on the event loop. A
+    timeout is a ``503`` ``approval_busy`` with nothing decided.
+    """
+    if session.get_bind().dialect.name == "postgresql":
+        session.execute(text(f"SET LOCAL lock_timeout = {int(LOCK_TIMEOUT_MS)}"))
+    locked = _execute_locked(
+        session,
         select(CaliberWorkflowRun)
         .where(CaliberWorkflowRun.workflow_run_id == run.workflow_run_id)
         .with_for_update()
-        .execution_options(populate_existing=True)
+        .execution_options(populate_existing=True),
     ).scalar_one()
+    return cast("CaliberWorkflowRun", locked)
 
 
 #: ``reason_code`` of the 409 for a bound request that already holds a decision (approved but not yet consumed by dispatch).
@@ -1945,7 +1981,8 @@ _BOUND_REFUSAL_DETAIL = {
     ),
     REFUSAL_ALREADY_CONSUMED: "this approval decision was already consumed by dispatch",
     APPROVAL_ALREADY_DECIDED: (
-        "this approval request already holds a decision; dispatch consumes it, it cannot be decided again"
+        "this approval request already holds a decision and cannot be decided again; "
+        "an approval is consumed when its effect is dispatched"
     ),
     APPROVAL_NOT_CURRENT: "this approval request is not for the step the run is waiting at",
 }
@@ -1963,12 +2000,59 @@ def _bound_refusal(code: str) -> CaliberHTTPException:
     )
 
 
+def _require_bound_authority(
+    row: CaliberRuntimeApprovalRequest,
+    *,
+    actor: str,
+    scopes: frozenset[str] | set[str],
+    enforce_requester: bool,
+) -> None:
+    """``403`` unless the caller may decide ``row`` at all: the node's ``required_role`` scope and, for an approval, not the requester.
+
+    Runs before any state refusal, so nobody who may not decide a request learns its state from the codes.
+    """
+    policy = ApprovalPolicy.from_snapshot(row.policy_snapshot)
+    if policy.required_role not in scopes:
+        raise HTTPException(
+            status_code=403,
+            detail=f"this approval requires the {policy.required_role!r} scope; you hold {sorted(scopes)}",
+        )
+    if enforce_requester:
+        try:
+            assert_distinct_actor(actor, row.requested_by, allow_self=policy.allow_self_approval)
+        except ApprovalPolicyError as exc:
+            raise HTTPException(status_code=403, detail=str(exc)) from exc
+
+
+def _refuse_undecidable_bound(
+    row: CaliberRuntimeApprovalRequest, *, run: CaliberWorkflowRun, now: datetime
+) -> None:
+    """The stable ``409`` for a bound request that is final or not for this run's step; see the selector for the order."""
+    if row.consumed_at is not None:
+        raise _bound_refusal(REFUSAL_ALREADY_CONSUMED)
+    refusal = approval_refusal(
+        status=row.status,
+        superseded_by=row.superseded_by,
+        expires_at=row.expires_at,
+        now=now,
+    )
+    if refusal is not None:
+        raise _bound_refusal(refusal)
+    if row.node_id != run.current_node_id:
+        raise _bound_refusal(APPROVAL_NOT_CURRENT)
+    if row.status != "pending":
+        raise _bound_refusal(APPROVAL_ALREADY_DECIDED)
+
+
 def _select_pending_runtime_approval(
     session: Session,
     *,
     run: CaliberWorkflowRun,
     runtime_approval_id: str | None,
     now: datetime,
+    actor: str,
+    scopes: frozenset[str] | set[str],
+    enforce_requester: bool,
 ) -> CaliberRuntimeApprovalRequest:
     """Select and lock (``FOR UPDATE``) the approval this decision is about; the caller holds the run lock.
 
@@ -1977,6 +2061,10 @@ def _select_pending_runtime_approval(
     rechecks the exact intent, evidence, policy and the approver's *current* authority, and sets ``consumed_at`` in the
     transaction that claims dispatch (B06.4, #735). The row is read under the lock, so a decision cannot interleave with a
     creator superseding it or a dispatcher consuming it.
+
+    For a bound request the caller's authority is checked **first** (the node's ``required_role`` scope, and for an
+    approval the requester rule), so a project member who may not decide it learns nothing about its state from the
+    refusal codes below. The caller is the authenticated principal and ``scopes`` are the scopes of the presented token.
 
     A bound request that cannot be decided is a ``409`` with a stable ``reason_code`` and a static, payload-free message,
     and nothing is written. Checked in this order, because each earlier state is final and hides the later ones:
@@ -1987,12 +2075,13 @@ def _select_pending_runtime_approval(
     request is only ever decided by naming it.
     """
     if runtime_approval_id:
-        row = session.execute(
+        row = _execute_locked(
+            session,
             select(CaliberRuntimeApprovalRequest)
             .where(CaliberRuntimeApprovalRequest.runtime_approval_id == runtime_approval_id)
             .where(CaliberRuntimeApprovalRequest.workflow_run_id == run.workflow_run_id)
             .with_for_update()
-            .execution_options(populate_existing=True)
+            .execution_options(populate_existing=True),
         ).scalar_one_or_none()
         if row is None:
             raise HTTPException(
@@ -2002,27 +2091,19 @@ def _select_pending_runtime_approval(
                     f"{runtime_approval_id!r} not found for workflow run {run.workflow_run_id!r}"
                 ),
             )
-        if row.consumed_at is not None:
-            raise _bound_refusal(REFUSAL_ALREADY_CONSUMED)
         if row.proposal_id is not None:
-            refusal = approval_refusal(
-                status=row.status,
-                superseded_by=row.superseded_by,
-                expires_at=row.expires_at,
-                now=now,
+            _require_bound_authority(
+                row, actor=actor, scopes=scopes, enforce_requester=enforce_requester
             )
-            if refusal is not None:
-                raise _bound_refusal(refusal)
-            if row.node_id != run.current_node_id:
-                raise _bound_refusal(APPROVAL_NOT_CURRENT)
-            if row.status != "pending":
-                raise _bound_refusal(APPROVAL_ALREADY_DECIDED)
+            _refuse_undecidable_bound(row, run=run, now=now)
+        elif row.consumed_at is not None:
+            raise _bound_refusal(REFUSAL_ALREADY_CONSUMED)
         if row.status != "pending":
             raise HTTPException(
                 status_code=409,
                 detail=f"runtime approval {runtime_approval_id!r} is not pending",
             )
-        return row
+        return cast("CaliberRuntimeApprovalRequest", row)
     stmt = (
         select(CaliberRuntimeApprovalRequest)
         .where(CaliberRuntimeApprovalRequest.workflow_run_id == run.workflow_run_id)
@@ -2034,7 +2115,9 @@ def _select_pending_runtime_approval(
     )
     if run.current_node_id:
         stmt = stmt.where(CaliberRuntimeApprovalRequest.node_id == run.current_node_id)
-    row = session.execute(stmt).scalars().first()
+    row = cast(
+        "CaliberRuntimeApprovalRequest | None", _execute_locked(session, stmt).scalars().first()
+    )
     if row is None:
         raise HTTPException(
             status_code=409,
@@ -2081,6 +2164,14 @@ async def approve_workflow_run_approval(request: Request) -> JSONResponse:  # no
     factory = get_session_factory(request)
     with factory() as session:
         run = _get_run_or_404(session, run_id, request=request)
+        # The node's required_role (below) is a platform scope; this is the separate
+        # project-role axis. A viewer or editor who happens to hold the approver scope
+        # still cannot decide a run in a project where they have no approval role (alpha
+        # gap P1-24). It is checked before the run lock, so a caller who is refused never
+        # queues behind (or holds up) a dispatcher.
+        require_project_access_if_scoped(
+            session, resolve_identity(request), run.project_id, ACTION_APPROVE
+        )
         # Decision writers, request creators and the dispatcher share the run ->
         # proposal -> approval lock order. Holding the run lock before selecting the
         # request serializes a decision with supersession and dispatch, and the clock
@@ -2088,13 +2179,6 @@ async def approve_workflow_run_approval(request: Request) -> JSONResponse:  # no
         # or creator is judged (expiry) at the moment it can actually write.
         run = _lock_workflow_run(session, run)
         now = _utc_now()
-        # The node's required_role (below) is a platform scope; this is the separate
-        # project-role axis. A viewer or editor who happens to hold the approver scope
-        # still cannot decide a run in a project where they have no approval role (alpha
-        # gap P1-24).
-        require_project_access_if_scoped(
-            session, resolve_identity(request), run.project_id, ACTION_APPROVE
-        )
         if run.status != RUN_STATUS_WAITING_APPROVAL:
             raise HTTPException(
                 status_code=409,
@@ -2136,6 +2220,9 @@ async def approve_workflow_run_approval(request: Request) -> JSONResponse:  # no
             run=run,
             runtime_approval_id=payload.runtime_approval_id,
             now=now,
+            actor=actor,
+            scopes=current_scopes(request),
+            enforce_requester=True,
         )
         approval_id = approval.runtime_approval_id
         # Enforce the node's OWN policy (C6): this endpoint previously required only
@@ -2146,13 +2233,6 @@ async def approve_workflow_run_approval(request: Request) -> JSONResponse:  # no
         policy = ApprovalPolicy.from_snapshot(approval.policy_snapshot)
         recorded = list((approval.policy_snapshot or {}).get("approvals") or [])
         try:
-            if approval.proposal_id is not None:
-                # A bound request names who asked (``requested_by``, frozen by the database). The approver is the
-                # authenticated principal, never a field of the body, and may not be the requester either (beyond the
-                # run's initiator, which ``record_approval`` compares below); a single-operator install opts out.
-                assert_distinct_actor(
-                    actor, approval.requested_by, allow_self=policy.allow_self_approval
-                )
             quorum = record_approval(
                 policy=policy,
                 existing_approvals=recorded,
@@ -2273,18 +2353,18 @@ async def reject_workflow_run_approval(request: Request) -> JSONResponse:
     factory = get_session_factory(request)
     with factory() as session:
         run = _get_run_or_404(session, run_id, request=request)
+        # The node's required_role (below) is a platform scope; this is the separate
+        # project-role axis. A viewer or editor who happens to hold the approver scope
+        # still cannot decide a run in a project where they have no approval role (alpha
+        # gap P1-24). Checked before the run lock, as in approve.
+        require_project_access_if_scoped(
+            session, resolve_identity(request), run.project_id, ACTION_APPROVE
+        )
         # Keep the decision writer in the same run-first lock order as the
         # dispatcher and approval-request supersession writer; read the clock
         # only once that lock is held.
         run = _lock_workflow_run(session, run)
         now = _utc_now()
-        # The node's required_role (below) is a platform scope; this is the separate
-        # project-role axis. A viewer or editor who happens to hold the approver scope
-        # still cannot decide a run in a project where they have no approval role (alpha
-        # gap P1-24).
-        require_project_access_if_scoped(
-            session, resolve_identity(request), run.project_id, ACTION_APPROVE
-        )
         if run.status != RUN_STATUS_WAITING_APPROVAL:
             raise HTTPException(
                 status_code=409,
@@ -2295,6 +2375,9 @@ async def reject_workflow_run_approval(request: Request) -> JSONResponse:
             run=run,
             runtime_approval_id=payload.runtime_approval_id,
             now=now,
+            actor=actor,
+            scopes=current_scopes(request),
+            enforce_requester=False,
         )
         approval_id = approval.runtime_approval_id
         approval_node_id = approval.node_id
