@@ -12,6 +12,18 @@ import httpx
 import pytest
 
 from caliber.contracts.agent_step import AgentStepResult, parse_step_result
+from caliber.testing.adapter_conformance import (
+    MALFORMED_USAGE,
+    AdapterUnderTest,
+    Call,
+    Fault,
+    Garbage,
+    ProviderProbe,
+    ProviderUsage,
+    Reply,
+    Script,
+    fault_exception,
+)
 from caliber.workflows import step_openai_agents as adapter
 from caliber.workflows.agent_step import run_agent_step
 from caliber.workflows.ir import IRToolBinding
@@ -22,6 +34,7 @@ from tests.agent_step_conformance import (
     READ_TOOL,
     SCENARIOS,
     SECRET_MARKER,
+    FakeStepClock,
     Scenario,
     StepContext,
     make_context,
@@ -219,6 +232,93 @@ class _Driver:
 
     def adapter_for(self, scenario: Scenario, ctx: StepContext) -> object:
         return self._executor(ctx, scenario)
+
+
+#: The SDK owns the provider loop and takes ``max_turns`` and nothing else: the adapter cannot stop it between provider calls
+#: for a proposal, the tool-call limit, the token budget or the deadline. The platform still holds the result to each limit.
+AGENTS_UNBOUNDED_IN_LOOP = frozenset({"proposal", "tool_calls", "tokens", "deadline"})
+
+
+def _agents_run(script: Script, probe: ProviderProbe) -> Any:
+    """The SDK's own loop over a conformance script: one model turn per script item until the model answers.
+
+    ``Runner.run_sync`` calls the model, runs the tools it asked for and calls it again; it stops for ``max_turns`` and for
+    nothing else the adapter can set, so a limit the adapter cannot tell the SDK about (tokens, tool calls, the deadline) is not
+    enforced between turns (see ``AGENTS_UNBOUNDED_IN_LOOP``).
+    """
+    items = list(script)
+
+    def handler(agent: Any, _input: Any, **kwargs: Any) -> Any:
+        raw_responses: list[Any] = []
+        tools = {tool.name: tool for tool in agent.tools}
+        while items:
+            if len(raw_responses) >= kwargs["max_turns"]:
+                raise _MaxTurnsExceededError(raw_responses)
+            probe.provider_called()
+            item = items.pop(0)
+            if isinstance(item, Fault):
+                raise (
+                    httpx.ReadTimeout(item.text)
+                    if item.kind == "timeout"
+                    else fault_exception(item)
+                )
+            if isinstance(item, Garbage):
+                return SimpleNamespace(
+                    final_output=item.text,
+                    raw_responses=[_Response(usage=("many", 20, 120))],
+                    last_agent=agent,
+                )
+            if item.usage is None:
+                response = _Response(text=item.text or "")
+                response.usage = None
+            elif item.usage is MALFORMED_USAGE:
+                response = _Response(text=item.text or "", usage=("many", "some", "lots", 0))
+            else:
+                assert isinstance(item.usage, ProviderUsage)
+                usage = item.usage
+                response = _Response(
+                    text=item.text or "",
+                    usage=(usage.prompt, usage.completion, usage.total_tokens, 0),
+                )
+            raw_responses.append(response)
+            if item.cut_off:
+                raise _MaxTurnsExceededError(raw_responses)
+            for call in item.calls:
+                tool = tools.get(call.name)
+                if tool is None:
+                    raise RuntimeError(f"the SDK found no tool {call.name}")
+                payload = (
+                    call.arguments
+                    if isinstance(call.arguments, str)
+                    else json.dumps(call.arguments)
+                )
+                asyncio.run(tool.on_invoke_tool(None, payload))
+            if not item.calls or not items:
+                # A reply with no tool call is the model's answer. A script that ends on a tool call ends the run there.
+                return SimpleNamespace(
+                    final_output=item.text or "", raw_responses=raw_responses, last_agent=agent
+                )
+        raise RuntimeError("the script has no reply left")
+
+    return handler
+
+
+def agents_subject() -> AdapterUnderTest:
+    """The conformance suite's subject for ``OpenAIAgentsWorkflowExecutor``: the real executor over a stubbed SDK."""
+
+    def build(script: Script, probe: ProviderProbe) -> object:
+        _Runner.handler = _agents_run(script, probe)
+
+        class StubExecutor(OpenAIAgentsWorkflowExecutor):
+            @staticmethod
+            def _sdk() -> tuple[Any, ...]:
+                return sdk()
+
+        return StubExecutor(api_key="unused", default_model="gpt-4o", step_clock=probe.clock.now)
+
+    return AdapterUnderTest(
+        name="openai_agents", build=build, unbounded_in_loop=AGENTS_UNBOUNDED_IN_LOOP
+    )
 
 
 @pytest.mark.parametrize("scenario", SCENARIOS)
@@ -551,3 +651,30 @@ def test_agents_defensive_decoders_and_unconfigured_loader(  # noqa: PLR0915 - d
     monkeypatch.setattr(original, "_openai_agents_output_text", lambda **_kwargs: object())
     with pytest.raises(adapter._Unreadable):
         adapter._output_text(SimpleNamespace(final_output="x"), _ItemHelpers, [])
+
+
+def test_a_read_tool_the_platform_refuses_for_the_deadline_ends_the_step_at_the_deadline() -> None:
+    """Found by the conformance suite: the refusal was read as a tool failure, so the step ended ``error``, not ``deadline``."""
+    fake = FakeStepClock()
+    ctx = make_context()
+    ctx.clock = fake.step_clock()
+    ctx.on_provider_call = lambda: fake.advance(
+        700.0
+    )  # one model call outlasts the ten-minute deadline
+    script = (
+        Reply(
+            text=None, calls=(Call(READ_TOOL, ctx.staged_read_args),), usage=ProviderUsage(70, 10)
+        ),
+        Reply(text="done", usage=ProviderUsage(10, 5)),
+    )
+    executor = agents_subject().build(script, ctx)
+    result = run_agent_step(executor, ctx.request, ctx.step_input, clock=ctx.clock)
+    assert (result.stop_reason, result.error_code, result.proposed_actions) == (
+        "deadline",
+        None,
+        (),
+    )
+    assert ctx.read_calls == [], "the platform refused the tool; it did not run"
+    assert result.usage_source == "provider" and result.usage.total_tokens >= 80, (
+        "what was spent is kept"
+    )

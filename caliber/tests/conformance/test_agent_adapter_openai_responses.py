@@ -12,6 +12,17 @@ import httpx
 import pytest
 
 from caliber.contracts.agent_step import AgentStepResult, parse_step_result
+from caliber.testing.adapter_conformance import (
+    MALFORMED_USAGE,
+    AdapterUnderTest,
+    Fault,
+    Garbage,
+    ProviderProbe,
+    ProviderUsage,
+    Script,
+    ScriptItem,
+    fault_exception,
+)
 from caliber.workflows import step_openai_responses as adapter
 from caliber.workflows.agent_step import run_agent_step
 from caliber.workflows.runtime import OpenAIResponsesWorkflowExecutor
@@ -196,6 +207,39 @@ class ResponsesDriver:
             ],
         }
         return executor_for(StubClient(staged[scenario], ctx))
+
+
+def _responses_entry(item: ScriptItem, number: int) -> Any:
+    """What the stubbed Responses transport does for one step of a conformance script."""
+    if isinstance(item, Fault):
+        return httpx.ReadTimeout(item.text) if item.kind == "timeout" else fault_exception(item)
+    if isinstance(item, Garbage):
+        return response(output=[SimpleNamespace(type="unsupported_output", text=item.text)])
+    if item.usage is None:
+        usage: Any = None
+    elif item.usage is MALFORMED_USAGE:
+        usage = ("many", "some", "lots")
+    else:
+        assert isinstance(item.usage, ProviderUsage)
+        usage = (item.usage.prompt, item.usage.completion, item.usage.total_tokens)
+    calls = [function_call(c.name, c.arguments, f"call_{n}") for n, c in enumerate(item.calls, 1)]
+    return response(
+        output=calls or None,
+        text=item.text,
+        usage=usage,
+        response_id=f"resp_{number}",
+        incomplete_reason="max_output_tokens" if item.cut_off else None,
+    )
+
+
+def responses_subject() -> AdapterUnderTest:
+    """The conformance suite's subject for ``OpenAIResponsesWorkflowExecutor``: the real executor over a canned transport."""
+
+    def build(script: Script, probe: ProviderProbe) -> object:
+        client = StubClient([_responses_entry(item, n) for n, item in enumerate(script, 1)], probe)  # type: ignore[arg-type]
+        return executor_for(client, probe.clock.now)  # type: ignore[arg-type]
+
+    return AdapterUnderTest(name="openai_responses", build=build)
 
 
 @pytest.mark.parametrize("scenario", SCENARIOS)

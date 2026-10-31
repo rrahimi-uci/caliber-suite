@@ -285,6 +285,10 @@ def _build_tools(
                 return '{"_caliber":"tool-call limit reached"}'
             state.read_calls += 1
             return str(call_tool(tool, arguments))
+        except _step.StepDeadlineReached:
+            # The platform refused a tool called at or after the deadline and remembers it: the boundary ends the step
+            # ``deadline`` whatever this adapter returns. It is not a tool failure (that would end the step ``error``).
+            return '{"_caliber":"deadline reached"}'
         except Exception as exc:
             state.tool_error = True
             return json.dumps({"_error": type(exc).__name__})

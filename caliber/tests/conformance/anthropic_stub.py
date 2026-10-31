@@ -13,6 +13,17 @@ from datetime import datetime, timezone
 from typing import Any
 
 from caliber.contracts.agent_step import StepUsage
+from caliber.testing.adapter_conformance import (
+    MALFORMED_USAGE,
+    AdapterUnderTest,
+    Fault,
+    Garbage,
+    ProviderProbe,
+    ProviderUsage,
+    Script,
+    ScriptItem,
+    fault_exception,
+)
 from caliber.workflows.runtime import AnthropicChatWorkflowExecutor
 from tests.agent_step_conformance import (
     PROTECTED_TOOL,
@@ -212,3 +223,40 @@ def executor_with(
         ),
         client,
     )
+
+
+def _anthropic_entry(item: ScriptItem) -> Response | BaseException:
+    """What the stubbed Messages transport does for one step of a conformance script."""
+    if isinstance(item, Fault):
+        return APITimeoutError(item.text) if item.kind == "timeout" else fault_exception(item)
+    if isinstance(item, Garbage):
+        return Response(item.text, "end_turn", Usage(10, 5))
+    if item.usage is None:
+        usage: Any = None
+    elif item.usage is MALFORMED_USAGE:
+        usage = Usage("many", "some")
+    else:
+        assert isinstance(item.usage, ProviderUsage)
+        usage = Usage(item.usage.prompt, item.usage.completion)
+    blocks = [Block("text", text=item.text)] if item.text else []
+    blocks += [
+        Block("tool_use", id_=f"toolu_{n}", name=c.name, input_=c.arguments)
+        for n, c in enumerate(item.calls, 1)
+    ]
+    stop = "max_tokens" if item.cut_off else ("tool_use" if item.calls else "end_turn")
+    return Response(blocks, stop, usage)
+
+
+def anthropic_subject() -> AdapterUnderTest:
+    """The conformance suite's subject for ``AnthropicChatWorkflowExecutor``: the real executor over a canned client."""
+
+    def build(script: Script, probe: ProviderProbe) -> object:
+        client = Client([_anthropic_entry(item) for item in script], probe)  # type: ignore[arg-type]
+        return AnthropicChatWorkflowExecutor(
+            api_key="unused",
+            default_model="claude-test",
+            client=client,
+            step_clock=probe.clock.now,
+        )
+
+    return AdapterUnderTest(name="anthropic", build=build)
