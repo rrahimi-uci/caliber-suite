@@ -30,6 +30,7 @@ from starlette.testclient import TestClient
 
 import caliber.effects.dispatcher as dispatcher_module
 from caliber.db.models import (
+    CaliberEffectProposal,
     CaliberEventOutbox,
     CaliberProjectMember,
     CaliberRuntimeApprovalRequest,
@@ -44,6 +45,7 @@ from caliber.effects.dispatcher import (
 )
 from caliber.effects.receipts import ReceiptFacts
 from caliber.effects.records import proposal_state
+from caliber.effects.step_proposal import record_step_proposal, untrusted_tool
 from caliber.ownership import acquire
 from caliber.workflows.approval_policy import approval_valid_at_commit
 from tests.effect_helpers import admit_fake_backend, leased
@@ -58,11 +60,16 @@ from tests.egi_scenarios.test_b02_admission import PREFIX
 from tests.egi_scenarios.test_v04_stale_approval import (
     EVIDENCE,
     MICROSECOND,
+    NODE,
     T0,
     TTL,
     _request,
     _waiting_run,
 )
+from tests.test_governed_agent_step import PROTECTED
+from tests.test_governed_agent_step import _context as _step_context
+from tests.test_governed_agent_step import _request as _step_request
+from tests.test_governed_agent_step import _result as _step_result
 
 BACKEND_KIND = "b064"
 DOWNSTREAM_ID = "b064-downstream-1"
@@ -475,6 +482,58 @@ def test_crash_after_claim_leaves_a_recoverable_dispatched_state(
     _consumed_once(approver, approval_id, proposal_id, "dispatched")
 
 
+def test_a_governed_agent_steps_own_request_is_decided_over_http_and_consumed_once(
+    approver: ReferenceApp, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The request the B08.2 writer made for a parked agent step is decided by id over HTTP and consumed by the dispatcher.
+
+    The route knows nothing about the step or its backend: it records the decision for the request the step parked behind,
+    the run stays ``waiting_approval`` (a decision does not wake it), and the claim consumes the decision once.
+    """
+    run_id = _waiting_run(approver)
+    context = _step_context(
+        approver.session_factory, workflow_run_id=run_id, requested_by="agent-step-runner"
+    )
+    request = _step_request(workflow_run_id=run_id, node_id=NODE)
+    recorded = record_step_proposal(
+        context,
+        request,
+        _step_result(request),
+        {PROTECTED: untrusted_tool(PROTECTED, (PROTECTED, "1.0"))},
+    )
+    with approver.session_factory() as session:
+        proposal = session.get(CaliberEffectProposal, recorded.proposal_id)
+        row = session.get(CaliberRuntimeApprovalRequest, recorded.approval_request_id)
+        assert proposal is not None and row is not None
+        connector, version = proposal.connector, proposal.connector_version
+        expected_version, evidence = proposal.expected_resource_version, row.evidence_hash
+        assert row.requested_by == "agent-step-runner"
+    fake = CountingBackend()
+    admit_fake_backend(monkeypatch, BACKEND_KIND, fake, connector=connector, version=version)
+    with approver.session_factory() as session:
+        lease = acquire(session, "b064-agent-step", ttl_seconds=600)
+        assert lease is not None
+        session.commit()
+
+    decided = _decide(approver, run_id, recorded.approval_request_id)
+
+    assert decided.status_code == 200, decided.text
+    assert _run_state(approver, run_id)[0] == "waiting_approval"
+    _unconsumed(approver, recorded.approval_request_id, recorded.proposal_id)
+    outcome = _dispatch(
+        approver,
+        recorded.proposal_id,
+        recorded.approval_request_id,
+        lease,
+        current_resource_version=expected_version,
+        evidence_hash=evidence,
+        now=None,
+    )
+    assert isinstance(outcome, EffectOutcome) and outcome.state == "committed", repr(outcome)
+    assert fake.calls == 1
+    _consumed_once(approver, recorded.approval_request_id, recorded.proposal_id, "committed")
+
+
 # ------------------------------------------------------------------------------ races (PostgreSQL)
 
 
@@ -630,6 +689,32 @@ def test_approve_and_reject_racing_leave_exactly_one_decision(
         row = session.get(CaliberRuntimeApprovalRequest, approval_id)
         assert row is not None and row.consumed_at is None
         assert row.status == ("approved" if first == "approve" else "rejected")
+    _unconsumed(approver, approval_id, proposal_id)
+
+
+def test_a_stale_owner_is_refused_before_it_waits_for_any_row_lock(
+    approver: ReferenceApp, monkeypatch: pytest.MonkeyPatch, backend: CountingBackend
+) -> None:
+    """The lease is fenced first (lease, then run, proposal, request): a stale owner never queues behind the run lock.
+
+    While another connection holds the run lock, a dispatch with a stale lease must finish at once with its refusal; if the
+    fence came after the run lock it would wait there, holding up the owner that is meant to win.
+    """
+    _need_postgresql(approver)
+    run_id, approval_id, proposal_id, stale = _prepare(
+        approver, monkeypatch, occurrence="stale-first"
+    )
+    with approver.session_factory() as session:
+        leased(session, "b064-successor")
+        session.commit()
+
+    with _holding_run_lock(approver, run_id):
+        worker = Worker(lambda: _dispatch(approver, proposal_id, approval_id, stale))
+        worker.start()
+        refused = worker.finished(timeout=10)  # still holding the run lock: it did not wait for it
+
+    assert isinstance(refused, EffectRefused) and refused.code in {"lease_lost", "stale_owner"}
+    assert backend.calls == 0
     _unconsumed(approver, approval_id, proposal_id)
 
 
