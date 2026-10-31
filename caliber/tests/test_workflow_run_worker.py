@@ -5086,7 +5086,7 @@ def test_worker_executes_knowledge_query_node_with_age_graph_retrieval(
             type(self).last_identity_user = identity.user_id
             return SimpleNamespace(active_version_id="KBV-active")
 
-        def query(self, payload, *, identity):
+        def query(self, payload, *, identity, model_context_recorder=None, model_context=None):
             type(self).last_query = payload
             type(self).last_identity_user = identity.user_id
             return _FakeQueryResult(payload)
@@ -5188,7 +5188,7 @@ def test_worker_executes_graph_hybrid_rag_starter_template(
             type(self).last_identity_user = identity.user_id
             return SimpleNamespace(active_version_id="KBV-HYBRID-ACTIVE")
 
-        def query(self, payload, *, identity):
+        def query(self, payload, *, identity, model_context_recorder=None, model_context=None):
             type(self).last_query = payload
             type(self).last_identity_user = identity.user_id
             return _FakeQueryResult(payload)
@@ -8738,7 +8738,7 @@ def test_worker_marks_knowledge_query_service_failures_as_runtime_errors(
             del knowledge_base_id, identity
             return SimpleNamespace(active_version_id="KBV-active")
 
-        def query(self, payload, *, identity):
+        def query(self, payload, *, identity, model_context_recorder=None, model_context=None):
             del payload, identity
             raise RuntimeError("knowledge query service unavailable")
 

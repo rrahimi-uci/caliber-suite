@@ -365,7 +365,9 @@ def test_build_plan_resolves_empty_knowledge_query_modes_from_kb_default(
         def options(self) -> SimpleNamespace:
             return SimpleNamespace(age_enabled=age_enabled)
 
-        def query(self, request, *, identity) -> _QueryResult:
+        def query(
+            self, request, *, identity, model_context_recorder=None, model_context=None
+        ) -> _QueryResult:
             captured["request"] = request
             return _QueryResult(request.question)
 
