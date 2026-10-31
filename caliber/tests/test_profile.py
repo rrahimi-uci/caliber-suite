@@ -27,7 +27,6 @@ import caliber.profile as profile_module
 import tests.test_effect_dispatcher as dispatcher_tests
 from caliber.config import CaliberConfig, ConfigError
 from caliber.db.migrate import build_config
-<<<<<<< HEAD
 from caliber.db.models import (
     CaliberEffectProposal,
     CaliberEventOutbox,
@@ -44,14 +43,12 @@ from caliber.effects.dispatcher import (
 )
 from caliber.effects.receipts import ReceiptFacts
 from caliber.effects.records import Intent, proposal_state, record_proposal
-from caliber.profile import REFERENCE_CONNECTORS, ProfileViolation, reference_profile_violations
-=======
 from caliber.profile import (
+    REFERENCE_CONNECTORS,
     ProfileViolation,
     apply_distinct_approver_required,
     reference_profile_violations,
 )
->>>>>>> origin/main
 from caliber.server import create_app
 from tests.dialect_helpers import POSTGRES_TEST_URL, dialect_database_url
 from tests.effect_helpers import admit_fake_backend, leased

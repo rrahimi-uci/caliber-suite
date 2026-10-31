@@ -1152,20 +1152,6 @@ def test_claim_returns_existing_in_flight_proposal_without_backend(
 
     monkeypatch.setattr(dispatcher_module, "_session_scope", lambda _source: Scope())
     monkeypatch.setattr(dispatcher_module, "proposal_state", lambda _session, _id: state)
-<<<<<<< HEAD
-    result = dispatcher_module._claim_dispatch(
-        object(),
-        state.proposal_id,
-        approval_id="approval",
-        approver_scopes=set(),
-        lease=object(),  # type: ignore[arg-type]
-        admitted=admit_backend("document_request"),
-        current_resource_version=None,
-        evidence_hash=None,
-        approval_validator=dispatcher_module.approval_valid_at_commit,
-        now=AT,
-    )
-=======
     with governed_span("effect.dispatch") as span:
         result = dispatcher_module._claim_dispatch(
             object(),
@@ -1173,15 +1159,13 @@ def test_claim_returns_existing_in_flight_proposal_without_backend(
             approval_id="approval",
             approver_scopes=set(),
             lease=object(),  # type: ignore[arg-type]
-            backend_connector="document-request",
-            backend_connector_version="1",
+            admitted=admit_backend("document_request"),
             current_resource_version=None,
             evidence_hash=None,
             approval_validator=dispatcher_module.approval_valid_at_commit,
             now=AT,
             span=span,
         )
->>>>>>> origin/main
     assert isinstance(result, dispatcher_module.EffectOutcome)
     assert result.applied is False and result.reason == "already_dispatched"
     # The proposal is named (the state read found it); the caller's unvalidated approval id is not.

@@ -766,55 +766,22 @@ def dispatch(
         if approval_validator is not approval_valid_at_commit:
             raise EffectRefused("approval_validator_untrusted")
 
-<<<<<<< HEAD
-    # Admission comes before the claim: a transport nobody admitted, or settings it does not accept, is refused with
-    # the proposal still ``proposed`` and its approval unconsumed.
-    registration = BACKENDS[backend_kind]
-    admitted = _admit_registration(backend_kind, registration)
-    try:
-        check_config(admitted, backend_config)
-    except AdmissionRefused as exc:
-        raise UnsupportedEffectPath(exc.code) from exc
-    try:
-        claim = _claim_dispatch(
-            session_or_factory,
-            proposal_id,
-            approval_id=approval_id,
-            approver_scopes=approver_scopes,
-            lease=lease,
-            admitted=admitted,
-            current_resource_version=current_resource_version,
-            evidence_hash=evidence_hash,
-            approval_validator=approval_valid_at_commit,
-            now=now,
-        )
-    except ProposalError as exc:
-        raise EffectRefused(exc.code) from exc
-    if isinstance(claim, EffectOutcome):
-        return claim
-    request, captured_lease, attempt = claim.request, claim.lease, claim.attempt
-    try:
-        transport = _backend_call(registration.backend, request, backend_config)
-    except Exception as exc:
-        transport = TransportResult(classify_error(exc))
-
-    try:
-        with _session_scope(session_or_factory) as session:
-            state = proposal_state(session, proposal_id)
-            settled = settle_dispatch(
-                session,
-=======
+        # Admission comes before the claim: a transport nobody admitted, or settings it does not accept, is refused
+        # with the proposal still ``proposed`` and its approval unconsumed.
         registration = BACKENDS[backend_kind]
+        admitted = _admit_registration(backend_kind, registration)
+        try:
+            check_config(admitted, backend_config)
+        except AdmissionRefused as exc:
+            raise UnsupportedEffectPath(exc.code) from exc
         try:
             claim = _claim_dispatch(
                 session_or_factory,
->>>>>>> origin/main
                 proposal_id,
                 approval_id=approval_id,
                 approver_scopes=approver_scopes,
                 lease=lease,
-                backend_connector=registration.connector,
-                backend_connector_version=registration.connector_version,
+                admitted=admitted,
                 current_resource_version=current_resource_version,
                 evidence_hash=evidence_hash,
                 approval_validator=approval_valid_at_commit,
