@@ -2366,7 +2366,7 @@ returning an aware `datetime`, default the UTC clock), is what a step's deadline
   protected-effect inventory and refuses a mismatch). If one response calls several protected tools the first is proposed and
   the rest of that response, read calls included, does not run. A call to a tool the agent does not have is `malformed_result`.
   The envelope carries the connector the *model* names: a `ProposedAction` has no tool-name field, so the platform ties a
-  proposal to the agent's tools by class, not by name (the strictest of the agent's non-read tools; see the B08.2 section below).
+  proposal to the agent's tools through a trusted tool-to-backend map (see the B08.2 section below).
 - **Limits come from the request.** `max_turns` counts provider responses; `max_tool_calls` counts read tools run, all or none per
   response; `max_tokens` is compared with the provider's total before each call and after each response (more than the limit
   stops with `max_tokens` whatever the model wanted; exactly the limit is allowed but leaves nothing for another call); the
@@ -2409,12 +2409,22 @@ reference profile and every existing plan run agent nodes exactly as before). Wi
    unresolved binding, a missing row and an unreadable registry are the inventory's fail-closed class (`irreversible_write`). Only
    tools classified `read` are handed to the adapter (`AgentStepInput.read_tools`); every other tool is proposed and never run. A
    classifier that raises, or answers with anything but a `ToolTrust`, is the fail-closed class.
-2. **The proposal is bound, never trusted.** A v1 proposal names no tool, so the platform cannot tell which protected tool the
-   model meant and does not guess a looser one: it binds to the **strictest** class among the agent's non-read tools (a tool the
-   profile refuses outranks one it dispatches) and to the `connector_version` the dispatcher registered for the connector the
-   proposal names (`caliber.effects.dispatcher.BACKENDS`). `ProposedAction.bound_to` refuses a claim that differs
-   (`claim_mismatch`); a connector the dispatcher cannot perform is `unsupported_effect_path`, so no approver is asked about an
-   effect nobody could carry out. Nothing is repaired: a refused proposal records nothing, and the node's retry policy applies.
+2. **The connector comes from a trusted map, never from the proposal.** A v1 proposal names no tool, and the connector it
+   names is the model's word, so the platform ties a proposal to the agent through `GovernedStepContext.tool_backends`: which
+   backend kind (`caliber.effects.dispatcher.BACKENDS`) each tool sends through, built by the producer from trusted
+   configuration (nothing a model, a manifest author or a tool call writes). Only the agent's non-read tools in that map count, and
+   the connector the model named is used for one thing: choosing among them. It must be the connector of a mapped tool's
+   registered backend (`connector_not_mapped` otherwise; `connector_ambiguous` if two kinds share it), so a model cannot reach
+   `http`, or any other registered connector, through a tool that does not send there. The backend kind is then admitted
+   (`admit_backend`, B12.3a: implementation, capability and configuration pinned in `REFERENCE_CONNECTORS`; a refusal keeps its
+   own code) and that admission is what `submit_proposal` requires. The destination must match the admitted connector's
+   resource pattern where it declares one (`resource_not_admitted`).
+   **The proposal is bound, never trusted.** The class is the strictest among the tools that map to that backend (a tool the
+   profile refuses outranks one it dispatches), and the version is the admitted one. `ProposedAction.bound_to` refuses a claim
+   that differs (`claim_mismatch`). A mapped tool's destination is still the model's to choose within what the connector
+   accepts, and a generic `http` mapping accepts any address: map a tool to `http` only where the approver and the egress policy
+   at dispatch are an acceptable control. Nothing is repaired: a refused proposal records nothing, and the node's retry policy
+   applies.
 3. **One effect, one question.** `submit_proposal` records the bound action as a `proposed` effect for the node's durable occurrence
    (`(run, node, occurrence)`, the interpreter's occurrence id, so a retry and a restarted run find the same row) and, in the same
    transaction, `create_approval_request` records the approval request bound to that exact intent (`intent_hash`), with an evidence
@@ -2424,7 +2434,10 @@ reference profile and every existing plan run agent nodes exactly as before). Wi
 4. **The node parks.** The step returns `blocked` (`waiting_approval:<node>`) with a `runtime_approval` checkpoint that names the
    proposal and the request (identifiers and the intent hash, never the action's arguments). The worker parks the run
    `waiting_approval` on that very request and creates no node-level duplicate; it refuses to park a run behind a request that is
-   not live and bound to this run, node and proposal. The decision and resume routes accept this checkpoint kind already.
+   not live and bound to this run, node and proposal. The routes accept the checkpoint kind (`runtime_approval`), **but a parked run
+   cannot be approved yet**: until the bound-approval decision is wired (PR #1042, B06.4, issue #735, open when this was written)
+   the decision route answers `409 approval_bound_not_wired` for a live request bound to a proposal. Once #1042 lands the request
+   is decided by naming its `runtime_approval_id` while the run is `waiting_approval` at that node.
 5. **A resumed or retried step does not ask the model again.** Before the provider is called the node looks for its occurrence's
    proposal: `committed` completes the node, `failed` fails it, `proposed` parks it again behind its live request (re-asked when the
    last one expired, was superseded or was consumed; a *rejected* request is final, `approval_rejected`), and any state in between
@@ -2435,11 +2448,15 @@ Refusals are `EffectRefused` with a fixed code and no value from the model; the 
 | the step | result | recover by |
 | --- | --- | --- |
 | proposes a tool class the model made up (`read` for a write) | run error `governed agent step proposal refused: claim_mismatch`, nothing recorded | none for this output; the node's retry asks again as the next attempt |
-| names a connector or version the dispatcher has not registered | `unsupported_effect_path` or `claim_mismatch`, nothing recorded | registering the connector's backend (B04), or the model proposing the registered one |
+| names a connector none of the agent's mapped tools sends through (a hostile `http` proposal, say) | `connector_not_mapped`, nothing recorded | mapping a tool to the backend in the context, if the agent should reach it |
+| names a registered connector but the wrong version or class | `claim_mismatch`, nothing recorded | the model proposing the admitted version and the tool's class |
+| names a destination the admitted connector does not accept | `resource_not_admitted`, nothing recorded | a destination of the connector's shape |
+| its backend is not admitted (drifted implementation, capability or configuration) | the admission's code (`connector_configuration_mismatch`, ...), nothing recorded | re-admitting the connector (B12.3a) |
 | proposes while the agent has no protected tool | `no_protected_tool` | none: the call was invented |
 | proposes while the agent holds a tool the profile refuses | `unsupported_effect_path` | removing the refused tool from the agent |
 | proposes a different action for an occurrence that already has one | `intent_conflict`, the stored proposal stands | none: the occurrence's effect is fixed |
-| completes | the node publishes an empty `final_output` and the step's usage (the v1 result has no text channel) | adding an output field to the step contract before governed steps carry text |
+| completes without proposing | run error `governed agent step completed without an output channel`; nothing is published | adding an output field to the step contract before governed steps carry text |
+| the agent has a handoff, or sits as the inline target of a fan-out, loop or error boundary | the run is refused before any node runs (`governed agent steps do not follow handoffs` / `cannot run inline`), no proposal or request exists | giving the governed agent its own node in the graph |
 | stops on a limit, refuses or fails | run error `governed agent step stopped: <stop reason> (<fixed code>)` | as for the step (limits and reservations are B08.3 and B08.4) |
 | its approval request was rejected, then the run is resumed | `approval_rejected` | a new run |
 
@@ -2456,14 +2473,16 @@ plan.governed_agent_steps = GovernedStepContext(
     limits=lambda agent: step_limits,                  # carried in the request; enforced by B08.3
     requested_by=run_initiator,
     approval_ttl_seconds=configured_ttl_seconds(config),
+    tool_backends={"request_missing_document": "document_request"},  # the producer's trusted map
 )
 ```
 
 Not covered, so not claimed: dispatching an approved proposal (B04.6 routes model-selected calls through the dispatcher; until then
 an approved proposal stays `proposed` and the run stays `waiting_approval`), enforcing the limits (B08.3), the token reservation
-(B08.4), handoffs (a governed step hands the adapter each target's read tools only and does not follow a handoff), and the
-output text of a governed step. A proposal's class is the strictest of the agent's non-read tools until the contract carries the
-tool name; telling the model the connector, version and class to claim is an adapter concern.
+(B08.4), handoffs and inline targets (refused), and the output text of a governed step (a step that completes is refused). The
+v1 proposal still carries no tool name, so within a connector the class is the strictest of the tools that map to it; an additive
+contract change (the tool name in the envelope) would make it exact. Telling the model the connector, version and class to claim
+is an adapter concern.
 
 ## Policy decisions
 
