@@ -236,6 +236,7 @@ job_migration_parity_postgres() {
         tests/test_agent_step_contract.py \
         tests/test_effect_records.py \
         tests/test_effect_receipts.py \
+        tests/test_causal_links.py \
         tests/test_approval_binding.py \
         tests/test_approval_supersession.py \
         tests/test_routes_system_effects.py \

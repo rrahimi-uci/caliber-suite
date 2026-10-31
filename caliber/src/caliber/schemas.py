@@ -1836,6 +1836,193 @@ class AdmissionManifestSchema(BaseModel):
     manifest_digest: str | None = None
 
 
+#: How one link of a causal chain stands (B11.3b, #745).
+#:
+#: ``linked``        a persisted row this record names exists and belongs to this run
+#: ``not_required``  the record shows the link is not part of this effect's path (a policy decision approved it, so
+#:                   there is no runtime approval)
+#: ``pending``       the effect is still in flight and the row is expected to appear (or exists but is not yet
+#:                   consumed); ``code`` says what it waits on
+#: ``missing``       the chain needs a row here, the effect is settled (or the id names nothing) and the platform has
+#:                   none: a broken chain (``code`` says why; never synthesized)
+#: ``unrecorded``    the platform does not persist this link against the effect, so it can be neither followed nor
+#:                   called broken (``code`` says where else to look)
+CausalLinkStatus = Literal["linked", "not_required", "pending", "missing", "unrecorded"]
+
+
+class CausalRunManifestLinkSchema(BaseModel):
+    """The run's persisted admission manifest by id and digest, never its body (B11.3b, #745)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    status: Literal["linked", "legacy", "missing"]
+    code: str | None = None
+    manifest_id: str | None = None
+    schema_version: str | None = None
+    manifest_digest: str | None = None
+    created_at: datetime | None = None
+
+
+class CausalAbsentRecordSchema(BaseModel):
+    """A record kind that does not exist yet, stated rather than synthesized (B11.3b, #745)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    status: Literal["not_available"] = "not_available"
+    code: str
+
+
+class CausalContextManifestSchema(BaseModel):
+    """One persisted context manifest of a step, by id and digest (B07, B11.3b)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    context_manifest_id: str
+    step_request_id: str
+    node_step_id: str | None = None
+    occurrence_id: str | None = None
+    attempt: int | None = None
+    revision: int
+    schema_version: str
+    manifest_digest: str
+    created_at: datetime | None = None
+
+
+class CausalPolicyDecisionSchema(BaseModel):
+    """One persisted policy decision of the run: what was asked, the answer and its digests, never who or why in prose."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    decision_id: str
+    grant_id: str
+    action: str
+    resource: str
+    result: str
+    reason_codes: list[str] = Field(default_factory=list)
+    policy_version: str
+    input_hash: str
+    evaluated_at: datetime | None = None
+
+
+class CausalContextLinkSchema(BaseModel):
+    """The context manifest of the step that proposed an effect (the highest revision of its node occurrence)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    status: CausalLinkStatus
+    code: str | None = None
+    context_manifest_id: str | None = None
+    revision: int | None = None
+    attempt: int | None = None
+    manifest_digest: str | None = None
+
+
+class CausalApprovalLinkSchema(BaseModel):
+    """The runtime approval request behind an effect: ids, digests, states and timestamps, never who decided or why."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    status: CausalLinkStatus
+    code: str | None = None
+    approval_id: str | None = None
+    request_status: str | None = None
+    superseded_by: str | None = None
+    intent_hash: str | None = None
+    evidence_hash: str | None = None
+    policy_digest: str | None = None
+    requested_at: datetime | None = None
+    decided_at: datetime | None = None
+    expires_at: datetime | None = None
+    consumed_at: datetime | None = None
+
+
+class CausalDecisionLinkSchema(BaseModel):
+    """The policy decision that approved an effect, when the effect records it."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    status: CausalLinkStatus
+    code: str | None = None
+    decision_id: str | None = None
+    action: str | None = None
+    result: str | None = None
+    reason_codes: list[str] = Field(default_factory=list)
+    policy_version: str | None = None
+    input_hash: str | None = None
+    evaluated_at: datetime | None = None
+
+
+class CausalEffectOutcomeLinkSchema(BaseModel):
+    """The verified receipt of an effect: its id is the ``effect_id`` the effect's spans carry."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    status: CausalLinkStatus
+    code: str | None = None
+    effect_id: str | None = None
+    attempt: int | None = None
+    receipt_digest: str | None = None
+    response_digest: str | None = None
+    verified_at: datetime | None = None
+    #: True when the proposal itself records this receipt as the one that settled it.
+    committed: bool = False
+
+
+class CausalEffectSchema(BaseModel):
+    """One effect proposal and the persisted records that authorised and settled it (B11.3b, #745)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    proposal_id: str
+    node_id: str
+    occurrence_id: str
+    node_step_id: str
+    state: str
+    connector: str
+    connector_version: str
+    effect_class: str
+    intent_hash: str
+    created_at: datetime | None = None
+    settled_at: datetime | None = None
+    context_manifest: CausalContextLinkSchema
+    approval: CausalApprovalLinkSchema
+    decision: CausalDecisionLinkSchema
+    effect: CausalEffectOutcomeLinkSchema
+    #: The ``caliber.*`` attributes this effect's resolved rows support: a derived union, not what any one span carries and not
+    #: read from the tracing backend (each span binds only the ids it had read, and the dispatch span's decision id is not here).
+    span_attributes: dict[str, str] = Field(default_factory=dict)
+    #: Which of ``context_manifest``, ``approval``, ``decision`` and ``effect`` are ``missing``: a broken chain.
+    missing_links: list[str] = Field(default_factory=list)
+    #: Which of them are ``unrecorded``: not stored against the effect, so neither followable nor broken.
+    unrecorded_links: list[str] = Field(default_factory=list)
+
+
+class CausalLinksSchema(BaseModel):
+    """The persisted causal links of one workflow run: one page of one section (B11.3b, #745).
+
+    Identifiers, digests, states and timestamps only: no prompt, argument, payload body, resource version, downstream request
+    id, or the name of anyone who requested or decided. ``effects`` (the default ``section``), ``context_manifests`` and
+    ``policy_decisions`` are the three paginated sections; only the requested one is filled. ``acceptance`` and
+    ``evidence_package`` say that those records do not exist yet.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    workflow_run_id: str
+    project_id: str | None = None
+    trace_id: str | None = None
+    section: Literal["effects", "context_manifests", "policy_decisions"]
+    run_manifest: CausalRunManifestLinkSchema
+    acceptance: CausalAbsentRecordSchema
+    evidence_package: CausalAbsentRecordSchema
+    effects: list[CausalEffectSchema] = Field(default_factory=list)
+    context_manifests: list[CausalContextManifestSchema] = Field(default_factory=list)
+    policy_decisions: list[CausalPolicyDecisionSchema] = Field(default_factory=list)
+    limit: int
+    has_more: bool
+    next_cursor: str | None = None
+
+
 class WorkflowRunTraceSpanSchema(BaseModel):
     """One span in a workflow run's MLflow trace (in-app trace viewer)."""
 

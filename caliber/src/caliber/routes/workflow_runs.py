@@ -34,6 +34,7 @@ from caliber.db.models import (
 )
 from caliber.ids import new_workflow_run_id
 from caliber.mcp_policy import deployment_blockers
+from caliber.observability import causal_links
 from caliber.observability.trace_access import can_read_run_payloads, redact_trace_detail
 from caliber.profile import payload_governance_active
 from caliber.resource_access import ACTION_APPROVE, require_project_access_if_scoped
@@ -47,6 +48,7 @@ from caliber.routes._errors import CaliberHTTPException
 from caliber.run_manifest import canonical_bytes, digest_of
 from caliber.schemas import (
     AdmissionManifestSchema,
+    CausalLinksSchema,
     RuntimeApprovalAckSchema,
     WorkflowRunApprovalDecisionRequest,
     WorkflowRunCancelRequest,
@@ -120,6 +122,7 @@ DETAIL_PATH = PREFIX + "/workflow-runs/{run_id}"
 LINEAGE_PATH = DETAIL_PATH + "/lineage"
 MANIFEST_PATH = DETAIL_PATH + "/manifest"
 ADMISSION_MANIFEST_PATH = DETAIL_PATH + "/admission-manifest"
+CAUSAL_LINKS_PATH = DETAIL_PATH + "/causal-links"
 EVENTS_PATH = DETAIL_PATH + "/events"
 TRACE_PATH = DETAIL_PATH + "/trace"
 CHECKPOINTS_PATH = DETAIL_PATH + "/checkpoints"
@@ -1278,6 +1281,58 @@ async def get_workflow_run_admission_manifest(request: Request) -> JSONResponse:
                 run_manifest=loaded.record,
                 manifest_digest=loaded.digest,
             )
+    return envelope_response(data)
+
+
+async def get_workflow_run_causal_links(request: Request) -> JSONResponse:
+    """The persisted causal links of a run: manifest, context manifests, effects, approvals, decisions, receipts (B11.3b, #745).
+
+    Read-only, identifiers and digests only (see :mod:`caliber.observability.causal_links`). Access is the run's workflow
+    visibility **plus** a role in the run's project (``read``), evaluated on every request from the caller's current
+    membership; a run you cannot read, a run in another project and an unknown id are the same ``404``.
+    ``section`` (``effects`` by default, ``context_manifests`` or ``policy_decisions``) picks the paginated list and
+    ``limit`` and ``cursor`` page it.
+    """
+    from caliber.auth import resolve_identity  # noqa: PLC0415 - avoids an import cycle
+
+    require_user(request)
+    run_id = request.path_params["run_id"]
+    factory = get_session_factory(request)
+    with factory() as session:
+        run = _get_run_or_404(session, run_id, request=request)
+        try:
+            require_project_access_if_scoped(
+                session, resolve_identity(request), run.project_id, "read"
+            )
+        except HTTPException as exc:
+            # A run you can see but whose project you have no role in is, for this evidence, a run that is not there.
+            raise HTTPException(
+                status_code=404, detail=f"workflow run {run_id!r} not found"
+            ) from exc
+        section = request.query_params.get("section") or "effects"
+        if section not in causal_links.SECTIONS:
+            raise HTTPException(
+                status_code=400,
+                detail=f"section must be one of {', '.join(causal_links.SECTIONS)}",
+            )
+        limit = _parse_positive_int(
+            request.query_params.get("limit"),
+            default=causal_links.DEFAULT_LIMIT,
+            min_value=1,
+            max_value=causal_links.MAX_LIMIT,
+            label="limit",
+        )
+        try:
+            payload = causal_links.read_causal_links(
+                session,
+                run,
+                section=section,
+                limit=limit,
+                cursor=request.query_params.get("cursor"),
+            )
+        except causal_links.CausalLinksCursorError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        data = CausalLinksSchema.model_validate(payload)
     return envelope_response(data)
 
 
@@ -2901,6 +2956,7 @@ def register(app: Starlette) -> None:
     app.routes.append(
         Route(ADMISSION_MANIFEST_PATH, get_workflow_run_admission_manifest, methods=["GET"])
     )
+    app.routes.append(Route(CAUSAL_LINKS_PATH, get_workflow_run_causal_links, methods=["GET"]))
     app.routes.append(Route(EVENTS_PATH, list_workflow_run_events, methods=["GET"]))
     app.routes.append(Route(TRACE_PATH, get_workflow_run_trace, methods=["GET"]))
     app.routes.append(Route(CHECKPOINTS_PATH, list_workflow_run_checkpoints, methods=["GET"]))
