@@ -1089,3 +1089,223 @@ def test_a_stale_precondition_is_sent_as_bound_and_the_downstream_commits_nothin
     assert downstream.query(key) is None
     (proposal,) = _tool_proposals(reference_app, run_id)
     assert (proposal.state, proposal.expected_resource_version) == ("unknown", "99")
+
+
+# ---------------------------------------------------------------- B04.5 (#759): MCP tools
+
+
+def _mcp_world(
+    reference_app: ReferenceApp,
+    downstream: Downstream,
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    policy: dict[str, Any] | None,
+) -> tuple[RuntimePlan, str, list[str], str, Any]:
+    """A tool node over an MCP tool whose (scripted) server posts to the downstream, on the real reference database.
+
+    The server is untrusted and says so: every tool it lists carries ``readOnlyHint: true``. The administrator's policy for
+    the tool (``policy``, or none) is the only classification. Returns the plan, the run id, the proposals the runtime asked
+    to authorize, the key the workflow puts in the call's arguments, and the scripted server.
+    """
+    from tests.mcp_fakes import SERVER_ID, FakeMcp, seed_server, use_database
+    from tests.test_mcp_governed_dispatch import tool_node_manifest
+
+    with reference_app.session_factory() as session:
+        member = session.execute(
+            select(CaliberProjectMember).where(
+                CaliberProjectMember.project_id == PROJECT_A,
+                CaliberProjectMember.user_id == APPROVER_A,
+            )
+        ).scalar_one()
+        member.role = "reviewer"
+        session.commit()
+    seed_server(reference_app.session_factory, tools={"request_document": policy})
+    use_database(monkeypatch, reference_app.session_factory)
+    fake = FakeMcp().install(monkeypatch)
+    run_id = _waiting_run(reference_app)
+    key = logical_key(workflow_run_id=run_id, node_id="tool_node", occurrence_id="tool_node")
+    url = f"{downstream.base_url}/cases/MORT-2026-000184/document-requests"
+
+    def request_document(_name: str, arguments: dict[str, Any]) -> None:
+        # The MCP tool's own effect, at the downstream. The platform sends it no key: the workflow author put one in the
+        # arguments so that the run's verifier can ask the downstream about this call.
+        httpx.post(
+            url,
+            json={"document_type": arguments["document_type"]},
+            headers={"Idempotency-Key": arguments["idempotency_key"]},
+        )
+
+    fake.on_call = request_document
+    authorize, verify, authorized = _scenario_context(reference_app, downstream, run_id)
+    resolver = InMemoryToolResolver([])
+    plan = RuntimePlan(
+        ir=build_ir(parse_manifest(tool_node_manifest("request_document")), resolver, version="1"),
+        resolver=resolver,
+        workflow_version_id="egi-b04-5-version",
+        registered_tool_identity=lambda name, version: _registered_tool_identity(
+            reference_app, name, version
+        ),
+        governed_effects=GovernedEffectContext(
+            session_factory=reference_app.session_factory,
+            workflow_run_id=run_id,
+            authorize=authorize,
+            receipt_verifier=verify,
+        ),
+    )
+    assert SERVER_ID
+    return plan, run_id, authorized, key, fake
+
+
+def test_an_mcp_write_reaches_the_downstream_once_through_the_dispatcher(
+    reference_app: ReferenceApp,
+    two_workspaces: Workspaces,
+    downstream: Downstream,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The write happens after the real approval and lease, once, and is measured at the downstream."""
+    from tests.mcp_fakes import server_policy
+
+    plan, run_id, authorized, key, fake = _mcp_world(
+        reference_app, downstream, monkeypatch, policy=server_policy("write")
+    )
+
+    result = execute(plan, _tool_arguments(key), executor=FakeWorkflowExecutor())
+
+    assert result.status == "completed", result.error
+    assert len(authorized) == 1
+    assert len(fake.calls) == 1
+    assert downstream.mutations() == 1
+    assert downstream.query(key) is not None
+    (proposal,) = _tool_proposals(reference_app, run_id)
+    assert (proposal.connector, proposal.state) == ("mcp-tool", "committed")
+    assert proposal.resource == "mcp/MCP-fake-1/request_document"
+    assert proposal.receipt_id is not None
+
+
+def test_an_mcp_write_without_approval_never_reaches_the_downstream(
+    reference_app: ReferenceApp,
+    two_workspaces: Workspaces,
+    downstream: Downstream,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from tests.mcp_fakes import server_policy
+
+    plan, run_id, _authorized, key, fake = _mcp_world(
+        reference_app, downstream, monkeypatch, policy=server_policy("write")
+    )
+    assert plan.governed_effects is not None
+    plan.governed_effects = replace(plan.governed_effects, authorize=lambda _proposal: None)
+
+    result = execute(plan, _tool_arguments(key), executor=FakeWorkflowExecutor())
+
+    assert result.status == "error"
+    assert "authorization was not granted" in (result.error or "")
+    assert fake.calls == [] and downstream.mutations() == 0
+    (proposal,) = _tool_proposals(reference_app, run_id)
+    assert proposal.state == "proposed"
+
+
+def test_an_mcp_tool_nobody_classified_is_refused_whatever_the_server_claims(
+    reference_app: ReferenceApp,
+    two_workspaces: Workspaces,
+    downstream: Downstream,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The server lists the tool with ``readOnlyHint: true``; with no administrator policy it is refused, and nothing is sent."""
+    plan, run_id, authorized, key, fake = _mcp_world(
+        reference_app, downstream, monkeypatch, policy=None
+    )
+
+    result = execute(plan, _tool_arguments(key), executor=FakeWorkflowExecutor())
+
+    assert result.status == "error"
+    assert "refused: mcp_tool_unclassified" in (result.error or "")
+    assert authorized == [] and fake.calls == []
+    assert downstream.mutations() == 0
+    assert _tool_proposals(reference_app, run_id) == []
+
+
+def test_an_mcp_read_runs_inline_without_a_proposal(
+    reference_app: ReferenceApp,
+    two_workspaces: Workspaces,
+    downstream: Downstream,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from tests.mcp_fakes import server_policy
+
+    plan, run_id, authorized, key, fake = _mcp_world(
+        reference_app, downstream, monkeypatch, policy=server_policy("read")
+    )
+
+    result = execute(plan, _tool_arguments(key), executor=FakeWorkflowExecutor())
+
+    assert result.status == "completed", result.error
+    assert authorized == [] and len(fake.calls) == 1
+    assert _tool_proposals(reference_app, run_id) == []
+
+
+def test_a_lost_mcp_answer_is_unknown_not_resent_and_not_reconcilable_here(
+    reference_app: ReferenceApp,
+    two_workspaces: Workspaces,
+    downstream: Downstream,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The tool's effect committed at the downstream but the session dropped before the answer: ``unknown``.
+
+    MCP has no key, precondition or lookup, so the platform never sends it a second time and the reconciler has no
+    lookup for the connector: an operator decides, from the downstream.
+    """
+    from tests.mcp_fakes import server_policy
+
+    plan, run_id, _authorized, key, fake = _mcp_world(
+        reference_app, downstream, monkeypatch, policy=server_policy("write")
+    )
+    fake.call_error = ConnectionResetError("the session dropped")
+
+    result = execute(plan, _tool_arguments(key), executor=FakeWorkflowExecutor())
+
+    assert result.status == "error"
+    assert "did not commit: ambiguous" in (result.error or "")
+    assert downstream.mutations() == 1 and len(fake.calls) == 1
+    (proposal,) = _tool_proposals(reference_app, run_id)
+    assert proposal.state == "unknown"
+
+    again = execute(plan, _tool_arguments(key), executor=FakeWorkflowExecutor())
+    assert "was already recorded as unknown; not run again" in (again.error or "")
+    assert downstream.mutations() == 1 and len(fake.calls) == 1
+
+    with reference_app.session_factory() as session:
+        lease = leased(session, "egi-b04-5-reconciler")
+        session.commit()
+    settled = reconcile_one(
+        reference_app.session_factory,
+        proposal.proposal_id,
+        lease=lease,
+        targets={("mcp-tool", PROJECT_A): downstream.base_url},
+    )
+    assert (settled.outcome, settled.state) == (NOT_BOUND, "unknown")
+    assert downstream.mutations() == 1
+
+
+def test_an_mcp_result_the_downstream_cannot_confirm_stays_unknown(
+    reference_app: ReferenceApp,
+    two_workspaces: Workspaces,
+    downstream: Downstream,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The server answers success but did not do what it says: the downstream holds nothing under the key, so no receipt."""
+    from tests.mcp_fakes import server_policy
+
+    plan, run_id, _authorized, key, fake = _mcp_world(
+        reference_app, downstream, monkeypatch, policy=server_policy("write")
+    )
+    fake.on_call = None
+    fake.result = {"status": "created", "id": "X-1"}
+
+    result = execute(plan, _tool_arguments(key), executor=FakeWorkflowExecutor())
+
+    assert result.status == "error"
+    assert "did not commit: receipt_unverified" in (result.error or "")
+    assert downstream.mutations() == 0 and downstream.query(key) is None
+    (proposal,) = _tool_proposals(reference_app, run_id)
+    assert (proposal.state, proposal.receipt_id) == ("unknown", None)

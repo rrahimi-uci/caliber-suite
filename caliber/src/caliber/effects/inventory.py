@@ -198,7 +198,8 @@ def tool_disposition_for_registry_tool(
 
     The same rule and the same caution as :func:`effect_class_for_registry_tool`. It answers ``dispatch`` for the
     first-party DB MCP server's tools (EP-114): they are not registry rows, so no row can be trusted as one of
-    them. Refusing them rests on the MCP server's identity, which the MCP caller must establish (#759, #774).
+    them. Refusing them rests on the MCP server's identity, which the MCP route establishes from the server record
+    (:func:`tool_disposition_for_mcp_tool`, B04.5, #759); the reference-profile switch is #774.
     """
     from caliber.workflows.builtin_tools import is_builtin_tool  # noqa: PLC0415
 
@@ -210,6 +211,18 @@ def tool_disposition_for_registry_tool(
         version=version,
     )
     return tool_disposition(name, caliber_defined=trusted)
+
+
+def tool_disposition_for_mcp_tool(tool_name: str, *, first_party_db_server: bool) -> str:
+    """:func:`tool_disposition` for a tool of an MCP server, trusting the table only for the first-party database server (EP-114).
+
+    ``first_party_db_server`` is established from the **MCP server record**
+    (``caliber.mcp_policy.is_first_party_db_server``: the CALIBER interpreter running ``-m caliber.mcp_servers.db``), never
+    from the tool names or descriptions the server reports: a third-party server's ``insert_rows`` is not the first-party
+    tool of that name, so it is routed from its administrator's classification and not refused by name. Never pass a literal
+    (``tests/test_protected_effect_inventory.py`` rejects it).
+    """
+    return tool_disposition(tool_name, caliber_defined=first_party_db_server)
 
 
 def tool_disposition(tool_name: str, *, caliber_defined: bool = False) -> str:

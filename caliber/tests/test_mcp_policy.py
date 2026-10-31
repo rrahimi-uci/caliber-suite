@@ -460,3 +460,26 @@ def test_a_dns_failure_is_not_treated_as_a_verdict(monkeypatch) -> None:
     config = CaliberConfig(mcp_remote_host_allowlist="mcp.example.com")
 
     assert execution_readiness(server, config=config).ready is True
+
+
+# ---------------------------------------------------------------------------
+# B04.5 (#759): stable refusal codes
+# ---------------------------------------------------------------------------
+
+
+def test_a_policy_error_names_a_stable_code_and_defaults_to_the_generic_one() -> None:
+    from caliber.mcp_policy import POLICY_REFUSED, McpPolicyError
+
+    assert McpPolicyError("anything").code == POLICY_REFUSED
+    assert McpPolicyError("anything", "mcp_tool_not_allowed").code == "mcp_tool_not_allowed"
+
+
+def test_the_rate_limit_refusal_has_its_own_code() -> None:
+    from caliber.mcp_policy import RATE_LIMITED, McpPolicyError, _consume_rate
+
+    mcp_policy._reset_rate_limits_for_tests()
+    _consume_rate("S-rate", "t", 1)
+    with pytest.raises(McpPolicyError) as refused:
+        _consume_rate("S-rate", "t", 1)
+    assert refused.value.code == RATE_LIMITED
+    mcp_policy._reset_rate_limits_for_tests()

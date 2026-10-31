@@ -20,7 +20,7 @@ import time
 from collections import OrderedDict, deque
 from dataclasses import dataclass, field, replace
 from pathlib import Path
-from typing import Any
+from typing import Any, Final
 from urllib.parse import urlsplit
 
 from sqlalchemy import select
@@ -29,9 +29,29 @@ from caliber.auth import CaliberIdentity
 from caliber.config import CaliberConfig
 from caliber.deployment_environments import requires_external_isolation
 
+#: The stable, payload-free codes :func:`validate_tool_access` refuses with (B04.5, #759). The dispatcher route turns them
+#: into typed refusals, so a caller never parses the human message (which can name an operator-set command or host).
+NOT_READY: Final = "mcp_server_not_ready"
+TOOLS_NOT_DISCOVERED: Final = "mcp_tools_not_discovered"
+TOOL_NOT_DISCOVERED: Final = "mcp_tool_not_discovered"
+TOOL_UNCLASSIFIED: Final = "mcp_tool_unclassified"
+TOOL_NOT_ALLOWED: Final = "mcp_tool_not_allowed"
+RATE_LIMITED: Final = "mcp_tool_rate_limited"
+POLICY_REFUSED: Final = "mcp_policy_refused"
+
+#: The module the first-party PostgreSQL MCP server runs as (``python -m caliber.mcp_servers.db``).
+FIRST_PARTY_DB_MODULE: Final = "caliber.mcp_servers.db"
+
 
 class McpPolicyError(RuntimeError):
-    """An MCP target violates configured execution policy."""
+    """An MCP target violates configured execution policy.
+
+    ``code`` is one of the module's stable codes (:data:`POLICY_REFUSED` when a raise site names none).
+    """
+
+    def __init__(self, message: str, code: str = POLICY_REFUSED) -> None:
+        super().__init__(message)
+        self.code = code
 
 
 @dataclass(frozen=True)
@@ -423,36 +443,66 @@ def validate_tool_access(
 ) -> dict[str, Any]:
     readiness = execution_readiness(server, config=config)
     if not readiness.ready:
-        raise McpPolicyError("; ".join(readiness.blockers))
+        raise McpPolicyError("; ".join(readiness.blockers), NOT_READY)
     known = {
         str(item.get("name", "")).strip()
         for item in (getattr(server, "discovered_tools", ()) or ())
         if isinstance(item, dict) and str(item.get("name", "")).strip()
     }
     if not known:
-        raise McpPolicyError("MCP tools have not been discovered; test the connection first")
+        raise McpPolicyError(
+            "MCP tools have not been discovered; test the connection first", TOOLS_NOT_DISCOVERED
+        )
     if tool_name not in known:
-        raise McpPolicyError(f"MCP tool {tool_name!r} is not in the discovered tool allowlist")
+        raise McpPolicyError(
+            f"MCP tool {tool_name!r} is not in the discovered tool allowlist", TOOL_NOT_DISCOVERED
+        )
     policies = getattr(server, "tool_policies", {}) or {}
     explicit = policies.get(tool_name) if isinstance(policies, dict) else None
     required_fields = {"allowed", "side_effect_level", "requires_approval"}
     if not isinstance(explicit, dict) or not required_fields.issubset(explicit):
         raise McpPolicyError(
-            f"MCP tool {tool_name!r} has no explicit allow, side-effect, and approval classification"
+            f"MCP tool {tool_name!r} has no explicit allow, side-effect, and approval classification",
+            TOOL_UNCLASSIFIED,
         )
     if not isinstance(explicit.get("allowed"), bool):
-        raise McpPolicyError(f"MCP tool {tool_name!r} has an invalid allowed classification")
+        raise McpPolicyError(
+            f"MCP tool {tool_name!r} has an invalid allowed classification", TOOL_UNCLASSIFIED
+        )
     if explicit.get("side_effect_level") not in {"read", "write", "external_action"}:
-        raise McpPolicyError(f"MCP tool {tool_name!r} has an invalid side-effect classification")
+        raise McpPolicyError(
+            f"MCP tool {tool_name!r} has an invalid side-effect classification", TOOL_UNCLASSIFIED
+        )
     if not isinstance(explicit.get("requires_approval"), bool):
-        raise McpPolicyError(f"MCP tool {tool_name!r} has an invalid approval classification")
+        raise McpPolicyError(
+            f"MCP tool {tool_name!r} has an invalid approval classification", TOOL_UNCLASSIFIED
+        )
     policy = effective_tool_policy(server, tool_name)
     if not bool(policy.get("allowed", True)):
-        raise McpPolicyError(f"MCP tool {tool_name!r} is blocked by policy")
+        raise McpPolicyError(f"MCP tool {tool_name!r} is blocked by policy", TOOL_NOT_ALLOWED)
     limit = policy.get("rate_limit_per_minute")
     if consume_rate and isinstance(limit, int):
         _consume_rate(str(getattr(server, "server_id", "")), tool_name, limit)
     return policy
+
+
+def is_first_party_db_server(server: Any) -> bool:
+    """Whether ``server`` launches CALIBER's own PostgreSQL MCP server: the CALIBER interpreter running ``-m caliber.mcp_servers.db``.
+
+    This is the identity the protected-effect inventory's EP-114 names (its tools can write to a database). It rests on how
+    the **server record** launches the child, never on the tool names or descriptions the server reports: the command must
+    resolve to the interpreter running CALIBER and the first arguments must be exactly ``-m caliber.mcp_servers.db``. A
+    remote server, another interpreter or another module, however it names its tools, is a third-party server.
+    """
+    if str(getattr(server, "transport", "")).strip().lower() != "stdio":
+        return False
+    command = str(getattr(server, "command", "")).strip()
+    args = [str(arg) for arg in (getattr(server, "args", ()) or ())]
+    return (
+        bool(command)
+        and _same_executable(resolve_stdio_command(command), sys.executable)
+        and args[:2] == ["-m", FIRST_PARTY_DB_MODULE]
+    )
 
 
 def deployment_blockers(
@@ -809,7 +859,8 @@ def _consume_rate(server_id: str, tool_name: str, limit: int) -> None:
             window.popleft()
         if len(window) >= limit:
             raise McpPolicyError(
-                f"MCP tool {tool_name!r} exceeded its process-local limit of {limit}/minute"
+                f"MCP tool {tool_name!r} exceeded its process-local limit of {limit}/minute",
+                RATE_LIMITED,
             )
         window.append(now)
         _RATE_WINDOWS.move_to_end(key)
@@ -881,12 +932,14 @@ def _side_effect_rank(value: str) -> int:
 
 
 __all__ = [
+    "FIRST_PARTY_DB_MODULE",
     "McpExecutionReadiness",
     "McpPolicyError",
     "deployment_blockers",
     "effective_tool_policy",
     "execution_readiness",
     "extract_dependencies",
+    "is_first_party_db_server",
     "isolation_prefix",
     "resolve_stdio_command",
     "stdio_launch",

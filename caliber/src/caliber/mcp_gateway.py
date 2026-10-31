@@ -95,15 +95,36 @@ def _resolve_command(command: str) -> str:
 
 
 class McpGatewayError(RuntimeError):
-    """Base gateway failure."""
+    """Base gateway failure.
+
+    ``never_sent`` is what the dispatcher's outcome classifier reads (``caliber.effects.connectors.classify_error``):
+    ``True`` when the gateway can prove the tool call never left (a policy, egress or configuration refusal, a session that
+    never opened), ``False`` when the request may have reached the server, and ``None`` while that is not yet known.
+    """
+
+    never_sent: bool | None = None
 
 
 class McpGatewayConfigError(McpGatewayError):
-    """Invalid or missing MCP server configuration."""
+    """Invalid or missing MCP server configuration: always raised before anything is sent."""
+
+    never_sent = True
 
 
 class McpGatewayTransportError(McpGatewayError):
     """Transport-level failure while speaking MCP."""
+
+
+def _transport_error(message: str, *, sent: bool) -> McpGatewayTransportError:
+    error = McpGatewayTransportError(message)
+    error.never_sent = not sent
+    return error
+
+
+def _mark_sent(error: McpGatewayError, *, sent: bool) -> None:
+    """Record on a failure raised somewhere below ``tools/call`` whether the call had been sent when it happened."""
+    if error.never_sent is None:
+        error.never_sent = not sent
 
 
 @dataclass(frozen=True)
@@ -214,6 +235,7 @@ async def invoke_tool(
         raise McpGatewayConfigError(str(exc)) from exc
     tracer = get_tracer()
     started = time.perf_counter()
+    sent = False
     with tracer.span(
         f"mcp.{server.name}.{tool_name}",
         span_type="TOOL",
@@ -229,20 +251,25 @@ async def invoke_tool(
             try:
                 async with _session_for(server, timeout_seconds=timeout_seconds) as session:
                     try:
+                        sent = True
                         result = await session.call_tool(tool_name, arguments)
                     except Exception as exc:
-                        raise McpGatewayTransportError(
-                            f"MCP tools/call failed: {_exception_message(exc)}"
+                        raise _transport_error(
+                            f"MCP tools/call failed: {_exception_message(exc)}", sent=True
                         ) from exc
-            except McpGatewayError:
+            except McpGatewayError as exc:
+                _mark_sent(exc, sent=sent)
                 raise
             except Exception as exc:
-                raise McpGatewayTransportError(
-                    f"MCP tools/call failed: {_exception_message(exc)}"
+                raise _transport_error(
+                    f"MCP tools/call failed: {_exception_message(exc)}", sent=sent
                 ) from exc
             if bool(result.is_error):
                 span.set_attribute("caliber.mcp.is_error", True)
-                raise McpGatewayTransportError(_tool_error_message(tool_name, result.content))
+                # The server ran the call and says it failed: a claim, not proof that nothing happened.
+                error = McpGatewayTransportError(_tool_error_message(tool_name, result.content))
+                error.never_sent = False
+                raise error
             normalized = _normalize_call_result(result)
             span.set_attribute("caliber.tool.output", normalized)
             return normalized
@@ -262,6 +289,50 @@ def discover_tools_sync(
     return anyio.run(_discover_tools_async, server, timeout_seconds)
 
 
+def _require_inline(server: McpServerConfig, tool_name: str) -> None:
+    """Refuse a protected call that reaches the synchronous gateway without a proposal (B04.5, #759).
+
+    The classification is the **trusted** one (:func:`caliber.effects.mcp_tools.route_mcp_tool`): the server record, the
+    administrator's tool policy and the protected-effect inventory, never what the server reports about its tools. Only a
+    ``read``-class tool runs here. A tool whose policy gate refuses it falls through, so the transport raises the same
+    configuration error it always has; every other tool is an ``EffectRefused``, because the one way a protected MCP call
+    reaches a server is the dispatcher's ``mcp`` backend (:func:`invoke_tool_raw_sync`).
+    """
+    from caliber.effects.dispatcher import EffectRefused, UnsupportedEffectPath  # noqa: PLC0415
+    from caliber.effects.mcp_tools import DISPATCH, INLINE, REFUSE, route_mcp_tool  # noqa: PLC0415
+
+    route = route_mcp_tool(server, tool_name)
+    if route.route == INLINE or (route.route == REFUSE and route.policy_refused):
+        return
+    if route.route == DISPATCH:
+        raise EffectRefused("mcp_effect_requires_proposal")
+    raise UnsupportedEffectPath(route.code or "unsupported_effect_path")
+
+
+def invoke_tool_raw_sync(
+    server: McpServerConfig,
+    *,
+    tool_name: str,
+    arguments: dict[str, Any],
+    timeout_seconds: float = 45.0,
+) -> Any:
+    """The **ungated** synchronous transport: it does not classify the call, so it must only be reached after one was.
+
+    The tool policy, egress, command allowlist and isolation checks of :func:`invoke_tool` all still run. What is not here is
+    the decision whether the call needs an approved proposal: the dispatcher's ``mcp`` backend is the one production caller
+    (it has just rechecked the exact approval and the execution-owner lease), and
+    ``tests/test_effect_path_matrix.py`` pins every module that names this function.
+    """
+    _assert_no_running_event_loop("invoke_tool_raw_sync")
+    return anyio.run(
+        _invoke_tool_async,
+        server,
+        tool_name,
+        arguments,
+        timeout_seconds,
+    )
+
+
 def invoke_tool_sync(
     server: McpServerConfig,
     *,
@@ -269,14 +340,18 @@ def invoke_tool_sync(
     arguments: dict[str, Any],
     timeout_seconds: float = 45.0,
 ) -> Any:
-    """Synchronous wrapper around :func:`invoke_tool`."""
+    """Synchronous wrapper around :func:`invoke_tool` for a ``read``-class tool; any other tool is refused (B04.5, #759).
+
+    A tool whose trusted classification is not ``read`` raises ``EffectRefused`` (``mcp_effect_requires_proposal``) and
+    nothing is sent: it must be proposed, approved and dispatched. See :func:`_require_inline`.
+    """
     _assert_no_running_event_loop("invoke_tool_sync")
-    return anyio.run(
-        _invoke_tool_async,
+    _require_inline(server, tool_name)
+    return invoke_tool_raw_sync(
         server,
-        tool_name,
-        arguments,
-        timeout_seconds,
+        tool_name=tool_name,
+        arguments=arguments,
+        timeout_seconds=timeout_seconds,
     )
 
 
@@ -288,7 +363,7 @@ def invoke_tool_by_server_id_sync(
     timeout_seconds: float = 45.0,
     identity: CaliberIdentity | None = None,
 ) -> Any:
-    """Resolve a visible server from DB and invoke a tool (sync)."""
+    """Resolve a visible server from DB and invoke a ``read``-class tool (sync); any other tool is refused (B04.5, #759)."""
     if identity is None:
         # Preserve the strict legacy helper signature used by direct callers and
         # test doubles; visibility-aware runtime callers pass the identity branch.
@@ -705,6 +780,7 @@ __all__ = [
     "discover_tools_sync",
     "invoke_tool",
     "invoke_tool_by_server_id_sync",
+    "invoke_tool_raw_sync",
     "invoke_tool_sync",
     "load_server_config",
 ]

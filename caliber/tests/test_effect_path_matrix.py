@@ -438,3 +438,410 @@ def test_the_raw_openapi_executor_is_named_only_by_pinned_callers() -> None:
         )
     }
     assert found == set(RAW_OPENAPI_CALLERS)
+
+
+# ---------------------------------------------------------------- B04.5 (#759): MCP tools
+
+
+def _mcp_server(**overrides: Any) -> Any:
+    from caliber.mcp_gateway import McpServerConfig
+
+    fields: dict[str, Any] = {
+        "server_id": "MCP-matrix",
+        "name": "matrix",
+        "transport": "sse",
+        "uri": "https://mcp.example.test/mcp",
+        "command": "",
+        "args": (),
+        "env": {},
+        "headers": {},
+        "auth_type": "none",
+        "auth_config": {},
+        "status": "active",
+        "discovered_tools": ({"name": "t"},),
+        "tool_policies": {
+            "t": {"allowed": True, "side_effect_level": "write", "requires_approval": False}
+        },
+    }
+    fields.update(overrides)
+    return McpServerConfig(**fields)
+
+
+@pytest.fixture
+def mcp_world(monkeypatch: pytest.MonkeyPatch) -> Any:
+    from tests.mcp_fakes import FakeMcp
+
+    return FakeMcp().install(monkeypatch)
+
+
+def test_the_mcp_route_names_are_the_registered_tool_route_names() -> None:
+    from caliber.effects import mcp_tools
+
+    assert (mcp_tools.INLINE, mcp_tools.DISPATCH, mcp_tools.REFUSE) == (INLINE, DISPATCH, REFUSE)
+
+
+@pytest.mark.parametrize(
+    ("level", "route", "klass"),
+    [
+        ("read", INLINE, "read"),
+        ("write", DISPATCH, "reversible_write"),
+        ("external_action", DISPATCH, "irreversible_write"),
+    ],
+)
+def test_an_mcp_tool_is_routed_by_the_administrators_level_for_exactly_that_tool(
+    mcp_world: Any, level: str, route: str, klass: str
+) -> None:
+    from caliber.effects.mcp_tools import route_mcp_tool
+
+    server = _mcp_server(
+        tool_policies={
+            "t": {"allowed": True, "side_effect_level": level, "requires_approval": False}
+        }
+    )
+
+    decided = route_mcp_tool(server, "t")
+
+    assert (decided.route, decided.effect_class, decided.code) == (route, klass, None)
+    assert decided.digest is not None and decided.policy_refused is False
+
+
+def _policy(**overrides: Any) -> dict[str, Any]:
+    return {
+        "t": {"allowed": True, "side_effect_level": "read", "requires_approval": False} | overrides
+    }
+
+
+@pytest.mark.parametrize(
+    ("overrides", "code"),
+    [
+        ({"discovered_tools": ()}, "mcp_tools_not_discovered"),
+        ({"discovered_tools": ({"name": "other"},)}, "mcp_tool_not_discovered"),
+        ({"tool_policies": {}}, "mcp_tool_unclassified"),
+        ({"tool_policies": {"t": {"allowed": True}}}, "mcp_tool_unclassified"),
+        ({"tool_policies": _policy(allowed="yes")}, "mcp_tool_unclassified"),
+        ({"tool_policies": _policy(requires_approval=1)}, "mcp_tool_unclassified"),
+        ({"tool_policies": _policy(side_effect_level="danger")}, "mcp_tool_unclassified"),
+        ({"tool_policies": _policy(allowed=False)}, "mcp_tool_not_allowed"),
+        ({"status": "disabled"}, "mcp_server_not_ready"),
+        ({"transport": "carrier-pigeon"}, "mcp_server_not_ready"),
+    ],
+)
+def test_an_mcp_tool_nobody_classified_or_allowed_is_refused_with_the_gates_code(
+    mcp_world: Any, overrides: dict[str, Any], code: str
+) -> None:
+    from caliber.effects.mcp_tools import route_mcp_tool
+
+    decided = route_mcp_tool(_mcp_server(**overrides), "t")
+
+    assert (decided.route, decided.effect_class, decided.code) == (REFUSE, FAIL_CLOSED, code)
+    assert decided.policy_refused is True and decided.digest is None
+
+
+def test_the_servers_own_claims_never_change_the_route(mcp_world: Any) -> None:
+    from caliber.effects.mcp_tools import route_mcp_tool
+
+    claims = {"name": "t", "annotations": {"readOnlyHint": True}, "description": "read only"}
+    server = _mcp_server(discovered_tools=(claims,))
+
+    assert route_mcp_tool(server, "t").route == DISPATCH
+
+
+def _first_party(**overrides: Any) -> Any:
+    import sys
+
+    return _mcp_server(
+        transport="stdio",
+        uri="",
+        command=sys.executable,
+        args=("-m", "caliber.mcp_servers.db", "--mode", "relational"),
+        **overrides,
+    )
+
+
+def _policies(*names: str, level: str) -> dict[str, Any]:
+    return {
+        "discovered_tools": tuple({"name": name} for name in names),
+        "tool_policies": {
+            name: {"allowed": True, "side_effect_level": level, "requires_approval": False}
+            for name in names
+        },
+    }
+
+
+def test_every_first_party_database_write_tool_is_refused_whatever_its_policy_says(
+    mcp_world: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import sys
+
+    from caliber.effects.mcp_tools import INVENTORY_REFUSAL, route_mcp_tool
+    from tests.test_protected_effect_inventory import db_mcp_write_tools
+
+    monkeypatch.setenv("CALIBER_MCP_STDIO_COMMAND_ALLOWLIST", sys.executable)
+    writes = sorted(db_mcp_write_tools())
+    assert writes
+    server = _first_party(**_policies(*writes, level="read"))
+
+    for name in writes:
+        decided = route_mcp_tool(server, name)
+        assert (decided.route, decided.code, decided.first_party) == (
+            REFUSE,
+            INVENTORY_REFUSAL,
+            True,
+        ), name
+        assert decided.policy_refused is False
+
+
+def test_a_first_party_database_read_tool_follows_its_administrators_policy(
+    mcp_world: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import sys
+
+    from caliber.effects.mcp_tools import route_mcp_tool
+    from tests.test_protected_effect_inventory import DB_MCP_READ_TOOLS
+
+    monkeypatch.setenv("CALIBER_MCP_STDIO_COMMAND_ALLOWLIST", sys.executable)
+    reading = _first_party(**_policies(*DB_MCP_READ_TOOLS, level="read"))
+    writing = _first_party(**_policies(*DB_MCP_READ_TOOLS, level="write"))
+
+    for name in DB_MCP_READ_TOOLS:
+        assert route_mcp_tool(reading, name).route == INLINE, name
+        assert route_mcp_tool(writing, name).route == DISPATCH, name
+
+
+@pytest.mark.parametrize(
+    "overrides",
+    [
+        {"args": ("-m", "caliber.mcp_servers.other")},
+        {"args": ("caliber.mcp_servers.db",)},
+        {"args": ("--mode", "relational", "-m", "caliber.mcp_servers.db")},
+        {"command": "/usr/bin/env"},
+        {"command": ""},
+        {"transport": "sse", "uri": "https://mcp.example.test/mcp"},
+    ],
+)
+def test_only_a_server_launched_as_the_first_party_module_is_the_first_party_server(
+    mcp_world: Any, overrides: dict[str, Any]
+) -> None:
+    """A server that merely names its tools like the first party's, or launches something else, is third-party."""
+    from caliber.mcp_policy import is_first_party_db_server
+
+    server = _first_party(**_policies("insert_rows", level="write"))
+    assert is_first_party_db_server(server) is True
+    assert is_first_party_db_server(replace(server, **overrides)) is False
+
+
+def test_the_digest_binds_the_record_and_the_classification_but_no_credential_value() -> None:
+    from caliber.effects.mcp_tools import server_digest
+
+    base = _mcp_server()
+    policy = {"allowed": True, "side_effect_level": "write", "requires_approval": False}
+    digest = server_digest(base, "t", policy)
+
+    for change in (
+        {"server_id": "MCP-other"},
+        {"transport": "streamable-http"},
+        {"uri": "https://mcp.example.test/other"},
+        {"command": "x"},
+        {"args": ("a",)},
+        {"env": {"NEW": "1"}},
+        {"headers": {"X": "1"}},
+        {"auth_type": "token"},
+    ):
+        assert server_digest(replace(base, **change), "t", policy) != digest, change
+    assert server_digest(base, "other", policy) != digest
+    for key in ("allowed", "side_effect_level", "requires_approval"):
+        assert server_digest(base, "t", {**policy, key: "x"}) != digest, key
+    # The credential's value is not in it: rotating a token keeps the digest, its name changes it.
+    with_token = replace(base, env={"API_TOKEN": "a"}, headers={"Authorization": "Bearer a"})
+    rotated = replace(base, env={"API_TOKEN": "b"}, headers={"Authorization": "Bearer b"})
+    assert server_digest(with_token, "t", policy) == server_digest(rotated, "t", policy)
+    assert server_digest(with_token, "t", policy) != digest
+
+
+def test_mcp_write_tool_requires_proposal(
+    factory: sessionmaker[Session], mcp_world: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A write-marked MCP tool never reaches the server without an approved proposal (#759).
+
+    The synchronous gateway entry points refuse it with ``EffectRefused`` and send nothing. Through the runtime the missing
+    approval is a refusal before the server is reached; the dispatcher then refuses the very proposal the runtime recorded
+    with ``proposal_not_approved``, and the server has still not been called. A ``read`` tool is the one call that runs
+    without a proposal.
+    """
+    from caliber.effects.connectors.mcp_tool import McpToolCall
+    from caliber.mcp_gateway import (
+        invoke_tool_by_server_id_sync,
+        invoke_tool_sync,
+        load_server_config,
+    )
+    from tests.mcp_fakes import SERVER_ID, seed_server, use_database
+    from tests.test_mcp_governed_dispatch import McpRun, tool_node_manifest
+
+    use_database(monkeypatch, factory)
+    seed_server(factory)
+
+    server = load_server_config(SERVER_ID)
+    with pytest.raises(EffectRefused) as refused:
+        invoke_tool_sync(server, tool_name="issue_write", arguments={"a": 1})
+    assert refused.value.code == "mcp_effect_requires_proposal"
+    with pytest.raises(EffectRefused):
+        invoke_tool_by_server_id_sync(server_id=SERVER_ID, tool_name="issue_write", arguments={})
+    assert mcp_world.calls == []
+    assert invoke_tool_sync(server, tool_name="lookup", arguments={}) == {"ok": True}
+    mcp_world.calls.clear()
+
+    run = McpRun(factory, tool_node_manifest("issue_write"), authorize=lambda _proposal: None)
+    result = run.execute()
+
+    assert result.status == "error"
+    assert "authorization was not granted" in (result.error or "")
+    (recorded,) = proposals(factory)
+    assert recorded.state == "proposed"
+    with factory() as session:
+        lease = leased(session, "runtime-owner")
+        session.commit()
+    call = McpToolCall(SERVER_ID, "issue_write", lambda: load_server_config(SERVER_ID))
+    with pytest.raises(EffectRefused) as refused:
+        dispatch(
+            factory,
+            recorded.proposal_id,
+            approval_id=None,
+            lease=lease,
+            backend_kind="mcp",
+            backend_config={"call": call, "receipt_verifier": verifier},
+            approval_validator=_canonical_validator(),
+        )
+    assert refused.value.code == "proposal_not_approved"
+    assert mcp_world.calls == []
+
+
+#: Every production module that names the MCP gateway's functions, and which it may name. A new caller fails this test until it
+#: is routed through the dispatcher or deliberately pinned here with its reason, so an ungoverned alternate call site cannot
+#: appear unnoticed. ``invoke_tool_raw_sync`` is the ungated transport: only the dispatcher's backend reaches it.
+RAW_MCP_CALLERS: dict[str, tuple[frozenset[str], str]] = {
+    "effects/dispatcher.py": (
+        frozenset({"mcp_gateway"}),
+        "the private mcp backend: the one governed caller of the ungated transport (invoke_tool_raw_sync)",
+    ),
+    "routes/mcp_servers.py": (
+        frozenset({"discover_tools", "invoke_tool"}),
+        "the operator's discover, test and playground routes (EP-038 to EP-040, exempt: not agent-reachable)",
+    ),
+    "workflows/compiler.py": (
+        frozenset({"invoke_tool_by_server_id_sync"}),
+        "the Python an export generates (EP-043): its gateway entry point runs read-class tools only",
+    ),
+    "workflows/runtime.py": (
+        frozenset({"load_server_config", "invoke_tool_by_server_id_sync"}),
+        "inline reads of MCP bindings and nodes (the gateway entry point refuses every other call), "
+        "and the server record the governed route classifies from",
+    ),
+}
+
+
+#: What a caller can take from the gateway that reaches a server (its errors and configuration type reach nothing).
+_GATEWAY_CALLS = frozenset(
+    {
+        "mcp_gateway",
+        "discover_tools",
+        "discover_tools_sync",
+        "invoke_tool",
+        "invoke_tool_sync",
+        "invoke_tool_by_server_id_sync",
+        "invoke_tool_raw_sync",
+        "load_server_config",
+    }
+)
+
+
+def _names_taken_from_the_gateway(tree: Any) -> set[str]:
+
+    found: set[str] = set()
+    for name in _all_names_taken_from_the_gateway(tree):
+        if name in _GATEWAY_CALLS:
+            found.add(name)
+    return found
+
+
+def _all_names_taken_from_the_gateway(tree: Any) -> set[str]:
+    import ast
+
+    found: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom):
+            if node.module == "caliber.mcp_gateway":
+                found.update(alias.name for alias in node.names)
+            elif node.module == "caliber":
+                found.update(alias.name for alias in node.names if alias.name == "mcp_gateway")
+        elif isinstance(node, ast.Import):
+            found.update(
+                alias.name.rsplit(".", 1)[-1]
+                for alias in node.names
+                if alias.name == "caliber.mcp_gateway"
+            )
+        elif isinstance(node, ast.Constant) and isinstance(node.value, str):
+            marker = "from caliber.mcp_gateway import "
+            if marker in node.value:  # the Python an export generates
+                found.add(node.value.split(marker, 1)[1].split()[0].strip(","))
+    return found
+
+
+def test_the_mcp_gateway_is_named_only_by_pinned_callers() -> None:
+    import ast
+    from pathlib import Path
+
+    import caliber
+
+    root = Path(caliber.__file__).resolve().parent
+    found: dict[str, set[str]] = {}
+    for path in sorted(root.rglob("*.py")):
+        if path.name == "mcp_gateway.py":
+            continue
+        names = _names_taken_from_the_gateway(ast.parse(path.read_text(encoding="utf-8")))
+        if names:
+            found[path.relative_to(root).as_posix()] = names
+    assert found == {file: set(names) for file, (names, _why) in RAW_MCP_CALLERS.items()}
+
+
+def test_only_the_dispatcher_backend_calls_the_ungated_transport() -> None:
+    import ast
+    from pathlib import Path
+
+    import caliber
+
+    root = Path(caliber.__file__).resolve().parent
+    callers = {
+        path.relative_to(root).as_posix()
+        for path in sorted(root.rglob("*.py"))
+        if path.name != "mcp_gateway.py"
+        and any(
+            isinstance(node, ast.Attribute) and node.attr == "invoke_tool_raw_sync"
+            for node in ast.walk(ast.parse(path.read_text(encoding="utf-8")))
+        )
+    }
+    assert callers == {"effects/dispatcher.py"}
+
+
+def test_no_classification_is_read_from_what_an_mcp_server_reports() -> None:
+    """The policy, the gateway and the route never read a server's hints, annotations or descriptions as a classification."""
+    import ast
+    from pathlib import Path
+
+    import caliber.effects.connectors.mcp_tool as connector
+    import caliber.effects.mcp_tools as route
+    import caliber.mcp_gateway as gateway
+    import caliber.mcp_policy as policy
+
+    for module in (connector, route, gateway, policy):
+        tree = ast.parse(Path(str(module.__file__)).read_text(encoding="utf-8"))
+        names = {node.attr for node in ast.walk(tree) if isinstance(node, ast.Attribute)}
+        names |= {node.id for node in ast.walk(tree) if isinstance(node, ast.Name)}
+        strings = {
+            node.value
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Constant)
+            and isinstance(node.value, str)
+            and len(node.value) < 40
+        }
+        for forbidden in ("readOnlyHint", "destructiveHint", "idempotentHint", "annotations"):
+            assert forbidden not in names | strings, (module.__name__, forbidden)
