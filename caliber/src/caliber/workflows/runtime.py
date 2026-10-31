@@ -48,6 +48,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from caliber.auth import CaliberIdentity
 from caliber.config import provider_request_timeout
 from caliber.context.authorize import ContextDenied
+from caliber.effects import step_proposal as _step_proposal
 from caliber.effects.dispatcher import (
     HTTP_CONNECTOR,
     HTTP_VERSION,
@@ -2492,6 +2493,12 @@ class RuntimePlan:
     #: workflow version but no context refuses these nodes rather than falling
     #: back to the legacy raw sender.
     governed_effects: GovernedEffectContext | None = None
+    #: B08.2 context for governed agent steps (``caliber.effects.step_proposal``). ``None`` (every plan the runtime builds
+    #: today) runs agent nodes exactly as before. With one, an agent node runs through ``run_agent_step``: the adapter is
+    #: handed only the tools the platform classified ``read``, a protected action it proposes becomes a recorded ``proposed``
+    #: effect plus an approval request, and the node parks (``waiting_approval``) instead of executing it. A governed step has
+    #: no output text channel in the v1 result contract, so a completed one publishes an empty ``final_output``.
+    governed_agent_steps: _step_proposal.GovernedStepContext | None = None
     #: Called with the ids of a node and of everything upstream of it before the node runs, outside its retries (B05.5b,
     #: #742). Raises ``caliber.effects.reconcile.UnknownEffectError`` while an effect those nodes asked for has no final
     #: outcome, so no step that depends on an effect nobody can vouch for runs. ``None`` where nothing records effects.
@@ -2593,6 +2600,8 @@ def _connections(ir: IRWorkflow) -> list[_Connection]:
 def _resume_checkpoint_kind_matches_node(
     checkpoint_kind: str | None,
     node: IRNode,
+    *,
+    governed_agent_steps: bool = False,
 ) -> bool:
     if checkpoint_kind == "wait_for_event":
         return isinstance(node, IRWaitForEvent)
@@ -2601,7 +2610,9 @@ def _resume_checkpoint_kind_matches_node(
     if checkpoint_kind == "human_approval":
         return isinstance(node, IRHumanApproval)
     if checkpoint_kind == "runtime_approval":
-        return (
+        # A gated tool node, or a governed agent step parked behind the approval of its proposed action (B08.2): an agent
+        # node resumes from this kind only in a plan that runs governed steps.
+        return (isinstance(node, IRAgent) and governed_agent_steps) or (
             isinstance(node, IRTool) and node.binding is not None and node.binding.requires_approval
         )
     return True
@@ -4155,6 +4166,7 @@ def _interpret(  # noqa: PLR0911, PLR0912, PLR0915 - graph interpreter dispatch
         if not _resume_checkpoint_kind_matches_node(
             resume_checkpoint.checkpoint_kind,
             node,
+            governed_agent_steps=plan.governed_agent_steps is not None,
         ):
             return WorkflowRunResult(
                 status="error",
@@ -4700,7 +4712,14 @@ def _run_agent_with_history(
     handoff_agents: ResolvedHandoffAgents | None = None,
     tool_callables: dict[str, Callable[..., Any]],
     preview: bool,
+    governed_step: Callable[[str, list[HistoryMessage]], AgentTurnResult] | None = None,
 ) -> tuple[AgentTurnResult, list[HistoryMessage], list[HistoryMessage]]:
+    """Run one agent turn with its history, context record and session memory.
+
+    ``governed_step`` (B08.2) replaces the provider call: it is given the step request id of the context just recorded and the
+    history, and answers the turn (or raises ``StepParked``). It requires a context recorder, because a governed request
+    names the digest of the context manifest the provider is given.
+    """
     explicit = [dict(item) for item in (explicit_history or [])]
     key = _session_memory_key(plan, agent)
     stored: list[HistoryMessage] = []
@@ -4725,6 +4744,8 @@ def _run_agent_with_history(
     tool_specs, structured_suffix = _context_provider_material(executor, agent)
     occurrence_id = _STEP_OCCURRENCE.get() or agent.node_id
     attempt = _STEP_ATTEMPT.get()
+    root_step_request_id: str | None = None
+    root_assembly: AgentContextAssembly | None = None
     if plan.context_recorder is not None:
         # The context is recorded, authorized and validated before the provider sees any of it: a refusal raises here.
         # A native (Agents SDK) handoff runs the target inside the provider call, where the runtime cannot see it, so
@@ -4734,8 +4755,6 @@ def _run_agent_with_history(
             for node_id, (target, _) in (handoff_agents or {}).items()
             if node_id != agent.node_id
         ]
-        root_step_request_id: str | None = None
-        root_assembly: AgentContextAssembly | None = None
         for recipient in recipients:
             recipient_occurrence = (
                 occurrence_id
@@ -4761,15 +4780,22 @@ def _run_agent_with_history(
             if recipient.node_id == agent.node_id:
                 root_step_request_id = request_id
                 root_assembly = assembly
-    result = _run_agent_traced(
-        executor,
-        agent,
-        input_text,
-        history=history,
-        handoff_agents=handoff_agents,
-        tool_callables=tool_callables,
-        preview=preview,
-    )
+    if governed_step is not None:
+        if not root_step_request_id:
+            raise ToolExecutionError(
+                f"governed agent step {agent.node_id!r} requires a recorded context manifest"
+            )
+        result = governed_step(root_step_request_id, history)
+    else:
+        result = _run_agent_traced(
+            executor,
+            agent,
+            input_text,
+            history=history,
+            handoff_agents=handoff_agents,
+            tool_callables=tool_callables,
+            preview=preview,
+        )
     if plan.context_recorder is not None and root_step_request_id and root_assembly is not None:
         tool_results = tuple(item for item in result.tool_calls if isinstance(item, dict))
         if tool_results:
@@ -4797,6 +4823,271 @@ def _run_agent_with_history(
             history=updated_history,
         )
     return result, updated_history, history
+
+
+#: An ``error_code`` a governed step's error may show: a fixed lowercase token (an adapter's code is never free text).
+_SAFE_STEP_CODE = re.compile(r"[a-z][a-z0-9_]{0,63}")
+
+
+def _governed_tool_trust(
+    context: _step_proposal.GovernedStepContext, agent: IRAgent
+) -> dict[str, _step_proposal.ToolTrust]:
+    """The platform's classification of every tool bound to ``agent``; a classifier that raises is the fail-closed class."""
+    trust: dict[str, _step_proposal.ToolTrust] = {}
+    for binding in agent.tools:
+        try:
+            classified = context.classify_tool(binding)
+        except Exception:
+            classified = _step_proposal.untrusted_tool(binding.local_name)
+        if type(classified) is not _step_proposal.ToolTrust:
+            classified = _step_proposal.untrusted_tool(binding.local_name)
+        trust[binding.local_name] = classified
+    return trust
+
+
+def _governed_read_tools(
+    trust: Mapping[str, _step_proposal.ToolTrust], callables: Mapping[str, Callable[..., Any]]
+) -> dict[str, Callable[..., Any]]:
+    """The callables of tools classified ``read``, the only ones an adapter is handed (fail closed, see ``filter_read_tools``)."""
+    return _agent_step.filter_read_tools(
+        callables, lambda name: name in trust and trust[name].effect_class == "read"
+    )
+
+
+def _governed_handoff_targets(
+    context: _step_proposal.GovernedStepContext, handoff_agents: ResolvedHandoffAgents | None
+) -> dict[str, _agent_step.StepHandoffTarget] | None:
+    """Each handoff target with only its own read-class callables (the runtime's own maps carry every callable)."""
+    if not handoff_agents:
+        return None
+    targets: dict[str, _agent_step.StepHandoffTarget] = {}
+    for node_id, (target, callables) in handoff_agents.items():
+        target_trust = _governed_tool_trust(context, target)
+        targets[node_id] = _agent_step.StepHandoffTarget(
+            agent=target, read_tools=_governed_read_tools(target_trust, callables)
+        )
+    return targets
+
+
+def _governed_stop_error(result: _agent_step.AgentStepResult) -> ToolExecutionError:
+    """The run error for a step that stopped without completing or proposing: its stop reason and fixed error code, no payload."""
+    code = result.error_code
+    detail = result.stop_reason
+    if isinstance(code, str) and _SAFE_STEP_CODE.fullmatch(code):
+        detail = f"{detail} ({code})"
+    return ToolExecutionError(f"governed agent step stopped: {detail}")
+
+
+def _run_governed_step(
+    context: _step_proposal.GovernedStepContext,
+    executor: WorkflowExecutor,
+    agent: IRAgent,
+    input_text: str,
+    *,
+    step_request_id: str,
+    history: list[HistoryMessage],
+    handoff_agents: ResolvedHandoffAgents | None,
+    tool_callables: dict[str, Callable[..., Any]],
+) -> AgentTurnResult:
+    """One agent turn as a governed step: the platform, not the adapter, decides what runs and what is recorded (B08.2).
+
+    The adapter is handed only the read-class tools. A step that completes is an empty-output turn (the v1 result carries no
+    text). A step that proposes a protected action has it bound to the inventory and recorded with its approval request, and
+    ``StepParked`` is raised so the node parks. Anything else (a limit, a refusal, a provider failure) is a run error carrying
+    only the stop reason and a fixed code.
+    """
+    trust = _governed_tool_trust(context, agent)
+    request = _agent_step.AgentStepRequest(
+        step_request_id=step_request_id,
+        workflow_run_id=context.workflow_run_id,
+        node_id=agent.node_id,
+        occurrence_id=_STEP_OCCURRENCE.get() or agent.node_id,
+        attempt=_STEP_ATTEMPT.get(),
+        run_manifest_digest=context.run_manifest_digest,
+        context_manifest_digest=context.context_manifest_digest(step_request_id),
+        grant_id=context.grant_id,
+        limits=context.limits(agent),
+    )
+    step_input = _agent_step.AgentStepInput(
+        agent=agent,
+        input_text=input_text,
+        history=tuple(history),
+        read_tools=_governed_read_tools(trust, tool_callables),
+        handoff_agents=_governed_handoff_targets(context, handoff_agents),
+    )
+    result = _agent_step.run_agent_step(executor, request, step_input)
+    if result.stop_reason == "proposed_action":
+        try:
+            proposal = _step_proposal.record_step_proposal(context, request, result, trust)
+        except EffectRefused as exc:
+            raise ToolExecutionError(f"governed agent step proposal refused: {exc.code}") from None
+        raise _step_proposal.StepParked(
+            proposal, step_request_id=step_request_id, usage=result.usage
+        )
+    if result.stop_reason != "completed":
+        raise _governed_stop_error(result)
+    usage = result.usage
+    return AgentTurnResult(
+        final_output="",
+        tokens=usage.total_tokens,
+        prompt_tokens=usage.prompt_tokens,
+        completion_tokens=usage.completion_tokens,
+        cached_prompt_tokens=usage.cached_prompt_tokens or 0,
+    )
+
+
+def _governed_parked_step(
+    node: IRAgent,
+    proposal: _step_proposal.StepProposal,
+    *,
+    step_request_id: str | None,
+    usage: _agent_step.StepUsage | None,
+) -> tuple[int, NodeStep]:
+    """The blocked step of a node waiting for approval of its proposed action: identifiers and usage, never the action.
+
+    The worker turns it into a ``waiting_approval`` run whose checkpoint is the ``runtime_approval`` kind the decision and resume
+    routes already accept, naming the approval request that already exists (it creates no second one).
+    """
+    tokens = usage.total_tokens if usage is not None else 0
+    return tokens, NodeStep(
+        node.node_id,
+        node.node_type.value,
+        "blocked",
+        tokens=tokens,
+        prompt_tokens=usage.prompt_tokens if usage is not None else 0,
+        completion_tokens=usage.completion_tokens if usage is not None else 0,
+        cached_prompt_tokens=(usage.cached_prompt_tokens or 0) if usage is not None else 0,
+        detail=f"waiting_approval:{node.node_id}",
+        checkpoint_state={
+            "kind": "runtime_approval",
+            "node_id": node.node_id,
+            "proposal_id": proposal.proposal_id,
+            "approval_request_id": proposal.approval_request_id,
+            "intent_hash": proposal.intent_hash,
+            "step_request_id": step_request_id,
+            "reason": "effect_proposal_awaiting_approval",
+            "resume_policy": "same_run_same_occurrence",
+        },
+    )
+
+
+def _publish_governed_outputs(
+    node: IRAgent,
+    port_values: dict[tuple[str, str], Any],
+    output: str,
+    history: list[HistoryMessage],
+) -> None:
+    nid = node.node_id
+    if not node.outputs:
+        port_values[(nid, "final_output")] = output
+        return
+    _publish_declared_outputs(
+        node,
+        port_values,
+        {"final_output": output, "tool_calls": [], "history": history},
+        fallback=output,
+    )
+    port_values.setdefault((nid, "final_output"), output)
+
+
+def _run_governed_agent_node(
+    node: IRAgent,
+    ir: IRWorkflow,
+    plan: RuntimePlan,
+    executor: WorkflowExecutor,
+    *,
+    inputs: dict[str, Any],
+    run_input: str,
+    port_values: dict[tuple[str, str], Any],
+    preview: bool,
+    extra_tools: dict[str, Callable[..., Any]] | None,
+) -> tuple[int, NodeStep]:
+    """Run an agent node as a governed step (``plan.governed_agent_steps``); see :func:`_run_governed_step`.
+
+    A node occurrence has one logical effect: if one is already recorded (the step was resumed or retried) the model is **not**
+    asked again. ``committed`` completes the node, ``failed`` fails it, ``proposed`` parks it behind its (re-asked) approval
+    request, and any state in between (``approved``, ``dispatched``, ``unknown``, ``reconciled``: the dispatcher has it) is the
+    existing effect-reconciliation park.
+    """
+    context = plan.governed_agent_steps
+    assert context is not None
+    nid = node.node_id
+    prior = _step_proposal.prior_proposal(
+        context.session_factory,
+        context.workflow_run_id,
+        nid,
+        _STEP_OCCURRENCE.get() or nid,
+    )
+    if prior is not None:
+        if prior.state == "committed":
+            committed = f"effect {prior.proposal_id} committed"
+            _publish_governed_outputs(node, port_values, committed, [])
+            return 0, NodeStep(nid, node.node_type.value, "ok", output=committed)
+        if prior.state == "failed":
+            raise ToolExecutionError("governed agent step: its proposed effect failed")
+        if prior.state == "proposed":
+            try:
+                proposal = _step_proposal.reask_approval(context, prior)
+            except EffectRefused as exc:
+                raise ToolExecutionError(
+                    f"governed agent step approval refused: {exc.code}"
+                ) from None
+            return _governed_parked_step(node, proposal, step_request_id=None, usage=None)
+        raise UnknownEffectError([(prior.proposal_id, nid, prior.state)])
+    agent_input = _select_input(inputs, run_input)
+    callables = _resolve_tool_callables(
+        node,
+        plan.resolver,
+        preview=preview,
+        egress_policy=plan.egress_policy,
+        mcp_identity=plan.mcp_identity,
+    )
+    if extra_tools:
+        callables = {**callables, **extra_tools}
+    handoff_agents = _collect_agent_handoff_specs(
+        node, ir, plan, preview=preview, root_tool_callables=callables, extra_tools=extra_tools
+    )
+    try:
+        result, published_history, _ = _run_agent_with_history(
+            plan,
+            executor,
+            node,
+            agent_input,
+            context_inputs=(
+                _agent_context_inputs(ir, node, inputs, port_values, agent_input, plan)
+                if plan.context_recorder is not None
+                else None
+            ),
+            explicit_history=_normalize_message_history(inputs.get("history")),
+            handoff_agents=handoff_agents,
+            tool_callables=callables,
+            preview=preview,
+            governed_step=lambda step_request_id, history: _run_governed_step(
+                context,
+                executor,
+                node,
+                agent_input,
+                step_request_id=step_request_id,
+                history=history,
+                handoff_agents=handoff_agents,
+                tool_callables=callables,
+            ),
+        )
+    except _step_proposal.StepParked as parked:
+        return _governed_parked_step(
+            node, parked.proposal, step_request_id=parked.step_request_id, usage=parked.usage
+        )
+    _publish_governed_outputs(node, port_values, result.final_output, published_history)
+    return result.tokens, NodeStep(
+        nid,
+        node.node_type.value,
+        "ok",
+        output=result.final_output,
+        tokens=result.tokens,
+        prompt_tokens=result.prompt_tokens,
+        completion_tokens=result.completion_tokens,
+        cached_prompt_tokens=result.cached_prompt_tokens,
+    )
 
 
 def _collect_agent_handoff_specs(
@@ -7280,6 +7571,18 @@ def _run_node(  # noqa: PLR0911, PLR0912, PLR0915 - per-node-type dispatch
         )
 
     if isinstance(node, IRAgent):
+        if plan.governed_agent_steps is not None:
+            return _run_governed_agent_node(
+                node,
+                ir,
+                plan,
+                executor,
+                inputs=inputs,
+                run_input=run_input,
+                port_values=port_values,
+                preview=preview,
+                extra_tools=extra_tools,
+            )
         agent_input = _select_input(inputs, run_input)
         explicit_history = _normalize_message_history(inputs.get("history"))
         callables = _resolve_tool_callables(

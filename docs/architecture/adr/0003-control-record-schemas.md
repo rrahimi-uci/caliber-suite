@@ -271,8 +271,8 @@ AgentStepResult (B08.1a, #713): what one step proposed and used. It never claims
 `receipt` or `approval` field, and an unknown field is a violation. **Everything in it is model output.** Its `effect_class` and
 `connector_version` are claims, not facts: a model can call an irreversible write `read`, and a `read` can be approved by policy
 alone. The platform's class comes from the protected-effect inventory, and `ProposedAction.bound_to(inventory_effect_class)`
-returns the action carrying that class and refuses a differing claim (`ClaimMismatch`, code `claim_mismatch`); B08.2 must call it
-before `record_proposal` and must not record an action that is not `platform_bound`.
+returns the action carrying that class and refuses a differing claim (`ClaimMismatch`, code `claim_mismatch`); B08.2 calls it
+(`caliber.effects.step_proposal`) before `record_proposal` and never records an action that is not `platform_bound`.
 
 | field | type | required | note |
 | --- | --- | --- | --- |

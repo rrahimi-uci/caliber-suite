@@ -227,7 +227,9 @@ def _resume_checkpoint_preflight_error(  # noqa: PLR0911 - explicit fail-closed 
             f"{resume_checkpoint.node_id!r} type {node_type!r}"
         )
     if checkpoint_kind == "runtime_approval" and not (
-        binding is not None and getattr(binding, "requires_approval", False)
+        (binding is not None and getattr(binding, "requires_approval", False))
+        # a governed agent step parked behind the approval of its proposed action (B08.2)
+        or (node_type == "agent" and getattr(plan, "governed_agent_steps", None) is not None)
     ):
         return (
             f"kind {checkpoint_kind!r} does not match current node "
@@ -408,6 +410,10 @@ def _waiting_approval_checkpoint_payload(
             kind = "human_approval"
         elif step.node_type == "tool":
             kind = "runtime_approval"
+        elif step.node_type == "agent":
+            # A governed agent step parked behind the approval of its proposed action (B08.2): the runtime already recorded
+            # the proposal and its bound approval request, and names both in its checkpoint state.
+            return _agent_proposal_checkpoint_payload(step, node_id)
         else:
             return None
         if not isinstance(step.input_by_port, dict):
@@ -419,6 +425,31 @@ def _waiting_approval_checkpoint_payload(
             "input_by_port": dict(step.input_by_port),
         }
     return None
+
+
+_AGENT_PROPOSAL_STATE_KEYS = ("proposal_id", "approval_request_id", "intent_hash")
+
+
+def _agent_proposal_checkpoint_payload(
+    step: NodeStep, node_id: str
+) -> tuple[str, dict[str, Any]] | None:
+    """The ``runtime_approval`` checkpoint of a governed agent step, or ``None`` when the step does not carry a valid one."""
+    state = step.checkpoint_state
+    if (
+        not isinstance(state, dict)
+        or state.get("kind") != "runtime_approval"
+        or state.get("node_id") != node_id
+        or not isinstance(step.input_by_port, dict)
+        or not all(
+            isinstance(state.get(key), str) and state[key] for key in _AGENT_PROPOSAL_STATE_KEYS
+        )
+    ):
+        return None
+    return node_id, {
+        **state,
+        "output": step.output if isinstance(step.output, str) else str(step.output),
+        "input_by_port": dict(step.input_by_port),
+    }
 
 
 def _waiting_event_checkpoint_payload(  # noqa: PLR0911 - gate-specific early exits keep malformed states explicit
@@ -2082,6 +2113,20 @@ class WorkflowRunWorker:
                         ),
                     )
                     return
+                if not self._bound_request_matches(
+                    session, row, approval_checkpoint[0], approval_checkpoint[1]
+                ):
+                    self._mark_failed(
+                        session,
+                        row,
+                        result=result,
+                        error_code="runtime_error",
+                        error_summary=(
+                            "workflow runtime parked a governed step behind an approval "
+                            "request that is not live and bound to this run, node and proposal"
+                        ),
+                    )
+                    return
                 self._mark_waiting_approval(
                     session,
                     row,
@@ -2294,23 +2339,29 @@ class WorkflowRunWorker:
         run.last_heartbeat_at = now
         run.lease_expires_at = None
 
-        approval_id = new_runtime_approval_id()
-        # Snapshot the node's ACTUAL policy. This was a hard-coded
-        # ``{"timeout_behavior": "block"}`` literal, so the configured
-        # ``required_role`` and ``approval_count`` never reached the decision path —
-        # the UI promised controls the server did not honour. Snapshotting also pins
-        # the policy at request time, so editing the manifest cannot retroactively
-        # change what an already-pending approval requires.
-        session.add(
-            CaliberRuntimeApprovalRequest(
-                runtime_approval_id=approval_id,
-                workflow_run_id=run.workflow_run_id,
-                project_id=run.project_id,
-                node_id=node_id,
-                status="pending",
-                policy_snapshot=self._approval_policy_snapshot(run, node_id),
+        bound_request_id = state_blob.get("approval_request_id")
+        if isinstance(bound_request_id, str) and bound_request_id:
+            # A governed agent step (B08.2) recorded its proposal and the approval request bound to that exact intent before it
+            # parked: that request is the question, and a second node-level one would be a different question.
+            approval_id = bound_request_id
+        else:
+            approval_id = new_runtime_approval_id()
+            # Snapshot the node's ACTUAL policy. This was a hard-coded
+            # ``{"timeout_behavior": "block"}`` literal, so the configured
+            # ``required_role`` and ``approval_count`` never reached the decision path —
+            # the UI promised controls the server did not honour. Snapshotting also pins
+            # the policy at request time, so editing the manifest cannot retroactively
+            # change what an already-pending approval requires.
+            session.add(
+                CaliberRuntimeApprovalRequest(
+                    runtime_approval_id=approval_id,
+                    workflow_run_id=run.workflow_run_id,
+                    project_id=run.project_id,
+                    node_id=node_id,
+                    status="pending",
+                    policy_snapshot=self._approval_policy_snapshot(run, node_id),
+                )
             )
-        )
 
         checkpoint_seq = (
             session.execute(
@@ -2345,7 +2396,11 @@ class WorkflowRunWorker:
             workflow_run_id=run.workflow_run_id,
             project_id=run.project_id,
             event_type="workflow.run.waiting_approval",
-            payload={"node_id": node_id, "runtime_approval_id": approval_id},
+            payload={
+                "node_id": node_id,
+                "runtime_approval_id": approval_id,
+                **self._proposal_evidence(state_blob),
+            },
             node_id=node_id,
         )
         audit_record(
@@ -2354,7 +2409,11 @@ class WorkflowRunWorker:
             action="workflow_run_waiting_approval",
             entity_type="workflow_run",
             entity_id=run.workflow_run_id,
-            details={"node_id": node_id, "runtime_approval_id": approval_id},
+            details={
+                "node_id": node_id,
+                "runtime_approval_id": approval_id,
+                **self._proposal_evidence(state_blob),
+            },
         )
         session.commit()
         self._publish(
@@ -2367,6 +2426,46 @@ class WorkflowRunWorker:
                 "node_id": node_id,
                 "runtime_approval_id": approval_id,
             }
+        )
+
+    @staticmethod
+    def _proposal_evidence(state_blob: dict[str, Any]) -> dict[str, str]:
+        """The identifiers (never the action) of the proposal a governed step parked behind, for the run event and the audit."""
+        if not state_blob.get("approval_request_id"):
+            return {}
+        return {
+            key: state_blob[key]
+            for key in ("proposal_id", "intent_hash")
+            if isinstance(state_blob.get(key), str)
+        }
+
+    @staticmethod
+    def _bound_request_matches(
+        session: Session, run: CaliberWorkflowRun, node_id: str, state_blob: dict[str, Any]
+    ) -> bool:
+        """Whether the approval request a governed step names is a live one bound to this run, node and proposal.
+
+        A checkpoint without a bound request is the legacy node-level kind and needs no check. The runtime created the request
+        in this process moments ago; this refuses to park a run behind one that is not the run's, not the node's, not bound to
+        the proposal the step names, or already decided or replaced, which no approver could answer.
+        """
+        request_id = state_blob.get("approval_request_id")
+        if request_id is None:
+            return True
+        row = (
+            session.get(CaliberRuntimeApprovalRequest, request_id)
+            if isinstance(request_id, str)
+            else None
+        )
+        return (
+            row is not None
+            and row.workflow_run_id == run.workflow_run_id
+            and row.node_id == node_id
+            and row.proposal_id == state_blob.get("proposal_id")
+            and row.intent_hash == state_blob.get("intent_hash")
+            and row.status in ("pending", "approved")
+            and row.superseded_by is None
+            and row.consumed_at is None
         )
 
     def _approval_policy_snapshot(self, run: CaliberWorkflowRun, node_id: str) -> dict[str, Any]:
