@@ -49,6 +49,7 @@ from caliber.auth import CaliberIdentity
 from caliber.config import provider_request_timeout
 from caliber.context.authorize import ContextDenied
 from caliber.effects import step_proposal as _step_proposal
+from caliber.effects.connectors import openapi_http as _openapi_http
 from caliber.effects.dispatcher import (
     HTTP_CONNECTOR,
     HTTP_VERSION,
@@ -62,16 +63,22 @@ from caliber.effects.reconcile import UnknownEffectError
 from caliber.effects.records import RecordedProposal
 from caliber.effects.registered_tools import (
     INLINE,
+    OPENAPI_BACKEND,
     REFUSE,
     REGISTERED_TOOL_CONNECTOR,
     REGISTERED_TOOL_VERSION,
     RegisteredToolIdentity,
     ToolRoute,
+    route_openapi_tool,
     route_registered_tool,
     tool_intent_args,
     tool_resource,
 )
-from caliber.integrations.openapi.executor import bind_openapi_http_tool
+from caliber.integrations.openapi.executor import (
+    OpenApiPreflightError,
+    bind_openapi_http_tool,
+    openapi_operation_method,
+)
 from caliber.llm.models import (
     DEFAULT_OPENAI_REASONING_EFFORT,
     is_reasoning_model,
@@ -5511,9 +5518,10 @@ def _governed_tool_route(
 
     Only a plan wired to the registry (an identity reader, as ``build_plan`` binds) or to an authority (a governed
     context) is governed: a plan that has neither, such as a standalone export or a test plan, keeps calling the tool
-    directly, as do previews, which never reach a real effect. OpenAPI and MCP bindings are routed by
-    their own B04 tasks. The decision is made from the tool's **registry row** (``plan.registered_tool_identity``), never
-    from ``binding.side_effect_level`` or the binding's names, which a workflow or an export author wrote.
+    directly, as do previews, which never reach a real effect. OpenAPI bindings are routed by
+    :func:`_governed_openapi_route` (B04.4) and MCP bindings by their own B04 task. The decision is made from the
+    tool's **registry row** (``plan.registered_tool_identity``), never from ``binding.side_effect_level`` or the
+    binding's names, which a workflow or an export author wrote.
     """
     if (
         preview
@@ -5602,6 +5610,133 @@ def _perform_registered_tool_effect(
         backend_kind="registered_tool",
         backend_config={"invoker": invoker, "receipt_verifier": context.receipt_verifier},
     )["result"]
+
+
+@dataclass(frozen=True)
+class _GovernedOpenApi:
+    """A protected OpenAPI call's route and its trusted operation (the registry row's own configuration)."""
+
+    route: ToolRoute
+    operation: _openapi_http.OpenApiOperation
+
+
+def _governed_openapi_route(
+    plan: RuntimePlan,
+    binding: IRToolBinding,
+    *,
+    node_id: str,
+    preview: bool,
+    arguments: dict[str, Any],
+    overridden: bool,
+) -> _GovernedOpenApi | None:
+    """The dispatcher route of an OpenAPI tool node, or ``None`` when it runs inline as before (B04.4, #750).
+
+    As for a registered Python tool, only a plan wired to the registry (an identity reader) or to an authority (a governed
+    context) is governed, and a preview never reaches a real effect. The call is classified from the tool's **registry
+    row** (``plan.registered_tool_identity``): its declared level and the method its own configuration selects, never the
+    binding's level, names or configuration. The binding must carry exactly the row's execution configuration and input
+    schema: a binding that differs would run something the registry does not describe, so it is refused, inline reads
+    included. A tool whose row cannot be read cannot be proposed (there is no trusted operation to send) and is refused;
+    so is a protected call that an injected callable replaces, which no proposal could describe.
+    """
+    if preview or (plan.registered_tool_identity is None and plan.governed_effects is None):
+        return None
+    name = binding.local_name
+    identity: RegisteredToolIdentity | None = None
+    lookup = plan.registered_tool_identity
+    if lookup is not None and binding.resolved_name and binding.resolved_version:
+        try:
+            identity = lookup(binding.resolved_name, binding.resolved_version)
+        except Exception as exc:
+            raise ToolExecutionError(
+                f"registered tool {name!r} identity could not be read: {type(exc).__name__}"
+            ) from exc
+    if identity is None:
+        raise ToolExecutionError(f"OpenAPI tool {name!r} refused: unsupported_effect_path")
+    if (
+        identity.execution_backend != binding.execution_backend
+        or identity.backend_config != binding.backend_config
+        or identity.input_schema != binding.input_schema
+    ):
+        # The configuration the binding would send is not the one the registry row describes.
+        raise ToolExecutionError(f"registered tool {name!r} does not match its registry row")
+    try:
+        method = openapi_operation_method(
+            dict(identity.backend_config or {}), _json_compatible(arguments)
+        )
+    except OpenApiPreflightError as exc:
+        raise ToolExecutionError(f"OpenAPI tool {name!r} refused: {exc.code}") from exc
+    route = route_openapi_tool(identity, method=method)
+    if route.route == REFUSE:
+        raise ToolExecutionError(f"OpenAPI tool {name!r} refused: unsupported_effect_path")
+    if route.route == INLINE:
+        return None
+    if plan.governed_effects is None:
+        raise ToolExecutionError(
+            f"{node_id!r} requires a governed effect context to run protected OpenAPI tool {name!r}"
+        )
+    if overridden:
+        raise ToolExecutionError(
+            f"OpenAPI tool {name!r} is replaced by an injected callable and cannot be governed"
+        )
+    return _GovernedOpenApi(
+        route,
+        _openapi_http.OpenApiOperation(
+            tool=identity.name,
+            version=identity.version,
+            execution_config=identity.backend_config or {},
+            input_schema=identity.input_schema,
+            egress_policy=plan.egress_policy,
+        ),
+    )
+
+
+def _perform_openapi_tool_effect(
+    plan: RuntimePlan,
+    *,
+    node_id: str,
+    openapi: _GovernedOpenApi,
+    arguments: dict[str, Any],
+) -> dict[str, Any]:
+    """Run a protected OpenAPI tool call through proposal, approval and dispatch (B04.4, #750).
+
+    Everything that can be refused without sending is refused **before the proposal is recorded**, so no approval is
+    requested or spent for a call that cannot be made: the input against the row's schema, the operation the row selects, the
+    egress policy for the request and an OAuth token URL, a caller-supplied idempotency key and a conflicting
+    precondition (:func:`~caliber.integrations.openapi.executor.preflight_governed_openapi_request`). The proposal records the
+    operation from the **row** (method, server, path template) and the input; the ``openapi_http`` backend sends it, once,
+    only after the exact approval and the execution-owner lease are rechecked, with the proposal's stable key and
+    precondition. The returned dict is the executor's result, as an inline call returns it.
+    """
+    context = plan.governed_effects
+    assert context is not None  # _governed_openapi_route guarantees it
+    if not callable(context.authorize) or not callable(context.receipt_verifier):
+        raise ToolExecutionError("governed OpenAPI effect context is incomplete")
+    if not arguments:
+        raise ToolExecutionError("openapi tools accept one object argument")
+    operation = openapi.operation
+    try:
+        checked = _openapi_http.preflight(operation, _json_compatible(arguments))
+    except OpenApiPreflightError as exc:
+        raise ToolExecutionError(f"OpenAPI effect proposal refused: {exc.code}") from exc
+    return _submit_authorize_dispatch(
+        context,
+        label="OpenAPI effect",
+        proposal={
+            "node_id": node_id,
+            "occurrence_id": _STEP_OCCURRENCE.get() or node_id,
+            "connector": _openapi_http.CONNECTOR,
+            "connector_version": _openapi_http.VERSION,
+            "min_effect_class": openapi.route.effect_class,
+            "resource": _openapi_http.operation_resource(checked),
+            "args": _openapi_http.intent_args(operation, checked),
+            "expected_resource_version": checked.expected_resource_version,
+            "tool_name": operation.tool,
+            "caliber_defined": openapi.route.trusted,
+        },
+        backend_kind=_openapi_http.BACKEND_KIND,
+        backend_config={"operation": operation, "receipt_verifier": context.receipt_verifier},
+    )
 
 
 #: Failures that prove the effect did **not** reach the remote system, so the
@@ -7100,10 +7235,25 @@ def _run_node(  # noqa: PLR0911, PLR0912, PLR0915 - per-node-type dispatch
                 output=fallback_input,
                 detail=f"waiting_approval:{nid}",
             )
-        route = _governed_tool_route(plan, binding, node_id=nid, preview=preview)
+        override = (extra_tools or {}).get(binding.local_name)
+        openapi_effect: _GovernedOpenApi | None = None
+        if (
+            binding.binding_type == "registered_function"
+            and binding.execution_backend == OPENAPI_BACKEND
+        ):
+            openapi_effect = _governed_openapi_route(
+                plan,
+                binding,
+                node_id=nid,
+                preview=preview,
+                arguments=arguments,
+                overridden=override is not None,
+            )
+            route = None if openapi_effect is None else openapi_effect.route
+        else:
+            route = _governed_tool_route(plan, binding, node_id=nid, preview=preview)
         # A governed call is never retried: a second attempt of a write could repeat its effect.
         run_binding = replace(binding, max_retries=0) if route is not None else binding
-        override = (extra_tools or {}).get(binding.local_name)
         fn = (
             _resilient_callable(run_binding, override)
             if override is not None
@@ -7130,6 +7280,10 @@ def _run_node(  # noqa: PLR0911, PLR0912, PLR0915 - per-node-type dispatch
             try:
                 if route is None:
                     result = _call_tool(fn, arguments, fallback_input=fallback_input)
+                elif openapi_effect is not None:
+                    result = _perform_openapi_tool_effect(
+                        plan, node_id=nid, openapi=openapi_effect, arguments=arguments
+                    )
                 else:
                     result = _perform_registered_tool_effect(
                         plan,

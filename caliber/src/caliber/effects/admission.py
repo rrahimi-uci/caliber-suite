@@ -33,6 +33,7 @@ from typing import Any, Final
 from urllib.parse import urlsplit
 
 from caliber.effects.connectors import ConnectorCapability
+from caliber.effects.connectors.openapi_http import OpenApiOperation
 from caliber.profile import TrustedConnector
 
 #: No admission record for this transport, or the claimed connector is not the one the record admits.
@@ -217,6 +218,7 @@ _CONFIG_CHECKS: Final[Mapping[str, Callable[[object], bool]]] = {
     "sender": callable,
     "receipt_verifier": callable,
     "invoker": callable,
+    "operation": lambda value: isinstance(value, OpenApiOperation),
 }
 
 
