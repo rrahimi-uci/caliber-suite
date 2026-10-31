@@ -26,6 +26,9 @@ are that procedure:
 ``POST /caliber/system/effects/{effect_key}/resolve``
     Record the decision: ``skip`` if the effect *did* happen (do not repeat it),
     ``retry`` if it did not.
+``POST /caliber/system/effects/proposals/{proposal_id}/reconcile``
+    Ask the downstream about one effect *proposal* now, as the execution owner (B05.5d). It
+    never records what the operator believes: see :mod:`caliber.effects.operator_action`.
 
 Resolution is admin-scoped and audited. It asserts something about the outside world
 that CALIBER cannot verify, so who claimed it and why is part of the record — this is
@@ -74,6 +77,12 @@ from caliber.effects.connectors.document_request import (
     lookup_config,
     lookup_input,
 )
+from caliber.effects.operator_action import (
+    MAX_CONCURRENT_REQUESTS,
+    MAX_REASON_CHARS,
+    NotReconcilable,
+    reconcile_as_operator,
+)
 from caliber.effects.operator_view import (
     OPEN,
     describe_sources,
@@ -83,11 +92,17 @@ from caliber.effects.operator_view import (
     proposal_states,
 )
 from caliber.effects.receipts import RECEIPT_STATE, ReceiptFacts
-from caliber.effects.reconcile import commit_found, wake_parked_runs
+from caliber.effects.reconcile import (
+    ask_downstream,
+    commit_found,
+    targets_from_bindings,
+    wake_parked_runs,
+)
 from caliber.effects.records import (
     COMMITTED,
     DISPATCHED,
     FAILED,
+    LEASE_LOST,
     RECONCILED,
     STALE_VERSION,
     UNKNOWN,
@@ -98,6 +113,7 @@ from caliber.effects.records import (
 )
 from caliber.events.inbox import InboxPayloadMismatch, process_once
 from caliber.events.outbox import payload_hash
+from caliber.execution_role import OWNER
 from caliber.integrations.openapi.executor import OpenApiExecutionError, execute_openapi_http_tool
 from caliber.routes._deps import (
     envelope_response_dict,
@@ -117,6 +133,9 @@ from caliber.workflows.run_state import RUN_STATUS_WAITING_EFFECT
 
 EFFECTS_PATH = "/ajax-api/2.0/mlflow/caliber/system/effects"
 EFFECT_RESOLVE_PATH = "/ajax-api/2.0/mlflow/caliber/system/effects/{effect_key}/resolve"
+EFFECT_PROPOSAL_RECONCILE_PATH = (
+    "/ajax-api/2.0/mlflow/caliber/system/effects/proposals/{proposal_id}/reconcile"
+)
 DEAD_LETTERS_PATH = "/ajax-api/2.0/mlflow/caliber/system/webhook-dead-letters"
 DEAD_LETTER_REPLAY_PATH = (
     "/ajax-api/2.0/mlflow/caliber/system/webhook-dead-letters/{dead_letter_id}/replay"
@@ -133,6 +152,8 @@ _MAX_KEY_CHARS = 255
 _MAX_CONCURRENT_LOOKUPS = 4
 _LOOKUP_SLOTS: dict[tuple[str, str], threading.BoundedSemaphore] = {}
 _LOOKUP_SLOTS_LOCK = threading.Lock()
+#: Operator-triggered reconciliations in flight in this process (each can hold a worker for the executor's timeout).
+_OPERATOR_SLOTS = threading.BoundedSemaphore(MAX_CONCURRENT_REQUESTS)
 _FIRST_ERROR_STATUS = 400
 #: The connectors whose lookup the platform knows how to run and verify (one today).
 _CALLBACK_CONNECTORS = frozenset({DOCUMENT_REQUEST})
@@ -295,6 +316,72 @@ async def resolve_system_effect(request: Request) -> JSONResponse:
         )
         session.commit()
     return envelope_response_dict(resolved)
+
+
+async def reconcile_effect_proposal(request: Request) -> JSONResponse:
+    """``POST /caliber/system/effects/proposals/{proposal_id}/reconcile`` — ask the downstream about one proposal now (B05.5d, #997).
+
+    Admin-scoped, owner-fenced and audited, and never a way to say what happened: the body is ``{"reason": "<why>"}`` and
+    nothing else is read. The platform asks the downstream by the proposal's logical key, under the execution-owner lease *this
+    process* holds, and moves the proposal only on the downstream's own evidence (a verified receipt, or a connector that
+    proves absence final); any other answer leaves it ``unknown`` and says so in ``outcome``. A process that is not the
+    execution owner answers ``409 not_execution_owner`` (ask the owner, see ``/readiness``), and a lease lost mid-request
+    ``409 lease_lost``; a proposal that is not ``dispatched``, ``unknown`` or ``reconciled`` is ``409 not_reconcilable``. At most
+    ``MAX_CONCURRENT_REQUESTS`` (4) operator reconciliations run at once per process; the rest get ``429``.
+    """
+    proposal_id = request.path_params["proposal_id"]
+    actor = require_scopes(request, [SCOPE_ADMIN])
+    body = await parse_json_object(request)
+    unexpected = sorted(set(body) - {"reason"})
+    if unexpected:
+        raise HTTPException(status_code=400, detail="only 'reason' is accepted")
+    reason = body.get("reason")
+    if not isinstance(reason, str) or not reason.strip() or len(reason.strip()) > MAX_REASON_CHARS:
+        raise HTTPException(
+            status_code=400, detail=f"'reason' must be 1 to {MAX_REASON_CHARS} characters"
+        )
+    role = getattr(request.app.state, "execution_role", None)
+    lease = role.lease if role is not None and role.role == OWNER else None
+    if lease is None:
+        raise HTTPException(
+            status_code=409,
+            detail="not_execution_owner: only the process holding the execution-owner lease asks the downstream",
+        )
+    config = request.app.state.config
+    factory = get_session_factory(request)
+    if not _OPERATOR_SLOTS.acquire(blocking=False):
+        raise HTTPException(status_code=429, detail="too_many_reconciliations_in_flight")
+    try:
+        result = await run_in_threadpool(
+            reconcile_as_operator,
+            factory,
+            proposal_id,
+            actor=actor,
+            reason=reason,
+            lease=lease,
+            targets=targets_from_bindings(parse_bindings(config.effect_callback_connectors)),
+            in_flight_seconds=config.effect_in_flight_max_seconds,
+            lookup=ask_downstream,
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="effect proposal not found") from exc
+    except NotReconcilable as exc:
+        raise HTTPException(status_code=409, detail=f"not_reconcilable: {exc.state}") from exc
+    except ProposalError as exc:
+        if exc.code == LEASE_LOST:
+            raise HTTPException(status_code=409, detail="lease_lost") from exc
+        raise HTTPException(status_code=409, detail=exc.code) from exc
+    finally:
+        _OPERATOR_SLOTS.release()
+    return envelope_response_dict(
+        {
+            "proposal_id": result.proposal_id,
+            "outcome": result.outcome,
+            "state": result.state,
+            "detail": result.detail,
+            "settled": result.settled,
+        }
+    )
 
 
 async def list_webhook_dead_letters(request: Request) -> JSONResponse:
@@ -766,6 +853,9 @@ async def receive_effect_receipt(request: Request) -> JSONResponse:
 def register(app: Starlette) -> None:
     app.routes.append(Route(EFFECTS_PATH, list_system_effects, methods=["GET"]))
     app.routes.append(Route(EFFECT_RESOLVE_PATH, resolve_system_effect, methods=["POST"]))
+    app.routes.append(
+        Route(EFFECT_PROPOSAL_RECONCILE_PATH, reconcile_effect_proposal, methods=["POST"])
+    )
     app.routes.append(Route(DEAD_LETTERS_PATH, list_webhook_dead_letters, methods=["GET"]))
     app.routes.append(
         Route(DEAD_LETTER_ACK_PATH, acknowledge_webhook_dead_letter, methods=["POST"])

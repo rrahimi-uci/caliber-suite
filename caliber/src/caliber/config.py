@@ -1852,6 +1852,48 @@ class CaliberConfig(BaseModel):
         parse_bindings(value)
         return value
 
+    effect_reconciler_enabled: bool = Field(
+        default=True,
+        description=(
+            "Run the effect reconciler loop (B05.5d, #997) in the execution owner. Reference profile only: it needs the "
+            "execution-owner lease, which only that profile has. It asks each connector bound in "
+            "``effect_callback_connectors`` about the effects nobody recorded the outcome of, and moves a dispatch that stayed "
+            "in flight too long to unknown. Turn it off only if another process under the same lease does that work: "
+            "without it an effect whose settle failed stays blocked until an operator reconciles it."
+        ),
+    )
+    effect_reconciler_interval_seconds: float = Field(
+        default=15.0,
+        ge=1.0,
+        le=3600.0,
+        allow_inf_nan=False,
+        description="Seconds between effect reconciler passes (1 to 3600, finite).",
+    )
+    effect_reconciler_budget_seconds: float = Field(
+        default=20.0,
+        ge=1.0,
+        le=600.0,
+        allow_inf_nan=False,
+        description=(
+            "How long one effect reconciler pass may keep starting lookups (1 to 600, finite). A lookup in progress "
+            "finishes (its own timeout applies, 30 s by default) and the rest wait for the next pass."
+        ),
+    )
+    effect_in_flight_max_seconds: float = Field(
+        default=900.0,
+        ge=300.0,
+        le=86400.0,
+        allow_inf_nan=False,
+        description=(
+            "How long an effect may stay dispatched under the lease that is still current before the reconciler records it "
+            "unknown (300 to 86400, finite). It must exceed the longest a dispatch can legitimately take: the executor's "
+            "timeout (30 s by default) times its attempts (at most 5), its backoff (under 4 s) and the receipt lookup (30 s) "
+            "come to about 3 minutes with the defaults, which is what the 300 s floor covers; a connector configured with a "
+            "longer timeout needs a larger value. A dispatcher that is merely slow finds its row unknown and the reconciler "
+            "settles it by a lookup by key instead of the dispatcher."
+        ),
+    )
+
     # ------------------------------------------------------------------
     # CSRF protection (parity checklist §11). Opt-in because the common
     # deployment shape — MLflow's auth proxy in front of CALIBER —
@@ -2582,6 +2624,10 @@ _ENV_VAR_TABLE: list[tuple[str, str, Any]] = [
     ("CALIBER_PII_REDACTION_EXTRA_PATTERNS", "pii_redaction_extra_patterns", str),
     ("CALIBER_CONTEXT_SECTION_CAPS", "context_section_caps", str),
     ("CALIBER_EFFECT_CALLBACK_CONNECTORS", "effect_callback_connectors", str),
+    ("CALIBER_EFFECT_RECONCILER_ENABLED", "effect_reconciler_enabled", _flag),
+    ("CALIBER_EFFECT_RECONCILER_INTERVAL_SECONDS", "effect_reconciler_interval_seconds", float),
+    ("CALIBER_EFFECT_RECONCILER_BUDGET_SECONDS", "effect_reconciler_budget_seconds", float),
+    ("CALIBER_EFFECT_IN_FLIGHT_MAX_SECONDS", "effect_in_flight_max_seconds", float),
     ("CALIBER_CSRF_ENABLED", "csrf_enabled", _flag),
     ("CALIBER_CSRF_SIGNING_SECRET_ENV", "csrf_signing_secret_env", str),
     ("CALIBER_CSRF_TOKEN_TTL_SECONDS", "csrf_token_ttl_seconds", int),

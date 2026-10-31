@@ -23,7 +23,7 @@ from caliber.observability.worker_inventory import (
 
 ADR_PATH = Path(__file__).resolve().parents[2] / "docs/architecture/adr/0002-execution-ownership.md"
 
-#: The 12 workers known to be started by server.py::_build_lifespan today,
+#: The 13 workers known to be started by server.py::_build_lifespan today,
 #: in startup order. A literal pin: the whole point of deriving rather than
 #: declaring is that a worker silently added to or removed from the
 #: lifespan changes this list without anyone updating a hand-maintained
@@ -41,6 +41,7 @@ _EXPECTED_WORKERS = [
     ("workspace_import_worker", "WorkspaceImportWorker"),
     ("scheduler", "WorkflowSchedulerTask"),
     ("workspace_release_evaluator", "WorkspaceReleaseEvaluator"),
+    ("effect_reconciler", "EffectReconcilerTask"),
 ]
 
 
@@ -93,17 +94,22 @@ def test_every_worker_has_a_description() -> None:
 
 def test_only_the_workers_that_report_liveness_register_a_heartbeat() -> None:
     """Regression pin: caliber.observability.worker_registry.record_heartbeat
-    is called from exactly two places in the codebase today
-    (WorkflowRunWorker._record_liveness and WorkspaceReleaseEvaluator._record_liveness,
-    B10.1). Derived, not hand-declared -- if another worker starts reporting
+    is called from exactly three places in the codebase today
+    (WorkflowRunWorker._record_liveness, WorkspaceReleaseEvaluator._record_liveness,
+    B10.1, and EffectReconcilerTask._record_liveness, B05.5d). Derived, not hand-declared -- if another worker starts reporting
     heartbeats, this test documents that the inventory noticed rather than
     silently continuing to say "no".
     """
     by_class = {d.cls_name: d.registers_heartbeat for d in worker_inventory()}
     assert by_class["WorkflowRunWorker"] is True
     assert by_class["WorkspaceReleaseEvaluator"] is True
+    assert by_class["EffectReconcilerTask"] is True
     heartbeating = sorted(cls for cls, registers in by_class.items() if registers)
-    assert heartbeating == ["WorkflowRunWorker", "WorkspaceReleaseEvaluator"]
+    assert heartbeating == [
+        "EffectReconcilerTask",
+        "WorkflowRunWorker",
+        "WorkspaceReleaseEvaluator",
+    ]
 
 
 def test_workspace_release_evaluator_is_listed_owner_only_with_its_tables() -> None:
@@ -113,6 +119,20 @@ def test_workspace_release_evaluator_is_listed_owner_only_with_its_tables() -> N
     assert descriptor.ownership == "owner_only"
     assert descriptor.registers_heartbeat is True
     assert descriptor.tables == ("CaliberWorkspaceReleaseEvaluation", "CaliberWorkerHeartbeat")
+
+
+def test_effect_reconciler_is_listed_owner_only_with_its_tables() -> None:
+    """B05.5d (#997): the reconciler loop is discovered from the lifespan and classified for the lease."""
+    (descriptor,) = [d for d in worker_inventory() if d.cls_name == "EffectReconcilerTask"]
+    assert descriptor.name == "effect_reconciler"
+    assert descriptor.ownership == "owner_only"
+    assert descriptor.registers_heartbeat is True
+    assert descriptor.tables == (
+        "CaliberEffectProposal",
+        "CaliberEffectReceipt",
+        "CaliberAuditLog",
+        "CaliberWorkerHeartbeat",
+    )
 
 
 def test_worker_inventory_covers_every_expected_class() -> None:

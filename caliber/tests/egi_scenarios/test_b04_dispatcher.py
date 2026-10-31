@@ -3,14 +3,17 @@
 from __future__ import annotations
 
 import hashlib
+import json
 from dataclasses import replace
 from datetime import datetime, timedelta, timezone
+from types import SimpleNamespace
 from typing import Any
 
 import httpx
 import pytest
 from sqlalchemy import select
 
+import caliber.effects.dispatcher as dispatcher_module
 from caliber.db.models import (
     CaliberEffectProposal,
     CaliberEffectReceipt,
@@ -21,12 +24,14 @@ from caliber.db.models import (
 )
 from caliber.effects.dispatcher import EffectRefused, dispatch, submit_proposal
 from caliber.effects.receipts import ReceiptFacts
+from caliber.effects.reconcile import RECONCILED_COMMITTED
 from caliber.effects.records import logical_key, proposal_state, record_proposal
 from caliber.effects.registered_tools import load_registered_tool_identity
 from caliber.egress import EgressPolicy
 from caliber.ids import new_tool_id
 from caliber.integrations.openapi.executor import bind_egress_policy
 from caliber.observability.mlflow_tracing import Tracer, set_tracer
+from caliber.orchestrator.effect_reconciler import COMPLETE, EffectReconcilerTask
 from caliber.ownership import acquire
 from caliber.run_manifest import canonical_bytes
 from caliber.workflows.approval_policy import ApprovalPolicy, approval_valid_at_commit
@@ -735,3 +740,103 @@ def test_an_admission_refusal_binds_no_row_to_the_span(
         approval = session.get(CaliberRuntimeApprovalRequest, approval_id)
         assert approval is not None and approval.consumed_at is None
         assert proposal_state(session, proposal_id).state == "proposed"
+
+
+def test_a_settle_failure_under_the_current_lease_is_recovered_by_the_owner_loop_with_one_mutation(
+    reference_app: ReferenceApp,
+    two_workspaces: Workspaces,
+    downstream: Downstream,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """B05.5d (#997): the dispatcher keeps its lease, sends the effect, and its receipt verification fails.
+
+    The row must not stay ``dispatched`` under a lease that is still current (the reconciler's takeover rule would never touch
+    it): the dispatcher records ``unknown`` itself, and the owner-only loop, under the same lease, asks the downstream by key,
+    commits with a verified receipt, and the downstream counts exactly one mutation.
+    """
+    with reference_app.session_factory() as session:
+        member = session.execute(
+            select(CaliberProjectMember).where(
+                CaliberProjectMember.project_id == PROJECT_A,
+                CaliberProjectMember.user_id == APPROVER_A,
+            )
+        ).scalar_one()
+        member.role = "reviewer"
+        session.commit()
+
+    run_id = _waiting_run(reference_app)
+    approval_id, proposal_id = _request(
+        reference_app,
+        run_id,
+        "occ-b05-5d",
+        connector_version="1",
+        resource="cases/MORT-2026-000184/document-requests",
+        args={"document_type": "pay_statement"},
+        expected_resource_version="1",
+    )
+    _approved(reference_app, run_id, approval_id)
+    with reference_app.session_factory() as session:
+        lease = acquire(session, "egi-b05-5d-owner", ttl_seconds=600)
+        assert lease is not None
+        session.commit()
+
+    transport = dispatcher_module._raw_connector_transport
+    real = transport.execute_openapi_http_tool
+
+    def verification_fails(**kwargs: Any) -> Any:
+        if (
+            kwargs["execution_config"]["method"] == "GET"
+        ):  # the receipt verification, after the send
+            raise ConnectionError("the verifier lost its connection")
+        return real(**kwargs)
+
+    monkeypatch.setattr(transport, "execute_openapi_http_tool", verification_fails)
+    bind_egress_policy(EgressPolicy(allowed_hosts=frozenset({"127.0.0.1"})))
+    try:
+        with pytest.raises(ConnectionError):
+            dispatch(
+                reference_app.session_factory,
+                proposal_id,
+                approval_id=approval_id,
+                approver_scopes=frozenset({"caliber.approver", "caliber.viewer"}),
+                lease=lease,
+                backend_kind="document_request",
+                backend_config={"base_url": downstream.base_url},
+                current_resource_version="1",
+                evidence_hash=EVIDENCE,
+                approval_validator=approval_valid_at_commit,
+                now=T0 + timedelta(minutes=2),
+            )
+        assert downstream.mutations() == 1
+        with reference_app.session_factory() as session:
+            state = proposal_state(session, proposal_id)
+            assert (state.state, state.reason) == ("unknown", "settle_failed:ConnectionError")
+            assert state.dispatch_token == lease.fencing_token, "still the current lease's token"
+
+        loop = EffectReconcilerTask(
+            reference_app.session_factory,
+            SimpleNamespace(
+                effect_callback_connectors=json.dumps(
+                    [
+                        {
+                            "connector": "document-request",
+                            "project_id": PROJECT_A,
+                            "secret_source": "env:UNUSED",
+                            "base_url": downstream.base_url,
+                        }
+                    ]
+                )
+            ),
+            lease_provider=lambda: lease,
+        )
+        report = loop.tick()
+    finally:
+        bind_egress_policy(None)
+
+    assert report is not None and report.ended == COMPLETE
+    assert [(r.proposal_id, r.outcome, r.state) for r in report.results] == [
+        (proposal_id, RECONCILED_COMMITTED, "committed")
+    ]
+    assert downstream.mutations() == 1, "found by key, never sent again"
+    with reference_app.session_factory() as session:
+        assert proposal_state(session, proposal_id).state == "committed"
