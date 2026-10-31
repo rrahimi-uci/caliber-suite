@@ -59,6 +59,47 @@ from caliber.workflows.promoter import (
     promote_workflow_candidate,
 )
 
+#: ``reason_code`` of the 403 when the account applying a candidate is the one that requested its job (B06.3, #747).
+APPLY_SELF_APPROVAL = "apply_self_approval"
+#: ``reason_code`` of the 403 when the job has no recorded requester, so a distinct approver cannot be verified.
+APPLY_CREATOR_UNKNOWN = "apply_creator_unknown"
+#: The 403 message for each refusal. Static on purpose: no job id, requester, approver or candidate content.
+APPLY_SEPARATION_DETAIL: dict[str, str] = {
+    APPLY_SELF_APPROVAL: (
+        "the account that requested this candidate cannot apply it; a different authorized person must apply it"
+    ),
+    APPLY_CREATOR_UNKNOWN: (
+        "this candidate has no recorded requester, so a distinct approver cannot be verified; "
+        "re-run the calibration so it records its requester, then have a different authorized person apply it"
+    ),
+}
+
+
+def _identity_key(value: str | None) -> str:
+    """``value`` as compared for separation of duties: trimmed and case-folded; ``""`` when absent."""
+    return value.strip().casefold() if isinstance(value, str) else ""
+
+
+def apply_separation_refusal(*, requester: str | None, approver: str) -> str | None:
+    """Why ``approver`` may not apply a job that ``requester`` asked for, or ``None`` when they may (B06.3, #747).
+
+    Pure. Used only when the two-person rule is in force (see :func:`caliber.profile.apply_distinct_approver_required`).
+    ``requester`` is the job's stored ``triggered_by`` (written from the authenticated identity) and ``approver`` is the
+    authenticated caller; neither comes from the request body.
+
+    * :data:`APPLY_CREATOR_UNKNOWN`: ``requester`` is ``None`` or blank, a legacy job. It is never passed automatically,
+      because separation cannot be shown for it.
+    * :data:`APPLY_SELF_APPROVAL`: the two are the same account, compared trimmed and case-folded so a case variant of
+      the requester's id is not a second person. A blank ``approver`` is also refused here: no distinct approver exists.
+    """
+    requester_key = _identity_key(requester)
+    if not requester_key:
+        return APPLY_CREATOR_UNKNOWN
+    approver_key = _identity_key(approver)
+    if not approver_key or approver_key == requester_key:
+        return APPLY_SELF_APPROVAL
+    return None
+
 
 @dataclass(frozen=True)
 class ApplyOutcome:
