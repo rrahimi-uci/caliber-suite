@@ -91,8 +91,8 @@ A workflow `tool` node that names a registered Python tool is routed by the tool
 database for the tool being run: its name, owner, version, module, callable and declared side-effect level. The
 manifest binding, an exported bundle and the model do not decide it (`IRToolBinding` and `ToolRegistryEntry` carry
 no owner, so there is nothing in them to forge). A plan is governed when it is wired to the registry (an identity reader) or to an authority (a governed context); the
-table below lists every place the runtime builds a plan and which it is. OpenAPI bindings (B04.4) and MCP bindings (B04.5)
-keep their own paths.
+table below lists every place the runtime builds a plan and which it is. OpenAPI bindings are routed the same way by
+[Governed OpenAPI tools](#governed-openapi-tools-b044), and MCP bindings (B04.5) keep their own path.
 
 | the registry row is | the tool node |
 | --- | --- |
@@ -153,10 +153,123 @@ EP-015, EP-016 and EP-019, refused by #774.
 Two limits. An administrator-registered tool declared `read` is trusted as read-class: its declared level is part of the
 definition the deployment bundle pins and re-verifies before a run (`deployment_bundle.tool_snapshot`), but the platform
 does not observe what its code does, so register a tool that writes with `write` or `external_action`. And model-chosen tool
-calls inside an agent step, MCP tools and OpenAPI tools are not routed by this change (B04.4 to B04.7).
+calls inside an agent step and MCP tools are not routed by this change (B04.5 to B04.7); OpenAPI tool nodes are routed by
+[Governed OpenAPI tools](#governed-openapi-tools-b044).
 
 No migration, no new setting and no new route; rolling back is reverting the change (a `registered_tool` proposal
 already recorded remains readable and reconcilable).
+
+## Governed OpenAPI tools (B04.4)
+
+A workflow `tool` node bound to a tool published from an OpenAPI integration (`execution_backend: openapi_http`) is routed
+by the tool's **registry row**, as a registered Python tool is, and by the operation that row selects. Two things the
+registry holds decide the class, and the stricter wins: the row's declared `side_effect_level` and the **method** of the
+operation its own `backend_config` describes (a tool pack's operation is chosen by the call's `operation` input from the
+row's list of bound operations, never from the binding). The manifest binding, an exported bundle and the model decide
+nothing: the binding's `backend_config` and `input_schema` must equal the row's, or the node is refused.
+
+| the row and its operation | the tool node |
+| --- | --- |
+| `GET`, `HEAD` or `OPTIONS`, declared `read` | runs inline, as before: no proposal, no approval |
+| `GET`, `HEAD` or `OPTIONS`, declared `write` or `external_action` | proposed, approved and dispatched (the declared level floors the class) |
+| `POST`, `PUT`, `PATCH` or `DELETE`, whatever the level (an under-declared `read` included) | proposed, approved and dispatched: a method that is not a read method is at least a `reversible_write` |
+| a built-in's reserved name, or an unrecognised level | classified `irreversible_write` and dispatched; never inline |
+| a tool with no readable row, a row that is not an OpenAPI tool, or an operation the row does not bind | refused before anything is recorded or sent |
+| a binding whose configuration or schema differs from the row | refused: `registered tool '<name>' does not match its registry row` |
+| a protected call in a plan with no governed context, or replaced by an injected callable | refused: nothing is recorded or sent |
+
+The proposal (`connector: openapi-http`, always recorded `irreversible_write`, because the inventory does not list a registered
+tool) holds the resource `openapi/<METHOD> <server><path template>`, built from the row, and the arguments
+`{"tool", "version", "input"}`. Dispatch rechecks the exact approval and the captured `execution-owner` lease in one
+transaction, consumes the approval and writes the dispatch event **before** the private `openapi_http` backend sends. That
+backend is the only caller of the raw OpenAPI transport for a governed call: it rebuilds the request from the row and the
+**recorded** arguments, requires the result to be the recorded resource (method, server and path) and sends nothing
+otherwise, so what is sent is what the approver saw, and it can never reach the dispatcher again.
+
+**Everything that can be refused without sending is refused before the proposal is recorded**, so no approval is requested or
+spent for a call that cannot be made: the input against the row's schema, the server (a plain `http(s)` origin with no
+credentials, query or fragment, because its text is persisted in the resource), the egress policy for the request URL and for an
+OAuth token URL, an unsupported auth kind, a caller-supplied idempotency key and a conflicting precondition. No secret is
+resolved and nothing is sent at that point; the transport applies the egress policy again when it connects.
+
+**Keys, preconditions and retries.**
+
+- When the row binds an idempotency key header, **the platform owns the key**: the transport sends the proposal's stable
+  logical key, and an `idempotency_key` input or a `header_params` entry for that header is refused
+  (`openapi_key_override_refused`), never sent next to it.
+- When the row binds a precondition header (for example `If-Match`), the `expected_resource_version` input and a
+  `header_params` entry must agree (`openapi_precondition_conflict`). The value is recorded **once**, as the proposal's
+  `expected_resource_version` (so the approval is bound to it and the approver's check compares it with the current version),
+  and the transport sends it as the bound header. A recorded precondition the row cannot send is refused, never dropped.
+- The transport retries only when the request really carries an emitted key: a row with no key header is sent **once**, even
+  for a method the executor would otherwise retry (`PUT`, `DELETE`). With a key, the executor's own bounded retry (the row's
+  `max_attempts`, at most 5) repeats the same key **within one dispatch**. The dispatcher does not redrive an ambiguous
+  effect after that dispatch, and the binding's `max_retries` is ignored for a governed call. The in-dispatch retry is an
+  **accepted risk**, not a guarantee: the capability record leaves key scope and retention unconfirmed, so a downstream that
+  does not honour the key can commit twice. Leave `max_attempts` at 1 unless the downstream is known to replay a key.
+
+**Headers, and what is stored.** `header_params` may not set a method-override header (`X-HTTP-Method-Override`,
+`X-HTTP-Method`, `X-Method-Override`) or a framing or hop-by-hop header (`Host`, `Content-Length`, `Content-Encoding`,
+`Transfer-Encoding`, `Connection`, `Keep-Alive`, `Proxy-Connection`, `Proxy-Authorization`, `TE`, `Trailer`, `Upgrade`,
+`Expect`; case-insensitive): classification uses the row's method, and a downstream that honours an override would turn a read into a
+write. The check applies to **every** call of the executor, an inline `GET` included, and is refused as
+`openapi_header_forbidden` (a governed call, before the proposal) or as an executor error that names no header (an inline call).
+It does not cover a method override carried in a query parameter or a body field a particular downstream might honour. The
+input is recorded **verbatim**: `body`, `header_params`, `query_params` and `path_params` are stored in the proposal's
+`args.input` (`caliber_effect_proposals`) and shown to the approver, so **credentials belong in the row's `auth_binding`
+(a secret reference resolved at send time), never in the call's input**. The proposal never records the auth binding.
+
+**What an answer proves.** The `openapi-http` capability record promises nothing about a downstream: no key scope or
+retention, no lookup by key, no documented rejection status. So a 2xx is a claim that the run's authoritative
+`receipt_verifier` must confirm (an unconfirmed claim stays `unknown`), and every other answer, a 4xx included, is
+`unknown` rather than `failed`. A connection dropped or timed out after the downstream committed is `unknown`: the node does
+not run again, the reconciler has no lookup binding for this connector and leaves it (`not_bound`), and only the verifier, a
+receipt callback or an operator can settle it. The connector is a pinned entry of `REFERENCE_CONNECTORS` (backend kind
+`openapi_http`, settings `operation` and `receipt_verifier`, accepted risks `write_not_exactly_once` and
+`key_retention_unconfirmed`).
+
+Every refusal is a `ToolExecutionError` with a stable code and no argument, input, header, URL or response body:
+
+```text
+OpenAPI effect proposal refused: openapi_egress_blocked         # the request or token URL fails the egress policy
+OpenAPI effect proposal refused: openapi_input_invalid          # input breaks the row's schema, or a path parameter is missing
+OpenAPI effect proposal refused: openapi_key_override_refused   # a caller-supplied idempotency key for a row that binds one
+OpenAPI effect proposal refused: openapi_precondition_conflict  # If-Match and expected_resource_version disagree, or are blank
+OpenAPI effect proposal refused: openapi_config_invalid         # the row's server or path cannot be used (credentials, query, scheme)
+OpenAPI effect proposal refused: openapi_auth_unsupported       # the row binds an auth kind the executor does not support
+OpenAPI effect proposal refused: openapi_header_forbidden       # header_params sets a method-override, framing or hop-by-hop header
+OpenAPI tool 'tickets' refused: openapi_operation_unresolved    # a pack operation the row does not bind
+OpenAPI tool 'tickets' refused: unsupported_effect_path         # no readable OpenAPI row for the tool
+OpenAPI effect authorization was not granted                    # no exact approval: the proposal stays `proposed`
+OpenAPI effect dispatch refused: proposal_not_approved          # not approved, or the node already ran
+OpenAPI effect did not commit: ambiguous:http_503               # unknown: the answer proves nothing, nothing is resent
+OpenAPI effect did not commit: receipt_unverified               # a 2xx the verifier could not confirm: unknown
+'tool_node' requires a governed effect context to run protected OpenAPI tool 'open_ticket'
+```
+
+Recovery: a refusal before the proposal needs the input, the row or the egress allowlist corrected (nothing was recorded). A
+`proposed` effect needs an exact approval, after which the run can be resumed (the proposal is reused for the same node
+occurrence). An `unknown` effect is settled by the receipt verifier, a receipt callback or an operator (see the
+[recovery runbook](m-65-recovery-runbook.md)), never by running the node again.
+
+**After the approval.** The backend rebuilds the request from the row and the recorded arguments and checks it again,
+the egress policy included. Any failure at that point (a recorded proposal that is not the row's operation, or a destination
+that **stopped** passing the egress policy since the proposal, a transient DNS or allowlist change included) sends nothing and
+settles the proposal `failed` with the reason `not_sent`; the dispatch's internal refusal code is not surfaced, and **the
+approval is already consumed**: ask for a new proposal (run the node again after fixing the cause).
+
+**Not covered by this change, and still outside the dispatcher:** model-chosen tool calls inside an agent step (B04.6,
+#768), the Aria assistant's published-tool call (inventory EP-034: there is no workflow run to propose into; owned by #1063), standalone
+exports and plans a caller builds itself (#1051: `build_plan` binds the registry reader but no governed context, so a
+deployed workflow's **protected** OpenAPI nodes are refused until #1051 binds one; read-class `GET` nodes still run),
+and the operator's draft preview route (EP-033, exempt). The raw executor's remaining callers are pinned by
+`tests/test_effect_path_matrix.py::test_the_raw_openapi_executor_is_named_only_by_pinned_callers`, so a new one fails
+until it is routed or pinned with a reason.
+
+**Configuration, migration and rollback.** No new setting, no route and no migration. The two names `openapi_http` and
+`openapi-http` become reserved tool names like the other connectors (`409 reserved_tool_name`); a tool already registered
+under one is untrusted and unaffected. Reverting the change restores the direct call (a proposal already recorded remains
+readable).
 
 ## Memory is owned, derived and read-mostly
 
@@ -1338,10 +1451,13 @@ compares the transport registered under `kind` with it, and `caliber.effects.adm
 | the wire configuration | the digest of what the transport sends with (for the document-request connector: the submit and lookup operations, the key header and the accepted resource shape) equals the pinned one | `connector_configuration_mismatch` |
 | the settings handed to `dispatch` | only the record's `config_keys`, every `required_config_keys` present, each value bounded: a `base_url` is `http(s)` with a host, a valid port, and no userinfo, whitespace, control characters, query or fragment; `max_attempts` is 1 to 5; `timeout_seconds` is finite, above 0 and at most 300 | `connector_config_not_admitted` |
 
-The reference profile admits two connectors: `document_request` (connector `document-request`, version 1: the Beta reference
+The reference profile admits four connectors: `document_request` (connector `document-request`, version 1: the Beta reference
 connector, which has a stable key, a precondition and a lookup by key; its key retention is unconfirmed, and that risk is
-accepted by name) and the generic `http` transport that governed webhook and API nodes use (it promises no exactly-once
-behaviour, so every effect through it needs the caller's own receipt verifier). **The dispatcher refuses everything else**: MCP
+accepted by name), the generic `http` transport that governed webhook and API nodes use (it promises no exactly-once
+behaviour, so every effect through it needs the caller's own receipt verifier), the `registered_tool` transport of
+[governed registered tools](#governed-registered-tools-b043), and the `openapi_http` transport of
+[governed OpenAPI tools](#governed-openapi-tools-b044) (connector `openapi-http`; settings `operation` and `receipt_verifier`;
+it promises nothing about the downstream either). **The dispatcher refuses everything else**: MCP
 stdio and remote hosts, host-file exports, PostgreSQL MCP writes and any transport added to `BACKENDS` without a reviewed record.
 Each has no record in the table, so a proposal or dispatch that goes through the dispatcher is `unsupported_backend` (no
 registration) or `connector_not_admitted` (registered, not pinned), and the host-file and database-write tools are also
@@ -1367,7 +1483,7 @@ Where it is enforced:
   (implementation, capability and configuration, never settings or payloads) are written into the `effect.proposal.dispatched`
   outbox event as `connector_admission`.
 - **A user tool cannot pose as a connector.** Tool registration (`POST /tools`) and the assistant's tool publisher refuse the
-  names `document_request`, `document-request` and `http` (and their `tool.<name>.vN` and case variants) with `409 reserved_tool_name`,
+  names `document_request`, `document-request`, `http`, `registered_tool`, `openapi_http` and `openapi-http` (and their `tool.<name>.vN` and case variants) with `409 reserved_tool_name`,
   like a built-in's name. A tool already registered under such a name before this rule is not rewritten; it is untrusted, is
   never classified as a connector, and is flagged once by the reserved-name audit (`flag_reserved_tool_name`, plus one `ERROR` log
   per process that names the connector, not a built-in). **Upgrade impact:** no new version can be registered under such a name
@@ -1383,7 +1499,7 @@ Refusal and recovery (every code is stable and carries no payload, setting or UR
 | `connector_implementation_mismatch` | the registered transport is not the pinned implementation | restore the shipped transport; do not subclass or replace it |
 | `connector_capability_unproven` / `connector_capability_mismatch` | no capability record, an unaccepted risk, or a changed promise | restore the record; a changed promise is a code change that updates the pin in review |
 | `connector_configuration_mismatch` | the transport's wire configuration is not the pinned one | restore the shipped configuration |
-| `connector_config_not_admitted` | `backend_config` has an unknown or missing key or an out-of-bounds value | pass only `base_url` (and optionally `max_attempts`, `timeout_seconds`) for `document_request`; `sender` and `receipt_verifier` for `http` |
+| `connector_config_not_admitted` | `backend_config` has an unknown or missing key or an out-of-bounds value | pass only `base_url` (and optionally `max_attempts`, `timeout_seconds`) for `document_request`; `sender` and `receipt_verifier` for `http`; `invoker` and `receipt_verifier` for `registered_tool`; `operation` (an `OpenApiOperation` built from the tool's registry row, never a name or a dict) and `receipt_verifier` for `openapi_http` |
 
 ```python
 from caliber.effects.dispatcher import UnsupportedEffectPath, admit_backend
@@ -2048,10 +2164,13 @@ provenance, not permission to proceed.
 
 The reference-profile rule for an unknown creator is explicit human review or
 quarantine before an apply decision.  The schema slice itself adds no new
-runtime refusal code and does not silently rewrite an existing job.  Recovery
-is to review the job using the current authorization boundary, or to create a
-new job through a path that can declare its creator; do not infer a principal
-from timestamps, owners or other mutable fields.
+runtime refusal code and does not silently rewrite an existing job.  Since
+B06.3 the Apply route enforces it: with the two-person rule on (always, in the
+reference profile) a job with no recorded creator is refused
+(`apply_creator_unknown`) and cannot be applied in place; there is no
+reviewed-provenance override yet.  Recovery is to create a new job through a
+path that can declare its creator and have a different account apply that;
+do not infer a principal from timestamps, owners or other mutable fields.
 
 Migration `0131` adds the nullable column with no backfill, so every legacy row
 reads `NULL` and old readers remain compatible.  Deploy the migration before
@@ -2075,9 +2194,9 @@ This is provenance, not permission: apply still rechecks the current project
 permission and, under the two-person rule below (B06.3), the distinct approver,
 and the claim now rechecks both, with the exact candidate digest, inside its own
 transaction (B06.4, [below](#apply-the-claim-rechecks-everything-b064-753)). Rows written before
-B06.2 remain explicitly unknown (`triggered_by = NULL`); operators recover
-those rows through the current authorization boundary or create a new job via a
-path that can declare its requester. No new migration or public API/SDK field
+B06.2 remain explicitly unknown (`triggered_by = NULL`); with the two-person
+rule on they cannot be applied in place (`apply_creator_unknown`), so create a
+new job via a path that can declare its requester. No new migration or public API/SDK field
 is required because migration `0131` introduced the column and it remains an
 ORM-only field.
 
@@ -2201,7 +2320,7 @@ development profile; the reference profile requires PostgreSQL, where the row lo
 {"detail": "this candidate is being changed or applied right now; nothing was applied, retry shortly", "status_code": 503, "reason_code": "apply_busy"}
 ```
 
-**Audit (#1050).** Each coded refusal, all of which come after the project-permission check (`apply_self_approval`, `apply_creator_unknown`,
+**Audit (#1050).** Each of the five refusals listed here, all of which come after the project-permission check (`apply_self_approval`, `apply_creator_unknown`,
 `apply_permission_revoked`, `apply_candidate_changed`, `apply_candidate_unverified`) writes one `apply_refused`
 audit row, `severity` `high`, on the job, with the caller as actor and `{"reason_code": ...}` as its only
 detail. It is written in a transaction of its own after the attempt is rolled back, so the refusal still
@@ -2256,8 +2375,15 @@ curl -sS -X POST -H "Authorization: Bearer $CALIBER_TOKEN" \
 | development (the default) | `false` (the default) | starts | rule off: the requester may apply their own candidate and a job with no recorded requester is applied (development compatibility only). The candidate digest check still applies |
 | development | `true` | starts | rule on |
 | `reference` | `true` | starts | rule on |
-| `reference` | `false` or unset | refuses to start: `reference profile refused (1 violation): - apply_require_distinct_approver is false; set CALIBER_APPLY_REQUIRE_DISTINCT_APPROVER=true for the reference profile` (violation code `apply_distinct_approver_disabled`) | rule on whatever the flag says, if a process ever reached a request in that state |
+| `reference` | `false` or unset | refuses to start with the `ConfigError` shown below (violation code `apply_distinct_approver_disabled`) | rule on whatever the flag says, if a process ever reached a request in that state |
 | no configuration object on the app | n/a | n/a | treated as the reference profile: rule on |
+
+The startup refusal is multi-line, one line per violation. With this the only violation it reads:
+
+```text
+reference profile refused (1 violation):
+- apply_require_distinct_approver is false; set CALIBER_APPLY_REQUIRE_DISTINCT_APPROVER=true for the reference profile
+```
 
 The rule is server configuration, not something a request can switch. A single-operator install that turns it
 on cannot apply its own jobs and needs a second account that is an operator and holds `release.apply`.
@@ -2269,7 +2395,7 @@ on cannot apply its own jobs and needs a second account that is an operator and 
 2. Early two-person check, rule on only: `403` `apply_self_approval` or `apply_creator_unknown`. Audited.
 3. The claim transaction starts. On PostgreSQL it sets the 5 second `lock_timeout` and locks the rows
    (below). `503` `apply_busy` if a lock is not granted in time. Nothing is decided or written.
-4. On the locked rows: `404` if the job is gone, `403` `apply_permission_revoked` if the caller no longer holds
+4. On the locked rows (when the recheck passes but the claim `UPDATE` still matches no row, the answer is the uncoded `409` `it changed while being claimed`): `404` if the job is gone, `403` `apply_permission_revoked` if the caller no longer holds
    `release.apply` or can no longer see the job, the two-person check again (rule on), `409` when the status
    is not `candidate_ready`, then the digest check: `409` `apply_candidate_unverified` or
    `apply_candidate_changed`.
@@ -2290,10 +2416,10 @@ never a separation code that would confirm who requested the job. The status `40
 | `apply_self_approval` | `403` | yes | the caller is the account that requested the job (compared trimmed and case-folded, so `@Reza` is not a second person to `@reza`) | ask a different account that is an operator with `release.apply` to apply it | nothing to repair; do not edit `triggered_by`, and do not turn the rule off under the reference profile |
 | `apply_creator_unknown` | `403` | yes | the job has no recorded requester (a legacy job: `triggered_by` is NULL or blank), so a distinct approver cannot be verified; there is no override | start a new calibration (it records its requester) and have a different account apply the new job | the old job cannot be applied in place; do not infer a requester from timestamps or owners |
 | `apply_permission_revoked` | `403` | yes | the early checks passed, then the caller's grant went away before the claim: membership removed or deactivated, role lowered, the agent moved to another project, or the project's ownership changed | wait for the grant to be restored, then apply again | restore the grant, or have another authorised account apply it |
-| *(none)* | `409` | no | the job is not `candidate_ready` (already `applied`, `applying`, `running`, and so on): `job 'RFN-A' cannot be applied: current status is 'applying' (expected 'candidate_ready')` | read the job; do not retry while it is `applying` | an `applying` job is in flight or is settled by the release reconciler; the janitor returns a stranded one to `candidate_ready` |
+| *(none)* | `409` | no | the job is not `candidate_ready` (already `applied`, `applying`, `running`, and so on): `job 'RFN-A' cannot be applied: current status is 'applying' (expected 'candidate_ready')`. Also, rarely, `job 'RFN-A' cannot be applied: it changed while being claimed`: the conditional claim `UPDATE` matched no row although the locked read passed (a race SQLite leaves open), and the recheck that follows found no more precise refusal | read the job; do not retry while it is `applying`; after `it changed while being claimed`, read the job and apply again if it is still `candidate_ready` | an `applying` job is in flight or is settled by the release reconciler; the janitor returns a stranded one to `candidate_ready` |
 | `apply_candidate_unverified` | `409` | yes | the gate recorded no digest for the job (written by a process that predates migration `0132`, or not digestible), so the candidate cannot be verified | ask for another pass | send the job back for another pass (`POST /jobs/{job_id}/request-changes`) or start a new calibration, so the gate records a digest; see "Finding unverified jobs" below |
 | `apply_candidate_changed` | `409` | yes | the candidate about to be promoted is not the one that cleared the eval gate (edited since, emptied, or not digestible) | ask for another pass | find out who edited it, then send the job back (`request-changes`) or recalibrate so the new candidate is evaluated and its digest recorded |
-| `apply_busy` | `503` | no | a row lock was not granted within 5 seconds, so nothing was decided: another claim, or a membership, project, agent or candidate edit, holds a lock | retry shortly; the SDK does not retry a POST for you | if it persists, look for a long-open transaction on `caliber_refinement_jobs` or the agent, project or membership rows (PostgreSQL `pg_stat_activity`) |
+| `apply_busy` | `503` | no | on PostgreSQL, a row lock was not granted within 5 seconds, so nothing was decided: another claim, or a membership, project, agent or candidate edit, holds a lock | retry shortly; the SDK does not retry a POST for you | if it persists, look for a long-open transaction on `caliber_refinement_jobs` or the agent, project or membership rows (PostgreSQL `pg_stat_activity`) |
 
 The `404` and the role `403` write nothing because they are the project gate that every job route shares and
 they are answered before the claim; the status `409` and the `503` are not a decision about the caller or the
@@ -2364,7 +2490,7 @@ except CaliberServerError as exc:
 
 #### What is audited
 
-Each of the five coded refusals writes one `apply_refused` row, in a transaction of its own after the attempt
+Each of the five refusals marked audited in the catalogue writes one `apply_refused` row, in a transaction of its own after the attempt
 is rolled back. A refused attempt changes no job, approval or release state (a test asserts that the job is
 still `candidate_ready`, the promoter was not called and no approval row exists). The row is:
 
@@ -2412,8 +2538,11 @@ row. Any other database error is not mapped and propagates as a server error. Th
 promoter runs, so the locks are never held across the provider call and the waits are short.
 
 For developers: a transaction that takes more than one of these rows must take them in the same order (job,
-agent, project, membership). The opposite order can deadlock against Apply, and Apply does not map a deadlock
-to `apply_busy`.
+agent, project, membership). The opposite order can deadlock against Apply: PostgreSQL aborts one of the two
+transactions with `DeadlockDetected` (SQLSTATE `40P01`), which `is_lock_timeout` does not recognise, so the aborted
+Apply answers `500`, not `apply_busy`. The aborted transaction wrote nothing, but a client or operator should check
+the job's status before retrying an Apply that answered `500`: an error after the claim committed can leave the
+job `applying` for the release reconciler.
 
 #### SQLite and PostgreSQL
 
@@ -2421,8 +2550,9 @@ to `apply_busy`.
 | --- | --- | --- |
 | two concurrent applies | the second waits on the job lock and sees `applying` | the conditional `UPDATE` matches no row for the second |
 | a grant revoked while an Apply is in flight | the revoking write waits for the claim, or the claim waits and refuses: no gap | not closed by locks: the route reads the caller's authority again after the claim `UPDATE`, while SQLite's single write lock is held, and rolls back with `apply_permission_revoked`; between that check and the commit only the write lock protects it |
-| a candidate edited after the gate | the job lock makes the edit wait, or the claim refuse | the claim `UPDATE` carries the recorded digest, and the snapshot is verified against it before the commit |
-| `apply_busy` | yes, on a lock timeout | not produced: SQLite has no row locks to wait for |
+| a candidate edited after the gate | the job lock makes the edit wait, or the claim refuse | the snapshot the promoter reads is verified against the recorded digest after the claim `UPDATE` and before the commit (the `UPDATE`'s predicate matches the `candidate_digest` column, not the candidate content, so an edit to the content is caught by the snapshot check) |
+| `apply_busy` | yes, on a lock timeout | not produced: SQLite has no row locks to wait for, and a busy timeout (30 s) surfaces as an unmapped database error (`500`), not `apply_busy` |
+| a lock-order deadlock (a transaction that takes the rows in another order) | PostgreSQL raises `DeadlockDetected` (SQLSTATE `40P01`) in one of the two transactions, either side can be the victim, and Apply does not map it: a victim Apply answers `500` | not applicable |
 | allowed under `CALIBER_PROFILE=reference` | yes | no (`sqlite_database` refuses startup) |
 
 The permission recheck covers the project grant and the job's visibility. The caller's platform scopes
@@ -3343,7 +3473,7 @@ trusts a tool's name only when the tool really is CALIBER's own.
 `memory_add`. The comparison is stricter than the resolver's exact match: case and surrounding spaces are ignored, and so are a
 `tool.` prefix and a `.vN` suffix, so `Grep_Files`, ` grep_files ` and `tool.grep_files.v2` are all reserved. A name
 that merely contains one (`grep_files_v2`, `my_grep_files`) is free. The rule applies in every profile, to every
-owner, module and version. The names of the trusted connectors (`document_request`, `document-request`, `http`; see
+owner, module and version. The names of the trusted connectors (`document_request`, `document-request`, `http`, `registered_tool`, `openapi_http`, `openapi-http`; see
 [Trusted connector admission](#trusted-connector-admission-b123a-738)) are reserved the same way, with a message that names
 the connector instead of a built-in tool.
 

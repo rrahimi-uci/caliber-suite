@@ -15,6 +15,7 @@ import pytest
 from sqlalchemy.orm import Session, sessionmaker
 
 from caliber.db.models import CaliberToolRegistry
+from caliber.effects.connectors.openapi_http import OpenApiOperation
 from caliber.effects.dispatcher import EffectRefused, dispatch
 from caliber.effects.inventory import (
     EFFECT_CLASSES,
@@ -28,11 +29,19 @@ from caliber.effects.registered_tools import (
     REFUSE,
     RegisteredToolIdentity,
     load_registered_tool_identity,
+    route_openapi_tool,
     route_registered_tool,
     tool_intent_args,
     tool_resource,
 )
 from caliber.workflows.builtin_tools import BUILTIN_TOOL_NAMES, register_builtin_tools
+from tests.test_openapi_governed_dispatch import (
+    OpenApiRun,
+    Server,
+    config,
+    entry_for,
+)
+from tests.test_openapi_governed_dispatch import verify as openapi_verify
 from tests.test_registered_tool_dispatch import (
     Run,
     Tool,
@@ -240,3 +249,192 @@ def test_the_matrix_covers_every_registry_row_shape(db_session: Session) -> None
     custom = load_registered_tool_identity(db_session, name="custom_lookup", version="1.0")
     assert custom is not None
     assert route_registered_tool(custom).route == INLINE
+
+
+# ---------------------------------------------------------------- B04.4 (#750): registered OpenAPI tools
+
+
+def _openapi_identity(**overrides: Any) -> RegisteredToolIdentity:
+    return _identity(
+        module_path="<openapi_http>",
+        callable_name="invoke",
+        execution_backend="openapi_http",
+        **overrides,
+    )
+
+
+_SAFE_METHODS = ("GET", "HEAD", "OPTIONS")
+_UNSAFE_METHODS = ("POST", "PUT", "PATCH", "DELETE")
+
+
+@pytest.mark.parametrize("method", [*_SAFE_METHODS, *_UNSAFE_METHODS, "get", "Post", "TRACE", ""])
+@pytest.mark.parametrize("level", ["read", "write", "external_action", "something_else", ""])
+def test_an_openapi_call_is_routed_by_the_stricter_of_its_rows_level_and_its_method(
+    level: str, method: str
+) -> None:
+    decided = route_openapi_tool(_openapi_identity(side_effect_level=level), method=method)
+
+    safe = method.upper() in _SAFE_METHODS
+    declared = DECLARED_CLASS.get(level, FAIL_CLOSED)
+    expected = max(declared, "read" if safe else "reversible_write", key=EFFECT_CLASSES.index)
+    assert decided.effect_class == expected
+    assert decided.route == (INLINE if expected == "read" else DISPATCH)
+    assert decided.trusted is False, "a registered OpenAPI tool is never a CALIBER built-in"
+    if not safe:
+        assert decided.route == DISPATCH, "no method but a read method is ever inline"
+
+
+@pytest.mark.parametrize("identity", [None, _identity()], ids=["no-row", "python-row"])
+def test_an_openapi_call_with_no_openapi_row_cannot_be_proposed_and_is_refused(
+    identity: RegisteredToolIdentity | None,
+) -> None:
+    decided = route_openapi_tool(identity, method="GET")
+
+    assert (decided.route, decided.effect_class, decided.trusted) == (REFUSE, FAIL_CLOSED, False)
+
+
+def test_an_openapi_tool_named_like_a_builtin_is_fail_closed_even_for_a_get_declared_read() -> None:
+    decided = route_openapi_tool(
+        _openapi_identity(name="grep_files", side_effect_level="read"), method="GET"
+    )
+
+    assert (decided.route, decided.effect_class) == (DISPATCH, FAIL_CLOSED)
+
+
+def test_a_refused_builtin_identity_on_an_openapi_row_is_refused_not_dispatched(
+    seeded_identities: dict[str, RegisteredToolIdentity],
+) -> None:
+    """A row that is the seed's own `read_text_file` in every field (inventory disposition `refuse`) is never proposed."""
+    identity = replace(seeded_identities["read_text_file"], execution_backend="openapi_http")
+
+    decided = route_openapi_tool(identity, method="GET")
+
+    assert (decided.route, decided.trusted) == (REFUSE, True)
+
+
+def test_a_refused_builtin_name_squatting_on_an_openapi_row_is_never_inline() -> None:
+    """The reserved-name rule is the registered-tool one: an impostor row is fail-closed, whatever its method."""
+    decided = route_openapi_tool(
+        _openapi_identity(name="read_text_file", side_effect_level="read"), method="GET"
+    )
+
+    assert decided.route == DISPATCH
+
+
+def test_loading_an_openapi_row_reads_its_own_configuration_and_schema(
+    factory: sessionmaker[Session],
+) -> None:
+    config_ = {"kind": "openapi_http", "method": "POST", "path": "/t", "server_url": "http://x"}
+    schema = {"type": "object"}
+    with factory() as session:
+        session.add(
+            CaliberToolRegistry(
+                tool_id="tool-openapi-row",
+                name="open_ticket",
+                version="1.0",
+                module_path="<openapi_http>",
+                callable_name="invoke",
+                execution_backend="openapi_http",
+                backend_config=config_,
+                input_schema=schema,
+                side_effect_level="write",
+                owner="@ops",
+            )
+        )
+        session.commit()
+        identity = load_registered_tool_identity(session, name="open_ticket", version="1.0")
+
+    assert identity is not None
+    assert (identity.backend_config, identity.input_schema) == (config_, schema)
+    assert identity.execution_backend == "openapi_http"
+
+
+def test_openapi_non_get_requires_proposal(factory: sessionmaker[Session]) -> None:
+    """A non-``GET`` OpenAPI call never reaches the downstream without an approved proposal.
+
+    Through the runtime the missing approval is a refusal before anything is sent; the dispatcher then refuses the very
+    proposal the runtime recorded with ``proposal_not_approved``, and the downstream has still not been called. A ``GET``
+    on a read row is the one call that runs without one.
+    """
+    with Server() as server:
+        entry = entry_for("open_ticket", "read", config(server.url))  # under-declared: a POST
+        run = OpenApiRun(factory, entry, authorize=lambda _proposal: None)
+
+        result = run.execute()
+
+        assert result.status == "error"
+        assert "authorization was not granted" in (result.error or "")
+        (recorded,) = proposals(factory)
+        assert recorded.state == "proposed"
+        with factory() as session:
+            lease = leased(session, "runtime-owner")
+            session.commit()
+        operation = OpenApiOperation("open_ticket", "1.0", config(server.url))
+        with pytest.raises(EffectRefused) as refused:
+            dispatch(
+                factory,
+                recorded.proposal_id,
+                approval_id=None,
+                lease=lease,
+                backend_kind="openapi_http",
+                backend_config={"operation": operation, "receipt_verifier": openapi_verify},
+                approval_validator=_canonical_validator(),
+            )
+        assert refused.value.code == "proposal_not_approved"
+        assert server.requests == []
+
+        reading = entry_for(
+            "get_ticket",
+            "read",
+            config(server.url, method="GET", path="/tickets/T-1", idempotency_key_header=None),
+        )
+        got = OpenApiRun(factory, reading).execute({"query_params": {"x": "1"}})
+        assert got.status == "completed", got.error
+        assert [r["method"] for r in server.requests] == ["GET"]
+
+
+#: Every production module that names the raw OpenAPI executor, and why it may. A new caller fails this test until it is
+#: routed through the dispatcher or deliberately pinned here with its reason, so an ungoverned alternate call site cannot
+#: appear unnoticed. ``execute_openapi_http_tool`` is the raw transport: nothing here recurses into the dispatcher.
+RAW_OPENAPI_CALLERS = {
+    "assistant/capabilities.py": "Aria's published-tool call (EP-034): no workflow run to propose into; not governed yet",
+    "effects/dispatcher.py": "the private connector backends (document request, OpenAPI): the dispatcher's own transport",
+    "effects/reconcile.py": "the reconciler's lookup by key: a GET that carries no effect",
+    "integrations/openapi/executor.py": "the executor itself",
+    "routes/openapi_integrations.py": "the operator's draft preview route (EP-033, exempt: not agent-reachable)",
+    "routes/system_effects.py": "the operator's lookup by key: a GET that carries no effect",
+    "workflows/runtime.py": "inline reads of OpenAPI tool nodes, model-chosen calls (B04.6, #768) and exports (#1051)",
+}
+
+
+def _names_the_raw_executor(node: Any, raw: set[str]) -> bool:
+    import ast
+
+    if isinstance(node, ast.Name):
+        return node.id in raw
+    if isinstance(node, ast.Attribute):
+        return node.attr in raw
+    if isinstance(node, ast.alias):
+        return node.name in raw
+    if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+        return node.name in raw
+    return False
+
+
+def test_the_raw_openapi_executor_is_named_only_by_pinned_callers() -> None:
+    import ast
+    from pathlib import Path
+
+    import caliber
+
+    root = Path(caliber.__file__).resolve().parent
+    raw = {"execute_openapi_http_tool", "bind_openapi_http_tool"}
+    found = {
+        path.relative_to(root).as_posix()
+        for path in sorted(root.rglob("*.py"))
+        if any(
+            _names_the_raw_executor(node, raw)
+            for node in ast.walk(ast.parse(path.read_text(encoding="utf-8")))
+        )
+    }
+    assert found == set(RAW_OPENAPI_CALLERS)
