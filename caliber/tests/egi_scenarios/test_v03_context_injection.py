@@ -250,7 +250,7 @@ def test_unapproved_tool_becomes_proposal_not_effect(
     def mutate(**arguments: Any) -> Any:
         return downstream.client.post(
             f"/cases/{arguments['case_id']}/document-requests",
-            headers={"Idempotency-Key": "b08-2-would-mutate"},
+            headers={"Idempotency-Key": "b08-2-would-mutate"},  # gitleaks:allow
             json={"document_type": arguments["document_type"]},
         )
 

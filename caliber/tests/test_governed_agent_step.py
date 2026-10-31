@@ -64,7 +64,7 @@ from tests.test_event_outbox import _database
 from tests.workflow_helpers import make_manifest
 
 RUN = "RUN-ep"
-SECRET = "secret-args-marker-91d2"
+SECRET = "secret-args-marker-91d2"  # gitleaks:allow
 CONNECTOR = "document-request"
 RESOURCE = "cases/MORT-2026-000184/document-requests"
 PROTECTED = "request_missing_document"
