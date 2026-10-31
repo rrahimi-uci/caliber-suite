@@ -52,8 +52,20 @@ the explicit human decision, and these are its rules:
 
 - **Who may.** The caller needs `caliber.operator` and, for a job whose target belongs to a project, `owner` or
   `editor`. A person outside the project gets 404 and a member with another role gets 403, before anything is
-  claimed. There is no second approver: the approval record Apply creates (already approved, naming the caller)
-  is an audit and rollback anchor, not a vote.
+  claimed. Inside the claim the role is checked again, so a grant revoked while the request is in flight is
+  refused (`403`, `reason_code` `apply_permission_revoked`). The approval record Apply creates (already approved,
+  naming the caller) is an audit and rollback anchor, not a vote.
+- **A second person, when the rule is on.** With `CALIBER_APPLY_REQUIRE_DISTINCT_APPROVER=true` (the reference
+  profile requires it) the account that requested the job cannot apply it (`403`, `reason_code`
+  `apply_self_approval`), and a job with no recorded requester is refused (`apply_creator_unknown`). With the
+  setting off, the development default, one person can request and apply.
+- **The exact candidate.** Apply promotes only the candidate that cleared the evaluation gate. A candidate edited
+  since, or a job with no recorded evaluation digest, is refused (`409`, `apply_candidate_changed` or
+  `apply_candidate_unverified`): send the job back for another pass with request changes, or recalibrate.
+  Each refusal named above writes an `apply_refused` audit row and changes nothing; a lock timeout (`503`,
+  `apply_busy`) decided nothing, is not audited and can be retried. The reason codes, recovery steps and audit rows
+  are in
+  [Apply: refusal catalogue, audit and recovery](../operate/reference-profile.md#apply-refusal-catalogue-audit-and-recovery-b065-762).
 - **Which jobs.** Only a job at `candidate_ready`. Any other status answers 409.
 - **Intent first.** The claim (`candidate_ready` to `applying`) and the approval record are committed before
   the promotion runs. If the promotion fails before any release operation exists, the job returns to
