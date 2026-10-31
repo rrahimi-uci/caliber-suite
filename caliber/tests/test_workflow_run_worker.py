@@ -5348,7 +5348,7 @@ def test_worker_executes_knowledge_query_node_with_age_graph_retrieval(
             type(self).last_identity_user = identity.user_id
             return SimpleNamespace(active_version_id="KBV-active")
 
-        def query(self, payload, *, identity):
+        def query(self, payload, *, identity, model_context_recorder=None, model_context=None):
             type(self).last_query = payload
             type(self).last_identity_user = identity.user_id
             return _FakeQueryResult(payload)
@@ -5450,7 +5450,7 @@ def test_worker_executes_graph_hybrid_rag_starter_template(
             type(self).last_identity_user = identity.user_id
             return SimpleNamespace(active_version_id="KBV-HYBRID-ACTIVE")
 
-        def query(self, payload, *, identity):
+        def query(self, payload, *, identity, model_context_recorder=None, model_context=None):
             type(self).last_query = payload
             type(self).last_identity_user = identity.user_id
             return _FakeQueryResult(payload)
@@ -5868,7 +5868,7 @@ def test_worker_human_approval_resume_rejects_missing_input_snapshot_before_work
         assert event_types[-1] == "workflow.run.waiting_approval"
 
 
-def test_worker_runtime_tool_approval_blocks_then_executes_after_resume(
+def test_worker_runtime_tool_approval_blocks_then_refuses_protected_tool_without_governed_context(
     client,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -5926,10 +5926,19 @@ def test_worker_runtime_tool_approval_blocks_then_executes_after_resume(
 
     worker._tick()
 
+    # B04.3 (#741): the node's legacy approval gate is not an exact-intent approval, and the worker binds no
+    # governed effect context yet, so the protected ``escalate`` tool (declared ``external_action``) is refused
+    # instead of being called. Before B04.3 this resumed run completed and called the tool.
     final = client.get(f"{PREFIX}/workflow-runs/{run_id}")
     assert final.status_code == 200
-    assert final.json()["data"]["status"] == "completed"
-    assert calls == [({}, "escalate ticket T-300")]
+    assert final.json()["data"]["status"] == "failed"
+    with client.app.state.session_factory() as session:
+        run = session.get(CaliberWorkflowRun, run_id)
+        assert run is not None
+        assert "requires a governed effect context to run protected registered tool" in str(
+            run.error_summary
+        )
+    assert calls == []
 
 
 def test_worker_fails_runtime_tool_approval_result_missing_input_snapshot_instead_of_persisting_bad_checkpoint(
@@ -8991,7 +9000,7 @@ def test_worker_marks_knowledge_query_service_failures_as_runtime_errors(
             del knowledge_base_id, identity
             return SimpleNamespace(active_version_id="KBV-active")
 
-        def query(self, payload, *, identity):
+        def query(self, payload, *, identity, model_context_recorder=None, model_context=None):
             del payload, identity
             raise RuntimeError("knowledge query service unavailable")
 
