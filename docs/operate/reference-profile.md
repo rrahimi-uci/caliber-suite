@@ -2062,10 +2062,13 @@ provenance, not permission to proceed.
 
 The reference-profile rule for an unknown creator is explicit human review or
 quarantine before an apply decision.  The schema slice itself adds no new
-runtime refusal code and does not silently rewrite an existing job.  Recovery
-is to review the job using the current authorization boundary, or to create a
-new job through a path that can declare its creator; do not infer a principal
-from timestamps, owners or other mutable fields.
+runtime refusal code and does not silently rewrite an existing job.  Since
+B06.3 the Apply route enforces it: with the two-person rule on (always, in the
+reference profile) a job with no recorded creator is refused
+(`apply_creator_unknown`) and cannot be applied in place; there is no
+reviewed-provenance override yet.  Recovery is to create a new job through a
+path that can declare its creator and have a different account apply that;
+do not infer a principal from timestamps, owners or other mutable fields.
 
 Migration `0131` adds the nullable column with no backfill, so every legacy row
 reads `NULL` and old readers remain compatible.  Deploy the migration before
@@ -2089,9 +2092,9 @@ This is provenance, not permission: apply still rechecks the current project
 permission and, under the two-person rule below (B06.3), the distinct approver,
 and the claim now rechecks both, with the exact candidate digest, inside its own
 transaction (B06.4, [below](#apply-the-claim-rechecks-everything-b064-753)). Rows written before
-B06.2 remain explicitly unknown (`triggered_by = NULL`); operators recover
-those rows through the current authorization boundary or create a new job via a
-path that can declare its requester. No new migration or public API/SDK field
+B06.2 remain explicitly unknown (`triggered_by = NULL`); with the two-person
+rule on they cannot be applied in place (`apply_creator_unknown`), so create a
+new job via a path that can declare its requester. No new migration or public API/SDK field
 is required because migration `0131` introduced the column and it remains an
 ORM-only field.
 
@@ -2215,7 +2218,7 @@ development profile; the reference profile requires PostgreSQL, where the row lo
 {"detail": "this candidate is being changed or applied right now; nothing was applied, retry shortly", "status_code": 503, "reason_code": "apply_busy"}
 ```
 
-**Audit (#1050).** Each coded refusal, all of which come after the project-permission check (`apply_self_approval`, `apply_creator_unknown`,
+**Audit (#1050).** Each of the five refusals listed here, all of which come after the project-permission check (`apply_self_approval`, `apply_creator_unknown`,
 `apply_permission_revoked`, `apply_candidate_changed`, `apply_candidate_unverified`) writes one `apply_refused`
 audit row, `severity` `high`, on the job, with the caller as actor and `{"reason_code": ...}` as its only
 detail. It is written in a transaction of its own after the attempt is rolled back, so the refusal still
@@ -2270,8 +2273,15 @@ curl -sS -X POST -H "Authorization: Bearer $CALIBER_TOKEN" \
 | development (the default) | `false` (the default) | starts | rule off: the requester may apply their own candidate and a job with no recorded requester is applied (development compatibility only). The candidate digest check still applies |
 | development | `true` | starts | rule on |
 | `reference` | `true` | starts | rule on |
-| `reference` | `false` or unset | refuses to start: `reference profile refused (1 violation): - apply_require_distinct_approver is false; set CALIBER_APPLY_REQUIRE_DISTINCT_APPROVER=true for the reference profile` (violation code `apply_distinct_approver_disabled`) | rule on whatever the flag says, if a process ever reached a request in that state |
+| `reference` | `false` or unset | refuses to start with the `ConfigError` shown below (violation code `apply_distinct_approver_disabled`) | rule on whatever the flag says, if a process ever reached a request in that state |
 | no configuration object on the app | n/a | n/a | treated as the reference profile: rule on |
+
+The startup refusal is multi-line, one line per violation. With this the only violation it reads:
+
+```text
+reference profile refused (1 violation):
+- apply_require_distinct_approver is false; set CALIBER_APPLY_REQUIRE_DISTINCT_APPROVER=true for the reference profile
+```
 
 The rule is server configuration, not something a request can switch. A single-operator install that turns it
 on cannot apply its own jobs and needs a second account that is an operator and holds `release.apply`.
@@ -2283,7 +2293,7 @@ on cannot apply its own jobs and needs a second account that is an operator and 
 2. Early two-person check, rule on only: `403` `apply_self_approval` or `apply_creator_unknown`. Audited.
 3. The claim transaction starts. On PostgreSQL it sets the 5 second `lock_timeout` and locks the rows
    (below). `503` `apply_busy` if a lock is not granted in time. Nothing is decided or written.
-4. On the locked rows: `404` if the job is gone, `403` `apply_permission_revoked` if the caller no longer holds
+4. On the locked rows (when the recheck passes but the claim `UPDATE` still matches no row, the answer is the uncoded `409` `it changed while being claimed`): `404` if the job is gone, `403` `apply_permission_revoked` if the caller no longer holds
    `release.apply` or can no longer see the job, the two-person check again (rule on), `409` when the status
    is not `candidate_ready`, then the digest check: `409` `apply_candidate_unverified` or
    `apply_candidate_changed`.
@@ -2304,10 +2314,10 @@ never a separation code that would confirm who requested the job. The status `40
 | `apply_self_approval` | `403` | yes | the caller is the account that requested the job (compared trimmed and case-folded, so `@Reza` is not a second person to `@reza`) | ask a different account that is an operator with `release.apply` to apply it | nothing to repair; do not edit `triggered_by`, and do not turn the rule off under the reference profile |
 | `apply_creator_unknown` | `403` | yes | the job has no recorded requester (a legacy job: `triggered_by` is NULL or blank), so a distinct approver cannot be verified; there is no override | start a new calibration (it records its requester) and have a different account apply the new job | the old job cannot be applied in place; do not infer a requester from timestamps or owners |
 | `apply_permission_revoked` | `403` | yes | the early checks passed, then the caller's grant went away before the claim: membership removed or deactivated, role lowered, the agent moved to another project, or the project's ownership changed | wait for the grant to be restored, then apply again | restore the grant, or have another authorised account apply it |
-| *(none)* | `409` | no | the job is not `candidate_ready` (already `applied`, `applying`, `running`, and so on): `job 'RFN-A' cannot be applied: current status is 'applying' (expected 'candidate_ready')` | read the job; do not retry while it is `applying` | an `applying` job is in flight or is settled by the release reconciler; the janitor returns a stranded one to `candidate_ready` |
+| *(none)* | `409` | no | the job is not `candidate_ready` (already `applied`, `applying`, `running`, and so on): `job 'RFN-A' cannot be applied: current status is 'applying' (expected 'candidate_ready')`. Also, rarely, `job 'RFN-A' cannot be applied: it changed while being claimed`: the conditional claim `UPDATE` matched no row although the locked read passed (a race SQLite leaves open), and the recheck that follows found no more precise refusal | read the job; do not retry while it is `applying`; after `it changed while being claimed`, read the job and apply again if it is still `candidate_ready` | an `applying` job is in flight or is settled by the release reconciler; the janitor returns a stranded one to `candidate_ready` |
 | `apply_candidate_unverified` | `409` | yes | the gate recorded no digest for the job (written by a process that predates migration `0132`, or not digestible), so the candidate cannot be verified | ask for another pass | send the job back for another pass (`POST /jobs/{job_id}/request-changes`) or start a new calibration, so the gate records a digest; see "Finding unverified jobs" below |
 | `apply_candidate_changed` | `409` | yes | the candidate about to be promoted is not the one that cleared the eval gate (edited since, emptied, or not digestible) | ask for another pass | find out who edited it, then send the job back (`request-changes`) or recalibrate so the new candidate is evaluated and its digest recorded |
-| `apply_busy` | `503` | no | a row lock was not granted within 5 seconds, so nothing was decided: another claim, or a membership, project, agent or candidate edit, holds a lock | retry shortly; the SDK does not retry a POST for you | if it persists, look for a long-open transaction on `caliber_refinement_jobs` or the agent, project or membership rows (PostgreSQL `pg_stat_activity`) |
+| `apply_busy` | `503` | no | on PostgreSQL, a row lock was not granted within 5 seconds, so nothing was decided: another claim, or a membership, project, agent or candidate edit, holds a lock | retry shortly; the SDK does not retry a POST for you | if it persists, look for a long-open transaction on `caliber_refinement_jobs` or the agent, project or membership rows (PostgreSQL `pg_stat_activity`) |
 
 The `404` and the role `403` write nothing because they are the project gate that every job route shares and
 they are answered before the claim; the status `409` and the `503` are not a decision about the caller or the
@@ -2378,7 +2388,7 @@ except CaliberServerError as exc:
 
 #### What is audited
 
-Each of the five coded refusals writes one `apply_refused` row, in a transaction of its own after the attempt
+Each of the five refusals marked audited in the catalogue writes one `apply_refused` row, in a transaction of its own after the attempt
 is rolled back. A refused attempt changes no job, approval or release state (a test asserts that the job is
 still `candidate_ready`, the promoter was not called and no approval row exists). The row is:
 
@@ -2426,8 +2436,11 @@ row. Any other database error is not mapped and propagates as a server error. Th
 promoter runs, so the locks are never held across the provider call and the waits are short.
 
 For developers: a transaction that takes more than one of these rows must take them in the same order (job,
-agent, project, membership). The opposite order can deadlock against Apply, and Apply does not map a deadlock
-to `apply_busy`.
+agent, project, membership). The opposite order can deadlock against Apply: PostgreSQL aborts one of the two
+transactions with `DeadlockDetected` (SQLSTATE `40P01`), which `is_lock_timeout` does not recognise, so the aborted
+Apply answers `500`, not `apply_busy`. The aborted transaction wrote nothing, but a client or operator should check
+the job's status before retrying an Apply that answered `500`: an error after the claim committed can leave the
+job `applying` for the release reconciler.
 
 #### SQLite and PostgreSQL
 
@@ -2435,8 +2448,9 @@ to `apply_busy`.
 | --- | --- | --- |
 | two concurrent applies | the second waits on the job lock and sees `applying` | the conditional `UPDATE` matches no row for the second |
 | a grant revoked while an Apply is in flight | the revoking write waits for the claim, or the claim waits and refuses: no gap | not closed by locks: the route reads the caller's authority again after the claim `UPDATE`, while SQLite's single write lock is held, and rolls back with `apply_permission_revoked`; between that check and the commit only the write lock protects it |
-| a candidate edited after the gate | the job lock makes the edit wait, or the claim refuse | the claim `UPDATE` carries the recorded digest, and the snapshot is verified against it before the commit |
-| `apply_busy` | yes, on a lock timeout | not produced: SQLite has no row locks to wait for |
+| a candidate edited after the gate | the job lock makes the edit wait, or the claim refuse | the snapshot the promoter reads is verified against the recorded digest after the claim `UPDATE` and before the commit (the `UPDATE`'s predicate matches the `candidate_digest` column, not the candidate content, so an edit to the content is caught by the snapshot check) |
+| `apply_busy` | yes, on a lock timeout | not produced: SQLite has no row locks to wait for, and a busy timeout (30 s) surfaces as an unmapped database error (`500`), not `apply_busy` |
+| a lock-order deadlock (a transaction that takes the rows in another order) | PostgreSQL raises `DeadlockDetected` (SQLSTATE `40P01`) in one of the two transactions, either side can be the victim, and Apply does not map it: a victim Apply answers `500` | not applicable |
 | allowed under `CALIBER_PROFILE=reference` | yes | no (`sqlite_database` refuses startup) |
 
 The permission recheck covers the project grant and the job's visibility. The caller's platform scopes

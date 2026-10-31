@@ -60,12 +60,13 @@ so fall back to `detail` and the status when it is absent.
 (`apply_self_approval`, `apply_creator_unknown`, `apply_permission_revoked`), `409`
 (`apply_candidate_changed`, `apply_candidate_unverified`) and `503` (`apply_busy`). Each
 one changed nothing, so it is safe to call again after the cause is fixed, but only
-`apply_busy` is worth retrying as it is: it means a database lock was not granted within
-5 seconds and nothing was decided. The SDK does not retry a `POST` on its own, so
+`apply_busy` is worth retrying as it is: it means that, on PostgreSQL, a database lock was
+not granted within 5 seconds and nothing was decided. The SDK does not retry a `POST` on its own, so
 `caliber.jobs.apply(...)` raises `CaliberServerError` with `reason_code == "apply_busy"`
 and the caller waits and calls again. The other codes need a person to act (a different
-account, a restored grant, another evaluation pass); the table of codes, the recovery for
-each and an SDK example are in
+account, a restored grant, another evaluation pass). A `500` from Apply (a PostgreSQL
+deadlock victim or, on SQLite, a busy timeout) carries no code: read the job's status
+before calling again. The table of codes, the recovery for each and an SDK example are in
 [Apply: refusal catalogue, audit and recovery](../operate/reference-profile.md#apply-refusal-catalogue-audit-and-recovery-b065-762).
 
 ## 2. Use waiters for long-running operations
