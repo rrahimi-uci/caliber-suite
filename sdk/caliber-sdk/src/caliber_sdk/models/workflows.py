@@ -5,6 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
+from ._decode import decode
+
 #: Run states that mean the work has stopped.
 #:
 #: The server's authoritative vocabulary for a workflow run's ``status``
@@ -147,6 +149,233 @@ class AdmissionManifest:
     run_manifest: dict[str, Any] | None = None
     manifest_digest: str | None = None
     extra: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class CausalRunManifestLink:
+    """The run's admission manifest by id and digest (never its body).
+
+    ``status`` is ``linked``, ``legacy`` (a run admitted before manifests has none, and never
+    will) or ``missing`` (an admitted run with no stored row); ``code`` says why when it is not
+    ``linked``.
+    """
+
+    status: str | None = None
+    code: str | None = None
+    manifest_id: str | None = None
+    schema_version: str | None = None
+    manifest_digest: str | None = None
+    created_at: str | None = None
+    extra: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class CausalAbsentRecord:
+    """A record kind the platform does not have yet (acceptance, evidence package): stated, not
+    synthesized."""
+
+    status: str | None = None
+    code: str | None = None
+    extra: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class CausalContextManifest:
+    """One persisted context manifest of a step, by id and digest."""
+
+    context_manifest_id: str = ""
+    step_request_id: str = ""
+    node_step_id: str | None = None
+    occurrence_id: str | None = None
+    attempt: int | None = None
+    revision: int | None = None
+    schema_version: str | None = None
+    manifest_digest: str | None = None
+    created_at: str | None = None
+    extra: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class CausalPolicyDecision:
+    """One persisted policy decision of the run: the answer and its digests, never who asked or
+    why in prose."""
+
+    decision_id: str = ""
+    grant_id: str | None = None
+    action: str | None = None
+    resource: str | None = None
+    result: str | None = None
+    reason_codes: list[str] = field(default_factory=list)
+    policy_version: str | None = None
+    input_hash: str | None = None
+    evaluated_at: str | None = None
+    extra: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class CausalContextLink:
+    """The context manifest of the step that proposed an effect (latest attempt, then highest
+    revision)."""
+
+    status: str | None = None
+    code: str | None = None
+    context_manifest_id: str | None = None
+    revision: int | None = None
+    attempt: int | None = None
+    manifest_digest: str | None = None
+    extra: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class CausalApprovalLink:
+    """The runtime approval request behind an effect: ids, digests, states and timestamps,
+    never who decided."""
+
+    status: str | None = None
+    code: str | None = None
+    approval_id: str | None = None
+    request_status: str | None = None
+    superseded_by: str | None = None
+    intent_hash: str | None = None
+    evidence_hash: str | None = None
+    policy_digest: str | None = None
+    requested_at: str | None = None
+    decided_at: str | None = None
+    expires_at: str | None = None
+    consumed_at: str | None = None
+    extra: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class CausalDecisionLink:
+    """The policy decision that approved an effect, when the effect records it."""
+
+    status: str | None = None
+    code: str | None = None
+    decision_id: str | None = None
+    action: str | None = None
+    result: str | None = None
+    reason_codes: list[str] = field(default_factory=list)
+    policy_version: str | None = None
+    input_hash: str | None = None
+    evaluated_at: str | None = None
+    extra: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class CausalEffectOutcomeLink:
+    """The verified receipt of an effect; ``effect_id`` is the id its spans carry
+    (``caliber.effect_id``)."""
+
+    status: str | None = None
+    code: str | None = None
+    effect_id: str | None = None
+    attempt: int | None = None
+    receipt_digest: str | None = None
+    response_digest: str | None = None
+    verified_at: str | None = None
+    committed: bool = False
+    extra: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class CausalEffect:
+    """One effect proposal and the persisted records that authorised and settled it.
+
+    Each link has a ``status``: ``linked`` (a persisted row of this run), ``not_required``,
+    ``pending`` (a row that is not yet part of the chain), ``missing`` (the chain needs a row
+    and there is none) or ``unrecorded`` (the platform does not store this link against the
+    effect). ``missing_links`` names the links that are ``missing`` or ``unrecorded``; an
+    absent ``caliber.effect_id`` in ``span_attributes`` is the same marker.
+    """
+
+    proposal_id: str = ""
+    node_id: str = ""
+    occurrence_id: str = ""
+    node_step_id: str = ""
+    state: str = ""
+    connector: str = ""
+    connector_version: str = ""
+    effect_class: str = ""
+    intent_hash: str = ""
+    created_at: str | None = None
+    settled_at: str | None = None
+    context_manifest: CausalContextLink = field(default_factory=CausalContextLink)
+    approval: CausalApprovalLink = field(default_factory=CausalApprovalLink)
+    decision: CausalDecisionLink = field(default_factory=CausalDecisionLink)
+    effect: CausalEffectOutcomeLink = field(default_factory=CausalEffectOutcomeLink)
+    span_attributes: dict[str, str] = field(default_factory=dict)
+    missing_links: list[str] = field(default_factory=list)
+    extra: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class CausalLinks:
+    """One page of one section of a run's persisted causal links (identifiers, digests, states
+    and timestamps only).
+
+    ``section`` is ``effects``, ``context_manifests`` or ``policy_decisions``; only that list is
+    filled. Pass ``next_cursor`` back as ``cursor`` for the next page while ``has_more``.
+    """
+
+    workflow_run_id: str = ""
+    project_id: str | None = None
+    trace_id: str | None = None
+    section: str = ""
+    run_manifest: CausalRunManifestLink = field(default_factory=CausalRunManifestLink)
+    acceptance: CausalAbsentRecord = field(default_factory=CausalAbsentRecord)
+    evidence_package: CausalAbsentRecord = field(default_factory=CausalAbsentRecord)
+    effects: list[CausalEffect] = field(default_factory=list)
+    context_manifests: list[CausalContextManifest] = field(default_factory=list)
+    policy_decisions: list[CausalPolicyDecision] = field(default_factory=list)
+    limit: int | None = None
+    #: ``False`` unless the server said there is more (a missing field is never read as
+    #: "there is more").
+    has_more: bool = False
+    next_cursor: str | None = None
+    extra: dict[str, Any] = field(default_factory=dict)
+
+    @classmethod
+    def from_payload(cls, payload: Any) -> CausalLinks:
+        """Decode a ``/causal-links`` payload, nested records included (shared by the sync and
+        async clients)."""
+        data = payload if isinstance(payload, dict) else {}
+        nested = {
+            "run_manifest",
+            "acceptance",
+            "evidence_package",
+            "effects",
+            "context_manifests",
+            "policy_decisions",
+        }
+        page = decode(cls, {key: value for key, value in data.items() if key not in nested})
+        page.run_manifest = decode(CausalRunManifestLink, data.get("run_manifest"))
+        page.acceptance = decode(CausalAbsentRecord, data.get("acceptance"))
+        page.evidence_package = decode(CausalAbsentRecord, data.get("evidence_package"))
+        page.effects = [_decode_effect(item) for item in _items(data.get("effects"))]
+        page.context_manifests = [
+            decode(CausalContextManifest, item) for item in _items(data.get("context_manifests"))
+        ]
+        page.policy_decisions = [
+            decode(CausalPolicyDecision, item) for item in _items(data.get("policy_decisions"))
+        ]
+        return page
+
+
+def _items(value: Any) -> list[dict[str, Any]]:
+    return [item for item in value if isinstance(item, dict)] if isinstance(value, list) else []
+
+
+def _decode_effect(payload: dict[str, Any]) -> CausalEffect:
+    links = {"context_manifest", "approval", "decision", "effect"}
+    effect = decode(
+        CausalEffect, {key: value for key, value in payload.items() if key not in links}
+    )
+    effect.context_manifest = decode(CausalContextLink, payload.get("context_manifest"))
+    effect.approval = decode(CausalApprovalLink, payload.get("approval"))
+    effect.decision = decode(CausalDecisionLink, payload.get("decision"))
+    effect.effect = decode(CausalEffectOutcomeLink, payload.get("effect"))
+    return effect
 
 
 @dataclass

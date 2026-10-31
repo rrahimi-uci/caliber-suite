@@ -5729,6 +5729,33 @@ run executed). A legacy run has none: ``legacy`` is true, ``run_manifest`` is ``
 - [`CaliberAPIError`](#caliberapierror)
 - [`CaliberTransportError`](#calibertransporterror)
 
+###### `causal_links(run_id: str, *, section: str | None = None, limit: int | None = None, cursor: str | None = None) -> CausalLinks`
+
+One page of the persisted records that connect this run to its governed effects: the
+admission manifest, each effect proposal with its context manifest, approval request, policy
+decision and verified receipt (``effect_id``), by id, digest, state and timestamp only.
+
+``section`` is ``"effects"`` (the default), ``"context_manifests"`` or
+``"policy_decisions"``;
+``limit`` is 1 to 200 (default 50). While ``has_more``, pass ``next_cursor`` back as
+``cursor``. A link the platform has no row for is ``missing`` (with a ``code``), never
+filled in; a run you cannot read, another project's run and an unknown id are the same
+:class:`~caliber_sdk.CaliberNotFoundError`.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `run_id` | positional-or-keyword | `str` | `—` |
+| `section` | keyword-only | `str | None` | `None` |
+| `limit` | keyword-only | `int | None` | `None` |
+| `cursor` | keyword-only | `str | None` | `None` |
+
+**Returns:** `CausalLinks`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
 ###### `checkpoints(run_id: str, **params) -> Any`
 
 Durable checkpoints recorded during this run, newest first.
@@ -10925,7 +10952,7 @@ sdk/caliber-sdk/examples/quickstart.py#quickstart
 
 **Public exports**
 
-`FAILED_RUN_STATES`, `IMPORT_JOB_TERMINAL_STATES`, `RELEASE_EVALUATION_TERMINAL_STATES`, `RELEASE_OPERATION_TERMINAL_STATES`, `STABILITY_BETA`, `STABILITY_GA`, `STABILITY_INTERNAL`, `TERMINAL_RUN_STATES`, `Account`, `AdmissionManifest`, `Agent`, `AriaInteraction`, `AriaPlan`, `AriaPlanDetail`, `AriaPlanStep`, `AuditEntry`, `Bucket`, `CalibrationJob`, `Capabilities`, `CookbookRecipe`, `CursorPage`, `ErrorBody`, `EvalDataset`, `EvalExample`, `Evaluation`, `Extensibility`, `FeatureFlag`, `FieldError`, `Identity`, `IssuedToken`, `Job`, `Judge`, `JudgeAlignment`, `KnowledgeBase`, `LlmSetupStatus`, `McpServer`, `OpenApiIntegration`, `OpenApiIntegrationVersion`, `OpenApiOperation`, `OpenApiOperationDependency`, `OpenApiToolDraft`, `OptimizerPlugin`, `Page`, `PersonalAccessToken`, `PlatformAdminInventory`, `Project`, `ProjectFile`, `ProjectFolder`, `ProjectMember`, `Prompt`, `QualityReview`, `RegisteredOptimizer`, `ReleaseCandidate`, `ReviewQueue`, `ReworkTask`, `RuntimeSettings`, `RuntimeSettingsSummary`, `SessionInfo`, `Skill`, `SkillRender`, `SkillSelection`, `SkillVersion`, `Stability`, `StoredObject`, `Tool`, `Trace`, `VerificationBatchResult`, `VerificationItem`, `Workflow`, `WorkflowRun`, `WorkflowRunCapabilities`, `WorkflowService`, `WorkflowVersion`, `WorkspaceBreakGlassApplyResult`, `WorkspaceChangeRequest`, `WorkspaceChangeRequestCheck`, `WorkspaceChangeRequestComment`, `WorkspaceChangeRequestHead`, `WorkspaceChangeRequestReview`, `WorkspaceChangeRequestReviewer`, `WorkspaceEnvironment`, `WorkspaceExternalReviewAttestation`, `WorkspaceImportJob`, `WorkspaceImportReconciliation`, `WorkspaceRelease`, `WorkspaceReleaseDecision`, `WorkspaceReleaseEvaluation`, `WorkspaceReleaseEvidence`, `WorkspaceReleaseOperation`, `WorkspaceReleaseOperationItem`, `WorkspaceReleaseOperationResult`, `WorkspaceRevision`, `WorkspaceRevisionDiff`, `WorkspaceRevisionResource`, `WorkspaceSource`, `WorkspaceSourceCapabilities`, `WorkspaceSourceConnection`, `WorkspaceSourceReconciliationResult`, `WorkspaceSourceState`, `WorkspaceVersionTag`, `decode`, `decode_list`
+`FAILED_RUN_STATES`, `IMPORT_JOB_TERMINAL_STATES`, `RELEASE_EVALUATION_TERMINAL_STATES`, `RELEASE_OPERATION_TERMINAL_STATES`, `STABILITY_BETA`, `STABILITY_GA`, `STABILITY_INTERNAL`, `TERMINAL_RUN_STATES`, `Account`, `AdmissionManifest`, `Agent`, `AriaInteraction`, `AriaPlan`, `AriaPlanDetail`, `AriaPlanStep`, `AuditEntry`, `Bucket`, `CalibrationJob`, `Capabilities`, `CausalAbsentRecord`, `CausalApprovalLink`, `CausalContextLink`, `CausalContextManifest`, `CausalDecisionLink`, `CausalEffect`, `CausalEffectOutcomeLink`, `CausalLinks`, `CausalPolicyDecision`, `CausalRunManifestLink`, `CookbookRecipe`, `CursorPage`, `ErrorBody`, `EvalDataset`, `EvalExample`, `Evaluation`, `Extensibility`, `FeatureFlag`, `FieldError`, `Identity`, `IssuedToken`, `Job`, `Judge`, `JudgeAlignment`, `KnowledgeBase`, `LlmSetupStatus`, `McpServer`, `OpenApiIntegration`, `OpenApiIntegrationVersion`, `OpenApiOperation`, `OpenApiOperationDependency`, `OpenApiToolDraft`, `OptimizerPlugin`, `Page`, `PersonalAccessToken`, `PlatformAdminInventory`, `Project`, `ProjectFile`, `ProjectFolder`, `ProjectMember`, `Prompt`, `QualityReview`, `RegisteredOptimizer`, `ReleaseCandidate`, `ReviewQueue`, `ReworkTask`, `RuntimeSettings`, `RuntimeSettingsSummary`, `SessionInfo`, `Skill`, `SkillRender`, `SkillSelection`, `SkillVersion`, `Stability`, `StoredObject`, `Tool`, `Trace`, `VerificationBatchResult`, `VerificationItem`, `Workflow`, `WorkflowRun`, `WorkflowRunCapabilities`, `WorkflowService`, `WorkflowVersion`, `WorkspaceBreakGlassApplyResult`, `WorkspaceChangeRequest`, `WorkspaceChangeRequestCheck`, `WorkspaceChangeRequestComment`, `WorkspaceChangeRequestHead`, `WorkspaceChangeRequestReview`, `WorkspaceChangeRequestReviewer`, `WorkspaceEnvironment`, `WorkspaceExternalReviewAttestation`, `WorkspaceImportJob`, `WorkspaceImportReconciliation`, `WorkspaceRelease`, `WorkspaceReleaseDecision`, `WorkspaceReleaseEvaluation`, `WorkspaceReleaseEvidence`, `WorkspaceReleaseOperation`, `WorkspaceReleaseOperationItem`, `WorkspaceReleaseOperationResult`, `WorkspaceRevision`, `WorkspaceRevisionDiff`, `WorkspaceRevisionResource`, `WorkspaceSource`, `WorkspaceSourceCapabilities`, `WorkspaceSourceConnection`, `WorkspaceSourceReconciliationResult`, `WorkspaceSourceState`, `WorkspaceVersionTag`, `decode`, `decode_list`
 
 ### Module `caliber_sdk.models.common`
 
@@ -13742,6 +13769,26 @@ Same as the sync ``runs.admission_manifest``.
 | `run_id` | positional-or-keyword | `str` | `—` |
 
 **Returns:** `AdmissionManifest`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `causal_links(run_id: str, *, section: str | None = None, limit: int | None = None, cursor: str | None = None) -> CausalLinks`
+
+One page of the run's persisted causal links.
+
+Same as the sync ``runs.causal_links``.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `run_id` | positional-or-keyword | `str` | `—` |
+| `section` | keyword-only | `str | None` | `None` |
+| `limit` | keyword-only | `int | None` | `None` |
+| `cursor` | keyword-only | `str | None` | `None` |
+
+**Returns:** `CausalLinks`
 
 **Raises:**
 

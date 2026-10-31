@@ -285,6 +285,92 @@ does.
 the transaction that holds the approval locks, but make no database call of their own. Rolling
 back is reverting the change; traces already recorded keep their attributes.
 
+### Reading the links back: `GET /workflow-runs/{run_id}/causal-links` (B11.3b, #745)
+
+The spans above name rows; this endpoint returns the rows. It answers, for one run, with the persisted records that
+connect it to its governed effects, **by id, digest, state and timestamp only**, so a reviewer (or the evidence package
+of B14) can follow `run -> manifest -> step context -> proposal -> approval -> decision -> receipt` without reading a
+payload. It is read-only and is implemented by `caliber.observability.causal_links` (`read_causal_links`), which takes an
+already-authorized run row and never an id from a request.
+
+**Who may call it.** The same access as reading the run (a run you cannot see is `404`) **plus** a role in the run's
+project (`read`: viewer, reviewer, editor or owner), evaluated on every request from the caller's current membership. A
+caller who can see the run but has no role in its project, a caller from another project, a platform administrator with
+no project role (`caliber.admin` is not a project role) and an unknown id all get the **same `404`**
+(`workflow run '<id>' not found`), and a malformed parameter from such a caller is also that `404`, never a `400`. Nothing
+in the query string (a project, a second run id) widens access. A run with no project is gated by its workflow's
+visibility alone, as the admission manifest is.
+
+**Sections and paging.** `section` is `effects` (the default), `context_manifests` or `policy_decisions`; only that list
+is filled and the other two are `[]`. `limit` is 1 to 200 (default 50). `cursor` is the opaque `next_cursor` of the
+previous page (the id of its last row); while `has_more` is true pass it back. Pages are keyset pages ordered by
+`(timestamp, id)`, so rows that share a timestamp are neither skipped nor repeated, and a cursor that names no row of this
+run, or is not one this API issued, is `400 cursor is invalid` (a cursor from another run opens nothing). A page costs a
+fixed number of queries (the run manifest, the page, and one lookup each for contexts, approvals, decisions and receipts),
+not one per effect.
+
+**What an effect shows.** For each proposal: `proposal_id`, `node_id`, `occurrence_id`, `node_step_id`, `state`,
+`connector`, `connector_version`, `effect_class`, `intent_hash` and the two timestamps, then four links, each with a
+`status` and, when it is not simply `linked`, a stable `code`:
+
+| Link | `linked` | Other statuses and codes |
+| --- | --- | --- |
+| `context_manifest` | the latest context manifest of this node occurrence (highest attempt, then highest revision), by id, revision, attempt and digest | `missing` / `no_context_manifest_for_node_step` (a step that was not an agent step has none) |
+| `approval` | an exact-intent approval request the proposal records, bound to this proposal in this run: ids, digests, request status, `superseded_by`, requested, decided, expires and consumed timestamps | `not_required` / `approved_by_policy_decision`; `pending` / `approval_not_consumed` (a request exists but the dispatcher has not consumed it; its id and status are shown); `missing` / `approval_not_requested`, `approval_row_missing` |
+| `decision` | the policy decision a *policy-approved read* records: id, action, result, reason codes, policy version, input hash, evaluated-at | `unrecorded` / `decision_recorded_per_run_only`; `missing` / `not_approved_yet`, `decision_row_missing` |
+| `effect` | the verified receipt: `effect_id` (the receipt id, **the id `caliber.effect_id` carries**), attempt, receipt and response digests, verified-at, and `committed` (true when the proposal records that receipt as the one that settled it) | `missing` with `not_dispatched`, `outcome_pending`, `outcome_unknown`, `reconciled_without_receipt`, `failed_without_receipt` or `receipt_row_missing`, by the proposal's state |
+
+`missing_links` lists the links whose status is `missing` or `unrecorded`. **A missing `effect_id` is the marker for an
+effect that has no verified receipt**, in the API as on the span; it is never filled in from a neighbouring row, a
+timestamp or the proposal's state. `span_attributes` is the `caliber.*` attribute map the platform sets on that effect's
+spans, derived from the same rows by the same allow-list function (`causal_attributes`); it is **not read from the tracing
+backend**, so it states what the spans carry by construction and cannot confirm a trace was exported.
+
+**The decision of an exact-intent approval is not stored against the effect.** The commit-time check records a run
+decision (`resource.execute` on `workflow:<id>`, the run authority) and the dispatch span names it, but the proposal row stores only the
+approval id, so for an exact-intent effect `decision` is `unrecorded` and its `caliber.decision_id` is not in
+`span_attributes`. That decision *is* persisted, per run: `section=policy_decisions` lists the run's decisions
+(`decision_id`, `grant_id`, `action`, `resource`, `result`, `reason_codes`, `policy_version`, `input_hash`,
+`evaluated_at`), so the `caliber.decision_id` on a span can be checked against a row, but nothing says which effect asked.
+Persisting the pairing would change the proposal's frozen columns and needs its own migration; this endpoint does not
+guess it.
+
+**Whole-run markers.** `run_manifest` is `linked` (id, schema version, digest, creation time; the manifest body stays at
+`/admission-manifest`), `legacy` (`legacy_run_has_no_manifest`: a run admitted before manifests has none and never will)
+or `missing` (`manifest_row_missing`: an admitted run whose row is not there). `acceptance` and `evidence_package` are
+`{status: not_available, code: acceptance_record_not_available | evidence_package_not_available}`: those records
+(B09, B14) do not exist yet and are never synthesized. `trace_id` is the run's stored trace id, a pointer only.
+
+**What it never returns.** No prompt, argument, intent body, `resource` of a proposal, resource version, downstream request
+id, manifest or context body, `requested_by` / `decided_by` / `subject_user_id`, decision prose or policy purpose. The
+queries select only the columns above, and the response schema (`CausalLinksSchema`) forbids any other field, so a column
+added to a table cannot reach a caller by accident. Connector and node names are manifest- and registry-defined
+identifiers and are shown; a policy decision's `resource` is the platform identifier the decision was asked about
+(`workflow:<id>`, `effect:<proposal id>`). Every lookup by an id stored on a row is also filtered by the run and, for an
+approval, by the proposal, so a stored id that names another run's row is reported `missing`, not followed.
+
+**Refusal and recovery, with exact examples.**
+
+- *Another project's run, or a run that does not exist:* `GET /workflow-runs/WR-1/causal-links` is `404`
+  `{"detail": "workflow run 'WR-1' not found"}` for both. Recovery: ask a member of the run's project, or check the id.
+- *A removed project member:* `404` from the next request, whatever they could read a moment ago. Recovery: restore the role.
+- *`?section=payloads`:* `400 section must be one of effects, context_manifests, policy_decisions`. *`?limit=500`:*
+  `400 limit must be between 1 and 200`. *A cursor kept from another run or a tampered one:* `400 cursor is invalid`;
+  start again without `cursor`.
+- *A proposal with `effect.status = missing` and `code = outcome_unknown`:* the downstream's answer could not be verified.
+  There is no `effect_id` to find; the reconciler asks the downstream by key (see **Reconciler** below). Reading this
+  endpoint does nothing to it.
+
+**Consistency.** A page is assembled from a handful of reads in one request, not from one snapshot: an effect being
+dispatched while you read can show an approval as `pending` and its receipt as `missing`, and a later read shows both
+linked. A link that appears is always a row that exists; none is ever inferred.
+
+**SDK, configuration and rollback.** `client.workflows.runs.causal_links(run_id, section=, limit=, cursor=)` (sync) and
+`client.workflows.causal_links(...)` (async) return a typed `CausalLinks` page (`CausalEffect`, `CausalContextManifest`,
+`CausalPolicyDecision` and the link models are in `caliber_sdk.models`); an unknown field is kept in `extra` and a missing
+`status` decodes as `None`, never as `linked`. No new setting, no migration, no stored data change; the endpoint is a
+read, so rolling back is reverting the change.
+
 ## A configuration that passes
 
 ```ini

@@ -15,6 +15,7 @@ from ..models._decode import decode, decode_list
 from ..models.workflows import (
     FAILED_RUN_STATES,
     AdmissionManifest,
+    CausalLinks,
     Workflow,
     WorkflowRun,
     WorkflowService,
@@ -317,6 +318,33 @@ class WorkflowRunsAPI(Resource):
         the digest of its canonical bytes. Distinct from :meth:`manifest` (the workflow manifest the
         run executed). A legacy run has none: ``legacy`` is true, ``run_manifest`` is ``None``."""
         return decode(AdmissionManifest, self._get(f"/workflow-runs/{run_id}/admission-manifest"))
+
+    def causal_links(
+        self,
+        run_id: str,
+        *,
+        section: str | None = None,
+        limit: int | None = None,
+        cursor: str | None = None,
+    ) -> CausalLinks:
+        """One page of the persisted records that connect this run to its governed effects: the
+        admission manifest, each effect proposal with its context manifest, approval request, policy
+        decision and verified receipt (``effect_id``), by id, digest, state and timestamp only.
+
+        ``section`` is ``"effects"`` (the default), ``"context_manifests"`` or
+        ``"policy_decisions"``;
+        ``limit`` is 1 to 200 (default 50). While ``has_more``, pass ``next_cursor`` back as
+        ``cursor``. A link the platform has no row for is ``missing`` (with a ``code``), never
+        filled in; a run you cannot read, another project's run and an unknown id are the same
+        :class:`~caliber_sdk.CaliberNotFoundError`."""
+        params = {
+            key: value
+            for key, value in (("section", section), ("limit", limit), ("cursor", cursor))
+            if value is not None
+        }
+        return CausalLinks.from_payload(
+            self._get(f"/workflow-runs/{run_id}/causal-links", params=params or None)
+        )
 
     def checkpoints(self, run_id: str, **params: Any) -> Any:
         """Durable checkpoints recorded during this run, newest first.

@@ -133,7 +133,15 @@ _ROUTES = Path(__file__).resolve().parents[1] / "src" / "caliber" / "routes"
 #: handler's own body so `scope_inference.py` still documents the project role
 #: it needs (offloading the body to a helper would hide the check from the
 #: single-function AST walk, as the `257`/`261`/`263` bumps above explain).
-_BASELINE = 263
+#:
+#: Bumped from 263 to 264: `B11.3b` (#745) added `routes/workflow_runs.py::
+#: get_workflow_run_causal_links`, a bounded read (at most 200 rows of one section
+#: and a fixed handful of queries whatever the page size, see
+#: `observability/causal_links.py`), inline via `with factory() as session` like
+#: its sibling `get_workflow_run_admission_manifest`, with
+#: `require_project_access_if_scoped` in the handler's own body so
+#: `scope_inference.py` still documents the project role it needs.
+_BASELINE = 264
 
 _SESSION_MARKERS = ("with factory() as session", "with session_factory() as session")
 
