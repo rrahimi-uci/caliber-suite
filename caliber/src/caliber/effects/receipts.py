@@ -49,8 +49,10 @@ from caliber.effects.records import (
     BAD_FIELD,
     COMMITTED,
     DISPATCHED,
+    EXACT_INTENT_APPROVAL,
     FAILED,
     ILLEGAL_TRANSITION,
+    POLICY_DECISION,
     RECONCILED,
     STALE_OWNER,
     UNKNOWN,
@@ -61,6 +63,7 @@ from caliber.effects.records import (
     proposal_state,
     transition,
 )
+from caliber.observability.span_attributes import GovernedSpan, governed_span
 from caliber.ownership import Lease
 from caliber.run_manifest import canonical_bytes
 
@@ -221,13 +224,39 @@ def record_receipt(
     This records a *verified statement about the downstream* and is not fenced by the execution-owner lease: only
     :func:`settle_dispatch` (receipt and state move under the lease) is the owner's commit path. A receipt recorded on its
     own makes the proposal impossible to fail but does not commit it.
+
+    The write runs inside an ``effect.receipt.write`` span (B11.3a) carrying ``caliber.proposal_id`` and the
+    proposal's recorded approval reference (``caliber.approval_id`` for an exact-intent approval,
+    ``caliber.decision_id`` for a policy decision), all read from the proposal row, and ``caliber.effect_id``, the
+    receipt's id, once the receipt is stored in the caller's transaction.  The span describes the *write*: if the caller
+    then rolls the transaction back (a lost lease), that receipt does not exist, which is why the dispatch span names
+    ``caliber.effect_id`` only after the settlement has committed.
     """
+    with governed_span("effect.receipt.write", span_type="CHAIN") as span:
+        recorded = _record_receipt(session, proposal_id, facts, now=now, span=span)
+        span.bind(effect_id=recorded.receipt_id)
+        return recorded
+
+
+def _record_receipt(
+    session: Session,
+    proposal_id: str,
+    facts: ReceiptFacts,
+    *,
+    now: datetime | None,
+    span: GovernedSpan,
+) -> RecordedReceipt:
     if not isinstance(facts, ReceiptFacts):
         raise ProposalError(BAD_FIELD, "facts must be ReceiptFacts")
     begin_sqlite_transaction(session)
     row = session.get(CaliberEffectProposal, proposal_id, populate_existing=True)
     if row is None:
         raise KeyError(proposal_id)
+    span.bind(
+        proposal_id=row.proposal_id,
+        approval_id=row.approval_ref if row.approval_kind == EXACT_INTENT_APPROVAL else None,
+        decision_id=row.approval_ref if row.approval_kind == POLICY_DECISION else None,
+    )
     if row.state not in _OPEN_STATES:
         raise ProposalError(
             RECEIPT_STATE,
