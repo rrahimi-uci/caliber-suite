@@ -357,7 +357,7 @@ what an on-call response can achieve.
 | **In-memory limiters are per process** | The failed-login throttle and API rate limiter are per-process token buckets. Effective ceilings scale with the worker count — size them for it |
 | **Local tool and MCP execution is containment, not isolation** | The shipped runner keeps ambient host authority. Untrusted authors need an operator-supplied backend, not a configuration flag |
 | **One environment** | No staging rehearsal. Drills run against production or against a throwaway deployment |
-| **Apply is an operator confirmation** | It needs the `caliber.operator` scope and, in the job's project, the `owner` or `editor` role. It is a real human decision point after an automated gate. It is **not** separation of duties: nothing requires the applier to differ from the author |
+| **Apply is an operator confirmation** | It needs the `caliber.operator` scope and, in the job's project, the `owner` or `editor` role. It is a real human decision point after an automated gate. It is separation of duties only when `CALIBER_APPLY_REQUIRE_DISTINCT_APPROVER` is on (required by the reference profile, off in the development default): then the account that requested the job cannot apply it. With it off, nothing requires the applier to differ from the author |
 | **The advancement gate is not a system-wide interlock** | It is enforced inside the refinement state machine. The direct operator promotion endpoint can carry an advisory verdict and an attributed override without entering it |
 
 ## Drills

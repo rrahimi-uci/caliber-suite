@@ -160,9 +160,14 @@ These are real and deliberate for the alpha. Read them before you rely on the pr
   scoped**: anyone who can reach the MLflow port can read every project's traces, so keep it off a
   network shared with people who must not. Do not put sensitive data in traces on a shared alpha
   deployment.
-- **Apply has no two-person rule.** One person with the `owner` or `editor` role in the project can
-  review and apply a candidate. The approval record is created at Apply time as the audit and rollback
-  anchor, and it records who applied. It is not a second approver.
+- **Apply has no two-person rule by default.** In the default (development) profile one person with the
+  `owner` or `editor` role in the project can review and apply a candidate, including one they requested, and a
+  job with no recorded requester is applied. The approval record is created at Apply time as the audit and
+  rollback anchor, and it records who applied. It is not a second approver. Set
+  `CALIBER_APPLY_REQUIRE_DISTINCT_APPROVER=true` and the account that requested the job cannot apply it and a job
+  with no recorded requester is refused; the reference profile requires the setting and enforces it even if it is
+  off. Whatever the setting, Apply refuses a candidate that is not the one that cleared the evaluation gate. See
+  [Apply: refusal catalogue, audit and recovery](../operate/reference-profile.md#apply-refusal-catalogue-audit-and-recovery-b065-762).
 - **CSRF protection is off by default.** `CALIBER_CSRF_ENABLED` defaults to false, on the assumption of a
   loopback or trusted-network deployment. Turn it on, and set a signing secret, before exposing CALIBER
   beyond that.
