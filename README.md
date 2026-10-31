@@ -317,7 +317,7 @@ Read these before relying on the alpha; the full list is in [Alpha scope](docs/s
   and a test set that you create.
 - With no key, the LLM and the evaluator are simulated (and labelled) — the offline default. Evaluations are
   refused on the simulated stack rather than faked.
-- Apply has no two-person rule: one owner or editor can review and apply a candidate.
+- Apply has no two-person rule by default: one owner or editor can review and apply a candidate, even one they requested. `CALIBER_APPLY_REQUIRE_DISTINCT_APPROVER=true` requires a different account, and the reference profile requires it.
 - Traces and MLflow data are not scoped to a project: anyone who can sign in can read them.
 - Workspace release evaluations have no executor; the cookbook for that area demonstrates the boundary.
 - Tools run in a process sandbox, not a container: register tools only from authors you trust.
