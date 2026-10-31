@@ -53,6 +53,7 @@ from caliber.effects.dispatcher import (
     HTTP_VERSION,
     EffectRefused,
     EffectRequest,
+    admit_backend,
     dispatch,
     submit_proposal,
 )
@@ -5096,6 +5097,7 @@ def _perform_http_effect(
                 effect_class_name=_declared_http_effect_class(node),
                 resource=request["url"],
                 args=proposal_args,
+                admission=admit_backend("http"),
             )
             session.commit()
     except EffectRefused as exc:

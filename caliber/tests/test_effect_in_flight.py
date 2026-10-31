@@ -556,6 +556,37 @@ def _unknown_lease(factory: sessionmaker[Session]) -> Lease:
     return lease
 
 
+def test_a_proposal_that_raises_is_reported_and_the_pass_goes_on_to_the_next(
+    database: Any, _fact_lookup: None
+) -> None:
+    _, factory = database
+    with factory() as session:
+        first = _unknown_one(session, "occ-bad")
+        second = _unknown_one(session, "occ-good")
+        session.commit()
+    bad, good = sorted((first, second))
+    lease = _unknown_lease(factory)
+    key_bad = proposal_view_key(factory, bad)
+    ask = _Scripted()
+
+    def lookup(connector: Any, base_url: str, key: str) -> Answer:
+        if key == key_bad:
+            raise RuntimeError("PAYLOAD-MARKER-FIVE")
+        return ask(connector, base_url, key)
+
+    ask.answers[proposal_view_key(factory, good)] = Answer(200, {"found": True})
+    results = reconcile_pass(factory, lease=lease, targets=TARGETS, lookup=lookup, now=NOW)
+    assert [(r.proposal_id, r.outcome, r.detail) for r in results][0] == (
+        bad,
+        STILL_UNKNOWN,
+        "RuntimeError",
+    )
+    assert (results[1].proposal_id, results[1].outcome) == (good, RECONCILED_COMMITTED)
+    # reconcile_one itself still raises: only the pass isolates one proposal from the next
+    with pytest.raises(RuntimeError, match="PAYLOAD-MARKER-FIVE"):
+        reconcile_one(factory, bad, lease=lease, targets=TARGETS, lookup=lookup, now=NOW)
+
+
 def test_a_pass_that_is_stopped_by_its_progress_hook_looks_at_nothing_more(
     database: Any,
 ) -> None:

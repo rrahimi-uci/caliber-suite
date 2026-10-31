@@ -549,7 +549,8 @@ def reconcile_pass(
     bounds it: ``budget_seconds`` ends the pass after the proposal that crossed it (the rest wait for the next pass, see
     :func:`reconcile_pass_from`), and ``on_progress`` is called before each proposal (renew the lease there, or raise to stop).
     No lock is held across a lookup: each proposal is read, asked about and written in separate transactions, and the lease is
-    compared again in the one that writes.
+    compared again in the one that writes. A proposal whose reconciliation raises anything but ``lease_lost`` is reported
+    ``unknown`` with the exception's class name and the pass goes on to the next one.
 
     ``in_flight_seconds`` (off by default) is the bounded in-flight rule for the *current* lease (B05.5d, #997): a proposal
     ``dispatched`` under this lease's own token for longer than that is recorded ``unknown`` and then handled like any other
@@ -630,6 +631,11 @@ def _reconcile_or_report(
             raise
         logger.warning("reconcile %s: %s", proposal_id, exc.code)
         return Reconciliation(proposal_id, STILL_UNKNOWN, UNKNOWN, exc.code)
+    except Exception as exc:
+        # One proposal's failure (a statement timeout, a connector bug) must not abort the pass or pin the cursor in front of it,
+        # or every row behind it would starve. Only the exception class is kept: never a message, which may carry a payload.
+        logger.warning("reconcile %s: %s", proposal_id, type(exc).__name__)
+        return Reconciliation(proposal_id, STILL_UNKNOWN, UNKNOWN, type(exc).__name__)
 
 
 def unresolved_effects(

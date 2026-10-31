@@ -1881,14 +1881,16 @@ class CaliberConfig(BaseModel):
     )
     effect_in_flight_max_seconds: float = Field(
         default=900.0,
-        ge=60.0,
+        ge=300.0,
         le=86400.0,
         allow_inf_nan=False,
         description=(
             "How long an effect may stay dispatched under the lease that is still current before the reconciler records it "
-            "unknown (60 to 86400, finite). Set it above the longest a dispatch can legitimately take (the transport's "
-            "timeout times its attempts, plus the receipt lookup): a dispatcher that is merely slow finds its row unknown and "
-            "the reconciler settles it by a lookup by key instead of the dispatcher."
+            "unknown (300 to 86400, finite). It must exceed the longest a dispatch can legitimately take: the executor's "
+            "timeout (30 s by default) times its attempts (at most 5), its backoff (under 4 s) and the receipt lookup (30 s) "
+            "come to about 3 minutes with the defaults, which is what the 300 s floor covers; a connector configured with a "
+            "longer timeout needs a larger value. A dispatcher that is merely slow finds its row unknown and the reconciler "
+            "settles it by a lookup by key instead of the dispatcher."
         ),
     )
 

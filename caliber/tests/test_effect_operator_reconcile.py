@@ -27,6 +27,7 @@ from caliber.db.models import CaliberAuditLog, CaliberEffectReceipt
 from caliber.effects.operator_action import (
     ACTION,
     AUDIT_ACTION,
+    MAX_CONCURRENT_REQUESTS,
     MAX_REASON_CHARS,
     NotReconcilable,
     reconcile_as_operator,
@@ -362,6 +363,23 @@ def test_a_lease_taken_over_stops_the_request_with_nothing_asked_or_moved_and_au
     assert row.details["outcome"] == LEASE_LOST and row.details["state"] is None
 
 
+def test_a_request_that_fails_for_any_reason_is_audited_by_exception_class_only(
+    database: Any,
+) -> None:
+    _, factory = database
+    proposal_id, lease = _unknown_and_lease(factory)
+
+    def broken(connector: Any, base_url: str, key: str) -> Answer:
+        raise RuntimeError("PAYLOAD-MARKER-FOUR")
+
+    with pytest.raises(RuntimeError, match="PAYLOAD-MARKER-FOUR"):
+        _ask(factory, proposal_id, lease, broken)
+    (row,) = _audits(factory)
+    assert (row.details["outcome"], row.details["state"]) == ("RuntimeError", None)
+    assert "PAYLOAD-MARKER-FOUR" not in str(row.details)
+    assert _state(factory, proposal_id).state == UNKNOWN
+
+
 # ---------------------------------------------------------------- the operator view
 
 
@@ -573,6 +591,36 @@ def test_the_route_needs_the_admin_scope(
         _route(proposal_id), json={"reason": REASON}, headers={"X-CALIBER-User": "@viewer"}
     )
     assert response.status_code == 403 and ask.asked == []
+
+
+def test_operator_lookups_in_flight_are_capped_and_the_slot_is_always_given_back(
+    owner_client: TestClient, db_session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    proposal_id = _unknown_one(db_session, "occ-cap")
+    db_session.commit()
+    _hold(owner_client, db_session)
+    ask = _Scripted()
+    monkeypatch.setattr(routes_module, "ask_downstream", ask)
+    slots = routes_module._OPERATOR_SLOTS
+    held = 0
+    while slots.acquire(blocking=False):  # every slot is busy with another operator's lookup
+        held += 1
+    try:
+        assert held == MAX_CONCURRENT_REQUESTS
+        response = owner_client.post(_route(proposal_id), json={"reason": REASON})
+        assert response.status_code == 429
+        assert response.json()["detail"] == "too_many_reconciliations_in_flight"
+        assert ask.asked == []
+        db_session.expire_all()
+        assert proposal_state(db_session, proposal_id).state == UNKNOWN
+    finally:
+        for _ in range(held):
+            slots.release()
+    # one slot is enough, and a request that fails still gives it back: none leaks
+    for _ in range(MAX_CONCURRENT_REQUESTS + 2):
+        response = owner_client.post(_route("prop-nope"), json={"reason": REASON})
+        assert response.status_code == 404
+    assert owner_client.post(_route(proposal_id), json={"reason": REASON}).status_code == 200
 
 
 def test_any_other_refusal_from_the_store_is_surfaced_as_its_code(

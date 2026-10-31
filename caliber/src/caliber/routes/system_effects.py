@@ -78,6 +78,7 @@ from caliber.effects.connectors.document_request import (
     lookup_input,
 )
 from caliber.effects.operator_action import (
+    MAX_CONCURRENT_REQUESTS,
     MAX_REASON_CHARS,
     NotReconcilable,
     reconcile_as_operator,
@@ -151,6 +152,8 @@ _MAX_KEY_CHARS = 255
 _MAX_CONCURRENT_LOOKUPS = 4
 _LOOKUP_SLOTS: dict[tuple[str, str], threading.BoundedSemaphore] = {}
 _LOOKUP_SLOTS_LOCK = threading.Lock()
+#: Operator-triggered reconciliations in flight in this process (each can hold a worker for the executor's timeout).
+_OPERATOR_SLOTS = threading.BoundedSemaphore(MAX_CONCURRENT_REQUESTS)
 _FIRST_ERROR_STATUS = 400
 #: The connectors whose lookup the platform knows how to run and verify (one today).
 _CALLBACK_CONNECTORS = frozenset({DOCUMENT_REQUEST})
@@ -323,7 +326,8 @@ async def reconcile_effect_proposal(request: Request) -> JSONResponse:
     process* holds, and moves the proposal only on the downstream's own evidence (a verified receipt, or a connector that
     proves absence final); any other answer leaves it ``unknown`` and says so in ``outcome``. A process that is not the
     execution owner answers ``409 not_execution_owner`` (ask the owner, see ``/readiness``), and a lease lost mid-request
-    ``409 lease_lost``; a proposal that is not ``dispatched``, ``unknown`` or ``reconciled`` is ``409 not_reconcilable``.
+    ``409 lease_lost``; a proposal that is not ``dispatched``, ``unknown`` or ``reconciled`` is ``409 not_reconcilable``. At most
+    ``MAX_CONCURRENT_REQUESTS`` (4) operator reconciliations run at once per process; the rest get ``429``.
     """
     proposal_id = request.path_params["proposal_id"]
     actor = require_scopes(request, [SCOPE_ADMIN])
@@ -345,6 +349,8 @@ async def reconcile_effect_proposal(request: Request) -> JSONResponse:
         )
     config = request.app.state.config
     factory = get_session_factory(request)
+    if not _OPERATOR_SLOTS.acquire(blocking=False):
+        raise HTTPException(status_code=429, detail="too_many_reconciliations_in_flight")
     try:
         result = await run_in_threadpool(
             reconcile_as_operator,
@@ -365,6 +371,8 @@ async def reconcile_effect_proposal(request: Request) -> JSONResponse:
         if exc.code == LEASE_LOST:
             raise HTTPException(status_code=409, detail="lease_lost") from exc
         raise HTTPException(status_code=409, detail=exc.code) from exc
+    finally:
+        _OPERATOR_SLOTS.release()
     return envelope_response_dict(
         {
             "proposal_id": result.proposal_id,

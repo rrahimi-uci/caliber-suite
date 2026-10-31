@@ -80,6 +80,9 @@ logger = logging.getLogger("caliber.orchestrator.effect_reconciler")
 DEFAULT_INTERVAL_SECONDS = 15.0
 DEFAULT_BUDGET_SECONDS = 20.0
 DEFAULT_IN_FLIGHT_MAX_SECONDS = 900.0
+#: The floor of the in-flight bound: the longest default dispatch (5 attempts of the 30 s executor timeout, their backoff, and the
+#: 30 s receipt lookup, about 3 minutes) with margin. A connector with a longer timeout needs a larger bound.
+MIN_IN_FLIGHT_MAX_SECONDS = 300.0
 _DEFAULT_EXECUTION_LEASE_SECONDS = 30.0
 #: The most a statement of the pass waits on PostgreSQL, as a fraction of the execution lease (the controller's own bound).
 _LOCK_WAIT_FRACTION = 1.0 / 3.0
@@ -151,7 +154,7 @@ class EffectReconcilerTask:
             config,
             "effect_in_flight_max_seconds",
             DEFAULT_IN_FLIGHT_MAX_SECONDS,
-            60.0,
+            MIN_IN_FLIGHT_MAX_SECONDS,
             86400.0,
         )
         self._execution_lease_seconds = _bounded_seconds(
@@ -376,6 +379,7 @@ __all__ = [
     "COMPLETE",
     "DEFAULT_BUDGET_SECONDS",
     "DEFAULT_INTERVAL_SECONDS",
+    "MIN_IN_FLIGHT_MAX_SECONDS",
     "DEFAULT_IN_FLIGHT_MAX_SECONDS",
     "LEASE_CHANGED",
     "LEASE_REFUSED",

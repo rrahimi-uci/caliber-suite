@@ -194,7 +194,7 @@ def test_the_defaults_are_the_documented_cadence_and_bounds() -> None:
         ("effect_reconciler_budget_seconds", 0.5),
         ("effect_reconciler_budget_seconds", 601.0),
         ("effect_reconciler_budget_seconds", float("inf")),
-        ("effect_in_flight_max_seconds", 59.0),
+        ("effect_in_flight_max_seconds", 299.0),
         ("effect_in_flight_max_seconds", 86401.0),
         ("effect_in_flight_max_seconds", True),
         ("effect_in_flight_max_seconds", "900"),
@@ -700,7 +700,7 @@ def test_the_server_builds_the_loop_in_the_reference_profile_unless_it_is_turned
             "profile": "reference",
             "effect_reconciler_interval_seconds": 7.0,
             "effect_reconciler_budget_seconds": 9.0,
-            "effect_in_flight_max_seconds": 120.0,
+            "effect_in_flight_max_seconds": 600.0,
             "effect_callback_connectors": BINDINGS,
         }
     )
@@ -709,7 +709,7 @@ def test_the_server_builds_the_loop_in_the_reference_profile_unless_it_is_turned
     assert (built._interval_seconds, built._budget_seconds, built.in_flight_seconds) == (
         7.0,
         9.0,
-        120.0,
+        600.0,
     )
     assert built._targets == {("document-request", "PRJ-ep"): BASE_URL}
     off = reference.model_copy(update={"effect_reconciler_enabled": False})
@@ -721,3 +721,46 @@ def test_the_server_builds_the_loop_in_the_reference_profile_unless_it_is_turned
     assert app_config.effect_reconciler_enabled is True, (
         "on by default: a dispatcher needs its recovery"
     )
+
+
+def test_the_in_flight_bound_has_a_floor_above_the_longest_default_dispatch() -> None:
+    """5 attempts of the executor's 30 s timeout, its backoff and the 30 s receipt lookup come to about 3 minutes: a bound
+    below the floor would expire dispatches that are merely slow."""
+    from pydantic import ValidationError
+
+    from caliber.config import CaliberConfig
+
+    assert loop_module.MIN_IN_FLIGHT_MAX_SECONDS == 300.0
+    with pytest.raises(ValidationError):
+        CaliberConfig(effect_in_flight_max_seconds=299.0)
+    assert CaliberConfig(effect_in_flight_max_seconds=300.0).effect_in_flight_max_seconds == 300.0
+    assert CaliberConfig().effect_in_flight_max_seconds == 900.0
+
+
+def test_a_proposal_whose_lookup_raises_does_not_block_the_ones_behind_it(
+    database: Any, _fact_lookup: None
+) -> None:
+    """One row's failure (here a connector bug whose message carries a payload) is reported by class name only; the pass goes
+    on, so the rows behind it are still reached and the cursor is not pinned in front of the bad row."""
+    _, factory = database
+    first, second = _unknowns(factory, 2)
+    with factory() as session:
+        keys = {i: proposal_view(session, i).logical_key for i in (first, second)}
+    ask = _Scripted()
+    ask.answers[keys[second]] = Answer(200, {"found": True})
+
+    def lookup(connector: Any, base_url: str, key: str) -> Answer:
+        if key == keys[first]:
+            raise RuntimeError("PAYLOAD-MARKER-THREE")
+        return ask(connector, base_url, key)
+
+    lease = _lease(factory)
+    with _logged() as records:
+        report = _task(factory, provider=lambda: lease, lookup=lookup).tick()
+    assert report is not None and report.ended == COMPLETE
+    assert [(r.proposal_id, r.outcome, r.state, r.detail) for r in report.results] == [
+        (first, STILL_UNKNOWN, UNKNOWN, "RuntimeError"),
+        (second, RECONCILED_COMMITTED, COMMITTED, report.results[1].detail),
+    ]
+    assert _state(factory, first).state == UNKNOWN and _state(factory, second).state == COMMITTED
+    assert "PAYLOAD-MARKER-THREE" not in " ".join(records.messages)

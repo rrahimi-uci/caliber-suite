@@ -25,10 +25,14 @@ asked and why. It is deliberately **not** a way to say what happened:
   ``unknown`` (never ``failed``), a 5xx or an unreadable body is ``unknown``, a lookup that cannot be made is ``lookup_failed``
   or ``not_bound``, and only a stored request that is this proposal's effect settles it.
 
-The row is offered only where it can do something: the operator view lists ``reconcile`` in ``safe_actions`` for ``unknown``
-and ``reconciled`` proposals and for a ``dispatched`` one whose lease was taken over, and for nothing else (a ``dispatched``
-attempt of the lease that is still current is the dispatcher's, and the loop expires it after
-``CALIBER_EFFECT_IN_FLIGHT_MAX_SECONDS``).
+The row is offered only where it can do something *every time*: the operator view lists ``reconcile`` in ``safe_actions`` for
+``unknown`` and ``reconciled`` proposals and for a ``dispatched`` one whose lease was taken over, and for nothing else. A
+``dispatched`` attempt of the lease that is still current is the dispatcher's and is not listed, but the route accepts it:
+younger than ``CALIBER_EFFECT_IN_FLIGHT_MAX_SECONDS`` it answers ``in_flight`` and changes nothing, older it records
+``unknown`` (``in_flight_expired``) exactly as the loop would and asks.
+
+Concurrency: at most :data:`MAX_CONCURRENT_REQUESTS` operator requests run a lookup at once per process; the route answers
+``429`` to the rest (the downstream is not to be hammered by a button).
 """
 
 from __future__ import annotations
@@ -55,6 +59,8 @@ from caliber.ownership import Lease
 #: The audit action recorded for every operator request.
 AUDIT_ACTION = "effect_reconcile_requested"
 MAX_REASON_CHARS = 500
+#: How many operator-triggered reconciliations a process runs at once (a lookup can take its executor timeout).
+MAX_CONCURRENT_REQUESTS = 4
 #: What ``safe_actions`` carries for a proposal this action applies to.
 ACTION = "reconcile"
 
@@ -93,7 +99,8 @@ def reconcile_as_operator(
     """Ask the downstream about ``proposal_id`` now, under ``lease``, and audit the request.
 
     ``KeyError`` for an unknown id; :class:`NotReconcilable` for a state outside ``dispatched``/``unknown``/``reconciled``;
-    ``ProposalError`` ``lease_lost`` (the lease was taken over, nothing recorded) is raised after the attempt is audited.
+    ``ProposalError`` ``lease_lost`` (the lease was taken over, nothing recorded), and any other failure, are raised after the
+    attempt is audited (``outcome`` is the error code or the exception class name).
     ``reason`` is the operator's, 1 to :data:`MAX_REASON_CHARS` characters.
     """
     cleaned = reason.strip()
@@ -114,6 +121,12 @@ def reconcile_as_operator(
         )
     except ProposalError as exc:
         _audit(factory, actor, proposal_id, cleaned, before.state, lease, outcome=exc.code)
+        raise
+    except Exception as exc:
+        # the request was made and failed (a store error, a connector bug): still on the record, by exception class only
+        _audit(
+            factory, actor, proposal_id, cleaned, before.state, lease, outcome=type(exc).__name__
+        )
         raise
     _audit(
         factory,
@@ -170,6 +183,7 @@ def _audit(
 __all__ = [
     "ACTION",
     "AUDIT_ACTION",
+    "MAX_CONCURRENT_REQUESTS",
     "MAX_REASON_CHARS",
     "NotReconcilable",
     "OperatorReconciliation",

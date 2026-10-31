@@ -2,9 +2,17 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
+from typing import TYPE_CHECKING
+
 from sqlalchemy.orm import Session
 
 from caliber.ownership import Lease, acquire, current_lease, database_now, release
+
+if TYPE_CHECKING:
+    import pytest
+
+    from caliber.effects.admission import AdmittedConnector
 
 TTL_SECONDS = 600.0
 
@@ -27,3 +35,52 @@ def leased(session: Session, owner_id: str) -> Lease:
     lease = acquire(session, owner_id, ttl_seconds=TTL_SECONDS)
     assert lease is not None
     return lease
+
+
+def admit_fake_backend(
+    monkeypatch: pytest.MonkeyPatch,
+    kind: str,
+    backend: object,
+    *,
+    connector: str = "document-request",
+    version: str = "1",
+    config_keys: tuple[str, ...] = (),
+    required_config_keys: tuple[str, ...] = (),
+) -> AdmittedConnector:
+    """Register ``backend`` as ``kind`` and pin it in the trusted table, as a reviewer would for a real connector.
+
+    The fake gets the document-request capability record (under its own identity) and a one-key configuration, and
+    the trusted table is extended for this test only, so the dispatcher admits it through the same code a real
+    transport uses. Returns the admission.
+    """
+    import caliber.effects.dispatcher as dispatcher_module
+    from caliber import profile
+    from caliber.effects.admission import (
+        capability_risks,
+        configuration_digest,
+        implementation_identity,
+    )
+    from caliber.effects.connectors.document_request import CAPABILITY
+
+    capability = replace(CAPABILITY, connector=connector, version=version)
+    configuration = {"fake": kind}
+    record = profile.TrustedConnector(
+        backend_kind=kind,
+        connector=connector,
+        connector_version=version,
+        implementation=implementation_identity(backend),
+        capability_digest=capability.digest(),
+        configuration_digest=configuration_digest(configuration),
+        accepted_risks=capability_risks(capability),
+        config_keys=config_keys,
+        required_config_keys=required_config_keys,
+    )
+    monkeypatch.setattr(profile, "REFERENCE_CONNECTORS", (*profile.REFERENCE_CONNECTORS, record))
+    monkeypatch.setitem(
+        dispatcher_module.BACKENDS,
+        kind,
+        dispatcher_module.BackendRegistration(
+            backend, connector, version, capability=capability, configuration=configuration
+        ),
+    )
+    return dispatcher_module.admit_backend(kind)
