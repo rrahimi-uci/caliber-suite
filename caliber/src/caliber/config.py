@@ -1450,6 +1450,20 @@ class CaliberConfig(BaseModel):
         ),
     )
 
+    apply_require_distinct_approver: bool = Field(
+        default=False,
+        description=(
+            "Two-person rule for Apply (``POST /jobs/{id}/apply``): the account that requested a refinement job "
+            "(its recorded ``triggered_by``) cannot apply that job's candidate, and a job with no recorded "
+            "requester (written before creator provenance existed) is refused rather than passed, because a "
+            "distinct approver cannot be verified for it. The requester comes from the job row, written from the "
+            "authenticated identity, and the approver is the authenticated caller; neither is read from the "
+            "request body. Off by default so a single-operator or development install keeps applying its own "
+            "candidates. The reference profile requires it on (``apply_distinct_approver_disabled``) and enforces "
+            "it even if it were somehow off at request time."
+        ),
+    )
+
     approval_ttl_seconds: int = Field(
         default=86400,
         ge=1,
@@ -2527,6 +2541,7 @@ _ENV_VAR_TABLE: list[tuple[str, str, Any]] = [
         str,
     ),
     ("CALIBER_APPROVAL_ALLOW_SELF_APPROVAL", "approval_allow_self_approval", _flag),
+    ("CALIBER_APPLY_REQUIRE_DISTINCT_APPROVER", "apply_require_distinct_approver", _flag),
     ("CALIBER_APPROVAL_TTL_SECONDS", "approval_ttl_seconds", int),
     ("CALIBER_EGRESS_POLICY_ENABLED", "egress_policy_enabled", _flag),
     ("CALIBER_EGRESS_BLOCKED_CATEGORIES", "egress_blocked_categories", str),

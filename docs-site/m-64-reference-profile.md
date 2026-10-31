@@ -36,6 +36,7 @@ An unknown profile name is a configuration error. `GET /ajax-api/2.0/mlflow/cali
 | `egress_policy_disabled` | `egress_policy_enabled` | `CALIBER_EGRESS_POLICY_ENABLED` | true | The egress policy is what stops a tool or webhook from reaching internal addresses. |
 | `mcp_insecure_http` | `mcp_allow_insecure_http` | `CALIBER_MCP_ALLOW_INSECURE_HTTP` | false | Plain-HTTP MCP servers send tool calls and results in the clear. |
 | `self_approval_allowed` | `approval_allow_self_approval` | `CALIBER_APPROVAL_ALLOW_SELF_APPROVAL` | false | The account that started a run could approve its own protected action. |
+| `apply_distinct_approver_disabled` | `apply_require_distinct_approver` | `CALIBER_APPLY_REQUIRE_DISTINCT_APPROVER` | true | The account that requested a refinement job could apply its own candidate to production, and a job with no recorded requester could be applied unreviewed. |
 | `memory_inference_enabled` | `memory_infer` | `CALIBER_MEMORY_INFER` | false while CALIBER_MEMORY_ENABLED is true | LLM-inferred memory writes create durable, free-form facts nobody owns; the owned memory lifecycle does not exist yet. |
 | `fault_barriers_enabled` | `fault_barriers` | `CALIBER_FAULT_BARRIERS` | unset | An armed fault barrier makes the process exit on purpose; it exists only for scenario tests. |
 
@@ -136,6 +137,81 @@ bypass the source-trace authorization check. An authorized example records the `
 
 The development profile retains its earlier behavior; these payload gates are part of the reference-profile contract.
 
+## Governed effect spans: the ids that link a trace to its rows (B11.3a, #737)
+
+A governed effect crosses four persisted records: the effect **proposal**, the policy **decision** that authorised the
+run, the runtime **approval** that was consumed, and the **effect** itself, which is its verified receipt. The spans of
+that path name those rows, so an operator can go from a trace to the database without reading any payload. The module is
+`caliber.observability.span_attributes`; B11.3b (#745) reads the same attributes back as a causal chain.
+
+| Span (type) | Opened by | Attributes it can carry |
+| --- | --- | --- |
+| `effect.approval.commit_check` (`CHAIN`) | `approval_valid_at_commit` | `caliber.proposal_id` once the locked proposal is read; `caliber.approval_id` once the request is bound to that proposal's exact intent, policy and evidence; `caliber.decision_id` from the run's current policy decision, only when every check passed |
+| `effect.dispatch` (`TOOL`) | `dispatch` | `caliber.proposal_id` from the proposal read; `caliber.approval_id` and `caliber.decision_id` from the validator's answer; `caliber.effect_id` after the settlement has committed |
+| `effect.receipt.write` (`CHAIN`) | `record_receipt` | `caliber.proposal_id`; the proposal's recorded approval (`caliber.approval_id` for an exact-intent approval, `caliber.decision_id` for a policy decision); `caliber.effect_id` once the receipt is stored in the caller's transaction |
+
+`run_tags(ctx, node_id=..., proposal_id=..., decision_id=..., approval_id=..., effect_id=...)` accepts the same four
+ids for a caller that has read them from a row, and emits each as `caliber.<name>` only when given.
+
+**An id is a link only if a row backs it.** An attribute is absent, never blank or guessed, when the platform has not
+read that row: a proposal that never reached a verified receipt has no `caliber.effect_id` (`unknown` and `failed`
+included), the receipt-write span has no `caliber.decision_id` for an exact-intent approval (the proposal row does not
+store it), and the approval id a caller passes to `dispatch` is a claim until the validator has bound it to the
+proposal, so a refused dispatch never carries it. `caliber.effect_id` is the **receipt id**: the platform's only record
+that the downstream effect happened and was read back.
+
+**What can reach a span.** Four keys, one allow-list, no payload:
+
+- Only the four keys above, `caliber.refusal_code` and the tracer's own `caliber.status`, `caliber.error_type` and
+  `caliber.error` are set on these spans. No URL, argument, request, response, scope, approver, evidence hash or
+  exception message is ever an attribute.
+- A value must be a plain string that is an opaque identifier: ASCII letters, digits, `.`, `_`, `:`, `-`, starting
+  with a letter, at most 128 characters. Anything else (a number, an email address, whitespace, a path, a longer
+  string) is **dropped, not truncated**: a truncated id would name a different row.
+- A workflow manifest cannot assert a link. Its `mlflow.trace_group_tags` are merged into the run tags first, and the
+  five reserved keys are removed from them, so a tag named `caliber.proposal_id` is ignored.
+- A failure inside one of these spans is recorded as the exception *type* and, only when it is a platform refusal
+  (`ProposalError`, `EffectRefused`, `ApprovalCommitRefused`), its stable `caliber.refusal_code` such as
+  `stale_version`; the `code` of any other exception is not copied. The exception is re-raised after the span has
+  closed, so MLflow's own exception event, which keeps the message, never sees it **on these three spans**. The
+  re-raised exception still passes through any enclosing span (the workflow node span, `trace_run`), where MLflow
+  records its message as it did before this change.
+- Tracing never changes the outcome of an effect: a redactor or tracer failure while setting one of these attributes is
+  logged at debug level and the attribute is absent (the value is never sent unredacted).
+
+**Who can see them.** The ids, `caliber.refusal_code` and the existing run, node and job ids are on
+`profile.SAFE_SPAN_ATTRIBUTES`, so a caller who may see a trace but not read its payload (B11.4b, above) sees them; every
+other span attribute stays `[redacted:attributes.<key>]`, which includes `caliber.error`. An id does not widen who can
+open a trace: the trace, and then the row, still follow experiment and project visibility. `caliber.approval_id` is also
+the name of an existing *release* tag (`AP-...`, a prompt-version approval, see the prompts architecture page); on these
+spans it is always a runtime approval (`RAP-...`), told apart by the span name.
+
+**Refusal and recovery, with exact examples.**
+
+- *A stale approval.* The recheck finds the resource moved on. The `effect.approval.commit_check` span has
+  `caliber.proposal_id`, `caliber.approval_id`, `caliber.refusal_code = stale_version` and `caliber.status = failed`, and no
+  `caliber.decision_id`; `effect.dispatch` has `caliber.proposal_id` and the same code. Nothing was sent, the approval is
+  unconsumed and the proposal is still `proposed`. Recovery: request a new approval for the current resource version.
+- *An approval id that is not this run's.* The recheck answers `not_found`; no span carries that id, only the proposal
+  (read from the row) and the code. Recovery: use the id returned when the request was created.
+- *A lease lost after the effect was sent.* `effect.dispatch` has the proposal, approval and decision (the claim had
+  committed), `caliber.refusal_code = lease_lost` and no `caliber.effect_id`; no receipt exists and the proposal stays
+  `dispatched`. Recovery is unchanged: the reconciler asks the downstream by key under the new lease.
+- *An answer nobody could verify* (an ambiguous transport result, or a 2xx the downstream's own query did not confirm).
+  The proposal becomes `unknown`; `effect.dispatch` completes without `caliber.effect_id`. A missing effect id is the
+  signal, not an error.
+
+**Not covered, said plainly.** The node span of a workflow run does not carry these ids (the dispatcher's own spans do, and the same ids are in the
+database); the legacy effect-ledger path used
+by a plan with no governed context emits none; and the receipt-write span describes a *write*: if the caller's
+transaction is rolled back afterwards, the dispatch span, which names the effect only after commit, is the authority.
+Tracing is inert unless MLflow is installed and tracing is enabled, and an exporter failure never changes what the effect
+does.
+
+**Configuration, migration and rollback.** No new setting, no migration and no stored data change. The spans open inside
+the transaction that holds the approval locks, but make no database call of their own. Rolling
+back is reverting the change; traces already recorded keep their attributes.
+
 ## A configuration that passes
 
 ```ini
@@ -152,6 +228,7 @@ CALIBER_CSRF_SIGNING_SECRET_ENV=CALIBER_CSRF_SIGNING_SECRET
 CALIBER_EGRESS_POLICY_ENABLED=true
 CALIBER_MCP_ALLOW_INSECURE_HTTP=false
 CALIBER_APPROVAL_ALLOW_SELF_APPROVAL=false
+CALIBER_APPLY_REQUIRE_DISTINCT_APPROVER=true
 ```
 
 Two of the variables name *other* variables that hold secrets (`CALIBER_BOOTSTRAP_PASSWORD` and
@@ -715,8 +792,8 @@ see the trace but not read its payload returns the same shape with every governe
 whole-trace `request` and `response`. Real tracers also put the same payload in other attributes
 (`mlflow.spanInputs`, `mlflow.spanOutputs`, `mlflow.chat.messages`, `caliber.tool.input`, `caliber.tool.output`), so
 redaction is **fail-closed**: *every* span attribute that is not on the short list of known payload-free ones
-(`profile.SAFE_SPAN_ATTRIBUTES`: run, node and job ids, status, model name, token and cost counts, tool name and
-latency, span type) is redacted as `[redacted:attributes.<key>]`. Keys are never deleted or added, and everything
+(`profile.SAFE_SPAN_ATTRIBUTES`: run, node, job, proposal, decision, approval and effect ids, refusal code, status, model
+name, token and cost counts, tool name and latency, span type) is redacted as `[redacted:attributes.<key>]`. Keys are never deleted or added, and everything
 else (span ids, names, times, status, `attributes.caliber.run_id`, tokens, cost) is identical to what an editor sees. `GET /observability/traces`
 redacts `request_preview` and `response_preview` the same way, and `GET /observability/metrics` is computed from the
 redacted summaries (the numbers are unchanged; no payload appears). The run trace (`GET /workflow-runs/{id}/trace`)
@@ -1731,12 +1808,70 @@ creator authority, and client-supplied owner or creator values cannot replace
 the authenticated requester.
 
 This is provenance, not permission: apply still rechecks the current project
-permission, distinct approver, and exact candidate digest. Rows written before
+permission and, under the two-person rule below (B06.3), the distinct approver;
+the exact-candidate-digest recheck inside the claim is B06.4 (#753), not yet
+here. Rows written before
 B06.2 remain explicitly unknown (`triggered_by = NULL`); operators recover
 those rows through the current authorization boundary or create a new job via a
 path that can declare its requester. No new migration or public API/SDK field
 is required because migration `0131` introduced the column and it remains an
 ORM-only field.
+
+### Apply: a distinct approver (B06.3, #747)
+
+`CALIBER_APPLY_REQUIRE_DISTINCT_APPROVER` (`apply_require_distinct_approver`, default `false`) is the
+two-person rule for `POST /ajax-api/2.0/mlflow/caliber/jobs/{job_id}/apply`. With it on:
+
+| the job's `triggered_by` | the authenticated caller | result |
+| --- | --- | --- |
+| a different account | holds `caliber.operator` and `release.apply` on the job's project | applied, as before |
+| the caller (compared trimmed and case-folded, so `@Reza` is not a second person to `@reza`) | any | `403`, `reason_code` `apply_self_approval` |
+| `NULL`, empty or blank (a legacy job, or a creation path that declared no requester) | any | `403`, `reason_code` `apply_creator_unknown` |
+
+Where the identities come from: the requester is the job row's `triggered_by`, written from the
+authenticated request identity when the job was created (B06.2); the approver is the authenticated caller
+of the Apply request. Neither is read from the request body, query string or model output, and the setting
+is server configuration, so a client cannot turn the rule off or name a different requester.
+
+**The reference profile.** The setting must be on: `CALIBER_PROFILE=reference` refuses to start without it
+(`apply_distinct_approver_disabled`, in the table above). The rule is also applied at request time whenever the
+profile is `reference`, whatever the flag says, so a process that somehow reached a request in that state
+still refuses, and an unreadable configuration is treated as the reference profile.
+
+**Development compatibility, separately.** With the default profile and the flag off, Apply behaves exactly
+as it did in the alpha: the requester may apply their own candidate and a legacy job with no recorded
+requester is applied. That is a declared development-only compatibility, not a reference behaviour; a
+single-operator install that turns the flag on cannot apply its own jobs and needs a second operator.
+
+**Refusals** are `403` with a static, payload-free message (no job id, account name, candidate text or
+digest) and a stable `reason_code`:
+
+```json
+{"detail": "the account that requested this candidate cannot apply it; a different authorized person must apply it", "status_code": 403, "reason_code": "apply_self_approval"}
+```
+
+```json
+{"detail": "this candidate has no recorded requester, so a distinct approver cannot be verified; re-run the calibration so it records its requester, then have a different authorized person apply it", "status_code": 403, "reason_code": "apply_creator_unknown"}
+```
+
+Both refusals happen after the project-permission check (a non-member still gets `404`, a member without
+`release.apply` still gets `403` without a reason code) and before the claim, the approval anchor, the
+promoter call and any audit write, so a refused Apply changes nothing: the job stays `candidate_ready`. The
+database enforces the same separation inside the atomic claim (`UPDATE ... WHERE status = 'candidate_ready'`
+and the requester, trimmed of ASCII whitespace and lower-cased, is neither NULL, blank nor equal to the
+caller, trimmed and lower-cased the same way), so a requester that changed after the check, even to a case
+or whitespace variant of the caller, still cannot claim. The SQL lower-casing is ASCII-only on SQLite; the
+check before the claim applies the full case-fold. If the server has no configuration object at all, the
+rule is applied as in the reference profile rather than failing the request.
+
+**Recovery.** `apply_self_approval`: ask a different account with `release.apply` on the project to
+apply it. `apply_creator_unknown`: the job has no verifiable requester and **there is no reviewed-provenance
+override yet**: the job is refused, never passed. Re-run the calibration through the prompt, skill, workflow
+or assistant path, which records the requester, and have a different account apply the new job. Do not set
+`triggered_by` by hand from timestamps, owners or other mutable fields.
+
+**Not in this slice.** The exact-candidate-digest recheck and the revoked-permission race inside the claim
+transaction are B06.4 (#753). The refusal writes no audit row, like the existing project-permission refusals.
 
 ## Approval requests: bound to the exact intent (B06.1, #706)
 
