@@ -190,6 +190,7 @@ def reference_environment(database_url: str, profile: str, workdir: Path) -> dic
         "CALIBER_EGRESS_POLICY_ENABLED": "true",
         "CALIBER_MCP_ALLOW_INSECURE_HTTP": "false",
         "CALIBER_APPROVAL_ALLOW_SELF_APPROVAL": "false",
+        "CALIBER_APPLY_REQUIRE_DISTINCT_APPROVER": "true",
         "CALIBER_OPERATOR_USERS": f"{EDITOR_A},{EDITOR_B}",
         "CALIBER_APPROVER_USERS": APPROVER_A,
         "CALIBER_LLM_PROVIDER": "fake",
