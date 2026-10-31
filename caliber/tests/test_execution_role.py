@@ -671,6 +671,7 @@ def _lifespan(
     janitor: str = "janitor",
     outbox: bool = False,
     evaluator: _FakeEvaluator | None = None,
+    reconciler: _FakeEvaluator | None = None,
     session_factory: Any = None,
     reference_profile: bool = False,
 ) -> Any:
@@ -704,6 +705,7 @@ def _lifespan(
         reference_profile=reference_profile,
         outbox_publisher=_FakeLoop("outbox", log, 0.3) if outbox else None,  # type: ignore[arg-type]
         workspace_release_evaluator=evaluator,  # type: ignore[arg-type]
+        effect_reconciler=reconciler,  # type: ignore[arg-type]
     )
 
 
@@ -768,6 +770,46 @@ def test_the_release_evaluator_is_fenced_by_the_lease_the_role_holds(
                 assert held.owner_id == role.owner_id and held.fencing_token == 1
                 assert held == role.lease, "the exact lease the owner captured"
             assert evaluator.provider() is None, "no lease once the loops are stopped: no claim"
+
+        asyncio.run(scenario())
+
+
+def test_the_effect_reconciler_runs_and_stops_with_the_owner_loops_and_is_never_bound_without_a_lease() -> (
+    None
+):
+    log: list[tuple[str, str, float]] = []
+    reconciler = _FakeEvaluator("effect-reconciler", log)
+
+    async def scenario() -> None:
+        app = SimpleNamespace(state=SimpleNamespace())
+        async with _lifespan(log, reconciler=reconciler)(app):
+            assert ("effect-reconciler", "start") in [(n, what) for n, what, _ in log]
+        assert ("effect-reconciler", "stop-end") in [(n, what) for n, what, _ in log]
+
+    asyncio.run(scenario())
+    # outside the reference profile there is no lease: nothing is bound, and the loop itself does nothing without one
+    assert reconciler.provider is _FakeEvaluator.UNBOUND
+
+
+@pytest.mark.parametrize("dialect", DIALECTS)
+def test_the_effect_reconciler_is_bound_to_the_lease_the_role_holds_and_loses_it_with_the_role(
+    dialect: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    log: list[tuple[str, str, float]] = []
+    reconciler = _FakeEvaluator("effect-reconciler", log)
+    with _database(dialect, tmp_path, monkeypatch) as (_, factory):
+
+        async def scenario() -> None:
+            app = SimpleNamespace(state=SimpleNamespace())
+            lifespan = _lifespan(
+                log, reconciler=reconciler, session_factory=factory, reference_profile=True
+            )
+            async with lifespan(app):
+                role = app.state.execution_role
+                held = reconciler.provider()
+                assert isinstance(held, Lease)
+                assert held == role.lease, "the exact lease the owner captured"
+            assert reconciler.provider() is None, "no lease once the loops are stopped: no pass"
 
         asyncio.run(scenario())
 

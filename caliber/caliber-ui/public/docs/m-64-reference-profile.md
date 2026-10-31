@@ -1466,12 +1466,12 @@ them the one way ADR 0003 allows: by asking the downstream by the **original log
 
 - **Owner-only.** `reconcile_pass(factory, lease=..., targets=..., lookup=...)` needs the `Lease` the execution owner captured, and every write re-compares it
   in the transaction that writes (`fence_owner`: exact owner and fencing token, database clock). No question is asked on a lease that is gone. A pass
-  whose lease is taken over stops with `ProposalError` `lease_lost`; what it already settled stays settled and the new owner's pass takes the rest. Which
-  process runs the pass, and when, belongs with the dispatcher's owner loop (B04.1, tracked in #997); until then the pass is called by the code that holds the lease.
+  whose lease is taken over stops with `ProposalError` `lease_lost`; what it already settled stays settled and the new owner's pass takes the rest. The loop
+  that runs the pass on an interval is [below](#the-reconciler-loop-and-the-in-flight-rule-b055d-997).
 - **Abandoned means a prior lease.** Migration 0126 records `dispatch_token` (the fencing token the owner held) with every dispatch. A `dispatched` proposal is
   abandoned exactly when its token is lower than the token of the lease the reconciler holds; `abandon_dispatch` then records `unknown` with reason
   `abandoned_dispatch` (under the *reconciler's* lease; `not_abandoned` for a dispatch under the current lease, which is in flight in this very process and is
-  left alone, or one with no recorded token, which proves nothing). A dispatch under another token is also never a repeat of the dispatch before it.
+  left alone unless the caller gives `in_flight_seconds`, see below, or one with no recorded token, which proves nothing). A dispatch under another token is also never a repeat of the dispatch before it.
 - **Only authoritative terminal evidence moves it.** The lookup runs outside any transaction, against the connector's own query, at the `base_url` of the
   `CALIBER_EFFECT_CALLBACK_CONNECTORS` binding for that connector and project (so it goes through the egress policy), and is read by the connector's
   capability record (`interpret_lookup`):
@@ -1516,13 +1516,65 @@ for result in reconcile_pass(session_factory, lease=lease, targets=targets):
   (`tests/egi_scenarios/test_v08_timeout_retry.py`).
 - **Refusals and recovery.** `lease_lost`: you are no longer the owner, stop and let the new owner reconcile. `store_failed`: roll back and retry. `unknown` after a
   pass: nothing proves the outcome yet (delayed visibility looks like absence); the next pass asks again, the effect is never re-sent, and dependents stay blocked.
-  There is no operator action that fails an `unknown` effect without the downstream's evidence yet (the operator view below lists them; an audited action is #997); a connector that
+  There is no operator action that fails an `unknown` effect without the downstream's evidence, by design (the operator view below lists them and offers `reconcile`, which only asks); a connector that
   can prove absence should set `absence_proves_noncommit`.
 - **Limits.** A pass looks at every candidate (a backlog that stays `unknown` cannot hide a newer one) and does not renew the lease: the caller bounds it with
-  `budget_seconds` and renews or stops in `on_progress`. A `dispatched` row under the *current* lease is `in_flight` and is the dispatcher's to settle (it must record
-  `unknown` on any error that is not a lost lease; the reconciler never abandons it). A `dispatched` row with no recorded token (none exist in shipped code; a
+  `budget_seconds` and renews or stops in `on_progress`. A `dispatched` row under the *current* lease is `in_flight` and is the dispatcher's to settle (it records
+  `unknown` itself on a settle error that is not a lost lease; the reconciler never *abandons* it, and expires it to `unknown` only past `in_flight_seconds`). A `dispatched` row with no recorded token (none exist in shipped code; a
   downgrade through 0125 drops the column) is never abandoned. One connector (document-request) can be reconciled; another needs a verifier and capability record in `reconcile.CONNECTORS`. The gate runs where
   the runtime does (the queued-run worker, not preview or evaluation, which refuse effect nodes). A subworkflow's child plan is built separately and is not gated (the legacy effect ledger is not installed there either).
+
+## The reconciler loop and the in-flight rule (B05.5d, #997)
+
+`caliber.orchestrator.effect_reconciler.EffectReconcilerTask` is the owner-only loop that calls `reconcile_pass`. It is one of the loops in
+`worker_inventory()` (`owner_only`, with a recovery row in ADR 0002), started and stopped with the others by the lifespan. It is built in the
+**reference profile only** (the execution-owner lease exists nowhere else, and a pass cannot act without one), and is on there unless
+`CALIBER_EFFECT_RECONCILER_ENABLED=false`; leave it on wherever a dispatcher can run, because without it an effect whose settle failed stays blocked until
+an operator asks.
+
+| Setting | Default | Bounds | Meaning |
+| --- | --- | --- | --- |
+| `CALIBER_EFFECT_RECONCILER_ENABLED` | `true` | flag | Build the loop in the reference profile |
+| `CALIBER_EFFECT_RECONCILER_INTERVAL_SECONDS` | `15` | 1 to 3600, finite | Seconds between passes |
+| `CALIBER_EFFECT_RECONCILER_BUDGET_SECONDS` | `20` | 1 to 600, finite | A pass stops *starting* lookups after this long; a lookup in progress finishes (its own timeout applies, 30 s by default) and the next pass continues after the last proposal looked at |
+| `CALIBER_EFFECT_IN_FLIGHT_MAX_SECONDS` | `900` | 300 to 86400, finite | How long a dispatch may stay `dispatched` under the lease that is still current before the loop records it `unknown`. **Must exceed the longest a dispatch can take**: the executor's 30 s timeout times at most 5 attempts, its backoff (under 4 s) and the 30 s receipt lookup come to about 3 minutes, which the 300 s floor covers; a connector with a longer timeout needs a larger value |
+
+- **Under the lease, never as a secondary.** The lifespan binds the loop to `role.lease`, the lease the `ExecutionRoleController` holds *now*. A tick with no lease (a
+  secondary, or the controller dropped it) does nothing but write its own heartbeat. Each pass hands that exact lease to `reconcile_pass`, so every write compares it in
+  its own transaction. The loop never renews the lease (the controller does, on its own thread); a loop that also renewed would be a second renewer.
+- **Lease loss stops it between proposals.** Before each proposal the pass checks that the controller still holds the *same* lease (owner and fencing token) and that no stop
+  was requested; if not, it ends there (`lease_changed` or `stopped`) and nothing further is read, asked or written, so nothing new starts after the lease is lost. If the database
+  refuses the lease first (it was taken over before the controller noticed), `reconcile_pass` raises `lease_lost` and the pass ends with nothing recorded. The next tick takes
+  whatever lease the controller holds then; a re-acquired lease has a higher token and starts a fresh pass.
+- **Bounded.** No lock is held across a lookup (each proposal is read, asked about and written in separate transactions), and on PostgreSQL every transaction of the pass carries
+  `lock_timeout` and `statement_timeout` of a third of `CALIBER_EXECUTION_LEASE_SECONDS`, like the controller's own lease calls. A budget-cut pass resumes after the last proposal it
+  looked at, so a backlog of effects that stay `unknown` can neither starve the rest nor be the only thing ever looked at.
+- **Targets** are the `CALIBER_EFFECT_CALLBACK_CONNECTORS` bindings (the `base_url` of each `(connector, project)` that may report a receipt). With none bound the loop still
+  abandons the dispatches of lost leases and expires stuck in-flight ones, and every lookup reports `not_bound`.
+- **Stop.** A stop ends the pass at its next proposal and waits up to `CALIBER_SHUTDOWN_GRACE_SECONDS` for it. A lookup in progress is not interrupted; if it outlasts the grace the stop
+  returns with a warning and that one proposal finishes alone (its writes stay fenced by the lease, so it cannot record anything once the lease is released). The reconciler holds no claims, so there is nothing to give back.
+- **Liveness.** A `caliber_worker_heartbeats` row of kind `effect_reconciler` is written every tick (idle ones too) and inside a long pass; a clean stop removes it. Nothing reads that kind
+  yet: it is a row an operator can query.
+
+**The same-token stuck dispatch.** `abandon_dispatch` only helps when the dispatching lease was taken over. When the dispatcher keeps its lease, sends the effect and then cannot record
+the outcome, the row would stay `dispatched` under the current token for good. Two rules close that, and neither sends anything (there is no edge from `unknown` back to `dispatched`):
+
+1. **The dispatcher records `unknown` itself.** If `settle_dispatch` fails for any reason other than "someone else owns the row now" (`lease_lost`, `stale_owner`, `stale_version`,
+   `illegal_transition`), `dispatch` records `unknown` in a fresh transaction under the same captured lease, with the reason `settle_failed:<code or exception class>` (never the message),
+   and then raises the original failure. The move is fenced like the settle: a lost lease, another owner or a row someone else already moved records nothing. It is best effort: if the store is
+   still down it fails too and rule 2 applies.
+2. **The loop expires it.** A `dispatched` row whose `dispatch_token` is the current lease's own and which has been `dispatched` for longer than `CALIBER_EFFECT_IN_FLIGHT_MAX_SECONDS` becomes
+   `unknown` (`in_flight_expired`, with an `effect_in_flight_expired` audit row in the same transaction) and is then asked about by key like any other `unknown` one. A younger row is `in_flight` and left
+   alone. A row with no recorded token proves nothing and is never expired.
+
+**The dispatcher and the loop racing for one row.** Both write under the lease row's lock (taken first) and both are conditioned on the version they read, so exactly one wins and the loser records nothing:
+if the dispatcher settles first the loop finds the row `moved`; if the loop expires it first, the dispatcher's settle is refused as `stale_version` (its receipt is rolled back with it), the row stays `unknown`,
+and the effect was sent once either way. The outcome is not lost: `unknown` is settled by a lookup by key, which finds the request for a connector that has one. Set the bound above the longest a dispatch can legitimately
+take (the transport's timeout times its attempts, plus the receipt lookup), or a slow dispatcher that was about to commit finds its row `unknown` instead.
+
+**Known limits.** A connector with no lookup by key (the generic `http` connector has none) can never be settled by the loop: its `unknown` rows report `not_bound` every pass and keep blocking their
+dependents until a connector with a lookup is bound. Each pass looks at every open row, so a very large backlog of such rows costs a few queries each per pass. The loop is a single sequential worker.
+Proposals are still created only where a run supplies a governed effect context; see "Governed webhook and API-request nodes".
 
 ## Operator reconciliation view: legacy claims and proposals, labelled apart (B05.6, #751)
 
@@ -1532,8 +1584,8 @@ for result in reconcile_pass(session_factory, lease=lease, targets=targets):
 | --- | --- | --- |
 | What it is | the queued-run worker's claim ledger (`caliber_effect_ledger`) | the ADR 0003 proposal ledger (`caliber_effect_proposals`) |
 | Listed by default | `status=in_progress` (`status=any` or another status widens it) | the open states `dispatched`, `unknown`, `reconciled` (`proposal_state=any` or one state) |
-| Settled by | an operator: `POST .../system/effects/{effect_key}/resolve` (admin, audited: `skip` or `retry`) | the reconciler's lookup by key; no operator action yet (`safe_actions` is empty) |
-| `safe_actions` | `resolve:skip`, `resolve:retry` on an `in_progress` claim, none otherwise | none |
+| Settled by | an operator: `POST .../system/effects/{effect_key}/resolve` (admin, audited: `skip` or `retry`) | the reconciler's lookup by key. The operator can only ask now: `POST .../system/effects/proposals/{proposal_id}/reconcile` |
+| `safe_actions` | `resolve:skip`, `resolve:retry` on an `in_progress` claim, none otherwise | `reconcile` on an `unknown` or `reconciled` row and on a `dispatched` row with `abandoned: true`, none otherwise (a `dispatched` row of the current lease is the dispatcher's until the in-flight bound) |
 
 Every row carries `source`, `source_version` and its own `safe_actions`, so a client cannot apply the legacy `resolve` to a proposal (it is refused, `400`, and changes
 nothing) or read a proposal as a ledger claim. Legacy rows keep exactly the fields they always had (plus the label); the migrations that created the proposal tables
@@ -1548,6 +1600,25 @@ payload (recorders pass fixed codes). Known limit: no index on proposal `state`/
 `workflow_run_id`, `limit` (1 to 1000, applied to each list; the proposal list reports `proposals_truncated` when more matched, newest first); `proposal_state` is only checked when proposals are asked for, and an
 unknown `source` or `proposal_state` is `400`. The response also carries `sources`, a description of each kind
 (`settled_by`, `safe_actions`). SDK: `client.system.effects(source="proposal", proposal_state="unknown")`.
+
+### Operator action: `reconcile` (B05.5d, #997)
+
+`POST /caliber/system/effects/proposals/{proposal_id}/reconcile` with `{"reason": "<1 to 500 characters>"}` (admin scope; SDK `client.system.reconcile_effect_proposal(proposal_id, reason=...)`). It
+asks the downstream about one proposal now, which is what the loop does every pass, and it is the only operator action on a proposal. It is deliberately **not** a way to say what happened:
+
+- **No say-so.** The body accepts `reason` and nothing else (any other key is `400`). There is no `committed` or `failed` an operator can write: a receipt exists only when the platform read the effect
+  back from the downstream by its key, and `failed` only when the connector proves absence final (ADR 0003). A 404, a 5xx, an unreadable body, an unreachable downstream or no binding leave the proposal `unknown`
+  and the answer says so (`outcome`: `unknown`, `unverified`, `lookup_failed`, `not_bound`, `in_flight`); only a stored request that is this proposal's effect settles it (`committed`, `settled: true`).
+- **Owner-fenced.** It runs under the execution-owner lease of the process that serves the request (`app.state.execution_role`), through `reconcile_one`, so the lease is compared in the transaction of every write.
+  A process that is not the owner (or whose controller has dropped the lease) answers `409 not_execution_owner` and asks nothing; a lease taken over mid-request is `409 lease_lost` with nothing recorded.
+  An operator request and the loop asking at once settle the proposal exactly once (the second sees it `moved`). At most 4 operator lookups run at once per process; the rest get `429 too_many_reconciliations_in_flight` and nothing is asked.
+  The route also accepts a `dispatched` row of the *current* lease, which `safe_actions` does not list because it does not always act: younger than `CALIBER_EFFECT_IN_FLIGHT_MAX_SECONDS` it answers `in_flight` and changes nothing; older, it records `unknown` (`in_flight_expired`) exactly as the loop would and asks.
+- **Audited.** Every request that reaches the reconciler leaves one `effect_reconcile_requested` audit row (actor, reason, state before, outcome, state after, owner and fencing token; no payload), whether or not
+  the proposal moved; a lease lost mid-request, or any other failure of the request (recorded by error code or exception class name only), is recorded too. When the lookup settles the proposal, the reconciler's own `effect_reconciled` row is written in the same transaction as the move. A proposal that
+  is not `dispatched`, `unknown` or `reconciled` is `409 not_reconcilable` and nothing is recorded; an unknown id is `404`.
+- **Why nothing more.** A proposal that stays `unknown` for good (a connector with no lookup by key, a downstream that never shows the request) keeps blocking its dependents. That is the safe state:
+  the alternative, an operator marking it `failed`, unblocks them on a belief while the effect may have happened. The operator procedure is in the
+  [recovery runbook](m-65-recovery-runbook.md#a-proposal-source-effect_proposal).
 
 ## Receipt callback: a connector tells the platform it is done (B05.4b, #725)
 

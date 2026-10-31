@@ -198,7 +198,7 @@ def test_lists_legacy_and_proposal_kinds(client: TestClient, db_session: Session
     )
     for row in by_id.values():
         assert (row["source"], row["source_version"]) == ("effect_proposal", "proposal-v1")
-        assert row["safe_actions"] == [] and row["blocks_dependents"] is True
+        assert row["blocks_dependents"] is True
         assert set(row) == _PROPOSAL_ROW_KEYS, "exactly these fields: no payload under any name"
         assert row["project_id"] == "PRJ-ep" and row["logical_key"] and row["intent_hash"]
     assert by_id[ids["reconciled"]]["abandoned"] is None
@@ -210,13 +210,20 @@ def test_lists_legacy_and_proposal_kinds(client: TestClient, db_session: Session
     assert by_id[ids["unknown"]]["abandoned"] is None, "only a dispatched attempt can be abandoned"
     assert by_id[ids["abandoned"]]["abandoned"] is True
     assert by_id[ids["current"]]["abandoned"] is False
+    # the one action is offered where it can do something: not for a dispatch of the lease that is still current
+    assert {pid: row["safe_actions"] for pid, row in by_id.items()} == {
+        ids["abandoned"]: ["reconcile"],
+        ids["unknown"]: ["reconcile"],
+        ids["reconciled"]: ["reconcile"],
+        ids["current"]: [],
+    }
     assert by_id[ids["abandoned"]]["dispatch_token"] < by_id[ids["current"]]["dispatch_token"]
 
     assert data["proposal_state"] == "open"
     sources = data["sources"]
     assert sources["legacy_ledger"]["settled_by"] == "operator"
     assert sources["effect_proposal"]["settled_by"] == "reconciler"
-    assert sources["effect_proposal"]["safe_actions"] == []
+    assert sources["effect_proposal"]["safe_actions"] == ["reconcile"]
     assert set(data["resolutions"]) == {"skip", "retry"}
 
 

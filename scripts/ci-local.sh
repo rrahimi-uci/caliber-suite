@@ -240,6 +240,9 @@ job_migration_parity_postgres() {
         tests/test_approval_supersession.py \
         tests/test_routes_system_effects.py \
         tests/test_effect_reconcile.py \
+        tests/test_effect_in_flight.py \
+        tests/test_effect_reconciler_loop.py \
+        tests/test_effect_operator_reconcile.py \
         tests/test_registered_tool_dispatch.py \
         tests/test_context_sources.py \
         tests/test_context_manifest.py \

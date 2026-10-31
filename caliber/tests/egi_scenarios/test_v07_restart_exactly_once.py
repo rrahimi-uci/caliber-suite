@@ -11,16 +11,22 @@ mutations. In every case the new owner asks by key and *never sends the request 
 * killed after the answer, before the outcome was persisted: the same.
 
 The old owner's lease is expired by ``release`` (the ownership module's own expiry-by-database-time is covered by its tests).
+
+B05.5d (#997) repeats the recoveries with the owner-only loop (``EffectReconcilerTask``) in place of a hand-called pass: it recovers
+a killed dispatch by key, keeps an unprovable one ``unknown`` pass after pass without ever sending, and a loop whose lease is no
+longer honoured changes nothing.
 """
 
 from __future__ import annotations
 
+import json
 import os
 import subprocess
 import sys
 import time
 from collections.abc import Iterator
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -54,6 +60,7 @@ from caliber.effects.records import (
 )
 from caliber.egress import EgressPolicy
 from caliber.integrations.openapi.executor import bind_egress_policy, execute_openapi_http_tool
+from caliber.orchestrator.effect_reconciler import COMPLETE, LEASE_REFUSED, EffectReconcilerTask
 from caliber.ownership import acquire, current_lease, release
 from caliber.workflows.compiler import build_ir
 from caliber.workflows.manifest import parse_manifest
@@ -413,3 +420,151 @@ def _submit_input(key: str) -> dict[str, Any]:
     return submit_input(
         case_id=CASE, idempotency_key=key, expected_resource_version=1, body={"document_type": DOC}
     )
+
+
+# ---------------------------------------------------------------- the owner loop drives the recovery (B05.5d, #997)
+
+
+def _loop(
+    factory: sessionmaker[Session], downstream: Downstream, lease_provider: Any
+) -> EffectReconcilerTask:
+    """The owner-only loop, with the downstream fixture as the bound connector and the real lookup through the executor."""
+    bindings = json.dumps(
+        [
+            {
+                "connector": "document-request",
+                "project_id": PROJECT,
+                "secret_source": "env:UNUSED",
+                "base_url": downstream.base_url,
+            }
+        ]
+    )
+    return EffectReconcilerTask(
+        factory,
+        SimpleNamespace(effect_callback_connectors=bindings),
+        lease_provider=lease_provider,
+    )
+
+
+def _killed(
+    engine: Engine,
+    downstream: Downstream,
+    proposal_id: str,
+    stop_at: str,
+    marker: Path,
+    wait: Any,
+) -> None:
+    child = _start_child(engine, downstream, proposal_id, stop_at, marker)
+    try:
+        _wait_for(wait, child, "the attempt reached the kill point")
+        _kill(child)
+    finally:
+        if child.poll() is None:  # pragma: no cover
+            child.kill()
+
+
+def test_the_owner_loop_finds_a_killed_dispatchs_effect_by_key_and_never_sends_it_again(
+    ledger: tuple[Engine, sessionmaker[Session]], downstream: Downstream, tmp_path: Path
+) -> None:
+    """The dispatcher died after the downstream committed. The new owner's *loop* (not a hand-called pass) abandons the dead
+    attempt, asks by key, commits with a verified receipt, and the downstream still counts one mutation."""
+    engine, factory = ledger
+    proposal_id = _approved_proposal(factory)
+    downstream.set_fault("delay_response_seconds", seconds=20)
+    marker = tmp_path / "marker"
+    _killed(
+        engine,
+        downstream,
+        proposal_id,
+        "after_response",
+        marker,
+        lambda: downstream.mutations() >= 1,
+    )
+    with factory() as session:
+        assert proposal_state(session, proposal_id).state == DISPATCHED
+
+    lease = _new_owner(factory)
+    report = _loop(factory, downstream, lambda: lease).tick()
+
+    assert report is not None and report.ended == COMPLETE
+    assert [(r.proposal_id, r.outcome, r.state) for r in report.results] == [
+        (proposal_id, RECONCILED_COMMITTED, COMMITTED)
+    ]
+    assert downstream.mutations() == 1
+    _assert_receipt_matches_the_downstream(factory, proposal_id, downstream)
+    again = _loop(factory, downstream, lambda: lease).tick()
+    assert again is not None and again.results == (), "nothing is left for the next pass"
+    assert downstream.mutations() == 1
+
+
+def test_the_owner_loop_leaves_an_unprovable_kill_unknown_pass_after_pass_until_the_request_lands(
+    ledger: tuple[Engine, sessionmaker[Session]], downstream: Downstream, tmp_path: Path
+) -> None:
+    """Killed before the send: nothing committed, and no pass can know that. The loop keeps the effect ``unknown`` and keeps
+    asking; it never fails it and never sends it. When the request lands late from elsewhere, the next pass commits it."""
+    engine, factory = ledger
+    proposal_id = _approved_proposal(factory)
+    marker = tmp_path / "marker"
+    _killed(
+        engine,
+        downstream,
+        proposal_id,
+        "before_send",
+        marker,
+        lambda: _marked(marker, "dispatched"),
+    )
+    lease = _new_owner(factory)
+    loop = _loop(factory, downstream, lambda: lease)
+    for _ in range(3):
+        report = loop.tick()
+        assert report is not None
+        assert [(r.outcome, r.state) for r in report.results] == [(STILL_UNKNOWN, UNKNOWN)]
+        assert downstream.mutations() == 0, "the loop asks; it never sends"
+    with pytest.raises(UnknownEffectError):
+        effect_gate(factory, "RUN-ep")({NODE})
+
+    with factory() as session:
+        key = proposal_view(session, proposal_id).logical_key
+    late = execute_openapi_http_tool(
+        execution_config=_submit_config(downstream),
+        input_schema=None,
+        input_data=_submit_input(key),
+    )
+    assert late["status_code"] == 201 and downstream.mutations() == 1
+    report = loop.tick()
+    assert report is not None
+    assert [(r.outcome, r.state) for r in report.results] == [(RECONCILED_COMMITTED, COMMITTED)]
+    assert downstream.mutations() == 1
+
+
+def test_a_loop_that_lost_its_lease_after_the_kill_changes_nothing_and_the_new_owners_loop_recovers(
+    ledger: tuple[Engine, sessionmaker[Session]], downstream: Downstream, tmp_path: Path
+) -> None:
+    """The old owner's loop still holds the lease it captured, which the database no longer honours: it records nothing and
+    asks nothing; the new owner's loop does the recovery. No new work starts after the lease is lost."""
+    engine, factory = ledger
+    proposal_id = _approved_proposal(factory)
+    marker = tmp_path / "marker"
+    _killed(
+        engine,
+        downstream,
+        proposal_id,
+        "before_send",
+        marker,
+        lambda: _marked(marker, "dispatched"),
+    )
+    with factory() as session:
+        stale = current_lease(session)
+        assert stale is not None and stale.owner_id == "dispatcher-1"
+    fresh = _new_owner(factory)
+
+    old = _loop(factory, downstream, lambda: stale).tick()
+    assert old is not None and old.ended == LEASE_REFUSED and old.results == ()
+    with factory() as session:
+        assert proposal_state(session, proposal_id).state == DISPATCHED, "untouched"
+    assert downstream.mutations() == 0
+
+    new = _loop(factory, downstream, lambda: fresh).tick()
+    assert new is not None and new.ended == COMPLETE
+    assert [(r.outcome, r.state) for r in new.results] == [(STILL_UNKNOWN, UNKNOWN)]
+    assert downstream.mutations() == 0
