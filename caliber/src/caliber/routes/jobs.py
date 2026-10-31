@@ -12,7 +12,7 @@ from collections.abc import Sequence
 from datetime import datetime, timezone
 from typing import Any, Final
 
-from sqlalchemy import Select, delete, select, update
+from sqlalchemy import Select, delete, func, literal, select, update
 from sqlalchemy.orm import Session
 from starlette.applications import Starlette
 from starlette.concurrency import run_in_threadpool
@@ -470,6 +470,35 @@ def _revert_unstarted_apply(
         )
 
 
+#: The characters Python's ``str.strip`` removes that the database trims too: ASCII whitespace.
+_SQL_TRIM_CHARS = " \t\n\r\x0b\x0c"
+
+
+def _sql_identity_key(value: Any, dialect: str) -> Any:
+    """``value`` trimmed and lower-cased in SQL, the database counterpart of ``apply_separation_refusal``'s key.
+
+    PostgreSQL spells the two-argument trim ``btrim``; SQLite's ``trim`` takes the character set directly.
+    """
+    trim = func.btrim if dialect == "postgresql" else func.trim
+    return func.lower(trim(value, _SQL_TRIM_CHARS))
+
+
+def _with_distinct_requester(statement: Any, actor: str, *, dialect: str) -> Any:
+    """``statement`` (the Apply claim UPDATE) restricted to a job whose requester is not ``actor`` (B06.3, #747).
+
+    The same separation as :func:`~caliber.apply.apply_separation_refusal`, as a predicate of the claim itself, so a
+    requester that changed after the route's up-front check still cannot claim: no row, no claim, no effect. Both sides
+    are trimmed of ASCII whitespace and lower-cased; a NULL or blank requester matches nothing, so it stays refused. The
+    SQL lower-casing is ASCII-only on SQLite; the Python check is the full case-fold.
+    """
+    requester_key = _sql_identity_key(CaliberRefinementJob.triggered_by, dialect)
+    return (
+        statement.where(requester_key.is_not(None))
+        .where(requester_key != "")
+        .where(requester_key != _sql_identity_key(literal(actor), dialect))
+    )
+
+
 def _require_distinct_approver(requester: str | None, approver: str) -> None:
     """Raise the typed 403 when ``approver`` may not apply a job ``requester`` asked for (B06.3, #747)."""
     code = apply_separation_refusal(requester=requester, approver=approver)
@@ -505,7 +534,10 @@ async def apply_job(request: Request) -> JSONResponse:
         # profile) the authenticated caller must not be the account that requested the job, and a job
         # with no recorded requester is refused. Both refusals precede the claim, the approval anchor,
         # the promoter and every write, and carry a static, payload-free message.
-        require_distinct = apply_distinct_approver_required(request.app.state.config)
+        # A missing config is treated as the reference profile (fail closed), not a 500.
+        require_distinct = apply_distinct_approver_required(
+            getattr(request.app.state, "config", None)
+        )
         if require_distinct:
             _require_distinct_approver(visible_job.triggered_by, actor)
         # Claim with a conditional write rather than relying only on
@@ -519,11 +551,9 @@ async def apply_job(request: Request) -> JSONResponse:
             .where(CaliberRefinementJob.status == "candidate_ready")
         )
         if require_distinct:
-            # The same separation, evaluated by the database inside the claim itself, so a requester
-            # that changed after the check above still cannot claim: no row, no claim, no effect.
-            claim_statement = claim_statement.where(
-                CaliberRefinementJob.triggered_by.is_not(None)
-            ).where(CaliberRefinementJob.triggered_by != actor)
+            claim_statement = _with_distinct_requester(
+                claim_statement, actor, dialect=session.get_bind().dialect.name
+            )
         claim = session.execute(claim_statement.values(status="applying"))
         if int(getattr(claim, "rowcount", 0) or 0) != 1:
             current = session.get(CaliberRefinementJob, job_id, populate_existing=True)

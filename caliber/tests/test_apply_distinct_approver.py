@@ -340,13 +340,32 @@ def test_a_member_editor_who_is_distinct_applies(
 # ------------------------------------------------------------------ the claim is atomic with the check
 
 
+@pytest.mark.parametrize(
+    ("rewritten", "code"),
+    [
+        (OTHER, APPLY_SELF_APPROVAL),
+        (OTHER.upper(), APPLY_SELF_APPROVAL),
+        (f"  {OTHER}  ", APPLY_SELF_APPROVAL),
+        (f"\t{OTHER.upper()} ", APPLY_SELF_APPROVAL),
+        ("", APPLY_CREATOR_UNKNOWN),
+        ("   ", APPLY_CREATOR_UNKNOWN),
+        (None, APPLY_CREATOR_UNKNOWN),
+    ],
+    ids=["exact", "upper", "padded", "padded-upper", "empty", "blank", "null"],
+)
 def test_a_requester_rewritten_after_the_check_cannot_claim(
-    job: TestClient, db_session: Session, monkeypatch: pytest.MonkeyPatch
+    job: TestClient,
+    db_session: Session,
+    monkeypatch: pytest.MonkeyPatch,
+    rewritten: str | None,
+    code: str,
 ) -> None:
-    """The route's up-front check read a distinct requester; the row then became the caller before the claim.
+    """The route's up-front check read a distinct requester; the row then changed before the claim.
 
-    The claim UPDATE carries the same separation, so it matches no row: the route answers the typed refusal
-    from the *current* row and nothing is claimed, approved or promoted.
+    The claim UPDATE carries the same normalised separation (trim and lower-case on both sides; NULL or blank
+    matches nothing), so it matches no row: the route answers the typed refusal from the *current* row and nothing
+    is claimed, approved or promoted. An exact-only predicate would let a case or whitespace variant of the caller
+    claim.
     """
     import caliber.routes.jobs as jobs_route
 
@@ -358,7 +377,7 @@ def test_a_requester_rewritten_after_the_check_cannot_claim(
         session.execute(
             update(CaliberRefinementJob)
             .where(CaliberRefinementJob.job_id == JOB_ID)
-            .values(triggered_by=OTHER)
+            .values(triggered_by=rewritten)
             .execution_options(synchronize_session=False)
         )
         assert loaded.triggered_by == REQUESTER  # the stale value the up-front check will see
@@ -367,5 +386,74 @@ def test_a_requester_rewritten_after_the_check_cannot_claim(
     monkeypatch.setattr(jobs_route, "load_visible_job", load_then_rewrite)
     response = _apply(job, OTHER)
     assert response.status_code == 403
-    assert response.json()["reason_code"] == APPLY_SELF_APPROVAL
+    assert response.json()["reason_code"] == code
+    _assert_nothing_happened(job, db_session)
+
+
+def test_a_distinct_rewritten_requester_still_claims(
+    job: TestClient, db_session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The normalised predicate is not over-broad: a different account's variant does not block the claim."""
+    import caliber.routes.jobs as jobs_route
+
+    real_load = jobs_route.load_visible_job
+
+    def load_then_rewrite(session: Session, *args: Any, **kwargs: Any) -> CaliberRefinementJob:
+        loaded = real_load(session, *args, **kwargs)
+        session.execute(
+            update(CaliberRefinementJob)
+            .where(CaliberRefinementJob.job_id == JOB_ID)
+            .values(triggered_by="  @Someone-Else ")
+            .execution_options(synchronize_session=False)
+        )
+        return loaded
+
+    monkeypatch.setattr(jobs_route, "load_visible_job", load_then_rewrite)
+    assert _apply(job, OTHER).status_code == 200
+    assert _job_status(db_session) == "applied"
+
+
+# ------------------------------------------------------------------ a missing config fails closed
+
+
+@pytest.mark.parametrize(
+    ("requester", "code"),
+    [(REQUESTER, APPLY_SELF_APPROVAL), (None, APPLY_CREATOR_UNKNOWN)],
+    ids=["self", "unknown-requester"],
+)
+def test_a_missing_app_config_fails_closed_not_500(
+    job: TestClient,
+    db_session: Session,
+    monkeypatch: pytest.MonkeyPatch,
+    requester: str | None,
+    code: str,
+) -> None:
+    """With no ``app.state.config`` the route applies the rule (as the reference profile) instead of raising.
+
+    The HTTP stack needs the config to authenticate, so the handler is called directly with the resolved identity
+    stubbed and an app state that has no ``config`` attribute.
+    """
+    import asyncio
+    from types import SimpleNamespace
+
+    import caliber.routes.jobs as jobs_route
+    from caliber.auth import SCOPE_OPERATOR, CaliberIdentity
+    from caliber.routes._errors import CaliberHTTPException
+
+    _set_requester(db_session, requester)
+    real_state = job.app.state  # type: ignore[attr-defined]
+    state = SimpleNamespace(
+        session_factory=real_state.session_factory, promoter=real_state.promoter
+    )
+    assert not hasattr(state, "config")
+    request = SimpleNamespace(
+        app=SimpleNamespace(state=state), path_params={"job_id": JOB_ID}, headers={}
+    )
+    identity = CaliberIdentity(user_id=REQUESTER, scopes=frozenset({SCOPE_OPERATOR}))
+    monkeypatch.setattr(jobs_route, "require_scopes", lambda *_a, **_k: REQUESTER)
+    monkeypatch.setattr(jobs_route, "resolve_identity", lambda *_a, **_k: identity)
+    with pytest.raises(CaliberHTTPException) as refused:
+        asyncio.run(jobs_route.apply_job(request))  # type: ignore[arg-type]
+    assert refused.value.status_code == 403
+    assert refused.value.reason_code == code
     _assert_nothing_happened(job, db_session)

@@ -1712,9 +1712,12 @@ digest) and a stable `reason_code`:
 Both refusals happen after the project-permission check (a non-member still gets `404`, a member without
 `release.apply` still gets `403` without a reason code) and before the claim, the approval anchor, the
 promoter call and any audit write, so a refused Apply changes nothing: the job stays `candidate_ready`. The
-database enforces the same separation inside the atomic claim (`UPDATE ... WHERE status = 'candidate_ready'
-AND triggered_by IS NOT NULL AND triggered_by <> <caller>`), so a requester that changed after the check
-still cannot claim.
+database enforces the same separation inside the atomic claim (`UPDATE ... WHERE status = 'candidate_ready'`
+and the requester, trimmed of ASCII whitespace and lower-cased, is neither NULL, blank nor equal to the
+caller, trimmed and lower-cased the same way), so a requester that changed after the check, even to a case
+or whitespace variant of the caller, still cannot claim. The SQL lower-casing is ASCII-only on SQLite; the
+check before the claim applies the full case-fold. If the server has no configuration object at all, the
+rule is applied as in the reference profile rather than failing the request.
 
 **Recovery.** `apply_self_approval`: ask a different account with `release.apply` on the project to
 apply it. `apply_creator_unknown`: the job has no verifiable requester and **there is no reviewed-provenance

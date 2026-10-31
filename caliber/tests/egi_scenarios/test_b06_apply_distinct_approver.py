@@ -12,6 +12,7 @@ from __future__ import annotations
 import threading
 from typing import Any
 
+import pytest
 from sqlalchemy import func, select, update
 
 from caliber.db.models import (
@@ -239,3 +240,49 @@ def test_the_stored_requester_decides_not_who_it_was_earlier(
     assert _apply(reference_app, EDITOR_B, "RFN-B063-REWRITE").status_code == 403
     assert _state(reference_app, "RFN-B063-REWRITE") == ("candidate_ready", 0)
     assert _apply(reference_app, EDITOR_A, "RFN-B063-REWRITE").status_code == 200
+
+
+@pytest.mark.parametrize(
+    ("variant", "reason_code"),
+    [
+        (EDITOR_B.upper(), "apply_self_approval"),
+        (f"  {EDITOR_B}\t", "apply_self_approval"),
+        ("", "apply_creator_unknown"),
+        (None, "apply_creator_unknown"),
+    ],
+    ids=["upper", "padded", "blank", "null"],
+)
+def test_a_requester_rewritten_after_the_check_cannot_claim_on_either_dialect(
+    reference_app: ReferenceApp,
+    two_workspaces: Workspaces,
+    monkeypatch: pytest.MonkeyPatch,
+    variant: str | None,
+    reason_code: str,
+) -> None:
+    """The claim UPDATE repeats the separation in SQL (normalised, null-safe) on SQLite and PostgreSQL.
+
+    The up-front check reads a distinct requester; between it and the claim the row is rewritten, in the caller's own
+    transaction, to a case/whitespace variant of the caller or to no requester. The claim then matches no row.
+    """
+    import caliber.routes.jobs as jobs_route
+
+    _make_editor_b_a_member_of_project_a(reference_app)
+    _seed_job(reference_app, "RFN-B063-TOCTOU", EDITOR_A)
+    real_load = jobs_route.load_visible_job
+
+    def load_then_rewrite(session: Any, *args: Any, **kwargs: Any) -> Any:
+        loaded = real_load(session, *args, **kwargs)
+        session.execute(
+            update(CaliberRefinementJob)
+            .where(CaliberRefinementJob.job_id == "RFN-B063-TOCTOU")
+            .values(triggered_by=variant)
+            .execution_options(synchronize_session=False)
+        )
+        return loaded
+
+    monkeypatch.setattr(jobs_route, "load_visible_job", load_then_rewrite)
+    refused = _apply(reference_app, EDITOR_B, "RFN-B063-TOCTOU")
+    assert refused.status_code == 403, refused.text
+    assert refused.json()["reason_code"] == reason_code
+    assert _state(reference_app, "RFN-B063-TOCTOU") == ("candidate_ready", 0)
+    assert _promotions(reference_app) == 0

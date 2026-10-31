@@ -87,6 +87,11 @@ def apply_separation_refusal(*, requester: str | None, approver: str) -> str | N
     ``requester`` is the job's stored ``triggered_by`` (written from the authenticated identity) and ``approver`` is the
     authenticated caller; neither comes from the request body.
 
+    This is the single implementation of the Apply separation rule; the exact-candidate recheck inside the Apply claim
+    (B06.4, #753) should call it rather than re-implement it. It deliberately does not reuse
+    :func:`caliber.workflows.approval_policy.assert_distinct_actor`, which compares exactly (``@Alice`` and ``@alice``
+    differ) and lets an unknown initiator pass, both of which are wrong for a reference-profile Apply.
+
     * :data:`APPLY_CREATOR_UNKNOWN`: ``requester`` is ``None`` or blank, a legacy job. It is never passed automatically,
       because separation cannot be shown for it.
     * :data:`APPLY_SELF_APPROVAL`: the two are the same account, compared trimmed and case-folded so a case variant of
