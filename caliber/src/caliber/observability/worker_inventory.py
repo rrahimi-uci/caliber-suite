@@ -173,11 +173,13 @@ _WORKER_NOTES: dict[str, WorkerNote] = {
         description=(
             "Calls the effect reconciler under the execution-owner lease: asks each bound connector about "
             "unknown and abandoned effects by their logical key, and moves a dispatch stuck in flight under "
-            "the current lease to unknown. It never re-sends an effect."
+            "the current lease to unknown. It never re-sends an effect. After each pass it also finalizes the step "
+            "token reservations a crashed worker left open past their deadline, at their whole reservation."
         ),
         tables=(
             "CaliberEffectProposal",
             "CaliberEffectReceipt",
+            "CaliberStepTokenReservation",
             "CaliberAuditLog",
             "CaliberWorkerHeartbeat",
         ),

@@ -120,6 +120,14 @@ AGENT_STEP_MAX_TOKENS_DEFAULT: Final = 200_000
 AGENT_STEP_MAX_TOKENS_BOUNDS: Final = (1, 10_000_000)
 AGENT_STEP_MAX_SECONDS_DEFAULT: Final = 600.0
 AGENT_STEP_MAX_SECONDS_BOUNDS: Final = (1.0, 86400.0)
+#: The most tokens one run's governed agent steps may reserve and be charged in total (B08.4): a step's ``max_tokens`` ceiling is
+#: reserved against it before the adapter is called, and what is reserved or charged counts until the run ends.
+AGENT_RUN_MAX_TOKENS_DEFAULT: Final = 2_000_000
+AGENT_RUN_MAX_TOKENS_BOUNDS: Final = (1, 1_000_000_000)
+#: How long past its deadline an open step reservation is left before the owner loop finalizes it as abandoned (at its full
+#: reservation: it is never released).
+AGENT_RESERVATION_GRACE_DEFAULT: Final = 300.0
+AGENT_RESERVATION_GRACE_BOUNDS: Final = (1.0, 86400.0)
 
 
 def parse_section_caps(raw: str) -> dict[str, int]:
@@ -1884,6 +1892,28 @@ class CaliberConfig(BaseModel):
             "finite). A step's deadline later than this is brought forward to it."
         ),
     )
+    agent_run_max_tokens: int = Field(
+        default=AGENT_RUN_MAX_TOKENS_DEFAULT,
+        ge=AGENT_RUN_MAX_TOKENS_BOUNDS[0],
+        le=AGENT_RUN_MAX_TOKENS_BOUNDS[1],
+        description=(
+            "The most tokens one run's governed agent steps may reserve and be charged in total (1 to 1000000000). A step's "
+            "``max_tokens`` ceiling is reserved against it, under the run's row lock, before the adapter is called; a step "
+            "that would take the run past it is refused (``token_budget_exhausted``) and its adapter is never called. A "
+            "ceiling that exceeds the whole budget refuses every step."
+        ),
+    )
+    agent_reservation_grace_seconds: float = Field(
+        default=AGENT_RESERVATION_GRACE_DEFAULT,
+        ge=AGENT_RESERVATION_GRACE_BOUNDS[0],
+        le=AGENT_RESERVATION_GRACE_BOUNDS[1],
+        allow_inf_nan=False,
+        description=(
+            "How long past its deadline an open step token reservation (a worker crashed or was cancelled mid-call) is left "
+            "before the execution owner finalizes it as abandoned (1 to 86400, finite). It is finalized at its whole "
+            "reservation, never released, so this only moves when the row stops being open."
+        ),
+    )
 
     effect_callback_connectors: str = Field(
         default="[]",
@@ -2675,6 +2705,8 @@ _ENV_VAR_TABLE: list[tuple[str, str, Any]] = [
     ("CALIBER_AGENT_STEP_MAX_TOOL_CALLS", "agent_step_max_tool_calls", int),
     ("CALIBER_AGENT_STEP_MAX_TOKENS", "agent_step_max_tokens", int),
     ("CALIBER_AGENT_STEP_MAX_SECONDS", "agent_step_max_seconds", float),
+    ("CALIBER_AGENT_RUN_MAX_TOKENS", "agent_run_max_tokens", int),
+    ("CALIBER_AGENT_RESERVATION_GRACE_SECONDS", "agent_reservation_grace_seconds", float),
     ("CALIBER_EFFECT_CALLBACK_CONNECTORS", "effect_callback_connectors", str),
     ("CALIBER_EFFECT_RECONCILER_ENABLED", "effect_reconciler_enabled", _flag),
     ("CALIBER_EFFECT_RECONCILER_INTERVAL_SECONDS", "effect_reconciler_interval_seconds", float),
