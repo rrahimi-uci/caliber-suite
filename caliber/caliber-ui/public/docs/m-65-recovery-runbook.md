@@ -249,7 +249,8 @@ commit it, with the downstream counting one mutation throughout.
   (who, why, outcome, state afterwards) whether or not the proposal moved.
   It runs under the lease of the process that serves the request. A secondary answers `409 not_execution_owner`: ask the owner
   (`/readiness` shows which role a process has, and `lease` in the view names the owner). A lease taken over mid-request is
-  `409 lease_lost` with nothing recorded; a settled or never-dispatched proposal is `409 not_reconcilable`.
+  `409 lease_lost` with nothing recorded; a settled or never-dispatched proposal is `409 not_reconcilable`; more than 4 requests
+  in flight in one process get `429` (retry shortly). A failed request is audited too, by error code or exception class only.
 - Ask the connector to **redeliver its receipt callback** (see [Callback and webhook redelivery](#callback-and-webhook-redelivery)).
   The platform asks the downstream itself before it records anything, so a callback can only confirm what the downstream
   confirms.

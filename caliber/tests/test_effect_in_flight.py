@@ -38,10 +38,9 @@ from caliber.db.models import (
 from caliber.effects import reconcile
 from caliber.effects.connectors import Classified, TransportOutcome
 from caliber.effects.dispatcher import (
-    BACKENDS,
-    BackendRegistration,
     EffectRefused,
     TransportResult,
+    admit_backend,
     dispatch,
     submit_proposal,
 )
@@ -76,7 +75,7 @@ from caliber.effects.records import (
 )
 from caliber.ownership import Lease, acquire, release
 from tests.dialect_helpers import DIALECTS, POSTGRES_TEST_URL
-from tests.effect_helpers import TTL_SECONDS, leased
+from tests.effect_helpers import TTL_SECONDS, admit_fake_backend, leased
 from tests.test_effect_dispatcher import AT as DISPATCHED_AT
 from tests.test_effect_dispatcher import EVIDENCE, POLICY, _validator
 from tests.test_effect_proposals import _seed_run
@@ -576,7 +575,7 @@ def test_a_proposal_that_raises_is_reported_and_the_pass_goes_on_to_the_next(
 
     ask.answers[proposal_view_key(factory, good)] = Answer(200, {"found": True})
     results = reconcile_pass(factory, lease=lease, targets=TARGETS, lookup=lookup, now=NOW)
-    assert [(r.proposal_id, r.outcome, r.detail) for r in results][0] == (
+    assert (results[0].proposal_id, results[0].outcome, results[0].detail) == (
         bad,
         STILL_UNKNOWN,
         "RuntimeError",
@@ -632,6 +631,7 @@ def _submit_one(session: Session, occurrence: str) -> tuple[str, str]:
         },
         tool_name="write_workdir_file",
         caliber_defined=True,
+        admission=admit_backend("document_request"),
     )
     proposal = session.get(CaliberEffectProposal, recorded.proposal_id)
     assert proposal is not None
@@ -700,8 +700,10 @@ def _dispatch(
     monkeypatch: pytest.MonkeyPatch,
     kind: str = "in-flight",
     now: datetime | None = DISPATCHED_AT,
+    admit: bool = True,
 ) -> Any:
-    monkeypatch.setitem(BACKENDS, kind, BackendRegistration(sender, "document-request", "1"))
+    if admit:  # the dispatcher sends only through a backend its trusted table admits (B12.3a)
+        admit_fake_backend(monkeypatch, kind, sender)
     return dispatch(
         factory,
         proposal_id,
@@ -885,11 +887,7 @@ def test_a_settle_failure_is_recorded_when_the_caller_passed_a_session_not_a_fac
     def broken() -> None:
         raise RuntimeError("verifier failed")
 
-    monkeypatch.setitem(
-        BACKENDS,
-        "session-source",
-        BackendRegistration(_Sender(verify=broken), "document-request", "1"),
-    )
+    admit_fake_backend(monkeypatch, "session-source", _Sender(verify=broken))
     with factory() as session, pytest.raises(RuntimeError, match="verifier failed"):
         dispatch(
             session,
@@ -995,11 +993,20 @@ def _race_round(
     errors: list[BaseException] = []
     result: dict[str, Any] = {}
     sender = _Sender(verify=lambda: gate.wait(20))
+    kind = f"race-{n}"
+    admit_fake_backend(monkeypatch, kind, sender)  # admitted here, not in the thread
 
     def run_dispatcher() -> None:
         try:
             result["dispatched"] = _dispatch(
-                factory, proposal_id, approval_id, lease, sender, monkeypatch
+                factory,
+                proposal_id,
+                approval_id,
+                lease,
+                sender,
+                monkeypatch,
+                kind=kind,
+                admit=False,
             )
         except EffectRefused as exc:
             result["refused"] = exc.code

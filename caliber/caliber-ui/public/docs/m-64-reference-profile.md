@@ -1464,7 +1464,7 @@ an operator asks.
 | `CALIBER_EFFECT_RECONCILER_ENABLED` | `true` | flag | Build the loop in the reference profile |
 | `CALIBER_EFFECT_RECONCILER_INTERVAL_SECONDS` | `15` | 1 to 3600, finite | Seconds between passes |
 | `CALIBER_EFFECT_RECONCILER_BUDGET_SECONDS` | `20` | 1 to 600, finite | A pass stops *starting* lookups after this long; a lookup in progress finishes (its own timeout applies, 30 s by default) and the next pass continues after the last proposal looked at |
-| `CALIBER_EFFECT_IN_FLIGHT_MAX_SECONDS` | `900` | 60 to 86400, finite | How long a dispatch may stay `dispatched` under the lease that is still current before the loop records it `unknown` |
+| `CALIBER_EFFECT_IN_FLIGHT_MAX_SECONDS` | `900` | 300 to 86400, finite | How long a dispatch may stay `dispatched` under the lease that is still current before the loop records it `unknown`. **Must exceed the longest a dispatch can take**: the executor's 30 s timeout times at most 5 attempts, its backoff (under 4 s) and the 30 s receipt lookup come to about 3 minutes, which the 300 s floor covers; a connector with a longer timeout needs a larger value |
 
 - **Under the lease, never as a secondary.** The lifespan binds the loop to `role.lease`, the lease the `ExecutionRoleController` holds *now*. A tick with no lease (a
   secondary, or the controller dropped it) does nothing but write its own heartbeat. Each pass hands that exact lease to `reconcile_pass`, so every write compares it in
@@ -1538,9 +1538,10 @@ asks the downstream about one proposal now, which is what the loop does every pa
   and the answer says so (`outcome`: `unknown`, `unverified`, `lookup_failed`, `not_bound`, `in_flight`); only a stored request that is this proposal's effect settles it (`committed`, `settled: true`).
 - **Owner-fenced.** It runs under the execution-owner lease of the process that serves the request (`app.state.execution_role`), through `reconcile_one`, so the lease is compared in the transaction of every write.
   A process that is not the owner (or whose controller has dropped the lease) answers `409 not_execution_owner` and asks nothing; a lease taken over mid-request is `409 lease_lost` with nothing recorded.
-  An operator request and the loop asking at once settle the proposal exactly once (the second sees it `moved`).
+  An operator request and the loop asking at once settle the proposal exactly once (the second sees it `moved`). At most 4 operator lookups run at once per process; the rest get `429 too_many_reconciliations_in_flight` and nothing is asked.
+  The route also accepts a `dispatched` row of the *current* lease, which `safe_actions` does not list because it does not always act: younger than `CALIBER_EFFECT_IN_FLIGHT_MAX_SECONDS` it answers `in_flight` and changes nothing; older, it records `unknown` (`in_flight_expired`) exactly as the loop would and asks.
 - **Audited.** Every request that reaches the reconciler leaves one `effect_reconcile_requested` audit row (actor, reason, state before, outcome, state after, owner and fencing token; no payload), whether or not
-  the proposal moved, and a lease lost mid-request is recorded too. When the lookup settles the proposal, the reconciler's own `effect_reconciled` row is written in the same transaction as the move. A proposal that
+  the proposal moved; a lease lost mid-request, or any other failure of the request (recorded by error code or exception class name only), is recorded too. When the lookup settles the proposal, the reconciler's own `effect_reconciled` row is written in the same transaction as the move. A proposal that
   is not `dispatched`, `unknown` or `reconciled` is `409 not_reconcilable` and nothing is recorded; an unknown id is `404`.
 - **Why nothing more.** A proposal that stays `unknown` for good (a connector with no lookup by key, a downstream that never shows the request) keeps blocking its dependents. That is the safe state:
   the alternative, an operator marking it `failed`, unblocks them on a belief while the effect may have happened. The operator procedure is in the
