@@ -12,8 +12,11 @@ what it can prove:
 * **Abandoned means a prior lease.** A ``dispatched`` proposal is abandoned exactly when its ``dispatch_token`` (the fencing
   token it was dispatched under, migration 0126) is lower than the token of the lease the reconciler holds now: the lease that
   dispatched it has been taken over. One dispatched under the current token is in flight in this very process and is left
-  alone (``in_flight``); one with no recorded token proves nothing and is never abandoned. An abandoned attempt becomes
-  ``unknown`` (:func:`caliber.effects.records.abandon_dispatch`) and is then handled like any other unknown one.
+  alone (``in_flight``) *until it has been in flight longer than the caller's bound* (``in_flight_seconds``, B05.5d, #997): a
+  dispatcher that kept its lease but could not record the outcome would otherwise leave it ``dispatched`` for good, so past the
+  bound it becomes ``unknown`` too (:func:`caliber.effects.records.expire_in_flight`); one with no recorded token proves nothing
+  and is never abandoned. An abandoned attempt becomes ``unknown`` (:func:`caliber.effects.records.abandon_dispatch`) and is
+  then handled like any other unknown one.
 * **Only authoritative terminal evidence moves it.** The lookup runs outside any transaction, by the proposal's original
   logical key (the idempotency key the dispatch emitted), against the connector's own query, and its answer is read by the
   connector's capability record (:func:`caliber.effects.connectors.interpret_lookup`):
@@ -36,22 +39,24 @@ what it can prove:
   same-run ``waiting_effect`` checkpoint and the reconciler wakes it only after every dependency is terminal.
 
 Where the connector lives is the callback binding's ``base_url`` (``CALIBER_EFFECT_CALLBACK_CONNECTORS``): the same
-``(connector, project)`` that may report a receipt is the one the reconciler asks. Scheduling a pass (the owner loop that
-holds the lease and calls :func:`reconcile_pass`) belongs with the dispatcher (B04.1, #724), which also owns the dispatch
-itself.
+``(connector, project)`` that may report a receipt is the one the reconciler asks. Scheduling a pass is the owner loop's
+(:class:`caliber.orchestrator.effect_reconciler.EffectReconcilerTask`, B05.5d, #997: it holds the lease the controller holds,
+calls :func:`reconcile_pass_from` with a budget and a lease check before each proposal, and stops when the lease is gone); the
+dispatch itself is the dispatcher's (:mod:`caliber.effects.dispatcher`).
 """
 
 from __future__ import annotations
 
 import logging
+import math
 import time
 from collections.abc import Callable, Collection, Mapping, Sequence
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Final
 
 from sqlalchemy import and_, or_, select, update
-from sqlalchemy.orm import Session, sessionmaker
+from sqlalchemy.orm import Session
 
 from caliber.audit import record as audit_record
 from caliber.db.models import (
@@ -67,14 +72,18 @@ from caliber.effects.records import (
     COMMITTED,
     DISPATCHED,
     FAILED,
+    IN_FLIGHT_EXPIRED_REASON,
     LEASE_LOST,
     NOT_ABANDONED,
+    NOT_EXPIRED,
     RECONCILED,
     UNKNOWN,
     ProposalError,
+    ProposalState,
     ProposalView,
     StaleVersion,
     abandon_dispatch,
+    expire_in_flight,
     fence_owner,
     proposal_state,
     proposal_view,
@@ -173,6 +182,8 @@ class Answer:
 
 
 Lookup = Callable[[ConnectorLookup, str, str], Answer]
+#: What opens a session: a ``sessionmaker``, or any callable that returns one (the owner loop bounds each transaction's waits).
+SessionFactory = Callable[[], Session]
 Targets = Mapping[tuple[str, str], str]
 
 
@@ -233,17 +244,23 @@ def commit_found(
     return receipt.receipt_id, True
 
 
-def _candidate_page(session: Session, lease: Lease, limit: int, after: str | None) -> list[str]:
+def _candidate_page(
+    session: Session, lease: Lease, limit: int, after: str | None, *, in_flight: bool = False
+) -> list[str]:
     """Up to ``limit`` candidate ids greater than ``after``, in id order (a keyset on the primary key: never the same row twice,
-    never skipping one, and no comparison of timestamps, which SQLite stores at another precision than it binds)."""
+    never skipping one, and no comparison of timestamps, which SQLite stores at another precision than it binds).
+
+    ``in_flight`` also lists the ``dispatched`` rows of the lease's *own* token, which :func:`_take_over` then expires or
+    leaves alone by their age (the age is compared in Python, not here)."""
     if type(limit) is not int or limit < 1:
         raise ValueError("limit must be a positive integer")
+    token = CaliberEffectProposal.dispatch_token
     query = select(CaliberEffectProposal.proposal_id).where(
         or_(
             CaliberEffectProposal.state.in_((UNKNOWN, RECONCILED)),
             and_(
                 CaliberEffectProposal.state == DISPATCHED,
-                CaliberEffectProposal.dispatch_token < lease.fencing_token,
+                token <= lease.fencing_token if in_flight else token < lease.fencing_token,
             ),
         )
     )
@@ -257,10 +274,13 @@ def _candidate_page(session: Session, lease: Lease, limit: int, after: str | Non
     ]
 
 
-def candidates(session: Session, lease: Lease, *, limit: int = DEFAULT_PASS_LIMIT) -> list[str]:
+def candidates(
+    session: Session, lease: Lease, *, limit: int = DEFAULT_PASS_LIMIT, in_flight: bool = False
+) -> list[str]:
     """The first ``limit`` proposals this owner should look at, in id order: ``unknown`` and ``reconciled`` ones, and
-    ``dispatched`` ones whose dispatching lease has been taken over (a lower ``dispatch_token``)."""
-    return _candidate_page(session, lease, limit, None)
+    ``dispatched`` ones whose dispatching lease has been taken over (a lower ``dispatch_token``); with ``in_flight`` also
+    the ``dispatched`` ones of the current token (see :func:`reconcile_pass`)."""
+    return _candidate_page(session, lease, limit, None, in_flight=in_flight)
 
 
 def _project_of(session: Session, proposal_id: str) -> str | None:
@@ -274,10 +294,35 @@ def _project_of(session: Session, proposal_id: str) -> str | None:
     ).scalar_one_or_none()
 
 
+def _in_flight_cutoff(in_flight_seconds: float, now: datetime | None) -> datetime:
+    moment = datetime.now(timezone.utc) if now is None else now
+    if moment.tzinfo is None:
+        moment = moment.replace(tzinfo=timezone.utc)
+    return moment - timedelta(seconds=in_flight_seconds)
+
+
+def _check_in_flight(in_flight_seconds: float | None) -> float | None:
+    if in_flight_seconds is None:
+        return None
+    if (
+        isinstance(in_flight_seconds, bool)
+        or not isinstance(in_flight_seconds, int | float)
+        or not math.isfinite(in_flight_seconds)
+        or in_flight_seconds <= 0
+    ):
+        raise ValueError("in_flight_seconds must be a positive, finite number of seconds")
+    return float(in_flight_seconds)
+
+
 def _take_over(
-    factory: sessionmaker[Session], proposal_id: str, lease: Lease, now: datetime | None
+    factory: SessionFactory,
+    proposal_id: str,
+    lease: Lease,
+    now: datetime | None,
+    in_flight_seconds: float | None = None,
 ) -> Reconciliation | None:
-    """Abandon a dispatch whose lease is gone (``unknown`` from here on), or say why it is left alone; ``None`` to go on."""
+    """Abandon a dispatch whose lease is gone, or expire one of the current lease that has been in flight too long (``unknown``
+    from here on), or say why it is left alone; ``None`` to go on."""
     with factory() as session:
         state = proposal_state(session, proposal_id)
         if state.state in (COMMITTED, FAILED):
@@ -285,36 +330,61 @@ def _take_over(
         if state.state != DISPATCHED:
             return None
         try:
-            abandon_dispatch(
-                session, proposal_id, expected_version=state.version, lease=lease, now=now
-            )
+            try:
+                abandon_dispatch(
+                    session, proposal_id, expected_version=state.version, lease=lease, now=now
+                )
+            except ProposalError as exc:
+                # (StaleVersion is a ProposalError: the code decides, so it falls through to the outer handler)
+                if exc.code != NOT_ABANDONED or in_flight_seconds is None:
+                    raise
+                session.rollback()
+                expire_in_flight(
+                    session,
+                    proposal_id,
+                    expected_version=state.version,
+                    lease=lease,
+                    older_than=_in_flight_cutoff(in_flight_seconds, now),
+                    now=now,
+                )
+                _audit_in_flight_expiry(session, lease, proposal_id, state)
+                logger.warning(
+                    "effect %s was dispatched under the current lease (token %s) and nobody settled it within %.0fs: "
+                    "recorded unknown (%s); a lookup by key follows",
+                    proposal_id,
+                    lease.fencing_token,
+                    in_flight_seconds,
+                    IN_FLIGHT_EXPIRED_REASON,
+                )
             session.commit()
         except StaleVersion:  # (a ProposalError too: it is caught first)
             session.rollback()
             return Reconciliation(proposal_id, MOVED, proposal_state(session, proposal_id).state)
         except ProposalError as exc:
             session.rollback()
-            if exc.code != NOT_ABANDONED:
+            if exc.code not in (NOT_ABANDONED, NOT_EXPIRED):
                 raise
             return Reconciliation(proposal_id, IN_FLIGHT, DISPATCHED)
     return None
 
 
 def reconcile_one(
-    factory: sessionmaker[Session],
+    factory: SessionFactory,
     proposal_id: str,
     *,
     lease: Lease,
     targets: Targets,
     lookup: Lookup = ask_downstream,
+    in_flight_seconds: float | None = None,
     now: datetime | None = None,
 ) -> Reconciliation:
     """Settle one proposal if the downstream can prove its outcome, under ``lease``, or leave it ``unknown`` and say why.
 
     ``ProposalError`` ``lease_lost`` (the lease was taken over) is raised, not reported: the pass is over. Everything else a
-    downstream can do is an outcome (see the module docstring).
+    downstream can do is an outcome (see the module docstring). ``in_flight_seconds`` is the bound of :func:`reconcile_pass`.
     """
-    over = _take_over(factory, proposal_id, lease, now)
+    in_flight_seconds = _check_in_flight(in_flight_seconds)
+    over = _take_over(factory, proposal_id, lease, now, in_flight_seconds)
     if over is not None:
         return over
     with factory() as session:
@@ -340,7 +410,7 @@ def reconcile_one(
 
 
 def _settle(
-    factory: sessionmaker[Session],
+    factory: SessionFactory,
     view: ProposalView,
     seen_version: int,
     connector: ConnectorLookup,
@@ -416,6 +486,24 @@ def _commit_unless_moved(
         return None
 
 
+def _audit_in_flight_expiry(
+    session: Session, lease: Lease, proposal_id: str, seen: ProposalState
+) -> None:
+    audit_record(
+        session,
+        actor=f"reconciler:{lease.owner_id}",
+        action="effect_in_flight_expired",
+        entity_type="effect_proposal",
+        entity_id=proposal_id,
+        details={
+            "state": UNKNOWN,
+            "reason": IN_FLIGHT_EXPIRED_REASON,
+            "dispatch_token": seen.dispatch_token,
+            "dispatched_at": seen.dispatched_at.isoformat() if seen.dispatched_at else None,
+        },
+    )
+
+
 def _audit(
     session: Session, lease: Lease, proposal_id: str, state: str, details: dict[str, Any]
 ) -> None:
@@ -429,8 +517,20 @@ def _audit(
     )
 
 
+@dataclass(frozen=True)
+class PassResult:
+    """What one pass did and where the next one should start.
+
+    ``resume_after`` is the id of the last proposal looked at when the pass ran out of ``budget_seconds`` with candidates
+    still to come, else ``None`` (every candidate was looked at). A loop that passes it back as ``after`` reaches the rest
+    instead of looking at the same first ``unknown`` proposals every time."""
+
+    results: list[Reconciliation]
+    resume_after: str | None = None
+
+
 def reconcile_pass(
-    factory: sessionmaker[Session],
+    factory: SessionFactory,
     *,
     lease: Lease,
     targets: Targets,
@@ -438,6 +538,7 @@ def reconcile_pass(
     limit: int = DEFAULT_PASS_LIMIT,
     budget_seconds: float | None = None,
     on_progress: Callable[[], None] | None = None,
+    in_flight_seconds: float | None = None,
     now: datetime | None = None,
 ) -> list[Reconciliation]:
     """One pass over *every* candidate (in id order, ``limit`` at a time, so a backlog of proposals that stay ``unknown`` can
@@ -445,37 +546,84 @@ def reconcile_pass(
     not this owner's: whatever is left is the next owner's.
 
     A lookup can take its executor timeout (30 s by default) and a pass does not renew the lease, so a caller that owns the loop
-    bounds it: ``budget_seconds`` ends the pass after the proposal that crossed it (the rest wait for the next pass), and
-    ``on_progress`` is called before each proposal (renew the lease there, or raise to stop).
+    bounds it: ``budget_seconds`` ends the pass after the proposal that crossed it (the rest wait for the next pass, see
+    :func:`reconcile_pass_from`), and ``on_progress`` is called before each proposal (renew the lease there, or raise to stop).
+    No lock is held across a lookup: each proposal is read, asked about and written in separate transactions, and the lease is
+    compared again in the one that writes.
+
+    ``in_flight_seconds`` (off by default) is the bounded in-flight rule for the *current* lease (B05.5d, #997): a proposal
+    ``dispatched`` under this lease's own token for longer than that is recorded ``unknown`` and then handled like any other
+    (:func:`caliber.effects.records.expire_in_flight`); a younger one is ``in_flight`` and left alone. Without it only a
+    dispatch of a lease that has been taken over is touched.
     """
+    return reconcile_pass_from(
+        factory,
+        lease=lease,
+        targets=targets,
+        lookup=lookup,
+        limit=limit,
+        budget_seconds=budget_seconds,
+        on_progress=on_progress,
+        in_flight_seconds=in_flight_seconds,
+        now=now,
+    ).results
+
+
+def reconcile_pass_from(
+    factory: SessionFactory,
+    *,
+    lease: Lease,
+    targets: Targets,
+    lookup: Lookup = ask_downstream,
+    limit: int = DEFAULT_PASS_LIMIT,
+    budget_seconds: float | None = None,
+    on_progress: Callable[[], None] | None = None,
+    in_flight_seconds: float | None = None,
+    after: str | None = None,
+    now: datetime | None = None,
+) -> PassResult:
+    """:func:`reconcile_pass` that starts after proposal id ``after`` and says where to start next (:class:`PassResult`)."""
+    in_flight_seconds = _check_in_flight(in_flight_seconds)
+    in_flight = in_flight_seconds is not None
     started = time.monotonic()
     with factory() as session:
         fence_owner(session, "pass", lease.owner_id, lease)
-        page = _candidate_page(session, lease, limit, None)
+        page = _candidate_page(session, lease, limit, after, in_flight=in_flight)
     results: list[Reconciliation] = []
     while page:
         for proposal_id in page:
             if budget_seconds is not None and time.monotonic() - started >= budget_seconds:
-                return results
+                return PassResult(results, results[-1].proposal_id if results else after)
             if on_progress is not None:
                 on_progress()
-            results.append(_reconcile_or_report(factory, proposal_id, lease, targets, lookup, now))
+            results.append(
+                _reconcile_or_report(
+                    factory, proposal_id, lease, targets, lookup, in_flight_seconds, now
+                )
+            )
         with factory() as session:
-            page = _candidate_page(session, lease, limit, page[-1])
-    return results
+            page = _candidate_page(session, lease, limit, page[-1], in_flight=in_flight)
+    return PassResult(results)
 
 
 def _reconcile_or_report(
-    factory: sessionmaker[Session],
+    factory: SessionFactory,
     proposal_id: str,
     lease: Lease,
     targets: Targets,
     lookup: Lookup,
+    in_flight_seconds: float | None,
     now: datetime | None,
 ) -> Reconciliation:
     try:
         return reconcile_one(
-            factory, proposal_id, lease=lease, targets=targets, lookup=lookup, now=now
+            factory,
+            proposal_id,
+            lease=lease,
+            targets=targets,
+            lookup=lookup,
+            in_flight_seconds=in_flight_seconds,
+            now=now,
         )
     except ProposalError as exc:
         if exc.code == LEASE_LOST:
@@ -539,9 +687,7 @@ def unresolved_effect_details(
     ]
 
 
-def effect_gate(
-    factory: sessionmaker[Session], workflow_run_id: str
-) -> Callable[[Collection[str]], None]:
+def effect_gate(factory: SessionFactory, workflow_run_id: str) -> Callable[[Collection[str]], None]:
     """The check the runtime makes before a node runs: ``UnknownEffectError`` while an effect of any of ``node_ids`` (the node
     and everything upstream of it) in this run has no final outcome."""
 
@@ -558,7 +704,7 @@ def effect_gate(
 
 
 def wake_parked_runs(
-    factory: sessionmaker[Session],
+    factory: SessionFactory,
     proposal_id: str,
     *,
     settled_state: str,
@@ -691,6 +837,7 @@ __all__ = [
     "Answer",
     "ConnectorLookup",
     "EffectDependency",
+    "PassResult",
     "Reconciliation",
     "UnknownEffectError",
     "ask_downstream",
@@ -699,6 +846,7 @@ __all__ = [
     "effect_gate",
     "reconcile_one",
     "reconcile_pass",
+    "reconcile_pass_from",
     "targets_from_bindings",
     "unresolved_effect_details",
     "unresolved_effects",

@@ -168,10 +168,12 @@ def test_system_effects_recovery_hits_the_documented_paths() -> None:
     with client_with(handler) as caliber:
         caliber.system.effects(status="in_progress")
         caliber.system.resolve_effect("EFF-1", resolution="skip", reason="confirmed delivered")
+        caliber.system.reconcile_effect_proposal("prop-1", reason="INC-1: downstream confirms")
 
     assert seen == [
         "GET /system/effects",
         "POST /system/effects/EFF-1/resolve",
+        "POST /system/effects/proposals/prop-1/reconcile",
     ]
 
 

@@ -10111,8 +10111,8 @@ The operator reconciliation view: legacy effect-ledger claims
 (``effects``, ``source: legacy_ledger``; defaults to
 ``status=in_progress`` server-side, the set that needs a decision) and
 effect proposals (``proposals``, ``source: effect_proposal``; defaults to
-the open states, settled by the reconciler and offering no operator
-action). Every row carries ``source``, ``source_version`` and the
+the open states, settled by the reconciler; its one operator action is
+``reconcile_effect_proposal``). Every row carries ``source``, ``source_version`` and the
 ``safe_actions`` that apply to that kind. ``params``: ``source``
 (``all``, ``legacy`` or ``proposal``), ``status``, ``proposal_state``
 (``open``, ``any`` or one state), ``workflow_run_id``, ``limit``.
@@ -10140,6 +10140,28 @@ outside world CALIBER cannot verify on its own.
 | `effect_key` | positional-or-keyword | `str` | `—` |
 | `resolution` | keyword-only | `str` | `—` |
 | `params` | var-keyword | `Any` | `—` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `reconcile_effect_proposal(proposal_id: str, *, reason: str) -> Any`
+
+Ask the downstream about one effect proposal now, as the execution owner.
+
+Admin-scoped and audited with ``reason``. It never records what the
+operator believes: the proposal moves only on the downstream's own
+evidence (a verified receipt, or a connector that proves absence
+final) and otherwise stays ``unknown``; ``outcome`` says which. A
+process that is not the execution owner answers ``409``.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `proposal_id` | positional-or-keyword | `str` | `—` |
+| `reason` | keyword-only | `str` | `—` |
 
 **Returns:** `Any`
 

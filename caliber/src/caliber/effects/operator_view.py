@@ -6,8 +6,9 @@ Two records of "an effect that may need a human" exist and they are different th
   worker, ``in_progress`` until it finishes. Its operator decision is the admin ``resolve`` action (``skip``: the effect reached
   the remote system; ``retry``: it did not). Nothing here changes it, migrates it away or invents a v1 receipt for it;
 * the **effect proposal** (``caliber_effect_proposals``, ADR 0003): seven states, compare-and-set, verified receipts. It is
-  settled by the reconciler's lookup by key (:mod:`caliber.effects.reconcile`), never by an operator's say-so, so it offers no
-  safe action here today (an audited operator action is tracked in #997).
+  settled by the reconciler's lookup by key (:mod:`caliber.effects.reconcile`), never by an operator's say-so. Its one safe
+  action is ``reconcile`` (B05.5d, #997, :mod:`caliber.effects.operator_action`): ask the downstream now, as the owner, audited,
+  settling it only on the downstream's own evidence. It is listed only where it can do something.
 
 Every row carries ``source`` and ``source_version`` and the ``safe_actions`` that apply to *that* kind of row, so a client cannot
 apply the legacy ``resolve`` to a proposal or read a proposal as a ledger claim. No row carries a payload: no arguments, intent
@@ -23,8 +24,9 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from caliber.db.models import CaliberEffectProposal, CaliberWorkflowRun
+from caliber.effects.operator_action import ACTION as RECONCILE_ACTION
 from caliber.effects.reconcile import OPEN_STATES
-from caliber.effects.records import DISPATCHED, STATES
+from caliber.effects.records import DISPATCHED, RECONCILED, STATES, UNKNOWN
 from caliber.ownership import current_lease, database_now
 
 LEGACY_SOURCE: Final = "legacy_ledger"
@@ -51,8 +53,11 @@ def describe_sources() -> dict[str, dict[str, Any]]:
         PROPOSAL_SOURCE: {
             "source_version": PROPOSAL_VERSION,
             "settled_by": "reconciler",
-            "safe_actions": [],
-            "applies_to": "none: settled by the reconciler's lookup by key",
+            "safe_actions": [RECONCILE_ACTION],
+            "applies_to": (
+                "state unknown or reconciled, or dispatched under a lease that was taken over (abandoned): "
+                "settled only by the downstream's own evidence, never by an operator's say-so"
+            ),
         },
     }
 
@@ -168,6 +173,11 @@ def list_proposals_page(
     return [_proposal_row(row, held) for row in rows[:wanted]], len(rows) > wanted
 
 
+def _reconcilable(state: str, abandoned: bool | None) -> bool:
+    """Whether the operator's ``reconcile`` does something for a proposal in ``state`` (``abandoned``: see above)."""
+    return state in (UNKNOWN, RECONCILED) or (state == DISPATCHED and abandoned is True)
+
+
 def _proposal_row(proposal: Any, held: Any) -> dict[str, Any]:
     project_id = proposal.project_id
     abandoned: bool | None = None
@@ -176,7 +186,7 @@ def _proposal_row(proposal: Any, held: Any) -> dict[str, Any]:
     return {
         "source": PROPOSAL_SOURCE,
         "source_version": PROPOSAL_VERSION,
-        "safe_actions": [],
+        "safe_actions": [RECONCILE_ACTION] if _reconcilable(proposal.state, abandoned) else [],
         "proposal_id": proposal.proposal_id,
         "workflow_run_id": proposal.workflow_run_id,
         "project_id": str(project_id),
@@ -212,6 +222,7 @@ __all__ = [
     "OPEN",
     "PROPOSAL_SOURCE",
     "PROPOSAL_VERSION",
+    "RECONCILE_ACTION",
     "describe_sources",
     "label_legacy",
     "lease_summary",

@@ -56,6 +56,7 @@ from caliber.observability.logging import configure_logging
 from caliber.observability.mlflow_tracing import configure_tracing, register_pricing_source
 from caliber.observability.trace import TraceIdMiddleware
 from caliber.orchestrator.calibration_drain import CalibrationDrain
+from caliber.orchestrator.effect_reconciler import EffectReconcilerTask
 from caliber.orchestrator.janitor import JanitorTask
 from caliber.orchestrator.release_reconciler import ReleaseReconcilerTask
 from caliber.orchestrator.scheduler import WorkflowSchedulerTask
@@ -314,12 +315,13 @@ def _build_lifespan(  # noqa: PLR0915 - one lifespan: every owner loop's start a
     execution_lease_seconds: float = 30.0,
     outbox_publisher: OutboxPublisher | None = None,
     workspace_release_evaluator: WorkspaceReleaseEvaluator | None = None,
+    effect_reconciler: EffectReconcilerTask | None = None,
 ) -> Lifespan:
     """Create the Starlette lifespan callback that starts/stops background tasks.
 
     Startup order: refinement worker → workflow-run worker → Aria worker →
     knowledge-build worker → workspace-import worker → scheduler → janitor →
-    release reconciler → workspace release evaluator → calibration drain → webhooks.
+    release reconciler → workspace release evaluator → effect reconciler → calibration drain → webhooks.
     Shutdown stops the webhook dispatcher first, then every other loop at once (each drain waits for its own
     in-flight work, so one after another they would keep claiming new work for the sum of the graces); the event
     bus stops, and the database engine is disposed, only after all of them.
@@ -354,6 +356,8 @@ def _build_lifespan(  # noqa: PLR0915 - one lifespan: every owner loop's start a
         await release_reconciler.start()
         if workspace_release_evaluator is not None:
             await workspace_release_evaluator.start()
+        if effect_reconciler is not None:
+            await effect_reconciler.start()
         await calibration_drain_task.start()
         await webhooks.start()
         if outbox_publisher is not None:
@@ -378,6 +382,8 @@ def _build_lifespan(  # noqa: PLR0915 - one lifespan: every owner loop's start a
             stops.append(outbox_publisher.stop(grace_seconds=grace_seconds))
         if workspace_release_evaluator is not None:
             stops.append(workspace_release_evaluator.stop(grace_seconds=grace_seconds))
+        if effect_reconciler is not None:
+            stops.append(effect_reconciler.stop(grace_seconds=grace_seconds))
         stops += [
             worker.stop(grace_seconds=grace_seconds),
             calibration_drain_task.stop(grace_seconds=grace_seconds),
@@ -404,6 +410,9 @@ def _build_lifespan(  # noqa: PLR0915 - one lifespan: every owner loop's start a
     if workspace_release_evaluator is not None and leased:
         # Every claim is fenced with the exact lease this process holds, and nothing is claimed without one.
         workspace_release_evaluator.bind_lease_provider(lambda: role.lease)
+    if effect_reconciler is not None and leased:
+        # It reconciles only under the exact lease this process holds, and does nothing without one.
+        effect_reconciler.bind_lease_provider(lambda: role.lease)
 
     @asynccontextmanager
     async def lifespan(_app: Starlette) -> AsyncIterator[None]:
@@ -884,6 +893,12 @@ def create_app(config: CaliberConfig | None = None) -> ASGIApp:  # noqa: PLR0915
         and resolved.workspace_release_evaluator_enabled
         else None
     )
+    # B05.5d: drives the effect reconciler under the execution-owner lease. The reference profile only (it needs the lease).
+    effect_reconciler = (
+        EffectReconcilerTask(session_factory, resolved)
+        if resolved.profile == "reference" and resolved.effect_reconciler_enabled
+        else None
+    )
     webhooks = build_dispatcher(
         bus=event_bus,
         urls_csv=resolved.webhook_urls,
@@ -957,6 +972,7 @@ def create_app(config: CaliberConfig | None = None) -> ASGIApp:  # noqa: PLR0915
             execution_lease_seconds=resolved.execution_lease_seconds,
             outbox_publisher=outbox_publisher,
             workspace_release_evaluator=workspace_release_evaluator,
+            effect_reconciler=effect_reconciler,
         ),
         exception_handlers={
             HTTPException: http_exception_handler,

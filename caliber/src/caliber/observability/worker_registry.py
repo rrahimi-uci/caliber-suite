@@ -51,6 +51,7 @@ logger = logging.getLogger("caliber.observability.worker_registry")
 #: separately — one kind being down must not read as all of them being down.
 KIND_WORKFLOW_RUN = "workflow_run"
 KIND_WORKSPACE_RELEASE_EVALUATOR = "workspace_release_evaluator"
+KIND_EFFECT_RECONCILER = "effect_reconciler"
 
 #: Multiple of the poll interval before a heartbeat is considered stale, plus a floor.
 #: A worker executing a long run heartbeats from its lease loop, not its poll loop, so
@@ -291,6 +292,7 @@ def _hostname() -> str | None:
 
 
 __all__ = [
+    "KIND_EFFECT_RECONCILER",
     "KIND_WORKFLOW_RUN",
     "KIND_WORKSPACE_RELEASE_EVALUATOR",
     "WorkerRecord",

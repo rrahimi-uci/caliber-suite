@@ -15,10 +15,16 @@ An HTTP success is therefore only a claim; the transport must provide an
 authoritative verifier before the proposal becomes ``committed``.  Ambiguous
 outcomes remain recoverable by the B05 reconciler and are never blindly sent a
 second time here.
+
+A settle that fails while this dispatcher still holds its lease (the verifier raised, the store went away after the send) never
+leaves the attempt ``dispatched``: :func:`dispatch` records ``unknown`` under the same captured lease, unless the failure says
+someone else owns the row now, and raises the original failure; the reconciler's bounded in-flight rule is the backstop for a
+dispatcher that could not even do that (B05.5d, #997).
 """
 
 from __future__ import annotations
 
+import logging
 import re
 from collections.abc import Callable, Iterator, Mapping
 from contextlib import contextmanager
@@ -42,7 +48,12 @@ from caliber.effects.receipts import ReceiptFacts, Settled, settle_dispatch
 from caliber.effects.records import (
     APPROVED,
     DISPATCHED,
+    ILLEGAL_TRANSITION,
+    LEASE_LOST,
     PROPOSED,
+    STALE_OWNER,
+    STALE_VERSION,
+    UNKNOWN,
     Intent,
     ProposalError,
     ProposalView,
@@ -63,6 +74,8 @@ from caliber.workflows.approval_policy import (
     ApprovalCommitRefused,
     approval_valid_at_commit,
 )
+
+logger = logging.getLogger("caliber.effects.dispatcher")
 
 _CASE_RESOURCE = re.compile(
     r"^cases/(?P<case_id>[A-Za-z0-9][A-Za-z0-9._-]{0,127})/document-requests$"
@@ -707,7 +720,68 @@ def dispatch(
                 proposal_id, transport.outcome, settled, transport.response
             )
     except ProposalError as exc:
+        _unknown_after_failed_settle(
+            session_or_factory, proposal_id, captured_lease, attempt, exc.code, now
+        )
         raise EffectRefused(exc.code) from exc
+    except Exception as exc:
+        # The send happened (or may have) and nothing was recorded: a verifier that raised, a store that went away.
+        _unknown_after_failed_settle(
+            session_or_factory, proposal_id, captured_lease, attempt, type(exc).__name__, now
+        )
+        raise
+
+
+#: Why a settle failed that says someone else owns the row now (a takeover, another owner or attempt, a move already made):
+#: the dispatcher must not write over it. Every other failure leaves the attempt ambiguous in *this* dispatcher's hands.
+_NOT_OURS = frozenset({LEASE_LOST, STALE_OWNER, STALE_VERSION, ILLEGAL_TRANSITION})
+
+
+def _unknown_after_failed_settle(
+    session_or_factory: Session | Callable[[], Session],
+    proposal_id: str,
+    lease: Lease,
+    attempt: int,
+    why: str,
+    now: datetime | None,
+) -> None:
+    """Record ``unknown`` for an attempt this dispatcher sent and could not settle, so it is not ``dispatched`` for good (B05.5d).
+
+    A settle that fails while this dispatcher still holds its lease leaves the row ``dispatched`` under the *current* fencing
+    token, which the reconciler's takeover rule does not touch. It is moved to ``unknown`` here, in a fresh transaction under
+    the same captured lease (the move is fenced like the settle: a lost lease, another owner or a row someone else already
+    moved records nothing), and the reconciler asks the downstream by key. Best effort by design: if the store is still down
+    the move fails too, nothing is raised from here (the caller raises the original failure), and the reconciler's bounded
+    in-flight rule (:func:`caliber.effects.records.expire_in_flight`) moves the row once it has been in flight too long.
+    Only identifiers and exception class names are logged: never a payload.
+    """
+    if why in _NOT_OURS:
+        return
+    try:
+        with _session_scope(session_or_factory) as session:
+            state = proposal_state(session, proposal_id)
+            if state.state != DISPATCHED:
+                return
+            transition(
+                session,
+                proposal_id,
+                UNKNOWN,
+                expected_version=state.version,
+                owner_id=lease.owner_id,
+                attempt=attempt,
+                reason=f"settle_failed:{why}"[:128],
+                lease=lease,
+                now=now,
+            )
+            session.commit()
+    except Exception as exc:
+        logger.warning(
+            "effect %s: the settle failed (%s) and recording unknown failed too (%s); "
+            "the reconciler's in-flight bound will move it",
+            proposal_id,
+            why,
+            type(exc).__name__,
+        )
 
 
 __all__ = [
