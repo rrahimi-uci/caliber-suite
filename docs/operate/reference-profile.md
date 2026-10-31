@@ -99,6 +99,79 @@ without a workflow manifest retain the existing `_perform_guarded_effect` ledger
 proposal. The runtime integration that owns a run must bind the context with the run id, exact approval provider, live
 execution-owner lease and endpoint-specific verifier; no new environment variable, SDK route or migration is required.
 
+## Governed registered tools (B04.3)
+
+A workflow `tool` node that names a registered Python tool is routed by the tool's **registry row**, read from the
+database for the tool being run: its name, owner, version, module, callable and declared side-effect level. The
+manifest binding, an exported bundle and the model do not decide it (`IRToolBinding` and `ToolRegistryEntry` carry
+no owner, so there is nothing in them to forge). A plan is governed when it is wired to the registry (an identity reader) or to an authority (a governed context); the
+table below lists every place the runtime builds a plan and which it is. OpenAPI bindings (B04.4) and MCP bindings (B04.5)
+keep their own paths.
+
+| the registry row is | the tool node |
+| --- | --- |
+| a CALIBER built-in (`@caliber`, version `1.0`, its own module and callable) the protected-effect inventory refuses (EP-055: `read_text_file`, `list_folder_files`, `grep_files`, `regex_search`; `sandbox_python`) | refused before it is bound or called: `registered tool '<name>' refused: unsupported_effect_path`; nothing is recorded |
+| a CALIBER built-in classified `read` (and declared `read`) | runs inline, as before |
+| any other CALIBER built-in | proposed, approved and dispatched at the inventory class (or the declared class when stricter) |
+| a row that reuses a built-in's reserved name without being the seed's own row, a tool with no readable row, or an unrecognised declared level | classified `irreversible_write`, the fail-closed class, and dispatched; never inline |
+| an administrator-registered tool declared `read` | runs inline, as before |
+| an administrator-registered tool declared `write` or `external_action` | proposed, approved and dispatched; the proposal records `irreversible_write` because the inventory does not list it; the recorded class is always the stricter of the inventory's class and the class the row's declared level implies |
+| a row whose module, callable or backend differs from the binding | refused: `registered tool '<name>' does not match its registry row` |
+
+A protected call follows the same boundary as the governed HTTP nodes: the runtime records an immutable proposal
+(`connector: registered_tool`, resource `registered-tool/<name>/<version>`, the tool's arguments and input), asks the
+run's authorization provider for the exact approval and the captured `execution-owner` lease, and `dispatch` rechecks
+both in one transaction, consumes the approval and writes the dispatch event **before** the private `registered_tool`
+backend calls the bound tool. The tool is called with the arguments **recorded in the proposal**, not with what the
+caller still holds, and never retried (the binding's `max_retries` is ignored for a governed call): a tool that raises or
+times out leaves the proposal `unknown` for the reconciler. A local callable has no downstream key to replay, so the
+platform makes no exactly-once claim; it guarantees at most one claim per logical effect, and re-executing a finished
+node does not call the tool again. The `registered_tool` backend is a pinned entry of the reference profile's trusted
+connector table (`REFERENCE_CONNECTORS`): its implementation, capability record (no key to replay, no lookup) and settings
+(`invoker`, `receipt_verifier`) are admitted, and it accepts the risks `write_not_exactly_once` and
+`key_retention_unconfirmed` by name. As for HTTP, the run's context must supply an authoritative `receipt_verifier`; a
+response it cannot verify does not become `committed`.
+
+Every refusal is a `ToolExecutionError` carrying a stable code and no argument, input or tool output:
+
+```text
+registered tool effect proposal refused: bad_field              # arguments or input too large or not plain JSON
+registered tool effect authorization was not granted           # no exact approval: the proposal stays `proposed`
+registered tool effect authorization failed: ValueError         # the provider raised; only the type is reported
+registered tool effect dispatch refused: proposal_not_approved  # not approved, or the node already ran
+registered tool effect did not commit: ambiguous:unclassified_error  # the tool raised: effect unknown, not retried
+'tool_node' requires a governed effect context to run protected registered tool 'open_ticket'
+registered tool 'open_ticket' identity could not be read: ConnectionError
+```
+
+Recovery: a `proposed` effect needs an exact approval, after which the run can be resumed or resubmitted (the proposal
+is reused for the same node occurrence, so the tool still runs once); an `unknown` effect is settled by the reconciler
+(B05) or an operator, never by re-running the node; a manifest-backed deployment whose run owner has not bound a
+governed context must keep protected registered tools out of its workflows, because it refuses them (read-class tools
+are unaffected). Every construction site of a runtime plan (`RuntimePlan(`) in the code, and what it does with a protected registry tool:
+
+| plan built by | used for | registry reader | protected registry tool |
+| --- | --- | --- | --- |
+| `promoter.build_plan` | worker runs, synchronous version runs, sub-workflows, Aria previews | bound | refused until a governed context is bound (#1051); a preview stubs it |
+| `refinement._replay` (via `orchestrator/workflow_stages.py::run_workflow_eval`) | candidate evaluation | bound by the stage | refused (typed, nothing recorded); read-class tools run |
+| `calibration._replay_calibration_manifest` (via `evaluate_workflow_calibration_candidates` in the stage) | calibration replay | bound by the stage | refused; read-class tools run |
+| `promoter` deploy-gate replay | release gate evaluation | none, but `preview=True` | stubbed, never run for real |
+| `export_runtime.execute_exported_workflow` | standalone exports | none (no registry to read) | **not governed**: called directly |
+| a caller that builds a plan itself (tests, SDK embedding) | any | none unless it passes one | **not governed**: called directly |
+
+The two evaluation replays used to call a candidate manifest's write tools for real (found in review of B04.3); they now refuse
+them, so a workflow whose protected tool must be exercised by an evaluation or calibration needs that tool replaced by a
+read-class stand-in until the replay can run under a governed context (#1051). The module-import paths stay inventory rows
+EP-015, EP-016 and EP-019, refused by #774.
+
+Two limits. An administrator-registered tool declared `read` is trusted as read-class: its declared level is part of the
+definition the deployment bundle pins and re-verifies before a run (`deployment_bundle.tool_snapshot`), but the platform
+does not observe what its code does, so register a tool that writes with `write` or `external_action`. And model-chosen tool
+calls inside an agent step, MCP tools and OpenAPI tools are not routed by this change (B04.4 to B04.7).
+
+No migration, no new setting and no new route; rolling back is reverting the change (a `registered_tool` proposal
+already recorded remains readable and reconcilable).
+
 ## Memory is owned, derived and read-mostly
 
 Until the owned memory lifecycle (M20: retention, legal hold, deletion) exists, the reference profile does not offer
@@ -2650,8 +2723,10 @@ the dispatcher (B04.7, #774) will refuse them with `unsupported_in_reference_pro
 trust rule as `effect_class`. The DB MCP write tools are not registry rows, so `tool_disposition_for_registry_tool`
 answers `dispatch` for those names today; their refusal rests on the MCP server's identity, which #759 and #774
 establish. **This change records the decision and the lookup; the dispatcher that raises the refusal
-at run time is #774.** Until it lands a reference deployment still runs these tools if a workflow uses them, so do
-not register the first-party DB MCP server and do not wire the four host-file tools into a reference workflow.
+at run time is #774.** The four host-file tools are already refused by a workflow `tool` node in a manifest-backed
+plan (see "Governed registered tools"); until #774 lands, model-chosen tool calls and the MCP path still run these
+tools if a workflow uses them, so do not register the first-party DB MCP server and do not wire the four host-file
+tools into a reference workflow.
 
 **Configuration, migration and rollback.** No new setting, no migration and no stored data change. Rolling back is
 reverting the change; rows already refused were never written.

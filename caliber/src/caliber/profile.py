@@ -119,6 +119,17 @@ REFERENCE_CONNECTORS: Final[tuple[TrustedConnector, ...]] = (
         config_keys=("sender", "receipt_verifier"),
         required_config_keys=("sender", "receipt_verifier"),
     ),
+    TrustedConnector(
+        backend_kind="registered_tool",
+        connector="registered_tool",
+        connector_version="1",
+        implementation="caliber.effects.dispatcher:_RegisteredToolBackend",
+        capability_digest="sha256:e422472ab94943bac42cc608499b04bbe2b3ba57f7dbd45d5e406963f44423d2",
+        configuration_digest="sha256:9f5b6f6febab4139dd724202caa24745ffbdef5c46323bdf0c2c384639298756",
+        accepted_risks=("write_not_exactly_once", "key_retention_unconfirmed"),
+        config_keys=("invoker", "receipt_verifier"),
+        required_config_keys=("invoker", "receipt_verifier"),
+    ),
 )
 
 

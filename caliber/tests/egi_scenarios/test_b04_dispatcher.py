@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import hashlib
+from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
+import httpx
 import pytest
 from sqlalchemy import select
 
@@ -15,11 +17,14 @@ from caliber.db.models import (
     CaliberPolicyDecision,
     CaliberProjectMember,
     CaliberRuntimeApprovalRequest,
+    CaliberToolRegistry,
 )
 from caliber.effects.dispatcher import EffectRefused, dispatch, submit_proposal
 from caliber.effects.receipts import ReceiptFacts
-from caliber.effects.records import proposal_state, record_proposal
+from caliber.effects.records import logical_key, proposal_state, record_proposal
+from caliber.effects.registered_tools import load_registered_tool_identity
 from caliber.egress import EgressPolicy
+from caliber.ids import new_tool_id
 from caliber.integrations.openapi.executor import bind_egress_policy
 from caliber.observability.mlflow_tracing import Tracer, set_tracer
 from caliber.ownership import acquire
@@ -35,7 +40,7 @@ from caliber.workflows.runtime import (
     RuntimePlan,
     execute,
 )
-from caliber.workflows.tools import InMemoryToolResolver
+from caliber.workflows.tools import InMemoryToolResolver, ToolRegistryEntry
 from tests.egi_scenarios.conftest import (
     APPROVER_A,
     EDITOR_A,
@@ -53,6 +58,7 @@ from tests.egi_scenarios.test_v04_stale_approval import (
 from tests.egi_scenarios.test_v05_revocation_while_waiting import _approved, _waiting_run
 from tests.test_effect_proposals import _intent
 from tests.test_mlflow_tracing import FakeMlflow
+from tests.test_registered_tool_dispatch import tool_manifest
 from tests.test_workflow_webhook_node import _manifest as webhook_manifest
 from tests.workflow_helpers import make_tool_payload
 
@@ -428,6 +434,185 @@ def test_an_unknown_approval_id_is_never_linked_from_a_span(
     check = next(span for span in fake.spans if span.name == "effect.approval.commit_check")
     assert _causal(check) == {"caliber.proposal_id": proposal_id}
     assert check.attributes["caliber.refusal_code"] == "not_found"
+
+
+def _registered_tool_identity(reference_app: ReferenceApp, name: str, version: str) -> Any:
+    with reference_app.session_factory() as session:
+        return load_registered_tool_identity(session, name=name, version=version)
+
+
+def _registered_tool_world(
+    reference_app: ReferenceApp, downstream: Downstream, *, level: str
+) -> tuple[RuntimePlan, str, list[str], str]:
+    """A tool node over a registered tool that posts to the downstream, on the real reference database.
+
+    Returns the plan, the run id, the proposals the runtime asked to authorize, and the stable key the tool sends.
+    """
+    with reference_app.session_factory() as session:
+        member = session.execute(
+            select(CaliberProjectMember).where(
+                CaliberProjectMember.project_id == PROJECT_A,
+                CaliberProjectMember.user_id == APPROVER_A,
+            )
+        ).scalar_one()
+        member.role = "reviewer"
+        session.add(
+            CaliberToolRegistry(
+                tool_id=new_tool_id(),
+                name="request_document",
+                version="1.0",
+                module_path="ops.document_tools",
+                callable_name="request_document",
+                side_effect_level=level,
+                owner="@ops",
+            )
+        )
+        session.commit()
+    run_id = _waiting_run(reference_app)
+    key = logical_key(workflow_run_id=run_id, node_id="tool_node", occurrence_id="tool_node")
+    url = f"{downstream.base_url}/cases/MORT-2026-000184/document-requests"
+
+    def request_document(document_type: str, idempotency_key: str) -> dict[str, Any]:
+        response = httpx.post(
+            url, json={"document_type": document_type}, headers={"Idempotency-Key": idempotency_key}
+        )
+        return {"status": response.status_code}
+
+    entry = ToolRegistryEntry(
+        name="request_document",
+        version="1.0",
+        module_path="ops.document_tools",
+        callable_name="request_document",
+        side_effect_level=level,
+    )
+    resolver = InMemoryToolResolver([entry])
+    resolver.register(entry, request_document)
+    authorized: list[str] = []
+    now = datetime.now(timezone.utc)
+
+    def authorize(proposal: Any) -> EffectAuthorization:
+        authorized.append(proposal.proposal_id)
+        with reference_app.session_factory() as session:
+            row = session.get(CaliberEffectProposal, proposal.proposal_id)
+            assert row is not None
+            request = create_approval_request(
+                session,
+                proposal=row,
+                policy=ApprovalPolicy(),
+                evidence_hash=EVIDENCE,
+                requested_by=EDITOR_A,
+                ttl_seconds=TTL,
+                now=now,
+            )
+            session.commit()
+            approval_id = request.runtime_approval_id
+        _approved(reference_app, run_id, approval_id)
+        with reference_app.session_factory() as session:
+            lease = acquire(session, "egi-b04-3-runtime", ttl_seconds=600)
+            assert lease is not None
+            session.commit()
+        return EffectAuthorization(
+            approval_id=approval_id,
+            approver_scopes=frozenset({"caliber.approver", "caliber.viewer"}),
+            lease=lease,
+            evidence_hash=EVIDENCE,
+        )
+
+    def verify(request: Any, _response: dict[str, Any]) -> ReceiptFacts | None:
+        found = downstream.query(request.view.logical_key)
+        if found is None:
+            return None
+        return ReceiptFacts(
+            attempt=request.view.attempt or 1,
+            idempotency_key=request.view.logical_key,
+            connector=request.view.connector,
+            connector_version=request.view.connector_version,
+            resource=request.view.resource,
+            intent_hash=request.view.intent_hash,
+            downstream_request_id=str(found["request_id"]),
+            response_digest="sha256:" + hashlib.sha256(canonical_bytes(found)).hexdigest(),
+            resource_version=str(found["case_version"]),
+        )
+
+    manifest = parse_manifest(tool_manifest("request_document"))
+    plan = RuntimePlan(
+        ir=build_ir(manifest, resolver, version="1"),
+        resolver=resolver,
+        workflow_version_id="egi-b04-3-version",
+        registered_tool_identity=lambda name, version: _registered_tool_identity(
+            reference_app, name, version
+        ),
+        governed_effects=GovernedEffectContext(
+            session_factory=reference_app.session_factory,
+            workflow_run_id=run_id,
+            authorize=authorize,
+            receipt_verifier=verify,
+        ),
+    )
+    return plan, run_id, authorized, key
+
+
+def _tool_arguments(key: str) -> str:
+    return f'{{"document_type": "pay_statement", "idempotency_key": "{key}"}}'
+
+
+def _tool_proposals(reference_app: ReferenceApp, run_id: str) -> list[CaliberEffectProposal]:
+    with reference_app.session_factory() as session:
+        return list(
+            session.execute(
+                select(CaliberEffectProposal).where(CaliberEffectProposal.workflow_run_id == run_id)
+            ).scalars()
+        )
+
+
+def test_a_registered_write_tool_reaches_the_downstream_once_through_the_dispatcher(
+    reference_app: ReferenceApp, two_workspaces: Workspaces, downstream: Downstream
+) -> None:
+    """The tool's downstream write happens after the real approval and lease, and is measured at the downstream."""
+    plan, run_id, authorized, key = _registered_tool_world(reference_app, downstream, level="write")
+
+    result = execute(plan, _tool_arguments(key), executor=FakeWorkflowExecutor())
+
+    assert result.status == "completed", result.error
+    assert len(authorized) == 1
+    assert downstream.mutations() == 1
+    (proposal,) = _tool_proposals(reference_app, run_id)
+    assert proposal.connector == "registered_tool"
+    assert proposal.state == "committed"
+    assert proposal.receipt_id is not None
+
+
+def test_a_registered_write_tool_without_approval_never_reaches_the_downstream(
+    reference_app: ReferenceApp, two_workspaces: Workspaces, downstream: Downstream
+) -> None:
+    plan, run_id, _authorized, key = _registered_tool_world(
+        reference_app, downstream, level="write"
+    )
+    assert plan.governed_effects is not None
+    plan.governed_effects = replace(plan.governed_effects, authorize=lambda _proposal: None)
+
+    result = execute(plan, _tool_arguments(key), executor=FakeWorkflowExecutor())
+
+    assert result.status == "error"
+    assert "authorization was not granted" in (result.error or "")
+    assert downstream.mutations() == 0
+    assert downstream.query(key) is None
+    (proposal,) = _tool_proposals(reference_app, run_id)
+    assert proposal.state == "proposed"
+
+
+def test_a_registered_read_tool_runs_without_a_proposal(
+    reference_app: ReferenceApp, two_workspaces: Workspaces, downstream: Downstream
+) -> None:
+    """A read-class row keeps the inline path: the tool runs (the downstream shows it) and nothing is proposed."""
+    plan, run_id, authorized, key = _registered_tool_world(reference_app, downstream, level="read")
+
+    result = execute(plan, _tool_arguments(key), executor=FakeWorkflowExecutor())
+
+    assert result.status == "completed", result.error
+    assert authorized == []
+    assert _tool_proposals(reference_app, run_id) == []
+    assert downstream.query(key) is not None
 
 
 def test_untrusted_connectors_are_refused_on_the_public_and_dispatcher_paths(

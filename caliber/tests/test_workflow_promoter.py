@@ -1116,3 +1116,41 @@ def test_build_executor_respects_workflow_openai_runtime_overrides(
     assert ex._parallel_tool_calls is True
     assert ex._prompt_cache_enabled is True
     assert ex._prompt_cache_retention == "24h"
+
+
+def test_build_plan_binds_a_fresh_registry_identity_reader(db_session: Session) -> None:
+    """B04.3 (#741): the plan reads a tool's own registry row when asked, not a snapshot taken at build time."""
+    _seed_workflow(db_session)
+    db_session.add(_version())
+    db_session.add(
+        CaliberToolRegistry(
+            tool_id="tool-identity-1",
+            name="open_ticket",
+            version="1.0",
+            module_path="ops.tools",
+            callable_name="open_ticket",
+            side_effect_level="read",
+            owner="@ops",
+        )
+    )
+    db_session.commit()
+    version = db_session.get(CaliberWorkflowVersion, "wfv-1")
+    assert version is not None
+
+    plan = promoter.build_plan(db_session, version, resolver=fake_resolver())
+
+    assert plan.registered_tool_identity is not None
+    identity = plan.registered_tool_identity("open_ticket", "1.0")
+    assert identity is not None
+    assert (identity.owner, identity.module_path, identity.side_effect_level) == (
+        "@ops",
+        "ops.tools",
+        "read",
+    )
+    assert plan.registered_tool_identity("open_ticket", "9.9") is None
+    row = db_session.get(CaliberToolRegistry, "tool-identity-1")
+    assert row is not None
+    row.side_effect_level = "write"
+    db_session.commit()
+    changed = plan.registered_tool_identity("open_ticket", "1.0")
+    assert changed is not None and changed.side_effect_level == "write"

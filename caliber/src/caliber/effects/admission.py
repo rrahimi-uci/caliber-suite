@@ -216,6 +216,7 @@ _CONFIG_CHECKS: Final[Mapping[str, Callable[[object], bool]]] = {
     "timeout_seconds": _valid_timeout,
     "sender": callable,
     "receipt_verifier": callable,
+    "invoker": callable,
 }
 
 
