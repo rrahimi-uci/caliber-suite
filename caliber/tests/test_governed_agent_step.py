@@ -49,6 +49,8 @@ from caliber.workflows.agent_step import (
     AgentStepRequest,
     AgentStepResult,
     ScriptedStep,
+    StepCeilings,
+    StepClock,
     StepUsage,
     answer,
 )
@@ -59,9 +61,13 @@ from caliber.workflows.ir import IRAgent, IRToolBinding
 from caliber.workflows.manifest import parse_manifest
 from caliber.workflows.runtime import FakeWorkflowExecutor, RuntimePlan, execute
 from caliber.workflows.tools import InMemoryToolResolver, ToolRegistryEntry
+from tests.agent_step_conformance import FakeStepClock
 from tests.test_effect_proposals import _seed_run
 from tests.test_event_outbox import _database
 from tests.workflow_helpers import make_manifest
+
+# The step fixtures carry a fixed deadline: the boundary reads its clock, not the date the suite runs on (B08.3).
+pytestmark = pytest.mark.usefixtures("fixed_step_clock")
 
 RUN = "RUN-ep"
 PLANTED = "planted-argument-value"
@@ -1097,7 +1103,9 @@ def test_a_scripted_protected_call_is_a_proposal_not_an_effect(world: Any) -> No
         1,
     )
     assert (asked.run_manifest_digest, asked.context_manifest_digest) == ("a" * 64, "b" * 64)
-    assert (asked.grant_id, asked.limits) == ("grant-1", LIMITS)
+    # the producer asked for a deadline in 2099; the platform ceiling (600 s by default) brought it to now + 600 s
+    assert asked.grant_id == "grant-1"
+    assert asked.limits == replace(LIMITS, deadline="2026-10-26T09:10:00.000000Z")
     assert requests[0].evidence_hash == step_evidence_hash(asked, proposals[0].intent_hash)
 
 
@@ -1318,8 +1326,14 @@ def test_a_completed_step_does_not_run_the_downstream_nodes(world: Any) -> None:
 @pytest.mark.parametrize(
     ("entry", "expected"),
     [
-        (ScriptedStep("max_turns", usage=USAGE), "stopped: max_turns"),
-        (ScriptedStep("max_tokens", usage=USAGE), "stopped: max_tokens"),
+        (
+            ScriptedStep("max_turns", usage=USAGE),
+            "stopped: max_turns (turns=1 tool_calls=0 tokens=15)",
+        ),
+        (
+            ScriptedStep("max_tokens", usage=USAGE),
+            "stopped: max_tokens (turns=1 tool_calls=0 tokens=15)",
+        ),
         (
             ScriptedStep("refused", usage_source="unknown", error_code="model_refused"),
             "stopped: refused (model_refused)",
@@ -1859,3 +1873,162 @@ def test_a_node_that_is_neither_a_gated_tool_nor_a_governed_agent_cannot_resume_
         is False
     )
     assert _resume_checkpoint_preflight_error(plan, _approval_checkpoint("final")) is not None
+
+
+# ------------------------------------------------------------------- limits are enforced by the platform (B08.3, #752)
+
+
+def _limited(world: Any, limits: StepLimits, **changes: Any) -> RuntimePlan:
+    return _plan(world, limits=lambda agent: limits, **changes)
+
+
+def test_a_proposal_from_a_step_over_its_token_limit_is_never_recorded(world: Any) -> None:
+    """The oracle of #752: a step that passed a limit stops with the typed reason and its usage, and no protected effect exists."""
+    over = StepLimits(8, 4, 14, "2099-01-01T00:00:00Z")  # the scripted step used 15
+    result, executor, canaries = _run(world, [_proposing()], plan=_limited(world, over))
+    assert result.status == "error"
+    assert result.error == (
+        "ToolExecutionError: governed agent step stopped: max_tokens (turns=1 tool_calls=0 tokens=15)"
+    )
+    assert len(executor.step_requests) == 1, "the limit was passed after the work"
+    assert canaries.mutations == [] and _rows(world) == ([], [])
+    assert PLANTED not in (result.error or "")
+
+
+def test_a_step_at_exactly_its_token_limit_still_proposes(world: Any) -> None:
+    exact = StepLimits(8, 4, 15, "2099-01-01T00:00:00Z")
+    result, _, _ = _run(world, [_proposing()], plan=_limited(world, exact))
+    assert result.status == "blocked" and result.error == "waiting_approval:agent"
+    assert len(_rows(world)[0]) == 1
+
+
+@pytest.mark.parametrize(
+    ("limits", "stopped"),
+    [
+        (StepLimits(0, 4, 20000, "2099-01-01T00:00:00Z"), "max_turns"),
+        (StepLimits(8, 4, 0, "2099-01-01T00:00:00Z"), "max_tokens"),
+        (StepLimits(8, 4, 20000, "2026-10-26T08:59:59Z"), "deadline"),
+    ],
+    ids=["no_turns", "no_tokens", "expired_deadline"],
+)
+def test_a_step_with_nothing_to_spend_never_reaches_the_adapter(
+    world: Any, limits: StepLimits, stopped: str
+) -> None:
+    clock = FakeStepClock().step_clock()
+    plan = _limited(world, limits, clock=clock)
+    result, executor, canaries = _run(world, [_proposing()], plan=plan)
+    assert result.status == "error"
+    assert result.error == (
+        f"ToolExecutionError: governed agent step stopped: {stopped} (turns=0 tool_calls=0 tokens=0)"
+    )
+    assert executor.step_requests == [] and executor.step_script.remaining == 1
+    assert canaries.mutations == [] and canaries.reads == [] and _rows(world) == ([], [])
+
+
+def test_a_deadline_passed_during_the_step_stops_it_without_a_proposal(world: Any) -> None:
+    clock = FakeStepClock()
+
+    class Slow(FakeWorkflowExecutor):
+        def run_step(
+            self, request: AgentStepRequest, step_input: AgentStepInput
+        ) -> AgentStepResult:
+            clock.advance(
+                601
+            )  # the platform's 600 second ceiling is the deadline of a step asking for 2099
+            return super().run_step(request, step_input)
+
+    executor = Slow(step_script=[_proposing()])
+    plan = _limited(
+        world, StepLimits(8, 4, 20000, "2099-01-01T00:00:00Z"), clock=clock.step_clock()
+    )
+    result = execute(plan, "please ask for the pay statement", executor=executor)
+    assert result.error == (
+        "ToolExecutionError: governed agent step stopped: deadline (turns=1 tool_calls=0 tokens=15)"
+    )
+    assert _rows(world) == ([], [])
+
+
+def test_the_platforms_ceilings_cap_what_the_producer_asks_for(world: Any) -> None:
+    ceilings = StepCeilings(max_turns=2, max_tool_calls=1, max_tokens=50, max_seconds=30)
+    plan = _limited(
+        world,
+        StepLimits(8, 4, 20000, "2099-01-01T00:00:00Z"),
+        ceilings=ceilings,
+        clock=FakeStepClock().step_clock(),
+    )
+    result, executor, _ = _run(world, [_proposing()], plan=plan)
+    assert result.status == "blocked"
+    (asked,) = executor.step_requests
+    assert asked.limits == StepLimits(2, 1, 50, "2026-10-26T09:00:30.000000Z")
+
+
+def test_a_context_without_ceilings_is_capped_at_the_defaults_not_uncapped(world: Any) -> None:
+    clock = FakeStepClock().step_clock()
+    plan = _limited(world, StepLimits(10**6, 10**6, 10**9, "2099-01-01T00:00:00Z"), clock=clock)
+    _, executor, _ = _run(world, [_proposing()], plan=plan)
+    (asked,) = executor.step_requests
+    assert (asked.limits.max_turns, asked.limits.max_tool_calls, asked.limits.max_tokens) == (
+        25,
+        50,
+        200_000,
+    )
+    assert asked.limits.deadline == "2026-10-26T09:10:00.000000Z"
+
+
+def test_a_read_tool_past_the_tool_call_limit_is_refused_by_the_platform(world: Any) -> None:
+    limits = StepLimits(8, 1, 20000, "2099-01-01T00:00:00Z")
+    two_reads = replace(
+        _proposing(), read_tool_calls=((READ, {"path": "a.txt"}), (READ, {"path": "b.txt"}))
+    )
+    result, _, canaries = _run(world, [two_reads], plan=_limited(world, limits))
+    assert canaries.reads == [{"path": "a.txt"}], "the second call never ran"
+    assert result.status == "error" and "tool_error" in (result.error or "")
+    assert canaries.mutations == [] and _rows(world) == ([], [])
+
+
+@pytest.mark.parametrize(
+    "producer",
+    [
+        pytest.param(
+            lambda agent: (_ for _ in ()).throw(RuntimeError("boom-" + PLANTED)), id="raises"
+        ),
+        pytest.param(lambda agent: None, id="none"),
+        pytest.param(lambda agent: {"max_turns": 1}, id="mapping"),
+        pytest.param(lambda agent: StepLimits(1, 1, 1, "soon"), id="bad_deadline"),
+    ],
+)
+def test_limits_that_cannot_be_read_stop_the_step_before_the_adapter(
+    world: Any, producer: Callable[[Any], Any]
+) -> None:
+    result, executor, _ = _run(world, [_proposing()], plan=_plan(world, limits=producer))
+    assert result.status == "error"
+    assert result.error == (
+        "ToolExecutionError: governed agent step limits unavailable: limits_invalid"
+    )
+    assert PLANTED not in (result.error or "")
+    assert executor.step_requests == [] and _rows(world) == ([], [])
+
+
+def test_a_clock_that_is_not_an_aware_instant_stops_the_step_before_the_adapter(world: Any) -> None:
+    naive = StepClock(now=lambda: datetime(2026, 10, 26, 9, 0, 0), monotonic=lambda: 0.0)
+    result, executor, _ = _run(world, [_proposing()], plan=_plan(world, clock=naive))
+    assert "limits_invalid" in (result.error or "")
+    assert executor.step_requests == []
+
+
+def test_a_retry_gets_its_own_budget_and_a_resume_is_charged_nothing(world: Any) -> None:
+    """Attempt 2 of a node is a new step with the full limits; the usage of attempt 1 is not added to it. A resumed step that
+    finds its proposal asks nobody and reports no usage."""
+    exact = StepLimits(8, 4, 15, "2099-01-01T00:00:00Z")
+    plan = _limited(world, exact)
+    node = plan.ir.nodes["agent"]
+    node.execution_policy = replace(node.execution_policy, max_retries=1)
+    result, executor, _ = _run(
+        world, [_proposing(_action(effect_class="read")), _proposing()], plan=plan
+    )
+    assert result.status == "blocked" and len(executor.step_requests) == 2
+    assert all(r.limits.max_tokens == 15 for r in executor.step_requests)
+    again, executor2, _ = _run(world, [_proposing()], plan=_limited(world, exact))
+    assert executor2.step_requests == []
+    (step,) = [s for s in again.steps if s.node_id == "agent"]
+    assert step.tokens == 0

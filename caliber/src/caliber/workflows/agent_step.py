@@ -34,8 +34,24 @@ because the provider call may have happened).
 does not know a provider's exception types. A provider adapter (#727-#730) maps its own SDK timeouts (openai, anthropic,
 httpx) to ``failure(request, ADAPTER_TIMEOUT)`` itself.
 
-**Not here.** Limits (turns, tool calls, tokens, deadline) are enforced by the platform before work and against the returned
-usage in B08.3, the token reservation is B08.4, and mapping a model's tool call to a :class:`ProposedAction` bound to the
+**Limits are the platform's, not the adapter's (B08.3, #752).** :func:`run_agent_step` enforces the request's turns, tool
+calls, tokens and deadline itself, for every adapter alike, and an adapter cannot raise them: the limits are read from the
+request the boundary validated, never from the result. *Before work* (:func:`before_work_stop`) a step with no turns or tokens
+to spend, or whose deadline has passed, stops without calling the adapter (``max_turns``, ``max_tokens`` or ``deadline``, zero
+usage, ``usage_source`` ``estimated``: nothing was called, so a reservation for it may be released). *During work* every read
+tool is wrapped so the platform counts the calls itself and refuses the one past ``max_tool_calls``
+(:class:`StepToolBudgetExceeded`); an adapter that swallows the refusal still has it counted. *After work* a ``completed`` or
+``proposed_action`` result is replaced, and its proposal dropped, with the limit's own stop reason (the order is ``max_turns``,
+``max_tool_calls``, ``max_tokens``, ``deadline``) when the usage it reported is over a limit, when the platform counted more
+tool calls than the limit, or when the platform's own clock says the step finished after its deadline; the usage kept is the
+reported one, with ``tool_calls`` raised to the platform's own count when that is higher. A limit is exceeded only when
+*passed*: spending exactly ``max_tokens`` is within it. Turns and tokens are provider-reported and the platform cannot observe
+them: they bound what is *recorded* and stop the proposal, while an adapter's own in-loop checks (defence in depth) bound what is
+*spent*. The deadline is read from an injectable :class:`StepClock` (wall time for the absolute deadline, a monotonic clock for
+how long the step took, so a clock that is stepped mid-step cannot extend it). Nothing here carries state between calls: a retry
+is a new attempt with a fresh budget and a resumed step that finds its proposal is not asked again; summing attempts is B08.4.
+
+**Not here.** The token reservation is B08.4, and mapping a model's tool call to a :class:`ProposedAction` bound to the
 protected-effect inventory is B08.2. The four provider adapters (B08.openai-chat, -responses, -agents, anthropic) replace their
 :data:`ADAPTER_NOT_INTEGRATED` refusal in ``caliber.workflows.runtime`` one by one; until then they refuse governed execution.
 """
@@ -43,21 +59,38 @@ protected-effect inventory is B08.2. The four provider adapters (B08.openai-chat
 from __future__ import annotations
 
 import asyncio
+import functools
 import inspect
 import json
 import logging
+import math
+import threading
+import time
 from collections import deque
 from collections.abc import Callable, Iterable, Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
+from datetime import datetime, timedelta, timezone
 from types import MappingProxyType
 from typing import Any, Final, Protocol, runtime_checkable
 
+from caliber.config import (
+    AGENT_STEP_MAX_SECONDS_BOUNDS,
+    AGENT_STEP_MAX_SECONDS_DEFAULT,
+    AGENT_STEP_MAX_TOKENS_BOUNDS,
+    AGENT_STEP_MAX_TOKENS_DEFAULT,
+    AGENT_STEP_MAX_TOOL_CALLS_BOUNDS,
+    AGENT_STEP_MAX_TOOL_CALLS_DEFAULT,
+    AGENT_STEP_MAX_TURNS_BOUNDS,
+    AGENT_STEP_MAX_TURNS_DEFAULT,
+    CaliberConfig,
+)
 from caliber.contracts.agent_step import (
     REQUEST_KIND,
     RESULT_KIND,
     AgentStepRequest,
     AgentStepResult,
     ProposedAction,
+    StepLimits,
     StepUsage,
     parse_step_request,
     parse_step_result,
@@ -316,8 +349,255 @@ def _dropped_usage(returned: object) -> str:
     )
 
 
+#: The limits a step can stop on, in the order the platform names one when several are passed.
+LIMIT_STOPS: Final = ("max_turns", "max_tool_calls", "max_tokens", "deadline")
+
+
+def _utc_now() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+@dataclass(frozen=True)
+class StepClock:
+    """The platform's clock for a step's deadline: wall time for the absolute deadline, a monotonic clock for how long it took.
+
+    ``now`` must return an aware ``datetime`` and ``monotonic`` a non-decreasing float of seconds. Both are the platform's own
+    (never read from an adapter or a provider); tests inject a fake one so a deadline is exercised without sleeping.
+    """
+
+    now: Callable[[], datetime] = _utc_now
+    monotonic: Callable[[], float] = time.monotonic
+
+
+SYSTEM_CLOCK: Final = StepClock()
+
+
+def resolve_clock(clock: StepClock | None) -> StepClock:
+    """``clock``, or the platform's own (:data:`SYSTEM_CLOCK`, looked up at call time) when there is none."""
+    return SYSTEM_CLOCK if clock is None else clock
+
+
+def read_instant(clock: StepClock) -> datetime:
+    value = clock.now()
+    if type(value) is not datetime or value.utcoffset() is None:
+        raise ValueError("the step clock's now() must return an aware datetime")
+    return value
+
+
+def _seconds(clock: StepClock) -> float:
+    value = clock.monotonic()
+    if type(value) not in (int, float) or not math.isfinite(value):
+        raise ValueError("the step clock's monotonic() must return a finite number")
+    return float(value)
+
+
+def _rfc3339(instant: datetime) -> str:
+    return instant.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
+
+
+@dataclass(frozen=True)
+class StepCeilings:
+    """The most any one step may be given (``CALIBER_AGENT_STEP_MAX_*``): finite, whatever a producer's limits ask for.
+
+    :func:`cap_limits` brings a step's limits down to these before the request is made. The defaults are the settings' own, so
+    a governed context that names no ceilings is capped, never uncapped. Construction refuses a value outside the settings'
+    bounds (a boolean is not a count), naming the field and nothing else.
+    """
+
+    max_turns: int = AGENT_STEP_MAX_TURNS_DEFAULT
+    max_tool_calls: int = AGENT_STEP_MAX_TOOL_CALLS_DEFAULT
+    max_tokens: int = AGENT_STEP_MAX_TOKENS_DEFAULT
+    max_seconds: float = AGENT_STEP_MAX_SECONDS_DEFAULT
+
+    def __post_init__(self) -> None:
+        counts = (
+            ("max_turns", self.max_turns, AGENT_STEP_MAX_TURNS_BOUNDS),
+            ("max_tool_calls", self.max_tool_calls, AGENT_STEP_MAX_TOOL_CALLS_BOUNDS),
+            ("max_tokens", self.max_tokens, AGENT_STEP_MAX_TOKENS_BOUNDS),
+        )
+        for name, value, (low, high) in counts:
+            if type(value) is not int or not low <= value <= high:
+                raise ValueError(f"step ceiling {name} must be an integer from {low} to {high}")
+        low_s, high_s = AGENT_STEP_MAX_SECONDS_BOUNDS
+        seconds = self.max_seconds
+        if (
+            type(seconds) not in (int, float)
+            or not math.isfinite(seconds)
+            or not low_s <= seconds <= high_s
+        ):
+            raise ValueError(
+                f"step ceiling max_seconds must be a finite number from {low_s} to {high_s}"
+            )
+
+    @classmethod
+    def from_config(cls, config: CaliberConfig) -> StepCeilings:
+        """The ceilings the operator configured."""
+        return cls(
+            max_turns=config.agent_step_max_turns,
+            max_tool_calls=config.agent_step_max_tool_calls,
+            max_tokens=config.agent_step_max_tokens,
+            max_seconds=config.agent_step_max_seconds,
+        )
+
+
+def cap_limits(limits: StepLimits, ceilings: StepCeilings, *, now: datetime) -> StepLimits:
+    """``limits`` brought down to ``ceilings``: a count above its ceiling becomes the ceiling, and a deadline later than
+    ``now + max_seconds`` is brought forward to it (an earlier one is kept exactly as given). Never raises a limit.
+
+    ``now`` is the platform's own aware instant. ``limits`` must be a :class:`StepLimits`; one whose deadline is not an
+    RFC 3339 instant raises ``ValueError``. A producer that wants more than a ceiling cannot have it.
+    """
+    if type(limits) is not StepLimits:
+        raise TypeError("limits must be a StepLimits")
+    latest = now + timedelta(seconds=ceilings.max_seconds)
+    deadline = _rfc3339(latest) if limits.deadline_at > latest else limits.deadline
+    return StepLimits(
+        max_turns=min(limits.max_turns, ceilings.max_turns),
+        max_tool_calls=min(limits.max_tool_calls, ceilings.max_tool_calls),
+        max_tokens=min(limits.max_tokens, ceilings.max_tokens),
+        deadline=deadline,
+    )
+
+
+class StepToolBudgetExceeded(Exception):  # noqa: N818 - what an adapter's tool call raises, named for the limit
+    """A read tool was called past the step's ``max_tool_calls``: it was not run. The text is fixed; nothing else is carried."""
+
+    def __init__(self) -> None:
+        super().__init__("the step's tool-call limit is reached")
+
+
+class _ToolMeter:
+    """Counts the read-tool calls an adapter attempts, and refuses the one past the limit. The platform's own count of them.
+
+    A call is counted when it is attempted, before the tool runs, under a lock (an adapter may call tools from several
+    threads), so two calls racing for the last slot cannot both run. Nothing here is shared between steps.
+    """
+
+    def __init__(self, limit: int) -> None:
+        self._limit = limit
+        self._lock = threading.Lock()
+        self._attempted = 0
+
+    @property
+    def executed(self) -> int:
+        """Calls the platform let run."""
+        return min(self._attempted, self._limit)
+
+    @property
+    def overrun(self) -> bool:
+        """True when a call past the limit was attempted, whether or not the adapter went on to ignore the refusal."""
+        return self._attempted > self._limit
+
+    def wrap(self, tool: Callable[..., Any]) -> Callable[..., Any]:
+        @functools.wraps(tool)
+        def metered(*args: Any, **kwargs: Any) -> Any:
+            with self._lock:
+                self._attempted += 1
+                allowed = self._attempted <= self._limit
+            if not allowed:
+                raise StepToolBudgetExceeded
+            return tool(*args, **kwargs)
+
+        return metered
+
+    def wrap_all(self, tools: Mapping[str, Callable[..., Any]]) -> dict[str, Callable[..., Any]]:
+        return {name: self.wrap(tool) for name, tool in tools.items()}
+
+
+def _metered_input(step_input: AgentStepInput, meter: _ToolMeter) -> AgentStepInput:
+    """``step_input`` with every read tool (the agent's and its handoff targets') going through ``meter``."""
+    handoffs: dict[str, StepHandoffTarget] | None = None
+    if step_input.handoff_agents is not None:
+        handoffs = {
+            node_id: StepHandoffTarget(target.agent, meter.wrap_all(target.read_tools))
+            for node_id, target in step_input.handoff_agents.items()
+        }
+    return AgentStepInput(
+        agent=step_input.agent,
+        input_text=step_input.input_text,
+        history=step_input.history,
+        read_tools=meter.wrap_all(step_input.read_tools),
+        handoff_agents=handoffs,
+    )
+
+
+def before_work_stop(
+    request: AgentStepRequest, *, clock: StepClock | None = None
+) -> AgentStepResult | None:
+    """The stop for a step that may not start, or ``None``: no turn or no token to spend, or a deadline that is now or past.
+
+    The adapter has not been called, so the result carries zero usage with ``usage_source`` ``estimated`` and the step's
+    reservation, if one was made, may be released (B08.4). ``max_tool_calls`` of zero does not stop a step: it may still
+    answer without a tool. A limit is checked against the platform's clock only.
+    """
+    limits = request.limits
+    clock = resolve_clock(clock)
+    if limits.max_turns <= 0:
+        reason = "max_turns"
+    elif limits.max_tokens <= 0:
+        reason = "max_tokens"
+    elif limits.deadline_at <= read_instant(clock):
+        reason = "deadline"
+    else:
+        return None
+    return answer(request, reason, usage_source="estimated")
+
+
+def _exceeded(
+    limits: StepLimits, usage: StepUsage, meter: _ToolMeter, finished_at: datetime
+) -> str | None:
+    """The first limit (in :data:`LIMIT_STOPS` order) the step passed: exactly the limit is within it, one over is not."""
+    if usage.turns > limits.max_turns:
+        return "max_turns"
+    if meter.overrun or usage.tool_calls > limits.max_tool_calls:
+        return "max_tool_calls"
+    if usage.total_tokens > limits.max_tokens:
+        return "max_tokens"
+    if finished_at > limits.deadline_at:
+        return "deadline"
+    return None
+
+
+def _enforce_limits(
+    request: AgentStepRequest,
+    result: AgentStepResult,
+    meter: _ToolMeter,
+    started_at: datetime,
+    elapsed_seconds: float,
+) -> AgentStepResult:
+    """Hold a validated result to the request's limits: the platform's own measurements and the reported usage.
+
+    ``tool_calls`` is raised to the platform's count when the adapter reported fewer. A ``completed`` or ``proposed_action``
+    result that passed a limit becomes that limit's stop with the proposal dropped (a step that overran never gets to propose);
+    any other result (a stop, a refusal, a failure) already ends the step and is returned as it is.
+    """
+    usage = result.usage
+    if meter.executed > usage.tool_calls:
+        usage = replace(usage, tool_calls=meter.executed)
+        result = replace(result, usage=usage)
+    if result.stop_reason not in ("completed", "proposed_action"):
+        return result
+    finished_at = started_at + timedelta(seconds=max(0.0, elapsed_seconds))
+    reason = _exceeded(request.limits, usage, meter, finished_at)
+    if reason is None:
+        return result
+    logger.warning(
+        "agent step %s: stopped at %s (turns=%d tool_calls=%d tokens=%d)",
+        request.step_request_id,
+        reason,
+        usage.turns,
+        usage.tool_calls,
+        usage.total_tokens,
+    )
+    return answer(request, reason, usage=usage, usage_source=result.usage_source)
+
+
 def run_agent_step(
-    adapter: object, request: AgentStepRequest, step_input: AgentStepInput
+    adapter: object,
+    request: AgentStepRequest,
+    step_input: AgentStepInput,
+    *,
+    clock: StepClock | None = None,
 ) -> AgentStepResult:
     """Run one governed step through ``adapter`` and return a validated result; never an exception from the adapter.
 
@@ -331,16 +611,29 @@ def run_agent_step(
     ``error`` result with a fixed ``error_code`` (:data:`ADAPTER_ERROR`, :data:`ADAPTER_TIMEOUT`, :data:`MALFORMED_RESULT`)
     and no text from the failure. A ``BaseException`` (``KeyboardInterrupt``, ``SystemExit``, ``asyncio.CancelledError``)
     propagates, and the caller keeps the step's token reservation.
+
+    The request's limits are enforced here, for every adapter (see the module docstring): a step that may not start stops
+    before the adapter is called (:func:`before_work_stop`), the adapter is handed read tools that the platform counts and
+    refuses past ``max_tool_calls``, and a result that passed a limit is replaced by that limit's stop with no proposal.
+    ``clock`` is the platform's (:class:`StepClock`; ``None`` is :data:`SYSTEM_CLOCK`).
     """
     checked = parse_step_request(request.record())
+    clock = resolve_clock(clock)
     if step_input.agent.node_id != checked.node_id:
         raise ContractValidationError(
             REQUEST_KIND, ["node_id: the step input's agent is not the request's node"]
         )
     if not isinstance(adapter, AgentStepAdapter):
         return refusal(checked, ADAPTER_UNSUPPORTED)
+    if (stopped := before_work_stop(checked, clock=clock)) is not None:
+        return stopped
+    meter = _ToolMeter(checked.limits.max_tool_calls)
+    # The adapter gets its own copy of the request: ``checked`` (whose limits every check below reads) is never handed out, so
+    # an adapter that rewrites the limits of the request it holds (a frozen dataclass can be forced) changes nothing here.
+    offered = parse_step_request(checked.record())
+    started_at, started = read_instant(clock), _seconds(clock)
     try:
-        returned = adapter.run_step(checked, step_input)
+        returned = adapter.run_step(offered, _metered_input(step_input, meter))
     except Exception as exc:
         logger.warning(
             "agent step %s: adapter %s raised %s",
@@ -357,8 +650,9 @@ def run_agent_step(
             type(adapter).__name__,
         )
         return refusal(checked, ADAPTER_UNSUPPORTED)
+    elapsed = _seconds(clock) - started
     try:
-        return parse_step_result(_snapshot(returned), checked)
+        result = parse_step_result(_snapshot(returned), checked)
     except Exception:
         # The adapter's object is untrusted: any failure to read it is the same typed result, and its text, which could
         # quote the payload, goes nowhere. The usage numbers it reported are kept in the log for the reservation's sake.
@@ -369,6 +663,7 @@ def run_agent_step(
             _dropped_usage(returned),
         )
         return failure(checked, MALFORMED_RESULT)
+    return _enforce_limits(checked, result, meter, started_at, elapsed)
 
 
 @dataclass(frozen=True)
@@ -471,10 +766,12 @@ __all__ = [
     "ADAPTER_NOT_INTEGRATED",
     "ADAPTER_TIMEOUT",
     "ADAPTER_UNSUPPORTED",
+    "LIMIT_STOPS",
     "MALFORMED_RESULT",
     "NOT_CALLED_CODES",
     "PROVIDER_ERROR",
     "SCRIPT_EXHAUSTED",
+    "SYSTEM_CLOCK",
     "TOOL_ERROR",
     "TOOL_NOT_READ_CLASS",
     "AgentStepAdapter",
@@ -485,13 +782,21 @@ __all__ = [
     "ScriptEntries",
     "ScriptEntry",
     "ScriptedStep",
+    "StepCeilings",
+    "StepClock",
     "StepHandoffAgents",
     "StepHandoffTarget",
+    "StepLimits",
     "StepScript",
+    "StepToolBudgetExceeded",
     "StepUsage",
     "answer",
+    "before_work_stop",
+    "cap_limits",
     "failure",
     "filter_read_tools",
+    "read_instant",
     "refusal",
+    "resolve_clock",
     "run_agent_step",
 ]

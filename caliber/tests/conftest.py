@@ -292,6 +292,29 @@ def _outbox_off_by_default() -> Iterator[None]:
     bind_outbox(False)
 
 
+@pytest.fixture
+def fixed_step_clock(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
+    """Pin the agent-step boundary's default clock (B08.3) to 2026-10-26T09:00:00Z with no time passing.
+
+    The step fixtures carry a fixed deadline of ``2026-10-26T09:10:00Z``; the platform now holds a step to its deadline on its
+    own clock, so a test that runs through ``run_agent_step`` without a clock of its own must not depend on the date the suite
+    runs on. A test that exercises a deadline passes its own :class:`~caliber.workflows.agent_step.StepClock`.
+    """
+    from datetime import datetime, timezone
+
+    from caliber.workflows import agent_step
+
+    monkeypatch.setattr(
+        agent_step,
+        "SYSTEM_CLOCK",
+        agent_step.StepClock(
+            now=lambda: datetime(2026, 10, 26, 9, 0, 0, tzinfo=timezone.utc),
+            monotonic=lambda: 0.0,
+        ),
+    )
+    yield
+
+
 @pytest.fixture(autouse=True)
 def _hermetic_experiment_resolution(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     """No test asks a real tracking backend what an experiment reference means.
