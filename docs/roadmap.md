@@ -113,7 +113,7 @@ discovery exit criterion below — it does not replace or shorten M1–M6.
   that installs and boots without a checkout are built, and the unsupported
   areas (Aria, MCP and OpenAPI integrations, cookbooks, release-candidate
   signoff) are off by default behind `CALIBER_FEATURE_*` flags. The flagged-trace start
-  of the journey, a second approver, one-active-process enforcement, a measured
+  of the journey, a second approver (Apply has an opt-in two-person rule, required by the reference profile and off by default), one-active-process enforcement, a measured
   workload envelope and rehearsed recovery are not.
 - **Alpha work since 2026-10-14.** The cookbook labs (twenty, as of labs 19-21) were run through
   the UI and the SDK on fresh stacks, and the defects that surfaced were fixed
