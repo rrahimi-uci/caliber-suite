@@ -365,8 +365,8 @@ maya	add_project_member	{"user_id":"victor","role":"viewer"}
 [403]
 ```
 
-Note what is **not** in the log: the token's secret, and the refused requests (a 403 changes nothing, so
-it writes nothing; a refused write shows up in the server's request log instead).
+Note what is **not** in the log: the token's secret, and the requests the project gate refused (a 403 changes nothing, so
+it writes nothing; a refused write shows up in the server's request log instead). Apply's own refusals are the exception and are audited as `apply_refused`.
 
 Finally health and readiness, with no credential at all:
 
@@ -479,8 +479,8 @@ Offline (no server): `caliber/.venv/bin/python -m pytest sdk/caliber-sdk/tests/t
 ### Limitations the lab shows rather than hides
 
 - **Traces and prompt releases are not project-scoped.** The release timeline lists prompt promotions from every project, and traces are open to every signed-in user (see [`docs/build/auth-and-project-scoping.md`](../../../docs/build/auth-and-project-scoping.md), "What the alpha does not enforce"). The prompt *inventory* is scoped: a non-member sees none of a project's prompts.
-- **Refused requests are not audited.** The audit log records what changed.
-- **Apply has no second approver.** An owner or editor releases in one step; the audit row names who.
+- **Refusals by the project gate are not audited.** A `404` or a role `403` changes nothing and writes nothing, and the audit log records what changed. The exception is Apply's own refusals (a requester applying their own job, a changed candidate, a revoked grant), which write an `apply_refused` row; see [Apply: refusal catalogue, audit and recovery](../../../docs/operate/reference-profile.md#apply-refusal-catalogue-audit-and-recovery-b065-762).
+- **Apply has no second approver unless the two-person rule is on.** With `CALIBER_APPLY_REQUIRE_DISTINCT_APPROVER` unset or `false`, the development default this lab runs under, an owner or editor releases in one step and the audit row names who. With it `true`, which the reference profile requires, the account that requested the job cannot apply it.
 
 ## Cleanup and reset
 
