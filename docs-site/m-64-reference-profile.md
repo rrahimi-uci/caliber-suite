@@ -36,6 +36,7 @@ An unknown profile name is a configuration error. `GET /ajax-api/2.0/mlflow/cali
 | `egress_policy_disabled` | `egress_policy_enabled` | `CALIBER_EGRESS_POLICY_ENABLED` | true | The egress policy is what stops a tool or webhook from reaching internal addresses. |
 | `mcp_insecure_http` | `mcp_allow_insecure_http` | `CALIBER_MCP_ALLOW_INSECURE_HTTP` | false | Plain-HTTP MCP servers send tool calls and results in the clear. |
 | `self_approval_allowed` | `approval_allow_self_approval` | `CALIBER_APPROVAL_ALLOW_SELF_APPROVAL` | false | The account that started a run could approve its own protected action. |
+| `apply_distinct_approver_disabled` | `apply_require_distinct_approver` | `CALIBER_APPLY_REQUIRE_DISTINCT_APPROVER` | true | The account that requested a refinement job could apply its own candidate to production, and a job with no recorded requester could be applied unreviewed. |
 | `memory_inference_enabled` | `memory_infer` | `CALIBER_MEMORY_INFER` | false while CALIBER_MEMORY_ENABLED is true | LLM-inferred memory writes create durable, free-form facts nobody owns; the owned memory lifecycle does not exist yet. |
 | `fault_barriers_enabled` | `fault_barriers` | `CALIBER_FAULT_BARRIERS` | unset | An armed fault barrier makes the process exit on purpose; it exists only for scenario tests. |
 
@@ -152,6 +153,7 @@ CALIBER_CSRF_SIGNING_SECRET_ENV=CALIBER_CSRF_SIGNING_SECRET
 CALIBER_EGRESS_POLICY_ENABLED=true
 CALIBER_MCP_ALLOW_INSECURE_HTTP=false
 CALIBER_APPROVAL_ALLOW_SELF_APPROVAL=false
+CALIBER_APPLY_REQUIRE_DISTINCT_APPROVER=true
 ```
 
 Two of the variables name *other* variables that hold secrets (`CALIBER_BOOTSTRAP_PASSWORD` and
@@ -1661,12 +1663,70 @@ creator authority, and client-supplied owner or creator values cannot replace
 the authenticated requester.
 
 This is provenance, not permission: apply still rechecks the current project
-permission, distinct approver, and exact candidate digest. Rows written before
+permission and, under the two-person rule below (B06.3), the distinct approver;
+the exact-candidate-digest recheck inside the claim is B06.4 (#753), not yet
+here. Rows written before
 B06.2 remain explicitly unknown (`triggered_by = NULL`); operators recover
 those rows through the current authorization boundary or create a new job via a
 path that can declare its requester. No new migration or public API/SDK field
 is required because migration `0131` introduced the column and it remains an
 ORM-only field.
+
+### Apply: a distinct approver (B06.3, #747)
+
+`CALIBER_APPLY_REQUIRE_DISTINCT_APPROVER` (`apply_require_distinct_approver`, default `false`) is the
+two-person rule for `POST /ajax-api/2.0/mlflow/caliber/jobs/{job_id}/apply`. With it on:
+
+| the job's `triggered_by` | the authenticated caller | result |
+| --- | --- | --- |
+| a different account | holds `caliber.operator` and `release.apply` on the job's project | applied, as before |
+| the caller (compared trimmed and case-folded, so `@Reza` is not a second person to `@reza`) | any | `403`, `reason_code` `apply_self_approval` |
+| `NULL`, empty or blank (a legacy job, or a creation path that declared no requester) | any | `403`, `reason_code` `apply_creator_unknown` |
+
+Where the identities come from: the requester is the job row's `triggered_by`, written from the
+authenticated request identity when the job was created (B06.2); the approver is the authenticated caller
+of the Apply request. Neither is read from the request body, query string or model output, and the setting
+is server configuration, so a client cannot turn the rule off or name a different requester.
+
+**The reference profile.** The setting must be on: `CALIBER_PROFILE=reference` refuses to start without it
+(`apply_distinct_approver_disabled`, in the table above). The rule is also applied at request time whenever the
+profile is `reference`, whatever the flag says, so a process that somehow reached a request in that state
+still refuses, and an unreadable configuration is treated as the reference profile.
+
+**Development compatibility, separately.** With the default profile and the flag off, Apply behaves exactly
+as it did in the alpha: the requester may apply their own candidate and a legacy job with no recorded
+requester is applied. That is a declared development-only compatibility, not a reference behaviour; a
+single-operator install that turns the flag on cannot apply its own jobs and needs a second operator.
+
+**Refusals** are `403` with a static, payload-free message (no job id, account name, candidate text or
+digest) and a stable `reason_code`:
+
+```json
+{"detail": "the account that requested this candidate cannot apply it; a different authorized person must apply it", "status_code": 403, "reason_code": "apply_self_approval"}
+```
+
+```json
+{"detail": "this candidate has no recorded requester, so a distinct approver cannot be verified; re-run the calibration so it records its requester, then have a different authorized person apply it", "status_code": 403, "reason_code": "apply_creator_unknown"}
+```
+
+Both refusals happen after the project-permission check (a non-member still gets `404`, a member without
+`release.apply` still gets `403` without a reason code) and before the claim, the approval anchor, the
+promoter call and any audit write, so a refused Apply changes nothing: the job stays `candidate_ready`. The
+database enforces the same separation inside the atomic claim (`UPDATE ... WHERE status = 'candidate_ready'`
+and the requester, trimmed of ASCII whitespace and lower-cased, is neither NULL, blank nor equal to the
+caller, trimmed and lower-cased the same way), so a requester that changed after the check, even to a case
+or whitespace variant of the caller, still cannot claim. The SQL lower-casing is ASCII-only on SQLite; the
+check before the claim applies the full case-fold. If the server has no configuration object at all, the
+rule is applied as in the reference profile rather than failing the request.
+
+**Recovery.** `apply_self_approval`: ask a different account with `release.apply` on the project to
+apply it. `apply_creator_unknown`: the job has no verifiable requester and **there is no reviewed-provenance
+override yet**: the job is refused, never passed. Re-run the calibration through the prompt, skill, workflow
+or assistant path, which records the requester, and have a different account apply the new job. Do not set
+`triggered_by` by hand from timestamps, owners or other mutable fields.
+
+**Not in this slice.** The exact-candidate-digest recheck and the revoked-permission race inside the claim
+transaction are B06.4 (#753). The refusal writes no audit row, like the existing project-permission refusals.
 
 ## Approval requests: bound to the exact intent (B06.1, #706)
 
