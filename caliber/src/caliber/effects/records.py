@@ -81,6 +81,8 @@ STALE_OWNER: Final = "stale_owner"
 LEASE_LOST: Final = "lease_lost"
 NOT_ABANDONED: Final = "not_abandoned"
 ABANDONED_REASON: Final = "abandoned_dispatch"
+NOT_EXPIRED: Final = "not_expired"
+IN_FLIGHT_EXPIRED_REASON: Final = "in_flight_expired"
 EVIDENCE_REQUIRED: Final = "evidence_required"
 APPROVAL_REFUSED: Final = "approval_refused"
 RECEIPT_REFUSED: Final = "receipt_refused"
@@ -687,6 +689,72 @@ def abandon_dispatch(
             NOT_ABANDONED,
             f"proposal {proposal_id} was dispatched under the lease that is still current (or under one with no recorded token)",
         )
+    return _dispatched_to_unknown(session, row, expected_version, ABANDONED_REASON, now)
+
+
+def expire_in_flight(
+    session: Session,
+    proposal_id: str,
+    *,
+    expected_version: int,
+    lease: Lease,
+    older_than: datetime,
+    now: datetime | None = None,
+) -> Transitioned:
+    """``dispatched`` to ``unknown`` for an attempt under the *current* lease whose outcome nobody recorded in time (B05.5d, #997).
+
+    :func:`abandon_dispatch` cannot help when the dispatcher's lease is still the one that is current: that dispatcher is
+    alive, in the same process as the reconciler, and a settle that failed (the store went away after the send, the
+    verifier raised, the thread died) left the row ``dispatched`` with nobody to finish it. This is the bounded in-flight
+    rule: in the caller's transaction it compares ``lease`` (:func:`fence_owner`, so only the owner moves it) and refuses
+    unless the proposal is ``dispatched`` at ``expected_version`` *under this lease's own fencing token* and was dispatched
+    at or before ``older_than``. It records ``unknown`` with the reason ``in_flight_expired``: the attempt may have been
+    sent, and only a query by key can say. A row with no recorded token proves nothing and is refused, like a lower token
+    (that one is :func:`abandon_dispatch`'s).
+
+    It races the live dispatcher's own settle and exactly one of them wins: both write under the lease row's lock (taken
+    first, by :func:`fence_owner`) and both are conditioned on the version they read, so the second finds the row moved
+    (:class:`StaleVersion`) and records nothing. The loser never sends anything: this module has no edge back to
+    ``dispatched``. ``older_than`` must therefore exceed the longest a dispatch legitimately takes, or a slow dispatcher
+    that was about to commit finds its row ``unknown`` and the reconciler settles it by lookup instead. ``dispatched_at`` is
+    written by the dispatcher's own clock (the same process as the reconciler's, by the lease), and ``older_than`` is compared
+    with it as given: no database clock is involved.
+    """
+    if type(expected_version) is not int or expected_version < 1:
+        raise ProposalError(BAD_FIELD, "expected_version must be a positive integer")
+    fence_owner(session, proposal_id, lease.owner_id if isinstance(lease, Lease) else None, lease)
+    begin_sqlite_transaction(session)
+    row = session.get(CaliberEffectProposal, proposal_id, populate_existing=True)
+    if row is None:
+        raise KeyError(proposal_id)
+    if row.version != expected_version:
+        raise StaleVersion(proposal_id, expected_version, row.version, row.state)
+    if row.state != DISPATCHED:
+        raise ProposalError(
+            ILLEGAL_TRANSITION,
+            f"proposal {proposal_id} is {row.state}: only a dispatched attempt expires",
+        )
+    if (
+        row.dispatch_token != lease.fencing_token
+        or row.dispatched_at is None
+        or row.dispatched_at > _naive_utc(older_than)
+    ):
+        raise ProposalError(
+            NOT_EXPIRED,
+            f"proposal {proposal_id} was not dispatched under this lease's token, or not long enough ago",
+        )
+    return _dispatched_to_unknown(session, row, expected_version, IN_FLIGHT_EXPIRED_REASON, now)
+
+
+def _dispatched_to_unknown(
+    session: Session,
+    row: CaliberEffectProposal,
+    expected_version: int,
+    reason: str,
+    now: datetime | None,
+) -> Transitioned:
+    """The compare-and-set both recoveries of a ``dispatched`` row end in (the caller has fenced and read ``row``)."""
+    proposal_id = row.proposal_id
     table = cast(Table, CaliberEffectProposal.__table__)
     result = session.execute(
         update(table)
@@ -698,7 +766,7 @@ def abandon_dispatch(
         .values(
             state=UNKNOWN,
             version=expected_version + 1,
-            reason=ABANDONED_REASON,
+            reason=reason,
             unknown_at=_naive_utc(now),
         )
     )
@@ -1071,10 +1139,12 @@ __all__ = [
     "ILLEGAL_TRANSITION",
     "INTENT_ALGORITHM",
     "INTENT_CONFLICT",
+    "IN_FLIGHT_EXPIRED_REASON",
     "LEASE_LOST",
     "MAX_ARGS_DEPTH",
     "MAX_INTENT_BYTES",
     "NOT_ABANDONED",
+    "NOT_EXPIRED",
     "POLICY_DECISION",
     "PRINTABLE",
     "PROPOSED",
@@ -1101,6 +1171,7 @@ __all__ = [
     "Transitioned",
     "abandon_dispatch",
     "effect_resource",
+    "expire_in_flight",
     "fence_owner",
     "intent_digest",
     "logical_key",

@@ -5729,6 +5729,34 @@ run executed). A legacy run has none: ``legacy`` is true, ``run_manifest`` is ``
 - [`CaliberAPIError`](#caliberapierror)
 - [`CaliberTransportError`](#calibertransporterror)
 
+###### `causal_links(run_id: str, *, section: str | None = None, limit: int | None = None, cursor: str | None = None) -> CausalLinks`
+
+One page of the persisted records that connect this run to its governed effects: the
+admission manifest, each effect proposal with its context manifest, approval request, policy
+decision and verified receipt (``effect_id``), by id, digest, state and timestamp only.
+
+``section`` is ``"effects"`` (the default), ``"context_manifests"`` or
+``"policy_decisions"``;
+``limit`` is 1 to 200 (default 50). While ``has_more``, pass ``next_cursor`` back as
+``cursor``. A link is ``linked``, ``not_required``, ``pending`` (in flight), ``missing``
+(a broken chain, with a ``code``) or ``unrecorded`` (not stored against the effect), and a
+row is never filled in; a run you cannot read, another project's run and an unknown id are
+the same :class:`~caliber_sdk.CaliberNotFoundError`.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `run_id` | positional-or-keyword | `str` | `—` |
+| `section` | keyword-only | `str | None` | `None` |
+| `limit` | keyword-only | `int | None` | `None` |
+| `cursor` | keyword-only | `str | None` | `None` |
+
+**Returns:** `CausalLinks`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
 ###### `checkpoints(run_id: str, **params) -> Any`
 
 Durable checkpoints recorded during this run, newest first.
@@ -10111,8 +10139,8 @@ The operator reconciliation view: legacy effect-ledger claims
 (``effects``, ``source: legacy_ledger``; defaults to
 ``status=in_progress`` server-side, the set that needs a decision) and
 effect proposals (``proposals``, ``source: effect_proposal``; defaults to
-the open states, settled by the reconciler and offering no operator
-action). Every row carries ``source``, ``source_version`` and the
+the open states, settled by the reconciler; its one operator action is
+``reconcile_effect_proposal``). Every row carries ``source``, ``source_version`` and the
 ``safe_actions`` that apply to that kind. ``params``: ``source``
 (``all``, ``legacy`` or ``proposal``), ``status``, ``proposal_state``
 (``open``, ``any`` or one state), ``workflow_run_id``, ``limit``.
@@ -10140,6 +10168,28 @@ outside world CALIBER cannot verify on its own.
 | `effect_key` | positional-or-keyword | `str` | `—` |
 | `resolution` | keyword-only | `str` | `—` |
 | `params` | var-keyword | `Any` | `—` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `reconcile_effect_proposal(proposal_id: str, *, reason: str) -> Any`
+
+Ask the downstream about one effect proposal now, as the execution owner.
+
+Admin-scoped and audited with ``reason``. It never records what the
+operator believes: the proposal moves only on the downstream's own
+evidence (a verified receipt, or a connector that proves absence
+final) and otherwise stays ``unknown``; ``outcome`` says which. A
+process that is not the execution owner answers ``409``.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `proposal_id` | positional-or-keyword | `str` | `—` |
+| `reason` | keyword-only | `str` | `—` |
 
 **Returns:** `Any`
 
@@ -10903,7 +10953,7 @@ sdk/caliber-sdk/examples/quickstart.py#quickstart
 
 **Public exports**
 
-`FAILED_RUN_STATES`, `IMPORT_JOB_TERMINAL_STATES`, `RELEASE_EVALUATION_TERMINAL_STATES`, `RELEASE_OPERATION_TERMINAL_STATES`, `STABILITY_BETA`, `STABILITY_GA`, `STABILITY_INTERNAL`, `TERMINAL_RUN_STATES`, `Account`, `AdmissionManifest`, `Agent`, `AriaInteraction`, `AriaPlan`, `AriaPlanDetail`, `AriaPlanStep`, `AuditEntry`, `Bucket`, `CalibrationJob`, `Capabilities`, `CookbookRecipe`, `CursorPage`, `ErrorBody`, `EvalDataset`, `EvalExample`, `Evaluation`, `Extensibility`, `FeatureFlag`, `FieldError`, `Identity`, `IssuedToken`, `Job`, `Judge`, `JudgeAlignment`, `KnowledgeBase`, `LlmSetupStatus`, `McpServer`, `OpenApiIntegration`, `OpenApiIntegrationVersion`, `OpenApiOperation`, `OpenApiOperationDependency`, `OpenApiToolDraft`, `OptimizerPlugin`, `Page`, `PersonalAccessToken`, `PlatformAdminInventory`, `Project`, `ProjectFile`, `ProjectFolder`, `ProjectMember`, `Prompt`, `QualityReview`, `RegisteredOptimizer`, `ReleaseCandidate`, `ReviewQueue`, `ReworkTask`, `RuntimeSettings`, `RuntimeSettingsSummary`, `SessionInfo`, `Skill`, `SkillRender`, `SkillSelection`, `SkillVersion`, `Stability`, `StoredObject`, `Tool`, `Trace`, `VerificationBatchResult`, `VerificationItem`, `Workflow`, `WorkflowRun`, `WorkflowRunCapabilities`, `WorkflowService`, `WorkflowVersion`, `WorkspaceBreakGlassApplyResult`, `WorkspaceChangeRequest`, `WorkspaceChangeRequestCheck`, `WorkspaceChangeRequestComment`, `WorkspaceChangeRequestHead`, `WorkspaceChangeRequestReview`, `WorkspaceChangeRequestReviewer`, `WorkspaceEnvironment`, `WorkspaceExternalReviewAttestation`, `WorkspaceImportJob`, `WorkspaceImportReconciliation`, `WorkspaceRelease`, `WorkspaceReleaseDecision`, `WorkspaceReleaseEvaluation`, `WorkspaceReleaseEvidence`, `WorkspaceReleaseOperation`, `WorkspaceReleaseOperationItem`, `WorkspaceReleaseOperationResult`, `WorkspaceRevision`, `WorkspaceRevisionDiff`, `WorkspaceRevisionResource`, `WorkspaceSource`, `WorkspaceSourceCapabilities`, `WorkspaceSourceConnection`, `WorkspaceSourceReconciliationResult`, `WorkspaceSourceState`, `WorkspaceVersionTag`, `decode`, `decode_list`
+`FAILED_RUN_STATES`, `IMPORT_JOB_TERMINAL_STATES`, `RELEASE_EVALUATION_TERMINAL_STATES`, `RELEASE_OPERATION_TERMINAL_STATES`, `STABILITY_BETA`, `STABILITY_GA`, `STABILITY_INTERNAL`, `TERMINAL_RUN_STATES`, `Account`, `AdmissionManifest`, `Agent`, `AriaInteraction`, `AriaPlan`, `AriaPlanDetail`, `AriaPlanStep`, `AuditEntry`, `Bucket`, `CalibrationJob`, `Capabilities`, `CausalAbsentRecord`, `CausalApprovalLink`, `CausalContextLink`, `CausalContextManifest`, `CausalDecisionLink`, `CausalEffect`, `CausalEffectOutcomeLink`, `CausalLinks`, `CausalPolicyDecision`, `CausalRunManifestLink`, `CookbookRecipe`, `CursorPage`, `ErrorBody`, `EvalDataset`, `EvalExample`, `Evaluation`, `Extensibility`, `FeatureFlag`, `FieldError`, `Identity`, `IssuedToken`, `Job`, `Judge`, `JudgeAlignment`, `KnowledgeBase`, `LlmSetupStatus`, `McpServer`, `OpenApiIntegration`, `OpenApiIntegrationVersion`, `OpenApiOperation`, `OpenApiOperationDependency`, `OpenApiToolDraft`, `OptimizerPlugin`, `Page`, `PersonalAccessToken`, `PlatformAdminInventory`, `Project`, `ProjectFile`, `ProjectFolder`, `ProjectMember`, `Prompt`, `QualityReview`, `RegisteredOptimizer`, `ReleaseCandidate`, `ReviewQueue`, `ReworkTask`, `RuntimeSettings`, `RuntimeSettingsSummary`, `SessionInfo`, `Skill`, `SkillRender`, `SkillSelection`, `SkillVersion`, `Stability`, `StoredObject`, `Tool`, `Trace`, `VerificationBatchResult`, `VerificationItem`, `Workflow`, `WorkflowRun`, `WorkflowRunCapabilities`, `WorkflowService`, `WorkflowVersion`, `WorkspaceBreakGlassApplyResult`, `WorkspaceChangeRequest`, `WorkspaceChangeRequestCheck`, `WorkspaceChangeRequestComment`, `WorkspaceChangeRequestHead`, `WorkspaceChangeRequestReview`, `WorkspaceChangeRequestReviewer`, `WorkspaceEnvironment`, `WorkspaceExternalReviewAttestation`, `WorkspaceImportJob`, `WorkspaceImportReconciliation`, `WorkspaceRelease`, `WorkspaceReleaseDecision`, `WorkspaceReleaseEvaluation`, `WorkspaceReleaseEvidence`, `WorkspaceReleaseOperation`, `WorkspaceReleaseOperationItem`, `WorkspaceReleaseOperationResult`, `WorkspaceRevision`, `WorkspaceRevisionDiff`, `WorkspaceRevisionResource`, `WorkspaceSource`, `WorkspaceSourceCapabilities`, `WorkspaceSourceConnection`, `WorkspaceSourceReconciliationResult`, `WorkspaceSourceState`, `WorkspaceVersionTag`, `decode`, `decode_list`
 
 ### Module `caliber_sdk.models.common`
 
@@ -13720,6 +13770,26 @@ Same as the sync ``runs.admission_manifest``.
 | `run_id` | positional-or-keyword | `str` | `—` |
 
 **Returns:** `AdmissionManifest`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `causal_links(run_id: str, *, section: str | None = None, limit: int | None = None, cursor: str | None = None) -> CausalLinks`
+
+One page of the run's persisted causal links.
+
+Same as the sync ``runs.causal_links``.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `run_id` | positional-or-keyword | `str` | `—` |
+| `section` | keyword-only | `str | None` | `None` |
+| `limit` | keyword-only | `int | None` | `None` |
+| `cursor` | keyword-only | `str | None` | `None` |
+
+**Returns:** `CausalLinks`
 
 **Raises:**
 

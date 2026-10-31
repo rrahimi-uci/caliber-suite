@@ -28,6 +28,7 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
+from caliber.effects.registered_tools import RegisteredToolIdentity
 from caliber.workflows.compiler import CompileError, compile_workflow
 from caliber.workflows.diff import compute_graph_diff
 from caliber.workflows.manifest import WorkflowManifest, parse_manifest
@@ -328,6 +329,7 @@ def _replay(
     scorer: RunScorer,
     knowledge_query_runner: Callable[[dict[str, Any]], dict[str, Any]] | None = None,
     knowledge_build_runner: Callable[[dict[str, Any]], dict[str, Any]] | None = None,
+    registered_tool_identity: Callable[[str, str], RegisteredToolIdentity | None] | None = None,
 ) -> dict[str, float]:
     result = compile_workflow(parse_manifest(manifest_dict), resolver=resolver, version="eval")
     plan = RuntimePlan(
@@ -335,6 +337,7 @@ def _replay(
         resolver=resolver,
         knowledge_query_runner=knowledge_query_runner,
         knowledge_build_runner=knowledge_build_runner,
+        registered_tool_identity=registered_tool_identity,
     )
     per_run = [
         _invoke_scorer(scorer, execute(plan, text, executor=executor), text) for text in inputs
@@ -387,8 +390,13 @@ def evaluate_candidate(
     baseline_scores: dict[str, float] | None = None,
     knowledge_query_runner: Callable[[dict[str, Any]], dict[str, Any]] | None = None,
     knowledge_build_runner: Callable[[dict[str, Any]], dict[str, Any]] | None = None,
+    registered_tool_identity: Callable[[str, str], RegisteredToolIdentity | None] | None = None,
 ) -> WorkflowEvalResult:
     """Compile + replay baseline and candidate; gate on score deltas (plan §17.4).
+
+    ``registered_tool_identity`` (B04.3, #741) is the registry-row reader of the run that owns this evaluation. With it a
+    replay refuses a protected registry tool (it has no dispatcher, approval or lease) and runs read-class tools; without
+    it (a standalone caller) the replay calls its tools directly.
 
     ``thresholds`` keys: ``min_overall_delta`` (default 0.0) on the ``quality``
     dimension, and ``max_tone_regression`` (default ∞) limiting how far the
@@ -412,6 +420,7 @@ def evaluate_candidate(
             scorer=scorer,
             knowledge_query_runner=knowledge_query_runner,
             knowledge_build_runner=knowledge_build_runner,
+            registered_tool_identity=registered_tool_identity,
         )
     except (CompileError, PatchError, ValueError) as exc:
         return WorkflowEvalResult(
@@ -439,6 +448,7 @@ def evaluate_candidate(
                 scorer=scorer,
                 knowledge_query_runner=knowledge_query_runner,
                 knowledge_build_runner=knowledge_build_runner,
+                registered_tool_identity=registered_tool_identity,
             )
         except (CompileError, PatchError, ValueError) as exc:
             return WorkflowEvalResult(

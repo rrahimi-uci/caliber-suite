@@ -169,6 +169,20 @@ _WORKER_NOTES: dict[str, WorkerNote] = {
         ),
         ownership="owner_only",
     ),
+    "EffectReconcilerTask": WorkerNote(
+        description=(
+            "Calls the effect reconciler under the execution-owner lease: asks each bound connector about "
+            "unknown and abandoned effects by their logical key, and moves a dispatch stuck in flight under "
+            "the current lease to unknown. It never re-sends an effect."
+        ),
+        tables=(
+            "CaliberEffectProposal",
+            "CaliberEffectReceipt",
+            "CaliberAuditLog",
+            "CaliberWorkerHeartbeat",
+        ),
+        ownership="owner_only",
+    ),
     "WorkspaceReleaseEvaluator": WorkerNote(
         description=(
             "Executes queued Workspace release evaluations from immutable revision pins, oldest first, "
@@ -310,6 +324,7 @@ _WORKER_MODULE_NAMES = (
     "caliber.orchestrator.janitor",
     "caliber.orchestrator.release_reconciler",
     "caliber.orchestrator.workspace_release_evaluator",
+    "caliber.orchestrator.effect_reconciler",
     "caliber.orchestrator.calibration_drain",
     "caliber.events.webhooks",
     "caliber.events.outbox",

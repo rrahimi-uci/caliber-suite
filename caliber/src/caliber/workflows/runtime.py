@@ -36,29 +36,49 @@ import time
 from collections.abc import Callable, Collection, Iterator, Mapping
 from concurrent.futures import ThreadPoolExecutor
 from concurrent.futures import TimeoutError as FuturesTimeout
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 from functools import partial
 from http import HTTPStatus
 from pathlib import Path
 from threading import Lock
-from typing import Any, Protocol
+from typing import Any, NoReturn, Protocol
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from caliber.auth import CaliberIdentity
 from caliber.config import provider_request_timeout
 from caliber.context.authorize import ContextDenied
+from caliber.effects import step_proposal as _step_proposal
+from caliber.effects.connectors import openapi_http as _openapi_http
 from caliber.effects.dispatcher import (
     HTTP_CONNECTOR,
     HTTP_VERSION,
     EffectRefused,
     EffectRequest,
+    admit_backend,
     dispatch,
     submit_proposal,
 )
 from caliber.effects.reconcile import UnknownEffectError
 from caliber.effects.records import RecordedProposal
-from caliber.integrations.openapi.executor import bind_openapi_http_tool
+from caliber.effects.registered_tools import (
+    INLINE,
+    OPENAPI_BACKEND,
+    REFUSE,
+    REGISTERED_TOOL_CONNECTOR,
+    REGISTERED_TOOL_VERSION,
+    RegisteredToolIdentity,
+    ToolRoute,
+    route_openapi_tool,
+    route_registered_tool,
+    tool_intent_args,
+    tool_resource,
+)
+from caliber.integrations.openapi.executor import (
+    OpenApiPreflightError,
+    bind_openapi_http_tool,
+    openapi_operation_method,
+)
 from caliber.llm.models import (
     DEFAULT_OPENAI_REASONING_EFFORT,
     is_reasoning_model,
@@ -66,6 +86,7 @@ from caliber.llm.models import (
 )
 from caliber.mcp_gateway import McpGatewayError, invoke_tool_by_server_id_sync
 from caliber.observability.mlflow_tracing import Tracer, get_tracer, model_cost_usd
+from caliber.observability.span_attributes import causal_attributes, without_reserved_keys
 from caliber.ownership import Lease
 from caliber.tool_sandbox.models import ToolSandboxRunRequest
 from caliber.tool_sandbox.service import (
@@ -258,8 +279,23 @@ def _bind_managed_file_resolver(
         _MANAGED_FILE_RESOLVER.reset(token)
 
 
-def run_tags(ctx: CaliberRunContext, *, node_id: str | None = None) -> dict[str, str]:
-    """Build the ``caliber.*`` run/span tag dict for a run (plan §11.1)."""
+def run_tags(
+    ctx: CaliberRunContext,
+    *,
+    node_id: str | None = None,
+    proposal_id: str | None = None,
+    decision_id: str | None = None,
+    approval_id: str | None = None,
+    effect_id: str | None = None,
+) -> dict[str, str]:
+    """Build the ``caliber.*`` run/span tag dict for a run (plan §11.1).
+
+    The four causal ids (B11.3a) are persisted-row identifiers the *caller* has read from the
+    database; each is emitted as ``caliber.<name>`` only when given and only if it is an opaque
+    identifier (:func:`caliber.observability.span_attributes.causal_attributes`).  The run's
+    manifest-supplied ``trace_group_tags`` can never set those keys, so a workflow author cannot
+    forge a causal link.
+    """
     tags: dict[str, str] = {
         "caliber.workflow_id": ctx.workflow_id,
         "caliber.workflow_version": ctx.workflow_version,
@@ -279,8 +315,16 @@ def run_tags(ctx: CaliberRunContext, *, node_id: str | None = None) -> dict[str,
         tags["caliber.preview"] = "true"
     if node_id:
         tags["caliber.node_id"] = node_id
+    tags.update(
+        causal_attributes(
+            proposal_id=proposal_id,
+            decision_id=decision_id,
+            approval_id=approval_id,
+            effect_id=effect_id,
+        )
+    )
     if ctx.trace_group_tags:
-        return {**ctx.trace_group_tags, **tags}
+        return {**without_reserved_keys(ctx.trace_group_tags), **tags}
     return tags
 
 
@@ -2492,6 +2536,16 @@ class RuntimePlan:
     #: workflow version but no context refuses these nodes rather than falling
     #: back to the legacy raw sender.
     governed_effects: GovernedEffectContext | None = None
+    #: B08.2 context for governed agent steps (``caliber.effects.step_proposal``). ``None`` (every plan the runtime builds
+    #: today) runs agent nodes exactly as before. With one, an agent node runs through ``run_agent_step``: the adapter is
+    #: handed only the tools the platform classified ``read``, a protected action it proposes becomes a recorded ``proposed``
+    #: effect plus an approval request, and the node parks (``waiting_approval``) instead of executing it. A governed step has
+    #: no output text channel in the v1 result contract, so one that completes without proposing is refused.
+    governed_agent_steps: _step_proposal.GovernedStepContext | None = None
+    #: Reads a registry tool's own row by ``(name, version)`` (B04.3, #741). The registry row, not the manifest binding, says
+    #: whether a tool is CALIBER's own and how risky it is; ``build_plan`` binds this to the database. A plan with neither this
+    #: reader nor a governed context is not governed: registered tools keep running as before.
+    registered_tool_identity: Callable[[str, str], RegisteredToolIdentity | None] | None = None
     #: Called with the ids of a node and of everything upstream of it before the node runs, outside its retries (B05.5b,
     #: #742). Raises ``caliber.effects.reconcile.UnknownEffectError`` while an effect those nodes asked for has no final
     #: outcome, so no step that depends on an effect nobody can vouch for runs. ``None`` where nothing records effects.
@@ -2593,6 +2647,8 @@ def _connections(ir: IRWorkflow) -> list[_Connection]:
 def _resume_checkpoint_kind_matches_node(
     checkpoint_kind: str | None,
     node: IRNode,
+    *,
+    governed_agent_steps: bool = False,
 ) -> bool:
     if checkpoint_kind == "wait_for_event":
         return isinstance(node, IRWaitForEvent)
@@ -2601,7 +2657,9 @@ def _resume_checkpoint_kind_matches_node(
     if checkpoint_kind == "human_approval":
         return isinstance(node, IRHumanApproval)
     if checkpoint_kind == "runtime_approval":
-        return (
+        # A gated tool node, or a governed agent step parked behind the approval of its proposed action (B08.2): an agent
+        # node resumes from this kind only in a plan that runs governed steps.
+        return (isinstance(node, IRAgent) and governed_agent_steps) or (
             isinstance(node, IRTool) and node.binding is not None and node.binding.requires_approval
         )
     return True
@@ -3689,6 +3747,15 @@ def _interpret(  # noqa: PLR0911, PLR0912, PLR0915 - graph interpreter dispatch
     resume_checkpoint: RuntimeResumeCheckpoint | None = None,
 ) -> WorkflowRunResult:
     ir = plan.ir
+    if plan.governed_agent_steps is not None and (refusal := _governed_plan_refusal(ir)):
+        return WorkflowRunResult(
+            status="error",
+            output="",
+            steps=[],
+            tags=base_tags,
+            tokens=0,
+            error=f"ToolExecutionError: {refusal}",
+        )
     connections = _connections(ir)
     out_conns: dict[str, list[_Connection]] = {nid: [] for nid in ir.nodes}
     in_conns: dict[str, list[_Connection]] = {nid: [] for nid in ir.nodes}
@@ -4155,6 +4222,7 @@ def _interpret(  # noqa: PLR0911, PLR0912, PLR0915 - graph interpreter dispatch
         if not _resume_checkpoint_kind_matches_node(
             resume_checkpoint.checkpoint_kind,
             node,
+            governed_agent_steps=plan.governed_agent_steps is not None,
         ):
             return WorkflowRunResult(
                 status="error",
@@ -4700,7 +4768,14 @@ def _run_agent_with_history(
     handoff_agents: ResolvedHandoffAgents | None = None,
     tool_callables: dict[str, Callable[..., Any]],
     preview: bool,
+    governed_step: Callable[[str, list[HistoryMessage]], NoReturn] | None = None,
 ) -> tuple[AgentTurnResult, list[HistoryMessage], list[HistoryMessage]]:
+    """Run one agent turn with its history, context record and session memory.
+
+    ``governed_step`` (B08.2) replaces the provider call: it is given the step request id of the context just recorded and the
+    history and does not return: it raises ``StepParked`` or an error (a governed step has no turn to hand back). It requires a context recorder, because a governed request
+    names the digest of the context manifest the provider is given.
+    """
     explicit = [dict(item) for item in (explicit_history or [])]
     key = _session_memory_key(plan, agent)
     stored: list[HistoryMessage] = []
@@ -4725,6 +4800,8 @@ def _run_agent_with_history(
     tool_specs, structured_suffix = _context_provider_material(executor, agent)
     occurrence_id = _STEP_OCCURRENCE.get() or agent.node_id
     attempt = _STEP_ATTEMPT.get()
+    root_step_request_id: str | None = None
+    root_assembly: AgentContextAssembly | None = None
     if plan.context_recorder is not None:
         # The context is recorded, authorized and validated before the provider sees any of it: a refusal raises here.
         # A native (Agents SDK) handoff runs the target inside the provider call, where the runtime cannot see it, so
@@ -4734,8 +4811,6 @@ def _run_agent_with_history(
             for node_id, (target, _) in (handoff_agents or {}).items()
             if node_id != agent.node_id
         ]
-        root_step_request_id: str | None = None
-        root_assembly: AgentContextAssembly | None = None
         for recipient in recipients:
             recipient_occurrence = (
                 occurrence_id
@@ -4761,6 +4836,12 @@ def _run_agent_with_history(
             if recipient.node_id == agent.node_id:
                 root_step_request_id = request_id
                 root_assembly = assembly
+    if governed_step is not None:
+        if not root_step_request_id:
+            raise ToolExecutionError(
+                f"governed agent step {agent.node_id!r} requires a recorded context manifest"
+            )
+        governed_step(root_step_request_id, history)  # parks or raises; never returns
     result = _run_agent_traced(
         executor,
         agent,
@@ -4797,6 +4878,299 @@ def _run_agent_with_history(
             history=updated_history,
         )
     return result, updated_history, history
+
+
+#: An ``error_code`` a governed step's error may show: a fixed lowercase token (an adapter's code is never free text).
+_SAFE_STEP_CODE = re.compile(r"[a-z][a-z0-9_]{0,63}")
+
+
+def _governed_tool_trust(
+    context: _step_proposal.GovernedStepContext, agent: IRAgent
+) -> dict[str, _step_proposal.ToolTrust]:
+    """The platform's classification of every tool bound to ``agent``; a classifier that raises is the fail-closed class."""
+    trust: dict[str, _step_proposal.ToolTrust] = {}
+    for binding in agent.tools:
+        try:
+            classified = context.classify_tool(binding)
+        except Exception:
+            classified = _step_proposal.untrusted_tool(binding.local_name)
+        if type(classified) is not _step_proposal.ToolTrust:
+            classified = _step_proposal.untrusted_tool(binding.local_name)
+        trust[binding.local_name] = classified
+    return trust
+
+
+def _governed_read_tools(
+    trust: Mapping[str, _step_proposal.ToolTrust], callables: Mapping[str, Callable[..., Any]]
+) -> dict[str, Callable[..., Any]]:
+    """The callables of tools classified ``read``, the only ones an adapter is handed (fail closed, see ``filter_read_tools``)."""
+    return _agent_step.filter_read_tools(
+        callables, lambda name: name in trust and trust[name].effect_class == "read"
+    )
+
+
+def _governed_plan_refusal(ir: IRWorkflow) -> str | None:
+    """Why a plan with governed agent steps cannot run, or ``None``: a payload-free reason naming only workflow node ids.
+
+    A governed agent node parks the run behind an approval, and only a node of the graph can park it: a fan-out, loop or boundary
+    runs its target inline and cannot carry the park, so an agent there would leave a proposal and an approval request nobody
+    waits on. A handoff would let a *different* agent's protected tool propose through this node's step. Both are refused up
+    front, before any node runs and so before any proposal exists.
+    """
+    for edge in ir.edges:
+        if isinstance(ir.nodes.get(edge.from_node), IRParallel) and isinstance(
+            ir.nodes.get(edge.to_node), IRAgent
+        ):
+            return (
+                f"governed agent steps cannot run in parallel branches: agent {edge.to_node!r} "
+                f"follows parallel node {edge.from_node!r}"
+            )
+    for node in ir.nodes.values():
+        if isinstance(node, IRAgent):
+            if node.handoffs:
+                return (
+                    f"governed agent steps do not follow handoffs: agent {node.node_id!r} has some"
+                )
+            continue
+        for child_id in _inline_children(node):
+            if isinstance(ir.nodes.get(child_id), IRAgent):
+                return (
+                    f"governed agent steps cannot run inline: agent {child_id!r} is a target of "
+                    f"{node.node_type.value} node {node.node_id!r}"
+                )
+    return None
+
+
+def _governed_stop_error(result: _agent_step.AgentStepResult) -> ToolExecutionError:
+    """The run error for a step that stopped without completing or proposing: its stop reason and fixed error code, no payload.
+
+    A limit stop (``max_turns``, ``max_tool_calls``, ``max_tokens``, ``deadline``) also records the usage the step is charged,
+    as numbers, so the run's error says what the step spent (B08.4 settles it from the result, not from this text).
+    """
+    code = result.error_code
+    detail = result.stop_reason
+    if isinstance(code, str) and _SAFE_STEP_CODE.fullmatch(code):
+        detail = f"{detail} ({code})"
+    if result.stop_reason in _agent_step.LIMIT_STOPS:
+        usage = result.usage
+        detail = f"{detail} (turns={usage.turns} tool_calls={usage.tool_calls} tokens={usage.total_tokens})"
+    return ToolExecutionError(f"governed agent step stopped: {detail}")
+
+
+def _governed_limits(
+    context: _step_proposal.GovernedStepContext, agent: IRAgent
+) -> _agent_step.StepLimits:
+    """The step's limits: the producer's, brought down to the platform's ceilings; a clock or a producer that fails is a fixed refusal."""
+    try:
+        now = _agent_step.read_instant(_agent_step.resolve_clock(context.clock))
+    except Exception:
+        raise ToolExecutionError("governed agent step clock unavailable: clock_invalid") from None
+    try:
+        return _agent_step.cap_limits(context.limits(agent), context.ceilings, now=now)
+    except Exception:
+        raise ToolExecutionError("governed agent step limits unavailable: limits_invalid") from None
+
+
+def _run_governed_step(
+    context: _step_proposal.GovernedStepContext,
+    executor: WorkflowExecutor,
+    agent: IRAgent,
+    input_text: str,
+    *,
+    step_request_id: str,
+    history: list[HistoryMessage],
+    tool_callables: dict[str, Callable[..., Any]],
+) -> NoReturn:
+    """One agent turn as a governed step: the platform, not the adapter, decides what runs and what is recorded (B08.2).
+
+    The adapter is handed only the read-class tools. A step that completes is refused (the v1 result carries no text, so
+    there is no output to publish). A step that proposes a protected action has it bound to the inventory and recorded with its approval request, and
+    ``StepParked`` is raised so the node parks. Anything else (a limit, a refusal, a provider failure) is a run error carrying
+    only the stop reason and a fixed code.
+    """
+    trust = _governed_tool_trust(context, agent)
+    request = _agent_step.AgentStepRequest(
+        step_request_id=step_request_id,
+        workflow_run_id=context.workflow_run_id,
+        node_id=agent.node_id,
+        occurrence_id=_STEP_OCCURRENCE.get() or agent.node_id,
+        attempt=_STEP_ATTEMPT.get(),
+        run_manifest_digest=context.run_manifest_digest,
+        context_manifest_digest=context.context_manifest_digest(step_request_id),
+        grant_id=context.grant_id,
+        limits=_governed_limits(context, agent),
+    )
+    step_input = _agent_step.AgentStepInput(
+        agent=agent,
+        input_text=input_text,
+        history=tuple(history),
+        read_tools=_governed_read_tools(trust, tool_callables),
+    )
+    result = _agent_step.run_agent_step(executor, request, step_input, clock=context.clock)
+    if result.stop_reason == "proposed_action":
+        try:
+            proposal = _step_proposal.record_step_proposal(context, request, result, trust)
+        except EffectRefused as exc:
+            raise ToolExecutionError(f"governed agent step proposal refused: {exc.code}") from None
+        except Exception:
+            # A store failure (a deadlock, a lock timeout) carries the statement's parameters, which are the model's arguments:
+            # none of it reaches the run error or a log line, only a fixed code.
+            raise ToolExecutionError("governed agent step proposal failed: store_failed") from None
+        raise _step_proposal.StepParked(
+            proposal, step_request_id=step_request_id, usage=result.usage
+        )
+    if result.stop_reason != "completed":
+        raise _governed_stop_error(result)
+    # The v1 result carries no text, so a step that completes without proposing has produced nothing the graph could use:
+    # publishing an empty output would let the run go on as though the agent had answered. Fail closed until the contract has
+    # an output field.
+    raise ToolExecutionError(
+        "governed agent step completed without an output channel: the v1 step result carries no text"
+    )
+
+
+def _governed_parked_step(
+    node: IRAgent,
+    proposal: _step_proposal.StepProposal,
+    *,
+    step_request_id: str | None,
+    usage: _agent_step.StepUsage | None,
+) -> tuple[int, NodeStep]:
+    """The blocked step of a node waiting for approval of its proposed action: identifiers and usage, never the action.
+
+    The worker turns it into a ``waiting_approval`` run whose checkpoint is the ``runtime_approval`` kind the decision and resume
+    routes already accept, naming the approval request that already exists (it creates no second one).
+    """
+    tokens = usage.total_tokens if usage is not None else 0
+    return tokens, NodeStep(
+        node.node_id,
+        node.node_type.value,
+        "blocked",
+        tokens=tokens,
+        prompt_tokens=usage.prompt_tokens if usage is not None else 0,
+        completion_tokens=usage.completion_tokens if usage is not None else 0,
+        cached_prompt_tokens=(usage.cached_prompt_tokens or 0) if usage is not None else 0,
+        detail=f"waiting_approval:{node.node_id}",
+        checkpoint_state={
+            "kind": "runtime_approval",
+            "node_id": node.node_id,
+            "proposal_id": proposal.proposal_id,
+            "approval_request_id": proposal.approval_request_id,
+            "intent_hash": proposal.intent_hash,
+            "step_request_id": step_request_id,
+            "reason": "effect_proposal_awaiting_approval",
+            "resume_policy": "same_run_same_occurrence",
+        },
+    )
+
+
+def _publish_governed_outputs(
+    node: IRAgent,
+    port_values: dict[tuple[str, str], Any],
+    output: str,
+    history: list[HistoryMessage],
+) -> None:
+    nid = node.node_id
+    if not node.outputs:
+        port_values[(nid, "final_output")] = output
+        return
+    _publish_declared_outputs(
+        node,
+        port_values,
+        {"final_output": output, "tool_calls": [], "history": history},
+        fallback=output,
+    )
+    port_values.setdefault((nid, "final_output"), output)
+
+
+def _run_governed_agent_node(
+    node: IRAgent,
+    ir: IRWorkflow,
+    plan: RuntimePlan,
+    executor: WorkflowExecutor,
+    *,
+    inputs: dict[str, Any],
+    run_input: str,
+    port_values: dict[tuple[str, str], Any],
+    preview: bool,
+    extra_tools: dict[str, Callable[..., Any]] | None,
+) -> tuple[int, NodeStep]:
+    """Run an agent node as a governed step (``plan.governed_agent_steps``); see :func:`_run_governed_step`.
+
+    A node occurrence has one logical effect: if one is already recorded (the step was resumed or retried) the model is **not**
+    asked again. ``committed`` completes the node, ``failed`` fails it, ``proposed`` parks it behind its (re-asked) approval
+    request, and any state in between (``approved``, ``dispatched``, ``unknown``, ``reconciled``: the dispatcher has it) is the
+    existing effect-reconciliation park.
+    """
+    context = plan.governed_agent_steps
+    assert context is not None
+    nid = node.node_id
+    prior = _step_proposal.prior_proposal(
+        context.session_factory,
+        context.workflow_run_id,
+        nid,
+        _STEP_OCCURRENCE.get() or nid,
+    )
+    if prior is not None:
+        if prior.state == "committed":
+            committed = f"effect {prior.proposal_id} committed"
+            _publish_governed_outputs(node, port_values, committed, [])
+            return 0, NodeStep(nid, node.node_type.value, "ok", output=committed)
+        if prior.state == "failed":
+            raise ToolExecutionError("governed agent step: its proposed effect failed")
+        if prior.state == "proposed":
+            try:
+                proposal = _step_proposal.reask_approval(context, prior)
+            except EffectRefused as exc:
+                raise ToolExecutionError(
+                    f"governed agent step approval refused: {exc.code}"
+                ) from None
+            except Exception:
+                raise ToolExecutionError(
+                    "governed agent step approval failed: store_failed"
+                ) from None
+            return _governed_parked_step(node, proposal, step_request_id=None, usage=None)
+        raise UnknownEffectError([(prior.proposal_id, nid, prior.state)])
+    agent_input = _select_input(inputs, run_input)
+    callables = _resolve_tool_callables(
+        node,
+        plan.resolver,
+        preview=preview,
+        egress_policy=plan.egress_policy,
+        mcp_identity=plan.mcp_identity,
+    )
+    if extra_tools:
+        callables = {**callables, **extra_tools}
+    try:
+        _run_agent_with_history(
+            plan,
+            executor,
+            node,
+            agent_input,
+            context_inputs=(
+                _agent_context_inputs(ir, node, inputs, port_values, agent_input, plan)
+                if plan.context_recorder is not None
+                else None
+            ),
+            explicit_history=_normalize_message_history(inputs.get("history")),
+            tool_callables=callables,
+            preview=preview,
+            governed_step=lambda step_request_id, history: _run_governed_step(
+                context,
+                executor,
+                node,
+                agent_input,
+                step_request_id=step_request_id,
+                history=history,
+                tool_callables=callables,
+            ),
+        )
+    except _step_proposal.StepParked as parked:
+        return _governed_parked_step(
+            node, parked.proposal, step_request_id=parked.step_request_id, usage=parked.usage
+        )
+    # A governed step parks (above) or raises: it never produces a turn the graph could use.
+    raise AssertionError("a governed step returned a turn")  # pragma: no cover
 
 
 def _collect_agent_handoff_specs(
@@ -5060,53 +5434,309 @@ def _perform_http_effect(
     if not isinstance(proposal_args, dict):
         raise ToolExecutionError("governed HTTP effect request is not JSON-compatible")
     occurrence_id = _STEP_OCCURRENCE.get() or node_id
+    return _submit_authorize_dispatch(
+        context,
+        label="HTTP effect",
+        proposal={
+            "node_id": node_id,
+            "occurrence_id": occurrence_id,
+            "connector": HTTP_CONNECTOR,
+            "connector_version": HTTP_VERSION,
+            "effect_class_name": _declared_http_effect_class(node),
+            "resource": request["url"],
+            "args": proposal_args,
+        },
+        backend_kind="http",
+        backend_config={"sender": sender, "receipt_verifier": context.receipt_verifier},
+    )
+
+
+def _submit_authorize_dispatch(
+    context: GovernedEffectContext,
+    *,
+    label: str,
+    proposal: dict[str, Any],
+    backend_kind: str,
+    backend_config: dict[str, Any],
+) -> dict[str, Any]:
+    """Record one proposal, obtain its exact authorization, dispatch it, and return the committed response.
+
+    The one governed crossing shared by every runtime caller of the B04 dispatcher (HTTP nodes, registry tools). It
+    refuses at each step with a payload-free ``ToolExecutionError`` naming only ``label`` and the dispatcher's refusal
+    code: a missing or malformed authorization, a proposal the dispatcher refuses, a dispatch it refuses, or any outcome
+    short of ``committed`` (the effect may still have happened; the proposal stays recoverable by the reconciler).
+    """
     try:
         with context.session_factory() as session:
-            proposal = submit_proposal(
+            recorded = submit_proposal(
                 session,
                 workflow_run_id=context.workflow_run_id,
-                node_id=node_id,
-                occurrence_id=occurrence_id,
-                connector=HTTP_CONNECTOR,
-                connector_version=HTTP_VERSION,
-                effect_class_name=_declared_http_effect_class(node),
-                resource=request["url"],
-                args=proposal_args,
+                **proposal,
+                admission=admit_backend(backend_kind),
             )
             session.commit()
     except EffectRefused as exc:
-        raise ToolExecutionError(f"HTTP effect proposal refused: {exc.code}") from exc
+        raise ToolExecutionError(f"{label} proposal refused: {exc.code}") from exc
+    if recorded.state != "proposed":
+        # A retry of a node whose effect was already claimed or settled (for example ``unknown``): asking for a new
+        # approval and dispatching again could only refuse, and would hide what really happened to the first attempt.
+        raise ToolExecutionError(f"{label} was already recorded as {recorded.state}; not run again")
 
     try:
-        authorization = context.authorize(proposal)
+        authorization = context.authorize(recorded)
     except Exception as exc:
-        raise ToolExecutionError(f"HTTP effect authorization failed: {type(exc).__name__}") from exc
+        raise ToolExecutionError(f"{label} authorization failed: {type(exc).__name__}") from exc
     if not isinstance(authorization, EffectAuthorization):
-        raise ToolExecutionError("HTTP effect authorization was not granted")
+        raise ToolExecutionError(f"{label} authorization was not granted")
 
-    backend_config = dict(context.backend_config)
-    backend_config["sender"] = sender
-    backend_config["receipt_verifier"] = context.receipt_verifier
     try:
         outcome = dispatch(
             context.session_factory,
-            proposal.proposal_id,
+            recorded.proposal_id,
             approval_id=authorization.approval_id,
             approver_scopes=authorization.approver_scopes,
             lease=authorization.lease,
-            backend_kind="http",
-            backend_config=backend_config,
+            backend_kind=backend_kind,
+            backend_config={**context.backend_config, **backend_config},
             current_resource_version=authorization.current_resource_version,
             evidence_hash=authorization.evidence_hash,
             approval_validator=approval_valid_at_commit,
         )
     except EffectRefused as exc:
-        raise ToolExecutionError(f"HTTP effect dispatch refused: {exc.code}") from exc
+        raise ToolExecutionError(f"{label} dispatch refused: {exc.code}") from exc
     if outcome.state != "committed":
-        raise ToolExecutionError(f"HTTP effect did not commit: {outcome.reason or outcome.state}")
+        raise ToolExecutionError(f"{label} did not commit: {outcome.reason or outcome.state}")
     if outcome.response is None:
-        raise ToolExecutionError("HTTP effect committed without a transport response")
+        raise ToolExecutionError(f"{label} committed without a transport response")
     return dict(outcome.response)
+
+
+def _governed_tool_route(
+    plan: RuntimePlan, binding: IRToolBinding, *, node_id: str, preview: bool
+) -> ToolRoute | None:
+    """The dispatcher route of a registered Python tool node, or ``None`` when it runs inline as before.
+
+    Only a plan wired to the registry (an identity reader, as ``build_plan`` binds) or to an authority (a governed
+    context) is governed: a plan that has neither, such as a standalone export or a test plan, keeps calling the tool
+    directly, as do previews, which never reach a real effect. OpenAPI bindings are routed by
+    :func:`_governed_openapi_route` (B04.4) and MCP bindings by their own B04 task. The decision is made from the
+    tool's **registry row** (``plan.registered_tool_identity``), never from ``binding.side_effect_level`` or the
+    binding's names, which a workflow or an export author wrote.
+    """
+    if (
+        preview
+        or binding.binding_type != "registered_function"
+        or binding.execution_backend != "python_callable"
+        or (plan.registered_tool_identity is None and plan.governed_effects is None)
+    ):
+        return None
+    identity: RegisteredToolIdentity | None = None
+    lookup = plan.registered_tool_identity
+    if lookup is not None and binding.resolved_name and binding.resolved_version:
+        try:
+            identity = lookup(binding.resolved_name, binding.resolved_version)
+        except Exception as exc:
+            raise ToolExecutionError(
+                f"registered tool {binding.local_name!r} identity could not be read: "
+                f"{type(exc).__name__}"
+            ) from exc
+    if identity is not None and (
+        identity.module_path != binding.module_path
+        or identity.callable_name != binding.callable_name
+        or identity.execution_backend != binding.execution_backend
+    ):
+        # The code the binding would run is not the code the registry row describes.
+        raise ToolExecutionError(
+            f"registered tool {binding.local_name!r} does not match its registry row"
+        )
+    route = route_registered_tool(identity)
+    if route.route == REFUSE:
+        raise ToolExecutionError(
+            f"registered tool {binding.local_name!r} refused: unsupported_effect_path"
+        )
+    if route.route == INLINE:
+        return None
+    if plan.governed_effects is None:
+        raise ToolExecutionError(
+            f"{node_id!r} requires a governed effect context to run protected registered tool "
+            f"{binding.local_name!r}"
+        )
+    return route
+
+
+def _perform_registered_tool_effect(
+    plan: RuntimePlan,
+    *,
+    node_id: str,
+    binding: IRToolBinding,
+    route: ToolRoute,
+    fn: Callable[..., Any],
+    arguments: dict[str, Any],
+    fallback_input: str,
+) -> Any:
+    """Run a protected registry tool through proposal, approval and dispatch (B04.3, #741).
+
+    ``fn`` is the already-bound tool, without retries: a retried write could repeat its effect, and the dispatcher
+    never sends an ambiguous effect twice. It is called by the ``registered_tool`` backend with the arguments recorded in
+    the proposal, only after the exact approval and the execution-owner lease are rechecked.
+    """
+    context = plan.governed_effects
+    assert context is not None  # _governed_tool_route guarantees it
+    if not callable(context.authorize) or not callable(context.receipt_verifier):
+        raise ToolExecutionError("governed registered-tool effect context is incomplete")
+    name = binding.resolved_name or binding.local_name
+    version = binding.resolved_version
+    proposal_args = _json_compatible(arguments)
+
+    def invoker(recorded_arguments: dict[str, Any], recorded_input: str) -> Any:
+        return _call_tool(fn, recorded_arguments, fallback_input=recorded_input)
+
+    return _submit_authorize_dispatch(
+        context,
+        label="registered tool effect",
+        proposal={
+            "node_id": node_id,
+            "occurrence_id": _STEP_OCCURRENCE.get() or node_id,
+            "connector": REGISTERED_TOOL_CONNECTOR,
+            "connector_version": REGISTERED_TOOL_VERSION,
+            "min_effect_class": route.effect_class,
+            "resource": tool_resource(name, version),
+            "args": tool_intent_args(
+                name=name, version=version, arguments=proposal_args, input_text=fallback_input
+            ),
+            "tool_name": name,
+            "caliber_defined": route.trusted,
+        },
+        backend_kind="registered_tool",
+        backend_config={"invoker": invoker, "receipt_verifier": context.receipt_verifier},
+    )["result"]
+
+
+@dataclass(frozen=True)
+class _GovernedOpenApi:
+    """A protected OpenAPI call's route and its trusted operation (the registry row's own configuration)."""
+
+    route: ToolRoute
+    operation: _openapi_http.OpenApiOperation
+
+
+def _governed_openapi_route(
+    plan: RuntimePlan,
+    binding: IRToolBinding,
+    *,
+    node_id: str,
+    preview: bool,
+    arguments: dict[str, Any],
+    overridden: bool,
+) -> _GovernedOpenApi | None:
+    """The dispatcher route of an OpenAPI tool node, or ``None`` when it runs inline as before (B04.4, #750).
+
+    As for a registered Python tool, only a plan wired to the registry (an identity reader) or to an authority (a governed
+    context) is governed, and a preview never reaches a real effect. The call is classified from the tool's **registry
+    row** (``plan.registered_tool_identity``): its declared level and the method its own configuration selects, never the
+    binding's level, names or configuration. The binding must carry exactly the row's execution configuration and input
+    schema: a binding that differs would run something the registry does not describe, so it is refused, inline reads
+    included. A tool whose row cannot be read cannot be proposed (there is no trusted operation to send) and is refused;
+    so is a protected call that an injected callable replaces, which no proposal could describe.
+    """
+    if preview or (plan.registered_tool_identity is None and plan.governed_effects is None):
+        return None
+    name = binding.local_name
+    identity: RegisteredToolIdentity | None = None
+    lookup = plan.registered_tool_identity
+    if lookup is not None and binding.resolved_name and binding.resolved_version:
+        try:
+            identity = lookup(binding.resolved_name, binding.resolved_version)
+        except Exception as exc:
+            raise ToolExecutionError(
+                f"registered tool {name!r} identity could not be read: {type(exc).__name__}"
+            ) from exc
+    if identity is None:
+        raise ToolExecutionError(f"OpenAPI tool {name!r} refused: unsupported_effect_path")
+    if (
+        identity.execution_backend != binding.execution_backend
+        or identity.backend_config != binding.backend_config
+        or identity.input_schema != binding.input_schema
+    ):
+        # The configuration the binding would send is not the one the registry row describes.
+        raise ToolExecutionError(f"registered tool {name!r} does not match its registry row")
+    try:
+        method = openapi_operation_method(
+            dict(identity.backend_config or {}), _json_compatible(arguments)
+        )
+    except OpenApiPreflightError as exc:
+        raise ToolExecutionError(f"OpenAPI tool {name!r} refused: {exc.code}") from exc
+    route = route_openapi_tool(identity, method=method)
+    if route.route == REFUSE:
+        raise ToolExecutionError(f"OpenAPI tool {name!r} refused: unsupported_effect_path")
+    if route.route == INLINE:
+        return None
+    if plan.governed_effects is None:
+        raise ToolExecutionError(
+            f"{node_id!r} requires a governed effect context to run protected OpenAPI tool {name!r}"
+        )
+    if overridden:
+        raise ToolExecutionError(
+            f"OpenAPI tool {name!r} is replaced by an injected callable and cannot be governed"
+        )
+    return _GovernedOpenApi(
+        route,
+        _openapi_http.OpenApiOperation(
+            tool=identity.name,
+            version=identity.version,
+            execution_config=identity.backend_config or {},
+            input_schema=identity.input_schema,
+            egress_policy=plan.egress_policy,
+        ),
+    )
+
+
+def _perform_openapi_tool_effect(
+    plan: RuntimePlan,
+    *,
+    node_id: str,
+    openapi: _GovernedOpenApi,
+    arguments: dict[str, Any],
+) -> dict[str, Any]:
+    """Run a protected OpenAPI tool call through proposal, approval and dispatch (B04.4, #750).
+
+    Everything that can be refused without sending is refused **before the proposal is recorded**, so no approval is
+    requested or spent for a call that cannot be made: the input against the row's schema, the operation the row selects, the
+    egress policy for the request and an OAuth token URL, a caller-supplied idempotency key and a conflicting
+    precondition (:func:`~caliber.integrations.openapi.executor.preflight_governed_openapi_request`). The proposal records the
+    operation from the **row** (method, server, path template) and the input; the ``openapi_http`` backend sends it, once,
+    only after the exact approval and the execution-owner lease are rechecked, with the proposal's stable key and
+    precondition. The returned dict is the executor's result, as an inline call returns it.
+    """
+    context = plan.governed_effects
+    assert context is not None  # _governed_openapi_route guarantees it
+    if not callable(context.authorize) or not callable(context.receipt_verifier):
+        raise ToolExecutionError("governed OpenAPI effect context is incomplete")
+    if not arguments:
+        raise ToolExecutionError("openapi tools accept one object argument")
+    operation = openapi.operation
+    try:
+        checked = _openapi_http.preflight(operation, _json_compatible(arguments))
+    except OpenApiPreflightError as exc:
+        raise ToolExecutionError(f"OpenAPI effect proposal refused: {exc.code}") from exc
+    return _submit_authorize_dispatch(
+        context,
+        label="OpenAPI effect",
+        proposal={
+            "node_id": node_id,
+            "occurrence_id": _STEP_OCCURRENCE.get() or node_id,
+            "connector": _openapi_http.CONNECTOR,
+            "connector_version": _openapi_http.VERSION,
+            "min_effect_class": openapi.route.effect_class,
+            "resource": _openapi_http.operation_resource(checked),
+            "args": _openapi_http.intent_args(operation, checked),
+            "expected_resource_version": checked.expected_resource_version,
+            "tool_name": operation.tool,
+            "caliber_defined": openapi.route.trusted,
+        },
+        backend_kind=_openapi_http.BACKEND_KIND,
+        backend_config={"operation": operation, "receipt_verifier": context.receipt_verifier},
+    )
 
 
 #: Failures that prove the effect did **not** reach the remote system, so the
@@ -6606,11 +7236,29 @@ def _run_node(  # noqa: PLR0911, PLR0912, PLR0915 - per-node-type dispatch
                 detail=f"waiting_approval:{nid}",
             )
         override = (extra_tools or {}).get(binding.local_name)
+        openapi_effect: _GovernedOpenApi | None = None
+        if (
+            binding.binding_type == "registered_function"
+            and binding.execution_backend == OPENAPI_BACKEND
+        ):
+            openapi_effect = _governed_openapi_route(
+                plan,
+                binding,
+                node_id=nid,
+                preview=preview,
+                arguments=arguments,
+                overridden=override is not None,
+            )
+            route = None if openapi_effect is None else openapi_effect.route
+        else:
+            route = _governed_tool_route(plan, binding, node_id=nid, preview=preview)
+        # A governed call is never retried: a second attempt of a write could repeat its effect.
+        run_binding = replace(binding, max_retries=0) if route is not None else binding
         fn = (
-            _resilient_callable(binding, override)
+            _resilient_callable(run_binding, override)
             if override is not None
             else _resolve_bound_tool_callable(
-                binding,
+                run_binding,
                 plan.resolver,
                 preview=preview,
                 required=True,
@@ -6630,7 +7278,22 @@ def _run_node(  # noqa: PLR0911, PLR0912, PLR0915 - per-node-type dispatch
             },
         ) as span:
             try:
-                result = _call_tool(fn, arguments, fallback_input=fallback_input)
+                if route is None:
+                    result = _call_tool(fn, arguments, fallback_input=fallback_input)
+                elif openapi_effect is not None:
+                    result = _perform_openapi_tool_effect(
+                        plan, node_id=nid, openapi=openapi_effect, arguments=arguments
+                    )
+                else:
+                    result = _perform_registered_tool_effect(
+                        plan,
+                        node_id=nid,
+                        binding=binding,
+                        route=route,
+                        fn=fn,
+                        arguments=arguments,
+                        fallback_input=fallback_input,
+                    )
             finally:
                 span.set_attribute(
                     "caliber.tool.latency_ms",
@@ -7280,6 +7943,18 @@ def _run_node(  # noqa: PLR0911, PLR0912, PLR0915 - per-node-type dispatch
         )
 
     if isinstance(node, IRAgent):
+        if plan.governed_agent_steps is not None:
+            return _run_governed_agent_node(
+                node,
+                ir,
+                plan,
+                executor,
+                inputs=inputs,
+                run_input=run_input,
+                port_values=port_values,
+                preview=preview,
+                extra_tools=extra_tools,
+            )
         agent_input = _select_input(inputs, run_input)
         explicit_history = _normalize_message_history(inputs.get("history"))
         callables = _resolve_tool_callables(

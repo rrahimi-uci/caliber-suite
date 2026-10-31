@@ -2616,6 +2616,268 @@ def test_worker_rejects_malformed_effect_wait_checkpoint(client, monkeypatch) ->
         )
 
 
+def _governed_agent_run(client, monkeypatch: pytest.MonkeyPatch, script: list) -> str:
+    """Queue a run of the support workflow whose agent node the worker runs as a governed step (B08.2).
+
+    Nothing in production builds a governed context yet (the producer that admits a run will), so the test wraps the plan the
+    worker builds: it gets the context and a context recorder, and the executor is the scripted adapter.
+    """
+    from caliber.contracts.agent_step import StepLimits
+    from caliber.effects.step_proposal import GovernedStepContext, registry_tool_classifier
+
+    _enable_queue(client)
+    _wid, vid = create_and_publish(client)
+    created = client.post(
+        f"{PREFIX}/workflow-runs",
+        json={"workflow_version_id": vid, "input": "hello"},
+    )
+    assert created.status_code == 202
+    run_id = created.json()["data"]["workflow_run_id"]
+    factory = client.app.state.session_factory
+    real_build_plan = workflow_run_worker_module.build_plan
+
+    def build_plan(*args, **kwargs):
+        plan = real_build_plan(*args, **kwargs)
+        plan.context_recorder = lambda assembly: f"step-{assembly.node_id}-{assembly.attempt}"
+        plan.governed_agent_steps = GovernedStepContext(
+            session_factory=factory,
+            workflow_run_id=run_id,
+            run_manifest_digest="a" * 64,
+            grant_id="grant-1",
+            classify_tool=registry_tool_classifier(factory),
+            context_manifest_digest=lambda step_request_id: "b" * 64,
+            limits=lambda agent: StepLimits(8, 4, 20000, "2099-01-01T00:00:00Z"),
+            requested_by="worker-test",
+            approval_ttl_seconds=3600,
+            tool_backends={("escalate", "1.0"): "document_request"},
+        )
+        return plan
+
+    monkeypatch.setattr(workflow_run_worker_module, "build_plan", build_plan)
+    monkeypatch.setattr(
+        workflow_run_worker_module,
+        "build_executor",
+        lambda *_a, **_k: FakeWorkflowExecutor(step_script=script),
+    )
+    return run_id
+
+
+def _document_request_action():
+    from caliber.contracts.agent_step import ProposedAction
+
+    return ProposedAction(
+        connector="document-request",
+        connector_version="1",
+        effect_class="irreversible_write",
+        resource="cases/MORT-2026-000184/document-requests",
+        args={"document_type": "pay_statement"},
+    )
+
+
+def test_worker_parks_a_governed_agent_step_behind_the_approval_of_its_proposal(
+    client, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """B08.2 (#744): the proposal and its bound request exist, the run is ``waiting_approval`` on that very request."""
+    from caliber.db.models import CaliberAuditLog, CaliberEffectProposal
+    from caliber.workflows.agent_step import ScriptedStep, StepUsage
+
+    usage = StepUsage(10, 5, 15, 1, 0)
+    run_id = _governed_agent_run(
+        client,
+        monkeypatch,
+        [ScriptedStep("proposed_action", (_document_request_action(),), usage=usage)],
+    )
+
+    _build_worker(client)._tick()
+
+    with client.app.state.session_factory() as session:
+        run = session.get(CaliberWorkflowRun, run_id)
+        assert run is not None
+        assert (run.status, run.error_code) == ("waiting_approval", "waiting_approval")
+        assert run.current_node_id == "support_agent"
+        proposal = session.query(CaliberEffectProposal).one()
+        assert (proposal.state, proposal.workflow_run_id, proposal.node_id) == (
+            "proposed",
+            run_id,
+            "support_agent",
+        )
+        requests = session.query(CaliberRuntimeApprovalRequest).all()
+        assert len(requests) == 1, "the bound request is the only one: no node-level duplicate"
+        (approval,) = requests
+        assert (approval.status, approval.proposal_id) == ("pending", proposal.proposal_id)
+        assert approval.intent_hash == proposal.intent_hash
+        summary = dict(run.summary or {})
+        checkpoint = session.get(CaliberWorkflowRunCheckpoint, summary["resume_checkpoint_id"])
+        assert checkpoint is not None and checkpoint.node_id == "support_agent"
+        blob = checkpoint.state_blob
+        assert blob["kind"] == "runtime_approval"
+        assert blob["proposal_id"] == proposal.proposal_id
+        assert blob["approval_request_id"] == approval.runtime_approval_id
+        assert isinstance(blob["input_by_port"], dict)
+        assert "pay_statement" not in json.dumps(blob), (
+            "the checkpoint holds identifiers, not the action"
+        )
+        waiting = (
+            session.query(CaliberWorkflowRunEvent)
+            .filter(
+                CaliberWorkflowRunEvent.workflow_run_id == run_id,
+                CaliberWorkflowRunEvent.event_type == "workflow.run.waiting_approval",
+            )
+            .one()
+        )
+        assert waiting.payload["runtime_approval_id"] == approval.runtime_approval_id
+        assert waiting.payload["proposal_id"] == proposal.proposal_id
+        assert "pay_statement" not in json.dumps(waiting.payload)
+        audit = (
+            session.query(CaliberAuditLog)
+            .filter(CaliberAuditLog.action == "workflow_run_waiting_approval")
+            .one()
+        )
+        assert audit.details["proposal_id"] == proposal.proposal_id
+        assert audit.details["runtime_approval_id"] == approval.runtime_approval_id
+        step_events = (
+            session.query(CaliberWorkflowRunEvent)
+            .filter(
+                CaliberWorkflowRunEvent.workflow_run_id == run_id,
+                CaliberWorkflowRunEvent.event_type == "workflow.run.step",
+                CaliberWorkflowRunEvent.node_id == "support_agent",
+            )
+            .count()
+        )
+        assert step_events == 1
+
+    # parked: a second pass claims nothing and the model is not asked again
+    _build_worker(client)._tick()
+    with client.app.state.session_factory() as session:
+        assert session.get(CaliberWorkflowRun, run_id).status == "waiting_approval"  # type: ignore[union-attr]
+        assert session.query(CaliberEffectProposal).count() == 1
+
+
+def test_worker_fails_a_governed_step_that_names_an_approval_request_it_does_not_own(
+    client, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from caliber.workflows.agent_step import ScriptedStep
+
+    run_id = _governed_agent_run(client, monkeypatch, [ScriptedStep("completed")])
+    real_execute = workflow_run_worker_module.execute
+
+    def execute_with_foreign_request(*args, **kwargs):
+        result = real_execute(*args, **kwargs)
+        step = NodeStep(
+            "support_agent",
+            "agent",
+            "blocked",
+            detail="waiting_approval:support_agent",
+            checkpoint_state={
+                "kind": "runtime_approval",
+                "node_id": "support_agent",
+                "proposal_id": "prop-elsewhere",
+                "approval_request_id": "rap-not-this-runs",
+                "intent_hash": "sha256:" + "1" * 64,
+            },
+            input_by_port={"input": "hello"},
+        )
+        return WorkflowRunResult(
+            status="blocked", output="", error=step.detail, steps=[*result.steps, step]
+        )
+
+    monkeypatch.setattr(workflow_run_worker_module, "execute", execute_with_foreign_request)
+
+    _build_worker(client)._tick()
+
+    with client.app.state.session_factory() as session:
+        run = session.get(CaliberWorkflowRun, run_id)
+        assert run is not None
+        assert (run.status, run.error_code) == ("failed", "runtime_error")
+        assert "not live and bound to this run, node and proposal" in str(run.error_summary)
+        assert session.query(CaliberRuntimeApprovalRequest).count() == 0
+
+
+@pytest.mark.parametrize(
+    "state",
+    [
+        None,
+        {"kind": "human_approval", "node_id": "support_agent"},
+        {"kind": "runtime_approval", "node_id": "other"},
+        {"kind": "runtime_approval", "node_id": "support_agent", "proposal_id": "p"},
+    ],
+    ids=["no_state", "wrong_kind", "wrong_node", "missing_ids"],
+)
+def test_worker_refuses_a_malformed_governed_approval_checkpoint(
+    client, monkeypatch: pytest.MonkeyPatch, state
+) -> None:
+    from caliber.workflows.agent_step import ScriptedStep
+
+    run_id = _governed_agent_run(client, monkeypatch, [ScriptedStep("completed")])
+
+    def execute_malformed(*_args, **_kwargs):
+        return WorkflowRunResult(
+            status="blocked",
+            output="",
+            error="waiting_approval:support_agent",
+            steps=[
+                NodeStep(
+                    "support_agent",
+                    "agent",
+                    "blocked",
+                    detail="waiting_approval:support_agent",
+                    checkpoint_state=state,
+                    input_by_port={"input": "hello"},
+                )
+            ],
+        )
+
+    monkeypatch.setattr(workflow_run_worker_module, "execute", execute_malformed)
+
+    _build_worker(client)._tick()
+
+    with client.app.state.session_factory() as session:
+        run = session.get(CaliberWorkflowRun, run_id)
+        assert run is not None
+        assert (run.status, run.error_code) == ("failed", "runtime_error")
+        assert run.error_summary == (
+            "workflow runtime returned waiting_approval without resumable checkpoint context"
+        )
+        assert session.query(CaliberRuntimeApprovalRequest).count() == 0
+
+
+def test_worker_resumes_a_governed_parked_run_from_its_runtime_approval_checkpoint(
+    client, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """After a parked run is queued again (the resume route does that once the decision is in) the node finds its proposal."""
+    from caliber.db.models import CaliberEffectProposal
+    from caliber.workflows.agent_step import ScriptedStep, StepUsage
+
+    executor = FakeWorkflowExecutor(
+        step_script=[
+            ScriptedStep(
+                "proposed_action", (_document_request_action(),), usage=StepUsage(1, 1, 2, 1, 0)
+            )
+        ]
+    )
+    run_id = _governed_agent_run(client, monkeypatch, [])
+    monkeypatch.setattr(workflow_run_worker_module, "build_executor", lambda *_a, **_k: executor)
+    _build_worker(client)._tick()
+    with client.app.state.session_factory() as session:
+        run = session.get(CaliberWorkflowRun, run_id)
+        assert run is not None and run.status == "waiting_approval"
+        approval = session.query(CaliberRuntimeApprovalRequest).one()
+        approval.status = "approved"
+        approval.decided_by = "approver"
+        run.status = "queued"
+        session.commit()
+
+    _build_worker(client)._tick()
+
+    assert len(executor.step_requests) == 1, "the resumed node did not ask the model again"
+    with client.app.state.session_factory() as session:
+        run = session.get(CaliberWorkflowRun, run_id)
+        assert run is not None
+        assert run.status == "waiting_approval", (run.error_code, run.error_summary)
+        assert session.query(CaliberEffectProposal).count() == 1
+        assert session.query(CaliberRuntimeApprovalRequest).count() == 1
+
+
 def test_worker_executes_start_to_output_passthrough_run(client) -> None:
     _enable_queue(client)
     workflow_id = "passthrough-worker-wf"
@@ -5086,7 +5348,7 @@ def test_worker_executes_knowledge_query_node_with_age_graph_retrieval(
             type(self).last_identity_user = identity.user_id
             return SimpleNamespace(active_version_id="KBV-active")
 
-        def query(self, payload, *, identity):
+        def query(self, payload, *, identity, model_context_recorder=None, model_context=None):
             type(self).last_query = payload
             type(self).last_identity_user = identity.user_id
             return _FakeQueryResult(payload)
@@ -5188,7 +5450,7 @@ def test_worker_executes_graph_hybrid_rag_starter_template(
             type(self).last_identity_user = identity.user_id
             return SimpleNamespace(active_version_id="KBV-HYBRID-ACTIVE")
 
-        def query(self, payload, *, identity):
+        def query(self, payload, *, identity, model_context_recorder=None, model_context=None):
             type(self).last_query = payload
             type(self).last_identity_user = identity.user_id
             return _FakeQueryResult(payload)
@@ -5606,7 +5868,7 @@ def test_worker_human_approval_resume_rejects_missing_input_snapshot_before_work
         assert event_types[-1] == "workflow.run.waiting_approval"
 
 
-def test_worker_runtime_tool_approval_blocks_then_executes_after_resume(
+def test_worker_runtime_tool_approval_blocks_then_refuses_protected_tool_without_governed_context(
     client,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -5664,10 +5926,19 @@ def test_worker_runtime_tool_approval_blocks_then_executes_after_resume(
 
     worker._tick()
 
+    # B04.3 (#741): the node's legacy approval gate is not an exact-intent approval, and the worker binds no
+    # governed effect context yet, so the protected ``escalate`` tool (declared ``external_action``) is refused
+    # instead of being called. Before B04.3 this resumed run completed and called the tool.
     final = client.get(f"{PREFIX}/workflow-runs/{run_id}")
     assert final.status_code == 200
-    assert final.json()["data"]["status"] == "completed"
-    assert calls == [({}, "escalate ticket T-300")]
+    assert final.json()["data"]["status"] == "failed"
+    with client.app.state.session_factory() as session:
+        run = session.get(CaliberWorkflowRun, run_id)
+        assert run is not None
+        assert "requires a governed effect context to run protected registered tool" in str(
+            run.error_summary
+        )
+    assert calls == []
 
 
 def test_worker_fails_runtime_tool_approval_result_missing_input_snapshot_instead_of_persisting_bad_checkpoint(
@@ -8729,7 +9000,7 @@ def test_worker_marks_knowledge_query_service_failures_as_runtime_errors(
             del knowledge_base_id, identity
             return SimpleNamespace(active_version_id="KBV-active")
 
-        def query(self, payload, *, identity):
+        def query(self, payload, *, identity, model_context_recorder=None, model_context=None):
             del payload, identity
             raise RuntimeError("knowledge query service unavailable")
 

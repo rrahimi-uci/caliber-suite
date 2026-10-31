@@ -141,7 +141,7 @@ Use the typed SDK where it exists. When a family is marked `Raw only`, the curre
 | Agents (`agents`) | `ga` | `9` | Typed SDK | `client.agents` | The agent record that verification items, refinement jobs, approvals and rollback checkpoints hang off. |
 | Workflows (`workflows`) | `ga` | `28` | Typed SDK | `client.workflows` | Workflow CRUD plus the umbrella entry point for versions, runs, and services. |
 | Workflow Versions (`workflow-versions`) | `ga` | `16` | Typed SDK | `client.workflows.versions` | Create, validate, compile, and publish immutable workflow versions. |
-| Workflow Runs (`workflow-runs`) | `ga` | `21` | Typed SDK | `client.workflows.runs` | Submit, inspect, cancel, and wait on workflow executions. |
+| Workflow Runs (`workflow-runs`) | `ga` | `22` | Typed SDK | `client.workflows.runs` | Submit, inspect, cancel, and wait on workflow executions. |
 | Workflow Components (`workflow-components`) | `ga` | `1` | Typed SDK | `client.workflows.components()` | The workflow node catalog, with each component's runtime requirements. |
 | Workflow Templates (`workflow-templates`) | `ga` | `1` | Typed SDK | `client.workflows.templates()` | Starter workflow templates. |
 | Workflow Files (`workflow-files`) | `ga` | `1` | Typed SDK | `client.workflows.upload_staging_file()` | Staging uploads for workflow inputs. |
@@ -182,7 +182,7 @@ Use the typed SDK where it exists. When a family is marked `Raw only`, the curre
 | Memory (`memory`) | `internal` | `4` | Typed SDK | `client.memory` | Add, search, list and delete agent long-term memory records. |
 | Metrics (`metrics`) | `internal` | `1` | n/a | `client.raw` | Every operation in this family is permanently outside SDK scope (see coverage_allowlist.toml's [[exclusion]] entries) -- there is nothing here a typed method would add. Use `client.raw` or the served OpenAPI document directly. |
 | Readiness (`readiness`) | `internal` | `1` | Typed SDK | `CaliberClient.readiness()` | The enveloped readiness report with its blocking checks. |
-| System (`system`) | `internal` | `11` | Typed SDK | `client.system` | Effect-ledger and webhook recovery: outward-facing work CALIBER could not complete and a person must resolve. |
+| System (`system`) | `internal` | `12` | Typed SDK | `client.system` | Effect-ledger and webhook recovery: outward-facing work CALIBER could not complete and a person must resolve. |
 | Webhooks (`webhooks`) | `internal` | `1` | n/a | `client.raw` | Every operation in this family is permanently outside SDK scope (see coverage_allowlist.toml's [[exclusion]] entries) -- there is nothing here a typed method would add. Use `client.raw` or the served OpenAPI document directly. |
 
 ## Current route inventory
@@ -194,8 +194,8 @@ The served contract is route-table grounded and body-complete: paths and methods
 
 | Field | Value |
 | --- | --- |
-| Route paths | `391` |
-| Operations | `477` |
+| Route paths | `393` |
+| Operations | `479` |
 | Path coverage | `complete` |
 | Request bodies | `complete` |
 | GA families | `23` |
@@ -230,7 +230,7 @@ Use these quick jumps when you already know the CALIBER subsystem and want the d
 | [Agents (`agents`)](#agents-agents) | `9` | `6` |
 | [Workflows (`workflows`)](#workflows-workflows) | `28` | `20` |
 | [Workflow Versions (`workflow-versions`)](#workflow-versions-workflow-versions) | `16` | `15` |
-| [Workflow Runs (`workflow-runs`)](#workflow-runs-workflow-runs) | `21` | `20` |
+| [Workflow Runs (`workflow-runs`)](#workflow-runs-workflow-runs) | `22` | `21` |
 | [Workflow Components (`workflow-components`)](#workflow-components-workflow-components) | `1` | `1` |
 | [Workflow Templates (`workflow-templates`)](#workflow-templates-workflow-templates) | `1` | `1` |
 | [Workflow Files (`workflow-files`)](#workflow-files-workflow-files) | `1` | `1` |
@@ -281,7 +281,7 @@ Use these quick jumps when you already know the CALIBER subsystem and want the d
 | [Memory (`memory`)](#memory-memory) | `4` | `2` |
 | [Metrics (`metrics`)](#metrics-metrics) | `1` | `1` |
 | [Readiness (`readiness`)](#readiness-readiness) | `1` | `1` |
-| [System (`system`)](#system-system) | `11` | `11` |
+| [System (`system`)](#system-system) | `12` | `12` |
 | [Webhooks (`webhooks`)](#webhooks-webhooks) | `1` | `1` |
 
 ### GA routes
@@ -594,7 +594,7 @@ Supported management routes that belong to the stable public automation surface.
 
 #### Workflow Runs (`workflow-runs`)
 
-21 operation(s) across 20 route path(s).
+22 operation(s) across 21 route path(s).
 
 | Method | Path | Required scope | Parameters | Responses | Details |
 | --- | --- | --- | --- | --- | --- |
@@ -608,6 +608,7 @@ Supported management routes that belong to the stable public automation surface.
 | `GET` | `/ajax-api/2.0/mlflow/caliber/workflow-runs/{run_id}/approvals` | any authenticated user | `run_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_workflow_runs_run_id_approvals` |
 | `POST` | `/ajax-api/2.0/mlflow/caliber/workflow-runs/{run_id}/artifacts` | `caliber.operator` | `run_id` | `201`, `400`, `401`, `403`, `404` | `operationId`: `post_workflow_runs_run_id_artifacts`; request body documented in OpenAPI |
 | `POST` | `/ajax-api/2.0/mlflow/caliber/workflow-runs/{run_id}/cancel` | project role (`resource.execute`) | `run_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_workflow_runs_run_id_cancel`; request body documented in OpenAPI |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/workflow-runs/{run_id}/causal-links` | project role (`read`) | `run_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_workflow_runs_run_id_causal_links` |
 | `GET` | `/ajax-api/2.0/mlflow/caliber/workflow-runs/{run_id}/checkpoints` | any authenticated user | `run_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_workflow_runs_run_id_checkpoints` |
 | `GET` | `/ajax-api/2.0/mlflow/caliber/workflow-runs/{run_id}/events` | any authenticated user | `run_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_workflow_runs_run_id_events` |
 | `GET` | `/ajax-api/2.0/mlflow/caliber/workflow-runs/{run_id}/files` | any authenticated user | `run_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_workflow_runs_run_id_files` |
@@ -1141,12 +1142,13 @@ Published for route-table completeness, but not part of the supported SDK contra
 
 #### System (`system`)
 
-11 operation(s) across 11 route path(s).
+12 operation(s) across 12 route path(s).
 
 | Method | Path | Required scope | Parameters | Responses | Details |
 | --- | --- | --- | --- | --- | --- |
 | `GET` | `/ajax-api/2.0/mlflow/caliber/system/alerts` | any authenticated user | — | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_system_alerts` |
 | `GET` | `/ajax-api/2.0/mlflow/caliber/system/effects` | `caliber.operator` | — | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_system_effects` |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/system/effects/proposals/{proposal_id}/reconcile` | `caliber.admin` | `proposal_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_system_effects_proposals_proposal_id_reconcile`; request body documented in OpenAPI |
 | `POST` | `/ajax-api/2.0/mlflow/caliber/system/effects/{effect_key}/resolve` | `caliber.admin` | `effect_key` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_system_effects_effect_key_resolve`; request body documented in OpenAPI |
 | `GET` | `/ajax-api/2.0/mlflow/caliber/system/incidents` | any authenticated user | — | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_system_incidents` |
 | `POST` | `/ajax-api/2.0/mlflow/caliber/system/incidents/{incident_id}/acknowledge` | `caliber.operator` | `incident_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_system_incidents_incident_id_acknowledge` |

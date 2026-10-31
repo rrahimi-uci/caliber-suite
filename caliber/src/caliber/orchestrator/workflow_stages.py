@@ -27,10 +27,11 @@ from collections.abc import Callable
 from typing import Any
 
 from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, sessionmaker
 
 from caliber.audit import record as audit_record
 from caliber.auth import CaliberIdentity
+from caliber.candidate_digest import candidate_digest
 from caliber.config import CaliberConfig
 from caliber.db.models import (
     CaliberEvalDataset,
@@ -42,6 +43,7 @@ from caliber.db.models import (
     CaliberWorkflowVersion,
 )
 from caliber.db.scoping import apply_visibility_filter
+from caliber.effects.registered_tools import RegisteredToolIdentity, registry_identity_reader
 from caliber.ids import new_workflow_patch_id
 from caliber.workflows.calibration import (
     WorkflowCalibrationError,
@@ -67,6 +69,17 @@ from caliber.workflows.refinement import (
 from caliber.workflows.runtime import WorkflowExecutor
 
 logger = logging.getLogger("caliber.orchestrator.workflow_stages")
+
+
+def _registry_reader(session: Session) -> Callable[[str, str], RegisteredToolIdentity | None]:
+    """The registry-row reader of this stage (B04.3, #741).
+
+    Evaluation and calibration replay a candidate manifest's tools with no dispatcher, approval or lease, so they hand
+    the runtime this reader: it runs read-class registry tools and refuses protected ones.
+    """
+    return registry_identity_reader(
+        sessionmaker(bind=session.get_bind(), class_=Session, expire_on_commit=False)
+    )
 
 
 class WorkflowStageError(Exception):
@@ -453,6 +466,7 @@ def _run_workflow_calibration_candidate(
             scorer=scorer,
             knowledge_query_runner=knowledge_query_runner,
             knowledge_build_runner=knowledge_build_runner,
+            registered_tool_identity=_registry_reader(session),
         )
     except WorkflowCalibrationError as exc:
         job.status = "rejected"
@@ -648,6 +662,7 @@ def run_workflow_eval(
         scorer=scorer,
         knowledge_query_runner=knowledge_query_runner,
         knowledge_build_runner=knowledge_build_runner,
+        registered_tool_identity=_registry_reader(session),
     )
     job.eval_results = {
         "candidate": {
@@ -686,6 +701,8 @@ def run_workflow_eval(
     # the terminal ``candidate_ready`` state for an operator to Apply later.
     job.status = "candidate_ready"
     job.current_stage = "done"
+    # Bind a later Apply to exactly the content this gate cleared (B06.4, #753).
+    job.candidate_digest = candidate_digest(job.candidate)
     audit_record(
         session,
         actor=actor,
@@ -805,6 +822,8 @@ def _run_workflow_calibration_eval(
     # operator promotes the selected winner later via the Apply endpoint.
     job.status = "candidate_ready"
     job.current_stage = "done"
+    # Bind a later Apply to exactly the content this gate cleared (B06.4, #753).
+    job.candidate_digest = candidate_digest(job.candidate)
     audit_record(
         session,
         actor=actor,

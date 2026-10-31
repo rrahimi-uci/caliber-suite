@@ -110,6 +110,18 @@ CONTEXT_SECTIONS: Final = ("retrieved", "history")
 DEFAULT_CONTEXT_SECTION_CAPS: Final = '{"retrieved": 4000, "history": 2000}'
 
 
+#: The platform ceilings of one governed agent step (B08.3). A step's own limits (``AgentStepRequest.limits``) are capped at these
+#: before the step runs, and the bounds are what the settings accept: finite and small enough that no step is unbounded.
+AGENT_STEP_MAX_TURNS_DEFAULT: Final = 25
+AGENT_STEP_MAX_TURNS_BOUNDS: Final = (1, 1000)
+AGENT_STEP_MAX_TOOL_CALLS_DEFAULT: Final = 50
+AGENT_STEP_MAX_TOOL_CALLS_BOUNDS: Final = (0, 1000)
+AGENT_STEP_MAX_TOKENS_DEFAULT: Final = 200_000
+AGENT_STEP_MAX_TOKENS_BOUNDS: Final = (1, 10_000_000)
+AGENT_STEP_MAX_SECONDS_DEFAULT: Final = 600.0
+AGENT_STEP_MAX_SECONDS_BOUNDS: Final = (1.0, 86400.0)
+
+
 def parse_section_caps(raw: str) -> dict[str, int]:
     """The per-section token caps in ``raw`` (a JSON object), or ``ValueError`` saying what is wrong.
 
@@ -1450,6 +1462,20 @@ class CaliberConfig(BaseModel):
         ),
     )
 
+    apply_require_distinct_approver: bool = Field(
+        default=False,
+        description=(
+            "Two-person rule for Apply (``POST /jobs/{id}/apply``): the account that requested a refinement job "
+            "(its recorded ``triggered_by``) cannot apply that job's candidate, and a job with no recorded "
+            "requester (written before creator provenance existed) is refused rather than passed, because a "
+            "distinct approver cannot be verified for it. The requester comes from the job row, written from the "
+            "authenticated identity, and the approver is the authenticated caller; neither is read from the "
+            "request body. Off by default so a single-operator or development install keeps applying its own "
+            "candidates. The reference profile requires it on (``apply_distinct_approver_disabled``) and enforces "
+            "it even if it were somehow off at request time."
+        ),
+    )
+
     approval_ttl_seconds: int = Field(
         default=86400,
         ge=1,
@@ -1823,6 +1849,42 @@ class CaliberConfig(BaseModel):
         parse_section_caps(value)
         return value
 
+    agent_step_max_turns: int = Field(
+        default=AGENT_STEP_MAX_TURNS_DEFAULT,
+        ge=AGENT_STEP_MAX_TURNS_BOUNDS[0],
+        le=AGENT_STEP_MAX_TURNS_BOUNDS[1],
+        description=(
+            "The most provider turns one governed agent step may be given (1 to 1000). A step's own limit is capped at this "
+            "before it runs and enforced by the platform, whatever the adapter reports. Applies to the producer that builds "
+            "the governed step context with ``StepCeilings.from_config``; a context without one uses the default."
+        ),
+    )
+    agent_step_max_tool_calls: int = Field(
+        default=AGENT_STEP_MAX_TOOL_CALLS_DEFAULT,
+        ge=AGENT_STEP_MAX_TOOL_CALLS_BOUNDS[0],
+        le=AGENT_STEP_MAX_TOOL_CALLS_BOUNDS[1],
+        description=(
+            "The most read-tool calls one governed agent step may make (0 to 1000; 0 allows none). The platform counts the "
+            "calls itself and refuses the one past the limit."
+        ),
+    )
+    agent_step_max_tokens: int = Field(
+        default=AGENT_STEP_MAX_TOKENS_DEFAULT,
+        ge=AGENT_STEP_MAX_TOKENS_BOUNDS[0],
+        le=AGENT_STEP_MAX_TOKENS_BOUNDS[1],
+        description="The most tokens (prompt plus completion) one governed agent step may use (1 to 10000000).",
+    )
+    agent_step_max_seconds: float = Field(
+        default=AGENT_STEP_MAX_SECONDS_DEFAULT,
+        ge=AGENT_STEP_MAX_SECONDS_BOUNDS[0],
+        le=AGENT_STEP_MAX_SECONDS_BOUNDS[1],
+        allow_inf_nan=False,
+        description=(
+            "The longest wall-clock window one governed agent step may be given, from the moment it is asked (1 to 86400, "
+            "finite). A step's deadline later than this is brought forward to it."
+        ),
+    )
+
     effect_callback_connectors: str = Field(
         default="[]",
         description=(
@@ -1837,6 +1899,48 @@ class CaliberConfig(BaseModel):
     def _effect_callback_connectors_are_valid(cls, value: str) -> str:
         parse_bindings(value)
         return value
+
+    effect_reconciler_enabled: bool = Field(
+        default=True,
+        description=(
+            "Run the effect reconciler loop (B05.5d, #997) in the execution owner. Reference profile only: it needs the "
+            "execution-owner lease, which only that profile has. It asks each connector bound in "
+            "``effect_callback_connectors`` about the effects nobody recorded the outcome of, and moves a dispatch that stayed "
+            "in flight too long to unknown. Turn it off only if another process under the same lease does that work: "
+            "without it an effect whose settle failed stays blocked until an operator reconciles it."
+        ),
+    )
+    effect_reconciler_interval_seconds: float = Field(
+        default=15.0,
+        ge=1.0,
+        le=3600.0,
+        allow_inf_nan=False,
+        description="Seconds between effect reconciler passes (1 to 3600, finite).",
+    )
+    effect_reconciler_budget_seconds: float = Field(
+        default=20.0,
+        ge=1.0,
+        le=600.0,
+        allow_inf_nan=False,
+        description=(
+            "How long one effect reconciler pass may keep starting lookups (1 to 600, finite). A lookup in progress "
+            "finishes (its own timeout applies, 30 s by default) and the rest wait for the next pass."
+        ),
+    )
+    effect_in_flight_max_seconds: float = Field(
+        default=900.0,
+        ge=300.0,
+        le=86400.0,
+        allow_inf_nan=False,
+        description=(
+            "How long an effect may stay dispatched under the lease that is still current before the reconciler records it "
+            "unknown (300 to 86400, finite). It must exceed the longest a dispatch can legitimately take: the executor's "
+            "timeout (30 s by default) times its attempts (at most 5), its backoff (under 4 s) and the receipt lookup (30 s) "
+            "come to about 3 minutes with the defaults, which is what the 300 s floor covers; a connector configured with a "
+            "longer timeout needs a larger value. A dispatcher that is merely slow finds its row unknown and the reconciler "
+            "settles it by a lookup by key instead of the dispatcher."
+        ),
+    )
 
     # ------------------------------------------------------------------
     # CSRF protection (parity checklist §11). Opt-in because the common
@@ -2487,6 +2591,7 @@ _ENV_VAR_TABLE: list[tuple[str, str, Any]] = [
         str,
     ),
     ("CALIBER_APPROVAL_ALLOW_SELF_APPROVAL", "approval_allow_self_approval", _flag),
+    ("CALIBER_APPLY_REQUIRE_DISTINCT_APPROVER", "apply_require_distinct_approver", _flag),
     ("CALIBER_APPROVAL_TTL_SECONDS", "approval_ttl_seconds", int),
     ("CALIBER_EGRESS_POLICY_ENABLED", "egress_policy_enabled", _flag),
     ("CALIBER_EGRESS_BLOCKED_CATEGORIES", "egress_blocked_categories", str),
@@ -2566,7 +2671,15 @@ _ENV_VAR_TABLE: list[tuple[str, str, Any]] = [
     ("CALIBER_PII_REDACTION_REPLACEMENT", "pii_redaction_replacement", str),
     ("CALIBER_PII_REDACTION_EXTRA_PATTERNS", "pii_redaction_extra_patterns", str),
     ("CALIBER_CONTEXT_SECTION_CAPS", "context_section_caps", str),
+    ("CALIBER_AGENT_STEP_MAX_TURNS", "agent_step_max_turns", int),
+    ("CALIBER_AGENT_STEP_MAX_TOOL_CALLS", "agent_step_max_tool_calls", int),
+    ("CALIBER_AGENT_STEP_MAX_TOKENS", "agent_step_max_tokens", int),
+    ("CALIBER_AGENT_STEP_MAX_SECONDS", "agent_step_max_seconds", float),
     ("CALIBER_EFFECT_CALLBACK_CONNECTORS", "effect_callback_connectors", str),
+    ("CALIBER_EFFECT_RECONCILER_ENABLED", "effect_reconciler_enabled", _flag),
+    ("CALIBER_EFFECT_RECONCILER_INTERVAL_SECONDS", "effect_reconciler_interval_seconds", float),
+    ("CALIBER_EFFECT_RECONCILER_BUDGET_SECONDS", "effect_reconciler_budget_seconds", float),
+    ("CALIBER_EFFECT_IN_FLIGHT_MAX_SECONDS", "effect_in_flight_max_seconds", float),
     ("CALIBER_CSRF_ENABLED", "csrf_enabled", _flag),
     ("CALIBER_CSRF_SIGNING_SECRET_ENV", "csrf_signing_secret_env", str),
     ("CALIBER_CSRF_TOKEN_TTL_SECONDS", "csrf_token_ttl_seconds", int),

@@ -19,10 +19,15 @@ import pytest
 
 from caliber.egress import EgressPolicy
 from caliber.integrations.openapi.executor import (
+    PREFLIGHT_REFUSAL_CODES,
     OpenApiExecutionError,
+    OpenApiPreflight,
+    OpenApiPreflightError,
     active_egress_policy,
     bind_egress_policy,
     execute_openapi_http_tool,
+    openapi_operation_method,
+    preflight_governed_openapi_request,
 )
 
 
@@ -392,3 +397,351 @@ def test_oauth_refresh_token_uses_refresh_grant(local_server) -> None:
 
     assert result["json"]["status"] == "resolved"
     assert handler.received[-1]["headers"]["Authorization"] == "Bearer refreshed-token"
+
+
+# ---------------------------------------------------------------- B04.4 (#750): the proposal-time preflight
+
+
+def _preflight(
+    config: dict[str, Any] | None = None,
+    input_data: dict[str, Any] | None = None,
+    **kwargs: Any,
+) -> OpenApiPreflight:
+    return preflight_governed_openapi_request(
+        execution_config=_config(method="POST", idempotency_key_header="Idempotency-Key")
+        if config is None
+        else config,
+        input_schema=kwargs.pop("input_schema", None),
+        input_data={"path_params": {"ticket_id": "T-1"}} if input_data is None else input_data,
+        egress_policy=kwargs.pop(
+            "egress_policy", EgressPolicy(allowed_hosts=frozenset({"tickets.example.com"}))
+        ),
+    )
+
+
+def _refused(code: str, *args: Any, **kwargs: Any) -> OpenApiPreflightError:
+    with pytest.raises(OpenApiPreflightError) as raised:
+        _preflight(*args, **kwargs)
+    assert raised.value.code == code
+    assert str(raised.value) == code, "a refusal carries its code and nothing else"
+    assert code in PREFLIGHT_REFUSAL_CODES
+    return raised.value
+
+
+def test_preflight_describes_the_operation_without_sending(local_server) -> None:
+    server, handler = local_server
+    config = _config(server_url=f"http://127.0.0.1:{server.server_address[1]}", method="POST")
+
+    checked = _preflight(
+        config,
+        {"path_params": {"ticket_id": "T-1"}, "body": {"a": 1}},
+        egress_policy=EgressPolicy(allowed_hosts=frozenset({"127.0.0.1"})),
+    )
+
+    assert (checked.method, checked.path) == ("POST", "/tickets/{ticket_id}")
+    assert checked.server_url == f"http://127.0.0.1:{server.server_address[1]}"
+    assert checked.idempotency_key_header is None
+    assert checked.expected_resource_version is None
+    assert handler.received == [], "a preflight sends nothing"
+
+
+def test_preflight_applies_the_egress_policy_to_the_request_url() -> None:
+    config = _config(server_url="http://127.0.0.1:9", method="POST")
+
+    _refused("openapi_egress_blocked", config, egress_policy=EgressPolicy())
+
+
+def test_preflight_uses_the_bound_process_policy_when_none_is_given() -> None:
+    bind_egress_policy(EgressPolicy(allowed_hosts=frozenset({"127.0.0.1"})))
+    config = _config(server_url="http://127.0.0.1:9", method="POST")
+
+    checked = preflight_governed_openapi_request(
+        execution_config=config, input_schema=None, input_data={"path_params": {"ticket_id": "T"}}
+    )
+    assert checked.method == "POST"
+
+    bind_egress_policy(None)
+    with pytest.raises(OpenApiPreflightError) as raised:
+        preflight_governed_openapi_request(
+            execution_config=config,
+            input_schema=None,
+            input_data={"path_params": {"ticket_id": "T"}},
+        )
+    assert raised.value.code == "openapi_egress_blocked"
+
+
+@pytest.mark.parametrize("kind", ["oauth_client_credentials", "oauth_refresh_token"])
+def test_preflight_applies_the_egress_policy_to_an_oauth_token_url(kind: str) -> None:
+    config = _config(
+        method="POST",
+        auth_binding={"kind": kind, "token_url": "http://169.254.169.254/token"},
+    )
+
+    _refused("openapi_egress_blocked", config)
+
+
+def test_preflight_resolves_no_secret_and_makes_no_token_request(local_server) -> None:
+    """An unresolvable secret is the transport's failure; the preflight only checks where the call would go."""
+    server, handler = local_server
+    port = server.server_address[1]
+    config = _config(
+        server_url=f"http://127.0.0.1:{port}",
+        method="POST",
+        auth_binding={
+            "kind": "oauth_client_credentials",
+            "token_url": f"http://127.0.0.1:{port}/oauth/token",
+            "client_id": "c",
+            "client_secret_ref": "env://B044_SECRET_THAT_IS_NOT_SET",
+        },
+    )
+
+    _preflight(config, egress_policy=EgressPolicy(allowed_hosts=frozenset({"127.0.0.1"})))
+
+    assert handler.received == []
+
+
+def test_preflight_refuses_an_unsupported_auth_kind_and_a_malformed_binding() -> None:
+    _refused("openapi_auth_unsupported", _config(method="POST", auth_binding={"kind": "kerberos"}))
+    _refused("openapi_config_invalid", _config(method="POST", auth_binding="bearer"))
+
+
+@pytest.mark.parametrize("kind", ["none", "bearer", "api_key", "basic", "header"])
+def test_preflight_accepts_every_supported_auth_kind_without_resolving_it(kind: str) -> None:
+    config = _config(method="POST", auth_binding={"kind": kind, "secret_ref": "env://NOT_SET"})
+
+    assert _preflight(config).method == "POST"
+
+
+@pytest.mark.parametrize(
+    ("config", "code"),
+    [
+        (None, "openapi_config_invalid"),
+        ({}, "openapi_config_invalid"),
+        (_config(server_url=""), "openapi_config_invalid"),
+        (_config(path="tickets"), "openapi_config_invalid"),
+        (_config(server_url="http://user:pw@tickets.example.com"), "openapi_config_invalid"),
+        (_config(server_url="http://tickets.example.com?token=x"), "openapi_config_invalid"),
+        (_config(server_url="http://tickets.example.com#frag"), "openapi_config_invalid"),
+        (_config(server_url="ftp://tickets.example.com"), "openapi_config_invalid"),
+        (_config(server_url="http://tickets.example.com:notaport"), "openapi_config_invalid"),
+        (_config(server_url="http://tickets.example.com\n"), "openapi_config_invalid"),
+        (_config(server_url="http://"), "openapi_config_invalid"),
+    ],
+    ids=[
+        "none",
+        "empty",
+        "no-server",
+        "relative-path",
+        "userinfo",
+        "query",
+        "fragment",
+        "scheme",
+        "port",
+        "control-character",
+        "no-host",
+    ],
+)
+def test_preflight_refuses_a_configuration_it_cannot_name_in_a_resource(
+    config: dict[str, Any] | None, code: str
+) -> None:
+    with pytest.raises(OpenApiPreflightError) as raised:
+        preflight_governed_openapi_request(
+            execution_config=config,
+            input_schema=None,
+            input_data={"path_params": {"ticket_id": "T-1"}},
+            egress_policy=EgressPolicy(allowed_hosts=frozenset({"tickets.example.com"})),
+        )
+    assert raised.value.code == code
+    assert "pw" not in str(raised.value)
+
+
+def test_preflight_refuses_input_that_breaks_the_schema_without_echoing_it() -> None:
+    schema = {"type": "object", "properties": {"body": {"type": "integer"}}}
+
+    error = _refused(
+        "openapi_input_invalid",
+        _config(method="POST"),
+        {"path_params": {"ticket_id": "T-1"}, "body": "SECRET-VALUE-77"},
+        input_schema=schema,
+    )
+
+    assert "SECRET-VALUE-77" not in str(error)
+
+
+def test_preflight_refuses_a_missing_or_dot_path_parameter() -> None:
+    _refused("openapi_input_invalid", _config(method="POST"), {"path_params": {}})
+    _refused("openapi_input_invalid", _config(method="POST"), {"path_params": {"ticket_id": ".."}})
+
+
+def test_preflight_selects_a_pack_operation_from_the_configuration() -> None:
+    pack = {
+        "kind": "openapi_http_pack",
+        "server_url": "https://tickets.example.com",
+        "auth_binding": None,
+        "operations": [
+            {"operation_key": "list", "method": "GET", "path": "/tickets"},
+            {"operation_key": "create", "method": "POST", "path": "/tickets"},
+        ],
+    }
+
+    assert openapi_operation_method(pack, {"operation": "list"}) == "GET"
+    assert openapi_operation_method(pack, {"operation": "create"}) == "POST"
+    for bad in ({}, {"operation": "drop_tables"}, {"operation": " "}):
+        with pytest.raises(OpenApiPreflightError) as raised:
+            openapi_operation_method(pack, bad)
+        assert raised.value.code == "openapi_operation_unresolved"
+    with pytest.raises(OpenApiPreflightError) as raised:
+        openapi_operation_method({**pack, "operations": "nope"}, {"operation": "list"})
+    assert raised.value.code == "openapi_operation_unresolved"
+    with pytest.raises(OpenApiPreflightError) as raised:
+        openapi_operation_method(None, {})
+    assert raised.value.code == "openapi_config_invalid"
+
+
+@pytest.mark.parametrize(
+    "input_data",
+    [
+        {"idempotency_key": "mine"},
+        {"header_params": {"Idempotency-Key": "mine"}},
+        {"header_params": {"idempotency-key": "mine"}},
+        {"idempotency_key": "mine", "header_params": {"Idempotency-Key": "mine"}},
+    ],
+    ids=["input", "header", "header-lowercase", "both-equal"],
+)
+def test_preflight_refuses_any_caller_supplied_key_for_an_operation_that_binds_one(
+    input_data: dict[str, Any],
+) -> None:
+    """The platform owns the key: even an equal one is refused, never sent next to the proposal's."""
+    _refused(
+        "openapi_key_override_refused",
+        _config(method="POST", idempotency_key_header="Idempotency-Key"),
+        {"path_params": {"ticket_id": "T-1"}, **input_data},
+    )
+
+
+def test_preflight_ignores_a_key_input_for_an_operation_that_binds_no_header() -> None:
+    checked = _preflight(
+        _config(method="POST", idempotency_key_header=None),
+        {"path_params": {"ticket_id": "T-1"}, "idempotency_key": "unused"},
+    )
+
+    assert checked.idempotency_key_header is None
+
+
+def test_preflight_lifts_the_precondition_out_of_the_replayed_input() -> None:
+    config = _config(method="PUT", expected_resource_version_header="If-Match")
+    original = {
+        "path_params": {"ticket_id": "T-1"},
+        "header_params": {"if-match": "3", "X-Trace": "t"},
+        "expected_resource_version": "3",
+        "body": {"a": 1},
+    }
+
+    checked = _preflight(config, original)
+
+    assert checked.expected_resource_version == "3"
+    assert checked.expected_resource_version_header == "If-Match"
+    assert checked.replay_input == {
+        "path_params": {"ticket_id": "T-1"},
+        "header_params": {"X-Trace": "t"},
+        "body": {"a": 1},
+    }
+    assert original["expected_resource_version"] == "3", "the caller's input is not changed"
+    assert original["header_params"] == {"if-match": "3", "X-Trace": "t"}
+
+
+def test_preflight_takes_the_precondition_from_either_place_and_none_when_absent() -> None:
+    config = _config(method="PUT", expected_resource_version_header="If-Match")
+    base = {"path_params": {"ticket_id": "T-1"}}
+
+    assert (
+        _preflight(config, {**base, "expected_resource_version": 7}).expected_resource_version
+        == "7"
+    )
+    assert (
+        _preflight(config, {**base, "header_params": {"If-Match": "8"}}).expected_resource_version
+        == "8"
+    )
+    assert _preflight(config, base).expected_resource_version is None
+
+
+@pytest.mark.parametrize(
+    "extra",
+    [
+        {"header_params": {"If-Match": "4"}, "expected_resource_version": "3"},
+        {"header_params": {"If-Match": " "}},
+        {"expected_resource_version": " "},
+    ],
+    ids=["disagree", "blank-header", "blank-input"],
+)
+def test_preflight_refuses_a_conflicting_or_blank_precondition(extra: dict[str, Any]) -> None:
+    _refused(
+        "openapi_precondition_conflict",
+        _config(method="PUT", expected_resource_version_header="If-Match"),
+        {"path_params": {"ticket_id": "T-1"}, **extra},
+    )
+
+
+def test_preflight_leaves_a_precondition_alone_for_an_operation_that_binds_no_header() -> None:
+    checked = _preflight(
+        _config(method="PUT"),
+        {"path_params": {"ticket_id": "T-1"}, "expected_resource_version": "3"},
+    )
+
+    assert checked.expected_resource_version is None
+    assert checked.replay_input["expected_resource_version"] == "3"
+
+
+@pytest.mark.parametrize(
+    "header",
+    ["X-HTTP-Method-Override", "x-method-override", "X-HTTP-Method", "Transfer-Encoding", "Host"],
+)
+def test_the_executor_and_the_preflight_both_refuse_a_method_override_or_framing_header(
+    local_server, header: str
+) -> None:
+    server, handler = local_server
+    config = _config(server_url=f"http://127.0.0.1:{server.server_address[1]}")
+    bind_egress_policy(EgressPolicy(allowed_hosts=frozenset({"127.0.0.1"})))
+    input_data = {"path_params": {"ticket_id": "T-1"}, "header_params": {header: "DELETE"}}
+
+    with pytest.raises(OpenApiExecutionError) as refused:
+        execute_openapi_http_tool(execution_config=config, input_schema=None, input_data=input_data)
+    assert refused.value.never_sent is True
+    assert "DELETE" not in str(refused.value) and header not in str(refused.value)
+    error = _refused("openapi_header_forbidden", config, input_data)
+    assert "DELETE" not in str(error)
+    assert handler.received == []
+
+
+def test_an_ordinary_header_param_still_reaches_the_downstream(local_server) -> None:
+    server, handler = local_server
+    config = _config(server_url=f"http://127.0.0.1:{server.server_address[1]}")
+    bind_egress_policy(EgressPolicy(allowed_hosts=frozenset({"127.0.0.1"})))
+
+    execute_openapi_http_tool(
+        execution_config=config,
+        input_schema=None,
+        input_data={"path_params": {"ticket_id": "T-1"}, "header_params": {"X-Trace": "t"}},
+    )
+
+    assert handler.received[0]["headers"]["X-Trace"] == "t"
+
+
+def test_the_preflight_and_the_executor_agree_on_the_url_the_request_would_use(
+    local_server,
+) -> None:
+    """The preflight's egress check is for the URL the executor then sends to: both read the same operation."""
+    server, handler = local_server
+    config = _config(server_url=f"http://127.0.0.1:{server.server_address[1]}")
+    bind_egress_policy(EgressPolicy(allowed_hosts=frozenset({"127.0.0.1"})))
+    input_data = {"path_params": {"ticket_id": "T-1"}}
+
+    checked = preflight_governed_openapi_request(
+        execution_config=config, input_schema=None, input_data=input_data
+    )
+    result = execute_openapi_http_tool(
+        execution_config=config, input_schema=None, input_data=input_data
+    )
+
+    assert result["status_code"] == 200
+    assert handler.received[0]["path"] == checked.path.replace("{ticket_id}", "T-1")

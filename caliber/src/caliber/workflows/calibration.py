@@ -18,6 +18,7 @@ from caliber.db.models import (
     CaliberVerificationItem,
 )
 from caliber.db.scoping import apply_visibility_filter
+from caliber.effects.registered_tools import RegisteredToolIdentity
 from caliber.workflows.compiler import CompileError, compile_workflow
 from caliber.workflows.diff import compute_graph_diff
 from caliber.workflows.manifest import (
@@ -524,8 +525,12 @@ def evaluate_workflow_calibration_candidates(
     scorer: RunScorer | None = None,
     knowledge_query_runner: Callable[[dict[str, Any]], dict[str, Any]] | None = None,
     knowledge_build_runner: Callable[[dict[str, Any]], dict[str, Any]] | None = None,
+    registered_tool_identity: Callable[[str, str], RegisteredToolIdentity | None] | None = None,
 ) -> WorkflowCalibrationResult:
     """Replay and rank bounded workflow calibration candidates.
+
+    ``registered_tool_identity`` (B04.3, #741) is the registry-row reader of the run that owns this calibration: with it a
+    replay refuses a protected registry tool and runs read-class tools; without it the replay calls its tools directly.
 
     When ``scorer`` is supplied (the LLM judge, golden-path Wave 5.2), it
     overrides the structural ``quality`` dimension per run; the other dimensions
@@ -563,6 +568,7 @@ def evaluate_workflow_calibration_candidates(
             scorer=scorer,
             knowledge_query_runner=knowledge_query_runner,
             knowledge_build_runner=knowledge_build_runner,
+            registered_tool_identity=registered_tool_identity,
         )
     except (CompileError, ValueError) as exc:
         return WorkflowCalibrationResult(
@@ -594,6 +600,7 @@ def evaluate_workflow_calibration_candidates(
                 scorer=scorer,
                 knowledge_query_runner=knowledge_query_runner,
                 knowledge_build_runner=knowledge_build_runner,
+                registered_tool_identity=registered_tool_identity,
             )
             deltas = _score_deltas(baseline_scores, candidate_scores)
             accepted, reason, gate = _candidate_gate(
@@ -714,6 +721,7 @@ def _replay_calibration_manifest(
     scorer: RunScorer | None = None,
     knowledge_query_runner: Callable[[dict[str, Any]], dict[str, Any]] | None = None,
     knowledge_build_runner: Callable[[dict[str, Any]], dict[str, Any]] | None = None,
+    registered_tool_identity: Callable[[str, str], RegisteredToolIdentity | None] | None = None,
 ) -> tuple[dict[str, float], list[dict[str, Any]]]:
     compiled = compile_workflow(
         parse_manifest(manifest_dict), resolver=resolver, version="calibration"
@@ -728,6 +736,7 @@ def _replay_calibration_manifest(
         resolver=resolver,
         knowledge_query_runner=knowledge_query_runner,
         knowledge_build_runner=knowledge_build_runner,
+        registered_tool_identity=registered_tool_identity,
     )
     per_example: list[dict[str, float]] = []
     details: list[dict[str, Any]] = []

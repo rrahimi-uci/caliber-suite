@@ -236,6 +236,11 @@ class CaliberRefinementJob(Base):
     # 2.8 holds the single selected candidate; when GEPA / multi-candidate
     # optimizers land, ``alternatives`` inside this JSON holds the others.
     candidate: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+    # ``sha256:`` digest of ``candidate`` as it was when the eval gate cleared (B06.4, #753): written by the stage that
+    # moves the job to ``candidate_ready`` and recomputed against ``candidate`` inside the Apply claim, so a candidate
+    # edited after the gate is never promoted. NULL on a job that never reached ``candidate_ready``; a claimable job
+    # without one is refused, not trusted (``caliber.candidate_digest``).
+    candidate_digest: Mapped[str | None] = mapped_column(String(71), nullable=True)
 
     # Eval output. Populated by the Eval stage;
     # consumed by the Approval UI to render the per-dimension comparison.

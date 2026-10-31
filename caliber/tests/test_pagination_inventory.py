@@ -115,7 +115,7 @@ def test_the_pagination_shape_distribution_is_pinned(client: TestClient) -> None
         PaginationShape.AD_HOC_LIMIT_ONLY: 12,
         PaginationShape.BESPOKE_TOTAL_ENVELOPE: 1,
         PaginationShape.UNPAGINATED_FAKE_TOTAL: 2,
-        PaginationShape.CURSOR: 1,
+        PaginationShape.CURSOR: 2,
         PaginationShape.SEQUENCE_WATERMARK: 2,
     }
 
@@ -139,7 +139,7 @@ def test_list_limit_helper_routes_spot_check(client: TestClient) -> None:
         assert result.shape is PaginationShape.LIST_LIMIT_HELPER
 
 
-def test_the_one_cursor_route_is_correctly_classified(client: TestClient) -> None:
+def test_the_cursor_routes_are_correctly_classified(client: TestClient) -> None:
     from caliber.routes.openapi import _normalize_path
 
     app = client.app
@@ -147,3 +147,7 @@ def test_the_one_cursor_route_is_correctly_classified(client: TestClient) -> Non
     key = ("get", _normalize_path(PREFIX + "/workflows/{workflow_id}/runs"))
     assert _PAGINATION_NOTES[key].shape is PaginationShape.CURSOR
     assert key in normalized  # the route is actually live today
+    # B11.3b (#745): the causal-links read is the second, a keyset page over three sections
+    causal = ("get", _normalize_path(PREFIX + "/workflow-runs/{run_id}/causal-links"))
+    assert _PAGINATION_NOTES[causal].shape is PaginationShape.CURSOR
+    assert causal in normalized

@@ -587,8 +587,8 @@ class SystemAPI(Resource):
         (``effects``, ``source: legacy_ledger``; defaults to
         ``status=in_progress`` server-side, the set that needs a decision) and
         effect proposals (``proposals``, ``source: effect_proposal``; defaults to
-        the open states, settled by the reconciler and offering no operator
-        action). Every row carries ``source``, ``source_version`` and the
+        the open states, settled by the reconciler; its one operator action is
+        ``reconcile_effect_proposal``). Every row carries ``source``, ``source_version`` and the
         ``safe_actions`` that apply to that kind. ``params``: ``source``
         (``all``, ``legacy`` or ``proposal``), ``status``, ``proposal_state``
         (``open``, ``any`` or one state), ``workflow_run_id``, ``limit``."""
@@ -602,6 +602,18 @@ class SystemAPI(Resource):
         return self._post(
             f"/system/effects/{effect_key}/resolve",
             json={"resolution": resolution, **params},
+        )
+
+    def reconcile_effect_proposal(self, proposal_id: str, *, reason: str) -> Any:
+        """Ask the downstream about one effect proposal now, as the execution owner.
+
+        Admin-scoped and audited with ``reason``. It never records what the
+        operator believes: the proposal moves only on the downstream's own
+        evidence (a verified receipt, or a connector that proves absence
+        final) and otherwise stays ``unknown``; ``outcome`` says which. A
+        process that is not the execution owner answers ``409``."""
+        return self._post(
+            f"/system/effects/proposals/{proposal_id}/reconcile", json={"reason": reason}
         )
 
     def webhook_dead_letters(self, **params: Any) -> Any:

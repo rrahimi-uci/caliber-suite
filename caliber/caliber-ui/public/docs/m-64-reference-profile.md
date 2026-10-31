@@ -36,6 +36,7 @@ An unknown profile name is a configuration error. `GET /ajax-api/2.0/mlflow/cali
 | `egress_policy_disabled` | `egress_policy_enabled` | `CALIBER_EGRESS_POLICY_ENABLED` | true | The egress policy is what stops a tool or webhook from reaching internal addresses. |
 | `mcp_insecure_http` | `mcp_allow_insecure_http` | `CALIBER_MCP_ALLOW_INSECURE_HTTP` | false | Plain-HTTP MCP servers send tool calls and results in the clear. |
 | `self_approval_allowed` | `approval_allow_self_approval` | `CALIBER_APPROVAL_ALLOW_SELF_APPROVAL` | false | The account that started a run could approve its own protected action. |
+| `apply_distinct_approver_disabled` | `apply_require_distinct_approver` | `CALIBER_APPLY_REQUIRE_DISTINCT_APPROVER` | true | The account that requested a refinement job could apply its own candidate to production, and a job with no recorded requester could be applied unreviewed. |
 | `memory_inference_enabled` | `memory_infer` | `CALIBER_MEMORY_INFER` | false while CALIBER_MEMORY_ENABLED is true | LLM-inferred memory writes create durable, free-form facts nobody owns; the owned memory lifecycle does not exist yet. |
 | `fault_barriers_enabled` | `fault_barriers` | `CALIBER_FAULT_BARRIERS` | unset | An armed fault barrier makes the process exit on purpose; it exists only for scenario tests. |
 
@@ -83,6 +84,192 @@ A manifest-backed plan without this governed context is refused rather than fall
 without a workflow manifest retain the existing `_perform_guarded_effect` ledger behavior and do not create an effect
 proposal. The runtime integration that owns a run must bind the context with the run id, exact approval provider, live
 execution-owner lease and endpoint-specific verifier; no new environment variable, SDK route or migration is required.
+
+## Governed registered tools (B04.3)
+
+A workflow `tool` node that names a registered Python tool is routed by the tool's **registry row**, read from the
+database for the tool being run: its name, owner, version, module, callable and declared side-effect level. The
+manifest binding, an exported bundle and the model do not decide it (`IRToolBinding` and `ToolRegistryEntry` carry
+no owner, so there is nothing in them to forge). A plan is governed when it is wired to the registry (an identity reader) or to an authority (a governed context); the
+table below lists every place the runtime builds a plan and which it is. OpenAPI bindings are routed the same way by
+[Governed OpenAPI tools](#governed-openapi-tools-b044), and MCP bindings (B04.5) keep their own path.
+
+| the registry row is | the tool node |
+| --- | --- |
+| a CALIBER built-in (`@caliber`, version `1.0`, its own module and callable) the protected-effect inventory refuses (EP-055: `read_text_file`, `list_folder_files`, `grep_files`, `regex_search`; `sandbox_python`) | refused before it is bound or called: `registered tool '<name>' refused: unsupported_effect_path`; nothing is recorded |
+| a CALIBER built-in classified `read` (and declared `read`) | runs inline, as before |
+| any other CALIBER built-in | proposed, approved and dispatched at the inventory class (or the declared class when stricter) |
+| a row that reuses a built-in's reserved name without being the seed's own row, a tool with no readable row, or an unrecognised declared level | classified `irreversible_write`, the fail-closed class, and dispatched; never inline |
+| an administrator-registered tool declared `read` | runs inline, as before |
+| an administrator-registered tool declared `write` or `external_action` | proposed, approved and dispatched; the proposal records `irreversible_write` because the inventory does not list it; the recorded class is always the stricter of the inventory's class and the class the row's declared level implies |
+| a row whose module, callable or backend differs from the binding | refused: `registered tool '<name>' does not match its registry row` |
+
+A protected call follows the same boundary as the governed HTTP nodes: the runtime records an immutable proposal
+(`connector: registered_tool`, resource `registered-tool/<name>/<version>`, the tool's arguments and input), asks the
+run's authorization provider for the exact approval and the captured `execution-owner` lease, and `dispatch` rechecks
+both in one transaction, consumes the approval and writes the dispatch event **before** the private `registered_tool`
+backend calls the bound tool. The tool is called with the arguments **recorded in the proposal**, not with what the
+caller still holds, and never retried (the binding's `max_retries` is ignored for a governed call): a tool that raises or
+times out leaves the proposal `unknown` for the reconciler. A local callable has no downstream key to replay, so the
+platform makes no exactly-once claim; it guarantees at most one claim per logical effect, and re-executing a finished
+node does not call the tool again. The `registered_tool` backend is a pinned entry of the reference profile's trusted
+connector table (`REFERENCE_CONNECTORS`): its implementation, capability record (no key to replay, no lookup) and settings
+(`invoker`, `receipt_verifier`) are admitted, and it accepts the risks `write_not_exactly_once` and
+`key_retention_unconfirmed` by name. As for HTTP, the run's context must supply an authoritative `receipt_verifier`; a
+response it cannot verify does not become `committed`.
+
+Every refusal is a `ToolExecutionError` carrying a stable code and no argument, input or tool output:
+
+```text
+registered tool effect proposal refused: bad_field              # arguments or input too large or not plain JSON
+registered tool effect authorization was not granted           # no exact approval: the proposal stays `proposed`
+registered tool effect authorization failed: ValueError         # the provider raised; only the type is reported
+registered tool effect dispatch refused: proposal_not_approved  # not approved, or the node already ran
+registered tool effect did not commit: ambiguous:unclassified_error  # the tool raised: effect unknown, not retried
+'tool_node' requires a governed effect context to run protected registered tool 'open_ticket'
+registered tool 'open_ticket' identity could not be read: ConnectionError
+```
+
+Recovery: a `proposed` effect needs an exact approval, after which the run can be resumed or resubmitted (the proposal
+is reused for the same node occurrence, so the tool still runs once); an `unknown` effect is settled by the reconciler
+(B05) or an operator, never by re-running the node; a manifest-backed deployment whose run owner has not bound a
+governed context must keep protected registered tools out of its workflows, because it refuses them (read-class tools
+are unaffected). Every construction site of a runtime plan (`RuntimePlan(`) in the code, and what it does with a protected registry tool:
+
+| plan built by | used for | registry reader | protected registry tool |
+| --- | --- | --- | --- |
+| `promoter.build_plan` | worker runs, synchronous version runs, sub-workflows, Aria previews | bound | refused until a governed context is bound (#1051); a preview stubs it |
+| `refinement._replay` (via `orchestrator/workflow_stages.py::run_workflow_eval`) | candidate evaluation | bound by the stage | refused (typed, nothing recorded); read-class tools run |
+| `calibration._replay_calibration_manifest` (via `evaluate_workflow_calibration_candidates` in the stage) | calibration replay | bound by the stage | refused; read-class tools run |
+| `promoter` deploy-gate replay | release gate evaluation | none, but `preview=True` | stubbed, never run for real |
+| `export_runtime.execute_exported_workflow` | standalone exports | none (no registry to read) | **not governed**: called directly |
+| a caller that builds a plan itself (tests, SDK embedding) | any | none unless it passes one | **not governed**: called directly |
+
+The two evaluation replays used to call a candidate manifest's write tools for real (found in review of B04.3); they now refuse
+them, so a workflow whose protected tool must be exercised by an evaluation or calibration needs that tool replaced by a
+read-class stand-in until the replay can run under a governed context (#1051). The module-import paths stay inventory rows
+EP-015, EP-016 and EP-019, refused by #774.
+
+Two limits. An administrator-registered tool declared `read` is trusted as read-class: its declared level is part of the
+definition the deployment bundle pins and re-verifies before a run (`deployment_bundle.tool_snapshot`), but the platform
+does not observe what its code does, so register a tool that writes with `write` or `external_action`. And model-chosen tool
+calls inside an agent step and MCP tools are not routed by this change (B04.5 to B04.7); OpenAPI tool nodes are routed by
+[Governed OpenAPI tools](#governed-openapi-tools-b044).
+
+No migration, no new setting and no new route; rolling back is reverting the change (a `registered_tool` proposal
+already recorded remains readable and reconcilable).
+
+## Governed OpenAPI tools (B04.4)
+
+A workflow `tool` node bound to a tool published from an OpenAPI integration (`execution_backend: openapi_http`) is routed
+by the tool's **registry row**, as a registered Python tool is, and by the operation that row selects. Two things the
+registry holds decide the class, and the stricter wins: the row's declared `side_effect_level` and the **method** of the
+operation its own `backend_config` describes (a tool pack's operation is chosen by the call's `operation` input from the
+row's list of bound operations, never from the binding). The manifest binding, an exported bundle and the model decide
+nothing: the binding's `backend_config` and `input_schema` must equal the row's, or the node is refused.
+
+| the row and its operation | the tool node |
+| --- | --- |
+| `GET`, `HEAD` or `OPTIONS`, declared `read` | runs inline, as before: no proposal, no approval |
+| `GET`, `HEAD` or `OPTIONS`, declared `write` or `external_action` | proposed, approved and dispatched (the declared level floors the class) |
+| `POST`, `PUT`, `PATCH` or `DELETE`, whatever the level (an under-declared `read` included) | proposed, approved and dispatched: a method that is not a read method is at least a `reversible_write` |
+| a built-in's reserved name, or an unrecognised level | classified `irreversible_write` and dispatched; never inline |
+| a tool with no readable row, a row that is not an OpenAPI tool, or an operation the row does not bind | refused before anything is recorded or sent |
+| a binding whose configuration or schema differs from the row | refused: `registered tool '<name>' does not match its registry row` |
+| a protected call in a plan with no governed context, or replaced by an injected callable | refused: nothing is recorded or sent |
+
+The proposal (`connector: openapi-http`, always recorded `irreversible_write`, because the inventory does not list a registered
+tool) holds the resource `openapi/<METHOD> <server><path template>`, built from the row, and the arguments
+`{"tool", "version", "input"}`. Dispatch rechecks the exact approval and the captured `execution-owner` lease in one
+transaction, consumes the approval and writes the dispatch event **before** the private `openapi_http` backend sends. That
+backend is the only caller of the raw OpenAPI transport for a governed call: it rebuilds the request from the row and the
+**recorded** arguments, requires the result to be the recorded resource (method, server and path) and sends nothing
+otherwise, so what is sent is what the approver saw, and it can never reach the dispatcher again.
+
+**Everything that can be refused without sending is refused before the proposal is recorded**, so no approval is requested or
+spent for a call that cannot be made: the input against the row's schema, the server (a plain `http(s)` origin with no
+credentials, query or fragment, because its text is persisted in the resource), the egress policy for the request URL and for an
+OAuth token URL, an unsupported auth kind, a caller-supplied idempotency key and a conflicting precondition. No secret is
+resolved and nothing is sent at that point; the transport applies the egress policy again when it connects.
+
+**Keys, preconditions and retries.**
+
+- When the row binds an idempotency key header, **the platform owns the key**: the transport sends the proposal's stable
+  logical key, and an `idempotency_key` input or a `header_params` entry for that header is refused
+  (`openapi_key_override_refused`), never sent next to it.
+- When the row binds a precondition header (for example `If-Match`), the `expected_resource_version` input and a
+  `header_params` entry must agree (`openapi_precondition_conflict`). The value is recorded **once**, as the proposal's
+  `expected_resource_version` (so the approval is bound to it and the approver's check compares it with the current version),
+  and the transport sends it as the bound header. A recorded precondition the row cannot send is refused, never dropped.
+- The transport retries only when the request really carries an emitted key: a row with no key header is sent **once**, even
+  for a method the executor would otherwise retry (`PUT`, `DELETE`). With a key, the executor's own bounded retry (the row's
+  `max_attempts`, at most 5) repeats the same key **within one dispatch**. The dispatcher does not redrive an ambiguous
+  effect after that dispatch, and the binding's `max_retries` is ignored for a governed call. The in-dispatch retry is an
+  **accepted risk**, not a guarantee: the capability record leaves key scope and retention unconfirmed, so a downstream that
+  does not honour the key can commit twice. Leave `max_attempts` at 1 unless the downstream is known to replay a key.
+
+**Headers, and what is stored.** `header_params` may not set a method-override header (`X-HTTP-Method-Override`,
+`X-HTTP-Method`, `X-Method-Override`) or a framing or hop-by-hop header (`Host`, `Content-Length`, `Content-Encoding`,
+`Transfer-Encoding`, `Connection`, `Keep-Alive`, `Proxy-Connection`, `Proxy-Authorization`, `TE`, `Trailer`, `Upgrade`,
+`Expect`; case-insensitive): classification uses the row's method, and a downstream that honours an override would turn a read into a
+write. The check applies to **every** call of the executor, an inline `GET` included, and is refused as
+`openapi_header_forbidden` (a governed call, before the proposal) or as an executor error that names no header (an inline call).
+It does not cover a method override carried in a query parameter or a body field a particular downstream might honour. The
+input is recorded **verbatim**: `body`, `header_params`, `query_params` and `path_params` are stored in the proposal's
+`args.input` (`caliber_effect_proposals`) and shown to the approver, so **credentials belong in the row's `auth_binding`
+(a secret reference resolved at send time), never in the call's input**. The proposal never records the auth binding.
+
+**What an answer proves.** The `openapi-http` capability record promises nothing about a downstream: no key scope or
+retention, no lookup by key, no documented rejection status. So a 2xx is a claim that the run's authoritative
+`receipt_verifier` must confirm (an unconfirmed claim stays `unknown`), and every other answer, a 4xx included, is
+`unknown` rather than `failed`. A connection dropped or timed out after the downstream committed is `unknown`: the node does
+not run again, the reconciler has no lookup binding for this connector and leaves it (`not_bound`), and only the verifier, a
+receipt callback or an operator can settle it. The connector is a pinned entry of `REFERENCE_CONNECTORS` (backend kind
+`openapi_http`, settings `operation` and `receipt_verifier`, accepted risks `write_not_exactly_once` and
+`key_retention_unconfirmed`).
+
+Every refusal is a `ToolExecutionError` with a stable code and no argument, input, header, URL or response body:
+
+```text
+OpenAPI effect proposal refused: openapi_egress_blocked         # the request or token URL fails the egress policy
+OpenAPI effect proposal refused: openapi_input_invalid          # input breaks the row's schema, or a path parameter is missing
+OpenAPI effect proposal refused: openapi_key_override_refused   # a caller-supplied idempotency key for a row that binds one
+OpenAPI effect proposal refused: openapi_precondition_conflict  # If-Match and expected_resource_version disagree, or are blank
+OpenAPI effect proposal refused: openapi_config_invalid         # the row's server or path cannot be used (credentials, query, scheme)
+OpenAPI effect proposal refused: openapi_auth_unsupported       # the row binds an auth kind the executor does not support
+OpenAPI effect proposal refused: openapi_header_forbidden       # header_params sets a method-override, framing or hop-by-hop header
+OpenAPI tool 'tickets' refused: openapi_operation_unresolved    # a pack operation the row does not bind
+OpenAPI tool 'tickets' refused: unsupported_effect_path         # no readable OpenAPI row for the tool
+OpenAPI effect authorization was not granted                    # no exact approval: the proposal stays `proposed`
+OpenAPI effect dispatch refused: proposal_not_approved          # not approved, or the node already ran
+OpenAPI effect did not commit: ambiguous:http_503               # unknown: the answer proves nothing, nothing is resent
+OpenAPI effect did not commit: receipt_unverified               # a 2xx the verifier could not confirm: unknown
+'tool_node' requires a governed effect context to run protected OpenAPI tool 'open_ticket'
+```
+
+Recovery: a refusal before the proposal needs the input, the row or the egress allowlist corrected (nothing was recorded). A
+`proposed` effect needs an exact approval, after which the run can be resumed (the proposal is reused for the same node
+occurrence). An `unknown` effect is settled by the receipt verifier, a receipt callback or an operator (see the
+[recovery runbook](m-65-recovery-runbook.md)), never by running the node again.
+
+**After the approval.** The backend rebuilds the request from the row and the recorded arguments and checks it again,
+the egress policy included. Any failure at that point (a recorded proposal that is not the row's operation, or a destination
+that **stopped** passing the egress policy since the proposal, a transient DNS or allowlist change included) sends nothing and
+settles the proposal `failed` with the reason `not_sent`; the dispatch's internal refusal code is not surfaced, and **the
+approval is already consumed**: ask for a new proposal (run the node again after fixing the cause).
+
+**Not covered by this change, and still outside the dispatcher:** model-chosen tool calls inside an agent step (B04.6,
+#768), the Aria assistant's published-tool call (inventory EP-034: there is no workflow run to propose into; owned by #1063), standalone
+exports and plans a caller builds itself (#1051: `build_plan` binds the registry reader but no governed context, so a
+deployed workflow's **protected** OpenAPI nodes are refused until #1051 binds one; read-class `GET` nodes still run),
+and the operator's draft preview route (EP-033, exempt). The raw executor's remaining callers are pinned by
+`tests/test_effect_path_matrix.py::test_the_raw_openapi_executor_is_named_only_by_pinned_callers`, so a new one fails
+until it is routed or pinned with a reason.
+
+**Configuration, migration and rollback.** No new setting, no route and no migration. The two names `openapi_http` and
+`openapi-http` become reserved tool names like the other connectors (`409 reserved_tool_name`); a tool already registered
+under one is untrusted and unaffected. Reverting the change restores the direct call (a proposal already recorded remains
+readable).
 
 ## Memory is owned, derived and read-mostly
 
@@ -136,6 +323,180 @@ bypass the source-trace authorization check. An authorized example records the `
 
 The development profile retains its earlier behavior; these payload gates are part of the reference-profile contract.
 
+## Governed effect spans: the ids that link a trace to its rows (B11.3a, #737)
+
+A governed effect crosses four persisted records: the effect **proposal**, the policy **decision** that authorised the
+run, the runtime **approval** that was consumed, and the **effect** itself, which is its verified receipt. The spans of
+that path name those rows, so an operator can go from a trace to the database without reading any payload. The module is
+`caliber.observability.span_attributes`; B11.3b (#745) reads the same attributes back as a causal chain.
+
+| Span (type) | Opened by | Attributes it can carry |
+| --- | --- | --- |
+| `effect.approval.commit_check` (`CHAIN`) | `approval_valid_at_commit` | `caliber.proposal_id` once the locked proposal is read; `caliber.approval_id` once the request is bound to that proposal's exact intent, policy and evidence; `caliber.decision_id` from the run's current policy decision, only when every check passed |
+| `effect.dispatch` (`TOOL`) | `dispatch` | `caliber.proposal_id` from the proposal read; `caliber.approval_id` and `caliber.decision_id` from the validator's answer; `caliber.effect_id` after the settlement has committed |
+| `effect.receipt.write` (`CHAIN`) | `record_receipt` | `caliber.proposal_id`; the proposal's recorded approval (`caliber.approval_id` for an exact-intent approval, `caliber.decision_id` for a policy decision); `caliber.effect_id` once the receipt is stored in the caller's transaction |
+
+`run_tags(ctx, node_id=..., proposal_id=..., decision_id=..., approval_id=..., effect_id=...)` accepts the same four
+ids for a caller that has read them from a row, and emits each as `caliber.<name>` only when given.
+
+**An id is a link only if a row backs it.** An attribute is absent, never blank or guessed, when the platform has not
+read that row: a proposal that never reached a verified receipt has no `caliber.effect_id` (`unknown` and `failed`
+included), the receipt-write span has no `caliber.decision_id` for an exact-intent approval (the proposal row does not
+store it), and the approval id a caller passes to `dispatch` is a claim until the validator has bound it to the
+proposal, so a refused dispatch never carries it. `caliber.effect_id` is the **receipt id**: the platform's only record
+that the downstream effect happened and was read back.
+
+**What can reach a span.** Four keys, one allow-list, no payload:
+
+- Only the four keys above, `caliber.refusal_code` and the tracer's own `caliber.status`, `caliber.error_type` and
+  `caliber.error` are set on these spans. No URL, argument, request, response, scope, approver, evidence hash or
+  exception message is ever an attribute.
+- A value must be a plain string that is an opaque identifier: ASCII letters, digits, `.`, `_`, `:`, `-`, starting
+  with a letter, at most 128 characters. Anything else (a number, an email address, whitespace, a path, a longer
+  string) is **dropped, not truncated**: a truncated id would name a different row.
+- A workflow manifest cannot assert a link. Its `mlflow.trace_group_tags` are merged into the run tags first, and the
+  five reserved keys are removed from them, so a tag named `caliber.proposal_id` is ignored.
+- A failure inside one of these spans is recorded as the exception *type* and, only when it is a platform refusal
+  (`ProposalError`, `EffectRefused`, `ApprovalCommitRefused`), its stable `caliber.refusal_code` such as
+  `stale_version`; the `code` of any other exception is not copied. The exception is re-raised after the span has
+  closed, so MLflow's own exception event, which keeps the message, never sees it **on these three spans**. The
+  re-raised exception still passes through any enclosing span (the workflow node span, `trace_run`), where MLflow
+  records its message as it did before this change.
+- Tracing never changes the outcome of an effect: a redactor or tracer failure while setting one of these attributes is
+  logged at debug level and the attribute is absent (the value is never sent unredacted).
+
+**Who can see them.** The ids, `caliber.refusal_code` and the existing run, node and job ids are on
+`profile.SAFE_SPAN_ATTRIBUTES`, so a caller who may see a trace but not read its payload (B11.4b, above) sees them; every
+other span attribute stays `[redacted:attributes.<key>]`, which includes `caliber.error`. An id does not widen who can
+open a trace: the trace, and then the row, still follow experiment and project visibility. `caliber.approval_id` is also
+the name of an existing *release* tag (`AP-...`, a prompt-version approval, see the prompts architecture page); on these
+spans it is always a runtime approval (`RAP-...`), told apart by the span name.
+
+**Refusal and recovery, with exact examples.**
+
+- *A stale approval.* The recheck finds the resource moved on. The `effect.approval.commit_check` span has
+  `caliber.proposal_id`, `caliber.approval_id`, `caliber.refusal_code = stale_version` and `caliber.status = failed`, and no
+  `caliber.decision_id`; `effect.dispatch` has `caliber.proposal_id` and the same code. Nothing was sent, the approval is
+  unconsumed and the proposal is still `proposed`. Recovery: request a new approval for the current resource version.
+- *An approval id that is not this run's.* The recheck answers `not_found`; no span carries that id, only the proposal
+  (read from the row) and the code. Recovery: use the id returned when the request was created.
+- *A lease lost after the effect was sent.* `effect.dispatch` has the proposal, approval and decision (the claim had
+  committed), `caliber.refusal_code = lease_lost` and no `caliber.effect_id`; no receipt exists and the proposal stays
+  `dispatched`. Recovery is unchanged: the reconciler asks the downstream by key under the new lease.
+- *An answer nobody could verify* (an ambiguous transport result, or a 2xx the downstream's own query did not confirm).
+  The proposal becomes `unknown`; `effect.dispatch` completes without `caliber.effect_id`. A missing effect id is the
+  signal, not an error.
+
+**Not covered, said plainly.** The node span of a workflow run does not carry these ids (the dispatcher's own spans do, and the same ids are in the
+database); the legacy effect-ledger path used
+by a plan with no governed context emits none; and the receipt-write span describes a *write*: if the caller's
+transaction is rolled back afterwards, the dispatch span, which names the effect only after commit, is the authority.
+Tracing is inert unless MLflow is installed and tracing is enabled, and an exporter failure never changes what the effect
+does.
+
+**Configuration, migration and rollback.** No new setting, no migration and no stored data change. The spans open inside
+the transaction that holds the approval locks, but make no database call of their own. Rolling
+back is reverting the change; traces already recorded keep their attributes.
+
+### Reading the links back: `GET /workflow-runs/{run_id}/causal-links` (B11.3b, #745)
+
+The spans above name rows; this endpoint returns the rows. It answers, for one run, with the persisted records that
+connect it to its governed effects, **by id, digest, state and timestamp only**, so a reviewer (or the evidence package
+of B14) can follow `run -> manifest -> step context -> proposal -> approval -> decision -> receipt` without reading a
+payload. It is read-only and is implemented by `caliber.observability.causal_links` (`read_causal_links`), which takes an
+already-authorized run row and never an id from a request.
+
+**Who may call it.** The same access as reading the run (a run you cannot see is `404`) **plus** a role in the run's
+project (`read`: viewer, reviewer, editor or owner), evaluated on every request from the caller's current membership. A
+caller who can see the run but has no role in its project, a caller from another project, a platform administrator with
+no project role (`caliber.admin` is not a project role) and an unknown id all get the **same `404`**
+(`workflow run '<id>' not found`), and a malformed parameter from such a caller is also that `404`, never a `400`. Nothing
+in the query string (a project, a second run id) widens access. A run with no project is gated by its workflow's
+visibility alone, as the admission manifest is.
+
+**Sections and paging.** `section` is `effects` (the default), `context_manifests` or `policy_decisions`; only that list
+is filled and the other two are `[]`. `limit` is 1 to 200 (default 50). `cursor` is the opaque `next_cursor` of the
+previous page (the id of its last row); while `has_more` is true pass it back. Pages are keyset pages ordered by
+`(timestamp, id)`, so rows that share a timestamp are neither skipped nor repeated, and a cursor that names no row of this
+run, or is not one this API issued, is `400 cursor is invalid` (a cursor from another run opens nothing). A page costs a
+fixed number of queries (the run manifest, the page, and one lookup each for contexts, approvals, decisions and receipts),
+not one per effect.
+
+**What an effect shows.** For each proposal: `proposal_id`, `node_id`, `occurrence_id`, `node_step_id`, `state`,
+`connector`, `connector_version`, `effect_class`, `intent_hash` and the two timestamps, then four links, each with a
+`status` and, when it is not simply `linked`, a stable `code`. The statuses: `linked` (a row of this run), `not_required` (the record shows the link is not on this effect's path), `pending` (the effect is still in flight, so the row is expected to appear), `missing` (the chain needs a row, the effect is settled or the stored id names nothing, and there is none: **a broken chain**) and `unrecorded` (the platform does not store this link against the effect, so it can be neither followed nor called broken). In-flight work is never `missing`:
+
+| Link | `linked` | Other statuses and codes |
+| --- | --- | --- |
+| `context_manifest` | the latest context manifest of this node occurrence (highest attempt, then highest revision), by id, revision, attempt and digest | `unrecorded` / `no_context_manifest_for_node_step` (a step that is not an agent step has none, and the proposal does not say which kind of step it came from, so its absence is neither followable nor proven broken) |
+| `approval` | an exact-intent approval request the proposal records, bound to this proposal in this run: ids, digests, request status, `superseded_by`, requested, decided, expires and consumed timestamps | `not_required` / `approved_by_policy_decision`; `pending` / `approval_not_consumed` (a request exists but the dispatcher has not consumed it; its id and status are shown), `approval_not_requested`; `not_required` / `failed_before_approval` (settled `failed` with no approval ever recorded); `missing` / `approval_row_missing` (the stored approval id names no row bound to this proposal in this run) |
+| `decision` | the policy decision a *policy-approved read* records: id, action, result, reason codes, policy version, input hash, evaluated-at | `unrecorded` / `decision_recorded_per_run_only` (exact-intent approvals, below); `pending` / `not_approved_yet`; `not_required` / `failed_before_approval`; `missing` / `decision_row_missing` |
+| `effect` | the verified receipt: `effect_id` (the receipt id, **the id `caliber.effect_id` carries**), attempt, receipt and response digests, verified-at, and `committed` (true when the proposal records that receipt as the one that settled it) | `pending` with `not_dispatched`, `outcome_pending`, `outcome_unknown` or `reconciled_without_receipt`, by the proposal's state (the effect is not settled); `not_required` / `failed_without_receipt` (settled `failed`: nothing was verified and nothing will be); `missing` / `receipt_row_missing` (settled `committed`, which requires a receipt, but no receipt row is there) |
+
+`missing_links` lists only the `missing` links (a broken chain) and `unrecorded_links` the `unrecorded` ones, so a
+complete chain (`missing_links == []`) is distinguishable from a broken one, and a healthy exact-intent effect has
+`missing_links == []` with `unrecorded_links` naming `decision` (and `context_manifest` for a non-agent step). **An absent
+`effect_id` is the marker for an effect that has no verified receipt**, in the API as on the span; it is never filled in
+from a neighbouring row, a timestamp or the proposal's state.
+
+`span_attributes` is the `caliber.*` attribute map that the effect's resolved rows support, built by the same allow-list
+function (`causal_attributes`). It is a **derived union, not what any one span carries**: each span binds only the ids it
+had read when it closed (the receipt span binds the proposal's recorded approval ref even if that row is gone, and the
+dispatch span carries the commit-time `decision_id`, which is not persisted against the effect and so is not listed
+here). An id is listed only when its row resolved for this run. Nothing is read from the tracing backend, so it cannot
+confirm that a trace was exported.
+
+**Digests.** `manifest_digest` (run and context manifests), `receipt_digest` and a policy decision's `input_hash` are bare
+lowercase SHA-256 hex (64 characters). `intent_hash`, `evidence_hash`, `policy_digest` and `response_digest` are
+`sha256:`-prefixed (71 characters). They are stored in those forms and returned unchanged; compare like with like.
+
+**The decision of an exact-intent approval is not stored against the effect.** The commit-time check records a run
+decision (`resource.execute` on `workflow:<id>`, the run authority) and the dispatch span names it, but the proposal row stores only the
+approval id, so for an exact-intent effect `decision` is `unrecorded` and its `caliber.decision_id` is not in
+`span_attributes`. That decision *is* persisted, per run: `section=policy_decisions` lists the run's decisions
+(`decision_id`, `grant_id`, `action`, `resource`, `result`, `reason_codes`, `policy_version`, `input_hash`,
+`evaluated_at`), so the `caliber.decision_id` on a span can be checked against a row, but nothing says which effect asked.
+Persisting the pairing needs its own migration and must not touch the proposal's frozen columns (follow-up #1061); this
+endpoint does not guess it. **Until #1061 lands, a consumer such as the evidence package (B14.1, #818) should treat
+`decision: unrecorded` on an exact-intent effect as "run authority asserted per run only": include the run's
+`policy_decisions` section in the package and do not fail the chain or invent a pairing.**
+
+**Whole-run markers.** `run_manifest` is `linked` (id, schema version, digest, creation time; the manifest body stays at
+`/admission-manifest`), `legacy` (`legacy_run_has_no_manifest`: a run admitted before manifests has none and never will)
+or `missing` (`manifest_row_missing`: an admitted run whose row is not there). `acceptance` and `evidence_package` are
+`{status: not_available, code: acceptance_record_not_available | evidence_package_not_available}`: those records
+(B09, B14) do not exist yet and are never synthesized. `trace_id` is the run's stored trace id, a pointer only.
+
+**What it never returns.** No prompt, argument, intent body, `resource` of a proposal, resource version, downstream request
+id, manifest or context body, `requested_by` / `decided_by` / `subject_user_id`, decision prose or policy purpose. The
+queries select only the columns above, and the response schema (`CausalLinksSchema`) forbids any other field, so a column
+added to a table cannot reach a caller by accident. Connector and node names are manifest- and registry-defined
+identifiers and are shown; a policy decision's `resource` is the platform identifier the decision was asked about
+(`workflow:<id>`, `effect:<proposal id>`). Every lookup by an id stored on a row is also filtered by the run and, for an
+approval, by the proposal, so a stored id that names another run's row is reported `missing`, not followed.
+
+**Refusal and recovery, with exact examples.**
+
+- *Another project's run, or a run that does not exist:* `GET /workflow-runs/WR-1/causal-links` is `404`
+  `{"detail": "workflow run 'WR-1' not found"}` for both. Recovery: ask a member of the run's project, or check the id.
+- *A removed project member:* `404` from the next request, whatever they could read a moment ago. Recovery: restore the role.
+- *`?section=payloads`:* `400 section must be one of effects, context_manifests, policy_decisions`. *`?limit=500`:*
+  `400 limit must be between 1 and 200`. *A cursor kept from another run or a tampered one:* `400 cursor is invalid`;
+  start again without `cursor`.
+- *A proposal with `effect.status = pending` and `code = outcome_unknown`:* the downstream's answer could not be verified.
+  There is no `effect_id` to find; the reconciler asks the downstream by key (see **Reconciler** below). Reading this
+  endpoint does nothing to it.
+
+**Consistency.** A page is assembled from a handful of reads in one request, not from one snapshot: an effect being
+dispatched while you read can show an approval as `pending` and its effect as `pending`, and a later read shows both
+linked. A link that appears is always a row that exists; none is ever inferred.
+
+**SDK, configuration and rollback.** `client.workflows.runs.causal_links(run_id, section=, limit=, cursor=)` (sync) and
+`client.workflows.causal_links(...)` (async) return a typed `CausalLinks` page (`CausalEffect`, `CausalContextManifest`,
+`CausalPolicyDecision` and the link models are in `caliber_sdk.models`); an unknown field is kept in `extra` and a missing
+`status` decodes as `None`, never as `linked`. No new setting, no migration, no stored data change; the endpoint is a
+read, so rolling back is reverting the change.
+
 ## A configuration that passes
 
 ```ini
@@ -152,6 +513,7 @@ CALIBER_CSRF_SIGNING_SECRET_ENV=CALIBER_CSRF_SIGNING_SECRET
 CALIBER_EGRESS_POLICY_ENABLED=true
 CALIBER_MCP_ALLOW_INSECURE_HTTP=false
 CALIBER_APPROVAL_ALLOW_SELF_APPROVAL=false
+CALIBER_APPLY_REQUIRE_DISTINCT_APPROVER=true
 ```
 
 Two of the variables name *other* variables that hold secrets (`CALIBER_BOOTSTRAP_PASSWORD` and
@@ -715,8 +1077,8 @@ see the trace but not read its payload returns the same shape with every governe
 whole-trace `request` and `response`. Real tracers also put the same payload in other attributes
 (`mlflow.spanInputs`, `mlflow.spanOutputs`, `mlflow.chat.messages`, `caliber.tool.input`, `caliber.tool.output`), so
 redaction is **fail-closed**: *every* span attribute that is not on the short list of known payload-free ones
-(`profile.SAFE_SPAN_ATTRIBUTES`: run, node and job ids, status, model name, token and cost counts, tool name and
-latency, span type) is redacted as `[redacted:attributes.<key>]`. Keys are never deleted or added, and everything
+(`profile.SAFE_SPAN_ATTRIBUTES`: run, node, job, proposal, decision, approval and effect ids, refusal code, status, model
+name, token and cost counts, tool name and latency, span type) is redacted as `[redacted:attributes.<key>]`. Keys are never deleted or added, and everything
 else (span ids, names, times, status, `attributes.caliber.run_id`, tokens, cost) is identical to what an editor sees. `GET /observability/traces`
 redacts `request_preview` and `response_preview` the same way, and `GET /observability/metrics` is computed from the
 redacted summaries (the numbers are unchanged; no payload appears). The run trace (`GET /workflow-runs/{id}/trace`)
@@ -1013,7 +1375,7 @@ with session_factory() as session:
   reads the proposal state and does not send a second unproven dispatch.
 
 ```python
-from caliber.effects.dispatcher import EffectRefused, dispatch, submit_proposal
+from caliber.effects.dispatcher import EffectRefused, admit_backend, dispatch, submit_proposal
 
 proposal = submit_proposal(
     session,
@@ -1021,6 +1383,7 @@ proposal = submit_proposal(
     node_id="ask",
     occurrence_id=occurrence_id,
     action=proposed_action,
+    admission=admit_backend("document_request"),  # a kind your own code chose; see "Trusted connector admission"
 )
 session.commit()
 try:
@@ -1081,6 +1444,99 @@ except StaleVersion as stale:
 - **Limits.** The occurrence id is allocated and persisted by the caller before the effect is attempted; this module records
   it and cannot tell whether a caller reused one wrongly. `deployment` is this installation's one configured organization
   (ADR 0001). Connector capability, receipts and reconciliation remain separate services below.
+
+### Trusted connector admission (B12.3a, #738)
+
+A private transport is **admitted** by what CALIBER can check about the code that will send, never by a name. The pinned
+record is `caliber.profile.REFERENCE_CONNECTORS` (ADR 0001, "trusted connectors only"); `caliber.effects.dispatcher.admit_backend(kind)`
+compares the transport registered under `kind` with it, and `caliber.effects.admission` holds the pure rules.
+
+| what is bound | how it is checked | refused with |
+| --- | --- | --- |
+| the connector id and version | the registration must name the record's `connector` and `connector_version` | `connector_not_admitted` |
+| the implementation | `module:qualname` of the registered transport's class (or function), read from the object: a subclass, a lookalike class or a bare function is a different implementation | `connector_implementation_mismatch` |
+| the capability record | the registration carries a `ConnectorCapability` and its `digest()` equals the pinned one; every risk it carries (`write_not_exactly_once`, `key_retention_unconfirmed`) must be listed in the record's `accepted_risks` | `connector_capability_unproven` (none, not a record, or an unaccepted risk), `connector_capability_mismatch` (another digest: a changed promise is a new digest) |
+| the wire configuration | the digest of what the transport sends with (for the document-request connector: the submit and lookup operations, the key header and the accepted resource shape) equals the pinned one | `connector_configuration_mismatch` |
+| the settings handed to `dispatch` | only the record's `config_keys`, every `required_config_keys` present, each value bounded: a `base_url` is `http(s)` with a host, a valid port, and no userinfo, whitespace, control characters, query or fragment; `max_attempts` is 1 to 5; `timeout_seconds` is finite, above 0 and at most 300 | `connector_config_not_admitted` |
+
+The reference profile admits four connectors: `document_request` (connector `document-request`, version 1: the Beta reference
+connector, which has a stable key, a precondition and a lookup by key; its key retention is unconfirmed, and that risk is
+accepted by name), the generic `http` transport that governed webhook and API nodes use (it promises no exactly-once
+behaviour, so every effect through it needs the caller's own receipt verifier), the `registered_tool` transport of
+[governed registered tools](#governed-registered-tools-b043), and the `openapi_http` transport of
+[governed OpenAPI tools](#governed-openapi-tools-b044) (connector `openapi-http`; settings `operation` and `receipt_verifier`;
+it promises nothing about the downstream either). **The dispatcher refuses everything else**: MCP
+stdio and remote hosts, host-file exports, PostgreSQL MCP writes and any transport added to `BACKENDS` without a reviewed record.
+Each has no record in the table, so a proposal or dispatch that goes through the dispatcher is `unsupported_backend` (no
+registration) or `connector_not_admitted` (registered, not pinned), and the host-file and database-write tools are also
+`unsupported_effect_path` through the protected-effect inventory (EP-055, EP-114).
+
+**What is not gated yet.** Only the dispatcher is gated. The paths that would reach MCP, host files or a database write do not go
+through it today, so **these tools still execute outside the dispatcher until the later B04 and B12 work**: the runtime's MCP
+node and MCP-bound tool callables and the MCP gateway (EP-007, EP-008, EP-035 to EP-037) move behind it in B04.5 (#759); model-selected
+calls in B04.6 (#768); the raising of `unsupported_in_reference_profile` for every inventory row marked `refuse`, which is what
+stops the host-file tools (EP-055) and the first-party database MCP write tools (EP-114) at run time, in B04.7 (#774); and the
+startup refusal of an MCP stdio or remote-host allowlist entry that the profile does not list in B12.3b (#746). Until those land, a
+reference deployment must not register the first-party database MCP server and must not wire the host-file tools into a workflow
+(see "Refused until explicitly supported" below).
+
+Where it is enforced:
+
+- **`submit_proposal` requires `admission=admit_backend(kind)`.** A proposal that only *names* a connector (in an action, a
+  manifest, a tool call or a model's output) is refused with `connector_not_admitted` before a row is written, so no approval is
+  requested for it. The admission is re-verified against the live registry on every submit, and the intent's connector and
+  version must be the admitted ones. Call `admit_backend` with a kind your own code chose, never one that came from data.
+- **`dispatch` admits the transport itself, before the claim.** A transport nobody pinned, or settings it does not accept, is
+  refused with the proposal still `proposed`, its approval unconsumed and no connector called. The transport's identity digests
+  (implementation, capability and configuration, never settings or payloads) are written into the `effect.proposal.dispatched`
+  outbox event as `connector_admission`.
+- **A user tool cannot pose as a connector.** Tool registration (`POST /tools`) and the assistant's tool publisher refuse the
+  names `document_request`, `document-request`, `http`, `registered_tool`, `openapi_http` and `openapi-http` (and their `tool.<name>.vN` and case variants) with `409 reserved_tool_name`,
+  like a built-in's name. A tool already registered under such a name before this rule is not rewritten; it is untrusted, is
+  never classified as a connector, and is flagged once by the reserved-name audit (`flag_reserved_tool_name`, plus one `ERROR` log
+  per process that names the connector, not a built-in). **Upgrade impact:** no new version can be registered under such a name
+  (`409 reserved_tool_name`), so a deployment with a tool called `http` (the most likely collision) registers it again under a
+  different name, repoints the workflows that use it, then archives the old row.
+
+Refusal and recovery (every code is stable and carries no payload, setting or URL):
+
+| code | meaning | recovery |
+| --- | --- | --- |
+| `unsupported_backend` | no transport is registered under that kind | use a registered kind; an MCP, host-file or database-write path is not supported in the reference profile |
+| `connector_not_admitted` | no pinned record for the transport, or the proposal names a connector the admission does not cover | submit with `admission=admit_backend(<the kind that carries this connector>)`; an unpinned transport needs a reviewed record in `REFERENCE_CONNECTORS` |
+| `connector_implementation_mismatch` | the registered transport is not the pinned implementation | restore the shipped transport; do not subclass or replace it |
+| `connector_capability_unproven` / `connector_capability_mismatch` | no capability record, an unaccepted risk, or a changed promise | restore the record; a changed promise is a code change that updates the pin in review |
+| `connector_configuration_mismatch` | the transport's wire configuration is not the pinned one | restore the shipped configuration |
+| `connector_config_not_admitted` | `backend_config` has an unknown or missing key or an out-of-bounds value | pass only `base_url` (and optionally `max_attempts`, `timeout_seconds`) for `document_request`; `sender` and `receipt_verifier` for `http`; `invoker` and `receipt_verifier` for `registered_tool`; `operation` (an `OpenApiOperation` built from the tool's registry row, never a name or a dict) and `receipt_verifier` for `openapi_http` |
+
+```python
+from caliber.effects.dispatcher import UnsupportedEffectPath, admit_backend
+
+try:
+    admission = admit_backend("document_request")
+except UnsupportedEffectPath as refused:
+    logger.error("connector not admitted: %s", refused.code)  # e.g. connector_implementation_mismatch
+```
+
+What admission is not:
+
+- **Identity, not integrity.** The pins say which code and which declared shape were reviewed. A class that forges its
+  `__module__` and `__qualname__`, or a registry entry replaced by in-process code that also controls `profile.py`, is admitted:
+  code running inside the server process is trusted and is outside this control's threat model. The "configuration digest" covers
+  the *declared* wire constants (operations, key header, accepted resource shape), not what the transport's code does with them,
+  and the capability digest covers the documented promise, not a measurement of it. Behaviour is covered by the connector tests,
+  not by the pin.
+- **Data cannot mint an admission, code can.** A manifest, a tool name, a client request or a model's output cannot produce an
+  `AdmittedConnector`. `submit_proposal` re-verifies the value it is given against the live registry; an equal object built by hand
+  from the public table passes that check (it carries no secret). That is harmless, because only trusted code reaches it and the
+  object grants nothing a call to `admit_backend` would not, but it is not an unforgeable capability.
+- **The address is not pinned.** The pin binds the transport's code and shape, not the downstream's address. The address a
+  dispatch uses is validated for shape only (http or https, a host, a valid port, no userinfo, whitespace or control
+  characters, query or fragment: a pure check with no name resolution) and the executor still applies the egress policy at send time;
+  binding it to the `CALIBER_EFFECT_CALLBACK_CONNECTORS` entry the reconciler asks for belongs with the callers that wire the
+  connector (B04.3 and later).
+
+**Configuration and rollback:** no new setting and no migration. Reverting the change restores the unchecked registry lookup; proposals already recorded are unaffected.
 
 ## Connectors: what they promise and what an answer proves
 
@@ -1233,12 +1689,12 @@ them the one way ADR 0003 allows: by asking the downstream by the **original log
 
 - **Owner-only.** `reconcile_pass(factory, lease=..., targets=..., lookup=...)` needs the `Lease` the execution owner captured, and every write re-compares it
   in the transaction that writes (`fence_owner`: exact owner and fencing token, database clock). No question is asked on a lease that is gone. A pass
-  whose lease is taken over stops with `ProposalError` `lease_lost`; what it already settled stays settled and the new owner's pass takes the rest. Which
-  process runs the pass, and when, belongs with the dispatcher's owner loop (B04.1, tracked in #997); until then the pass is called by the code that holds the lease.
+  whose lease is taken over stops with `ProposalError` `lease_lost`; what it already settled stays settled and the new owner's pass takes the rest. The loop
+  that runs the pass on an interval is [below](#the-reconciler-loop-and-the-in-flight-rule-b055d-997).
 - **Abandoned means a prior lease.** Migration 0126 records `dispatch_token` (the fencing token the owner held) with every dispatch. A `dispatched` proposal is
   abandoned exactly when its token is lower than the token of the lease the reconciler holds; `abandon_dispatch` then records `unknown` with reason
   `abandoned_dispatch` (under the *reconciler's* lease; `not_abandoned` for a dispatch under the current lease, which is in flight in this very process and is
-  left alone, or one with no recorded token, which proves nothing). A dispatch under another token is also never a repeat of the dispatch before it.
+  left alone unless the caller gives `in_flight_seconds`, see below, or one with no recorded token, which proves nothing). A dispatch under another token is also never a repeat of the dispatch before it.
 - **Only authoritative terminal evidence moves it.** The lookup runs outside any transaction, against the connector's own query, at the `base_url` of the
   `CALIBER_EFFECT_CALLBACK_CONNECTORS` binding for that connector and project (so it goes through the egress policy), and is read by the connector's
   capability record (`interpret_lookup`):
@@ -1283,13 +1739,65 @@ for result in reconcile_pass(session_factory, lease=lease, targets=targets):
   (`tests/egi_scenarios/test_v08_timeout_retry.py`).
 - **Refusals and recovery.** `lease_lost`: you are no longer the owner, stop and let the new owner reconcile. `store_failed`: roll back and retry. `unknown` after a
   pass: nothing proves the outcome yet (delayed visibility looks like absence); the next pass asks again, the effect is never re-sent, and dependents stay blocked.
-  There is no operator action that fails an `unknown` effect without the downstream's evidence yet (the operator view below lists them; an audited action is #997); a connector that
+  There is no operator action that fails an `unknown` effect without the downstream's evidence, by design (the operator view below lists them and offers `reconcile`, which only asks); a connector that
   can prove absence should set `absence_proves_noncommit`.
 - **Limits.** A pass looks at every candidate (a backlog that stays `unknown` cannot hide a newer one) and does not renew the lease: the caller bounds it with
-  `budget_seconds` and renews or stops in `on_progress`. A `dispatched` row under the *current* lease is `in_flight` and is the dispatcher's to settle (it must record
-  `unknown` on any error that is not a lost lease; the reconciler never abandons it). A `dispatched` row with no recorded token (none exist in shipped code; a
+  `budget_seconds` and renews or stops in `on_progress`. A `dispatched` row under the *current* lease is `in_flight` and is the dispatcher's to settle (it records
+  `unknown` itself on a settle error that is not a lost lease; the reconciler never *abandons* it, and expires it to `unknown` only past `in_flight_seconds`). A `dispatched` row with no recorded token (none exist in shipped code; a
   downgrade through 0125 drops the column) is never abandoned. One connector (document-request) can be reconciled; another needs a verifier and capability record in `reconcile.CONNECTORS`. The gate runs where
   the runtime does (the queued-run worker, not preview or evaluation, which refuse effect nodes). A subworkflow's child plan is built separately and is not gated (the legacy effect ledger is not installed there either).
+
+## The reconciler loop and the in-flight rule (B05.5d, #997)
+
+`caliber.orchestrator.effect_reconciler.EffectReconcilerTask` is the owner-only loop that calls `reconcile_pass`. It is one of the loops in
+`worker_inventory()` (`owner_only`, with a recovery row in ADR 0002), started and stopped with the others by the lifespan. It is built in the
+**reference profile only** (the execution-owner lease exists nowhere else, and a pass cannot act without one), and is on there unless
+`CALIBER_EFFECT_RECONCILER_ENABLED=false`; leave it on wherever a dispatcher can run, because without it an effect whose settle failed stays blocked until
+an operator asks.
+
+| Setting | Default | Bounds | Meaning |
+| --- | --- | --- | --- |
+| `CALIBER_EFFECT_RECONCILER_ENABLED` | `true` | flag | Build the loop in the reference profile |
+| `CALIBER_EFFECT_RECONCILER_INTERVAL_SECONDS` | `15` | 1 to 3600, finite | Seconds between passes |
+| `CALIBER_EFFECT_RECONCILER_BUDGET_SECONDS` | `20` | 1 to 600, finite | A pass stops *starting* lookups after this long; a lookup in progress finishes (its own timeout applies, 30 s by default) and the next pass continues after the last proposal looked at |
+| `CALIBER_EFFECT_IN_FLIGHT_MAX_SECONDS` | `900` | 300 to 86400, finite | How long a dispatch may stay `dispatched` under the lease that is still current before the loop records it `unknown`. **Must exceed the longest a dispatch can take**: the executor's 30 s timeout times at most 5 attempts, its backoff (under 4 s) and the 30 s receipt lookup come to about 3 minutes, which the 300 s floor covers; a connector with a longer timeout needs a larger value |
+
+- **Under the lease, never as a secondary.** The lifespan binds the loop to `role.lease`, the lease the `ExecutionRoleController` holds *now*. A tick with no lease (a
+  secondary, or the controller dropped it) does nothing but write its own heartbeat. Each pass hands that exact lease to `reconcile_pass`, so every write compares it in
+  its own transaction. The loop never renews the lease (the controller does, on its own thread); a loop that also renewed would be a second renewer.
+- **Lease loss stops it between proposals.** Before each proposal the pass checks that the controller still holds the *same* lease (owner and fencing token) and that no stop
+  was requested; if not, it ends there (`lease_changed` or `stopped`) and nothing further is read, asked or written, so nothing new starts after the lease is lost. If the database
+  refuses the lease first (it was taken over before the controller noticed), `reconcile_pass` raises `lease_lost` and the pass ends with nothing recorded. The next tick takes
+  whatever lease the controller holds then; a re-acquired lease has a higher token and starts a fresh pass.
+- **Bounded.** No lock is held across a lookup (each proposal is read, asked about and written in separate transactions), and on PostgreSQL every transaction of the pass carries
+  `lock_timeout` and `statement_timeout` of a third of `CALIBER_EXECUTION_LEASE_SECONDS`, like the controller's own lease calls. A budget-cut pass resumes after the last proposal it
+  looked at, so a backlog of effects that stay `unknown` can neither starve the rest nor be the only thing ever looked at.
+- **Targets** are the `CALIBER_EFFECT_CALLBACK_CONNECTORS` bindings (the `base_url` of each `(connector, project)` that may report a receipt). With none bound the loop still
+  abandons the dispatches of lost leases and expires stuck in-flight ones, and every lookup reports `not_bound`.
+- **Stop.** A stop ends the pass at its next proposal and waits up to `CALIBER_SHUTDOWN_GRACE_SECONDS` for it. A lookup in progress is not interrupted; if it outlasts the grace the stop
+  returns with a warning and that one proposal finishes alone (its writes stay fenced by the lease, so it cannot record anything once the lease is released). The reconciler holds no claims, so there is nothing to give back.
+- **Liveness.** A `caliber_worker_heartbeats` row of kind `effect_reconciler` is written every tick (idle ones too) and inside a long pass; a clean stop removes it. Nothing reads that kind
+  yet: it is a row an operator can query.
+
+**The same-token stuck dispatch.** `abandon_dispatch` only helps when the dispatching lease was taken over. When the dispatcher keeps its lease, sends the effect and then cannot record
+the outcome, the row would stay `dispatched` under the current token for good. Two rules close that, and neither sends anything (there is no edge from `unknown` back to `dispatched`):
+
+1. **The dispatcher records `unknown` itself.** If `settle_dispatch` fails for any reason other than "someone else owns the row now" (`lease_lost`, `stale_owner`, `stale_version`,
+   `illegal_transition`), `dispatch` records `unknown` in a fresh transaction under the same captured lease, with the reason `settle_failed:<code or exception class>` (never the message),
+   and then raises the original failure. The move is fenced like the settle: a lost lease, another owner or a row someone else already moved records nothing. It is best effort: if the store is
+   still down it fails too and rule 2 applies.
+2. **The loop expires it.** A `dispatched` row whose `dispatch_token` is the current lease's own and which has been `dispatched` for longer than `CALIBER_EFFECT_IN_FLIGHT_MAX_SECONDS` becomes
+   `unknown` (`in_flight_expired`, with an `effect_in_flight_expired` audit row in the same transaction) and is then asked about by key like any other `unknown` one. A younger row is `in_flight` and left
+   alone. A row with no recorded token proves nothing and is never expired.
+
+**The dispatcher and the loop racing for one row.** Both write under the lease row's lock (taken first) and both are conditioned on the version they read, so exactly one wins and the loser records nothing:
+if the dispatcher settles first the loop finds the row `moved`; if the loop expires it first, the dispatcher's settle is refused as `stale_version` (its receipt is rolled back with it), the row stays `unknown`,
+and the effect was sent once either way. The outcome is not lost: `unknown` is settled by a lookup by key, which finds the request for a connector that has one. Set the bound above the longest a dispatch can legitimately
+take (the transport's timeout times its attempts, plus the receipt lookup), or a slow dispatcher that was about to commit finds its row `unknown` instead.
+
+**Known limits.** A connector with no lookup by key (the generic `http` connector has none) can never be settled by the loop: its `unknown` rows report `not_bound` every pass and keep blocking their
+dependents until a connector with a lookup is bound. Each pass looks at every open row, so a very large backlog of such rows costs a few queries each per pass. The loop is a single sequential worker.
+Proposals are still created only where a run supplies a governed effect context; see "Governed webhook and API-request nodes".
 
 ## Operator reconciliation view: legacy claims and proposals, labelled apart (B05.6, #751)
 
@@ -1299,8 +1807,8 @@ for result in reconcile_pass(session_factory, lease=lease, targets=targets):
 | --- | --- | --- |
 | What it is | the queued-run worker's claim ledger (`caliber_effect_ledger`) | the ADR 0003 proposal ledger (`caliber_effect_proposals`) |
 | Listed by default | `status=in_progress` (`status=any` or another status widens it) | the open states `dispatched`, `unknown`, `reconciled` (`proposal_state=any` or one state) |
-| Settled by | an operator: `POST .../system/effects/{effect_key}/resolve` (admin, audited: `skip` or `retry`) | the reconciler's lookup by key; no operator action yet (`safe_actions` is empty) |
-| `safe_actions` | `resolve:skip`, `resolve:retry` on an `in_progress` claim, none otherwise | none |
+| Settled by | an operator: `POST .../system/effects/{effect_key}/resolve` (admin, audited: `skip` or `retry`) | the reconciler's lookup by key. The operator can only ask now: `POST .../system/effects/proposals/{proposal_id}/reconcile` |
+| `safe_actions` | `resolve:skip`, `resolve:retry` on an `in_progress` claim, none otherwise | `reconcile` on an `unknown` or `reconciled` row and on a `dispatched` row with `abandoned: true`, none otherwise (a `dispatched` row of the current lease is the dispatcher's until the in-flight bound) |
 
 Every row carries `source`, `source_version` and its own `safe_actions`, so a client cannot apply the legacy `resolve` to a proposal (it is refused, `400`, and changes
 nothing) or read a proposal as a ledger claim. Legacy rows keep exactly the fields they always had (plus the label); the migrations that created the proposal tables
@@ -1315,6 +1823,25 @@ payload (recorders pass fixed codes). Known limit: no index on proposal `state`/
 `workflow_run_id`, `limit` (1 to 1000, applied to each list; the proposal list reports `proposals_truncated` when more matched, newest first); `proposal_state` is only checked when proposals are asked for, and an
 unknown `source` or `proposal_state` is `400`. The response also carries `sources`, a description of each kind
 (`settled_by`, `safe_actions`). SDK: `client.system.effects(source="proposal", proposal_state="unknown")`.
+
+### Operator action: `reconcile` (B05.5d, #997)
+
+`POST /caliber/system/effects/proposals/{proposal_id}/reconcile` with `{"reason": "<1 to 500 characters>"}` (admin scope; SDK `client.system.reconcile_effect_proposal(proposal_id, reason=...)`). It
+asks the downstream about one proposal now, which is what the loop does every pass, and it is the only operator action on a proposal. It is deliberately **not** a way to say what happened:
+
+- **No say-so.** The body accepts `reason` and nothing else (any other key is `400`). There is no `committed` or `failed` an operator can write: a receipt exists only when the platform read the effect
+  back from the downstream by its key, and `failed` only when the connector proves absence final (ADR 0003). A 404, a 5xx, an unreadable body, an unreachable downstream or no binding leave the proposal `unknown`
+  and the answer says so (`outcome`: `unknown`, `unverified`, `lookup_failed`, `not_bound`, `in_flight`); only a stored request that is this proposal's effect settles it (`committed`, `settled: true`).
+- **Owner-fenced.** It runs under the execution-owner lease of the process that serves the request (`app.state.execution_role`), through `reconcile_one`, so the lease is compared in the transaction of every write.
+  A process that is not the owner (or whose controller has dropped the lease) answers `409 not_execution_owner` and asks nothing; a lease taken over mid-request is `409 lease_lost` with nothing recorded.
+  An operator request and the loop asking at once settle the proposal exactly once (the second sees it `moved`). At most 4 operator lookups run at once per process; the rest get `429 too_many_reconciliations_in_flight` and nothing is asked.
+  The route also accepts a `dispatched` row of the *current* lease, which `safe_actions` does not list because it does not always act: younger than `CALIBER_EFFECT_IN_FLIGHT_MAX_SECONDS` it answers `in_flight` and changes nothing; older, it records `unknown` (`in_flight_expired`) exactly as the loop would and asks.
+- **Audited.** Every request that reaches the reconciler leaves one `effect_reconcile_requested` audit row (actor, reason, state before, outcome, state after, owner and fencing token; no payload), whether or not
+  the proposal moved; a lease lost mid-request, or any other failure of the request (recorded by error code or exception class name only), is recorded too. When the lookup settles the proposal, the reconciler's own `effect_reconciled` row is written in the same transaction as the move. A proposal that
+  is not `dispatched`, `unknown` or `reconciled` is `409 not_reconcilable` and nothing is recorded; an unknown id is `404`.
+- **Why nothing more.** A proposal that stays `unknown` for good (a connector with no lookup by key, a downstream that never shows the request) keeps blocking its dependents. That is the safe state:
+  the alternative, an operator marking it `failed`, unblocks them on a belief while the effect may have happened. The operator procedure is in the
+  [recovery runbook](m-65-recovery-runbook.md#a-proposal-source-effect_proposal).
 
 ## Receipt callback: a connector tells the platform it is done (B05.4b, #725)
 
@@ -1669,12 +2196,159 @@ creator authority, and client-supplied owner or creator values cannot replace
 the authenticated requester.
 
 This is provenance, not permission: apply still rechecks the current project
-permission, distinct approver, and exact candidate digest. Rows written before
+permission and, under the two-person rule below (B06.3), the distinct approver,
+and the claim now rechecks both, with the exact candidate digest, inside its own
+transaction (B06.4, [below](#apply-the-claim-rechecks-everything-b064-753)). Rows written before
 B06.2 remain explicitly unknown (`triggered_by = NULL`); operators recover
 those rows through the current authorization boundary or create a new job via a
 path that can declare its requester. No new migration or public API/SDK field
 is required because migration `0131` introduced the column and it remains an
 ORM-only field.
+
+### Apply: a distinct approver (B06.3, #747)
+
+`CALIBER_APPLY_REQUIRE_DISTINCT_APPROVER` (`apply_require_distinct_approver`, default `false`) is the
+two-person rule for `POST /ajax-api/2.0/mlflow/caliber/jobs/{job_id}/apply`. With it on:
+
+| the job's `triggered_by` | the authenticated caller | result |
+| --- | --- | --- |
+| a different account | holds `caliber.operator` and `release.apply` on the job's project | applied, as before |
+| the caller (compared trimmed and case-folded, so `@Reza` is not a second person to `@reza`) | any | `403`, `reason_code` `apply_self_approval` |
+| `NULL`, empty or blank (a legacy job, or a creation path that declared no requester) | any | `403`, `reason_code` `apply_creator_unknown` |
+
+Where the identities come from: the requester is the job row's `triggered_by`, written from the
+authenticated request identity when the job was created (B06.2); the approver is the authenticated caller
+of the Apply request. Neither is read from the request body, query string or model output, and the setting
+is server configuration, so a client cannot turn the rule off or name a different requester.
+
+**The reference profile.** The setting must be on: `CALIBER_PROFILE=reference` refuses to start without it
+(`apply_distinct_approver_disabled`, in the table above). The rule is also applied at request time whenever the
+profile is `reference`, whatever the flag says, so a process that somehow reached a request in that state
+still refuses, and an unreadable configuration is treated as the reference profile.
+
+**Development compatibility, separately.** With the default profile and the flag off, Apply behaves exactly
+as it did in the alpha: the requester may apply their own candidate and a legacy job with no recorded
+requester is applied. That is a declared development-only compatibility, not a reference behaviour; a
+single-operator install that turns the flag on cannot apply its own jobs and needs a second operator.
+
+**Refusals** are `403` with a static, payload-free message (no job id, account name, candidate text or
+digest) and a stable `reason_code`:
+
+```json
+{"detail": "the account that requested this candidate cannot apply it; a different authorized person must apply it", "status_code": 403, "reason_code": "apply_self_approval"}
+```
+
+```json
+{"detail": "this candidate has no recorded requester, so a distinct approver cannot be verified; re-run the calibration so it records its requester, then have a different authorized person apply it", "status_code": 403, "reason_code": "apply_creator_unknown"}
+```
+
+Both refusals happen after the project-permission check (a non-member still gets `404`, a member without
+`release.apply` still gets `403` without a reason code) and before the claim, the approval anchor and the
+promoter call, so a refused Apply changes no job, approval or release state: the job stays `candidate_ready`.
+Since B06.4 the refusal is recorded in the audit log (below). The claim repeats the check on the row-locked
+job with the same helper, and the database enforces the same separation inside the atomic claim (`UPDATE ... WHERE status = 'candidate_ready'`
+and the requester, trimmed of ASCII whitespace and lower-cased, is neither NULL, blank nor equal to the
+caller, trimmed and lower-cased the same way), so a requester that changed after the check, even to a case
+or whitespace variant of the caller, still cannot claim. The SQL lower-casing is ASCII-only on SQLite; the
+check before the claim applies the full case-fold. If the server has no configuration object at all, the
+rule is applied as in the reference profile rather than failing the request.
+
+**Recovery.** `apply_self_approval`: ask a different account with `release.apply` on the project to
+apply it. `apply_creator_unknown`: the job has no verifiable requester and **there is no reviewed-provenance
+override yet**: the job is refused, never passed. Re-run the calibration through the prompt, skill, workflow
+or assistant path, which records the requester, and have a different account apply the new job. Do not set
+`triggered_by` by hand from timestamps, owners or other mutable fields.
+
+### Apply: the claim rechecks everything (B06.4, #753)
+
+Apply authorises at the start of the request, but the decision that matters is the one at the claim, the
+write that moves the job from `candidate_ready` to `applying` and commits the approval anchor before the
+promoter runs. Inside that transaction the route now locks the rows the decision rests on and rechecks, on
+what it locked, in this order:
+
+| order | recheck | refusal |
+| --- | --- | --- |
+| 1 | the job still exists | `404` |
+| 2 | the caller still holds `release.apply` on the job's project and can still see the job (membership, role, project owner and the agent's project are read after being locked) | `403`, `reason_code` `apply_permission_revoked` |
+| 3 | the two-person rule above, when in force, with the same `apply_separation_refusal` helper as the early check | `403`, `apply_self_approval` or `apply_creator_unknown` |
+| 4 | the job is still `candidate_ready` | `409`, no `reason_code` (the existing status conflict) |
+| 5 | the candidate about to be promoted is the one that cleared the eval gate | `409`, `apply_candidate_changed`, or `apply_candidate_unverified` when no digest was recorded |
+
+A lock wait that runs out before step 1 ends is `503` `apply_busy` (below). After the claim `UPDATE`, rows 2 and 5 are checked once more before anything is committed (see SQLite, below).
+
+**The exact candidate.** When the eval gate passes, the stage that moves a job to `candidate_ready` stores the
+SHA-256 of the candidate's canonical JSON on the job (`caliber_refinement_jobs.candidate_digest`, `sha256:` plus
+64 hex digits; migration `0132`). The claim recomputes the digest of the candidate it is about to promote and
+refuses on any difference. The approval anchor's `candidate_snapshot`, which is what the promoter reads, is
+taken from that same locked row and checked against the recorded digest once more before anything is committed,
+so the digest names exactly the content that is promoted even on a database without row locks. The recorded digest also appears in the `apply_candidate` audit row, so a
+promoted version can be traced to the exact content that was evaluated. The check applies in every profile: it
+is an integrity check, not the two-person policy. A job with no recorded digest is refused
+(`apply_candidate_unverified`), never trusted.
+
+**No gap between check and write.** On PostgreSQL the job is locked `FOR UPDATE` and its agent, project and the
+caller's membership row `FOR SHARE` before anything is read for the decision, in that order, and the conditional
+`UPDATE` of the claim still carries the status, the recorded digest and (when the rule is on) the requester
+predicate. A revocation or a candidate edit that is mid-transaction when the claim starts makes the claim wait
+and then refuse; one that arrives while the claim is in flight waits for the claim to commit, so the apply that
+passed its checks is the apply that was authorised. Two concurrent applies cannot both claim: the second waits and
+sees `applying`. The waits are bounded by a fixed 5 second `lock_timeout` (not a setting); a wait that runs
+out is answered `503`, `reason_code` `apply_busy`, retryable, with nothing decided or written and no audit row.
+
+**What SQLite does and does not cover.** SQLite has no row locks and ignores the `FOR UPDATE` / `FOR SHARE`
+clauses, so the recheck's answer is not held between the recheck and the claim: a grant can be revoked on
+another connection in that gap. Two things close it. The claim `UPDATE` is conditional (status, recorded digest,
+requester), and once it has run, and so holds SQLite's single write lock, the route reads the caller's authority
+again and verifies the candidate snapshot against the recorded digest before anything is committed; a failure
+rolls the claim back (`apply_permission_revoked` / `apply_candidate_changed`). What remains is the interval
+after that check and before the commit, during which SQLite's write lock keeps other writers out. This is the
+development profile; the reference profile requires PostgreSQL, where the row locks above are what is relied on.
+
+**Refusals** are static and payload-free (no job id, account, digest or candidate text):
+
+```json
+{"detail": "the candidate is not the one that was evaluated; nothing was applied, re-run the evaluation and apply the new candidate", "status_code": 409, "reason_code": "apply_candidate_changed"}
+```
+
+```json
+{"detail": "your permission to apply candidates in this project is no longer in force; nothing was applied", "status_code": 403, "reason_code": "apply_permission_revoked"}
+```
+
+```json
+{"detail": "this candidate has no recorded evaluation digest, so it cannot be verified; nothing was applied, re-run the evaluation so it records one", "status_code": 409, "reason_code": "apply_candidate_unverified"}
+```
+
+```json
+{"detail": "this candidate is being changed or applied right now; nothing was applied, retry shortly", "status_code": 503, "reason_code": "apply_busy"}
+```
+
+**Audit (#1050).** Each refusal at or after the separation check (`apply_self_approval`, `apply_creator_unknown`,
+`apply_permission_revoked`, `apply_candidate_changed`, `apply_candidate_unverified`) writes one `apply_refused`
+audit row, `severity` `high`, on the job, with the caller as actor and `{"reason_code": ...}` as its only
+detail. It is written in a transaction of its own after the attempt is rolled back, so the refusal still
+changes no job, approval or release state, and a failure to write it is logged without turning the refusal into
+a `500`. The existing `404` and role `403` of the early project-permission check, and the status `409`, write
+nothing. There is no rate limit on these rows beyond the platform's request limits: only an authenticated
+caller holding `release.apply` can produce one.
+
+**Recovery.** `apply_candidate_changed` and `apply_candidate_unverified`: the content or its evidence is not
+what was evaluated. Re-run the evaluation (a new candidate, or a request for changes) so the gate records a
+fresh digest, then apply. Do not edit `candidate_digest` by hand: the digest is evidence of what was evaluated,
+and a hand-written one defeats it. `apply_permission_revoked`: ask a project owner to restore the grant, or have
+an authorised account apply it.
+
+**Upgrade and limits.** Migration `0132` is additive, but not safe for a mixed-version rollout: a job that an
+old process moves to `candidate_ready` after the upgrade records no digest, and the new Apply refuses it
+(`apply_candidate_unverified`, with no override). Drain old writers (the workers that run the eval stages) before
+migrating, or re-run the evaluation of any job they finish in the window. The migration backfills `candidate_digest` for jobs that are
+`candidate_ready` or `applying` at upgrade time from their *current* candidate, since that is the only
+evaluated candidate such a row can name (a trust-on-upgrade step: an edit made before the upgrade is not
+detectable); every other row stays `NULL`, and a job without a candidate stays `NULL` and is refused at Apply.
+Rolling back drops only the column. The digest covers the candidate content, not the evaluation results stored
+beside it, and it is not a defence against someone who can write to the database and rewrite both the
+candidate and the digest: it catches an edit after the gate by any path that does not also re-record the gate's
+evidence. The permission recheck covers the project grant and visibility; the caller's platform scopes come
+from the request's credential as resolved at its start.
 
 ## Approval requests: bound to the exact intent (B06.1, #706)
 
@@ -1854,8 +2528,8 @@ checked = approval_valid_at_commit(
 
 An agent step is one bounded unit of model work in a workflow node. Two control records (ADR 0003) describe it, and
 `caliber.contracts.agent_step` is the gate in front of both: it validates a record and refuses it **before anything is
-dispatched**. This page is the contract; the adapters that produce results (B08.1b onwards) and the limit and budget
-enforcement (B08.3, B08.4) build on it and are not part of it.
+dispatched**. This page is the contract; the adapters that produce results (B08.1b onwards), the limit enforcement
+([B08.3](#central-step-limits-turns-tool-calls-tokens-and-the-deadline-b083-752)) and the token budget (B08.4) build on it and are not part of it.
 
 - **`agent_step_request` v1** names the step (`step_request_id`, `workflow_run_id`, `node_id`, the durable `occurrence_id`
   and the `attempt`), what it was given (`run_manifest_digest` and `context_manifest_digest`, each 64 lowercase hex digits),
@@ -1879,8 +2553,9 @@ enforcement (B08.3, B08.4) build on it and are not part of it.
 - **What the model says is a claim, not a fact.** Everything in a result is model output. In particular a proposed action's
   `effect_class` and `connector_version` are **untrusted**: a model can call an irreversible write `read`, and a `read` can be
   approved by policy alone. `ProposedAction.bound_to(inventory_effect_class)` returns the action carrying the platform's class
-  (from the protected-effect inventory) and raises `ClaimMismatch` (code `claim_mismatch`) when the claim differs; B08.2 calls it
-  before `record_proposal`, and an action that is not `platform_bound` is never recorded.
+  (from the protected-effect inventory) and raises `ClaimMismatch` (code `claim_mismatch`) when the claim differs; the platform
+  calls it (`caliber.effects.step_proposal`, B08.2) before `record_proposal`, and an action that is not `platform_bound` is never
+  recorded.
 - **One action shape for the step and the proposal.** A proposed action is `effect_class` (`read`, `reversible_write`,
   `irreversible_write`, `export`), `target` (`connector` and `resource`), `connector_version`, `args` and
   `expected_resource_version`: the names and meaning they have in the `proposal` record. `ProposedAction.intent` is the very
@@ -1940,8 +2615,8 @@ the other limits are checked by the platform around the provider call (B08.3), n
 
 `caliber.workflows.agent_step` is the seam between the agent-step contracts above and a model provider. It adds no route, no
 table and no setting. It defines what an executor must do to take part in *governed* execution and how the platform treats
-the answer; the limits (B08.3), the token reservation (B08.4) and turning a model's tool call into a recorded proposal (B08.2)
-build on it and are not part of it.
+the answer; the limits ([B08.3](#central-step-limits-turns-tool-calls-tokens-and-the-deadline-b083-752)), the token reservation (B08.4) and turning a model's tool call into a recorded proposal (B08.2)
+build on it.
 
 - **`AgentStepAdapter`** (`caliber.workflows.runtime.AgentStepAdapter` is the same protocol) is
   `run_step(request: AgentStepRequest, step_input: AgentStepInput) -> AgentStepResult`, a plain function (an `async def` is
@@ -2035,9 +2710,11 @@ Recovery is always the same shape: the occurrence is retried as the next `attemp
 | is a scripted step naming a tool outside `read_tools` | `refused`, `tool_not_read_class` | naming only read tools, or proposing the call |
 
 An invalid *request*, or a step input for another node, is not a result: `run_agent_step` raises `ContractValidationError` (for
-example `attempt: violates minimum 1`) before anything runs. Not covered here, so not claimed: limits are not enforced by this
-boundary (B08.3), no token reservation is made (B08.4), a blocking adapter is not interrupted, and the interpreter does not yet
-call `run_agent_step`; no governed node execution is enabled by this change.
+example `attempt: violates minimum 1`) before anything runs. The request's limits are enforced by this boundary for every adapter
+([below](#central-step-limits-turns-tool-calls-tokens-and-the-deadline-b083-752)). Not covered here, so not claimed: no token
+reservation is made (B08.4) and a blocking adapter is not interrupted. The interpreter calls
+`run_agent_step` only for a plan that carries a governed-step context, and then records the proposal it returns
+([Governed agent steps: a protected action is a proposal](#governed-agent-steps-a-protected-action-is-a-proposal-b082-744)).
 
 ### OpenAI Responses governed step (B08.openai-responses, #730)
 
@@ -2102,7 +2779,8 @@ now). It takes the step's request and `AgentStepInput` and answers with the type
   first is proposed and the rest are dropped (v1 allows one action per step); parallel tool use is turned off in the request. A reply
   that mixes read and protected calls runs none of the reads. Handoff targets are not offered, and a structured-output schema is not
   applied (a step's result carries no output text).
-- **Limits** are those of the request, checked around every provider call (the platform checks them again, B08.3). Before a turn:
+- **Limits** are those of the request, checked around every provider call (the platform checks them again, whatever the adapter
+  reports: [central step limits](#central-step-limits-turns-tool-calls-tokens-and-the-deadline-b083-752)). Before a turn:
   `max_turns`, then the deadline, then the tokens left, each a stop reason that keeps the usage so far; before each read tool:
   `max_tool_calls` (and the deadline); and no read tool is run when no turn is left to use its result. A call's `max_tokens` is the
   smaller of the executor's cap and the tokens left, its timeout the smaller of the provider timeout and the time to the deadline,
@@ -2146,8 +2824,8 @@ returning an aware `datetime`, default the UTC clock), is what a step's deadline
   whose `effect_class` and `connector_version` are **the model's claims** (`platform_bound` is false; B08.2 binds them to the
   protected-effect inventory and refuses a mismatch). If one response calls several protected tools the first is proposed and
   the rest of that response, read calls included, does not run. A call to a tool the agent does not have is `malformed_result`.
-  The envelope carries the connector the *model* names: a `ProposedAction` has no tool-name field, so B08.2 must decide how a
-  proposal is tied to the tool that was called.
+  The envelope carries the connector the *model* names: a `ProposedAction` has no tool-name field, so the platform ties a
+  proposal to the agent's tools through a trusted tool-to-backend map (see the B08.2 section below).
 - **Limits come from the request.** `max_turns` counts provider responses; `max_tool_calls` counts read tools run, all or none per
   response; `max_tokens` is compared with the provider's total before each call and after each response (more than the limit
   stops with `max_tokens` whatever the model wanted; exactly the limit is allowed but leaves nothing for another call); the
@@ -2155,7 +2833,7 @@ returning an aware `datetime`, default the UTC clock), is what a step's deadline
   source `estimated`, and the provider is not touched. A response the provider cut off (`finish_reason: length`) is `max_tokens`
   and its tool calls are not acted on. Each call is also bounded: the SDK's retries are off (`with_options(max_retries=0)`), its
   timeout is the time left to the deadline (at most `CALIBER_PROVIDER_REQUEST_TIMEOUT_SECONDS`) and the remaining token budget is
-  sent as `max_completion_tokens`. The platform still enforces the limits against the returned usage (B08.3).
+  sent as `max_completion_tokens`. The platform still enforces the limits against the returned usage ([B08.3](#central-step-limits-turns-tool-calls-tokens-and-the-deadline-b083-752)).
 - **Usage is the provider's**, summed over turns, with `usage_source: "provider"` and `cached_prompt_tokens` only when the
   provider reported them. A response with no usage object is estimated by word count and reported `estimated`; a total below
   `prompt + completion` is raised to it; a figure that is not a plain non-negative integer (or exceeds 2147483647) is
@@ -2172,7 +2850,189 @@ returning an aware `datetime`, default the UTC clock), is what a step's deadline
 
 No exception text, provider payload, tool name or tool argument is placed in a result or a log line (the log line carries the
 exception's class name and the step id). Not covered: handoffs (`run_agent` ignores them too), structured output (a step result
-has no output field, so the final text is not returned), the token reservation (B08.4) and recording the proposal (B08.2).
+has no output field, so the final text is not returned) and the token reservation (B08.4). Recording the proposal is the platform's
+job and is described in [Governed agent steps](#governed-agent-steps-a-protected-action-is-a-proposal-b082-744).
+
+## Governed agent steps: a protected action is a proposal (B08.2, #744)
+
+`caliber.effects.step_proposal` is what the platform (the interpreter, never an adapter) does with a step that stops with
+`proposed_action`. It adds no route, table or setting. It is switched on per plan: `RuntimePlan.governed_agent_steps` is a
+`GovernedStepContext`, and **nothing in production builds one yet** (the producer that admits a run will; the worker, the
+reference profile and every existing plan run agent nodes exactly as before). With one, an agent node no longer calls
+`run_agent`: it runs through `run_agent_step`.
+
+1. **The platform classifies the agent's tools; the model's claim decides nothing.** `registry_tool_classifier` answers, for each
+   tool bound to the agent, the protected-effect inventory's class for the tool's *registry identity*: the binding names its row
+   (`resolved_name`, `resolved_version`), the row's module and callable must be the binding's, and `is_builtin_tool` must accept it
+   (owner, version, module and callable as the seed wrote them). A tool that is not provably CALIBER's own, every MCP tool, an
+   unresolved binding, a missing row and an unreadable registry are the inventory's fail-closed class (`irreversible_write`). Only
+   tools classified `read` are handed to the adapter (`AgentStepInput.read_tools`); every other tool is proposed and never run. A
+   classifier that raises, or answers with anything but a `ToolTrust`, is the fail-closed class.
+2. **The connector comes from a trusted map, never from the proposal.** A v1 proposal names no tool, and the connector it
+   names is the model's word, so the platform ties a proposal to the agent through `GovernedStepContext.tool_backends`: which
+   backend kind (`caliber.effects.dispatcher.BACKENDS`) each tool sends through, built by the producer from trusted
+   configuration (nothing a model, a manifest author or a tool call writes). **It is keyed by the tool's registry identity,
+   `(name, version)` of the row the binding resolved to (`ToolTrust.registry`), never by the local name in the manifest**: a
+   manifest author can give any tool any local name, so a built-in bound under a mapped name gets no route (the review probe,
+   a regression test). Only the agent's non-read tools whose registry identity is in the map count, and
+   the connector the model named is used for one thing: choosing among them. It must be the connector of a mapped tool's
+   registered backend (`connector_not_mapped` otherwise; `connector_ambiguous` if two kinds share it), so a model cannot reach
+   `http`, or any other registered connector, through a tool that does not send there. The backend kind is then admitted
+   (`admit_backend`, B12.3a: implementation, capability and configuration pinned in `REFERENCE_CONNECTORS`; a refusal keeps its
+   own code) and that admission is what `submit_proposal` requires.
+   **Which backends an agent step may reach, and the resource contract.** Only backends in
+   `step_proposal.AGENT_STEP_BACKENDS` (today `document_request`) are reachable; a tool mapped to any other
+   (`http`, whose destination is an arbitrary URL and whose egress check runs at dispatch, after an approval would be spent; a
+   `registered_tool` backend of B04.3, whose configuration `resource` is the literal template `registered-tool/<name>/<version>`) is refused, `backend_not_for_agent_steps`. A
+   reachable backend must declare a resource **pattern**: its trusted configuration's `resource` is a regular expression the
+   destination must fully match (`resource_not_admitted`, also when there is none).
+   **The proposal is bound, never trusted.** The class is the strictest among the tools that map to that backend (a tool the
+   profile refuses outranks one it dispatches), and the version is the admitted one. `ProposedAction.bound_to` refuses a claim
+   that differs (`claim_mismatch`). A mapped tool's destination is still the model's to choose within the connector's pattern. The
+   approval request stores the intent hash and an evidence digest, not the destination: the approver reads the intent from the
+   recorded proposal. Nothing is repaired: a refused proposal records nothing, and the node's retry policy
+   applies.
+3. **One effect, one question.** `submit_proposal` records the bound action as a `proposed` effect for the node's durable occurrence
+   (`(run, node, occurrence)`, the interpreter's occurrence id, so a retry and a restarted run find the same row) and, in the same
+   transaction, `create_approval_request` records the approval request bound to that exact intent (`intent_hash`), with an evidence
+   digest over the step, its run and context manifest digests and the intent (`step_evidence_hash`). The two are written
+   together or not at all. Concurrent proposers of one step serialize on the run row, so exactly one request is live: the second
+   finds the first's instead of superseding it.
+4. **The node parks.** The step returns `blocked` (`waiting_approval:<node>`) with a `runtime_approval` checkpoint that names the
+   proposal and the request (identifiers and the intent hash, never the action's arguments). The worker parks the run
+   `waiting_approval` on that very request and creates no node-level duplicate; it refuses to park a run behind a request that is
+   not live and bound to this run, node and proposal. The routes accept the checkpoint kind (`runtime_approval`), **but a parked run
+   cannot be approved yet**: until the bound-approval decision is wired (PR #1042, B06.4, issue #735, open when this was written)
+   the decision route answers `409 approval_bound_not_wired` for a live request bound to a proposal. Once #1042 lands the request
+   is decided by naming its `runtime_approval_id` while the run is `waiting_approval` at that node.
+5. **A resumed or retried step does not ask the model again.** Before the provider is called the node looks for its occurrence's
+   proposal: `committed` completes the node, `failed` fails it, `proposed` parks it again behind its live request (re-asked when the
+   last one expired, was superseded or was consumed; a *rejected* request is final, `approval_rejected`), and any state in between
+   (`approved`, `dispatched`, `unknown`, `reconciled`: the dispatcher has it) is the existing effect-reconciliation park.
+
+Refusals are `EffectRefused` with a fixed code and no value from the model; the run error carries only that code.
+
+| the step | result | recover by |
+| --- | --- | --- |
+| proposes a tool class the model made up (`read` for a write) | run error `governed agent step proposal refused: claim_mismatch`, nothing recorded | none for this output; the node's retry asks again as the next attempt |
+| names a connector none of the agent's mapped tools sends through (a hostile `http` proposal, say) | `connector_not_mapped`, nothing recorded | mapping a tool to the backend in the context, if the agent should reach it |
+| names a registered connector but the wrong version or class | `claim_mismatch`, nothing recorded | the model proposing the admitted version and the tool's class |
+| names a destination the admitted connector does not accept | `resource_not_admitted`, nothing recorded | a destination of the connector's shape |
+| its backend is not admitted (drifted implementation, capability or configuration) | the admission's code (`connector_configuration_mismatch`, ...), nothing recorded | re-admitting the connector (B12.3a) |
+| proposes while the agent has no protected tool | `no_protected_tool` | none: the call was invented |
+| proposes while the agent holds a tool the profile refuses | `unsupported_effect_path` | removing the refused tool from the agent |
+| proposes a different action for an occurrence that already has one | `intent_conflict`, the stored proposal stands | none: the occurrence's effect is fixed |
+| completes without proposing | run error `governed agent step completed without an output channel`; nothing is published | adding an output field to the step contract before governed steps carry text |
+| the agent has a handoff, sits as the inline target of a fan-out, loop or error boundary, or is a branch of a `parallel` node | the run is refused before any node runs (`do not follow handoffs` / `cannot run inline` / `cannot run in parallel branches`), no proposal or request exists | giving the governed agent its own sequential node in the graph |
+| the store fails while recording (a deadlock, a lock timeout) | run error `governed agent step proposal failed: store_failed`; the statement's parameters, which are the model's arguments, reach no error or log | retrying the node |
+| a tool is mapped to `http` or to a literal-template backend | `backend_not_for_agent_steps`, nothing recorded | mapping only `document_request`-style backends |
+| stops on a limit, refuses or fails | run error `governed agent step stopped: <stop reason> (<fixed code>)`; a limit stop carries its usage as numbers: `governed agent step stopped: max_tokens (turns=3 tool_calls=1 tokens=4100)` | as for the step; the limits are [central](#central-step-limits-turns-tool-calls-tokens-and-the-deadline-b083-752), reservations are B08.4 |
+| its approval request was rejected, then the run is resumed | `approval_rejected` | a new run |
+
+```python
+from caliber.effects.step_proposal import GovernedStepContext, registry_tool_classifier, stored_context_manifest_digest
+from caliber.workflows.agent_step import StepCeilings
+
+plan.governed_agent_steps = GovernedStepContext(
+    session_factory=session_factory,
+    workflow_run_id=run_id,
+    run_manifest_digest=run_manifest_digest,           # the stored run manifest's SHA-256
+    grant_id=run_manifest["grant_id"],                 # the one grant the step runs under
+    classify_tool=registry_tool_classifier(session_factory),
+    context_manifest_digest=stored_context_manifest_digest(session_factory, run_id),
+    limits=lambda agent: step_limits,                  # the producer's; capped at the ceilings, enforced by the platform (B08.3)
+    requested_by=run_initiator,
+    approval_ttl_seconds=configured_ttl_seconds(config),
+    tool_backends={("request_missing_document", "1.0"): "document_request"},  # registry identity -> backend, the producer's
+    ceilings=StepCeilings.from_config(config),         # optional: the CALIBER_AGENT_STEP_MAX_* ceilings (defaults when absent)
+)
+```
+
+Not covered, so not claimed: dispatching an approved proposal (B04.6 routes model-selected calls through the dispatcher; until then
+an approved proposal stays `proposed` and the run stays `waiting_approval`), the token reservation
+(B08.4), handoffs, inline targets and parallel branches (refused), and the output text of a governed step (a step that completes is refused). The
+v1 proposal still carries no tool name, so within a connector the class is the strictest of the tools that map to it; an additive
+contract change (the tool name in the envelope) would make it exact. Telling the model the connector, version and class to claim
+is an adapter concern.
+
+## Central step limits: turns, tool calls, tokens and the deadline (B08.3, #752)
+
+The limits of an agent step (`max_turns`, `max_tool_calls`, `max_tokens` and the `deadline` of the request) are enforced by the
+platform in `caliber.workflows.agent_step.run_agent_step`, the one boundary every adapter goes through, and not by each adapter. The
+adapters keep their own in-loop checks (they are the only code that can stop a provider call that is under way), but the platform
+does not rely on them and does not take an adapter's or a model's word for what a step used. It adds no table, route or migration.
+
+**Where the limits come from.** `GovernedStepContext.limits(agent)` is the producer's (trusted run or step configuration, never
+anything the adapter, the manifest author or the model supplies). The interpreter then brings them down to the platform's
+**ceilings** (`GovernedStepContext.ceilings`, default `StepCeilings()`, built from settings with `StepCeilings.from_config(config)`)
+with `cap_limits`: a count above its ceiling becomes the ceiling, a deadline later than *now + `CALIBER_AGENT_STEP_MAX_SECONDS`* is
+brought forward to it (an earlier deadline is kept exactly as given), and a limit is never raised. A producer whose `limits` raises,
+returns anything but a `StepLimits`, or names a deadline that is not an RFC 3339 instant stops the step with
+`governed agent step limits unavailable: limits_invalid` before the adapter is touched (no text from the producer's failure); a context
+clock that is not an aware instant stops it with `governed agent step clock unavailable: clock_invalid`.
+The request schema's own bound is 2147483647; the ceilings are what make a step finite in practice.
+
+| Setting | Default | Accepted | Meaning |
+| --- | --- | --- | --- |
+| `CALIBER_AGENT_STEP_MAX_TURNS` | `25` | 1 to 1000 | The most provider turns one step may be given. |
+| `CALIBER_AGENT_STEP_MAX_TOOL_CALLS` | `50` | 0 to 1000 | The most read-tool calls one step may make (`0` allows none). |
+| `CALIBER_AGENT_STEP_MAX_TOKENS` | `200000` | 1 to 10000000 | The most tokens (prompt plus completion) one step may use. |
+| `CALIBER_AGENT_STEP_MAX_SECONDS` | `600` | 1 to 86400, finite | The longest window, from the moment the step is asked, a deadline may reach. |
+
+A value outside its bounds stops the service at startup, naming the setting. Like the context caps, the ceilings reach a live step
+once the producer of the governed context passes `StepCeilings.from_config(config)`; a context that names none is capped at these
+defaults, never uncapped.
+
+**What the boundary does, for every adapter alike:**
+
+1. **Before work** (`before_work_stop`): a step with `max_turns` of 0, with `max_tokens` of 0, or whose deadline is now or past
+   (on the platform's clock) stops with that reason and **the adapter is not called**: zero usage, `usage_source: "estimated"`
+   (nothing was called, so a reservation made for it may be released by B08.4; no step that is stopped here has a provider
+   charge). `max_tool_calls` of 0 does not stop a step: it may still answer without a tool.
+2. **During work**: every read tool the adapter is handed (its own and its handoff targets') goes through a platform counter. The
+   call past `max_tool_calls` is refused with `StepToolBudgetExceeded` (the tool does not run, the text is fixed), and two calls
+   racing for the last slot cannot both run. A read tool called at or after the deadline (on the platform's monotonic-based
+   clock) is refused the same way with `StepDeadlineReached` (the tool does not run, the call is not counted), and the step ends
+   `deadline` even if the adapter ignores the refusal; a tool call already running is not interrupted. An adapter receives its **own copy** of the request, so rewriting the limits of the
+   request it holds changes nothing the platform checks.
+3. **After work**: a `completed` or `proposed_action` result is replaced by the stop of the limit it passed, **its proposal
+   dropped** (a step that overran never gets to propose, so no proposal row and no approval request exist), when its reported
+   `turns`, `tool_calls` or `total_tokens` is over the limit, when the platform counted a tool call past the limit (even if the
+   adapter swallowed the refusal and reported fewer), or when the platform's own clock says the step finished after its deadline.
+   Several limits passed are named in the order `max_turns`, `max_tool_calls`, `max_tokens`, `deadline`. The usage kept is the
+   reported one (what was spent is recorded), with `tool_calls` raised to the platform's own count when that is higher. A
+   `refused`, `error` or limit stop the adapter reports itself is returned as it is.
+
+**Exactly the limit is within it.** `max_tokens: 100` with `total_tokens: 100` completes; 101 stops with `max_tokens`. The same holds
+for turns and tool calls. A deadline stops a step that is *at or past* it before work, and one that finished *after* it after work
+(finishing exactly at the deadline is within it). The deadline is read from `StepClock`: the absolute deadline against wall time
+at the start, and how long the step took against a **monotonic** clock, so a wall clock stepped mid-step (an NTP correction) can
+neither extend nor spuriously cut a step. Tests inject a fake clock; a clock that is not an aware instant, or whose monotonic reading
+is not a finite number, is refused with `ValueError` before the adapter runs.
+
+| the step | result | recover by |
+| --- | --- | --- |
+| has no turn or no token to spend, or its deadline has passed | `max_turns`, `max_tokens` or `deadline`, usage 0, `estimated`; the adapter was not called; the run error is `governed agent step stopped: max_tokens (turns=0 tool_calls=0 tokens=0)` | a larger limit from the producer (within the ceilings) on a new run |
+| reports usage over a limit, or the platform counted a call past it | the limit's stop, proposal dropped, the reported usage kept; `governed agent step stopped: max_tokens (turns=1 tool_calls=0 tokens=15)`; no proposal and no approval request | the node's retry is the next attempt with a fresh budget |
+| finishes after its deadline | `deadline`, proposal dropped, usage kept | as above |
+| reports usage that contradicts itself (a total below the parts, a boolean or negative count, more than 2147483647) | `error`, `malformed_result`, zero usage, `usage_source: "unknown"` (the reservation is kept, B08.4) | the adapter reporting the provider's own figures |
+| asks for a tool past `max_tool_calls` | the tool is not run; the adapter sees `StepToolBudgetExceeded`; the step ends `max_tool_calls` if it went on | raising the limit within the ceiling |
+| asks for a tool at or after the deadline | the tool is not run and not counted; the adapter sees `StepDeadlineReached`; the step ends `deadline` if it went on | a later deadline within the ceiling on a new run |
+
+**No double counting.** The boundary keeps no state between calls: each call has its own counter and reads only its own result. A
+retry is the next `attempt` of the same occurrence with the full limits, and a resumed step that finds its recorded proposal asks
+nobody and reports no usage. Adding the usage of several attempts to one budget is B08.4's ledger, not this check.
+
+**For B08.4 and B08.5.** `before_work_stop(request, clock=...)` is the pre-work check a reservation should call first (a step it
+stops needs no reservation); the stop reasons are `caliber.workflows.agent_step.LIMIT_STOPS`. The conformance harness
+(`caliber/tests/agent_step_conformance.py`) gains `FakeStepClock`, `fixed_clock`, `limits_changes` and `stop_before_work`, and every
+`run_scenario` runs on a fixed clock (`StepContext.clock`); `caliber/tests/test_agent_step_bounds.py` runs the five executors over
+tripwire clients through `stop_before_work`.
+
+Not covered, so not claimed: the platform cannot observe a provider's turns or tokens, only what the adapter reports, so for those two
+the check bounds what is *recorded* and stops the proposal, while an adapter's own in-loop checks bound what is *spent* (a lying
+adapter can under-report tokens; the reservation, B08.4, is what charges a conservative figure). A blocking provider call is not
+interrupted. The usage of a stopped step is in its result and in the run error text; persisting it in a ledger is B08.4.
 
 ## Policy decisions
 
@@ -2361,7 +3221,9 @@ trusts a tool's name only when the tool really is CALIBER's own.
 `memory_add`. The comparison is stricter than the resolver's exact match: case and surrounding spaces are ignored, and so are a
 `tool.` prefix and a `.vN` suffix, so `Grep_Files`, ` grep_files ` and `tool.grep_files.v2` are all reserved. A name
 that merely contains one (`grep_files_v2`, `my_grep_files`) is free. The rule applies in every profile, to every
-owner, module and version.
+owner, module and version. The names of the trusted connectors (`document_request`, `document-request`, `http`, `registered_tool`, `openapi_http`, `openapi-http`; see
+[Trusted connector admission](#trusted-connector-admission-b123a-738)) are reserved the same way, with a message that names
+the connector instead of a built-in tool.
 
 **Where it is enforced.** `POST /tools`, `POST /openapi-integrations/{id}/tool-drafts/{draft_id}/publish` and the
 Aria publisher (`AssistantPublisher`, for a tool draft). Nothing is written when a name is refused. CALIBER's own
@@ -2417,8 +3279,10 @@ the dispatcher (B04.7, #774) will refuse them with `unsupported_in_reference_pro
 trust rule as `effect_class`. The DB MCP write tools are not registry rows, so `tool_disposition_for_registry_tool`
 answers `dispatch` for those names today; their refusal rests on the MCP server's identity, which #759 and #774
 establish. **This change records the decision and the lookup; the dispatcher that raises the refusal
-at run time is #774.** Until it lands a reference deployment still runs these tools if a workflow uses them, so do
-not register the first-party DB MCP server and do not wire the four host-file tools into a reference workflow.
+at run time is #774.** The four host-file tools are already refused by a workflow `tool` node in a manifest-backed
+plan (see "Governed registered tools"); until #774 lands, model-chosen tool calls and the MCP path still run these
+tools if a workflow uses them, so do not register the first-party DB MCP server and do not wire the four host-file
+tools into a reference workflow.
 
 **Configuration, migration and rollback.** No new setting, no migration and no stored data change. Rolling back is
 reverting the change; rows already refused were never written.

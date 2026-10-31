@@ -26,8 +26,9 @@ Read this first: it decides which sections you will meet in practice.
 | Outbox, inbox, `process_once` | merged (B13.4, B13.5a) | Backlog and redelivery sections apply as written |
 | Receipt callback | merged (B05.4b, B13.5b) | The one consumer of the inbound inbox |
 | Effect proposals, receipts, reconciler, operator view | merged as modules and a read-only view (B05.1 to B05.6) | Rows appear in the view only once something writes proposals |
-| The dispatcher that writes and dispatches proposals, and the owner loop that schedules the reconciler | **not merged** (dispatcher B04.1, #724; the owner loop, same-token stuck dispatches and operator resolution are tracked in #997) | No production path creates proposal rows today and no loop runs `reconcile_pass`; a real run's effects go through the **legacy effect ledger** |
-| An audited operator action for an `unknown` proposal | **not merged** (#997) | The view offers none (`safe_actions` is empty) |
+| The dispatcher that dispatches proposals | merged (B04.1, #724); a manifest-backed webhook or API-request node dispatches through it only when its run supplies a governed effect context (B04.2), and no production worker builds that context yet | A real run's effects still go through the **legacy effect ledger**; proposal rows appear only where something supplies that context |
+| The owner loop that runs the reconciler, and the rule for a dispatch stuck under the current lease | merged (B05.5d, #997): `EffectReconcilerTask`, reference profile, on by default (`CALIBER_EFFECT_RECONCILER_ENABLED`) | Every `CALIBER_EFFECT_RECONCILER_INTERVAL_SECONDS` (15 s) the owner asks about `unknown` and abandoned effects by key, and a dispatch left under the current lease longer than `CALIBER_EFFECT_IN_FLIGHT_MAX_SECONDS` (15 min) becomes `unknown` |
+| An audited operator action for a proposal | merged (B05.5d, #997): `reconcile` and nothing else | Asks the downstream now, as the owner, and records who asked and why. It never records what you believe: see [What you can do that is safe](#a-proposal-source-effect_proposal) |
 | Parking a gated run and resuming it after reconciliation | merged (B05.5c, #996) | A gated run is durably `waiting_effect`; authoritative settlement wakes the same run from its checkpoint |
 
 So today the effect you will actually meet is a **legacy ledger claim** (`caliber_effect_ledger`, status `in_progress`);
@@ -188,10 +189,10 @@ what depends on them, are `dispatched`, `unknown` and `reconciled`.
 
 | You see | It means | Do |
 | --- | --- | --- |
-| `dispatched`, `abandoned: true` | the lease that dispatched it was replaced; the attempt may have been sent | Nothing by hand. A reconciler pass under the new lease records `unknown` (`abandoned_dispatch`) and asks the downstream by key; until a loop schedules that pass (not merged), it stays `dispatched` and keeps blocking its dependents |
-| `dispatched`, `abandoned: false` | the dispatcher's own attempt in flight, **or** its lease lapsed and nobody has taken over yet | Read `lease` in the same response: `expired: true` means failover has not completed, go to [Owner crash](#owner-crash-and-failover). Otherwise wait, but see the next paragraph if it does not clear |
+| `dispatched`, `abandoned: true` | the lease that dispatched it was replaced; the attempt may have been sent | Nothing by hand. The new owner's next loop pass (within `CALIBER_EFFECT_RECONCILER_INTERVAL_SECONDS`, 15 s) records `unknown` (`abandoned_dispatch`) and asks the downstream by key; it keeps blocking its dependents until that settles |
+| `dispatched`, `abandoned: false` | the dispatcher's own attempt in flight, **or** its lease lapsed and nobody has taken over yet | Read `lease` in the same response: `expired: true` means failover has not completed, go to [Owner crash](#owner-crash-and-failover). Otherwise wait: a dispatcher whose settle fails records `unknown` itself, and the loop moves a row that is still `dispatched` after `CALIBER_EFFECT_IN_FLIGHT_MAX_SECONDS` (see below) |
 | `dispatched`, `abandoned: null` | no recorded token or no lease to compare | Treat as unknown; never abandon it by hand |
-| `unknown` | no recorded outcome (a timeout after the send, an ambiguous answer, an abandoned dispatch) | Wait for the reconciler or a verified callback. It is never sent again |
+| `unknown` | no recorded outcome (a timeout after the send, an ambiguous answer, a failed settle, an abandoned or expired dispatch) | Wait for the loop (every 15 s) or a verified callback, or ask now with `reconcile`. It is never sent again. `reason` says why: `ambiguous:<code>`, `receipt_unverified`, `settle_failed:<code or exception class>`, `abandoned_dispatch`, `in_flight_expired` |
 | `reconciled` | the reconciler began settling it and has not finished | Wait; the next pass or the callback finishes it |
 | `committed` | a verified receipt exists | Do not repeat it. (The platform makes at most one local claim per effect and verifies a receipt; it does not promise exactly-once delivery by the downstream) |
 | `failed` | a definitive rejection, not sent, or proven absence | Final. A new run is a new effect |
@@ -209,11 +210,16 @@ project. What comes back:
 | a 2xx whose body is not this proposal's effect (unreadable, or another request under the key) | still `unknown`, reported `unverified` |
 | cannot be reached, or no binding for the connector and project | still `unknown` (`lookup_failed`, `not_bound`) |
 
-**A `dispatched` row that does not clear.** A row that is old, with `abandoned: false` and `lease.expired: false`, is
-dispatched under the lease the owner still holds. The reconciler never abandons such a row (it is the dispatcher's own
-attempt), so if the dispatcher's settle failed while it kept its lease, waiting does not clear it until the lease turns
-over (#997). Do **not** resend. Capture the row (`proposal_id`, `logical_key`, `owner_id`, `dispatch_token`, `dispatched_at`)
-and the lease, ask the downstream by key, and escalate.
+**A `dispatched` row that does not clear.** A row with `abandoned: false` and `lease.expired: false` was dispatched under the
+lease the owner still holds. If the dispatcher's settle fails while it keeps that lease (the store went away after the send, the
+receipt lookup raised), the dispatcher records `unknown` itself (`settle_failed:<code>`), so such a row does not stay
+`dispatched`. If it could not even do that (the store was still down, the thread died), the owner loop moves the row to `unknown`
+(`in_flight_expired`, audited as `effect_in_flight_expired`) once it has been `dispatched` for longer than
+`CALIBER_EFFECT_IN_FLIGHT_MAX_SECONDS` (900 s by default) and asks the downstream by key in the same pass. Neither rule sends
+anything. A row that is older than that bound and still `dispatched` means the loop is not running (the process is a secondary, or
+`CALIBER_EFFECT_RECONCILER_ENABLED=false`, or the loop is failing: its heartbeat row has kind `effect_reconciler`): check
+`/readiness` `execution_role` and the owner's logs. Do **not** resend. Capture the row (`proposal_id`, `logical_key`, `owner_id`,
+`dispatch_token`, `dispatched_at`) and the lease, ask the downstream by key, and escalate.
 
 **When to wait, and for how long.** An `unknown` that survives a pass is not an error: a request that is still in flight, or a
 read that does not yet see its own write, looks exactly like a request that never arrived. Wait while the downstream's own
@@ -225,17 +231,46 @@ commit it, with the downstream counting one mutation throughout.
 
 - Ask the downstream's owner whether the request exists, by the proposal's `logical_key` (the idempotency key, in the view).
   That is evidence; keep it with the incident.
+- **Ask the platform to ask the downstream now** (admin scope, audited). The loop already does this every pass; this is for when you
+  have just learned the request is visible and do not want to wait. It is the only action the view offers for a proposal
+  (`safe_actions: ["reconcile"]`, on an `unknown` or `reconciled` row and on a `dispatched` row that is `abandoned: true`):
+
+  ```bash
+  curl -s -X POST -H "Authorization: Bearer $CALIBER_TOKEN" -H "Content-Type: application/json" \
+    -d '{"reason": "INC-4471: the downstream owner confirms the request is visible"}' \
+    "$CALIBER_BASE_URL/ajax-api/2.0/mlflow/caliber/system/effects/proposals/$PROPOSAL_ID/reconcile"
+  ```
+
+  The body is `reason` (1 to 500 characters) and nothing else: any other key is `400`, because there is nothing an operator can
+  assert. Read `outcome` and `state` in the answer. `committed` means the downstream showed the request and the platform
+  recorded a verified receipt. `unknown` (with `http_404`, `http_5xx`, `unverified`, `lookup_failed` or `not_bound`) means the
+  evidence is not enough and **nothing changed**: a 404 is never read as "it did not happen". `in_flight` means the row is the
+  dispatcher's own attempt and is still younger than the bound. Every request leaves one `effect_reconcile_requested` audit row
+  (who, why, outcome, state afterwards) whether or not the proposal moved.
+  It runs under the lease of the process that serves the request. A secondary answers `409 not_execution_owner`: ask the owner
+  (`/readiness` shows which role a process has, and `lease` in the view names the owner). A lease taken over mid-request is
+  `409 lease_lost` with nothing recorded; a settled or never-dispatched proposal is `409 not_reconcilable`; more than 4 requests
+  in flight in one process get `429` (retry shortly). A failed request is audited too, by error code or exception class only.
 - Ask the connector to **redeliver its receipt callback** (see [Callback and webhook redelivery](#callback-and-webhook-redelivery)).
   The platform asks the downstream itself before it records anything, so a callback can only confirm what the downstream
-  confirms. This is today's way to settle an `unknown` proposal, since no loop schedules the reconciler.
-- Nothing else. No operator procedure runs the reconciler today (#997): `reconcile_pass` is called only by code inside the
-  owner process that holds the lease (see
-  [Reconciler](m-64-reference-profile.md#reconciler-only-the-owner-asks-about-unknown-and-abandoned-effects-b055b-742)). Do not
-  acquire the lease yourself to call it.
+  confirms.
+- Nothing else. Do not acquire the lease yourself to call the reconciler (see
+  [Reconciler](m-64-reference-profile.md#reconciler-only-the-owner-asks-about-unknown-and-abandoned-effects-b055b-742)).
+
+**An effect that stays `unknown` for good.** There is deliberately no operator action that marks a proposal `committed` or
+`failed` on your say-so. A proposal becomes `committed` only with a receipt the platform read back from the downstream by key,
+and `failed` only when the connector proves absence final; marking it failed on a belief would unblock everything that depends
+on it while the effect may in fact have happened (the legacy ledger's `resolve` does take your word, a proposal never does).
+What that means in practice: a downstream that cannot yet show the request (a 404 is delayed visibility as far as anyone can
+tell) leaves the proposal `unknown` and its dependents blocked, and every later pass and `reconcile` asks again until the
+downstream shows it, or its owner redelivers the receipt callback. A connector with no lookup by key bound for the project
+(`not_bound`, which is every `http` connector proposal today: a generic webhook or API request has no read-by-key contract)
+cannot be settled by the platform at all; confirm what happened with the downstream's owner, keep that evidence with the
+incident, leave the row and its parked run as they are, and escalate: the follow-up is a connector with a lookup, not an override.
 
 **What is never safe.** Re-sending the request; creating the same effect from a new run; editing the proposal row;
 deleting it; moving it with SQL. There is no operator action that fails an `unknown` proposal without the downstream's
-evidence, by design (an audited one is #997).
+evidence, by design.
 
 ### A legacy ledger claim (`source: legacy_ledger`)
 
