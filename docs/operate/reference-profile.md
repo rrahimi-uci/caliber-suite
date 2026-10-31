@@ -183,9 +183,14 @@ that the downstream effect happened and was read back.
   string) is **dropped, not truncated**: a truncated id would name a different row.
 - A workflow manifest cannot assert a link. Its `mlflow.trace_group_tags` are merged into the run tags first, and the
   five reserved keys are removed from them, so a tag named `caliber.proposal_id` is ignored.
-- A failure inside one of these spans is recorded as the stable `caliber.refusal_code` (a refusal's own code, such as
-  `stale_version`) and the exception *type*. The exception is re-raised after the span has closed, so MLflow's own
-  exception event, which keeps the message, never sees it.
+- A failure inside one of these spans is recorded as the exception *type* and, only when it is a platform refusal
+  (`ProposalError`, `EffectRefused`, `ApprovalCommitRefused`), its stable `caliber.refusal_code` such as
+  `stale_version`; the `code` of any other exception is not copied. The exception is re-raised after the span has
+  closed, so MLflow's own exception event, which keeps the message, never sees it **on these three spans**. The
+  re-raised exception still passes through any enclosing span (the workflow node span, `trace_run`), where MLflow
+  records its message as it did before this change.
+- Tracing never changes the outcome of an effect: a redactor or tracer failure while setting one of these attributes is
+  logged at debug level and the attribute is absent (the value is never sent unredacted).
 
 **Who can see them.** The ids, `caliber.refusal_code` and the existing run, node and job ids are on
 `profile.SAFE_SPAN_ATTRIBUTES`, so a caller who may see a trace but not read its payload (B11.4b, above) sees them; every
