@@ -490,6 +490,10 @@ def test_publishing_a_draft_under_a_built_in_tool_name_is_refused_and_recoverabl
     assert "'grep_files'" in detail
     assert "different name" in detail
 
+    spoof = client.post(publish_url, json={"version": "1.0", "name": "document_request"})
+    assert spoof.status_code == 409, spoof.text
+    assert "trusted connector" in str(spoof.json())
+
     db_session.expire_all()
     draft_row = db_session.get(CaliberOpenApiToolDraft, draft["draft_id"])
     assert draft_row is not None

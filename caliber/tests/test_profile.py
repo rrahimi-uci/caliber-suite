@@ -11,18 +11,43 @@ that starts a safe reference app runs against the PostgreSQL service of the migr
 
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
 import pytest
 from alembic import command
+from sqlalchemy import select
+from sqlalchemy.orm import Session
 from starlette.testclient import TestClient
 
+import caliber.effects.dispatcher as dispatcher_module
+import caliber.profile as profile_module
+import tests.test_effect_dispatcher as dispatcher_tests
 from caliber.config import CaliberConfig, ConfigError
 from caliber.db.migrate import build_config
-from caliber.profile import ProfileViolation, reference_profile_violations
+from caliber.db.models import (
+    CaliberEffectProposal,
+    CaliberEventOutbox,
+    CaliberRuntimeApprovalRequest,
+)
+from caliber.effects import admission
+from caliber.effects.connectors import Classified, TransportOutcome
+from caliber.effects.dispatcher import (
+    EffectRefused,
+    TransportResult,
+    UnsupportedEffectPath,
+    dispatch,
+    submit_proposal,
+)
+from caliber.effects.receipts import ReceiptFacts
+from caliber.effects.records import Intent, proposal_state, record_proposal
+from caliber.profile import REFERENCE_CONNECTORS, ProfileViolation, reference_profile_violations
 from caliber.server import create_app
 from tests.dialect_helpers import POSTGRES_TEST_URL, dialect_database_url
+from tests.effect_helpers import admit_fake_backend, leased
+from tests.test_effect_proposals import _seed_run
+from tests.test_event_outbox import _database
 
 HEALTH = "/ajax-api/2.0/mlflow/caliber/health"
 
@@ -471,3 +496,731 @@ def test_the_page_is_registered_in_the_docs_site() -> None:
     manifest = (PAGE.parents[2] / "docs-site" / "build-docs.mjs").read_text(encoding="utf-8")
     assert 'md: "operate/reference-profile.md"' in manifest
     assert "stability: beta" in PAGE.read_text(encoding="utf-8").split("---", 2)[1]
+
+
+# ---------------------------------------------------------------- trusted connector admission (B12.3a, #738)
+#
+# A connector is admitted by the registered transport's implementation identity, its capability record and its wire
+# configuration, each compared with the pinned record in ``REFERENCE_CONNECTORS``; never by a tool, connector or backend
+# *name* a caller supplies. These tests drive the real dispatcher (SQLite) with a fake connector whose call count proves
+# that a refusal happens before anything is claimed or sent.
+
+
+class _FakeConnector:
+    """A transport that records every call, so a refusal can be shown to precede any send."""
+
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def perform(self, _request: Any, _config: Any) -> Any:
+        self.calls += 1
+        raise AssertionError("an unadmitted connector must never be called")
+
+
+class _Backend:
+    """Same name as the real document-request transport, different module: a lookalike."""
+
+    def perform(self, _request: Any, _config: Any) -> Any:  # pragma: no cover - never reached
+        raise AssertionError("a lookalike transport must never be called")
+
+
+class _SubclassOfReal(dispatcher_module._Backend):
+    """A subclass of the real transport: a different implementation identity."""
+
+
+def _doc_admit_args(**overrides: Any) -> dict[str, Any]:
+    registration = dispatcher_module.BACKENDS["document_request"]
+    args: dict[str, Any] = {
+        "backend": registration.backend,
+        "connector": registration.connector,
+        "connector_version": registration.connector_version,
+        "capability": registration.capability,
+        "configuration": registration.configuration,
+    }
+    args.update(overrides)
+    return args
+
+
+def _admit(**overrides: Any) -> admission.AdmittedConnector:
+    return admission.admit(REFERENCE_CONNECTORS, "document_request", **_doc_admit_args(**overrides))
+
+
+def test_the_trusted_table_pins_exactly_the_registered_backends() -> None:
+    assert [t.backend_kind for t in REFERENCE_CONNECTORS] == list(dispatcher_module.BACKENDS)
+    for record in REFERENCE_CONNECTORS:
+        registration = dispatcher_module.BACKENDS[record.backend_kind]
+        assert registration.capability is not None and registration.configuration is not None
+        assert record.implementation == admission.implementation_identity(registration.backend)
+        assert record.capability_digest == registration.capability.digest()
+        assert record.configuration_digest == admission.configuration_digest(
+            registration.configuration
+        )
+        # Accepted risks are exactly the capability's: a stale acceptance would hide a fixed weakness.
+        assert set(record.accepted_risks) == set(
+            admission.capability_risks(registration.capability)
+        )
+        assert (record.connector, record.connector_version) == (
+            registration.connector,
+            registration.connector_version,
+        )
+        assert set(record.required_config_keys) <= set(record.config_keys)
+        assert set(record.config_keys) <= set(admission._CONFIG_CHECKS)
+        admitted = dispatcher_module.admit_backend(record.backend_kind)
+        assert admitted.evidence()["implementation"] == record.implementation
+
+
+def test_the_reference_connector_is_admitted_and_nothing_else_is_listed() -> None:
+    admitted = dispatcher_module.admit_backend("document_request")
+    assert (admitted.connector, admitted.connector_version) == ("document-request", "1")
+    assert admitted.accepted_risks == ("key_retention_unconfirmed",)
+    # MCP stdio and remote hosts, host-file exports and PostgreSQL MCP writes have no record, so they are refused.
+    listed = {name for t in REFERENCE_CONNECTORS for name in (t.backend_kind, t.connector)}
+    assert listed == {"document_request", "document-request", "http"}
+    assert profile_module.reserved_connector_names() == listed
+
+
+@pytest.mark.parametrize(
+    ("overrides", "code"),
+    [
+        ({"connector": "http"}, admission.NOT_ADMITTED),
+        ({"connector_version": "2"}, admission.NOT_ADMITTED),
+        ({"backend": _Backend()}, admission.IMPLEMENTATION_MISMATCH),
+        ({"backend": _SubclassOfReal()}, admission.IMPLEMENTATION_MISMATCH),
+        ({"backend": lambda _r, _c: None}, admission.IMPLEMENTATION_MISMATCH),
+        ({"capability": None}, admission.CAPABILITY_UNPROVEN),
+        ({"capability": {"connector": "document-request"}}, admission.CAPABILITY_UNPROVEN),
+        (
+            {
+                "capability": replace(
+                    dispatcher_module._document_request.CAPABILITY, key_scope="resource"
+                )
+            },
+            admission.CAPABILITY_MISMATCH,
+        ),
+        (
+            {"capability": replace(dispatcher_module._document_request.CAPABILITY, version="2")},
+            admission.CAPABILITY_MISMATCH,
+        ),
+        ({"configuration": None}, admission.CONFIGURATION_MISMATCH),
+        ({"configuration": []}, admission.CONFIGURATION_MISMATCH),
+        (
+            {
+                "configuration": {
+                    **dispatcher_module.DOCUMENT_REQUEST_CONFIGURATION,
+                    "resource": "^anything$",
+                }
+            },
+            admission.CONFIGURATION_MISMATCH,
+        ),
+    ],
+    ids=[
+        "other-connector",
+        "other-version",
+        "lookalike-class",
+        "subclass",
+        "bare-function",
+        "no-capability",
+        "capability-not-a-record",
+        "changed-promise",
+        "capability-for-another-version",
+        "no-configuration",
+        "configuration-not-a-mapping",
+        "changed-wire-configuration",
+    ],
+)
+def test_admission_refuses_each_unpinned_property_with_a_typed_code(
+    overrides: dict[str, Any], code: str
+) -> None:
+    with pytest.raises(admission.AdmissionRefused) as refused:
+        _admit(**overrides)
+    assert refused.value.code == code
+    assert str(refused.value) == code, "a refusal carries its code and nothing else"
+
+
+def test_admission_refuses_an_unknown_kind_and_an_unaccepted_risk() -> None:
+    with pytest.raises(admission.AdmissionRefused) as refused:
+        admission.admit(REFERENCE_CONNECTORS, "mcp_stdio", **_doc_admit_args())
+    assert refused.value.code == admission.NOT_ADMITTED
+    (record,) = [t for t in REFERENCE_CONNECTORS if t.backend_kind == "document_request"]
+    with pytest.raises(admission.AdmissionRefused) as unaccepted:
+        admission.admit(
+            (replace(record, accepted_risks=()),), "document_request", **_doc_admit_args()
+        )
+    assert unaccepted.value.code == admission.CAPABILITY_UNPROVEN
+    assert _admit().backend_kind == "document_request"
+
+
+def test_every_refusal_code_is_distinct() -> None:
+    assert len(set(admission.REFUSAL_CODES)) == len(admission.REFUSAL_CODES) == 6
+
+
+@needs_docs
+def test_every_refusal_code_is_documented_on_the_operator_page() -> None:
+    page = PAGE.read_text(encoding="utf-8")
+    for code in (*admission.REFUSAL_CODES, "unsupported_backend", "unsupported_effect_path"):
+        assert f"`{code}`" in page, f"{code} is not documented on the operator page"
+
+
+def test_capability_risks_are_named_exactly_when_they_are_present() -> None:
+    from caliber.effects.connectors import ConnectorCapability
+
+    proven = ConnectorCapability(
+        connector="proven",
+        version="1",
+        idempotency_key_header="Idempotency-Key",
+        key_scope="downstream",
+        key_retention="bounded",
+        key_retention_seconds=86400,
+        key_conflict_status=422,
+        precondition_header="If-Match",
+        stale_precondition_status=412,
+        definitive_rejection_statuses=frozenset({412, 422}),
+        lookup_by_key=True,
+        lookup_consistency="read_your_writes",
+        absence_proves_noncommit=False,
+    )
+    assert admission.capability_risks(proven) == ()
+    unconfirmed = replace(proven, key_retention="unconfirmed", key_retention_seconds=None)
+    assert admission.capability_risks(unconfirmed) == (admission.RISK_RETENTION_UNCONFIRMED,)
+    assert admission.capability_risks(dispatcher_module.HTTP_CAPABILITY) == (
+        admission.RISK_NOT_EXACTLY_ONCE,
+        admission.RISK_RETENTION_UNCONFIRMED,
+    )
+
+
+def test_implementation_identity_is_the_class_or_the_function_not_a_claimed_name() -> None:
+    real = dispatcher_module.BACKENDS["document_request"].backend
+    assert admission.implementation_identity(real) == "caliber.effects.dispatcher:_Backend"
+    assert admission.implementation_identity(_Backend()) == f"{__name__}:_Backend"
+    assert admission.implementation_identity(_doc_admit_args) == f"{__name__}:_doc_admit_args"
+
+
+def _document_admitted() -> admission.AdmittedConnector:
+    return dispatcher_module.admit_backend("document_request")
+
+
+def _http_admitted() -> admission.AdmittedConnector:
+    return dispatcher_module.admit_backend("http")
+
+
+@pytest.mark.parametrize(
+    "config",
+    [
+        {"base_url": "https://downstream.example.test"},
+        {"base_url": "http://127.0.0.1:8080/api", "max_attempts": 1, "timeout_seconds": 0.5},
+        {"base_url": "https://d.example.test", "max_attempts": 5, "timeout_seconds": 300},
+        {"base_url": "https://d.example.test", "timeout_seconds": 300.0},
+    ],
+)
+def test_check_config_accepts_bounded_document_request_settings(config: dict[str, Any]) -> None:
+    admission.check_config(_document_admitted(), config)
+
+
+@pytest.mark.parametrize(
+    "config",
+    [
+        None,
+        {},
+        {"max_attempts": 2},
+        {"base_url": "https://d.example.test", "headers": {"X": "y"}},
+        {"base_url": "https://d.example.test", "sender": print},
+        {"base_url": ""},
+        {"base_url": "   "},
+        {"base_url": 7},
+        {"base_url": "ftp://d.example.test"},
+        {"base_url": "file:///etc/passwd"},
+        {"base_url": "https://user:pw@d.example.test"},
+        {"base_url": "https://d.example.test/x?token=1"},
+        {"base_url": "https://d.example.test/x#frag"},
+        {"base_url": "https:///nohost"},
+        {"base_url": "http://[::1"},
+        {"base_url": "https://d.example.test", "max_attempts": 0},
+        {"base_url": "https://d.example.test", "max_attempts": 6},
+        {"base_url": "https://d.example.test", "max_attempts": True},
+        {"base_url": "https://d.example.test", "max_attempts": "2"},
+        {"base_url": "https://d.example.test", "max_attempts": 1.5},
+        {"base_url": "https://d.example.test", "timeout_seconds": 0},
+        {"base_url": "https://d.example.test", "timeout_seconds": -1},
+        {"base_url": "https://d.example.test", "timeout_seconds": float("nan")},
+        {"base_url": "https://d.example.test", "timeout_seconds": float("inf")},
+        {"base_url": "https://d.example.test", "timeout_seconds": 300.01},
+        {"base_url": "https://d.example.test", "timeout_seconds": "5"},
+        {"base_url": "https://d.example.test", "timeout_seconds": True},
+    ],
+)
+def test_check_config_refuses_unbounded_or_unknown_document_request_settings(
+    config: dict[str, Any] | None,
+) -> None:
+    with pytest.raises(admission.AdmissionRefused) as refused:
+        admission.check_config(_document_admitted(), config)
+    assert refused.value.code == admission.CONFIG_NOT_ADMITTED
+    assert str(refused.value) == admission.CONFIG_NOT_ADMITTED
+
+
+def test_check_config_for_the_generic_transport_needs_both_callables_and_nothing_more() -> None:
+    admission.check_config(_http_admitted(), {"sender": print, "receipt_verifier": print})
+    for config in (
+        None,
+        {},
+        {"sender": print},
+        {"sender": print, "receipt_verifier": "verify"},
+        {"sender": print, "receipt_verifier": print, "base_url": "https://d.example.test"},
+        [("sender", print)],
+    ):
+        with pytest.raises(admission.AdmissionRefused) as refused:
+            admission.check_config(_http_admitted(), config)  # type: ignore[arg-type]
+        assert refused.value.code == admission.CONFIG_NOT_ADMITTED
+
+
+def test_a_record_cannot_list_a_setting_nobody_validates() -> None:
+    (record,) = [t for t in REFERENCE_CONNECTORS if t.backend_kind == "document_request"]
+    loose = replace(record, config_keys=(*record.config_keys, "execution_config"))
+    admitted = admission.admit((loose,), "document_request", **_doc_admit_args())
+    with pytest.raises(admission.AdmissionRefused) as refused:
+        admission.check_config(
+            admitted, {"base_url": "https://d.example.test", "execution_config": {}}
+        )
+    assert refused.value.code == admission.CONFIG_NOT_ADMITTED
+
+
+# -- the real dispatcher, a fake connector and a real (SQLite) ledger
+
+
+def _record(
+    session: Session, *, connector: str, version: str = "1", occurrence: str = "occ-adm"
+) -> str:
+    """A proposal row for ``connector``, written under the dispatcher's own checks (as legacy or foreign data)."""
+    recorded = record_proposal(
+        session,
+        workflow_run_id="RUN-ep",
+        node_id="agent",
+        occurrence_id=occurrence,
+        intent=Intent(
+            connector=connector,
+            connector_version=version,
+            effect_class="irreversible_write",
+            resource="cases/CASE-1/document-requests",
+            args={"document_type": "pay_statement"},
+            expected_resource_version="1",
+        ),
+    )
+    session.commit()
+    return recorded.proposal_id
+
+
+def _proposal_count(factory: Any) -> int:
+    with factory() as session:
+        return len(session.scalars(select(CaliberEffectProposal.proposal_id)).all())
+
+
+#: kind -> (tool name, caliber_defined, connector the proposal names, the code a bare proposal is refused with)
+UNTRUSTED_KINDS: dict[str, tuple[str, bool, str, str]] = {
+    "spoofed_document_request_tool": (
+        "document_request",
+        False,
+        "document-request",
+        "connector_not_admitted",
+    ),
+    "unregistered_mcp": ("invoke_mcp_tool", False, "mcp-stdio", "connector_not_admitted"),
+    "host_file_export": ("read_text_file", True, "host-file", "connector_not_admitted"),
+    "database_mcp_write": ("create_table", False, "postgres-mcp", "connector_not_admitted"),
+}
+
+
+@pytest.mark.parametrize("kind", list(UNTRUSTED_KINDS))
+def test_untrusted_connector_refused(
+    kind: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Each of the four untrusted kinds is refused before a proposal exists and before anything is sent.
+
+    A name (tool, connector or backend kind) confers nothing: ``submit_proposal`` needs an admission the dispatcher
+    verified against the live registry, and ``dispatch`` admits the registered transport itself, so even a transport
+    someone added to ``BACKENDS`` without a pinned record is never called.
+    """
+    tool_name, caliber_defined, connector, code = UNTRUSTED_KINDS[kind]
+    fake = _FakeConnector()
+    trusted = admit_fake_backend(monkeypatch, "reviewed-fake", fake, connector="reviewed-connector")
+    monkeypatch.setattr(dispatcher_module, "approval_valid_at_commit", dispatcher_tests._validator)
+    claimed = {
+        "connector": connector,
+        "connector_version": "1",
+        "effect_class": "read",
+        "resource": "cases/CASE-1/document-requests",
+        "args": {"document_type": "pay_statement"},
+    }
+    with _database("sqlite", tmp_path, monkeypatch) as (_, factory):
+        _seed_run(factory)
+        submit: dict[str, Any] = {
+            "workflow_run_id": "RUN-ep",
+            "node_id": "agent",
+            "occurrence_id": "occ-untrusted",
+            "action": claimed,
+            "tool_name": tool_name,
+            "caliber_defined": caliber_defined,
+        }
+        # 1. The claim alone is not an admission.
+        with factory() as session, pytest.raises(UnsupportedEffectPath) as bare:
+            submit_proposal(session, **submit)
+        assert bare.value.code == code
+        # 2. An admission for a *reviewed* connector does not carry over to the connector the action names.
+        with factory() as session, pytest.raises(UnsupportedEffectPath) as stolen:
+            submit_proposal(session, **submit, admission=trusted)
+        assert stolen.value.code == code
+        # 3. A hand-built admission whose evidence is not the verified one is refused (data cannot mint trust).
+        (real,) = [t for t in REFERENCE_CONNECTORS if t.backend_kind == "document_request"]
+        forged = admission.AdmittedConnector(
+            backend_kind="document_request",
+            connector=connector,
+            connector_version="1",
+            implementation="builtins:object",
+            capability_digest=real.capability_digest,
+            configuration_digest=real.configuration_digest,
+            accepted_risks=real.accepted_risks,
+            config_keys=real.config_keys,
+            required_config_keys=real.required_config_keys,
+        )
+        with factory() as session, pytest.raises(UnsupportedEffectPath) as faked:
+            submit_proposal(session, **submit, admission=forged)
+        assert faked.value.code == code
+        assert _proposal_count(factory) == 0, (
+            "a refused proposal leaves no row, so no approval can follow"
+        )
+
+        # 4. A proposal row for that connector that exists anyway (foreign or legacy data) is never dispatched, even
+        #    through a transport someone put in BACKENDS without a pinned record.
+        with factory() as session:
+            proposal_id = _record(session, connector=connector)
+            approval_id = dispatcher_tests._approval(session, proposal_id)
+            lease = leased(session, "admission-dispatcher")
+            session.commit()
+        monkeypatch.setitem(
+            dispatcher_module.BACKENDS,
+            "unreviewed",
+            dispatcher_module.BackendRegistration(fake, connector, "1"),
+        )
+        for backend_kind, expected in (
+            ("unreviewed", "connector_not_admitted"),
+            ("mcp_stdio", "unsupported_backend"),
+            (kind, "unsupported_backend"),
+            # The real, admitted generic transport refuses a proposal that names another connector, unclaimed.
+            ("http", "backend_intent_mismatch"),
+        ):
+            with pytest.raises(EffectRefused) as refused:
+                dispatch(
+                    factory,
+                    proposal_id,
+                    approval_id=approval_id,
+                    approver_scopes={"caliber.approver"},
+                    lease=lease,
+                    backend_kind=backend_kind,
+                    backend_config={"sender": print, "receipt_verifier": print},
+                    approval_validator=dispatcher_tests._validator,
+                    now=dispatcher_tests.AT,
+                )
+            assert refused.value.code == expected
+        assert fake.calls == 0
+        with factory() as session:
+            assert proposal_state(session, proposal_id).state == "proposed"
+            approval = session.get(CaliberRuntimeApprovalRequest, approval_id)
+            assert approval is not None and approval.consumed_at is None
+            assert session.scalars(select(CaliberEventOutbox.event_id)).all() == []
+
+
+def test_a_host_file_tool_is_refused_by_the_inventory_even_with_an_admitted_connector(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Admission is necessary, not sufficient: EP-055 (host files) and EP-114 (database MCP) stay ``refuse``."""
+    with _database("sqlite", tmp_path, monkeypatch) as (_, factory):
+        _seed_run(factory)
+        for tool in ("read_text_file", "grep_files"):
+            with factory() as session, pytest.raises(UnsupportedEffectPath) as refused:
+                submit_proposal(
+                    session,
+                    workflow_run_id="RUN-ep",
+                    node_id="agent",
+                    occurrence_id=f"occ-{tool}",
+                    connector="document-request",
+                    connector_version="1",
+                    effect_class_name="read",
+                    resource="cases/CASE-1/document-requests",
+                    args={"document_type": "pay_statement"},
+                    tool_name=tool,
+                    caliber_defined=True,
+                    admission=dispatcher_module.admit_backend("document_request"),
+                )
+            assert refused.value.code == "unsupported_effect_path"
+        assert _proposal_count(factory) == 0
+
+
+def test_a_registered_fake_connector_commits_and_its_admission_is_recorded(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The positive path through the real dispatcher: admitted, claimed, sent once, and the admission is evidence."""
+    monkeypatch.setattr(dispatcher_module, "approval_valid_at_commit", dispatcher_tests._validator)
+    with _database("sqlite", tmp_path, monkeypatch) as (_, factory):
+        _seed_run(factory)
+
+        class Connector:
+            calls = 0
+
+            def perform(self, request: Any, _config: Any) -> TransportResult:
+                Connector.calls += 1
+                view = request.view
+                facts = ReceiptFacts(
+                    attempt=view.attempt or 1,
+                    idempotency_key=view.logical_key,
+                    connector=view.connector,
+                    connector_version=view.connector_version,
+                    resource=view.resource,
+                    intent_hash=view.intent_hash,
+                    downstream_request_id="downstream-1",
+                    response_digest="sha256:" + "a" * 64,
+                )
+                return TransportResult(
+                    Classified(TransportOutcome.COMMITTED_RECEIPT, "http_201", 201, 1),
+                    lambda: facts,
+                )
+
+        backend = Connector()
+        admitted = admit_fake_backend(
+            monkeypatch, "reviewed-fake", backend, connector="reviewed-connector"
+        )
+        with factory() as session:
+            proposal_id = submit_proposal(
+                session,
+                workflow_run_id="RUN-ep",
+                node_id="agent",
+                occurrence_id="occ-ok",
+                connector="reviewed-connector",
+                connector_version="1",
+                effect_class_name="irreversible_write",
+                resource="cases/CASE-1/document-requests",
+                args={"document_type": "pay_statement"},
+                admission=admitted,
+            ).proposal_id
+            session.commit()
+            approval_id = dispatcher_tests._approval(session, proposal_id)
+            lease = leased(session, "admission-dispatcher")
+            session.commit()
+        result = dispatch(
+            factory,
+            proposal_id,
+            approval_id=approval_id,
+            approver_scopes={"caliber.approver"},
+            lease=lease,
+            backend_kind="reviewed-fake",
+            approval_validator=dispatcher_tests._validator,
+            now=dispatcher_tests.AT,
+        )
+        assert result.state == "committed"
+        assert Connector.calls == 1
+        with factory() as session:
+            payload = session.scalars(select(CaliberEventOutbox.payload)).one()
+        assert payload["connector_admission"] == admitted.evidence()
+        assert set(payload["connector_admission"]) == {
+            "backend_kind",
+            "connector",
+            "connector_version",
+            "implementation",
+            "capability_digest",
+            "configuration_digest",
+        }
+
+
+@pytest.mark.parametrize(
+    ("tamper", "code"),
+    [
+        ("transport_swapped", "connector_implementation_mismatch"),
+        ("capability_dropped", "connector_capability_unproven"),
+        ("promise_changed", "connector_capability_mismatch"),
+        ("wire_config_changed", "connector_configuration_mismatch"),
+        ("record_withdrawn", "connector_not_admitted"),
+    ],
+)
+def test_a_registration_changed_after_admission_is_refused_before_the_claim(
+    tamper: str, code: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Admission is re-checked at dispatch, not remembered: a swapped transport is never called and nothing is consumed."""
+    monkeypatch.setattr(dispatcher_module, "approval_valid_at_commit", dispatcher_tests._validator)
+    with _database("sqlite", tmp_path, monkeypatch) as (_, factory):
+        _seed_run(factory)
+        fake = _FakeConnector()
+        admitted = admit_fake_backend(
+            monkeypatch, "reviewed-fake", fake, connector="reviewed-connector"
+        )
+        with factory() as session:
+            proposal_id = submit_proposal(
+                session,
+                workflow_run_id="RUN-ep",
+                node_id="agent",
+                occurrence_id="occ-tamper",
+                connector="reviewed-connector",
+                connector_version="1",
+                effect_class_name="irreversible_write",
+                resource="cases/CASE-1/document-requests",
+                args={"document_type": "pay_statement"},
+                admission=admitted,
+            ).proposal_id
+            session.commit()
+            approval_id = dispatcher_tests._approval(session, proposal_id)
+            lease = leased(session, "admission-dispatcher")
+            session.commit()
+        registration = dispatcher_module.BACKENDS["reviewed-fake"]
+        if tamper == "transport_swapped":
+            replacement = replace(registration, backend=_SwapTarget(fake))
+        elif tamper == "capability_dropped":
+            replacement = replace(registration, capability=None)
+        elif tamper == "promise_changed":
+            assert registration.capability is not None
+            replacement = replace(
+                registration, capability=replace(registration.capability, key_scope="resource")
+            )
+        elif tamper == "wire_config_changed":
+            replacement = replace(registration, configuration={"fake": "somewhere-else"})
+        else:
+            replacement = registration
+            monkeypatch.setattr(
+                profile_module,
+                "REFERENCE_CONNECTORS",
+                tuple(t for t in REFERENCE_CONNECTORS if t.backend_kind != "reviewed-fake"),
+            )
+        monkeypatch.setitem(dispatcher_module.BACKENDS, "reviewed-fake", replacement)
+        with pytest.raises(UnsupportedEffectPath) as refused:
+            dispatch(
+                factory,
+                proposal_id,
+                approval_id=approval_id,
+                approver_scopes={"caliber.approver"},
+                lease=lease,
+                backend_kind="reviewed-fake",
+                approval_validator=dispatcher_tests._validator,
+                now=dispatcher_tests.AT,
+            )
+        assert refused.value.code == code
+        assert fake.calls == 0
+        with factory() as session:
+            assert proposal_state(session, proposal_id).state == "proposed"
+            approval = session.get(CaliberRuntimeApprovalRequest, approval_id)
+            assert approval is not None and approval.consumed_at is None
+        # The admission captured at submit is no longer valid either.
+        with factory() as session, pytest.raises(UnsupportedEffectPath):
+            submit_proposal(
+                session,
+                workflow_run_id="RUN-ep",
+                node_id="agent",
+                occurrence_id="occ-tamper-2",
+                connector="reviewed-connector",
+                connector_version="1",
+                effect_class_name="irreversible_write",
+                resource="cases/CASE-1/document-requests",
+                args={"document_type": "pay_statement"},
+                admission=admitted,
+            )
+
+
+class _SwapTarget:
+    """Stands in for a transport someone swapped in under an admitted kind."""
+
+    def __init__(self, inner: _FakeConnector) -> None:
+        self.inner = inner
+
+    def perform(self, request: Any, config: Any) -> Any:
+        return self.inner.perform(request, config)
+
+
+def test_dispatch_refuses_settings_the_connector_does_not_accept_before_the_claim(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A bad ``base_url`` is refused with the proposal ``proposed`` and its approval unconsumed (not burnt by a send)."""
+    monkeypatch.setattr(dispatcher_module, "approval_valid_at_commit", dispatcher_tests._validator)
+    with _database("sqlite", tmp_path, monkeypatch) as (_, factory):
+        _seed_run(factory)
+        with factory() as session:
+            proposal_id = submit_proposal(
+                session,
+                workflow_run_id="RUN-ep",
+                node_id="agent",
+                occurrence_id="occ-config",
+                connector="document-request",
+                connector_version="1",
+                effect_class_name="irreversible_write",
+                resource="cases/CASE-1/document-requests",
+                args={"document_type": "pay_statement"},
+                admission=dispatcher_module.admit_backend("document_request"),
+            ).proposal_id
+            session.commit()
+            approval_id = dispatcher_tests._approval(session, proposal_id)
+            lease = leased(session, "admission-dispatcher")
+            session.commit()
+        for config in (
+            None,
+            {"base_url": "file:///etc/passwd"},
+            {"base_url": "https://d.example.test", "x": 1},
+        ):
+            with pytest.raises(UnsupportedEffectPath) as refused:
+                dispatch(
+                    factory,
+                    proposal_id,
+                    approval_id=approval_id,
+                    approver_scopes={"caliber.approver"},
+                    lease=lease,
+                    backend_kind="document_request",
+                    backend_config=config,
+                    approval_validator=dispatcher_tests._validator,
+                    now=dispatcher_tests.AT,
+                )
+            assert refused.value.code == "connector_config_not_admitted"
+        with factory() as session:
+            assert proposal_state(session, proposal_id).state == "proposed"
+            approval = session.get(CaliberRuntimeApprovalRequest, approval_id)
+            assert approval is not None and approval.consumed_at is None
+
+
+def test_a_non_string_backend_kind_is_unsupported_not_a_crash() -> None:
+    for kind in (None, 7, ["document_request"], ""):
+        with pytest.raises(UnsupportedEffectPath) as refused:
+            dispatcher_module.admit_backend(kind)
+        assert refused.value.code == "unsupported_backend"
+
+
+def test_a_proposal_for_the_real_connector_needs_the_admission_for_that_connector(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The reference connector's admission cannot carry a proposal for the generic HTTP connector or another version."""
+    with _database("sqlite", tmp_path, monkeypatch) as (_, factory):
+        _seed_run(factory)
+        document = dispatcher_module.admit_backend("document_request")
+        for connector, version in (
+            ("http", "1"),
+            ("document-request", "2"),
+            ("document_request", "1"),
+        ):
+            with factory() as session, pytest.raises(UnsupportedEffectPath) as refused:
+                submit_proposal(
+                    session,
+                    workflow_run_id="RUN-ep",
+                    node_id="agent",
+                    occurrence_id="occ-wrong",
+                    connector=connector,
+                    connector_version=version,
+                    effect_class_name="irreversible_write",
+                    resource="cases/CASE-1/document-requests",
+                    args={"document_type": "pay_statement"},
+                    admission=document,
+                )
+            assert refused.value.code == "connector_not_admitted"
+        with factory() as session, pytest.raises(UnsupportedEffectPath) as not_an_admission:
+            submit_proposal(
+                session,
+                workflow_run_id="RUN-ep",
+                node_id="agent",
+                occurrence_id="occ-dict",
+                connector="document-request",
+                connector_version="1",
+                effect_class_name="irreversible_write",
+                resource="cases/CASE-1/document-requests",
+                args={"document_type": "pay_statement"},
+                admission={"backend_kind": "document_request"},  # type: ignore[arg-type]
+            )
+        assert not_an_admission.value.code == "connector_not_admitted"
+        assert _proposal_count(factory) == 0

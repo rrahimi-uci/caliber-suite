@@ -304,3 +304,30 @@ def test_governed_http_plan_rejects_commit_without_transport_response(
     )
     with pytest.raises(ToolExecutionError, match="without a transport response"):
         _run_direct_http_effect(_direct_http_plan())
+
+
+def test_governed_http_plan_refuses_a_transport_the_profile_does_not_pin(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The runtime caller gets its admission from the dispatcher: an unpinned ``http`` sends nothing (B12.3a, #738)."""
+    import caliber.profile as profile_module
+
+    monkeypatch.setattr(
+        profile_module,
+        "REFERENCE_CONNECTORS",
+        tuple(t for t in profile_module.REFERENCE_CONNECTORS if t.backend_kind != "http"),
+    )
+    sent: list[Any] = []
+
+    def sender(request: dict[str, Any]) -> dict[str, Any]:
+        sent.append(request)
+        return {"status_code": 201}
+
+    authorized: list[Any] = []
+
+    def authorize(proposal: Any) -> None:
+        authorized.append(proposal)
+
+    with pytest.raises(ToolExecutionError, match="proposal refused: connector_not_admitted"):
+        _run_direct_http_effect(_direct_http_plan(sender=sender, authorize=authorize))
+    assert sent == [] and authorized == [], "nothing is proposed, authorized or sent"
