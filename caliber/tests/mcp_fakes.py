@@ -29,7 +29,7 @@ URI = f"https://{HOST}/mcp"
 PUBLIC_ADDRESS = "93.184.216.34"
 SERVER_ID = "MCP-fake-1"
 #: A value that must never reach a record, an error or a span.
-CREDENTIAL = "tok-secret-4f9c1d"
+CREDENTIAL = "tok-secret-4f9c1d"  # gitleaks:allow - a sentinel the tests assert never leaks
 
 
 class FakeMcp:

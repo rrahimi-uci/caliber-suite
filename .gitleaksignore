@@ -28,3 +28,6 @@ b087200387d325942a5bb8a57f8a184c2398bcd4:sdk/caliber-sdk/tests/test_resources_so
 # the already-pushed historical commit, which cannot be rewritten (force-push is blocked).
 0e0612520b8570d01735845400488c9c6c8fd022:caliber/tests/egi_scenarios/test_v03_context_injection.py:generic-api-key:253
 0e0612520b8570d01735845400488c9c6c8fd022:caliber/tests/test_governed_agent_step.py:generic-api-key:67
+# B04.5 (#759): the MCP test fake's CREDENTIAL is a sentinel the tests assert never reaches a record, error or span. The follow-up
+# commit marks the line `gitleaks:allow`; this entry silences the already-pushed commit, which cannot be rewritten.
+fd6e4416797a7ab280fd177abde5b031aee2de60:caliber/tests/mcp_fakes.py:generic-api-key:32
