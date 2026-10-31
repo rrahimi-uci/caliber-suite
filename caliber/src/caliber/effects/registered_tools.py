@@ -15,20 +15,26 @@ never from the manifest binding, the model, or an exported bundle: those are wri
   it is the registry's word and not the binding's.
 * A built-in the reference profile refuses (inventory disposition ``refuse``: EP-055) is refused.
 
-Only :func:`route_registered_tool` decides; the dispatcher still resolves the proposal's recorded class itself
+A registered **OpenAPI** tool (``execution_backend: openapi_http``, B04.4) is classified by :func:`route_openapi_tool`: the same
+row-level rules, plus the method of the operation the row's own configuration selects, which can only make it stricter (a
+``POST`` of a row declared ``read`` is not read-class). The row's ``backend_config`` and ``input_schema`` are part of its
+identity, so the runtime can refuse a binding that carries anything else.
+
+Only :func:`route_registered_tool` (and, for OpenAPI rows, :func:`route_openapi_tool`) decides; the dispatcher still resolves the proposal's recorded class itself
 (``submit_proposal``), so an administrator-registered write tool is recorded as ``irreversible_write``.
 """
 
 from __future__ import annotations
 
-from collections.abc import Callable
-from dataclasses import dataclass
+from collections.abc import Callable, Mapping
+from dataclasses import dataclass, field
 from typing import Any, Final
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from caliber.db.models import CaliberToolRegistry
+from caliber.effects.connectors.openapi_http import READ_METHODS
 from caliber.effects.inventory import (
     EFFECT_CLASSES,
     FAIL_CLOSED,
@@ -39,6 +45,9 @@ from caliber.workflows.builtin_tools import is_builtin_tool, reserved_tool_name
 
 REGISTERED_TOOL_CONNECTOR: Final = "registered_tool"
 REGISTERED_TOOL_VERSION: Final = "1"
+
+#: The ``execution_backend`` of a registry row that is an OpenAPI operation or tool pack (B04.4).
+OPENAPI_BACKEND: Final = "openapi_http"
 
 INLINE: Final = "inline"
 DISPATCH: Final = "dispatch"
@@ -64,6 +73,10 @@ class RegisteredToolIdentity:
     callable_name: str
     side_effect_level: str
     execution_backend: str = "python_callable"
+    #: The row's own ``backend_config`` and ``input_schema``: what an OpenAPI tool sends (B04.4). The manifest binding carries
+    #: copies; the row's are the ones a governed call uses, and a binding that differs from them is refused.
+    backend_config: Mapping[str, Any] | None = field(default=None, repr=False)
+    input_schema: Mapping[str, Any] | None = field(default=None, repr=False)
 
 
 @dataclass(frozen=True)
@@ -94,6 +107,8 @@ def load_registered_tool_identity(
         callable_name=row.callable_name,
         side_effect_level=row.side_effect_level,
         execution_backend=row.execution_backend,
+        backend_config=row.backend_config,
+        input_schema=row.input_schema,
     )
 
 
@@ -146,6 +161,26 @@ def route_registered_tool(identity: RegisteredToolIdentity | None) -> ToolRoute:
     return ToolRoute(INLINE if effect == "read" else DISPATCH, effect, trusted)
 
 
+def route_openapi_tool(identity: RegisteredToolIdentity | None, *, method: str) -> ToolRoute:
+    """Decide how a registered OpenAPI tool's call runs, from its registry row and the method its configuration resolves to (B04.4, #750).
+
+    The class is the stricter of two things the registry holds: the row's declared ``side_effect_level`` (as for any
+    registered tool) and the **method** of the operation the row's own configuration selects (a pack's operation is chosen
+    by the input from the row's list, never from the binding): a method that is not ``GET``, ``HEAD`` or ``OPTIONS`` is at
+    least a ``reversible_write`` whatever the level says, so a row that under-declares cannot make a ``POST`` inline. Only a
+    ``read``-class result runs inline; everything else is dispatched. A tool with no readable row, or a row that is not an
+    OpenAPI tool, cannot be proposed (there is no trusted operation to send) and is refused.
+    """
+    if identity is None or identity.execution_backend != OPENAPI_BACKEND:
+        return ToolRoute(REFUSE, FAIL_CLOSED, trusted=False)
+    base = route_registered_tool(identity)
+    if base.route == REFUSE:
+        return base
+    floor = "read" if method.upper() in READ_METHODS else "reversible_write"
+    effect = max(base.effect_class, floor, key=EFFECT_CLASSES.index)
+    return ToolRoute(INLINE if effect == "read" else DISPATCH, effect, trusted=False)
+
+
 def tool_resource(name: str, version: str) -> str:
     """The proposal's ``resource`` for a registry tool: the target a reviewer approves."""
     return f"registered-tool/{name}/{version}"
@@ -161,6 +196,7 @@ def tool_intent_args(
 __all__ = [
     "DISPATCH",
     "INLINE",
+    "OPENAPI_BACKEND",
     "REFUSE",
     "REGISTERED_TOOL_CONNECTOR",
     "REGISTERED_TOOL_VERSION",
@@ -168,6 +204,7 @@ __all__ = [
     "ToolRoute",
     "load_registered_tool_identity",
     "registry_identity_reader",
+    "route_openapi_tool",
     "route_registered_tool",
     "tool_intent_args",
     "tool_resource",

@@ -24,7 +24,7 @@ from caliber.db.models import (
 )
 from caliber.effects.dispatcher import EffectRefused, dispatch, submit_proposal
 from caliber.effects.receipts import ReceiptFacts
-from caliber.effects.reconcile import RECONCILED_COMMITTED
+from caliber.effects.reconcile import NOT_BOUND, RECONCILED_COMMITTED, reconcile_one
 from caliber.effects.records import logical_key, proposal_state, record_proposal
 from caliber.effects.registered_tools import load_registered_tool_identity
 from caliber.egress import EgressPolicy
@@ -46,6 +46,7 @@ from caliber.workflows.runtime import (
     execute,
 )
 from caliber.workflows.tools import InMemoryToolResolver, ToolRegistryEntry
+from tests.effect_helpers import leased
 from tests.egi_scenarios.conftest import (
     APPROVER_A,
     EDITOR_A,
@@ -446,6 +447,68 @@ def _registered_tool_identity(reference_app: ReferenceApp, name: str, version: s
         return load_registered_tool_identity(session, name=name, version=version)
 
 
+def _scenario_context(
+    reference_app: ReferenceApp, downstream: Downstream, run_id: str
+) -> tuple[Any, Any, list[str]]:
+    """The run's real authorization provider and receipt verifier, over the reference database and the downstream.
+
+    ``authorize`` creates a real exact-intent approval request, approves it through the producer-owned fixture and
+    acquires the execution-owner lease; ``verify`` asks the downstream by key and believes only what it stores.
+    """
+    authorized: list[str] = []
+    now = datetime.now(timezone.utc)
+
+    def authorize(proposal: Any) -> EffectAuthorization:
+        authorized.append(proposal.proposal_id)
+        with reference_app.session_factory() as session:
+            row = session.get(CaliberEffectProposal, proposal.proposal_id)
+            assert row is not None
+            expected_version = row.expected_resource_version
+            request = create_approval_request(
+                session,
+                proposal=row,
+                policy=ApprovalPolicy(),
+                evidence_hash=EVIDENCE,
+                requested_by=EDITOR_A,
+                ttl_seconds=TTL,
+                now=now,
+            )
+            session.commit()
+            approval_id = request.runtime_approval_id
+        _approved(reference_app, run_id, approval_id)
+        with reference_app.session_factory() as session:
+            lease = acquire(session, "egi-b04-3-runtime", ttl_seconds=600)
+            assert lease is not None
+            session.commit()
+        return EffectAuthorization(
+            approval_id=approval_id,
+            approver_scopes=frozenset({"caliber.approver", "caliber.viewer"}),
+            lease=lease,
+            # The version the approver's check read: it matched when the approval was committed. A downstream that moves
+            # afterwards is the downstream's own precondition to refuse.
+            current_resource_version=expected_version,
+            evidence_hash=EVIDENCE,
+        )
+
+    def verify(request: Any, _response: dict[str, Any]) -> ReceiptFacts | None:
+        found = downstream.query(request.view.logical_key)
+        if found is None:
+            return None
+        return ReceiptFacts(
+            attempt=request.view.attempt or 1,
+            idempotency_key=request.view.logical_key,
+            connector=request.view.connector,
+            connector_version=request.view.connector_version,
+            resource=request.view.resource,
+            intent_hash=request.view.intent_hash,
+            downstream_request_id=str(found["request_id"]),
+            response_digest="sha256:" + hashlib.sha256(canonical_bytes(found)).hexdigest(),
+            resource_version=str(found["case_version"]),
+        )
+
+    return authorize, verify, authorized
+
+
 def _registered_tool_world(
     reference_app: ReferenceApp, downstream: Downstream, *, level: str
 ) -> tuple[RuntimePlan, str, list[str], str]:
@@ -492,53 +555,7 @@ def _registered_tool_world(
     )
     resolver = InMemoryToolResolver([entry])
     resolver.register(entry, request_document)
-    authorized: list[str] = []
-    now = datetime.now(timezone.utc)
-
-    def authorize(proposal: Any) -> EffectAuthorization:
-        authorized.append(proposal.proposal_id)
-        with reference_app.session_factory() as session:
-            row = session.get(CaliberEffectProposal, proposal.proposal_id)
-            assert row is not None
-            request = create_approval_request(
-                session,
-                proposal=row,
-                policy=ApprovalPolicy(),
-                evidence_hash=EVIDENCE,
-                requested_by=EDITOR_A,
-                ttl_seconds=TTL,
-                now=now,
-            )
-            session.commit()
-            approval_id = request.runtime_approval_id
-        _approved(reference_app, run_id, approval_id)
-        with reference_app.session_factory() as session:
-            lease = acquire(session, "egi-b04-3-runtime", ttl_seconds=600)
-            assert lease is not None
-            session.commit()
-        return EffectAuthorization(
-            approval_id=approval_id,
-            approver_scopes=frozenset({"caliber.approver", "caliber.viewer"}),
-            lease=lease,
-            evidence_hash=EVIDENCE,
-        )
-
-    def verify(request: Any, _response: dict[str, Any]) -> ReceiptFacts | None:
-        found = downstream.query(request.view.logical_key)
-        if found is None:
-            return None
-        return ReceiptFacts(
-            attempt=request.view.attempt or 1,
-            idempotency_key=request.view.logical_key,
-            connector=request.view.connector,
-            connector_version=request.view.connector_version,
-            resource=request.view.resource,
-            intent_hash=request.view.intent_hash,
-            downstream_request_id=str(found["request_id"]),
-            response_digest="sha256:" + hashlib.sha256(canonical_bytes(found)).hexdigest(),
-            resource_version=str(found["case_version"]),
-        )
-
+    authorize, verify, authorized = _scenario_context(reference_app, downstream, run_id)
     manifest = parse_manifest(tool_manifest("request_document"))
     plan = RuntimePlan(
         ir=build_ir(manifest, resolver, version="1"),
@@ -840,3 +857,235 @@ def test_a_settle_failure_under_the_current_lease_is_recovered_by_the_owner_loop
     assert downstream.mutations() == 1, "found by key, never sent again"
     with reference_app.session_factory() as session:
         assert proposal_state(session, proposal_id).state == "committed"
+
+
+# ---------------------------------------------------------------- B04.4 (#750): registered OpenAPI tools
+
+
+def _openapi_tool_world(
+    reference_app: ReferenceApp,
+    downstream: Downstream,
+    *,
+    level: str,
+    config: dict[str, Any],
+) -> tuple[RuntimePlan, str, list[str], str]:
+    """A tool node over a registered OpenAPI tool whose row points at the downstream, on the real reference database.
+
+    Returns the plan, the run id, the proposals the runtime asked to authorize, and the stable key the platform sends.
+    """
+    with reference_app.session_factory() as session:
+        member = session.execute(
+            select(CaliberProjectMember).where(
+                CaliberProjectMember.project_id == PROJECT_A,
+                CaliberProjectMember.user_id == APPROVER_A,
+            )
+        ).scalar_one()
+        member.role = "reviewer"
+        session.add(
+            CaliberToolRegistry(
+                tool_id=new_tool_id(),
+                name="request_document_api",
+                version="1.0",
+                module_path="<openapi_http>",
+                callable_name="invoke",
+                execution_backend="openapi_http",
+                backend_config=config,
+                side_effect_level=level,
+                owner="@ops",
+            )
+        )
+        session.commit()
+    run_id = _waiting_run(reference_app)
+    key = logical_key(workflow_run_id=run_id, node_id="tool_node", occurrence_id="tool_node")
+    entry = ToolRegistryEntry(
+        name="request_document_api",
+        version="1.0",
+        module_path="<openapi_http>",
+        callable_name="invoke",
+        execution_backend="openapi_http",
+        backend_config=config,
+        side_effect_level=level,
+    )
+    resolver = InMemoryToolResolver([entry])
+    authorize, verify, authorized = _scenario_context(reference_app, downstream, run_id)
+    plan = RuntimePlan(
+        ir=build_ir(parse_manifest(tool_manifest("request_document_api")), resolver, version="1"),
+        resolver=resolver,
+        workflow_version_id="egi-b04-4-version",
+        egress_policy=EgressPolicy(allowed_hosts=frozenset({"127.0.0.1"})),
+        registered_tool_identity=lambda name, version: _registered_tool_identity(
+            reference_app, name, version
+        ),
+        governed_effects=GovernedEffectContext(
+            session_factory=reference_app.session_factory,
+            workflow_run_id=run_id,
+            authorize=authorize,
+            receipt_verifier=verify,
+        ),
+    )
+    return plan, run_id, authorized, key
+
+
+def _submit_config(downstream: Downstream, **overrides: Any) -> dict[str, Any]:
+    from caliber.effects.connectors import document_request
+
+    config = document_request.submit_config(downstream.base_url, **overrides)
+    config["expected_resource_version_header"] = "If-Match"
+    return config
+
+
+def _submit_arguments(version: str | None = "1") -> str:
+    arguments: dict[str, Any] = {
+        "path_params": {"case_id": "MORT-2026-000184"},
+        "body": {"document_type": "pay_statement"},
+    }
+    if version is not None:
+        arguments["expected_resource_version"] = version
+    return json.dumps(arguments)
+
+
+def test_an_openapi_write_reaches_the_downstream_once_through_the_dispatcher(
+    reference_app: ReferenceApp, two_workspaces: Workspaces, downstream: Downstream
+) -> None:
+    """The write happens after the real approval and lease, under the platform's key, and is measured at the downstream."""
+    plan, run_id, authorized, key = _openapi_tool_world(
+        reference_app, downstream, level="write", config=_submit_config(downstream)
+    )
+
+    result = execute(plan, _submit_arguments(), executor=FakeWorkflowExecutor())
+
+    assert result.status == "completed", result.error
+    assert len(authorized) == 1
+    assert downstream.mutations() == 1
+    stored = downstream.query(key)
+    assert stored is not None, "the downstream holds the request under the proposal's stable key"
+    (proposal,) = _tool_proposals(reference_app, run_id)
+    assert proposal.connector == "openapi-http"
+    assert (
+        proposal.resource
+        == f"openapi/POST {downstream.base_url}/cases/{{case_id}}/document-requests"
+    )
+    assert proposal.expected_resource_version == "1"
+    assert proposal.state == "committed"
+    assert proposal.receipt_id is not None
+
+
+def test_an_openapi_write_without_approval_never_reaches_the_downstream(
+    reference_app: ReferenceApp, two_workspaces: Workspaces, downstream: Downstream
+) -> None:
+    plan, run_id, _authorized, key = _openapi_tool_world(
+        reference_app, downstream, level="write", config=_submit_config(downstream)
+    )
+    assert plan.governed_effects is not None
+    plan.governed_effects = replace(plan.governed_effects, authorize=lambda _proposal: None)
+
+    result = execute(plan, _submit_arguments(), executor=FakeWorkflowExecutor())
+
+    assert result.status == "error"
+    assert "authorization was not granted" in (result.error or "")
+    assert downstream.mutations() == 0
+    assert downstream.query(key) is None
+    (proposal,) = _tool_proposals(reference_app, run_id)
+    assert proposal.state == "proposed"
+
+
+def test_an_openapi_read_runs_inline_without_a_proposal(
+    reference_app: ReferenceApp, two_workspaces: Workspaces, downstream: Downstream
+) -> None:
+    from caliber.effects.connectors import document_request
+
+    plan, run_id, authorized, _key = _openapi_tool_world(
+        reference_app,
+        downstream,
+        level="read",
+        config=document_request.lookup_config(downstream.base_url),
+    )
+
+    result = execute(
+        plan,
+        json.dumps({"query_params": {"idempotency_key": "nothing-stored-under-this"}}),
+        executor=FakeWorkflowExecutor(),
+    )
+
+    assert result.status == "completed", result.error
+    assert authorized == []
+    assert _tool_proposals(reference_app, run_id) == []
+
+
+def test_a_dropped_answer_is_retried_with_the_same_key_and_the_downstream_commits_once(
+    reference_app: ReferenceApp, two_workspaces: Workspaces, downstream: Downstream
+) -> None:
+    """Timeout after commit with a bound key: the retry replays the stored answer, so one mutation, verified, committed."""
+    downstream.set_fault("drop_response_after_commit")
+    plan, run_id, _authorized, key = _openapi_tool_world(
+        reference_app,
+        downstream,
+        level="write",
+        config=_submit_config(downstream, max_attempts=2, timeout_seconds=5),
+    )
+
+    result = execute(plan, _submit_arguments(), executor=FakeWorkflowExecutor())
+
+    assert result.status == "completed", result.error
+    assert downstream.mutations() == 1
+    (proposal,) = _tool_proposals(reference_app, run_id)
+    assert proposal.state == "committed"
+    assert downstream.query(key) is not None
+
+
+def test_a_dropped_answer_with_no_retry_is_unknown_not_resent_and_not_reconcilable_here(
+    reference_app: ReferenceApp, two_workspaces: Workspaces, downstream: Downstream
+) -> None:
+    """The effect committed but nobody saw the answer. It is ``unknown``: no second send, and the generic OpenAPI connector
+    has no lookup binding, so the reconciler leaves it for an operator instead of guessing."""
+    downstream.set_fault("drop_response_after_commit")
+    plan, run_id, _authorized, key = _openapi_tool_world(
+        reference_app,
+        downstream,
+        level="write",
+        config=_submit_config(downstream, max_attempts=1, timeout_seconds=5),
+    )
+
+    result = execute(plan, _submit_arguments(), executor=FakeWorkflowExecutor())
+
+    assert result.status == "error"
+    assert "did not commit: ambiguous" in (result.error or "")
+    assert downstream.mutations() == 1
+    assert downstream.query(key) is not None, "a later lookup by key does show the commit"
+    (proposal,) = _tool_proposals(reference_app, run_id)
+    assert proposal.state == "unknown"
+
+    again = execute(plan, _submit_arguments(), executor=FakeWorkflowExecutor())
+    assert "was already recorded as unknown; not run again" in (again.error or "")
+    assert downstream.mutations() == 1
+
+    with reference_app.session_factory() as session:
+        lease = leased(session, "egi-b04-4-reconciler")
+        session.commit()
+    settled = reconcile_one(
+        reference_app.session_factory,
+        proposal.proposal_id,
+        lease=lease,
+        targets={("openapi-http", PROJECT_A): downstream.base_url},
+    )
+    assert (settled.outcome, settled.state) == (NOT_BOUND, "unknown")
+    assert downstream.mutations() == 1
+
+
+def test_a_stale_precondition_is_sent_as_bound_and_the_downstream_commits_nothing(
+    reference_app: ReferenceApp, two_workspaces: Workspaces, downstream: Downstream
+) -> None:
+    """If-Match is preserved: the downstream sees the proposal's stale version and refuses (412). The connector documents no
+    rejection status, so the platform records ``unknown`` rather than claiming the effect did not happen."""
+    plan, run_id, _authorized, key = _openapi_tool_world(
+        reference_app, downstream, level="write", config=_submit_config(downstream)
+    )
+
+    result = execute(plan, _submit_arguments("99"), executor=FakeWorkflowExecutor())
+
+    assert result.status == "error"
+    assert "did not commit: ambiguous:unrecognised_4xx" in (result.error or "")
+    assert downstream.mutations() == 0
+    assert downstream.query(key) is None
+    (proposal,) = _tool_proposals(reference_app, run_id)
+    assert (proposal.state, proposal.expected_resource_version) == ("unknown", "99")

@@ -647,7 +647,14 @@ def test_the_reference_connector_is_admitted_and_nothing_else_is_listed() -> Non
     assert admitted.accepted_risks == ("key_retention_unconfirmed",)
     # MCP stdio and remote hosts, host-file exports and PostgreSQL MCP writes have no record, so they are refused.
     listed = {name for t in REFERENCE_CONNECTORS for name in (t.backend_kind, t.connector)}
-    assert listed == {"document_request", "document-request", "http", "registered_tool"}
+    assert listed == {
+        "document_request",
+        "document-request",
+        "http",
+        "registered_tool",
+        "openapi_http",
+        "openapi-http",
+    }
     assert profile_module.reserved_connector_names() == listed
 
 

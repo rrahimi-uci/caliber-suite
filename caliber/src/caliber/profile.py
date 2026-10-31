@@ -130,6 +130,17 @@ REFERENCE_CONNECTORS: Final[tuple[TrustedConnector, ...]] = (
         config_keys=("invoker", "receipt_verifier"),
         required_config_keys=("invoker", "receipt_verifier"),
     ),
+    TrustedConnector(
+        backend_kind="openapi_http",
+        connector="openapi-http",
+        connector_version="1",
+        implementation="caliber.effects.dispatcher:_OpenApiBackend",
+        capability_digest="sha256:bc8e7cf48ad504d8380faa63784a39b0d56aa240ee3df67a0c607dfbfebd5172",
+        configuration_digest="sha256:d728a05ff403ee3168b1ada877f1d7ea5e6977cfae762ebf08bfba6826a631f3",
+        accepted_risks=("write_not_exactly_once", "key_retention_unconfirmed"),
+        config_keys=("operation", "receipt_verifier"),
+        required_config_keys=("operation", "receipt_verifier"),
+    ),
 )
 
 

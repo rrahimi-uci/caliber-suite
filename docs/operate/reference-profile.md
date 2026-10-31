@@ -105,8 +105,8 @@ A workflow `tool` node that names a registered Python tool is routed by the tool
 database for the tool being run: its name, owner, version, module, callable and declared side-effect level. The
 manifest binding, an exported bundle and the model do not decide it (`IRToolBinding` and `ToolRegistryEntry` carry
 no owner, so there is nothing in them to forge). A plan is governed when it is wired to the registry (an identity reader) or to an authority (a governed context); the
-table below lists every place the runtime builds a plan and which it is. OpenAPI bindings (B04.4) and MCP bindings (B04.5)
-keep their own paths.
+table below lists every place the runtime builds a plan and which it is. OpenAPI bindings are routed the same way by
+[Governed OpenAPI tools](#governed-openapi-tools-b044), and MCP bindings (B04.5) keep their own path.
 
 | the registry row is | the tool node |
 | --- | --- |
@@ -167,10 +167,123 @@ EP-015, EP-016 and EP-019, refused by #774.
 Two limits. An administrator-registered tool declared `read` is trusted as read-class: its declared level is part of the
 definition the deployment bundle pins and re-verifies before a run (`deployment_bundle.tool_snapshot`), but the platform
 does not observe what its code does, so register a tool that writes with `write` or `external_action`. And model-chosen tool
-calls inside an agent step, MCP tools and OpenAPI tools are not routed by this change (B04.4 to B04.7).
+calls inside an agent step and MCP tools are not routed by this change (B04.5 to B04.7); OpenAPI tool nodes are routed by
+[Governed OpenAPI tools](#governed-openapi-tools-b044).
 
 No migration, no new setting and no new route; rolling back is reverting the change (a `registered_tool` proposal
 already recorded remains readable and reconcilable).
+
+## Governed OpenAPI tools (B04.4)
+
+A workflow `tool` node bound to a tool published from an OpenAPI integration (`execution_backend: openapi_http`) is routed
+by the tool's **registry row**, as a registered Python tool is, and by the operation that row selects. Two things the
+registry holds decide the class, and the stricter wins: the row's declared `side_effect_level` and the **method** of the
+operation its own `backend_config` describes (a tool pack's operation is chosen by the call's `operation` input from the
+row's list of bound operations, never from the binding). The manifest binding, an exported bundle and the model decide
+nothing: the binding's `backend_config` and `input_schema` must equal the row's, or the node is refused.
+
+| the row and its operation | the tool node |
+| --- | --- |
+| `GET`, `HEAD` or `OPTIONS`, declared `read` | runs inline, as before: no proposal, no approval |
+| `GET`, `HEAD` or `OPTIONS`, declared `write` or `external_action` | proposed, approved and dispatched (the declared level floors the class) |
+| `POST`, `PUT`, `PATCH` or `DELETE`, whatever the level (an under-declared `read` included) | proposed, approved and dispatched: a method that is not a read method is at least a `reversible_write` |
+| a built-in's reserved name, or an unrecognised level | classified `irreversible_write` and dispatched; never inline |
+| a tool with no readable row, a row that is not an OpenAPI tool, or an operation the row does not bind | refused before anything is recorded or sent |
+| a binding whose configuration or schema differs from the row | refused: `registered tool '<name>' does not match its registry row` |
+| a protected call in a plan with no governed context, or replaced by an injected callable | refused: nothing is recorded or sent |
+
+The proposal (`connector: openapi-http`, always recorded `irreversible_write`, because the inventory does not list a registered
+tool) holds the resource `openapi/<METHOD> <server><path template>`, built from the row, and the arguments
+`{"tool", "version", "input"}`. Dispatch rechecks the exact approval and the captured `execution-owner` lease in one
+transaction, consumes the approval and writes the dispatch event **before** the private `openapi_http` backend sends. That
+backend is the only caller of the raw OpenAPI transport for a governed call: it rebuilds the request from the row and the
+**recorded** arguments, requires the result to be the recorded resource (method, server and path) and sends nothing
+otherwise, so what is sent is what the approver saw, and it can never reach the dispatcher again.
+
+**Everything that can be refused without sending is refused before the proposal is recorded**, so no approval is requested or
+spent for a call that cannot be made: the input against the row's schema, the server (a plain `http(s)` origin with no
+credentials, query or fragment, because its text is persisted in the resource), the egress policy for the request URL and for an
+OAuth token URL, an unsupported auth kind, a caller-supplied idempotency key and a conflicting precondition. No secret is
+resolved and nothing is sent at that point; the transport applies the egress policy again when it connects.
+
+**Keys, preconditions and retries.**
+
+- When the row binds an idempotency key header, **the platform owns the key**: the transport sends the proposal's stable
+  logical key, and an `idempotency_key` input or a `header_params` entry for that header is refused
+  (`openapi_key_override_refused`), never sent next to it.
+- When the row binds a precondition header (for example `If-Match`), the `expected_resource_version` input and a
+  `header_params` entry must agree (`openapi_precondition_conflict`). The value is recorded **once**, as the proposal's
+  `expected_resource_version` (so the approval is bound to it and the approver's check compares it with the current version),
+  and the transport sends it as the bound header. A recorded precondition the row cannot send is refused, never dropped.
+- The transport retries only when the request really carries an emitted key: a row with no key header is sent **once**, even
+  for a method the executor would otherwise retry (`PUT`, `DELETE`). With a key, the executor's own bounded retry (the row's
+  `max_attempts`, at most 5) repeats the same key **within one dispatch**. The dispatcher does not redrive an ambiguous
+  effect after that dispatch, and the binding's `max_retries` is ignored for a governed call. The in-dispatch retry is an
+  **accepted risk**, not a guarantee: the capability record leaves key scope and retention unconfirmed, so a downstream that
+  does not honour the key can commit twice. Leave `max_attempts` at 1 unless the downstream is known to replay a key.
+
+**Headers, and what is stored.** `header_params` may not set a method-override header (`X-HTTP-Method-Override`,
+`X-HTTP-Method`, `X-Method-Override`) or a framing or hop-by-hop header (`Host`, `Content-Length`, `Content-Encoding`,
+`Transfer-Encoding`, `Connection`, `Keep-Alive`, `Proxy-Connection`, `Proxy-Authorization`, `TE`, `Trailer`, `Upgrade`,
+`Expect`; case-insensitive): classification uses the row's method, and a downstream that honours an override would turn a read into a
+write. The check applies to **every** call of the executor, an inline `GET` included, and is refused as
+`openapi_header_forbidden` (a governed call, before the proposal) or as an executor error that names no header (an inline call).
+It does not cover a method override carried in a query parameter or a body field a particular downstream might honour. The
+input is recorded **verbatim**: `body`, `header_params`, `query_params` and `path_params` are stored in the proposal's
+`args.input` (`caliber_effect_proposals`) and shown to the approver, so **credentials belong in the row's `auth_binding`
+(a secret reference resolved at send time), never in the call's input**. The proposal never records the auth binding.
+
+**What an answer proves.** The `openapi-http` capability record promises nothing about a downstream: no key scope or
+retention, no lookup by key, no documented rejection status. So a 2xx is a claim that the run's authoritative
+`receipt_verifier` must confirm (an unconfirmed claim stays `unknown`), and every other answer, a 4xx included, is
+`unknown` rather than `failed`. A connection dropped or timed out after the downstream committed is `unknown`: the node does
+not run again, the reconciler has no lookup binding for this connector and leaves it (`not_bound`), and only the verifier, a
+receipt callback or an operator can settle it. The connector is a pinned entry of `REFERENCE_CONNECTORS` (backend kind
+`openapi_http`, settings `operation` and `receipt_verifier`, accepted risks `write_not_exactly_once` and
+`key_retention_unconfirmed`).
+
+Every refusal is a `ToolExecutionError` with a stable code and no argument, input, header, URL or response body:
+
+```text
+OpenAPI effect proposal refused: openapi_egress_blocked         # the request or token URL fails the egress policy
+OpenAPI effect proposal refused: openapi_input_invalid          # input breaks the row's schema, or a path parameter is missing
+OpenAPI effect proposal refused: openapi_key_override_refused   # a caller-supplied idempotency key for a row that binds one
+OpenAPI effect proposal refused: openapi_precondition_conflict  # If-Match and expected_resource_version disagree, or are blank
+OpenAPI effect proposal refused: openapi_config_invalid         # the row's server or path cannot be used (credentials, query, scheme)
+OpenAPI effect proposal refused: openapi_auth_unsupported       # the row binds an auth kind the executor does not support
+OpenAPI effect proposal refused: openapi_header_forbidden       # header_params sets a method-override, framing or hop-by-hop header
+OpenAPI tool 'tickets' refused: openapi_operation_unresolved    # a pack operation the row does not bind
+OpenAPI tool 'tickets' refused: unsupported_effect_path         # no readable OpenAPI row for the tool
+OpenAPI effect authorization was not granted                    # no exact approval: the proposal stays `proposed`
+OpenAPI effect dispatch refused: proposal_not_approved          # not approved, or the node already ran
+OpenAPI effect did not commit: ambiguous:http_503               # unknown: the answer proves nothing, nothing is resent
+OpenAPI effect did not commit: receipt_unverified               # a 2xx the verifier could not confirm: unknown
+'tool_node' requires a governed effect context to run protected OpenAPI tool 'open_ticket'
+```
+
+Recovery: a refusal before the proposal needs the input, the row or the egress allowlist corrected (nothing was recorded). A
+`proposed` effect needs an exact approval, after which the run can be resumed (the proposal is reused for the same node
+occurrence). An `unknown` effect is settled by the receipt verifier, a receipt callback or an operator (see the
+[recovery runbook](recovery-runbook.md)), never by running the node again.
+
+**After the approval.** The backend rebuilds the request from the row and the recorded arguments and checks it again,
+the egress policy included. Any failure at that point (a recorded proposal that is not the row's operation, or a destination
+that **stopped** passing the egress policy since the proposal, a transient DNS or allowlist change included) sends nothing and
+settles the proposal `failed` with the reason `not_sent`; the dispatch's internal refusal code is not surfaced, and **the
+approval is already consumed**: ask for a new proposal (run the node again after fixing the cause).
+
+**Not covered by this change, and still outside the dispatcher:** model-chosen tool calls inside an agent step (B04.6,
+#768), the Aria assistant's published-tool call (inventory EP-034: there is no workflow run to propose into; owned by #1063), standalone
+exports and plans a caller builds itself (#1051: `build_plan` binds the registry reader but no governed context, so a
+deployed workflow's **protected** OpenAPI nodes are refused until #1051 binds one; read-class `GET` nodes still run),
+and the operator's draft preview route (EP-033, exempt). The raw executor's remaining callers are pinned by
+`tests/test_effect_path_matrix.py::test_the_raw_openapi_executor_is_named_only_by_pinned_callers`, so a new one fails
+until it is routed or pinned with a reason.
+
+**Configuration, migration and rollback.** No new setting, no route and no migration. The two names `openapi_http` and
+`openapi-http` become reserved tool names like the other connectors (`409 reserved_tool_name`); a tool already registered
+under one is untrusted and unaffected. Reverting the change restores the direct call (a proposal already recorded remains
+readable).
 
 ## Memory is owned, derived and read-mostly
 
@@ -1352,10 +1465,13 @@ compares the transport registered under `kind` with it, and `caliber.effects.adm
 | the wire configuration | the digest of what the transport sends with (for the document-request connector: the submit and lookup operations, the key header and the accepted resource shape) equals the pinned one | `connector_configuration_mismatch` |
 | the settings handed to `dispatch` | only the record's `config_keys`, every `required_config_keys` present, each value bounded: a `base_url` is `http(s)` with a host, a valid port, and no userinfo, whitespace, control characters, query or fragment; `max_attempts` is 1 to 5; `timeout_seconds` is finite, above 0 and at most 300 | `connector_config_not_admitted` |
 
-The reference profile admits two connectors: `document_request` (connector `document-request`, version 1: the Beta reference
+The reference profile admits four connectors: `document_request` (connector `document-request`, version 1: the Beta reference
 connector, which has a stable key, a precondition and a lookup by key; its key retention is unconfirmed, and that risk is
-accepted by name) and the generic `http` transport that governed webhook and API nodes use (it promises no exactly-once
-behaviour, so every effect through it needs the caller's own receipt verifier). **The dispatcher refuses everything else**: MCP
+accepted by name), the generic `http` transport that governed webhook and API nodes use (it promises no exactly-once
+behaviour, so every effect through it needs the caller's own receipt verifier), the `registered_tool` transport of
+[governed registered tools](#governed-registered-tools-b043), and the `openapi_http` transport of
+[governed OpenAPI tools](#governed-openapi-tools-b044) (connector `openapi-http`; settings `operation` and `receipt_verifier`;
+it promises nothing about the downstream either). **The dispatcher refuses everything else**: MCP
 stdio and remote hosts, host-file exports, PostgreSQL MCP writes and any transport added to `BACKENDS` without a reviewed record.
 Each has no record in the table, so a proposal or dispatch that goes through the dispatcher is `unsupported_backend` (no
 registration) or `connector_not_admitted` (registered, not pinned), and the host-file and database-write tools are also
@@ -1381,7 +1497,7 @@ Where it is enforced:
   (implementation, capability and configuration, never settings or payloads) are written into the `effect.proposal.dispatched`
   outbox event as `connector_admission`.
 - **A user tool cannot pose as a connector.** Tool registration (`POST /tools`) and the assistant's tool publisher refuse the
-  names `document_request`, `document-request` and `http` (and their `tool.<name>.vN` and case variants) with `409 reserved_tool_name`,
+  names `document_request`, `document-request`, `http`, `registered_tool`, `openapi_http` and `openapi-http` (and their `tool.<name>.vN` and case variants) with `409 reserved_tool_name`,
   like a built-in's name. A tool already registered under such a name before this rule is not rewritten; it is untrusted, is
   never classified as a connector, and is flagged once by the reserved-name audit (`flag_reserved_tool_name`, plus one `ERROR` log
   per process that names the connector, not a built-in). **Upgrade impact:** no new version can be registered under such a name
@@ -1397,7 +1513,7 @@ Refusal and recovery (every code is stable and carries no payload, setting or UR
 | `connector_implementation_mismatch` | the registered transport is not the pinned implementation | restore the shipped transport; do not subclass or replace it |
 | `connector_capability_unproven` / `connector_capability_mismatch` | no capability record, an unaccepted risk, or a changed promise | restore the record; a changed promise is a code change that updates the pin in review |
 | `connector_configuration_mismatch` | the transport's wire configuration is not the pinned one | restore the shipped configuration |
-| `connector_config_not_admitted` | `backend_config` has an unknown or missing key or an out-of-bounds value | pass only `base_url` (and optionally `max_attempts`, `timeout_seconds`) for `document_request`; `sender` and `receipt_verifier` for `http` |
+| `connector_config_not_admitted` | `backend_config` has an unknown or missing key or an out-of-bounds value | pass only `base_url` (and optionally `max_attempts`, `timeout_seconds`) for `document_request`; `sender` and `receipt_verifier` for `http`; `invoker` and `receipt_verifier` for `registered_tool`; `operation` (an `OpenApiOperation` built from the tool's registry row, never a name or a dict) and `receipt_verifier` for `openapi_http` |
 
 ```python
 from caliber.effects.dispatcher import UnsupportedEffectPath, admit_backend
@@ -3021,7 +3137,7 @@ trusts a tool's name only when the tool really is CALIBER's own.
 `memory_add`. The comparison is stricter than the resolver's exact match: case and surrounding spaces are ignored, and so are a
 `tool.` prefix and a `.vN` suffix, so `Grep_Files`, ` grep_files ` and `tool.grep_files.v2` are all reserved. A name
 that merely contains one (`grep_files_v2`, `my_grep_files`) is free. The rule applies in every profile, to every
-owner, module and version. The names of the trusted connectors (`document_request`, `document-request`, `http`; see
+owner, module and version. The names of the trusted connectors (`document_request`, `document-request`, `http`, `registered_tool`, `openapi_http`, `openapi-http`; see
 [Trusted connector admission](#trusted-connector-admission-b123a-738)) are reserved the same way, with a message that names
 the connector instead of a built-in tool.
 

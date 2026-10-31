@@ -103,6 +103,8 @@ SLICES: dict[str, tuple[str, ...]] = {
         "tests/test_governed_agent_step.py",
         "tests/test_effect_path_matrix.py",
         "tests/test_registered_tool_dispatch.py",
+        "tests/test_openapi_governed_dispatch.py",
+        "tests/test_openapi_executor_egress.py",
         "tests/test_context_sources.py",
         "tests/test_context_authorize.py",
         "tests/test_context_manifest.py",

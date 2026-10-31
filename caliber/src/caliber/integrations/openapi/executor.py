@@ -5,6 +5,13 @@ reuses :mod:`caliber.egress` exactly the way the workflow ``webhook`` node does:
 a pre-check refuses the obvious destinations, and the client that actually opens
 the connection carries the policy in its transport so a name that re-resolves
 after the check cannot be reached.
+
+This is the **raw transport**: it sends whatever it is given. A protected call of a
+workflow tool node never reaches it from the runtime directly; it is proposed, approved
+and sent by the dispatcher's private ``openapi_http`` backend (B04.4, #750), which
+calls :func:`preflight_governed_openapi_request` first so that everything that can be
+refused without sending is refused before an approval is requested. The callers that
+still reach it directly are pinned in ``tests/test_effect_path_matrix.py``.
 """
 
 from __future__ import annotations
@@ -21,7 +28,7 @@ import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
-from urllib.parse import quote
+from urllib.parse import quote, urlsplit
 
 import httpx
 import jsonschema
@@ -44,6 +51,35 @@ _REDACTED_RESPONSE_HEADERS = frozenset(
         "proxy-authenticate",
     }
 )
+
+#: Request headers a caller-supplied ``header_params`` may never set (lower case). A method-override header lets a ``GET``
+#: the platform classified as a read act as a write at a downstream that honours it, and the hop-by-hop and framing headers
+#: are the transport's to set, so a caller could use them to smuggle or re-route a request. The refusal never names the
+#: header or its value.
+_FORBIDDEN_REQUEST_HEADERS = frozenset(
+    {
+        "x-http-method-override",
+        "x-http-method",
+        "x-method-override",
+        "transfer-encoding",
+        "content-length",
+        "content-encoding",
+        "host",
+        "connection",
+        "keep-alive",
+        "proxy-connection",
+        "proxy-authorization",
+        "te",
+        "trailer",
+        "upgrade",
+        "expect",
+    }
+)
+
+
+def _has_forbidden_header(header_params: dict[str, Any]) -> bool:
+    return any(name.strip().lower() in _FORBIDDEN_REQUEST_HEADERS for name in header_params)
+
 
 #: Status codes worth one more attempt. A 5xx or 429 is plausibly transient; a 4xx
 #: is the caller's problem and retrying only burns the upstream's rate budget.
@@ -165,16 +201,14 @@ class _Prepared:
     idempotency_key: str | None
 
 
-def _prepare_request(
-    *,
-    execution_config: dict[str, Any] | None,
-    input_schema: dict[str, Any] | None,
-    input_data: dict[str, Any],
-    egress_policy: EgressPolicy | None,
-) -> _Prepared:
+def _required_config(execution_config: dict[str, Any] | None) -> dict[str, Any]:
     config = dict(execution_config or {})
     if not config:
         raise OpenApiExecutionError("openapi tool has no backend_config")
+    return config
+
+
+def _validate_input(input_schema: dict[str, Any] | None, input_data: dict[str, Any]) -> None:
     if input_schema:
         try:
             jsonschema.validate(instance=input_data, schema=input_schema)
@@ -183,9 +217,9 @@ def _prepare_request(
                 f"openapi tool input failed schema validation: {exc.message}"
             ) from exc
 
-    if config.get("kind") == "openapi_http_pack":
-        config = _resolve_pack_operation(config, input_data)
 
+def _operation_parts(config: dict[str, Any]) -> tuple[str, str, str]:
+    """The method, the path template and the server URL of one single-operation config."""
     method = str(config.get("method") or "GET").upper()
     path = str(config.get("path") or "")
     server_url = str(config.get("server_url") or "").rstrip("/")
@@ -193,10 +227,29 @@ def _prepare_request(
         raise OpenApiExecutionError("openapi tool has no server_url configured")
     if not path.startswith("/"):
         raise OpenApiExecutionError(f"openapi tool path must start with '/': {path!r}")
+    return method, path, server_url
+
+
+def _prepare_request(
+    *,
+    execution_config: dict[str, Any] | None,
+    input_schema: dict[str, Any] | None,
+    input_data: dict[str, Any],
+    egress_policy: EgressPolicy | None,
+) -> _Prepared:
+    config = _required_config(execution_config)
+    _validate_input(input_schema, input_data)
+    if config.get("kind") == "openapi_http_pack":
+        config = _resolve_pack_operation(config, input_data)
+    method, path, server_url = _operation_parts(config)
 
     path_params = _as_mapping(input_data.get("path_params"))
     query_params = _as_mapping(input_data.get("query_params"))
     header_params = _as_mapping(input_data.get("header_params"))
+    if _has_forbidden_header(header_params):
+        raise OpenApiExecutionError(
+            "header_params may not set a method-override, framing or hop-by-hop header"
+        )
     body = input_data.get("body")
 
     url = server_url + _render_path(path, path_params)
@@ -417,6 +470,211 @@ def execute_openapi_http_tool(
         # Whether an attempt before the last one may have reached the downstream: a 4xx then proves nothing about it.
         "earlier_attempts_may_have_been_sent": earlier_sent,
     }
+
+
+#: Every refusal :func:`preflight_governed_openapi_request` and :func:`openapi_operation_method` raise. A code names a class of
+#: problem and never carries a value from the input, the configuration or the downstream.
+PREFLIGHT_CONFIG_INVALID = "openapi_config_invalid"
+PREFLIGHT_INPUT_INVALID = "openapi_input_invalid"
+PREFLIGHT_OPERATION_UNRESOLVED = "openapi_operation_unresolved"
+PREFLIGHT_KEY_OVERRIDE = "openapi_key_override_refused"
+PREFLIGHT_PRECONDITION_CONFLICT = "openapi_precondition_conflict"
+PREFLIGHT_EGRESS_BLOCKED = "openapi_egress_blocked"
+PREFLIGHT_AUTH_UNSUPPORTED = "openapi_auth_unsupported"
+PREFLIGHT_HEADER_FORBIDDEN = "openapi_header_forbidden"
+PREFLIGHT_REFUSAL_CODES = (
+    PREFLIGHT_CONFIG_INVALID,
+    PREFLIGHT_INPUT_INVALID,
+    PREFLIGHT_OPERATION_UNRESOLVED,
+    PREFLIGHT_KEY_OVERRIDE,
+    PREFLIGHT_PRECONDITION_CONFLICT,
+    PREFLIGHT_EGRESS_BLOCKED,
+    PREFLIGHT_AUTH_UNSUPPORTED,
+    PREFLIGHT_HEADER_FORBIDDEN,
+)
+_AUTH_KINDS = frozenset(
+    {
+        "none",
+        "bearer",
+        "api_key",
+        "basic",
+        "header",
+        "oauth_client_credentials",
+        "oauth_refresh_token",
+    }
+)
+_OAUTH_KINDS = frozenset({"oauth_client_credentials", "oauth_refresh_token"})
+
+
+class OpenApiPreflightError(Exception):
+    """A governed OpenAPI call is refused before anything is proposed or sent; ``code`` is one of :data:`PREFLIGHT_REFUSAL_CODES`."""
+
+    def __init__(self, code: str) -> None:
+        self.code = code
+        super().__init__(code)
+
+
+@dataclass(frozen=True)
+class OpenApiPreflight:
+    """What a governed call is, as checked without sending: the operation and the input a proposal may record.
+
+    ``path`` is the path **template** (the parameters are not substituted), so the operation is the same for every call.
+    ``replay_input`` is the input without the two things the platform owns: the precondition (lifted into
+    ``expected_resource_version``, which the proposal records and the transport sends as the bound header) and the
+    idempotency key (refused when supplied, never recorded: the transport sends the proposal's stable key).
+    """
+
+    method: str
+    server_url: str
+    path: str
+    idempotency_key_header: str | None
+    expected_resource_version_header: str | None
+    expected_resource_version: str | None
+    replay_input: dict[str, Any] = field(repr=False)
+
+
+def _preflight_operation(
+    execution_config: dict[str, Any] | None, input_data: dict[str, Any]
+) -> tuple[dict[str, Any], str, str, str]:
+    """The single-operation config, method, path template and server URL, or a typed refusal."""
+    try:
+        config = _required_config(execution_config)
+    except OpenApiExecutionError:
+        raise OpenApiPreflightError(PREFLIGHT_CONFIG_INVALID) from None
+    if config.get("kind") == "openapi_http_pack":
+        try:
+            config = _resolve_pack_operation(config, input_data)
+        except OpenApiExecutionError:
+            raise OpenApiPreflightError(PREFLIGHT_OPERATION_UNRESOLVED) from None
+    try:
+        method, path, server_url = _operation_parts(config)
+    except OpenApiExecutionError:
+        raise OpenApiPreflightError(PREFLIGHT_CONFIG_INVALID) from None
+    return config, method, path, server_url
+
+
+def openapi_operation_method(
+    execution_config: dict[str, Any] | None, input_data: dict[str, Any]
+) -> str:
+    """The HTTP method the call will use, resolved from the **configuration** (a pack's operation is selected by the input).
+
+    The method is what classifies the call, so it is read from the registry row's own configuration, never from a claim. A
+    configuration that names no operation the input can select is refused (:data:`PREFLIGHT_OPERATION_UNRESOLVED`).
+    """
+    return _preflight_operation(execution_config, input_data)[1]
+
+
+def _check_server_url(server_url: str) -> None:
+    """An ``http(s)`` origin with a host, a valid port, and no credentials, query or fragment: it is recorded in a resource name."""
+    try:
+        parts = urlsplit(server_url)
+        _ = parts.port  # a non-numeric or out-of-range port raises ValueError
+    except ValueError:
+        raise OpenApiPreflightError(PREFLIGHT_CONFIG_INVALID) from None
+    if (
+        parts.scheme not in ("http", "https")
+        or not parts.hostname
+        or "@" in parts.netloc
+        or parts.query
+        or parts.fragment
+        or any(ch.isspace() or not ch.isprintable() for ch in server_url)
+    ):
+        raise OpenApiPreflightError(PREFLIGHT_CONFIG_INVALID)
+
+
+def _check_auth_target(auth_binding: object, policy: EgressPolicy) -> None:
+    """The auth kind must be one the executor supports, and an OAuth token URL passes the egress policy: no secret is resolved."""
+    if auth_binding is None:
+        return
+    if not isinstance(auth_binding, dict):
+        raise OpenApiPreflightError(PREFLIGHT_CONFIG_INVALID)
+    kind = str(auth_binding.get("kind") or "none")
+    if kind not in _AUTH_KINDS:
+        raise OpenApiPreflightError(PREFLIGHT_AUTH_UNSUPPORTED)
+    if kind in _OAUTH_KINDS:
+        try:
+            check_url(str(auth_binding.get("token_url") or "").strip(), policy)
+        except EgressBlockedError:
+            raise OpenApiPreflightError(PREFLIGHT_EGRESS_BLOCKED) from None
+
+
+def preflight_governed_openapi_request(
+    *,
+    execution_config: dict[str, Any] | None,
+    input_schema: dict[str, Any] | None,
+    input_data: dict[str, Any],
+    egress_policy: EgressPolicy | None = None,
+) -> OpenApiPreflight:
+    """Check a governed OpenAPI call before it is proposed, so an approval is never spent on a call that cannot be made.
+
+    Nothing is sent and no secret is resolved. The input must satisfy the tool's schema; a pack's operation must be one the
+    configuration binds; the server must be a plain ``http(s)`` origin (its text goes into the proposal's resource); the
+    request URL and an OAuth token URL must pass the egress policy (the transport applies it again when it connects);
+    ``header_params`` may not set a method-override, framing or hop-by-hop header (:data:`PREFLIGHT_HEADER_FORBIDDEN`).
+    When the operation binds an idempotency key header, **the platform owns the key**: an ``idempotency_key`` input or a
+    ``header_params`` entry for that header is refused (:data:`PREFLIGHT_KEY_OVERRIDE`) rather than sent next to the
+    proposal's key. When it binds a precondition header, the ``expected_resource_version`` input and a ``header_params``
+    entry must agree (:data:`PREFLIGHT_PRECONDITION_CONFLICT`), and the value is lifted into
+    :attr:`OpenApiPreflight.expected_resource_version`. Every refusal is an :class:`OpenApiPreflightError` with a stable
+    code and no value from the input.
+    """
+    config, method, path, server_url = _preflight_operation(execution_config, input_data)
+    try:
+        _validate_input(input_schema, input_data)
+    except OpenApiExecutionError:
+        raise OpenApiPreflightError(PREFLIGHT_INPUT_INVALID) from None
+    _check_server_url(server_url)
+    header_params = _as_mapping(input_data.get("header_params"))
+    if _has_forbidden_header(header_params):
+        raise OpenApiPreflightError(PREFLIGHT_HEADER_FORBIDDEN)
+    try:
+        url = server_url + _render_path(path, _as_mapping(input_data.get("path_params")))
+    except OpenApiExecutionError:
+        raise OpenApiPreflightError(PREFLIGHT_INPUT_INVALID) from None
+
+    key_header = str(config.get("idempotency_key_header") or "").strip()
+    if key_header and (
+        str(input_data.get("idempotency_key") or "").strip()
+        or any(name.lower() == key_header.lower() for name in header_params)
+    ):
+        raise OpenApiPreflightError(PREFLIGHT_KEY_OVERRIDE)
+
+    replay = dict(input_data)
+    expected_header = str(config.get("expected_resource_version_header") or "").strip()
+    expected: str | None = None
+    if expected_header:
+        try:
+            expected = _single_bound_header_value(
+                {name: str(value) for name, value in header_params.items()},
+                expected_header,
+                input_data.get("expected_resource_version", _MISSING),
+                field_name="expected_resource_version",
+            )
+        except OpenApiExecutionError:
+            raise OpenApiPreflightError(PREFLIGHT_PRECONDITION_CONFLICT) from None
+        replay.pop("expected_resource_version", None)
+        if "header_params" in replay:
+            replay["header_params"] = {
+                name: value
+                for name, value in header_params.items()
+                if name.lower() != expected_header.lower()
+            }
+
+    policy = egress_policy if egress_policy is not None else active_egress_policy()
+    try:
+        check_url(url, policy)
+    except EgressBlockedError:
+        raise OpenApiPreflightError(PREFLIGHT_EGRESS_BLOCKED) from None
+    _check_auth_target(config.get("auth_binding"), policy)
+    return OpenApiPreflight(
+        method=method,
+        server_url=server_url,
+        path=path,
+        idempotency_key_header=key_header or None,
+        expected_resource_version_header=expected_header or None,
+        expected_resource_version=expected,
+        replay_input=replay,
+    )
 
 
 def _max_attempts(config: dict[str, Any], *, method: str, has_idempotency_key: bool) -> int:
