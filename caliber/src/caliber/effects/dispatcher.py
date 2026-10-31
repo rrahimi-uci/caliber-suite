@@ -50,7 +50,7 @@ from caliber.effects.connectors import (
     classify_result,
 )
 from caliber.effects.connectors import document_request as _document_request
-from caliber.effects.inventory import effect_class, tool_disposition
+from caliber.effects.inventory import EFFECT_CLASSES, effect_class, tool_disposition
 from caliber.effects.receipts import ReceiptFacts, Settled, settle_dispatch
 from caliber.effects.records import (
     APPROVED,
@@ -71,6 +71,11 @@ from caliber.effects.records import (
     read_proposal,
     record_proposal,
     transition,
+)
+from caliber.effects.registered_tools import (
+    REGISTERED_TOOL_CONNECTOR,
+    REGISTERED_TOOL_VERSION,
+    tool_resource,
 )
 from caliber.events.outbox import enqueue
 from caliber.integrations.openapi import executor as _raw_connector_transport
@@ -302,6 +307,57 @@ class _HttpBackend:
         return TransportResult(classified, verify, response=response)
 
 
+class _RegisteredToolBackend:
+    """Private adapter that runs a registry tool for the workflow runtime (B04.3, #741).
+
+    ``config`` carries two runtime-owned callables: ``invoker(arguments, input_text)``, which runs the tool the runtime
+    already bound, and ``receipt_verifier``, the same authoritative check the HTTP backend requires. The invoker is
+    called with the arguments **recorded in the proposal**, never with what the caller still holds in memory, so what
+    runs is what the approver saw. A local callable has no downstream key to replay, so this backend makes no
+    exactly-once claim: a tool that raises or times out leaves the proposal ``unknown`` (it may have acted), and
+    nothing here calls it a second time.
+    """
+
+    def perform(self, request: EffectRequest, config: Mapping[str, Any] | None) -> TransportResult:
+        if (
+            request.view.connector != REGISTERED_TOOL_CONNECTOR
+            or request.view.connector_version != REGISTERED_TOOL_VERSION
+        ):
+            raise _TransportRefusedError("connector_binding_mismatch")
+        settings = dict(config or {})
+        invoker = settings.get("invoker")
+        verifier = settings.get("receipt_verifier")
+        if not callable(invoker) or not callable(verifier):
+            raise _TransportRefusedError("backend_config_missing")
+        args = request.intent.get("args")
+        if not isinstance(args, Mapping):
+            raise _TransportRefusedError("connector_intent_unsupported")
+        name, version = args.get("tool"), args.get("version")
+        arguments, input_text = args.get("arguments"), args.get("input")
+        if (
+            not isinstance(name, str)
+            or not isinstance(version, str)
+            or request.view.resource != tool_resource(name, version)
+            or not isinstance(arguments, Mapping)
+            or not isinstance(input_text, str)
+        ):
+            raise _TransportRefusedError("connector_intent_unsupported")
+        try:
+            result = invoker(dict(arguments), input_text)
+        except Exception as exc:
+            return TransportResult(classify_error(exc))
+        response = {"result": result}
+        classified = Classified(TransportOutcome.COMMITTED_RECEIPT, "tool_returned", None, 1)
+
+        def verify() -> ReceiptFacts | None:
+            facts = verifier(request, response)
+            if facts is not None and not isinstance(facts, ReceiptFacts):
+                raise _TransportRefusedError("receipt_verifier_invalid")
+            return facts
+
+        return TransportResult(classified, verify, response=response)
+
+
 class _TransportRefusedError(RuntimeError):
     """A backend refused before sending anything; it is not a downstream result."""
 
@@ -328,6 +384,31 @@ HTTP_CONFIGURATION: Mapping[str, Any] = {
     "sender": "required",
 }
 
+#: A local callable has no downstream key to replay, no precondition and no lookup by key: the capability says so, and the
+#: pinned record accepts the two risks by name, so no one can read this transport as an exactly-once connector.
+REGISTERED_TOOL_CAPABILITY = ConnectorCapability(
+    connector=REGISTERED_TOOL_CONNECTOR,
+    version=REGISTERED_TOOL_VERSION,
+    idempotency_key_header=None,
+    key_scope="unknown",
+    key_retention="unconfirmed",
+    key_retention_seconds=None,
+    key_conflict_status=None,
+    precondition_header=None,
+    stale_precondition_status=None,
+    definitive_rejection_statuses=frozenset(),
+    lookup_by_key=False,
+    lookup_consistency="unknown",
+    absence_proves_noncommit=False,
+)
+#: What the registered-tool transport sends with: the target it accepts and the two callables the runtime must supply
+#: (the invoker of the already-bound tool, and an authoritative receipt verifier).
+REGISTERED_TOOL_CONFIGURATION: Mapping[str, Any] = {
+    "invoker": "required",
+    "receipt_verifier": "required",
+    "resource": tool_resource("<name>", "<version>"),
+}
+
 # Backend names are intentionally explicit.  Future B04 children add their
 # private adapters here; an arbitrary caller-supplied kind never gets a callable.
 # Being listed is not being admitted: :func:`admit_backend` is the gate (B12.3a, #738).
@@ -345,6 +426,13 @@ BACKENDS: dict[str, BackendRegistration] = {
         connector_version=HTTP_VERSION,
         capability=HTTP_CAPABILITY,
         configuration=HTTP_CONFIGURATION,
+    ),
+    "registered_tool": BackendRegistration(
+        backend=_RegisteredToolBackend(),
+        connector=REGISTERED_TOOL_CONNECTOR,
+        connector_version=REGISTERED_TOOL_VERSION,
+        capability=REGISTERED_TOOL_CAPABILITY,
+        configuration=REGISTERED_TOOL_CONFIGURATION,
     ),
 }
 
@@ -399,6 +487,7 @@ def _inventory_effect_class(
     *,
     caliber_defined: bool,
     claimed: str | None,
+    floor: str | None = None,
 ) -> str:
     name = "" if tool_name is None else tool_name
     disposition = tool_disposition(name, caliber_defined=caliber_defined)
@@ -414,6 +503,11 @@ def _inventory_effect_class(
         "irreversible_write",
     ):
         raise EffectRefused("invalid_effect_class")
+    if floor is not None:
+        if floor not in EFFECT_CLASSES:
+            raise EffectRefused("invalid_effect_class")
+        # A trusted caller's floor can only make the record stricter, never weaker.
+        resolved = max(resolved, floor, key=EFFECT_CLASSES.index)
     return resolved
 
 
@@ -499,6 +593,7 @@ def submit_proposal(
     intent: Intent | None = None,
     tool_name: str | None = None,
     caliber_defined: bool = False,
+    min_effect_class: str | None = None,
     connector: str | None = None,
     connector_version: str | None = None,
     effect_class_name: str | None = None,
@@ -513,6 +608,10 @@ def submit_proposal(
     first-party built-in identity.  Untrusted or unknown tools consequently use
     the inventory's fail-closed class.  ``action`` and the explicit fields are
     convenience forms of the same immutable intent; they cannot disagree.
+
+    ``min_effect_class`` is a floor from a caller that has classified the tool from its own trusted registry row (B04.3):
+    the recorded class is the stricter of the inventory's answer and the floor. Unlike ``effect_class_name`` it is not a
+    claim, so it is never taken from a model or a manifest.
 
     ``admission`` (:func:`admit_backend`, called by trusted code with a backend kind it chose) is required: a proposal
     that only *names* a connector, in an action, a manifest or a tool call, is refused with ``connector_not_admitted``
@@ -537,6 +636,7 @@ def submit_proposal(
         tool_name,
         caliber_defined=caliber_defined,
         claimed=fields.get("effect_class"),
+        floor=min_effect_class,
     )
     try:
         bound_intent = Intent(

@@ -36,7 +36,7 @@ import time
 from collections.abc import Callable, Collection, Iterator, Mapping
 from concurrent.futures import ThreadPoolExecutor
 from concurrent.futures import TimeoutError as FuturesTimeout
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 from functools import partial
 from http import HTTPStatus
@@ -59,6 +59,17 @@ from caliber.effects.dispatcher import (
 )
 from caliber.effects.reconcile import UnknownEffectError
 from caliber.effects.records import RecordedProposal
+from caliber.effects.registered_tools import (
+    INLINE,
+    REFUSE,
+    REGISTERED_TOOL_CONNECTOR,
+    REGISTERED_TOOL_VERSION,
+    RegisteredToolIdentity,
+    ToolRoute,
+    route_registered_tool,
+    tool_intent_args,
+    tool_resource,
+)
 from caliber.integrations.openapi.executor import bind_openapi_http_tool
 from caliber.llm.models import (
     DEFAULT_OPENAI_REASONING_EFFORT,
@@ -2517,6 +2528,10 @@ class RuntimePlan:
     #: workflow version but no context refuses these nodes rather than falling
     #: back to the legacy raw sender.
     governed_effects: GovernedEffectContext | None = None
+    #: Reads a registry tool's own row by ``(name, version)`` (B04.3, #741). The registry row, not the manifest binding, says
+    #: whether a tool is CALIBER's own and how risky it is; ``build_plan`` binds this to the database. A plan with neither this
+    #: reader nor a governed context is not governed: registered tools keep running as before.
+    registered_tool_identity: Callable[[str, str], RegisteredToolIdentity | None] | None = None
     #: Called with the ids of a node and of everything upstream of it before the node runs, outside its retries (B05.5b,
     #: #742). Raises ``caliber.effects.reconcile.UnknownEffectError`` while an effect those nodes asked for has no final
     #: outcome, so no step that depends on an effect nobody can vouch for runs. ``None`` where nothing records effects.
@@ -5085,54 +5100,181 @@ def _perform_http_effect(
     if not isinstance(proposal_args, dict):
         raise ToolExecutionError("governed HTTP effect request is not JSON-compatible")
     occurrence_id = _STEP_OCCURRENCE.get() or node_id
+    return _submit_authorize_dispatch(
+        context,
+        label="HTTP effect",
+        proposal={
+            "node_id": node_id,
+            "occurrence_id": occurrence_id,
+            "connector": HTTP_CONNECTOR,
+            "connector_version": HTTP_VERSION,
+            "effect_class_name": _declared_http_effect_class(node),
+            "resource": request["url"],
+            "args": proposal_args,
+        },
+        backend_kind="http",
+        backend_config={"sender": sender, "receipt_verifier": context.receipt_verifier},
+    )
+
+
+def _submit_authorize_dispatch(
+    context: GovernedEffectContext,
+    *,
+    label: str,
+    proposal: dict[str, Any],
+    backend_kind: str,
+    backend_config: dict[str, Any],
+) -> dict[str, Any]:
+    """Record one proposal, obtain its exact authorization, dispatch it, and return the committed response.
+
+    The one governed crossing shared by every runtime caller of the B04 dispatcher (HTTP nodes, registry tools). It
+    refuses at each step with a payload-free ``ToolExecutionError`` naming only ``label`` and the dispatcher's refusal
+    code: a missing or malformed authorization, a proposal the dispatcher refuses, a dispatch it refuses, or any outcome
+    short of ``committed`` (the effect may still have happened; the proposal stays recoverable by the reconciler).
+    """
     try:
         with context.session_factory() as session:
-            proposal = submit_proposal(
+            recorded = submit_proposal(
                 session,
                 workflow_run_id=context.workflow_run_id,
-                node_id=node_id,
-                occurrence_id=occurrence_id,
-                connector=HTTP_CONNECTOR,
-                connector_version=HTTP_VERSION,
-                effect_class_name=_declared_http_effect_class(node),
-                resource=request["url"],
-                args=proposal_args,
-                admission=admit_backend("http"),
+                **proposal,
+                admission=admit_backend(backend_kind),
             )
             session.commit()
     except EffectRefused as exc:
-        raise ToolExecutionError(f"HTTP effect proposal refused: {exc.code}") from exc
+        raise ToolExecutionError(f"{label} proposal refused: {exc.code}") from exc
+    if recorded.state != "proposed":
+        # A retry of a node whose effect was already claimed or settled (for example ``unknown``): asking for a new
+        # approval and dispatching again could only refuse, and would hide what really happened to the first attempt.
+        raise ToolExecutionError(f"{label} was already recorded as {recorded.state}; not run again")
 
     try:
-        authorization = context.authorize(proposal)
+        authorization = context.authorize(recorded)
     except Exception as exc:
-        raise ToolExecutionError(f"HTTP effect authorization failed: {type(exc).__name__}") from exc
+        raise ToolExecutionError(f"{label} authorization failed: {type(exc).__name__}") from exc
     if not isinstance(authorization, EffectAuthorization):
-        raise ToolExecutionError("HTTP effect authorization was not granted")
+        raise ToolExecutionError(f"{label} authorization was not granted")
 
-    backend_config = dict(context.backend_config)
-    backend_config["sender"] = sender
-    backend_config["receipt_verifier"] = context.receipt_verifier
     try:
         outcome = dispatch(
             context.session_factory,
-            proposal.proposal_id,
+            recorded.proposal_id,
             approval_id=authorization.approval_id,
             approver_scopes=authorization.approver_scopes,
             lease=authorization.lease,
-            backend_kind="http",
-            backend_config=backend_config,
+            backend_kind=backend_kind,
+            backend_config={**context.backend_config, **backend_config},
             current_resource_version=authorization.current_resource_version,
             evidence_hash=authorization.evidence_hash,
             approval_validator=approval_valid_at_commit,
         )
     except EffectRefused as exc:
-        raise ToolExecutionError(f"HTTP effect dispatch refused: {exc.code}") from exc
+        raise ToolExecutionError(f"{label} dispatch refused: {exc.code}") from exc
     if outcome.state != "committed":
-        raise ToolExecutionError(f"HTTP effect did not commit: {outcome.reason or outcome.state}")
+        raise ToolExecutionError(f"{label} did not commit: {outcome.reason or outcome.state}")
     if outcome.response is None:
-        raise ToolExecutionError("HTTP effect committed without a transport response")
+        raise ToolExecutionError(f"{label} committed without a transport response")
     return dict(outcome.response)
+
+
+def _governed_tool_route(
+    plan: RuntimePlan, binding: IRToolBinding, *, node_id: str, preview: bool
+) -> ToolRoute | None:
+    """The dispatcher route of a registered Python tool node, or ``None`` when it runs inline as before.
+
+    Only a plan wired to the registry (an identity reader, as ``build_plan`` binds) or to an authority (a governed
+    context) is governed: a plan that has neither, such as a standalone export or a test plan, keeps calling the tool
+    directly, as do previews, which never reach a real effect. OpenAPI and MCP bindings are routed by
+    their own B04 tasks. The decision is made from the tool's **registry row** (``plan.registered_tool_identity``), never
+    from ``binding.side_effect_level`` or the binding's names, which a workflow or an export author wrote.
+    """
+    if (
+        preview
+        or binding.binding_type != "registered_function"
+        or binding.execution_backend != "python_callable"
+        or (plan.registered_tool_identity is None and plan.governed_effects is None)
+    ):
+        return None
+    identity: RegisteredToolIdentity | None = None
+    lookup = plan.registered_tool_identity
+    if lookup is not None and binding.resolved_name and binding.resolved_version:
+        try:
+            identity = lookup(binding.resolved_name, binding.resolved_version)
+        except Exception as exc:
+            raise ToolExecutionError(
+                f"registered tool {binding.local_name!r} identity could not be read: "
+                f"{type(exc).__name__}"
+            ) from exc
+    if identity is not None and (
+        identity.module_path != binding.module_path
+        or identity.callable_name != binding.callable_name
+        or identity.execution_backend != binding.execution_backend
+    ):
+        # The code the binding would run is not the code the registry row describes.
+        raise ToolExecutionError(
+            f"registered tool {binding.local_name!r} does not match its registry row"
+        )
+    route = route_registered_tool(identity)
+    if route.route == REFUSE:
+        raise ToolExecutionError(
+            f"registered tool {binding.local_name!r} refused: unsupported_effect_path"
+        )
+    if route.route == INLINE:
+        return None
+    if plan.governed_effects is None:
+        raise ToolExecutionError(
+            f"{node_id!r} requires a governed effect context to run protected registered tool "
+            f"{binding.local_name!r}"
+        )
+    return route
+
+
+def _perform_registered_tool_effect(
+    plan: RuntimePlan,
+    *,
+    node_id: str,
+    binding: IRToolBinding,
+    route: ToolRoute,
+    fn: Callable[..., Any],
+    arguments: dict[str, Any],
+    fallback_input: str,
+) -> Any:
+    """Run a protected registry tool through proposal, approval and dispatch (B04.3, #741).
+
+    ``fn`` is the already-bound tool, without retries: a retried write could repeat its effect, and the dispatcher
+    never sends an ambiguous effect twice. It is called by the ``registered_tool`` backend with the arguments recorded in
+    the proposal, only after the exact approval and the execution-owner lease are rechecked.
+    """
+    context = plan.governed_effects
+    assert context is not None  # _governed_tool_route guarantees it
+    if not callable(context.authorize) or not callable(context.receipt_verifier):
+        raise ToolExecutionError("governed registered-tool effect context is incomplete")
+    name = binding.resolved_name or binding.local_name
+    version = binding.resolved_version
+    proposal_args = _json_compatible(arguments)
+
+    def invoker(recorded_arguments: dict[str, Any], recorded_input: str) -> Any:
+        return _call_tool(fn, recorded_arguments, fallback_input=recorded_input)
+
+    return _submit_authorize_dispatch(
+        context,
+        label="registered tool effect",
+        proposal={
+            "node_id": node_id,
+            "occurrence_id": _STEP_OCCURRENCE.get() or node_id,
+            "connector": REGISTERED_TOOL_CONNECTOR,
+            "connector_version": REGISTERED_TOOL_VERSION,
+            "min_effect_class": route.effect_class,
+            "resource": tool_resource(name, version),
+            "args": tool_intent_args(
+                name=name, version=version, arguments=proposal_args, input_text=fallback_input
+            ),
+            "tool_name": name,
+            "caliber_defined": route.trusted,
+        },
+        backend_kind="registered_tool",
+        backend_config={"invoker": invoker, "receipt_verifier": context.receipt_verifier},
+    )["result"]
 
 
 #: Failures that prove the effect did **not** reach the remote system, so the
@@ -6631,12 +6773,15 @@ def _run_node(  # noqa: PLR0911, PLR0912, PLR0915 - per-node-type dispatch
                 output=fallback_input,
                 detail=f"waiting_approval:{nid}",
             )
+        route = _governed_tool_route(plan, binding, node_id=nid, preview=preview)
+        # A governed call is never retried: a second attempt of a write could repeat its effect.
+        run_binding = replace(binding, max_retries=0) if route is not None else binding
         override = (extra_tools or {}).get(binding.local_name)
         fn = (
-            _resilient_callable(binding, override)
+            _resilient_callable(run_binding, override)
             if override is not None
             else _resolve_bound_tool_callable(
-                binding,
+                run_binding,
                 plan.resolver,
                 preview=preview,
                 required=True,
@@ -6656,7 +6801,18 @@ def _run_node(  # noqa: PLR0911, PLR0912, PLR0915 - per-node-type dispatch
             },
         ) as span:
             try:
-                result = _call_tool(fn, arguments, fallback_input=fallback_input)
+                if route is None:
+                    result = _call_tool(fn, arguments, fallback_input=fallback_input)
+                else:
+                    result = _perform_registered_tool_effect(
+                        plan,
+                        node_id=nid,
+                        binding=binding,
+                        route=route,
+                        fn=fn,
+                        arguments=arguments,
+                        fallback_input=fallback_input,
+                    )
             finally:
                 span.set_attribute(
                     "caliber.tool.latency_ms",
