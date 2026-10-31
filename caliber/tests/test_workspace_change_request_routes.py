@@ -15,10 +15,12 @@ from caliber.db.models import (
     CaliberWorkspaceChangeRequest,
     CaliberWorkspaceChangeRequestHead,
     CaliberWorkspaceEnvironment,
+    CaliberWorkspaceReleaseEvaluation,
     CaliberWorkspaceRevision,
     CaliberWorkspaceSource,
     CaliberWorkspaceVersionClaim,
 )
+from caliber.eval.evidence import build_release_gate_evidence
 from caliber.workspace_change_request_service import (
     SemanticVersion,
     accept_change_request,
@@ -502,6 +504,43 @@ def test_acceptance_primitive_cas_moves_only_one_request(
 # --- accept: qa evidence must come from a verified release decision, never a body ---
 
 
+_GATE_HEX = "a" * 64
+
+
+def _gate_fixture(evaluation_id: str) -> tuple[dict[str, object], str]:
+    """A passing, recomputable release gate-evidence document and its digest."""
+    rows = [
+        {
+            "example_id": "example-1",
+            "input": {"prompt": "hello"},
+            "expected": {"answer": "world"},
+            "prediction": "world",
+            "scores": {"Judge.quality": 1.0},
+            "score": 1.0,
+            "passed": True,
+            "error": None,
+            "weight": 1.0,
+            "tags": [],
+        }
+    ]
+    return build_release_gate_evidence(
+        scored_rows=rows,
+        dataset_id="DS-change-request",
+        dataset_version=1,
+        plan_sha256=_GATE_HEX,
+        input_sha256=_GATE_HEX,
+        evaluation_id=evaluation_id,
+        provider={"provider": "fake", "simulated": True},
+        candidate={"overall": 1.0, "dimensions": {"Judge.quality": 1.0}},
+        baseline=None,
+        deltas={},
+        n_examples=1,
+        min_aggregate_score=0.8,
+        min_aggregate_delta=None,
+        result="pass",
+    )
+
+
 def _qa_environment_id(db_session: Session, project_id: str) -> str:
     return db_session.execute(
         select(CaliberWorkspaceEnvironment.environment_id).where(
@@ -550,7 +589,6 @@ def _record_qa_decision(
             )
         )
         db_session.commit()
-    gate = "c" * 64
     release = create_workspace_release(
         db_session,
         project_id=project_id,
@@ -565,7 +603,24 @@ def _record_qa_decision(
         change_request_head_id=head_id,
     )
     release.status = RELEASE_AWAITING_QUALITY_SIGNOFF
+    # Decisions are only recorded against a persisted, recomputable, succeeded
+    # release evaluation whose digest binds the release; seed the real thing.
+    evaluation_id = f"EVAL-{idempotency_key}"
+    gate_evidence, gate = _gate_fixture(evaluation_id)
     release.evaluation_evidence_sha256 = gate
+    db_session.add(
+        CaliberWorkspaceReleaseEvaluation(
+            evaluation_id=evaluation_id,
+            project_id=project_id,
+            workspace_release_id=release.release_id,
+            idempotency_key=f"{idempotency_key}-evaluation",
+            evaluation_plan_sha256=_GATE_HEX,
+            input_sha256=_GATE_HEX,
+            status="succeeded",
+            gate_evidence=gate_evidence,
+            requested_by="@test",
+        )
+    )
     db_session.flush()
     record_workspace_release_decision(
         db_session,
