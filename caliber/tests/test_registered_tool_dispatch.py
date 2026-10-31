@@ -31,6 +31,7 @@ from caliber.effects.receipts import ReceiptFacts
 from caliber.effects.registered_tools import (
     RegisteredToolIdentity,
     load_registered_tool_identity,
+    registry_identity_reader,
     route_registered_tool,
 )
 from caliber.ids import new_tool_id
@@ -1091,6 +1092,105 @@ def _plain_binding() -> Any:
         module_path="m",
         callable_name="x",
     )
+
+
+# ---------------------------------------------------------------- evaluation and calibration replays
+
+
+def _replay_world(
+    factory: sessionmaker[Session], level: str, *, bound: bool
+) -> tuple[Tool, dict[str, Any]]:
+    """Resolver, tool and keyword arguments shared by the refinement and calibration replays of one registry tool."""
+    entry = tool_entry("open_ticket", level)
+    seed_row(factory, entry)
+    resolver = InMemoryToolResolver([entry])
+    tool = Tool()
+    resolver.register(entry, tool)
+    reader = registry_identity_reader(factory) if bound else None
+    return tool, {
+        "manifest": tool_manifest("open_ticket"),
+        "resolver": resolver,
+        "registered_tool_identity": reader,
+    }
+
+
+def _refinement_replay(parts: dict[str, Any]) -> float:
+    from caliber.workflows.refinement import default_run_scorer, evaluate_candidate
+
+    result = evaluate_candidate(
+        parts["manifest"],
+        parts["manifest"],
+        ["go"],
+        resolver=parts["resolver"],
+        baseline_executor=FakeWorkflowExecutor(),
+        candidate_executor=FakeWorkflowExecutor(),
+        scorer=default_run_scorer,
+        registered_tool_identity=parts["registered_tool_identity"],
+    )
+    return float(
+        result.candidate_scores.get("completion", result.candidate_scores.get("quality", 0.0))
+    )
+
+
+def _calibration_replay(parts: dict[str, Any]) -> dict[str, Any]:
+    from caliber.workflows.calibration import (
+        WorkflowCalibrationExample,
+        WorkflowCalibrationSpec,
+        _replay_calibration_manifest,
+    )
+
+    example = WorkflowCalibrationExample(
+        input_text="go", expected={}, weight=1.0, tags=[], example_id="e1"
+    )
+    _scores, details = _replay_calibration_manifest(
+        parts["manifest"],
+        [example],
+        WorkflowCalibrationSpec.from_raw(None),
+        resolver=parts["resolver"],
+        executor=FakeWorkflowExecutor(),
+        registered_tool_identity=parts["registered_tool_identity"],
+    )
+    return details[0]
+
+
+@pytest.mark.parametrize("replay", ["refinement", "calibration"])
+def test_an_evaluation_replay_refuses_a_protected_registry_tool(
+    factory: sessionmaker[Session], replay: str
+) -> None:
+    """Before B04.3 an eval or calibration replay called a candidate manifest's write tool for real."""
+    tool, parts = _replay_world(factory, "write", bound=True)
+
+    outcome = _refinement_replay(parts) if replay == "refinement" else _calibration_replay(parts)
+
+    assert tool.calls == []
+    if replay == "calibration":
+        assert outcome["status"] == "error"
+    assert proposals(factory) == []
+
+
+@pytest.mark.parametrize("replay", ["refinement", "calibration"])
+def test_an_evaluation_replay_keeps_running_read_tools(
+    factory: sessionmaker[Session], replay: str
+) -> None:
+    tool, parts = _replay_world(factory, "read", bound=True)
+
+    outcome = _refinement_replay(parts) if replay == "refinement" else _calibration_replay(parts)
+
+    # refinement replays the baseline and the candidate; calibration one example
+    assert len(tool.calls) == (2 if replay == "refinement" else 1)
+    if replay == "calibration":
+        assert outcome["status"] == "completed"
+
+
+@pytest.mark.parametrize("replay", ["refinement", "calibration"])
+def test_a_standalone_replay_without_a_registry_reader_calls_its_tools_directly(
+    factory: sessionmaker[Session], replay: str
+) -> None:
+    tool, parts = _replay_world(factory, "write", bound=False)
+
+    _refinement_replay(parts) if replay == "refinement" else _calibration_replay(parts)
+
+    assert len(tool.calls) == (2 if replay == "refinement" else 1)
 
 
 # ---------------------------------------------------------------- backend unit checks

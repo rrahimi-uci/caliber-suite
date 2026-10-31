@@ -104,9 +104,9 @@ execution-owner lease and endpoint-specific verifier; no new environment variabl
 A workflow `tool` node that names a registered Python tool is routed by the tool's **registry row**, read from the
 database for the tool being run: its name, owner, version, module, callable and declared side-effect level. The
 manifest binding, an exported bundle and the model do not decide it (`IRToolBinding` and `ToolRegistryEntry` carry
-no owner, so there is nothing in them to forge). A plan is governed when it is wired to the registry (`build_plan` binds the row reader, so every deployed workflow
-version run is) or to an authority (a governed context). Previews, standalone exports and test plans with neither,
-OpenAPI bindings (B04.4) and MCP bindings (B04.5) keep their own paths.
+no owner, so there is nothing in them to forge). A plan is governed when it is wired to the registry (an identity reader) or to an authority (a governed context); the
+table below lists every place the runtime builds a plan and which it is. OpenAPI bindings (B04.4) and MCP bindings (B04.5)
+keep their own paths.
 
 | the registry row is | the tool node |
 | --- | --- |
@@ -148,9 +148,21 @@ Recovery: a `proposed` effect needs an exact approval, after which the run can b
 is reused for the same node occurrence, so the tool still runs once); an `unknown` effect is settled by the reconciler
 (B05) or an operator, never by re-running the node; a manifest-backed deployment whose run owner has not bound a
 governed context must keep protected registered tools out of its workflows, because it refuses them (read-class tools
-are unaffected). The plan's `registered_tool_identity` reader is bound by `build_plan`. A standalone export, which has no registry to
-read and no authority to ask, is not governed and keeps calling its tools directly (the module-import paths stay
-inventory rows EP-015, EP-016 and EP-019, refused by #774).
+are unaffected). Every construction site of a runtime plan (`RuntimePlan(`) in the code, and what it does with a protected registry tool:
+
+| plan built by | used for | registry reader | protected registry tool |
+| --- | --- | --- | --- |
+| `promoter.build_plan` | worker runs, synchronous version runs, sub-workflows, Aria previews | bound | refused until a governed context is bound (#1051); a preview stubs it |
+| `refinement._replay` (via `orchestrator/workflow_stages.py::run_workflow_eval`) | candidate evaluation | bound by the stage | refused (typed, nothing recorded); read-class tools run |
+| `calibration._replay_calibration_manifest` (via `evaluate_workflow_calibration_candidates` in the stage) | calibration replay | bound by the stage | refused; read-class tools run |
+| `promoter` deploy-gate replay | release gate evaluation | none, but `preview=True` | stubbed, never run for real |
+| `export_runtime.execute_exported_workflow` | standalone exports | none (no registry to read) | **not governed**: called directly |
+| a caller that builds a plan itself (tests, SDK embedding) | any | none unless it passes one | **not governed**: called directly |
+
+The two evaluation replays used to call a candidate manifest's write tools for real (found in review of B04.3); they now refuse
+them, so a workflow whose protected tool must be exercised by an evaluation or calibration needs that tool replaced by a
+read-class stand-in until the replay can run under a governed context (#1051). The module-import paths stay inventory rows
+EP-015, EP-016 and EP-019, refused by #774.
 
 Two limits. An administrator-registered tool declared `read` is trusted as read-class: its declared level is part of the
 definition the deployment bundle pins and re-verifies before a run (`deployment_bundle.tool_snapshot`), but the platform

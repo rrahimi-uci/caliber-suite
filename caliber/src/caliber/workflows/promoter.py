@@ -61,7 +61,7 @@ from caliber.deployment_environments import (
     environment_class,
     host_path_nodes_allowed_classes,
 )
-from caliber.effects.registered_tools import RegisteredToolIdentity, load_registered_tool_identity
+from caliber.effects.registered_tools import registry_identity_reader
 from caliber.egress import EgressPolicy
 from caliber.eval.scorecard import expected_text, run_scorecard
 from caliber.ids import (
@@ -1349,16 +1349,12 @@ def build_plan(  # noqa: PLR0915 - central workflow plan assembler
             runtime_session.commit()
             return result_payload
 
-    def _registered_tool_identity(name: str, version_label: str) -> RegisteredToolIdentity | None:
-        # A fresh read of the tool's own registry row for each governed call (B04.3, #741), never the plan-build snapshot.
-        with runtime_session_factory() as identity_session:
-            return load_registered_tool_identity(identity_session, name=name, version=version_label)
-
     return RuntimePlan(
         ir=result.ir,
         resolver=resolver,
         mcp_identity=workflow_identity,
-        registered_tool_identity=_registered_tool_identity,
+        # A fresh read of the tool's own registry row for each governed call (B04.3, #741), never a build-time snapshot.
+        registered_tool_identity=registry_identity_reader(runtime_session_factory),
         workflow_version_id=version.version_id,
         workflow_alias=alias,
         compiler_version=result.report["compiler_version"],

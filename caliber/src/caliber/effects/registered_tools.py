@@ -21,6 +21,7 @@ Only :func:`route_registered_tool` decides; the dispatcher still resolves the pr
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any, Final
 
@@ -96,6 +97,18 @@ def load_registered_tool_identity(
     )
 
 
+def registry_identity_reader(
+    session_factory: Callable[[], Any],
+) -> Callable[[str, str], RegisteredToolIdentity | None]:
+    """A reader of a tool's own registry row, one fresh session per read: what ``RuntimePlan.registered_tool_identity`` takes."""
+
+    def read(name: str, version: str) -> RegisteredToolIdentity | None:
+        with session_factory() as session:
+            return load_registered_tool_identity(session, name=name, version=version)
+
+    return read
+
+
 def route_registered_tool(identity: RegisteredToolIdentity | None) -> ToolRoute:
     """Decide how a tool runs from its registry identity; an unverifiable tool is dispatched fail-closed."""
     if identity is None:
@@ -154,6 +167,7 @@ __all__ = [
     "RegisteredToolIdentity",
     "ToolRoute",
     "load_registered_tool_identity",
+    "registry_identity_reader",
     "route_registered_tool",
     "tool_intent_args",
     "tool_resource",
