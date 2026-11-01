@@ -690,3 +690,24 @@ def test_the_legacy_path_is_allowed_only_for_the_flag_with_no_bound_context(
     )
 
     assert runtime_module._legacy_effects_allowed(plan) is allowed  # type: ignore[arg-type]
+
+
+def test_a_preview_of_a_read_declared_post_never_binds_the_legacy_entry_or_sends(
+    factory: sessionmaker[Session], server: Server, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The ``not preview`` guard: even in the development profile with no context, a preview does not reach the raw transport."""
+    monkeypatch.setattr(
+        runtime_module,
+        "bind_legacy_openapi_http_tool",
+        lambda *_a, **_k: pytest.fail("the legacy entry was bound for a preview"),
+    )
+    run = OpenApiRun(
+        factory,
+        entry_for("open_ticket", "read", config(server.url)),  # under-declared: a POST
+        context=False,
+        legacy=True,
+    )
+
+    run.execute(preview=True)
+
+    assert server.requests == []
