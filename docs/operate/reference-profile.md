@@ -463,7 +463,7 @@ does not):
 
 | the call | reference profile | development profile (the default) |
 | --- | --- | --- |
-| MCP node or tool node, an authority is bound (`governed_effects`) | proposed, approved, dispatched | proposed, approved, dispatched |
+| MCP node or tool node, an authority is bound (`governed_effects`) | proposed, approved, dispatched, **but only for a server the gateway can reach: the reference profile requires both MCP allowlists empty, so no server is reachable yet** ([MCP allowlists](#mcp-allowlists-b123b-746)) | proposed, approved, dispatched |
 | MCP node or tool node in a `build_plan` plan, no authority bound (#1051) | refused: `requires a governed effect context to run protected MCP tool` | runs inline, as before B04.5, behind the node's own approval gate: **not governed** (`legacy_guarded_effects`) |
 | a model-chosen call inside an agent step, a caller-built plan, a generated export | refused by the gateway entry point (`EffectRefused`; a model sees an error marker) until B04.6 (#768) proposes it | runs inline, as before: not governed |
 | a first-party database write tool (EP-114) | refused: `unsupported_effect_path` | classified by the administrator's policy like any tool |
