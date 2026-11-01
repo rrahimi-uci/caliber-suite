@@ -20,6 +20,7 @@ def test_capabilities_default_contract(client) -> None:
     assert runs["supports_resume"] is False
     assert runs["runtime_approvals_enabled"] is False
     assert runs["checkpointing_enabled"] is False
+    assert runs["lineage_required"] is False
     assert runs["event_backend"] == "in_process"
     assert runs["approval_readiness"]["status"] == "configuration_required"
     assert runs["approval_readiness"]["allow_self_approval"] is True
@@ -136,6 +137,16 @@ def test_capabilities_reflect_flag_overrides(client) -> None:
     assert runs["approval_readiness"]["status"] == "ready"
     assert runs["approval_readiness"]["blockers"] == []
     assert runs["approval_readiness"]["settings_path"] == "/settings"
+
+
+def test_capabilities_say_lineage_is_required_only_in_the_reference_profile(client) -> None:
+    """#1068: the console offers the lineage picker only where the server refuses a run without lineage."""
+    development = client.get(f"{PREFIX}/capabilities").json()["data"]["workflow_runs"]
+    assert development["lineage_required"] is False
+
+    client.app.state.config = client.app.state.config.model_copy(update={"profile": "reference"})
+    reference = client.get(f"{PREFIX}/capabilities").json()["data"]["workflow_runs"]
+    assert reference["lineage_required"] is True
 
 
 def test_capabilities_keep_resume_disabled_without_checkpointing(client) -> None:

@@ -2143,6 +2143,9 @@ class WorkflowRunCapabilitySchema(BaseModel):
     checkpointing_enabled: bool
     event_backend: str
     approval_readiness: dict[str, object] = Field(default_factory=dict)
+    #: The server refuses a run that names no workspace release and environment (the reference profile). The console
+    #: offers the lineage picker, and requires a selection, only when this is true (#1068).
+    lineage_required: bool = False
 
 
 class WorkflowCronPreviewSchema(BaseModel):
