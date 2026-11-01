@@ -1,8 +1,8 @@
 """B06.3 commit-time approval rechecks.
 
-The decision endpoint deliberately does not consume a bound effect approval.  This
-scenario exercises the producer-owned recheck that the future dispatcher will call
-inside its fenced claim transaction: exact intent/evidence/policy/version pins,
+The decision endpoint records a bound effect approval but deliberately does not
+consume it. This scenario exercises the producer-owned recheck that the dispatcher
+calls inside its fenced claim transaction: exact intent/evidence/policy/version pins,
 the original run grant, and the approving principal's current authority are all
 checked independently.
 """

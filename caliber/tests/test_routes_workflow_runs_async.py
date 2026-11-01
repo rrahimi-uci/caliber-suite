@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
+from typing import Any
 
 import pytest
 from starlette.testclient import TestClient
@@ -2215,7 +2216,16 @@ def test_runtime_approval_reject_marks_run_failed(client: TestClient, monkeypatc
 
 
 def _seed_bound_approval(
-    client: TestClient, run_id: str, *, node_id: str = "human_gate"
+    client: TestClient,
+    run_id: str,
+    *,
+    node_id: str = "human_gate",
+    requested_by: str = "editor_a",
+    allow_self: bool = True,
+    approval_count: int = 1,
+    occurrence: str = "occ-bound",
+    connector: str = "document-request",
+    connector_version: str = "1.0.0",
 ) -> tuple[str, str]:
     """A pending approval request bound to an effect proposal (B06.1), newer than any legacy request already seeded.
 
@@ -2233,10 +2243,10 @@ def _seed_bound_approval(
             session,
             workflow_run_id=run_id,
             node_id=node_id,
-            occurrence_id="occ-bound",
+            occurrence_id=occurrence,
             intent=Intent(
-                connector="document-request",
-                connector_version="1.0.0",
+                connector=connector,
+                connector_version=connector_version,
                 effect_class="irreversible_write",
                 resource="cases/MORT-1/document-requests",
                 args={"document_type": "pay_statement"},
@@ -2248,9 +2258,9 @@ def _seed_bound_approval(
         request = create_approval_request(
             session,
             proposal=proposal,
-            policy=ApprovalPolicy(allow_self_approval=True),
+            policy=ApprovalPolicy(allow_self_approval=allow_self, approval_count=approval_count),
             evidence_hash="sha256:" + "e" * 64,
-            requested_by="editor_a",
+            requested_by=requested_by,
             ttl_seconds=3600,
             now=datetime.now(timezone.utc) + timedelta(minutes=5),
         )
@@ -2269,11 +2279,49 @@ def _approval_row(client: TestClient, approval_id: str) -> CaliberRuntimeApprova
 
 
 @pytest.mark.parametrize("action", ["approve", "reject"])
-def test_a_request_bound_to_a_proposal_is_not_decided_by_the_route_yet(
+def test_a_request_bound_to_a_proposal_records_a_decision_without_consuming_it(
     client: TestClient, action: str
 ) -> None:
-    """B06.1 records the binding but nothing re-verifies it at decision time (expiry, supersession, version: B06.2/B06.3), so
-    the route refuses, with a stable code and a message that carries no payload, and changes nothing."""
+    """The HTTP route records the decision; only dispatch consumes the approval."""
+    _enable_runtime_approvals(client)
+    _wid, vid = create_and_publish(client)
+    created = client.post(
+        f"{PREFIX}/workflow-runs", json={"workflow_version_id": vid, "input": "hello"}
+    )
+    run_id = created.json()["data"]["workflow_run_id"]
+    _seed_waiting_approval(
+        client, run_id, approval_status="approved", checkpoint_input_by_port={"input": "hello"}
+    )
+    bound_id, _proposal_id = _seed_bound_approval(client, run_id)
+    before = _approval_row(client, bound_id)
+
+    response = client.post(
+        f"{PREFIX}/workflow-runs/{run_id}/approval/{action}",
+        json={"runtime_approval_id": bound_id, "reason": "ship it"},
+    )
+    assert response.status_code == 200, response.text
+    after = _approval_row(client, bound_id)
+    assert after.decided_by == "@test"
+    assert after.decided_at is not None
+    assert after.consumed_at is None
+    assert after.intent_hash == before.intent_hash
+    assert after.evidence_hash == before.evidence_hash
+    assert after.policy_digest == before.policy_digest
+    if action == "approve":
+        assert after.status == "approved"
+        assert after.policy_snapshot is not None
+        assert after.policy_snapshot["approvals"] == ["@test"]
+    else:
+        assert after.status == "rejected"
+    with client.app.state.session_factory() as session:
+        run = session.get(CaliberWorkflowRun, run_id)
+        assert run is not None
+        assert run.status == ("waiting_approval" if action == "approve" else "failed")
+
+
+@pytest.mark.parametrize("action", ["approve", "reject"])
+def test_a_consumed_bound_request_reports_a_stable_refusal(client: TestClient, action: str) -> None:
+    """Once dispatch consumed the decision, neither route can change it, and a late reject must not fail the run."""
     _enable_runtime_approvals(client)
     _wid, vid = create_and_publish(client)
     created = client.post(
@@ -2284,40 +2332,403 @@ def test_a_request_bound_to_a_proposal_is_not_decided_by_the_route_yet(
         client, run_id, approval_status="approved", checkpoint_input_by_port={"input": "hello"}
     )
     bound_id, proposal_id = _seed_bound_approval(client, run_id)
+    with client.app.state.session_factory() as session:
+        row = session.get(CaliberRuntimeApprovalRequest, bound_id)
+        assert row is not None
+        row.status = "approved"
+        row.decided_by = "approver_a"
+        row.decided_at = datetime.now(timezone.utc)
+        row.consumed_at = datetime.now(timezone.utc)
+        session.commit()
     before = _approval_row(client, bound_id)
 
     response = client.post(
         f"{PREFIX}/workflow-runs/{run_id}/approval/{action}",
-        json={"runtime_approval_id": bound_id, "reason": "ship it"},
+        json={"runtime_approval_id": bound_id},
     )
     assert response.status_code == 409, response.text
     body = response.json()
-    assert body["reason_code"] == "approval_bound_not_wired"
-    assert body["status_code"] == 409
-    for secret in (
-        bound_id,
-        proposal_id,
-        before.intent_hash,
-        before.evidence_hash,
-        before.policy_digest,
-        "editor_a",
-    ):
-        assert (
-            secret and secret not in body["detail"]
-        )  # payload-free: no id, hash or requester in the message
+    assert body["reason_code"] == "already_consumed" and body["status_code"] == 409
+    for secret in (bound_id, proposal_id, before.intent_hash, "approver_a", "editor_a"):
+        assert secret and secret not in response.text
     after = _approval_row(client, bound_id)
     assert (after.status, after.decided_by, after.decided_at, after.consumed_at) == (
-        "pending",
-        None,
-        None,
-        None,
+        before.status,
+        before.decided_by,
+        before.decided_at,
+        before.consumed_at,
     )
-    assert (
-        after.policy_snapshot == before.policy_snapshot
-    )  # no partial approval was recorded either
     with client.app.state.session_factory() as session:
         run = session.get(CaliberWorkflowRun, run_id)
         assert run is not None and run.status == "waiting_approval"
+
+
+def test_a_consumed_bound_request_remains_terminal_after_expiry(
+    client: TestClient,
+) -> None:
+    """Consumption wins over a later TTL expiry when a decision is retried."""
+    _enable_runtime_approvals(client)
+    _wid, vid = create_and_publish(client)
+    created = client.post(
+        f"{PREFIX}/workflow-runs", json={"workflow_version_id": vid, "input": "hello"}
+    )
+    run_id = created.json()["data"]["workflow_run_id"]
+    _seed_waiting_approval(
+        client, run_id, approval_status="approved", checkpoint_input_by_port={"input": "hello"}
+    )
+    bound_id, _proposal_id = _seed_bound_approval(client, run_id)
+    with client.app.state.session_factory() as session:
+        row = session.get(CaliberRuntimeApprovalRequest, bound_id)
+        assert row is not None
+        row.status = "approved"
+        row.decided_by = "approver_a"
+        row.decided_at = datetime.now(timezone.utc)
+        row.consumed_at = datetime.now(timezone.utc)
+        row.expires_at = datetime.now(timezone.utc) - timedelta(seconds=1)
+        session.commit()
+
+    response = client.post(
+        f"{PREFIX}/workflow-runs/{run_id}/approval/approve",
+        json={"runtime_approval_id": bound_id},
+    )
+    assert response.status_code == 409, response.text
+    assert response.json()["reason_code"] == "already_consumed"
+
+
+def _parked_bound(client: TestClient, **seed: Any) -> tuple[str, str, str]:
+    """A run waiting at ``human_gate`` with a live bound request: ``(run_id, request_id, proposal_id)``."""
+    _enable_runtime_approvals(client)
+    _wid, vid = create_and_publish(client)
+    created = client.post(
+        f"{PREFIX}/workflow-runs", json={"workflow_version_id": vid, "input": "hello"}
+    )
+    run_id = created.json()["data"]["workflow_run_id"]
+    _seed_waiting_approval(
+        client, run_id, approval_status="approved", checkpoint_input_by_port={"input": "hello"}
+    )
+    bound_id, proposal_id = _seed_bound_approval(client, run_id, **seed)
+    return run_id, bound_id, proposal_id
+
+
+@pytest.mark.parametrize(
+    ("connector", "version"),
+    [
+        ("document-request", "1"),
+        ("http", "1"),
+        ("registered_tool", "1"),
+        ("openapi-http", "1"),
+    ],
+)
+def test_a_bound_request_of_any_governed_backend_is_decided_by_its_id(
+    client: TestClient, connector: str, version: str
+) -> None:
+    """The route never looks at the backend: every connector's request is decided the same way and left for its dispatcher."""
+    run_id, bound_id, _proposal_id = _parked_bound(
+        client, connector=connector, connector_version=version
+    )
+
+    response = client.post(
+        f"{PREFIX}/workflow-runs/{run_id}/approval/approve",
+        json={"runtime_approval_id": bound_id, "reason": "ship it"},
+    )
+
+    assert response.status_code == 200, response.text
+    row = _approval_row(client, bound_id)
+    assert (row.status, row.decided_by, row.consumed_at) == ("approved", "@test", None)
+
+
+def test_a_decided_bound_request_is_refused_stably_and_unchanged(client: TestClient) -> None:
+    """Approved and waiting for dispatch: a second decision is ``409 already_decided`` with no payload, and writes nothing."""
+    run_id, bound_id, proposal_id = _parked_bound(client)
+    path = f"{PREFIX}/workflow-runs/{run_id}/approval"
+    assert client.post(f"{path}/approve", json={"runtime_approval_id": bound_id}).status_code == 200
+    before = _approval_row(client, bound_id)
+    events = client.get(f"{PREFIX}/workflow-runs/{run_id}/events").text
+
+    for action in ("approve", "reject"):
+        again = client.post(f"{path}/{action}", json={"runtime_approval_id": bound_id})
+        assert again.status_code == 409, again.text
+        body = again.json()
+        assert body["reason_code"] == "already_decided" and body["status_code"] == 409
+        for secret in (bound_id, proposal_id, before.intent_hash, "editor_a"):
+            assert secret and secret not in again.text
+    after = _approval_row(client, bound_id)
+    assert (after.status, after.decided_by, after.decided_at, after.policy_snapshot) == (
+        before.status,
+        before.decided_by,
+        before.decided_at,
+        before.policy_snapshot,
+    )
+    with client.app.state.session_factory() as session:
+        run = session.get(CaliberWorkflowRun, run_id)
+        assert run is not None and run.status == "waiting_approval", (
+            "a refused reject fails nothing"
+        )
+    assert client.get(f"{PREFIX}/workflow-runs/{run_id}/events").text == events
+
+
+@pytest.mark.parametrize("action", ["approve", "reject"])
+def test_a_bound_request_for_another_node_is_refused_stably(
+    client: TestClient, action: str
+) -> None:
+    run_id, bound_id, proposal_id = _parked_bound(client, node_id="another_gate")
+    before = _approval_row(client, bound_id)
+
+    response = client.post(
+        f"{PREFIX}/workflow-runs/{run_id}/approval/{action}",
+        json={"runtime_approval_id": bound_id},
+    )
+
+    assert response.status_code == 409, response.text
+    assert response.json()["reason_code"] == "approval_not_current"
+    for secret in (bound_id, proposal_id, "another_gate", "human_gate"):
+        assert secret not in response.text
+    after = _approval_row(client, bound_id)
+    assert (after.status, after.decided_by) == (before.status, before.decided_by)
+
+
+def test_the_requester_of_a_bound_request_cannot_approve_it_unless_self_approval_is_allowed(
+    client: TestClient,
+) -> None:
+    """The approver is the authenticated principal. The requester is compared with it (beyond the run initiator)."""
+    run_id, bound_id, _proposal_id = _parked_bound(client, requested_by="@test", allow_self=False)
+    with client.app.state.session_factory() as session:
+        run = session.get(CaliberWorkflowRun, run_id)
+        assert run is not None
+        run.created_by = "someone_else"  # so only the requester rule can refuse
+        session.commit()
+    path = f"{PREFIX}/workflow-runs/{run_id}/approval"
+
+    refused = client.post(f"{path}/approve", json={"runtime_approval_id": bound_id})
+
+    assert refused.status_code == 403, refused.text
+    assert "second person" in refused.json()["detail"]
+    assert "@test" not in refused.json()["detail"]
+    row = _approval_row(client, bound_id)
+    assert (row.status, row.decided_by) == ("pending", None)
+    assert row.policy_snapshot is not None and "approvals" not in row.policy_snapshot
+
+    # Rejecting is never restricted by separation of duties (stopping a release needs one authorized person).
+    rejected = client.post(f"{path}/reject", json={"runtime_approval_id": bound_id})
+    assert rejected.status_code == 200, rejected.text
+
+
+def test_a_single_operator_install_may_approve_what_it_requested(client: TestClient) -> None:
+    run_id, bound_id, _proposal_id = _parked_bound(client, requested_by="@test", allow_self=True)
+
+    response = client.post(
+        f"{PREFIX}/workflow-runs/{run_id}/approval/approve", json={"runtime_approval_id": bound_id}
+    )
+
+    assert response.status_code == 200, response.text
+    assert _approval_row(client, bound_id).status == "approved"
+
+
+@pytest.mark.parametrize("field", ["decided_by", "approver", "approver_scopes", "consumed_at"])
+def test_the_body_cannot_name_the_approver_or_consume_the_request(
+    client: TestClient, field: str
+) -> None:
+    run_id, bound_id, _proposal_id = _parked_bound(client)
+
+    response = client.post(
+        f"{PREFIX}/workflow-runs/{run_id}/approval/approve",
+        json={"runtime_approval_id": bound_id, field: "caliber.admin"},
+    )
+
+    assert response.status_code == 400, response.text
+    assert "extra_forbidden" in response.text
+    row = _approval_row(client, bound_id)
+    assert (row.status, row.decided_by, row.consumed_at) == ("pending", None, None)
+
+
+def test_a_bound_quorum_accumulates_distinct_approvers_and_never_consumes(
+    client: TestClient,
+) -> None:
+    """The first approver of two is recorded (the second, and the claim, are in ``test_approval_consume_race``)."""
+    run_id, bound_id, _proposal_id = _parked_bound(client, approval_count=2)
+    path = f"{PREFIX}/workflow-runs/{run_id}/approval/approve"
+
+    first = client.post(path, json={"runtime_approval_id": bound_id})
+
+    assert first.status_code == 200, first.text
+    ack = first.json()["data"]
+    assert (ack["status"], ack["approvals"], ack["remaining_approvals"]) == ("pending", 1, 1)
+    row = _approval_row(client, bound_id)
+    assert (row.status, row.decided_by, row.consumed_at) == ("pending", None, None)
+    # The same person cannot be the second approver.
+    again = client.post(path, json={"runtime_approval_id": bound_id})
+    assert again.status_code == 403, again.text
+    assert _approval_row(client, bound_id).status == "pending"
+
+
+@pytest.mark.parametrize("action", ["approve", "reject"])
+def test_the_clock_is_read_after_the_run_lock_is_won(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch, action: str
+) -> None:
+    """A decision that waited for the run lock is judged when it can write: a request that expired meanwhile is refused."""
+    from caliber.routes import workflow_runs as routes
+
+    run_id, bound_id, _proposal_id = _parked_bound(client)
+    expires_at = _approval_row(client, bound_id).expires_at
+    assert expires_at is not None
+    expiry = expires_at.replace(tzinfo=timezone.utc)
+    clock = {"now": expiry - timedelta(seconds=30)}
+    real_lock = routes._lock_workflow_run
+
+    def lock_then_time_passes(session: Any, run: Any) -> Any:
+        locked = real_lock(session, run)
+        clock["now"] = expiry + timedelta(seconds=1)
+        return locked
+
+    monkeypatch.setattr(routes, "_utc_now", lambda: clock["now"])
+    monkeypatch.setattr(routes, "_lock_workflow_run", lock_then_time_passes)
+
+    response = client.post(
+        f"{PREFIX}/workflow-runs/{run_id}/approval/{action}", json={"runtime_approval_id": bound_id}
+    )
+
+    assert response.status_code == 409, response.text
+    assert response.json()["reason_code"] == "expired"
+    assert _approval_row(client, bound_id).status == "pending"
+
+
+def _scopes_of(monkeypatch: pytest.MonkeyPatch, *scopes: str) -> None:
+    from caliber.routes import workflow_runs as routes
+
+    monkeypatch.setattr(routes, "current_scopes", lambda request: frozenset(scopes))
+
+
+@pytest.mark.parametrize("state", ["consumed", "superseded", "expired"])
+@pytest.mark.parametrize("action", ["approve", "reject"])
+def test_a_caller_without_the_node_scope_learns_nothing_about_the_request_state(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch, state: str, action: str
+) -> None:
+    """The authority check comes first: the stable state codes are for callers who may decide the request."""
+    run_id, bound_id, _proposal_id = _parked_bound(client)
+    with client.app.state.session_factory() as session:
+        row = session.get(CaliberRuntimeApprovalRequest, bound_id)
+        assert row is not None
+        if state == "consumed":
+            row.consumed_at = datetime.now(timezone.utc)
+        elif state == "superseded":
+            row.status = "superseded"
+            row.superseded_by = "RAP-newer"
+        else:
+            row.expires_at = datetime.now(timezone.utc) - timedelta(hours=1)
+        session.commit()
+    _scopes_of(monkeypatch, "caliber.viewer")
+
+    response = client.post(
+        f"{PREFIX}/workflow-runs/{run_id}/approval/{action}", json={"runtime_approval_id": bound_id}
+    )
+
+    assert response.status_code == 403, response.text
+    assert "reason_code" not in response.json()
+    assert state not in response.text
+
+
+def test_the_requester_learns_nothing_about_the_state_of_their_own_request(
+    client: TestClient,
+) -> None:
+    run_id, bound_id, _proposal_id = _parked_bound(client, requested_by="@test", allow_self=False)
+    with client.app.state.session_factory() as session:
+        run = session.get(CaliberWorkflowRun, run_id)
+        row = session.get(CaliberRuntimeApprovalRequest, bound_id)
+        assert run is not None and row is not None
+        run.created_by = "someone_else"
+        row.consumed_at = datetime.now(timezone.utc)
+        session.commit()
+
+    response = client.post(
+        f"{PREFIX}/workflow-runs/{run_id}/approval/approve", json={"runtime_approval_id": bound_id}
+    )
+
+    assert response.status_code == 403, response.text
+    assert "reason_code" not in response.json()
+
+
+def test_a_rejected_bound_request_is_refused_as_decided_without_claiming_dispatch(
+    client: TestClient,
+) -> None:
+    """``already_decided`` covers a rejection too, so its message says nothing about what dispatch will do with it."""
+    run_id, bound_id, _proposal_id = _parked_bound(client)
+    with client.app.state.session_factory() as session:
+        row = session.get(CaliberRuntimeApprovalRequest, bound_id)
+        assert row is not None
+        row.status = "rejected"
+        row.decided_by = "approver_a"
+        row.decided_at = datetime.now(timezone.utc)
+        session.commit()
+
+    response = client.post(
+        f"{PREFIX}/workflow-runs/{run_id}/approval/approve", json={"runtime_approval_id": bound_id}
+    )
+
+    assert response.status_code == 409, response.text
+    body = response.json()
+    assert body["reason_code"] == "already_decided"
+    assert "dispatch consumes it" not in body["detail"]
+    assert "rejected" not in body["detail"] and "approved" not in body["detail"]
+
+
+def test_a_legacy_request_with_a_consumed_mark_is_refused_as_consumed(client: TestClient) -> None:
+    _enable_runtime_approvals(client)
+    _wid, vid = create_and_publish(client)
+    created = client.post(
+        f"{PREFIX}/workflow-runs", json={"workflow_version_id": vid, "input": "hello"}
+    )
+    run_id = created.json()["data"]["workflow_run_id"]
+    legacy_id = _seed_waiting_approval(
+        client, run_id, approval_status="pending", checkpoint_input_by_port={"input": "hello"}
+    )
+    with client.app.state.session_factory() as session:
+        row = session.get(CaliberRuntimeApprovalRequest, legacy_id)
+        assert row is not None
+        row.consumed_at = datetime.now(timezone.utc)
+        session.commit()
+
+    response = client.post(
+        f"{PREFIX}/workflow-runs/{run_id}/approval/approve", json={"runtime_approval_id": legacy_id}
+    )
+
+    assert response.status_code == 409, response.text
+    assert response.json()["reason_code"] == "already_consumed"
+    assert _approval_row(client, legacy_id).status == "pending"
+
+
+def test_the_lock_wait_helper_maps_only_a_lock_timeout_to_a_busy_503() -> None:
+    """``55P03`` is the retryable ``approval_busy`` (and the transaction is rolled back); any other database error propagates."""
+    from sqlalchemy.exc import OperationalError
+
+    from caliber.routes import workflow_runs as routes
+    from caliber.routes._errors import CaliberHTTPException
+
+    class DriverError(Exception):
+        def __init__(self, sqlstate: str) -> None:
+            super().__init__("driver error")
+            self.sqlstate = sqlstate
+
+    class FakeSession:
+        def __init__(self, sqlstate: str) -> None:
+            self.sqlstate = sqlstate
+            self.rolled_back = False
+
+        def execute(self, _statement: object) -> object:
+            raise OperationalError("SELECT 1", {}, DriverError(self.sqlstate))
+
+        def rollback(self) -> None:
+            self.rolled_back = True
+
+    busy_session = FakeSession("55P03")
+    with pytest.raises(CaliberHTTPException) as busy:
+        routes._execute_locked(busy_session, object())  # type: ignore[arg-type]
+    assert (busy.value.status_code, busy.value.reason_code) == (503, "approval_busy")
+    assert busy_session.rolled_back
+
+    other = FakeSession("40001")
+    with pytest.raises(OperationalError):
+        routes._execute_locked(other, object())  # type: ignore[arg-type]
+    assert not other.rolled_back
 
 
 def test_a_bound_request_never_shadows_a_legacy_node_level_request(client: TestClient) -> None:
