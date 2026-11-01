@@ -1034,7 +1034,7 @@ def test_a_dispatch_that_raised_after_it_may_have_sent_parks_when_the_effect_is_
     world: Any, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     def boom(_prior: PriorProposal) -> EffectOutcome:
-        raise RuntimeError("password=hunter2 in a statement parameter")
+        raise RuntimeError("the model-chosen argument value in a statement parameter")
 
     again = _parked(world)
     held = PriorProposal(_rows(world)[0][0].proposal_id, "unknown", "sha256:" + "1" * 64)
@@ -1055,12 +1055,12 @@ def test_a_dispatch_that_raised_before_anything_moved_is_a_store_failure_without
     world: Any,
 ) -> None:
     def boom(_prior: PriorProposal) -> EffectOutcome:
-        raise RuntimeError("password=hunter2 in a statement parameter")
+        raise RuntimeError("the model-chosen argument value in a statement parameter")
 
     result, _, _ = _parked(world)(dispatch_approved=boom)
     assert result.status == "error"
     assert result.error == "ToolExecutionError: governed agent step dispatch failed: store_failed"
-    assert "hunter2" not in (result.error or "")
+    assert "model-chosen" not in (result.error or "")
 
 
 def test_a_dispatch_that_raised_and_whose_state_cannot_be_read_is_still_only_a_fixed_error(
