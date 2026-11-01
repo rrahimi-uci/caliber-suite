@@ -45,6 +45,7 @@ result carries no output text), and a blocking read tool or provider call is bou
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 from collections.abc import Callable, Mapping
@@ -174,7 +175,7 @@ def _optional_figure(value: object) -> int | None:
 
 
 def _timeout_class(exc: Exception) -> bool:
-    return isinstance(exc, TimeoutError) or any(
+    return isinstance(exc, (TimeoutError, asyncio.TimeoutError)) or any(
         cls.__name__ in _TIMEOUT_CLASSES and cls.__module__.partition(".")[0] in _TIMEOUT_MODULES
         for cls in type(exc).__mro__
     )

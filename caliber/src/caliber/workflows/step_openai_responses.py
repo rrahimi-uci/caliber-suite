@@ -358,6 +358,7 @@ def _read_calls(
             tool_callables=dict(loop.step_input.read_tools),
             bindings=bindings,
             fallback_input=loop.step_input.input_text,
+            error_detail=False,
         )
         loop.tally.tool_calls += 1
         messages.append({"type": "function_call_output", "call_id": call.call_id, "output": text})
