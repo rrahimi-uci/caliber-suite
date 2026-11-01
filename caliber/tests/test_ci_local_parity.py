@@ -282,7 +282,7 @@ def test_backend_core_slices_are_shared_by_ci_and_the_local_runner() -> None:
     assert set(slices) == {"api", "sdk", "governance"}
 
     all_tests = [path for tests in slices.values() for path in tests]
-    assert len(all_tests) == 107
+    assert len(all_tests) == 108
     assert len(all_tests) == len(set(all_tests)), (
         "a backend-core test is assigned to multiple slices"
     )

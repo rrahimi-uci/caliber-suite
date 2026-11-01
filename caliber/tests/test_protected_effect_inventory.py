@@ -952,6 +952,20 @@ def test_the_db_mcp_write_tools_are_not_refused_through_the_registry_helper() ->
     assert effect_class_for_registry_tool(name="insert_rows", version="1.0", **row) == FAIL_CLOSED
 
 
+@needs_repo
+def test_the_mcp_disposition_trusts_the_db_write_names_only_for_the_first_party_server() -> None:
+    """EP-114's names are refused for the server the record says is the first-party one, and never for another (B04.5)."""
+    from caliber.effects.inventory import tool_disposition_for_mcp_tool
+
+    writes = sorted(db_mcp_write_tools())
+    assert writes
+    for name in writes:
+        assert tool_disposition_for_mcp_tool(name, first_party_db_server=True) == "refuse", name
+        assert tool_disposition_for_mcp_tool(name, first_party_db_server=False) == "dispatch", name
+    for name in DB_MCP_READ_TOOLS:
+        assert tool_disposition_for_mcp_tool(name, first_party_db_server=True) == "dispatch", name
+
+
 def test_every_seeded_registry_row_gets_its_inventory_class(
     db_session: Session,
 ) -> None:
@@ -995,6 +1009,8 @@ def test_the_ir_and_the_resolver_entry_carry_no_owner() -> None:
 
 #: The lookups that take a trust flag, and the helpers that derive it from a registry row's identity.
 _TRUST_FLAG_LOOKUPS = {"effect_class", "tool_disposition"}
+#: The MCP helper takes the trust as a keyword and derives it from the server record.
+_MCP_HELPERS = {"tool_disposition_for_mcp_tool"}
 _REGISTRY_HELPERS = {"effect_class_for_registry_tool", "tool_disposition_for_registry_tool"}
 #: The identity a registry helper must read from the row, never spell out.
 _IDENTITY_FIELDS = {"name", "owner", "module_path", "callable_name", "version"}
@@ -1017,7 +1033,7 @@ def literal_trust_calls(root: Path) -> list[str]:
     and ``functools.partial`` of any of the four, which can pre-bind a constant out of sight.
     """
     found: list[tuple[str, int]] = []
-    lookups = _TRUST_FLAG_LOOKUPS | _REGISTRY_HELPERS
+    lookups = _TRUST_FLAG_LOOKUPS | _REGISTRY_HELPERS | _MCP_HELPERS
     for path in sorted(root.rglob("*.py")):
         for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
             if not isinstance(node, ast.Call):
@@ -1028,7 +1044,15 @@ def literal_trust_calls(root: Path) -> list[str]:
                 flagged = _called_name(node.args[0]) in lookups
             elif name in lookups:
                 flagged = any(keyword.arg is None for keyword in node.keywords)
-                if name in _TRUST_FLAG_LOOKUPS:
+                if name in _MCP_HELPERS:
+                    flagged = flagged or len(node.args) > 1
+                    flagged = flagged or any(
+                        keyword.arg == "first_party_db_server"
+                        and isinstance(keyword.value, ast.Constant)
+                        and bool(keyword.value.value)
+                        for keyword in node.keywords
+                    )
+                elif name in _TRUST_FLAG_LOOKUPS:
                     flagged = flagged or len(node.args) > 1
                     flagged = flagged or any(
                         keyword.arg == "caliber_defined"
@@ -1067,10 +1091,13 @@ def test_the_literal_trust_scan_sees_each_way_to_hard_code_it(tmp_path: Path) ->
         "effect_class('c', **flags)\n"  # 7
         "functools.partial(effect_class, caliber_defined=True)('d')\n"  # 8
         "partial(tool_disposition_for_registry_tool, owner='@caliber')\n"  # 9
-        "effect_class_for_registry_tool(name=n, owner=o, module_path=m, callable_name='x')\n",  # 10
+        "effect_class_for_registry_tool(name=n, owner=o, module_path=m, callable_name='x')\n"  # 10
+        "tool_disposition_for_mcp_tool('t', first_party_db_server=True)\n"  # 11
+        "tool_disposition_for_mcp_tool('t', True)\n"  # 12
+        "tool_disposition_for_mcp_tool('t', **flags)\n",  # 13
         encoding="utf-8",
     )
-    assert literal_trust_calls(tmp_path) == [f"bad.py:{n}" for n in range(1, 11)]
+    assert literal_trust_calls(tmp_path) == [f"bad.py:{n}" for n in range(1, 14)]
 
 
 def test_the_literal_trust_scan_leaves_derived_trust_alone(tmp_path: Path) -> None:
@@ -1083,6 +1110,8 @@ def test_the_literal_trust_scan_leaves_derived_trust_alone(tmp_path: Path) -> No
         "    callable_name=row.callable_name, version=row.version)\n"
         "ok5 = tool_disposition_for_registry_tool(name=row.name, owner=row.owner, module_path=m,\n"
         "    callable_name=c, version=v)\n"
+        "ok6 = tool_disposition_for_mcp_tool('t', first_party_db_server=is_first_party)\n"
+        "ok7 = tool_disposition_for_mcp_tool('t', first_party_db_server=False)\n"
         "noise = len('e')\n"
         "other = functools.partial(print, 'x')\n",
         encoding="utf-8",
