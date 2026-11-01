@@ -19,11 +19,12 @@ boundary reached without the others (a hand-built IR, a plan built outside ``bui
 **A sandbox label is not isolation.** A ``python_code`` node is refused although it runs in the tool sandbox: the built-in
 sandbox is a process boundary (separate interpreter, empty environment, rlimits) with ambient filesystem and network
 authority, not a container, VM or seccomp boundary (``config.tool_sandbox_backend``), and the code is the workflow author's, not
-the administrator's. A registered ``python_callable`` tool is administrator-registered code (trusted-code admission, not
-containment of hostile code; the module allowlist is #763), so it is admitted when it runs where the platform puts it: in the
-sandbox child, with ``CALIBER_REGISTERED_TOOL_SANDBOX_ENABLED`` on. With it off the tool is imported into the control plane and
-refused. Whether a tool is "sandboxed" is decided by the platform's own binding path and configuration, never by a ``sandbox``
-flag a tool, a manifest or a registry row carries.
+the administrator's. A registered ``python_callable`` tool is administrator-registered code, and the reference profile does not
+support it either (B04.7, #774; inventory EP-015, EP-016, EP-019: "module import" is a refused path): only CALIBER's own shipped
+read-class tools, identified by the exact (module, callable) pair the registry seed writes, are admitted, and only when the
+platform runs them where it puts them, in the sandbox child with ``CALIBER_REGISTERED_TOOL_SANDBOX_ENABLED`` on. With it off the
+tool is imported into the control plane and refused. Whether a tool is "sandboxed" or "shipped" is decided by the platform's own
+binding path, configuration and seed, never by a ``sandbox`` flag, a name or an owner a tool, a manifest or a registry row carries.
 
 The policy is process-wide state bound when the app starts (:func:`bind_code_policy`), like the registered-tool module
 allowlist: the checks are reached from routes, the promoter, the compiler and the runtime, and a refusal only some of them
@@ -36,6 +37,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Final
 
+from caliber.effects.refusals import UNSUPPORTED_IN_REFERENCE_PROFILE, shipped_tool
 from caliber.workflows.ir import IRAgent, IRTool, IRToolBinding, IRWorkflow, NodeType
 from caliber.workflows.manifest import (
     AgentNode,
@@ -46,7 +48,7 @@ from caliber.workflows.manifest import (
 from caliber.workflows.tools import ToolResolutionError, ToolResolver
 
 #: The code ADR 0001 names for a path the reference profile refuses (``unsupported_in_reference_profile``).
-REFUSAL_CODE: Final = "unsupported_in_reference_profile"
+REFUSAL_CODE: Final = UNSUPPORTED_IN_REFERENCE_PROFILE
 
 #: Node kinds that execute code, each with what it executes. These are refused outright in the reference profile.
 CODE_NODE_KINDS: Final[Mapping[NodeType, str]] = {
@@ -248,12 +250,18 @@ def tool_form_refusal(
     execution_backend: str,
     binding_type: str,
     policy: CodePolicy,
+    module_path: str = "",
+    callable_name: str = "",
 ) -> CodeRefusal | None:
     """The refusal for a tool binding of this execution form under ``policy``, or ``None`` when it is admitted.
 
     * An MCP binding and an OpenAPI operation run no registered Python and are admitted here.
-    * A ``python_callable`` tool is admitted when the sandbox is enabled, which is how the platform runs administrator-registered
-      code out of process; with it disabled the tool would run unsandboxed in the control plane and is refused.
+    * A ``python_callable`` tool is admitted only when it is one of CALIBER's own shipped tools: the exact
+      (module, callable) pair the registry seed writes and the protected-effect inventory does not refuse
+      (``caliber.effects.refusals.shipped_tool``, B04.7, #774). An administrator-registered Python module is refused (its
+      run is refused at bind time, EP-015, EP-016, EP-019, so it is refused here too: an author gets the refusal at validation,
+      compile and promotion instead of a clean publish and a refused run). With the sandbox disabled even a shipped tool would
+      run unsandboxed in the control plane and is refused.
     * Any other backend is refused: the profile cannot establish what it runs.
 
     Nothing the tool carries (a ``sandbox`` entry in its ``backend_config``, a manifest field) is read: the decision is the
@@ -271,9 +279,20 @@ def tool_form_refusal(
                 f"cannot establish does not run code, so it refuses it; use an openapi_http tool"
             ),
         )
-    if policy.sandbox_enabled:
+    if not policy.sandbox_enabled:
+        return _unsandboxed_tool_refusal(tool, node_id=node_id, path=path)
+    if shipped_tool(module_path, callable_name):
         return None
-    return _unsandboxed_tool_refusal(tool, node_id=node_id, path=path)
+    return CodeRefusal(
+        path=path,
+        kind="tool",
+        node_id=node_id,
+        message=(
+            f"tool {tool!r} runs a registered Python module (execution backend python_callable) that is not one of "
+            f"CALIBER's own shipped tools, which the reference profile does not support; publish it as an openapi_http tool "
+            f"or run this workflow outside the reference profile"
+        ),
+    )
 
 
 def _unsandboxed_tool_refusal(tool: str, *, node_id: str, path: str) -> CodeRefusal:
@@ -310,6 +329,8 @@ def _binding_refusal(
         execution_backend=binding.execution_backend,
         binding_type=binding.binding_type,
         policy=policy,
+        module_path=binding.module_path,
+        callable_name=binding.callable_name,
     )
 
 
@@ -383,6 +404,8 @@ def manifest_refusals(
                 execution_backend=str(entry.execution_backend or CODE_TOOL_BACKEND),
                 binding_type="registered_function",
                 policy=effective,
+                module_path=str(getattr(entry, "module_path", "") or ""),
+                callable_name=str(getattr(entry, "callable_name", "") or ""),
             )
             if refusal is not None:
                 found.append(refusal)

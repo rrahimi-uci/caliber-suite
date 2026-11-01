@@ -11,7 +11,8 @@ the results it returns) is data, never a classification. The trust root of a cal
   and complete: a tool the server lists but nobody classified is refused, not guessed at; and
 * the **protected-effect inventory** (EP-114), which applies to the first-party PostgreSQL MCP server only, identified by the
   record (:func:`caliber.mcp_policy.is_first_party_db_server`): the write tools it names are refused in every profile but
-  ``development`` (the refusal switch for every inventory row is #774; the development profile keeps the alpha behaviour).
+  ``development`` (B04.7, #774, refuses every other inventory ``refuse`` row in the reference profile, ``caliber.effects.refusals``; the
+  development profile keeps the alpha behaviour).
 
 The decision, from those alone:
 

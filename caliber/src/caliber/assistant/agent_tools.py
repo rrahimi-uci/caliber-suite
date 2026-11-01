@@ -43,6 +43,7 @@ from caliber.assistant.capabilities import (
     registered_capabilities,
 )
 from caliber.assistant.tools import _fn
+from caliber.effects.refusals import refuse_in_reference_profile
 
 logger = logging.getLogger(__name__)
 _NON_ALNUM = re.compile(r"[^a-z0-9]+")
@@ -1235,10 +1236,27 @@ class AssistantAgentToolset:
             )
         return _ok({"question": result.question, "versions": versions})
 
+    def _refused_in_reference_profile(self, row_id: str) -> str | None:
+        """The tool error for ``row_id`` when this toolset runs under the reference profile (B04.7, #774), else ``None``.
+
+        A model tool never raises into the loop: the refusal is the tool's error, a stable code and the row and setting, with
+        nothing of the draft or the input in it.
+        """
+        from caliber.effects.dispatcher import UnsupportedEffectPath  # noqa: PLC0415 - import cycle
+
+        try:
+            refuse_in_reference_profile(row_id, self._deps.config)
+        except UnsupportedEffectPath as exc:
+            return _err(str(exc))
+        return None
+
     def _t_run_tool_sandbox(self, a: dict[str, Any]) -> str:
         from caliber.tool_sandbox.models import ToolSandboxRunRequest  # noqa: PLC0415
         from caliber.tool_sandbox.service import sandbox_from_optional_config  # noqa: PLC0415
 
+        # Authored source with caller-supplied input: not supported in the reference profile (EP-079).
+        if (refused := self._refused_in_reference_profile("EP-079")) is not None:
+            return refused
         draft = self._deps.get_draft(
             str(a.get("draft_id", "")), session_factory=self._deps.session_factory, user=self._user
         )
@@ -1369,6 +1387,9 @@ class AssistantAgentToolset:
         from caliber.tool_sandbox.models import ToolSandboxRunRequest  # noqa: PLC0415
         from caliber.tool_sandbox.service import sandbox_from_optional_config  # noqa: PLC0415
 
+        # Authored source over a dataset: not supported in the reference profile (EP-080).
+        if (refused := self._refused_in_reference_profile("EP-080")) is not None:
+            return refused
         draft = self._deps.get_draft(
             str(a.get("draft_id", "")), session_factory=self._deps.session_factory, user=self._user
         )

@@ -58,6 +58,7 @@ from caliber.effects.dispatcher import (
     EffectRefused,
     EffectRequest,
     UnsupportedEffectPath,
+    UnsupportedInReferenceProfile,
     admit_backend,
     dispatch,
     submit_proposal,
@@ -80,6 +81,10 @@ from caliber.effects.model_tool_calls import (
 )
 from caliber.effects.reconcile import UnknownEffectError
 from caliber.effects.records import RecordedProposal
+from caliber.effects.refusals import (
+    refuse_in_reference_profile,
+    refuse_unshipped_tool_in_reference_profile,
+)
 from caliber.effects.registered_tools import (
     INLINE,
     OPENAPI_BACKEND,
@@ -3026,17 +3031,31 @@ def _resolve_tool_callables(
 ) -> dict[str, Callable[..., Any]]:
     callables: dict[str, Callable[..., Any]] = {}
     for binding in agent.tools:
-        chosen = _resolve_bound_tool_callable(
-            binding,
-            resolver,
-            preview=preview,
-            required=False,
-            egress_policy=egress_policy,
-            mcp_identity=mcp_identity,
-        )
+        try:
+            chosen = _resolve_bound_tool_callable(
+                binding,
+                resolver,
+                preview=preview,
+                required=False,
+                egress_policy=egress_policy,
+                mcp_identity=mcp_identity,
+            )
+        except UnsupportedEffectPath as exc:
+            # A tool the reference profile does not support (B04.7, #774) must not fail the whole agent before the model has
+            # asked for anything: the tool stays listed and every call of it is the refusal, as for any other refused tool.
+            chosen = _refusing_callable(exc)
         if chosen is not None:
             callables[binding.local_name] = chosen
     return callables
+
+
+def _refusing_callable(refusal: UnsupportedEffectPath) -> Callable[..., Any]:
+    """A callable that raises ``refusal`` when it is called, and does nothing else (never retried)."""
+
+    def _refuse(*_args: Any, **_kwargs: Any) -> Any:
+        raise refusal
+
+    return _refuse
 
 
 def _resolve_bound_tool_callable(
@@ -3049,13 +3068,19 @@ def _resolve_bound_tool_callable(
     mcp_identity: CaliberIdentity | None = None,
     legacy_openapi: bool = False,
 ) -> Callable[..., Any] | None:
-    real = _bind(
-        binding,
-        resolver,
-        egress_policy=egress_policy,
-        mcp_identity=mcp_identity,
-        legacy_openapi=legacy_openapi,
-    )
+    try:
+        real = _bind(
+            binding,
+            resolver,
+            egress_policy=egress_policy,
+            mcp_identity=mcp_identity,
+            legacy_openapi=legacy_openapi,
+        )
+    except UnsupportedEffectPath:
+        if not preview:
+            raise
+        # A preview never reaches a real effect: a tool the reference profile does not support (B04.7, #774) is mocked there.
+        real = None
     chosen = make_preview_callable(binding, real) if preview else real
     if chosen is None:
         if required:
@@ -3078,6 +3103,14 @@ def bind_sandbox_config(config: Any | None) -> None:
     """Install the process-wide sandbox configuration for registered tools."""
     global _ACTIVE_SANDBOX_CONFIG  # noqa: PLW0603 - one process-wide policy by design
     _ACTIVE_SANDBOX_CONFIG = config
+
+
+def _operator_config(plan: RuntimePlan) -> Any | None:
+    """The operator configuration a node of ``plan`` runs under: the plan's own, else the process-wide one.
+
+    It carries the deployment profile, which is what the reference profile's refusals (B04.7, #774) read.
+    """
+    return plan.sandbox_config if plan.sandbox_config is not None else _ACTIVE_SANDBOX_CONFIG
 
 
 def _bind(
@@ -3148,7 +3181,9 @@ def _bind_in_process(binding: IRToolBinding) -> Callable[..., Any] | None:
             module_path=binding.module_path,
             callable_name=binding.callable_name,
         )
-        return bind_registered_tool(entry)
+        return bind_registered_tool(entry, config=_ACTIVE_SANDBOX_CONFIG)
+    except EffectRefused:
+        raise
     except Exception:
         return None
 
@@ -3236,6 +3271,14 @@ def bind_exported_tool(entry: Any, *, config: Any | None = None) -> Callable[...
         # ToolBindingError is raised rather than a confusing import failure for a literal
         # ``<in-memory>`` module name inside the sandbox child.
         return bind_registered_tool(entry)
+    # A generated export imports an administrator's module in whatever process runs it: not supported in the reference
+    # profile (EP-016, B04.7, #774), whatever the sandbox and allowlist settings say; CALIBER's own shipped tools are.
+    refuse_unshipped_tool_in_reference_profile(
+        "EP-016",
+        config,
+        module_path=module_path,
+        callable_name=getattr(entry, "callable_name", "") or "",
+    )
     # This is an explicit config snapshot. Preserve an explicit empty allowlist as
     # unrestricted instead of converting it to ``None``, which tells the helper to
     # consult mutable process-global policy and can make a standalone export depend on
@@ -3260,7 +3303,7 @@ def bind_exported_tool(entry: Any, *, config: Any | None = None) -> Callable[...
     require_sandboxed_tool_binding(
         getattr(entry, "name", "") or "tool", CodePolicy.from_config(config)
     )
-    return bind_registered_tool(entry, module_allowlist=allowlist)
+    return bind_registered_tool(entry, module_allowlist=allowlist, config=config)
 
 
 def _registered_tool_sandbox_enabled() -> bool:
@@ -3310,6 +3353,15 @@ def _sandboxed_registered_tool(
     """
     from caliber.tool_sandbox.models import ToolCallShape, ToolSandboxRunRequest  # noqa: PLC0415
     from caliber.tool_sandbox.service import sandbox_from_optional_config  # noqa: PLC0415
+
+    # An administrator's module is not supported in the reference profile (EP-015); CALIBER's own shipped tools are.
+    # Refused here, when the tool is bound, so a protected call is refused before a proposal is recorded or an approval spent.
+    refuse_unshipped_tool_in_reference_profile(
+        "EP-015",
+        config if config is not None else _ACTIVE_SANDBOX_CONFIG,
+        module_path=binding.module_path,
+        callable_name=binding.callable_name,
+    )
 
     def _run(*, args: list[Any], kwargs: dict[str, Any], shapes: list[Any]) -> Any:
         # ``config`` lets a standalone export supply its own without mutating the
@@ -3813,7 +3865,10 @@ def _run_external_app_entrypoint(
     run_input: str,
     preview: bool,
     entrypoint_allowlist: str = "",
+    config: Any | None = None,
 ) -> tuple[Any, dict[str, Any]]:
+    # Imports and calls installed Python in the control-plane process: not supported in the reference profile (EP-012).
+    refuse_in_reference_profile("EP-012", config)
     entrypoint, resolved_entrypoint = _resolve_external_app_entrypoint(
         node.entrypoint, allowlist=entrypoint_allowlist
     )
@@ -7559,6 +7614,7 @@ def _run_node(  # noqa: PLR0911, PLR0912, PLR0915 - per-node-type dispatch
             overwrite=node.overwrite,
             port_values=port_values,
             direct_input=_first_str(inputs),
+            config=_operator_config(plan),
         )
         _publish_declared_outputs(
             node,
@@ -7859,7 +7915,12 @@ def _run_node(  # noqa: PLR0911, PLR0912, PLR0915 - per-node-type dispatch
                             for name, content in child_artifacts.items()
                         }
                     )
-                except (ContextDenied, UnknownEffectError, _step_proposal.EffectApprovalPending):
+                except (
+                    ContextDenied,
+                    UnknownEffectError,
+                    UnsupportedInReferenceProfile,
+                    _step_proposal.EffectApprovalPending,
+                ):
                     raise
                 except Exception as exc:
                     logger.warning("for_each target item failed: %s", exc, exc_info=True)
@@ -8063,7 +8124,12 @@ def _run_node(  # noqa: PLR0911, PLR0912, PLR0915 - per-node-type dispatch
                     tool_calls=target_step.tool_calls,
                     detail=target_step.detail,
                 )
-            except (ContextDenied, UnknownEffectError, _step_proposal.EffectApprovalPending):
+            except (
+                ContextDenied,
+                UnknownEffectError,
+                UnsupportedInReferenceProfile,
+                _step_proposal.EffectApprovalPending,
+            ):
                 raise  # a refused context, or an effect nobody can vouch for, is not an error a boundary may absorb
             except Exception as exc:
                 compensation_tokens = 0
@@ -8089,7 +8155,7 @@ def _run_node(  # noqa: PLR0911, PLR0912, PLR0915 - per-node-type dispatch
                                 inherited_provenance=inherited_provenance,
                             )
                         )
-                    except (ContextDenied, UnknownEffectError):
+                    except (ContextDenied, UnknownEffectError, UnsupportedInReferenceProfile):
                         raise
                     except Exception as compensation_exc:
                         raise ToolExecutionError(
@@ -8832,6 +8898,8 @@ def _run_node(  # noqa: PLR0911, PLR0912, PLR0915 - per-node-type dispatch
         return 0, NodeStep(nid, ntype, "ok", output=text, detail=text)
 
     if isinstance(node, IRPythonCode):
+        # Arbitrary authored Python: not supported in the reference profile, whatever sandbox backend is configured (EP-011).
+        refuse_in_reference_profile("EP-011", _operator_config(plan))
         python_input = _select_input(inputs, run_input)
         sandbox_kwargs: dict[str, Any] = {"default_timeout_seconds": node.timeout_seconds}
         configured_limits: tuple[tuple[str, int | None], ...] = (
@@ -8849,11 +8917,8 @@ def _run_node(  # noqa: PLR0911, PLR0912, PLR0915 - per-node-type dispatch
         # user-authored code, so it is the one that most needs the stronger boundary.
         # The node timeout still wins; the remaining resource limits come from the plan's
         # resolved operator configuration.
-        effective_sandbox_config = (
-            plan.sandbox_config if plan.sandbox_config is not None else _ACTIVE_SANDBOX_CONFIG
-        )
         sandbox = sandbox_from_optional_config(
-            effective_sandbox_config,
+            _operator_config(plan),
             default_timeout_seconds=node.timeout_seconds,
         )
         for _attr, _value in sandbox_kwargs.items():
@@ -9227,8 +9292,9 @@ def _run_node(  # noqa: PLR0911, PLR0912, PLR0915 - per-node-type dispatch
                 run_input=run_input,
                 preview=preview,
                 entrypoint_allowlist=plan.external_app_entrypoint_allowlist,
+                config=_operator_config(plan),
             )
-        except ToolExecutionError:
+        except (ToolExecutionError, EffectRefused):
             raise
         except Exception as exc:
             raise ToolExecutionError(
@@ -9935,8 +10001,14 @@ def _write_output_folder_node(
     overwrite: bool,
     port_values: dict[tuple[str, str], Any],
     direct_input: str | None,
+    config: Any | None = None,
 ) -> tuple[list[str], dict[str, Any]]:
-    """Write the run's collected artifacts as files under a local folder."""
+    """Write the run's collected artifacts as files under a local folder.
+
+    Not supported in the reference profile (EP-014, B04.7, #774): it creates directories and files on the host, and its only
+    guard is the file-root confinement an operator may or may not have configured.
+    """
+    refuse_in_reference_profile("EP-014", config)
     if not path:
         raise ValueError("output_folder node requires a folder path")
     # Confine before ``mkdir``: this node creates the directory tree it writes

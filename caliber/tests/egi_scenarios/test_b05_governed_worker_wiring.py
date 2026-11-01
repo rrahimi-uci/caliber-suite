@@ -50,6 +50,7 @@ from caliber.orchestrator.workflow_run_worker import WorkflowRunWorker
 from caliber.ownership import Lease, acquire, current_lease, release
 from caliber.workflows.agent_step import ScriptedStep, StepUsage
 from caliber.workflows.runtime import FakeWorkflowExecutor
+from tests.effect_helpers import SHIPPED_TOOL_CALLABLE
 from tests.egi_scenarios.conftest import (
     APPROVER_A,
     EDITOR_A,
@@ -124,7 +125,11 @@ def _register_tool(app: ReferenceApp) -> None:
         ADMIN,
         "",
         "/tools",
-        make_tool_payload(PROTECTED, callable_name="escalate", side_effect_level="external_action"),
+        make_tool_payload(
+            PROTECTED,
+            callable_name=SHIPPED_TOOL_CALLABLE,
+            side_effect_level="external_action",
+        ),
     )
     assert registered.status_code in (200, 201), registered.text
 
