@@ -239,6 +239,7 @@ class OpenApiRun:
         lookup: bool = True,
         binding: dict[str, Any] | None = None,
         egress: EgressPolicy | None = LOOPBACK,
+        legacy: bool = False,
     ) -> None:
         self.factory = factory
         self.authorized: list[str] = []
@@ -258,6 +259,7 @@ class OpenApiRun:
             ir=build_ir(manifest, resolver, version="1"),
             resolver=resolver,
             workflow_version_id="version-b04-4",
+            legacy_guarded_effects=legacy,
             egress_policy=egress,
             registered_tool_identity=(
                 (lambda name, version: _identity(factory, name, version)) if lookup else None
@@ -527,6 +529,60 @@ def test_a_protected_call_without_a_governed_context_is_refused_before_it_is_sen
         result.error or ""
     )
     assert server.requests == [] and proposals(factory) == []
+
+
+def test_development_profile_sends_a_protected_call_inline_when_no_context_is_bound(
+    factory: sessionmaker[Session], server: Server
+) -> None:
+    """``legacy_guarded_effects`` is what ``build_plan`` sets outside the reference profile (#1068)."""
+    entry = entry_for("open_ticket", "write", config(server.url))
+    run = OpenApiRun(factory, entry, context=False, legacy=True)
+
+    result = run.execute()
+
+    assert result.status == "completed", result.error
+    assert len(server.requests) == 1
+    # Not the governed path: no proposal, approval, lease or receipt.
+    assert run.authorized == [] and proposals(factory) == []
+
+
+def test_a_bound_context_is_used_even_where_the_legacy_path_is_allowed(
+    factory: sessionmaker[Session], server: Server
+) -> None:
+    entry = entry_for("open_ticket", "write", config(server.url))
+    run = OpenApiRun(factory, entry, legacy=True)
+
+    result = run.execute()
+
+    assert result.status == "completed", result.error
+    assert len(run.authorized) == 1
+    (proposal,) = proposals(factory)
+    assert proposal.state == "committed"
+
+
+def test_the_legacy_path_still_refuses_a_binding_that_is_not_its_registry_row(
+    factory: sessionmaker[Session], server: Server
+) -> None:
+    """Only the missing-context refusal is relaxed; every other check of the route still applies."""
+    claimed = config(server.url, method="GET", path="/tickets/{ticket_id}")
+    entry = entry_for("open_ticket", "read", claimed)
+    run = OpenApiRun(factory, entry, row_config=config(server.url), context=False, legacy=True)
+
+    result = run.execute({"path_params": {"ticket_id": "T-1"}})
+
+    assert "does not match its registry row" in (result.error or "")
+    assert server.requests == []
+
+
+def test_the_legacy_path_still_refuses_a_tool_with_no_readable_row(
+    factory: sessionmaker[Session], server: Server
+) -> None:
+    entry = entry_for("open_ticket", "write", config(server.url))
+
+    result = OpenApiRun(factory, entry, seed=False, context=False, legacy=True).execute()
+
+    assert "refused: unsupported_effect_path" in (result.error or "")
+    assert server.requests == []
 
 
 def test_a_read_call_without_a_governed_context_still_runs(

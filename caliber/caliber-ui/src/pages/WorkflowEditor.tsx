@@ -1832,10 +1832,12 @@ export function WorkflowEditor(): JSX.Element {
     (signal) => caliberApi.getWorkflow(workflowId!, signal),
     { enabled: Boolean(workflowId) },
   );
-  const workflowRunLineage = useWorkflowRunLineage(
-    workflowQuery.data?.project_id,
-    showRunMonitor,
-  );
+  // The lineage picker and its selection are required only where the server requires lineage (the reference profile);
+  // elsewhere a project workflow runs without one, as the API allows (#1068).
+  const lineageProjectId = capabilitiesQuery.data?.workflow_runs?.lineage_required
+    ? workflowQuery.data?.project_id
+    : null;
+  const workflowRunLineage = useWorkflowRunLineage(lineageProjectId, showRunMonitor);
   const editorBootstrapReady = Boolean(versionQuery.data);
   const monitoredRunManifestQuery = useApiQuery<WorkflowRunManifest>(
     ["workflow-run", activeRun?.workflow_run_id ?? null, "manifest"],
@@ -2195,7 +2197,7 @@ export function WorkflowEditor(): JSX.Element {
 
   const runMut = useApiMutation(
     () => {
-      if (workflowQuery.data?.project_id && !workflowRunLineage.selectedOption) {
+      if (lineageProjectId && !workflowRunLineage.selectedOption) {
         throw new Error(lineageSelectionDisabledReason ?? WORKFLOW_LINEAGE_SELECTION_MESSAGE);
       }
       return caliberApi.createWorkflowRun({
@@ -3727,7 +3729,7 @@ export function WorkflowEditor(): JSX.Element {
   const manualResumeEnabled = Boolean(runCapabilities?.supports_resume);
   const workflowStatus = workflowStatusOverride ?? workflowQuery.data?.status ?? null;
   const currentVersionStatus = versionQuery.data?.status ?? null;
-  const lineageSelectionDisabledReason = workflowQuery.data?.project_id
+  const lineageSelectionDisabledReason = lineageProjectId
     ? workflowRunLineage.error
       ? `Unable to load approved workspace releases and environments: ${workflowRunLineage.error.message}`
       : workflowRunLineage.isLoading
@@ -4650,7 +4652,7 @@ export function WorkflowEditor(): JSX.Element {
                 value={sessionIdInput}
                 onChange={(e) => setSessionIdInput(e.target.value)}
               />
-              {workflowQuery.data?.project_id && (
+              {lineageProjectId && (
                 <div className="mb-3 rounded-lg border border-zinc-200 bg-zinc-50/60 p-2.5">
                   <WorkflowRunLineagePicker
                     options={workflowRunLineage.options}

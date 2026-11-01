@@ -95,6 +95,12 @@ current for an active environment, then refresh the page. A release becoming
 stale between selection and submission is still rejected by the server; keep
 the selected pair and retry after the environment is current again.
 
+Outside the reference profile the console shows no release or environment picker
+and sends no lineage: the server only requires it when `GET /capabilities`
+reports `workflow_runs.lineage_required: true` (the reference profile), so a
+project workflow runs from the console in the development profile exactly as
+before.
+
 ## 1. What workflows are for in CALIBER
 
 Workflows are the orchestration surface for multi-step automation. They connect

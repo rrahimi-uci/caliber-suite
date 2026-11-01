@@ -56,6 +56,7 @@ from tests.egi_scenarios.conftest import (
     Workspaces,
 )
 from tests.egi_scenarios.test_b02_admission import _call
+from tests.egi_scenarios.test_b03_run_identity import _run, _start, _work
 from tests.egi_scenarios.test_v04_stale_approval import (
     EVIDENCE,
     T0,
@@ -1101,3 +1102,81 @@ def test_a_stale_precondition_is_sent_as_bound_and_the_downstream_commits_nothin
     assert downstream.query(key) is None
     (proposal,) = _tool_proposals(reference_app, run_id)
     assert (proposal.state, proposal.expected_resource_version) == ("unknown", "99")
+
+
+# ---------------------------------------------------------------- the two profiles differ exactly as documented (#1068)
+
+
+def _protected_tool_workflow(reference_app: ReferenceApp) -> str:
+    """A published workflow whose only node is the demo ``escalate`` tool, registered as protected (``external_action``)."""
+    with reference_app.session_factory() as session:
+        session.add(
+            CaliberToolRegistry(
+                tool_id=new_tool_id(),
+                name="escalate",
+                version="1.0",
+                module_path="caliber.workflows.demo_tools",
+                callable_name="escalate",
+                side_effect_level="external_action",
+                requires_approval=True,
+                project_id=PROJECT_A,
+                owner="@ops",
+            )
+        )
+        session.commit()
+    created = _call(
+        reference_app, "POST", EDITOR_A, PROJECT_A, "/workflows", {"name": "EGI protected tool"}
+    )
+    assert created.status_code == 201, created.text
+    workflow_id = created.json()["data"]["workflow_id"]
+    manifest = tool_manifest("escalate", requires_approval=False)
+    manifest["workflow_id"] = workflow_id
+    draft = _call(
+        reference_app,
+        "POST",
+        EDITOR_A,
+        PROJECT_A,
+        f"/workflows/{workflow_id}/versions",
+        {"manifest": manifest},
+    )
+    assert draft.status_code == 201, draft.text
+    published = _call(
+        reference_app,
+        "POST",
+        EDITOR_A,
+        PROJECT_A,
+        f"/workflow-versions/{draft.json()['data']['version_id']}/publish",
+    )
+    assert published.status_code == 200, published.text
+    reference_app.client.app.state.config = reference_app.client.app.state.config.model_copy(  # type: ignore[attr-defined]
+        update={"workflow_run_queue_enabled": True, "admission_enabled": True}
+    )
+    return str(workflow_id)
+
+
+def test_the_profiles_differ_on_a_protected_tool_node_when_no_governed_context_is_bound(
+    reference_app: ReferenceApp, two_workspaces: Workspaces
+) -> None:
+    """The same published workflow, run by the real worker, on each profile (docs/operate/reference-profile.md).
+
+    Reference profile (the PostgreSQL job): refused with the governed-context error; the tool never runs and no proposal
+    exists. Development profile (SQLite): the pre-dispatcher legacy path, so the tool runs; there is still no proposal,
+    because the legacy path is not the exact-intent governed path.
+    """
+    workflow_id = _protected_tool_workflow(reference_app)
+    run_id = _start(reference_app, workflow_id, "profile-semantics")
+
+    _work(reference_app)
+
+    status, _code, summary = _run(reference_app, run_id)
+    output = _call(reference_app, "GET", EDITOR_A, PROJECT_A, f"/workflow-runs/{run_id}").json()[
+        "data"
+    ]
+    assert _tool_proposals(reference_app, run_id) == []
+    if reference_app.profile == "reference":
+        assert status == "failed"
+        assert "requires a governed effect context to run protected registered tool" in str(summary)
+        assert "escalated" not in json.dumps(output)
+    else:
+        assert status == "completed", summary
+        assert "escalated" in json.dumps(output)
