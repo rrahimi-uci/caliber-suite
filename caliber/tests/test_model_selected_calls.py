@@ -299,6 +299,58 @@ def test_a_handoff_targets_protected_tool_is_gated_too(factory: sessionmaker[Ses
     assert tools["escalate"].calls == []
 
 
+def test_a_second_hop_handoff_targets_protected_tool_is_gated_too(
+    factory: sessionmaker[Session],
+) -> None:
+    """agent -> billing -> audit: the hop-2 target's callables are resolved at a different site than hop 1's."""
+    levels = {"lookup_ticket": "read", "open_ticket": "write", "escalate": "external_action"}
+    entries = [tool_entry(name, level) for name, level in levels.items()]
+    for entry in entries:
+        seed_row(factory, entry)
+    manifest = agent_manifest({name: registered(name) for name in levels}, handoff_to_billing=True)
+    manifest["nodes"]["agent"]["tools"] = ["lookup_ticket"]
+    manifest["nodes"]["billing"]["tools"] = ["open_ticket"]
+    manifest["nodes"]["billing"]["handoffs"] = [{"target": "audit"}]
+    manifest["nodes"]["audit"] = {
+        **manifest["nodes"]["billing"],
+        "id": "audit",
+        "name": "audit-agent",
+        "tools": ["escalate"],
+        "handoffs": [],
+    }
+    world = World(factory, manifest, entries)
+    tools = {name: Tool() for name in levels}
+    result = execute(world.plan, "go", executor=FakeWorkflowExecutor(), extra_tools=tools)
+
+    assert world.tool_results(result, "agent") == {
+        "lookup_ticket": {"ticket": "T-1"},
+        "open_ticket": refused("open_ticket"),
+        "escalate": refused("escalate"),
+    }
+    assert tools["open_ticket"].calls == [] and tools["escalate"].calls == []
+
+
+def test_a_shape_selecting_tool_given_no_arguments_is_still_gated(
+    factory: sessionmaker[Session],
+) -> None:
+    world, _ = _registered_world(factory)
+    chosen: list[Any] = []
+
+    def sandboxed(*_a: Any, **_k: Any) -> Any:
+        raise AssertionError("must not be called directly")
+
+    sandboxed.caliber_shape_selector = lambda shapes: chosen.append(shapes) or "ran"  # type: ignore[attr-defined]
+    gated = rt._gate_model_callables(
+        world.plan,
+        world.agent(),
+        {"open_ticket": sandboxed, "lookup_ticket": sandboxed},
+        preview=False,
+    )
+    with pytest.raises(ModelToolCallRefused):
+        rt._call_tool(gated["open_ticket"], {}, fallback_input="text")
+    assert rt._call_tool(gated["lookup_ticket"], {}, fallback_input="text") == "ran"
+
+
 def test_a_registry_row_that_is_not_the_bindings_is_refused_with_its_code(
     factory: sessionmaker[Session],
 ) -> None:

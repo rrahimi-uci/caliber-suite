@@ -39,6 +39,7 @@ from tests.mcp_fakes import SERVER_ID, FakeMcp, seed_server
 from tests.test_governed_agent_step import Recorder
 from tests.test_model_selected_calls import (
     LIMITS,
+    LOOPBACK,
     SENTINEL,
     USAGE,
     World,
@@ -642,6 +643,70 @@ def test_a_builtin_whose_row_declares_a_stricter_level_is_classified_like_a_node
         identity = load_registered_tool_identity(session, name="list_workdir_files", version="1.0")
     assert trust.effect_class == "reversible_write"
     assert trust.effect_class == route_registered_tool(identity).effect_class
+
+
+def test_a_trusted_schema_that_is_itself_invalid_accepts_nothing(factory: Any) -> None:  # noqa: F811
+    world = _registered(factory, schema={"type": 5})
+    refused_with(world, propose(world, _registered_action()), "tool_input_invalid")
+
+
+def test_a_row_with_no_input_schema_accepts_any_object_but_nothing_else(factory: Any) -> None:  # noqa: F811
+    world = _registered(factory, schema=None)
+    parked(world, propose(world, _registered_action(args={"anything": ["goes", 1]})))
+
+
+def test_the_binder_names_no_connector_for_a_binding_it_cannot_classify(factory: Any) -> None:  # noqa: F811
+    world = _registered(factory)
+    (binding,) = world.agent().tools
+    binder = runtime_module._RuntimeToolBinder(world.plan, "agent")
+    other_backend = replace(binding, execution_backend="something_else")
+    assert binder.connector(other_backend) is None
+    assert binder.static_resource(other_backend) is None
+
+
+def test_the_binder_refuses_what_it_cannot_classify_with_a_fixed_code(factory: Any) -> None:  # noqa: F811
+    """Each way the trusted identity can be missing or not the binding's is a code, never a proposal."""
+    world = _registered(factory)
+    (binding,) = world.agent().tools
+    binder = runtime_module._RuntimeToolBinder(world.plan, "agent")
+
+    other_backend = replace(binding, execution_backend="something_else")
+    with pytest.raises(UnsupportedEffectPath):
+        binder.bind(other_backend, TICKET)
+
+    wrong_module = replace(binding, module_path="evil.module")
+    with pytest.raises(EffectRefused) as mismatch:
+        binder.bind(wrong_module, TICKET)
+    assert mismatch.value.code == "registry_row_mismatch"
+
+    unresolved = replace(binding, resolved_name="", resolved_version="")
+    with pytest.raises(EffectRefused) as unreadable:
+        binder.bind(unresolved, TICKET)
+    assert unreadable.value.code == "registry_row_unreadable"
+
+
+def test_an_openapi_tool_the_row_calls_read_is_run_not_proposed_and_one_without_a_row_is_refused(
+    factory: Any,  # noqa: F811
+) -> None:
+    with Server() as server:
+        read = entry_for("list_tickets", "read", config(server.url, method="GET"))
+        seed_openapi_row(factory, read)
+        world = governed(
+            factory,
+            agent_manifest({"list_tickets": registered("list_tickets")}),
+            [read],
+            tool_backends={("list_tickets", "1.0"): "openapi_http"},
+        )
+        world.plan.egress_policy = LOOPBACK
+        binder = runtime_module._RuntimeToolBinder(world.plan, "agent")
+        (binding,) = world.agent().tools
+        with pytest.raises(EffectRefused) as inline:
+            binder.bind(binding, {})
+        assert inline.value.code == "tool_not_protected"
+
+        unresolved = replace(binding, resolved_name="", resolved_version="")
+        with pytest.raises(UnsupportedEffectPath):
+            binder.bind(unresolved, {})
 
 
 def test_the_runtime_binder_describes_only_the_kinds_it_can_classify(factory: Any) -> None:  # noqa: F811
