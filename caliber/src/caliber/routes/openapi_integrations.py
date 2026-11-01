@@ -51,7 +51,12 @@ from caliber.integrations.openapi.dependencies import (
     detect_dependencies,
 )
 from caliber.integrations.openapi.diff import diff_operations
-from caliber.integrations.openapi.executor import _send_raw
+from caliber.integrations.openapi.executor import (
+    UNSUPPORTED_EFFECT_PATH,
+    OpenApiUnsupportedEffectPathError,
+    execute_legacy_openapi_draft_preview,
+    execute_openapi_http_tool,
+)
 from caliber.integrations.openapi.graph import build_graph_snapshot
 from caliber.integrations.openapi.loader import OpenApiLoadError, load_spec, probe_spec_source
 from caliber.integrations.openapi.normalize import (
@@ -73,6 +78,7 @@ from caliber.integrations.openapi.tool_drafts import (
     build_tool_pack_name,
     pack_side_effect_level,
 )
+from caliber.profile import openapi_draft_preview_read_only
 from caliber.resource_access import require_project_access, require_project_access_if_scoped
 from caliber.routes._deps import (
     envelope_response,
@@ -81,6 +87,7 @@ from caliber.routes._deps import (
     parse_json_object,
     visibility_param,
 )
+from caliber.routes._errors import CaliberHTTPException
 from caliber.schemas import (
     OpenApiDependencyReviewRequest,
     OpenApiGenerateToolDraftsRequest,
@@ -1588,6 +1595,14 @@ async def update_openapi_tool_draft(request: Request) -> JSONResponse:
     return envelope_response(data)
 
 
+#: The 409 message when the reference profile's read-only preview refuses a draft whose operation is not a read. Static on
+#: purpose: it names no method, server, path, draft or input value.
+_PREVIEW_READ_ONLY_DETAIL = (
+    "draft preview in the reference profile sends only a read operation (GET, HEAD or OPTIONS); "
+    "this draft's operation is not one, so nothing was sent"
+)
+
+
 async def preview_openapi_tool_draft(request: Request) -> JSONResponse:
     """Execute one real upstream call for an unpublished draft.
 
@@ -1596,6 +1611,13 @@ async def preview_openapi_tool_draft(request: Request) -> JSONResponse:
     ``allow_in_preview`` cannot be fired here regardless of scope. Without that
     gate, ``preview`` was a way to perform an approval-gated write before anyone
     approved it.
+
+    **Read-only in the reference profile (#1072).** ``allow_in_preview`` is set by the same operator who then fires the
+    call, so a write sent this way would need no second person, proposal, lease or receipt. In the reference profile the
+    call therefore goes through the public entry, which sends only ``GET``, ``HEAD`` or ``OPTIONS`` and refuses any other
+    method before anything is prepared or sent: a ``409`` with ``reason_code`` ``unsupported_effect_path`` and a static,
+    payload-free message, audited like any refused preview. The development profile keeps the exempt any-method behavior
+    through a named legacy entry. A missing config is the reference profile.
     """
 
     integration_id = request.path_params["integration_id"]
@@ -1603,7 +1625,13 @@ async def preview_openapi_tool_draft(request: Request) -> JSONResponse:
     body = await parse_json_object(request)
     payload = OpenApiToolDraftPreviewRequest.model_validate(body)
     actor = require_scopes(request, [SCOPE_ADMIN, SCOPE_OPERATOR])
-    policy = EgressPolicy.from_config(getattr(request.app.state, "config", None))
+    app_config = getattr(request.app.state, "config", None)
+    policy = EgressPolicy.from_config(app_config)
+    send = (
+        execute_openapi_http_tool
+        if openapi_draft_preview_read_only(app_config)
+        else execute_legacy_openapi_draft_preview
+    )
     factory = get_session_factory(request)
     with factory() as session:
         integration = _visible_integration_or_404(session, request, integration_id)
@@ -1628,9 +1656,10 @@ async def preview_openapi_tool_draft(request: Request) -> JSONResponse:
                 ),
             )
         error: str | None = None
+        refused = False
         result: dict[str, Any] | None = None
         try:
-            result = _send_raw(
+            result = send(
                 execution_config=dict(draft.execution_config or {}),
                 input_schema=(
                     dict(draft.input_schema or {}) if isinstance(draft.input_schema, dict) else None
@@ -1638,6 +1667,10 @@ async def preview_openapi_tool_draft(request: Request) -> JSONResponse:
                 input_data=dict(payload.input),
                 egress_policy=policy,
             )
+        except OpenApiUnsupportedEffectPathError:
+            # Only the public entry raises it, so only the reference profile: a non-read operation, nothing sent.
+            refused = True
+            error = UNSUPPORTED_EFFECT_PATH
         except Exception as exc:
             error = str(exc)
         # Audited whether or not it succeeded: a refused or failed outbound call is
@@ -1651,6 +1684,10 @@ async def preview_openapi_tool_draft(request: Request) -> JSONResponse:
             details=_execution_audit_details(draft, result=result, error=error),
         )
         session.commit()
+    if refused:
+        raise CaliberHTTPException(
+            status_code=409, detail=_PREVIEW_READ_ONLY_DETAIL, reason_code=UNSUPPORTED_EFFECT_PATH
+        )
     if error is not None:
         raise HTTPException(status_code=400, detail=error)
     return envelope_response_dict({"draft_id": draft_id, "result": result})

@@ -176,6 +176,18 @@ def apply_distinct_approver_required(config: object | None) -> bool:
     )
 
 
+def openapi_draft_preview_read_only(config: object | None) -> bool:
+    """Whether the operator's OpenAPI draft preview (inventory EP-033) may fire only a read: the reference profile (#1072).
+
+    Preview fires one real upstream call for an unpublished draft, gated by ``allow_in_preview``, which the same operator
+    can set, so in the reference profile a non-read method would be a write with no second person, proposal, lease or
+    receipt. There it sends through the public entry, which refuses ``POST``, ``PUT``, ``PATCH`` and ``DELETE`` with
+    ``unsupported_effect_path``; the development profile keeps the exempt, any-method behaviour. A missing config is treated
+    as the reference profile, the same cautious answer :func:`payload_governance_active` gives.
+    """
+    return config is None or getattr(config, "profile", "") == "reference"
+
+
 @dataclass(frozen=True)
 class ProfileViolation:
     """One setting that the reference profile does not allow."""

@@ -39,6 +39,7 @@ from tests.egi_scenarios.conftest import (
     PROJECT_B,
     ReferenceApp,
     Workspaces,
+    holding_sqlite_write_lock,
 )
 from tests.egi_scenarios.test_b06_apply_distinct_approver import (
     AGENT_ID,
@@ -355,6 +356,94 @@ def test_a_lock_that_is_never_released_ends_in_a_retryable_payload_free_503(
     assert _promotions(reference_app) == 0
     assert _refusals(reference_app, "RFN-B064-BUSY") == []
     assert _apply(reference_app, EDITOR_B, "RFN-B064-BUSY").status_code == 200
+
+
+def _deadlocks(app: ReferenceApp) -> int:
+    """How many deadlocks the server has detected in this database so far."""
+    with app.session_factory() as session:
+        return int(
+            session.execute(
+                text("SELECT deadlocks FROM pg_stat_database WHERE datname = current_database()")
+            ).scalar_one()
+        )
+
+
+def test_a_reverse_order_deadlock_is_a_retryable_payload_free_503_and_decides_nothing(
+    reference_app: ReferenceApp, two_workspaces: Workspaces, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Two transactions take the rows in opposite orders; the server aborts Apply as the victim; the answer is the busy 503.
+
+    Apply locks the job and then the caller's membership row. An independent connection holds the membership row and then
+    asks for the job: each waits for the other. The writer joins the wait only after Apply is *observed* waiting in
+    ``pg_stat_activity``, so Apply is the first waiter and PostgreSQL picks it as the victim (``deadlock_timeout``, 1 s). The
+    lock timeout is raised far above that, so the 503 can only be the deadlock mapping, not the lock-timeout one.
+    """
+    import caliber.routes._job_access as job_access
+
+    _require_postgresql(reference_app)
+    _make_editor_b_a_member_of_project_a(reference_app)
+    _seed_job(reference_app, "RFN-B066-DEADLOCK", EDITOR_A)
+    monkeypatch.setattr(job_access, "LOCK_TIMEOUT_MS", 120_000)
+    before = _deadlocks(reference_app)
+    with reference_app.session_factory() as writer:
+        writer.execute(
+            update(CaliberProjectMember)
+            .where(CaliberProjectMember.member_id == MEMBER_ID)
+            .values(role="editor")
+        )
+        writer.flush()  # the membership row is locked by the writer
+        apply = _Request(reference_app, EDITOR_B, "RFN-B066-DEADLOCK").start()
+        # Apply holds the job row and is waiting for the membership row the writer holds.
+        _wait_until_blocked(reference_app, "caliber_project_members", "FOR SHARE")
+        assert apply.thread.is_alive()
+        started = time.monotonic()
+        # The writer now wants the job row Apply holds: the cycle is closed, and the server resolves it.
+        writer.execute(
+            update(CaliberRefinementJob)
+            .where(CaliberRefinementJob.job_id == "RFN-B066-DEADLOCK")
+            .values(candidate=EDITED)
+        )
+        writer.flush()  # returns only once Apply was aborted and released the job row
+        resolved = time.monotonic() - started
+        writer.rollback()
+    response = apply.result()
+    assert response.status_code == 503, response.text
+    assert response.json()["reason_code"] == APPLY_BUSY
+    assert "RFN-B066" not in response.text and "sha256:" not in response.text
+    assert resolved < 60  # the deadlock detector (about 1 s), not the 120 s lock timeout
+    deadline = time.monotonic() + WAIT_SECONDS
+    while _deadlocks(reference_app) <= before and time.monotonic() < deadline:
+        time.sleep(0.1)  # the statistics are flushed a little after the abort
+    assert _deadlocks(reference_app) > before, "PostgreSQL never reported a deadlock"
+    assert _state(reference_app, "RFN-B066-DEADLOCK") == ("candidate_ready", 0)
+    assert _promotions(reference_app) == 0
+    assert (
+        _refusals(reference_app, "RFN-B066-DEADLOCK") == []
+    )  # nothing was decided, so nothing is a refusal
+    assert _apply(reference_app, EDITOR_B, "RFN-B066-DEADLOCK").status_code == 200
+
+
+def test_a_busy_sqlite_database_is_a_retryable_payload_free_503_and_decides_nothing(
+    reference_app: ReferenceApp, two_workspaces: Workspaces
+) -> None:
+    """Another connection holds SQLite's write lock past the busy timeout: Apply answers the busy 503, not a 500.
+
+    SQLite has no row locks, so nothing waits earlier: the claim ``UPDATE`` is the first statement that needs the write lock
+    and is where ``database is locked`` surfaces.
+    """
+    if reference_app.dialect != "sqlite":
+        pytest.skip("the busy timeout is SQLite's single-writer file lock")
+    _make_editor_b_a_member_of_project_a(reference_app)
+    _seed_job(reference_app, "RFN-B066-BUSY", EDITOR_A)
+    with holding_sqlite_write_lock(reference_app):
+        response = _apply(reference_app, EDITOR_B, "RFN-B066-BUSY")
+    assert response.status_code == 503, response.text
+    assert response.json()["reason_code"] == APPLY_BUSY
+    assert "RFN-B066" not in response.text and "sha256:" not in response.text
+    assert _state(reference_app, "RFN-B066-BUSY") == ("candidate_ready", 0)
+    assert _promotions(reference_app) == 0
+    assert _refusals(reference_app, "RFN-B066-BUSY") == []
+    assert _apply(reference_app, EDITOR_B, "RFN-B066-BUSY").status_code == 200
 
 
 def test_a_revocation_that_arrives_mid_claim_waits_for_the_claim_it_raced(

@@ -759,6 +759,204 @@ def test_preview_is_refused_when_the_draft_is_not_previewable(
     assert len(calls) == 1
 
 
+def _make_reference_profile(client: TestClient) -> None:
+    """Run the app the way a reference deployment does for this route: ``profile=reference`` (the route reads only that)."""
+    client.app.state.config = client.app.state.config.model_copy(  # type: ignore[attr-defined]
+        update={"profile": "reference"}
+    )
+
+
+def _previewable_write_draft(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> tuple[dict[str, object], dict[str, object], list[httpx.Request]]:
+    """A ``POST /tickets`` draft the operator has made previewable, and the upstream calls the stub records."""
+    integration = _create_integration(client)
+    _import_version(client, str(integration["integration_id"]))
+    operations = client.get(f"{BASE}/{integration['integration_id']}/operations").json()["data"]
+    target = next(item for item in operations if item["operation_key"] == "POST /tickets")
+    monkeypatch.setenv("OPENAPI_TICKET_TOKEN", "ticket-secret")
+    calls: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(request)
+        return httpx.Response(201, json={"ticket_id": "T-new"})
+
+    _mock_http(monkeypatch, handler)
+    draft = client.post(
+        f"{BASE}/{integration['integration_id']}/tool-drafts/generate",
+        json={
+            "operation_ids": [target["operation_id"]],
+            "auth_binding": {"kind": "bearer", "secret_ref": "env://OPENAPI_TICKET_TOKEN"},
+            "allow_in_preview": True,
+        },
+    ).json()["data"][0]
+    return integration, draft, calls
+
+
+def _preview(
+    client: TestClient, integration: dict[str, object], draft: dict[str, object], **input_: Any
+) -> Any:
+    return client.post(
+        f"{BASE}/{integration['integration_id']}/tool-drafts/{draft['draft_id']}/preview",
+        json={"input": input_},
+    )
+
+
+def test_preview_of_a_write_is_refused_in_the_reference_profile_and_sends_nothing(
+    client: TestClient, db_session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """#1072: ``allow_in_preview`` is the same operator's switch, so a write must not be fireable through it there."""
+    integration, draft, calls = _previewable_write_draft(client, monkeypatch)
+    _make_reference_profile(client)
+
+    refused = _preview(client, integration, draft, body={"title": "SECRET-TITLE"})
+
+    assert refused.status_code == 409, refused.text
+    body = refused.json()
+    assert body["reason_code"] == "unsupported_effect_path"
+    assert body["detail"] == openapi_integrations_routes._PREVIEW_READ_ONLY_DETAIL
+    for leaked in ("SECRET-TITLE", "/tickets", "tickets.example.com", str(draft["draft_id"])):
+        assert leaked not in refused.text
+    assert calls == []  # no request was sent
+    # The refusal is audited like any preview, with the code and the declared shape, never the input.
+    row = (
+        db_session.execute(
+            select(CaliberAuditLog)
+            .where(CaliberAuditLog.action == "preview_openapi_tool_draft")
+            .where(CaliberAuditLog.entity_id == draft["draft_id"])
+        )
+        .scalars()
+        .one()
+    )
+    details = dict(row.details or {})
+    assert details["error"] == "unsupported_effect_path"
+    assert details["method"] == "POST" and "status_code" not in details
+    assert "SECRET-TITLE" not in json.dumps(details)
+
+
+@pytest.mark.parametrize("method", ["PUT", "PATCH", "DELETE"])
+def test_every_non_read_method_is_refused_in_the_reference_profile(
+    client: TestClient, db_session: Session, monkeypatch: pytest.MonkeyPatch, method: str
+) -> None:
+    integration, draft, calls = _previewable_write_draft(client, monkeypatch)
+    row = db_session.get(CaliberOpenApiToolDraft, draft["draft_id"])
+    assert row is not None
+    row.execution_config = {**dict(row.execution_config or {}), "method": method}
+    db_session.commit()
+    _make_reference_profile(client)
+
+    refused = _preview(client, integration, draft, body={"title": "x"})
+
+    assert refused.status_code == 409, refused.text
+    assert refused.json()["reason_code"] == "unsupported_effect_path"
+    assert calls == []
+
+
+def test_preview_of_a_read_still_works_in_the_reference_profile(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    integration = _create_integration(client)
+    _import_version(client, str(integration["integration_id"]))
+    operations = client.get(f"{BASE}/{integration['integration_id']}/operations").json()["data"]
+    target = next(
+        item for item in operations if item["operation_key"] == "GET /tickets/{ticket_id}"
+    )
+    monkeypatch.setenv("OPENAPI_TICKET_TOKEN", "ticket-secret")
+    calls: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(request)
+        return httpx.Response(200, json={"ticket_id": "T-1"})
+
+    _mock_http(monkeypatch, handler)
+    draft = client.post(
+        f"{BASE}/{integration['integration_id']}/tool-drafts/generate",
+        json={
+            "operation_ids": [target["operation_id"]],
+            "auth_binding": {"kind": "bearer", "secret_ref": "env://OPENAPI_TICKET_TOKEN"},
+            "allow_in_preview": True,
+        },
+    ).json()["data"][0]
+    _make_reference_profile(client)
+
+    ran = _preview(client, integration, draft, path_params={"ticket_id": "T-1"})
+
+    assert ran.status_code == 200, ran.text
+    assert ran.json()["data"]["result"]["json"]["ticket_id"] == "T-1"
+    assert len(calls) == 1 and calls[0].method == "GET"
+
+
+def test_a_pack_previews_its_read_operation_but_not_its_write_in_the_reference_profile(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A pack's operation is chosen by the input, so the method is judged per call, not per draft."""
+    integration = _create_integration(client)
+    _import_version(client, str(integration["integration_id"]))
+    operations = client.get(f"{BASE}/{integration['integration_id']}/operations").json()["data"]
+    by_key = {item["operation_key"]: item["operation_id"] for item in operations}
+    monkeypatch.setenv("OPENAPI_TICKET_TOKEN", "ticket-secret")
+    calls: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(request)
+        return httpx.Response(200, json=[{"ticket_id": "T-1"}])
+
+    _mock_http(monkeypatch, handler)
+    pack = client.post(
+        f"{BASE}/{integration['integration_id']}/tool-drafts/generate",
+        json={
+            "operation_ids": [by_key["GET /tickets"], by_key["POST /tickets"]],
+            "group_as_pack": True,
+            "auth_binding": {"kind": "bearer", "secret_ref": "env://OPENAPI_TICKET_TOKEN"},
+            "allow_in_preview": True,
+        },
+    ).json()["data"][0]
+    _make_reference_profile(client)
+
+    write = _preview(client, integration, pack, operation="POST /tickets", body={"title": "x"})
+    assert write.status_code == 409, write.text
+    assert write.json()["reason_code"] == "unsupported_effect_path"
+    assert calls == []
+
+    read = _preview(client, integration, pack, operation="GET /tickets")
+    assert read.status_code == 200, read.text
+    assert [call.method for call in calls] == ["GET"]
+
+
+def test_preview_of_a_write_still_sends_in_the_development_profile(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The development profile keeps the exempt, any-method behavior (documented as an exemption)."""
+    integration, draft, calls = _previewable_write_draft(client, monkeypatch)
+    assert client.app.state.config.profile == "development"  # type: ignore[attr-defined]
+
+    ran = _preview(client, integration, draft, body={"title": "hello"})
+
+    assert ran.status_code == 200, ran.text
+    assert ran.json()["data"]["result"]["json"]["ticket_id"] == "T-new"
+    assert [call.method for call in calls] == ["POST"]
+
+
+def test_a_write_preview_stays_gated_by_the_flag_before_the_read_only_rule(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The read-only rule does not replace the flag: an unflagged draft is still the ``allow_in_preview`` 409."""
+    integration, draft, calls = _previewable_write_draft(client, monkeypatch)
+    cleared = client.patch(
+        f"{BASE}/{integration['integration_id']}/tool-drafts/{draft['draft_id']}",
+        json={"allow_in_preview": False},
+    )
+    assert cleared.status_code == 200, cleared.text
+    _make_reference_profile(client)
+
+    refused = _preview(client, integration, draft, body={"title": "x"})
+
+    assert refused.status_code == 409
+    assert "allow_in_preview" in refused.json()["detail"]
+    assert "reason_code" not in refused.json()
+    assert calls == []
+
+
 def test_preview_is_audited_without_recording_payloads_or_secrets(
     client: TestClient, db_session: Session, monkeypatch
 ) -> None:

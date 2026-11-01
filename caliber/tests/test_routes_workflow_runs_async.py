@@ -2696,8 +2696,17 @@ def test_a_legacy_request_with_a_consumed_mark_is_refused_as_consumed(client: Te
     assert _approval_row(client, legacy_id).status == "pending"
 
 
-def test_the_lock_wait_helper_maps_only_a_lock_timeout_to_a_busy_503() -> None:
-    """``55P03`` is the retryable ``approval_busy`` (and the transaction is rolled back); any other database error propagates."""
+@pytest.mark.parametrize(
+    ("error", "busy"),
+    [
+        ("55P03", True),  # a lock wait that outlasted lock_timeout
+        ("40P01", True),  # deadlock_detected: this transaction was the victim
+        ("40001", False),  # any other database error propagates
+    ],
+    ids=["lock-timeout", "deadlock-victim", "serialization-failure"],
+)
+def test_a_decision_session_maps_only_lock_contention_to_a_busy_503(error: str, busy: bool) -> None:
+    """``55P03`` and ``40P01`` are the retryable ``approval_busy`` (and the transaction is rolled back); the rest propagate."""
     from sqlalchemy.exc import OperationalError
 
     from caliber.routes import workflow_runs as routes
@@ -2709,26 +2718,53 @@ def test_the_lock_wait_helper_maps_only_a_lock_timeout_to_a_busy_503() -> None:
             self.sqlstate = sqlstate
 
     class FakeSession:
-        def __init__(self, sqlstate: str) -> None:
-            self.sqlstate = sqlstate
-            self.rolled_back = False
+        rolled_back = False
 
-        def execute(self, _statement: object) -> object:
-            raise OperationalError("SELECT 1", {}, DriverError(self.sqlstate))
+        def __enter__(self) -> FakeSession:
+            return self
+
+        def __exit__(self, *exc: object) -> None:
+            return None
 
         def rollback(self) -> None:
             self.rolled_back = True
 
-    busy_session = FakeSession("55P03")
-    with pytest.raises(CaliberHTTPException) as busy:
-        routes._execute_locked(busy_session, object())  # type: ignore[arg-type]
-    assert (busy.value.status_code, busy.value.reason_code) == (503, "approval_busy")
-    assert busy_session.rolled_back
+    session = FakeSession()
+    if busy:
+        with pytest.raises(CaliberHTTPException) as raised:
+            with routes._decision_session(lambda: session):
+                raise OperationalError("SELECT 1", {}, DriverError(error))
+        assert (raised.value.status_code, raised.value.reason_code) == (503, "approval_busy")
+        assert session.rolled_back
+    else:
+        with pytest.raises(OperationalError):
+            with routes._decision_session(lambda: session):
+                raise OperationalError("SELECT 1", {}, DriverError(error))
+        assert not session.rolled_back
 
-    other = FakeSession("40001")
-    with pytest.raises(OperationalError):
-        routes._execute_locked(other, object())  # type: ignore[arg-type]
-    assert not other.rolled_back
+
+def test_a_decision_session_leaves_other_errors_and_a_clean_exit_alone() -> None:
+    from caliber.routes import workflow_runs as routes
+
+    class FakeSession:
+        rolled_back = False
+
+        def __enter__(self) -> FakeSession:
+            return self
+
+        def __exit__(self, *exc: object) -> None:
+            return None
+
+        def rollback(self) -> None:
+            self.rolled_back = True
+
+    session = FakeSession()
+    with routes._decision_session(lambda: session) as entered:
+        assert entered is session
+    with pytest.raises(ValueError, match="boom"):
+        with routes._decision_session(lambda: session):
+            raise ValueError("boom")
+    assert not session.rolled_back
 
 
 def test_a_bound_request_never_shadows_a_legacy_node_level_request(client: TestClient) -> None:

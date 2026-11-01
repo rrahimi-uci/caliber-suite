@@ -62,8 +62,8 @@ the explicit human decision, and these are its rules:
 - **The exact candidate.** Apply promotes only the candidate that cleared the evaluation gate. A candidate edited
   since, or a job with no recorded evaluation digest, is refused (`409`, `apply_candidate_changed` or
   `apply_candidate_unverified`): send the job back for another pass with request changes, or recalibrate.
-  Each refusal named above writes an `apply_refused` audit row and changes nothing; a lock timeout (`503`,
-  `apply_busy`) decided nothing, is not audited and can be retried. The reason codes, recovery steps and audit rows
+  Each refusal named above writes an `apply_refused` audit row and changes nothing; lock contention (`503`,
+  `apply_busy`: a lock timeout, a deadlock this Apply lost, or a busy SQLite file) decided nothing, is not audited and can be retried. The reason codes, recovery steps and audit rows
   are in
   [Apply: refusal catalogue, audit and recovery](../operate/reference-profile.md#apply-refusal-catalogue-audit-and-recovery-b065-762).
 - **Which jobs.** Only a job at `candidate_ready`. Any other status answers 409.

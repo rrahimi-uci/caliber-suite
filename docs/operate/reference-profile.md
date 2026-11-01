@@ -208,8 +208,8 @@ any other method is refused with `unsupported_effect_path` before the input is v
 sent, so no caller of it can perform a protected effect without a recorded, approved proposal. The method is read from the
 tool's **configuration** (a pack's operation is chosen by the input), never from a claim. A configuration that resolves to no
 operation gets the executor's ordinary configuration refusal instead. The send itself is the module-private `_send_raw`, which
-only three modules may name: the dispatcher's private backends (document request and `openapi_http`) and the operator's draft
-preview route (EP-033, exempt: a human fires one call, gated by `allow_in_preview`). It never calls the public entry, so a
+only the dispatcher's private backends (document request and `openapi_http`) and the executor module itself may name; the two
+development-profile compatibility entries over it are named in the sections below. It never calls the public entry, so a
 dispatched effect cannot re-enter the dispatcher or the public path. `tests/test_effect_path_matrix.py` fails when any other
 production module names `_send_raw` (`test_the_private_raw_transport_is_named_only_by_pinned_modules`) or the public entry
 (`test_the_raw_openapi_executor_is_named_only_by_pinned_callers`). A read-method tool is still classified by the registry row
@@ -299,10 +299,9 @@ the **public** entry, which refuses a protected method with `unsupported_effect_
 write any more: they can read, and a write needs the governed route above. This is a behavior change for an Aria deployment in
 `build` mode with `auto_all` or `full_autonomy` approval, which no longer offers a write or external-action tool to the model
 (it could only fail), for a tool declared `read` whose operation is a `POST` (refused rather than sent), and for a standalone
-export whose tool writes. The operator's draft preview route (EP-033, exempt) still previews any method through the private
-transport, and **that exemption is self-approvable**: one operator can set `allow_in_preview` on a draft and then fire a
-`POST`, `PUT`, `PATCH` or `DELETE` with no second person, no proposal, no lease and no receipt (it is audited). The reference
-profile does not close that yet; making preview read-only there is #1072. The callers of the
+export whose tool writes. The operator's draft preview route (EP-033) is **read-only in the reference profile** (#1072): it
+sends through the public entry, so a draft whose operation is not a read (`GET`, `HEAD`, `OPTIONS`) is refused, see
+[Draft preview is read-only](#draft-preview-is-read-only-1072). The callers of the
 public entry are pinned by `tests/test_effect_path_matrix.py::test_the_raw_openapi_executor_is_named_only_by_pinned_callers`, so a
 new one fails until it is routed or pinned with a reason.
 
@@ -310,6 +309,29 @@ new one fails until it is routed or pinned with a reason.
 `openapi-http` become reserved tool names like the other connectors (`409 reserved_tool_name`); a tool already registered
 under one is untrusted and unaffected. Reverting the change restores the direct call (a proposal already recorded remains
 readable).
+
+### Draft preview is read-only (#1072)
+
+The operator's draft preview (`POST /openapi-integrations/{id}/tool-drafts/{draft_id}/preview`, inventory EP-033) fires one
+real upstream request for an unpublished draft. It is gated by the `caliber.admin` or `caliber.operator` scope, the project
+action `resource.execute` and the draft's `allow_in_preview` flag, and it is audited, but `allow_in_preview` is set by the
+same operator who fires the call. A write sent through it would therefore be **self-approvable**: no second person, no
+proposal, no lease and no receipt.
+
+- **Reference profile (and a process with no config, which is treated as the reference profile).** Preview sends through the
+  public entry, so it sends only a read: a draft whose operation is `GET`, `HEAD` or `OPTIONS` previews as before, and any other
+  method is refused before the input is validated, a secret is resolved or anything is sent. The answer is `409` with
+  `reason_code` `unsupported_effect_path` and a fixed message that names no method, server, path, draft or input value. The
+  refusal is audited as `preview_openapi_tool_draft` with `error: unsupported_effect_path`; no request left the platform. A
+  write goes through a published tool in a workflow, where the dispatcher proposes, approves and sends it.
+- **Development profile.** Unchanged: preview sends any method through the named legacy entry
+  `execute_legacy_openapi_draft_preview`, still gated by `allow_in_preview` and audited. It is a compatibility exemption for a
+  laptop, not the governed path, and the reference profile never reaches it.
+
+`tests/test_effect_path_matrix.py` pins both names: the route may name the public entry (`RAW_OPENAPI_CALLERS`) and the legacy
+entry (`LEGACY_PREVIEW_CALLERS`), and no production module outside the dispatcher and the executor names the private
+`_send_raw` (`RAW_TRANSPORT_CALLERS` lost the route). There is no new setting, route or migration. A deployment that previewed
+a write in the reference profile now gets the `409`; read previews are unaffected.
 
 ## Profiles and a missing governed context (#1068)
 
@@ -1480,6 +1502,10 @@ with session_factory() as session:
   `approval_not_current` (another node's request), `already_decided` (approved or rejected). On PostgreSQL the route's lock
   waits are bounded by `SET LOCAL lock_timeout` (5 s, the Apply claim's bound); a wait that runs out is `503` `approval_busy`
   (retryable, nothing decided, nothing held), because these handlers run on the event loop and a stuck lock must not pin one.
+  So is a deadlock in which the decision is the victim (SQLSTATE `40P01`, a writer that takes the run and request rows in the
+  opposite order) and, on SQLite, the busy timeout (`database is locked`, which surfaces at the decision's first write because
+  SQLite has no row locks); the mapping covers the whole decision session (`_decision_session`), and any other database error
+  is not mapped.
   **Clock.** Expiry is judged by the application clock (`datetime.now(timezone.utc)`) read after the run lock is won, the same
   clock that wrote `expires_at` (so a request is never judged by two clocks); at the claim it is the dispatcher's `now`
   (defaulting to the same clock). The database clock is deliberately not used (`ownership.database_now` is "never for
@@ -2412,7 +2438,7 @@ what it locked, in this order:
 | 4 | the job is still `candidate_ready` | `409`, no `reason_code` (the existing status conflict) |
 | 5 | the candidate about to be promoted is the one that cleared the eval gate | `409`, `apply_candidate_changed`, or `apply_candidate_unverified` when no digest was recorded |
 
-A lock wait that runs out before step 1 ends is `503` `apply_busy` (below). After the claim `UPDATE`, rows 2 and 5 are checked once more before anything is committed (see SQLite, below).
+Lock contention anywhere in the claim transaction (a lock wait that runs out, a deadlock this transaction loses, or on SQLite a busy timeout) is `503` `apply_busy` (below). After the claim `UPDATE`, rows 2 and 5 are checked once more before anything is committed (see SQLite, below).
 
 **The exact candidate.** When the eval gate passes, the stage that moves a job to `candidate_ready` stores the
 SHA-256 of the candidate's canonical JSON on the job (`caliber_refinement_jobs.candidate_digest`, `sha256:` plus
@@ -2431,7 +2457,8 @@ predicate. A revocation or a candidate edit that is mid-transaction when the cla
 and then refuse; one that arrives while the claim is in flight waits for the claim to commit, so the apply that
 passed its checks is the apply that was authorised. Two concurrent applies cannot both claim: the second waits and
 sees `applying`. The waits are bounded by a fixed 5 second `lock_timeout` (not a setting); a wait that runs
-out is answered `503`, `reason_code` `apply_busy`, retryable, with nothing decided or written and no audit row.
+out, a deadlock in which PostgreSQL aborts this transaction as the victim, or on SQLite a busy timeout is answered
+`503`, `reason_code` `apply_busy`, retryable, with nothing decided or written and no audit row.
 
 **What SQLite does and does not cover.** SQLite has no row locks and ignores the `FOR UPDATE` / `FOR SHARE`
 clauses, so the recheck's answer is not held between the recheck and the claim: a grant can be revoked on
@@ -2534,7 +2561,9 @@ on cannot apply its own jobs and needs a second account that is an operator and 
    (no `reason_code`) when the caller is a member without `release.apply`. Nothing is written.
 2. Early two-person check, rule on only: `403` `apply_self_approval` or `apply_creator_unknown`. Audited.
 3. The claim transaction starts. On PostgreSQL it sets the 5 second `lock_timeout` and locks the rows
-   (below). `503` `apply_busy` if a lock is not granted in time. Nothing is decided or written.
+   (below). `503` `apply_busy` if a lock is not granted in time or this transaction is chosen as a deadlock victim (and, on
+   SQLite, if the write lock is not granted within the busy timeout, which surfaces at the claim `UPDATE` or the commit rather than
+   here). Nothing is decided or written.
 4. On the locked rows (when the recheck passes but the claim `UPDATE` still matches no row, the answer is the uncoded `409` `it changed while being claimed`): `404` if the job is gone, `403` `apply_permission_revoked` if the caller no longer holds
    `release.apply` or can no longer see the job, the two-person check again (rule on), `409` when the status
    is not `candidate_ready`, then the digest check: `409` `apply_candidate_unverified` or
@@ -2559,7 +2588,7 @@ never a separation code that would confirm who requested the job. The status `40
 | *(none)* | `409` | no | the job is not `candidate_ready` (already `applied`, `applying`, `running`, and so on): `job 'RFN-A' cannot be applied: current status is 'applying' (expected 'candidate_ready')`. Also, rarely, `job 'RFN-A' cannot be applied: it changed while being claimed`: the conditional claim `UPDATE` matched no row although the locked read passed (a race SQLite leaves open), and the recheck that follows found no more precise refusal | read the job; do not retry while it is `applying`; after `it changed while being claimed`, read the job and apply again if it is still `candidate_ready` | an `applying` job is in flight or is settled by the release reconciler; the janitor returns a stranded one to `candidate_ready` |
 | `apply_candidate_unverified` | `409` | yes | the gate recorded no digest for the job (written by a process that predates migration `0132`, or not digestible), so the candidate cannot be verified | ask for another pass | send the job back for another pass (`POST /jobs/{job_id}/request-changes`) or start a new calibration, so the gate records a digest; see "Finding unverified jobs" below |
 | `apply_candidate_changed` | `409` | yes | the candidate about to be promoted is not the one that cleared the eval gate (edited since, emptied, or not digestible) | ask for another pass | find out who edited it, then send the job back (`request-changes`) or recalibrate so the new candidate is evaluated and its digest recorded |
-| `apply_busy` | `503` | no | on PostgreSQL, a row lock was not granted within 5 seconds, so nothing was decided: another claim, or a membership, project, agent or candidate edit, holds a lock | retry shortly; the SDK does not retry a POST for you | if it persists, look for a long-open transaction on `caliber_refinement_jobs` or the agent, project or membership rows (PostgreSQL `pg_stat_activity`) |
+| `apply_busy` | `503` | no | another transaction held a lock this claim needed, so nothing was decided: on PostgreSQL a row lock was not granted within 5 seconds (SQLSTATE `55P03`, another claim or a membership, project, agent or candidate edit holds it), or this claim was the victim of a lock-order deadlock (`40P01`); on SQLite another connection held the write lock for the whole busy timeout (30 s, `database is locked`) | retry shortly; the SDK does not retry a POST for you | if it persists, on PostgreSQL look for a long-open transaction on `caliber_refinement_jobs` or the agent, project or membership rows (`pg_stat_activity`) and for writers that take those rows in another order (`pg_stat_database.deadlocks` counts the deadlocks); on SQLite find the process holding the database file |
 
 The `404` and the role `403` write nothing because they are the project gate that every job route shares and
 they are answered before the claim; the status `409` and the `503` are not a decision about the caller or the
@@ -2674,15 +2703,19 @@ serialise on the shared locks; any writer of those rows (a revocation, a role ch
 ownership transfer, an agent move) waits for an in-flight claim, and a claim waits for an uncommitted one. The
 wait is bounded by `SET LOCAL lock_timeout = 5000` (5 seconds, fixed, not a setting). A wait that runs out
 (SQLSTATE `55P03`) rolls the transaction back and answers `503` `apply_busy` with nothing written and no audit
-row. Any other database error is not mapped and propagates as a server error. The claim commits before the
-promoter runs, so the locks are never held across the provider call and the waits are short.
+row, and so does a deadlock in which PostgreSQL picks this claim as the victim (SQLSTATE `40P01`). The mapping wraps the
+whole claim transaction, from the locks to the commit of the claim and its approval anchor
+(`_lock_contention_is_busy`), not only the lock statements. Any other database error is not mapped and propagates as a
+server error. The claim commits before the promoter runs, so the locks are never held across the provider call and the waits
+are short; a database error after that point is the promotion's own failure path, not `apply_busy`.
 
 For developers: a transaction that takes more than one of these rows must take them in the same order (job,
 agent, project, membership). The opposite order can deadlock against Apply: PostgreSQL aborts one of the two
-transactions with `DeadlockDetected` (SQLSTATE `40P01`), which `is_lock_timeout` does not recognise, so the aborted
-Apply answers `500`, not `apply_busy`. The aborted transaction wrote nothing, but a client or operator should check
-the job's status before retrying an Apply that answered `500`: an error after the claim committed can leave the
-job `applying` for the release reconciler.
+transactions with `DeadlockDetected` (SQLSTATE `40P01`), and either side can be the victim. When Apply is the victim it
+answers `503` `apply_busy` like a lock timeout (`is_lock_contention` recognises both), with nothing written; the other
+transaction, if it is yours, continues, so a writer that must not be retried should expect the deadlock error itself.
+An Apply that answers `500` is therefore not a lock problem: check the job's status before retrying, because an error after
+the claim committed can leave the job `applying` for the release reconciler.
 
 #### SQLite and PostgreSQL
 
@@ -2691,8 +2724,8 @@ job `applying` for the release reconciler.
 | two concurrent applies | the second waits on the job lock and sees `applying` | the conditional `UPDATE` matches no row for the second |
 | a grant revoked while an Apply is in flight | the revoking write waits for the claim, or the claim waits and refuses: no gap | not closed by locks: the route reads the caller's authority again after the claim `UPDATE`, while SQLite's single write lock is held, and rolls back with `apply_permission_revoked`; between that check and the commit only the write lock protects it |
 | a candidate edited after the gate | the job lock makes the edit wait, or the claim refuse | the snapshot the promoter reads is verified against the recorded digest after the claim `UPDATE` and before the commit (the `UPDATE`'s predicate matches the `candidate_digest` column, not the candidate content, so an edit to the content is caught by the snapshot check) |
-| `apply_busy` | yes, on a lock timeout | not produced: SQLite has no row locks to wait for, and a busy timeout (30 s) surfaces as an unmapped database error (`500`), not `apply_busy` |
-| a lock-order deadlock (a transaction that takes the rows in another order) | PostgreSQL raises `DeadlockDetected` (SQLSTATE `40P01`) in one of the two transactions, either side can be the victim, and Apply does not map it: a victim Apply answers `500` | not applicable |
+| `apply_busy` | yes, on a lock timeout or a deadlock victim | yes, on a busy timeout: SQLite has no row locks to wait for, so `database is locked` (30 s) surfaces at the claim `UPDATE` or the commit and is mapped to `apply_busy` |
+| a lock-order deadlock (a transaction that takes the rows in another order) | PostgreSQL raises `DeadlockDetected` (SQLSTATE `40P01`) in one of the two transactions, either side can be the victim; a victim Apply answers `503` `apply_busy` | not applicable |
 | allowed under `CALIBER_PROFILE=reference` | yes | no (`sqlite_database` refuses startup) |
 
 The permission recheck covers the project grant and the job's visibility. The caller's platform scopes
@@ -2885,7 +2918,7 @@ POST /ajax-api/2.0/mlflow/caliber/workflow-runs/{run_id}/approval/approve   {"ru
 409 {"detail": "this approval request is not for the step the run is waiting at",
      "status_code": 409, "reason_code": "approval_not_current"}
 
-# a lock is held too long (PostgreSQL lock_timeout, 5 s): nothing was decided or held. Recovery: retry shortly.
+# a lock is held too long (PostgreSQL lock_timeout, 5 s), the decision lost a deadlock (40P01) or SQLite stayed busy (database is locked): nothing was decided or held. Recovery: retry shortly.
 503 {"detail": "this approval is being decided or dispatched right now; nothing was decided, retry shortly",
      "status_code": 503, "reason_code": "approval_busy"}
 

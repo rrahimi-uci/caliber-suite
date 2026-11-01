@@ -4,12 +4,13 @@ from __future__ import annotations
 
 import json
 import logging
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from copy import deepcopy
 from datetime import datetime, timezone
 from typing import Any, Literal, cast
 
-from sqlalchemy import Result, func, select, text
+from sqlalchemy import func, select, text
 from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.orm import Session
 from starlette.applications import Starlette
@@ -45,7 +46,7 @@ from caliber.routes._deps import (
     scoped_child_or_404,
 )
 from caliber.routes._errors import CaliberHTTPException
-from caliber.routes._job_access import LOCK_TIMEOUT_MS, is_lock_timeout
+from caliber.routes._job_access import LOCK_TIMEOUT_MS, is_lock_contention
 from caliber.run_manifest import canonical_bytes, digest_of
 from caliber.schemas import (
     AdmissionManifestSchema,
@@ -1920,7 +1921,7 @@ async def retry_workflow_run(request: Request) -> JSONResponse:  # noqa: PLR0912
     return envelope_response(data, status_code=202)
 
 
-#: ``reason_code`` of the 503 when a decision cannot get its row lock in time (PostgreSQL ``lock_timeout``): nothing was decided.
+#: ``reason_code`` of the 503 when a decision meets lock contention (a PostgreSQL lock timeout or deadlock victim, a SQLite busy timeout): nothing was decided.
 APPROVAL_BUSY = "approval_busy"
 _APPROVAL_BUSY_DETAIL = (
     "this approval is being decided or dispatched right now; nothing was decided, retry shortly"
@@ -1935,14 +1936,24 @@ def _approval_busy(session: Session) -> CaliberHTTPException:
     )
 
 
-def _execute_locked(session: Session, statement: Any) -> Result[Any]:
-    """Run a ``FOR UPDATE`` statement; a lock wait that outlasts the lock timeout is :func:`_approval_busy`."""
-    try:
-        return session.execute(statement)
-    except OperationalError as exc:
-        if not is_lock_timeout(exc):
-            raise
-        raise _approval_busy(session) from None
+@contextmanager
+def _decision_session(factory: Any) -> Iterator[Session]:
+    """A session for one approval decision, in which lock contention is the retryable ``503`` ``approval_busy`` (#1066).
+
+    Contention is a PostgreSQL lock wait that outlasts the lock timeout (``55P03``), a deadlock in which the server aborted
+    this transaction as the victim (``40P01``, a writer that takes the run and request rows in another order) and, on SQLite,
+    the busy timeout (``database is locked``) that surfaces at the first write or the commit because SQLite has no row locks
+    to wait on at the ``FOR UPDATE`` statements. It can strike any statement of the decision, so the whole session is
+    covered rather than the two locking statements: the transaction is rolled back, nothing was decided, and a retry is safe.
+    Any other database error propagates unchanged.
+    """
+    with factory() as session:
+        try:
+            yield session
+        except OperationalError as exc:
+            if not is_lock_contention(exc):
+                raise
+            raise _approval_busy(session) from None
 
 
 def _lock_workflow_run(session: Session, run: CaliberWorkflowRun) -> CaliberWorkflowRun:
@@ -1951,18 +1962,17 @@ def _lock_workflow_run(session: Session, run: CaliberWorkflowRun) -> CaliberWork
     On PostgreSQL the waits of this transaction are bounded by ``SET LOCAL lock_timeout`` (the Apply claim's bound,
     :data:`~caliber.routes._job_access.LOCK_TIMEOUT_MS`): a lock is held by a transaction about to commit (a dispatcher's
     claim, a request writer), so a wait is short, and a stuck one must not pin a handler that runs on the event loop. A
-    timeout is a ``503`` ``approval_busy`` with nothing decided.
+    timeout, like a deadlock or a SQLite busy timeout (:func:`_decision_session`), is a ``503`` ``approval_busy`` with
+    nothing decided.
     """
     if session.get_bind().dialect.name == "postgresql":
         session.execute(text(f"SET LOCAL lock_timeout = {int(LOCK_TIMEOUT_MS)}"))
-    locked = _execute_locked(
-        session,
+    return session.execute(
         select(CaliberWorkflowRun)
         .where(CaliberWorkflowRun.workflow_run_id == run.workflow_run_id)
         .with_for_update()
-        .execution_options(populate_existing=True),
+        .execution_options(populate_existing=True)
     ).scalar_one()
-    return cast("CaliberWorkflowRun", locked)
 
 
 #: ``reason_code`` of the 409 for a bound request that already holds a decision (approved but not yet consumed by dispatch).
@@ -2075,13 +2085,12 @@ def _select_pending_runtime_approval(
     request is only ever decided by naming it.
     """
     if runtime_approval_id:
-        row = _execute_locked(
-            session,
+        row = session.execute(
             select(CaliberRuntimeApprovalRequest)
             .where(CaliberRuntimeApprovalRequest.runtime_approval_id == runtime_approval_id)
             .where(CaliberRuntimeApprovalRequest.workflow_run_id == run.workflow_run_id)
             .with_for_update()
-            .execution_options(populate_existing=True),
+            .execution_options(populate_existing=True)
         ).scalar_one_or_none()
         if row is None:
             raise HTTPException(
@@ -2103,7 +2112,7 @@ def _select_pending_runtime_approval(
                 status_code=409,
                 detail=f"runtime approval {runtime_approval_id!r} is not pending",
             )
-        return cast("CaliberRuntimeApprovalRequest", row)
+        return row
     stmt = (
         select(CaliberRuntimeApprovalRequest)
         .where(CaliberRuntimeApprovalRequest.workflow_run_id == run.workflow_run_id)
@@ -2115,9 +2124,7 @@ def _select_pending_runtime_approval(
     )
     if run.current_node_id:
         stmt = stmt.where(CaliberRuntimeApprovalRequest.node_id == run.current_node_id)
-    row = cast(
-        "CaliberRuntimeApprovalRequest | None", _execute_locked(session, stmt).scalars().first()
-    )
+    row = session.execute(stmt).scalars().first()
     if row is None:
         raise HTTPException(
             status_code=409,
@@ -2162,7 +2169,7 @@ async def approve_workflow_run_approval(request: Request) -> JSONResponse:  # no
     body = await parse_json_object(request, allow_empty=True)
     payload = WorkflowRunApprovalDecisionRequest.model_validate(body)
     factory = get_session_factory(request)
-    with factory() as session:
+    with _decision_session(factory) as session:
         run = _get_run_or_404(session, run_id, request=request)
         # The node's required_role (below) is a platform scope; this is the separate
         # project-role axis. A viewer or editor who happens to hold the approver scope
@@ -2351,7 +2358,7 @@ async def reject_workflow_run_approval(request: Request) -> JSONResponse:
     approval_id: str | None = None
     approval_node_id: str | None = None
     factory = get_session_factory(request)
-    with factory() as session:
+    with _decision_session(factory) as session:
         run = _get_run_or_404(session, run_id, request=request)
         # The node's required_role (below) is a platform scope; this is the separate
         # project-role axis. A viewer or editor who happens to hold the approver scope

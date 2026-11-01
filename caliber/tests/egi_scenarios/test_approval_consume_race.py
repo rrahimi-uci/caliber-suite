@@ -56,6 +56,7 @@ from tests.egi_scenarios.conftest import (
     PROJECT_A,
     ReferenceApp,
     Workspaces,
+    holding_sqlite_write_lock,
 )
 from tests.egi_scenarios.test_b02_admission import PREFIX
 from tests.egi_scenarios.test_v04_stale_approval import (
@@ -931,6 +932,102 @@ def test_a_decision_that_cannot_get_its_lock_is_a_retryable_503_and_decides_noth
         )
     assert _run_state(approver, run_id) == before
     retried = _decide(approver, run_id, approval_id)  # the lock is free again
+    assert retried.status_code == 200, retried.text
+
+
+def _deadlocks(app: ReferenceApp) -> int:
+    """How many deadlocks the server has detected in this database so far."""
+    with app.session_factory() as session:
+        return int(
+            session.execute(
+                text("SELECT deadlocks FROM pg_stat_database WHERE datname = current_database()")
+            ).scalar_one()
+        )
+
+
+@pytest.mark.parametrize("action", ["approve", "reject"])
+def test_a_decision_that_is_a_deadlock_victim_is_a_retryable_503_and_decides_nothing(
+    approver: ReferenceApp, monkeypatch: pytest.MonkeyPatch, action: str
+) -> None:
+    """A writer that takes the rows in the opposite order (request, then run) deadlocks with the decision (run, then request).
+
+    The writer asks for the run row only after the decision is *observed* waiting for the request row it holds, so the
+    decision is the first waiter and PostgreSQL aborts it as the victim. The lock timeout is raised far above the deadlock
+    detector's delay, so the 503 can only be the deadlock mapping.
+    """
+    _need_postgresql(approver)
+    monkeypatch.setattr("caliber.routes.workflow_runs.LOCK_TIMEOUT_MS", 120_000)
+    run_id, approval_id, proposal_id, _lease = _prepare(
+        approver, monkeypatch, occurrence=f"deadlock-{action}", decide=False
+    )
+    before = _run_state(approver, run_id)
+    deadlocks = _deadlocks(approver)
+    with _holding_request_lock(approver, approval_id) as writer:
+        decision = Worker(lambda: _decide(approver, run_id, approval_id, action=action))
+        decision.start()
+        deadline = time.monotonic() + 20
+        while _lock_waiters(approver) < 1 and time.monotonic() < deadline:
+            time.sleep(0.02)  # polling for the wait to be observed, not for a race to happen
+        assert _lock_waiters(approver) >= 1, "the decision never waited for the request row"
+        assert decision.is_alive()
+        started = time.monotonic()
+        # The cycle closes: the writer wants the run row the decision holds. Returns once the decision was aborted.
+        writer.execute(
+            select(CaliberWorkflowRun.workflow_run_id)
+            .where(CaliberWorkflowRun.workflow_run_id == run_id)
+            .with_for_update()
+        ).one()
+        resolved = time.monotonic() - started
+    busy = decision.finished(timeout=30)
+    assert busy.status_code == 503, busy.text
+    body = busy.json()
+    assert body["reason_code"] == "approval_busy" and body["status_code"] == 503
+    for secret in (approval_id, proposal_id, run_id, APPROVER_A):
+        assert secret not in busy.text
+    assert resolved < 60  # the deadlock detector, not the 120 s lock timeout
+    end = time.monotonic() + 20
+    while _deadlocks(approver) <= deadlocks and time.monotonic() < end:
+        time.sleep(0.1)  # the statistics are flushed a little after the abort
+    assert _deadlocks(approver) > deadlocks, "PostgreSQL never reported a deadlock"
+    with approver.session_factory() as session:
+        row = session.get(CaliberRuntimeApprovalRequest, approval_id)
+        assert row is not None and (row.status, row.decided_by, row.consumed_at) == (
+            "pending",
+            None,
+            None,
+        )
+    assert _run_state(approver, run_id) == before
+    retried = _decide(approver, run_id, approval_id, action=action)
+    assert retried.status_code == 200, retried.text
+
+
+@pytest.mark.parametrize("action", ["approve", "reject"])
+def test_a_busy_sqlite_database_is_a_retryable_503_and_a_decision_decides_nothing(
+    approver: ReferenceApp, monkeypatch: pytest.MonkeyPatch, action: str
+) -> None:
+    """SQLite's write lock is held past the busy timeout: the decision's first write fails and the answer is the busy 503."""
+    if approver.dialect != "sqlite":
+        pytest.skip("the busy timeout is SQLite's single-writer file lock")
+    run_id, approval_id, proposal_id, _lease = _prepare(
+        approver, monkeypatch, occurrence=f"busy-sqlite-{action}", decide=False
+    )
+    before = _run_state(approver, run_id)
+    with holding_sqlite_write_lock(approver):
+        busy = _decide(approver, run_id, approval_id, action=action)
+    assert busy.status_code == 503, busy.text
+    body = busy.json()
+    assert body["reason_code"] == "approval_busy" and body["status_code"] == 503
+    for secret in (approval_id, proposal_id, run_id, APPROVER_A):
+        assert secret not in busy.text
+    with approver.session_factory() as session:
+        row = session.get(CaliberRuntimeApprovalRequest, approval_id)
+        assert row is not None and (row.status, row.decided_by, row.consumed_at) == (
+            "pending",
+            None,
+            None,
+        )
+    assert _run_state(approver, run_id) == before
+    retried = _decide(approver, run_id, approval_id, action=action)
     assert retried.status_code == 200, retried.text
 
 

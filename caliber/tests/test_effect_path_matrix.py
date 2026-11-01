@@ -401,6 +401,7 @@ RAW_OPENAPI_CALLERS = {
     "assistant/capabilities.py": "Aria's published-tool call (EP-034): reads only, a protected method is refused by the entry; its governed write route is #1063",
     "effects/reconcile.py": "the reconciler's lookup by key: a GET that carries no effect",
     "integrations/openapi/executor.py": "the executor itself",
+    "routes/openapi_integrations.py": "the operator's draft preview (EP-033) in the reference profile: reads only, a protected method is refused by the entry (#1072)",
     "routes/system_effects.py": "the operator's lookup by key: a GET that carries no effect",
     "workflows/runtime.py": "inline reads of OpenAPI tool nodes; model-chosen calls (B04.6, #768) and exports (#1051) can read but not write",
 }
@@ -411,7 +412,6 @@ RAW_OPENAPI_CALLERS = {
 RAW_TRANSPORT_CALLERS = {
     "effects/dispatcher.py": "the private connector backends (document request, OpenAPI): the dispatcher's own transport",
     "integrations/openapi/executor.py": "defines it; the public entry delegates to it only after refusing a protected method",
-    "routes/openapi_integrations.py": "the operator's draft preview route (EP-033, exempt: one real call fired by a human, gated by allow_in_preview)",
 }
 
 
@@ -420,6 +420,14 @@ RAW_TRANSPORT_CALLERS = {
 LEGACY_OPENAPI_CALLERS = {
     "integrations/openapi/executor.py": "defines it, over the private raw transport",
     "workflows/runtime.py": "binds it only for a plan with legacy_guarded_effects and no governed context (development profile)",
+}
+
+
+#: Every production module that names the DEVELOPMENT-PROFILE draft-preview entry (``execute_legacy_openapi_draft_preview``): it sends any method for the operator's
+#: draft preview (EP-033) with no proposal, approval, lease or receipt. Only the preview route may, and it picks it only outside the reference profile (#1072).
+LEGACY_PREVIEW_CALLERS = {
+    "integrations/openapi/executor.py": "defines it, over the private raw transport",
+    "routes/openapi_integrations.py": "the draft preview route, only outside the reference profile (development: exempt, gated by allow_in_preview)",
 }
 
 
@@ -465,6 +473,10 @@ def test_the_raw_openapi_executor_is_named_only_by_pinned_callers() -> None:
 
 def test_the_development_profile_legacy_entry_is_named_only_by_the_runtime() -> None:
     assert _modules_naming({"bind_legacy_openapi_http_tool"}) == set(LEGACY_OPENAPI_CALLERS)
+
+
+def test_the_development_profile_preview_entry_is_named_only_by_the_preview_route() -> None:
+    assert _modules_naming({"execute_legacy_openapi_draft_preview"}) == set(LEGACY_PREVIEW_CALLERS)
 
 
 def test_the_private_raw_transport_is_named_only_by_pinned_modules() -> None:
