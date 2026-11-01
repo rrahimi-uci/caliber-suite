@@ -357,6 +357,33 @@ configuration it resolves the environment normally. The selected sandbox backend
 intentionally empty module allowlist are therefore preserved, so a workflow does not
 silently change binding policy by being exported.
 
+### 7.2 A tool a model chooses in an agent loop
+
+In an agent loop the **model** picks the tool and its arguments, so a call is classified when it is made, from the tool's registry
+row (or, for an MCP tool, the server record and the administrator's tool policy), never from what the model or the manifest
+claims. A `read`-class tool runs inline. In a governed plan a protected tool (anything not `read`) does not run:
+
+- **In a loop** (a deployed workflow's agent node) the call is refused before the tool is entered and the model is told only the
+  tool's name and a fixed code:
+
+  ```json
+  {"_refused": true, "tool": "open_ticket", "code": "protected_tool_requires_governed_step"}
+  ```
+
+  Other codes name why a call cannot be classified: `registry_row_mismatch` (the binding is not the registry row),
+  `registry_row_unreadable`, `unsupported_effect_path` (a built-in the reference profile refuses), an OpenAPI preflight code such
+  as `openapi_operation_unresolved`, or the MCP gate's code (`mcp_tool_unclassified`). Recovery: make the call a workflow tool
+  node (it is proposed, approved and dispatched there), or run the agent as a governed step.
+- **In a governed agent step** the model supplies the tool's arguments and the platform does the rest: the proposal carries the
+  name of the function the model called, the connector, version, class and resource come from the tool's registry row, the
+  arguments are checked against the row's `input_schema`, and the step records one `proposed` effect and an approval request and
+  parks the run (`waiting_approval:<node>`). A refused proposal is a run error such as
+  `governed agent step proposal refused: tool_input_invalid` or `... unknown_tool`.
+
+The development profile with no governed context keeps the earlier inline behaviour and a standalone export is not governed;
+see [Model-selected tool calls](m-64-reference-profile.md#model-selected-tool-calls-b046-768) for the table of what each
+plan does, and the call-site inventory test `tests/test_model_tool_call_sites.py` for every place a model's call is executed.
+
 ## 8. Observability and operations
 
 The module surfaces enough signal to evaluate, compare, and debug tools over

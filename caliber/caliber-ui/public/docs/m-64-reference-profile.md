@@ -3357,10 +3357,10 @@ settles them after ([B08.4](#token-reservations-reserved-before-the-call-charged
 `run_agent` path is unchanged. It adds no route, table or setting; `step_clock` is an optional test clock, defaulting to UTC now.
 
 - **Tools.** Read tools are offered with their normal Responses function schema and are executed only from
-  `step_input.read_tools`. Every other bound tool is offered with a strict proposal envelope (`connector`,
-  `connector_version`, `effect_class`, `resource`, `args`, and optional `expected_resource_version`) and is never executed. The
-  first protected call becomes one unbound `proposed_action`; unknown tools, extra state/receipt fields and malformed JSON are
-  `malformed_result`. A response mixing read and protected calls runs none of the reads. Follow-up read results use the Responses
+  `step_input.read_tools`. Every other bound tool is offered with a strict proposal envelope (the tool's own arguments
+  under `args`, and optional `resource` and `expected_resource_version`: **no connector, version or class**, B04.6) and is never
+  executed. The first protected call becomes one unbound `proposed_action` that names the function the model called; unknown tools,
+  extra fields (a volunteered `effect_class`, `state`, `receipt_id`) and malformed JSON are `malformed_result`. A response mixing read and protected calls runs none of the reads. Follow-up read results use the Responses
   `previous_response_id`/`function_call_output` protocol.
 - **Limits and usage.** The adapter checks the request's turns, tool calls, token budget and deadline around each provider call,
   sends the remaining budget as `max_output_tokens`, bounds the provider timeout and disables SDK retries. Provider input/output/
@@ -3377,11 +3377,11 @@ adapter is `caliber.workflows.step_openai_agents` and the legacy `run_agent` pat
 through the executor and the ordinary conformance tests use a deterministic offline SDK stub.
 
 - **Tools.** Read tools are exposed with their normal function schema and are executed only from `step_input.read_tools`.
-  Protected tools are exposed with the strict proposal envelope (`connector`, `connector_version`, `effect_class`,
-  `resource`, `args`, and optional `expected_resource_version`). Their callback records the model's claim and returns a
-  fixed acknowledgment; it never resolves or calls the protected binding. The first protected call becomes one unbound
-  `proposed_action`; malformed JSON, unknown envelope fields (`state` or `receipt_id`) and invalid action values are
-  `malformed_result`.
+  Protected tools are exposed with the strict proposal envelope (`args`, and optional `resource` and
+  `expected_resource_version`; no connector, version or class, B04.6). Their callback records the call **and the name of the function
+  called** and returns a fixed acknowledgment; it never resolves or calls the protected binding. The first protected call becomes one
+  unbound `proposed_action` that names the tool; malformed JSON, unknown envelope fields (`effect_class`, `state` or `receipt_id`) and
+  invalid action values are `malformed_result`.
 - **Limits and usage.** The request's deadline is checked before the provider call, `max_turns` is passed to the Agents
   Runner, `max_tool_calls` stops read callbacks before another read runs, and provider usage above `max_tokens` returns
   `max_tokens` with the usage retained. Provider input/output/total usage and cached input tokens are summed over raw
@@ -3411,11 +3411,12 @@ now). It takes the step's request and `AgentStepInput` and answers with the type
 
 - **Tools.** Every tool of the agent is offered to the model, in two kinds. A **read tool** (a name in `step_input.read_tools`
   whose binding does not require approval) is offered with its own input schema, run only from `read_tools` when called, and its
-  result goes back to the model. Anything else is a **proposal**: it is offered with the proposal as its input (`connector`,
-  `connector_version`, `effect_class`, `resource`, the tool's own arguments under `args`, optional `expected_resource_version`), is
-  **never run**, and when the model calls it the step stops with `proposed_action` carrying that one action. `effect_class` and
-  `connector_version` are the model's claims: the action is not `platform_bound` and `bound_to` refuses a claim that differs from the
-  platform's. A call of a tool the agent does not have, or a proposal with a field the schema does not define (a `state` or
+  result goes back to the model. Anything else is a **proposal**: it is offered with the proposal as its input (the tool's own
+  arguments under `args`, optionally the `resource` it is asked to name and an `expected_resource_version`; **no connector, version or
+  class**, B04.6), is **never run**, and when the model calls it the step stops with `proposed_action` carrying that one action, which
+  names the function called (`ProposedAction.tool`) and holds the placeholders for the connector, version and class. The model claims
+  none of them: the platform binds them from that tool's trusted identity, and a model that volunteers one is `malformed_result`.
+  A call of a tool the agent does not have, or a proposal with a field the schema does not define (a `state` or
   `receipt_id`, a model claiming that an effect happened), is `malformed_result`. When one reply calls several protected tools, the
   first is proposed and the rest are dropped (v1 allows one action per step); parallel tool use is turned off in the request. A reply
   that mixes read and protected calls runs none of the reads. Handoff targets are not offered, and a structured-output schema is not
@@ -3458,15 +3459,17 @@ retry of the 400 "function tools with reasoning_effort"), prompt-cache keys and 
 returning an aware `datetime`, default the UTC clock), is what a step's deadline is read from.
 
 - **Read tools run only from `step_input.read_tools`.** Any other tool the model calls is never run: it is a proposal. A protected
-  tool is offered to the model with a *proposal envelope* as its parameters: `connector`, `connector_version`, `effect_class`,
-  `resource`, `args` (the tool's own arguments) and optionally `expected_resource_version`. The envelope is read strictly (an
-  unknown key such as `state` or `receipt_id`, a missing or mistyped field or an invalid action is `malformed_result`), so a model
-  that says an effect happened is unreadable, never recorded. The result is `proposed_action` with one `ProposedAction`
-  whose `effect_class` and `connector_version` are **the model's claims** (`platform_bound` is false; B08.2 binds them to the
-  protected-effect inventory and refuses a mismatch). If one response calls several protected tools the first is proposed and
-  the rest of that response, read calls included, does not run. A call to a tool the agent does not have is `malformed_result`.
-  The envelope carries the connector the *model* names: a `ProposedAction` has no tool-name field, so the platform ties a
-  proposal to the agent's tools through a trusted tool-to-backend map (see the B08.2 section below).
+  tool is offered to the model with a *proposal envelope* as its parameters: `args` (the tool's own arguments) and optionally
+  `resource` and `expected_resource_version`. **The model is asked for no connector, connector version or effect class** (B04.6,
+  #768): the proposal carries the name of the function it called (`ProposedAction.tool`) and the platform binds the rest from that
+  tool's trusted identity. The envelope is read strictly (an unknown key such as `effect_class`, `state` or `receipt_id`, a missing
+  `args`, a mistyped field or an invalid action is `malformed_result`), so a model that says an effect happened, or claims a class,
+  is unreadable, never recorded. The result is `proposed_action` with one `ProposedAction` (`platform_bound` is false; its
+  connector, version and class are the placeholders `unclaimed` / `read`, which the platform ignores). If one response calls
+  several protected tools the first is proposed and the rest of that response, read calls included, does not run. A call to a tool
+  the agent does not have is `malformed_result`. `ProposedAction.tool` is optional in the v1 result schema and is not part of the
+  intent, its digest or the stored proposal; a proposal without it (a third-party or scripted adapter) is still bound from the
+  connector and resource it claims, as before (see the B08.2 section below).
 - **Limits come from the request.** `max_turns` counts provider responses; `max_tool_calls` counts read tools run, all or none per
   response; `max_tokens` is compared with the provider's total before each call and after each response (more than the limit
   stops with `max_tokens` whatever the model wanted; exactly the limit is allowed but leaves nothing for another call); the
@@ -3596,10 +3599,9 @@ Not covered, so not claimed: dispatching an approved proposal (an approved propo
 `waiting_approval` until the producer that owns the execution lease resumes it and dispatches, #1051; B04.6 records proposals
 of registered, OpenAPI and MCP tools in the node's own intent shape so the existing backends can send them, see
 [Model-selected tool calls](#model-selected-tool-calls-b046-768)), the token reservation
-(B08.4), handoffs, inline targets and parallel branches (refused), and the output text of a governed step (a step that completes is refused). The
-v1 proposal still carries no tool name, so within a connector the class is the strictest of the tools that map to it; an additive
-contract change (the tool name in the envelope) would make it exact. Telling the model the connector, version and class to claim
-is an adapter concern.
+(B08.4), handoffs, inline targets and parallel branches (refused), and the output text of a governed step (a step that completes is refused). A
+proposal that does not name its tool (a scripted or third-party adapter that still claims its target) is bound within a connector at
+the strictest class of the tools that map to it; the shipped adapters name the tool (B04.6), which makes the class exact.
 
 ## Model-selected tool calls (B04.6, #768)
 
@@ -3646,12 +3648,17 @@ EP-034: there is no workflow run to propose into; #1063) and are listed there as
 
 **A governed agent step proposes.** With `RuntimePlan.governed_agent_steps` bound, the adapter is handed only the callables the platform
 classified `read` and a protected call is one proposed action (see [Governed agent steps](#governed-agent-steps-a-protected-action-is-a-proposal-b082-744)).
-B04.6 makes that proposal exact for the three tool kinds. The model names a `connector`, a `resource` and `args` (its claims); the
-runtime's binder (`_RuntimeToolBinder`) then:
+B04.6 makes that proposal exact for the three tool kinds. **The model supplies the tool's arguments and nothing it could claim:**
+the shipped adapters offer a protected tool with `args` (and optionally the `resource` it is asked to name and an
+`expected_resource_version`), and the proposal they return carries **the name of the function the model called**
+(`ProposedAction.tool`, an optional field of the v1 result that is not part of the intent or its digest). The runtime's binder
+(`_RuntimeToolBinder`) then:
 
-1. finds the agent's tool: a candidate is a tool the platform did not classify `read` whose kind's connector is the one named
-   (`registered_tool`, `openapi-http`, `mcp-tool`), and the proposal is the candidate's only if the resource **it derives from its
-   trusted identity** is the one the model named (`resource_not_admitted` otherwise; two tools that derive different proposals are
+1. finds the agent's tool **by that name** among the agent's bindings (`unknown_tool` for a name the agent does not have;
+   `tool_not_protected` for a tool the platform classifies `read`: a read runs inline, it is never proposed). A proposal that does not
+   name its tool (a scripted or third-party adapter) is found the older way: a candidate is a tool the platform did not classify
+   `read` whose kind's connector is the one it claims, and the proposal is the candidate's only if the resource **it derives from its
+   trusted identity** is the one claimed (`resource_not_admitted` otherwise; two tools that derive different proposals are
    `connector_ambiguous`);
 2. takes the connector, resource and intent arguments from the trusted identity: the registry row (`registered-tool/<name>/<version>`
    and the node's `{tool, version, arguments, input}`), the row's operation and its checked input for OpenAPI (method, server and path
@@ -3661,7 +3668,10 @@ runtime's binder (`_RuntimeToolBinder`) then:
    registered or OpenAPI tool (`tool_input_invalid`, `openapi_input_invalid`; the binding's schema is not trusted). An MCP tool has **no
    trusted schema** (a server's discovered schema is the server's claim), so its arguments are only the bounded plain JSON every intent is
    (size, depth, control characters and surrogates are refused when the proposal is built, before any of this);
-4. refuses the model's claim if its class, connector version or precondition is not the platform's (`claim_mismatch`), and refuses a tool the
+4. holds every claim field to the platform's value: a connector, version or class that is neither the placeholder (`unclaimed`, and
+   `read` for the class, never a valid class for a protected action) nor exactly the platform's, or a precondition that differs, is
+   `claim_mismatch`. The shipped adapters never produce one (a model that volunteers a connector, version or class is
+   `malformed_result` before the platform sees anything); a third-party adapter that does is refused here. It also refuses a tool the
    producer did not allow: `GovernedStepContext.tool_backends` (registry identity `(name, version)` to backend kind, as before, now also
    `registered_tool` and `openapi_http`) and the new `GovernedStepContext.mcp_tools` (`(server_id, tool_name)` pairs; an MCP tool has no
    registry row) are the producer's allow-lists, empty by default (`connector_not_mapped`). The registry row the binder read must be the one
@@ -3682,9 +3692,9 @@ Each is a run error `governed agent step proposal refused: <code>`, with no valu
 - **Dispatching an approved proposal.** B04.6 records the proposal and its approval request and parks the run; sending it after the approval
   needs the execution-owner lease and an exact-intent authorization, which the producer binds (#1051). The recorded intent is dispatchable by
   the existing backends (a test sends one through the `registered_tool` backend), but nothing in `build_plan` resumes and dispatches yet.
-- **Telling the model what to claim.** The adapters offer a protected tool as an envelope and do not tell the model the connector, version,
-  class or resource to claim (an adapter concern, unchanged): a model that guesses wrong is refused (`claim_mismatch`,
-  `resource_not_admitted`), never repaired.
+- **A destination the model names.** A tool whose destination is the model's to choose within a connector's pattern (the document
+  request) still needs the model to name it in `resource`; a tool whose resource the platform derives (registered, OpenAPI, MCP) does not.
+  A model that names a different resource than the tool's is refused (`resource_not_admitted`), never repaired.
 - **Inline reads inside a governed step are CALIBER's own `read` built-ins.** The step classifier keeps the fail-closed class for an
   administrator-registered tool, an OpenAPI tool and an MCP tool (stricter than a node, which runs a row declared `read` inline), so those are
   neither run nor proposable in a step when they are read-class (`tool_not_protected`). It now takes the stricter of the inventory's class and
@@ -3912,7 +3922,7 @@ can run what the repository runs:
 **Run it for the shipped adapters.** The real executor classes over canned transports, every rule, offline:
 
 ```text
-cd caliber && pytest tests/conformance/test_agent_adapter_conformance.py     # 4 adapters x 40 rules
+cd caliber && pytest tests/conformance/test_agent_adapter_conformance.py     # 4 adapters x 41 rules
 pytest tests/conformance/test_suite_fails_against_broken_adapters.py         # the suite fails when an adapter is broken
 pytest tests/conformance/test_agent_adapter_governed_plan.py                 # the same adapters under the interpreter
 pytest tests/conformance/test_agent_adapter_openai_agents_real_sdk.py        # the Agents adapter on the installed SDK
@@ -3945,7 +3955,6 @@ from typing import Any
 from caliber.contracts.agent_step import (
     AgentStepRequest,
     AgentStepResult,
-    ProposedAction,
     StepUsage,
 )
 from caliber.contracts.registry import ContractValidationError
@@ -3971,12 +3980,11 @@ from caliber.workflows.agent_step import (
     StepToolBudgetExceeded,
     answer,
     failure,
+    proposal_from_call,
 )
 
 logger = logging.getLogger("acme_adapter")
 
-_ENVELOPE = {"connector", "connector_version", "effect_class", "resource", "args"}
-_OPTIONAL = {"expected_resource_version"}
 
 
 class _Unreadable(Exception):  # noqa: N818 - what the provider sent cannot be read; never carries its text
@@ -4135,20 +4143,10 @@ class ToyAdapter:
         tally: _Tally,
         step_input: AgentStepInput,
     ) -> AgentStepResult:
-        """The model's protected call as one unbound proposal: its claims are kept exactly as it made them."""
+        """The model's protected call as one unbound proposal that names the function it called, and claims nothing."""
         del step_input
-        envelope = call["arguments"]
-        if not _ENVELOPE <= set(envelope) <= _ENVELOPE | _OPTIONAL:
-            raise _Unreadable
         try:
-            action = ProposedAction(
-                connector=envelope["connector"],
-                connector_version=envelope["connector_version"],
-                effect_class=envelope["effect_class"],
-                resource=envelope["resource"],
-                args=envelope["args"],
-                expected_resource_version=envelope.get("expected_resource_version"),
-            )
+            action = proposal_from_call(call["name"], call["arguments"])
         except (ProposalError, ContractValidationError, TypeError, ValueError):
             raise _Unreadable from None
         return answer(
@@ -4233,8 +4231,8 @@ the run that turns propagation off, or output that bypasses `logging`, `warnings
 | --- | --- |
 | `completes` | A final answer completes the step and reports exactly the provider's usage |
 | `read_tool_call` | A read tool the model calls runs through read_tools, and usage sums over turns |
-| `proposes_protected_tool` | A protected tool call is one unbound proposal built from the model's call, never executed |
-| `model_lies_about_effect_class` | A claimed effect class is passed through unchanged, so binding it to the platform's class is refused |
+| `proposes_protected_tool` | A protected tool call is one unbound proposal that names the called function, never executed |
+| `model_lies_about_effect_class` | An effect class the model volunteers is refused (malformed_result), never proposed |
 | `budget_exhausted` | A response the provider cut off is a limit stop that keeps the provider's usage |
 | `provider_error` | A provider error is a typed error result carrying no provider text |
 | `provider_timeout` | A provider timeout is adapter_timeout |
@@ -4247,7 +4245,8 @@ the run that turns propagation off, or output that bypasses `logging`, `warnings
 | `lone_surrogate_refused` | A lone surrogate in a proposal is malformed: it cannot be canonicalised or stored |
 | `invalid_argument_text` | Tool arguments that are not a JSON object are malformed for a proposal, and never crash the adapter |
 | `unknown_tool_not_run` | A tool the agent does not have is never run, and the step is not completed |
-| `connector_version_claim` | A claimed connector version is passed through, so the platform can refuse it |
+| `connector_version_claim` | A connector, version or class the model volunteers is refused (malformed_result), never carried into a proposal |
+| `proposal_names_the_called_tool` | A protected tool's call (its arguments only) is a proposal that carries the called function's name and no claim |
 | `read_tools_authoritative` | Only the callables the platform classified read are run, whatever the binding says |
 | `one_proposed_action` | Two protected calls in one response are at most one proposal, and the second never runs |
 | `proposal_ends_step` | A proposal ends the step: the provider is not asked again after it |
@@ -4291,13 +4290,13 @@ model, so the emulation the conformance suite uses cannot drift from what the SD
 already builds `FunctionTool(needs_approval=..., timeout_seconds=...)`, which `openai-agents` 0.0.7 does not accept, so the declared
 minimum `>=0.0.7` is stale for the adapter as a whole; follow-up.)
 
-**The suite has been shown to fail.** `tests/conformance/broken_adapters.py` holds 38 deliberately broken adapters, each the reference
+**The suite has been shown to fail.** `tests/conformance/broken_adapters.py` holds 39 deliberately broken adapters, each the reference
 adapter with exactly one defect (it runs a protected tool, strips a claimed `receipt_id` and proposes anyway, forgets usage on a cut-off,
 fabricates figures for a response without usage, retries a provider call, swallows a cancellation, misses an asyncio timeout, logs the
 model's text or the provider's exception, hands a tool's exception message to the provider, offers a handoff target, ignores a limit,
 carries the first step's result into the second, rewrites the limits of the request it was handed), and
 `test_suite_fails_against_broken_adapters.py` requires that each fails the rule written for it for a reason the rule states, and that the
-intact adapter passes all 40. The rules the boundary decides (`limits_before_work`, `adapter_cannot_raise_limits`,
+intact adapter passes all 41. The rules the boundary decides (`limits_before_work`, `adapter_cannot_raise_limits`,
 `invalid_request_refused` and the copy half of `input_isolation`) are shown to fail against a boundary with that enforcement removed.
 
 **Inside a governed plan** (`test_agent_adapter_governed_plan.py`, SQLite, the real interpreter and reservation ledger): for each shipped
@@ -4308,7 +4307,7 @@ whole reservation (`conservative`) and carry no provider text into the run error
 attempt keeps its reservation, and its retry is reserved again and calls the provider once; a cancelled step leaves its reservation open
 and counted in full; and a governed agent with a handoff is refused before any adapter runs.
 
-A failure reads like this (a reference adapter that retries a failed provider call; 3 of its 40 rules failed). The output
+A failure reads like this (a reference adapter that retries a failed provider call; 3 of its 41 rules failed). The output
 is what the suite prints, and `test_example_third_party_adapter.py` runs it again and requires these lines:
 
 ```text
