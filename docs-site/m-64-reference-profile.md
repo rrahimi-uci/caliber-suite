@@ -3984,11 +3984,11 @@ A value outside its bounds stops the service at startup, naming the setting; the
 that is not an integer in those bounds (a boolean is not a count).
 
 **Idempotent, and a replay is not a second call.** A duplicate request for the same step returns the **same** reservation (`created`
-false) and never reserves twice, whatever the budget is by then. A step that is handed a reservation it did not create (a restarted
-run and the one that was never stopped both reach it, or the same attempt runs again after a crash) is refused with
+false) and never reserves twice, whatever the budget is by then. A step that is handed a reservation it did not create (two resumers of
+one step both derive the same attempt and race for it) is refused with
 `governed agent step token reservation refused: reservation_replayed` and its adapter is not called: the earlier call may have spent,
-and the platform will not call the provider again on that strength. A retry of the node is the next `attempt` and takes its **own**
-reservation, so the attempts of one occurrence add up against the run. A step the platform stops before work
+and the platform will not call the provider again on that strength. A retry of the node, and a resume after a crash, are the next `attempt`
+(see below) and take their **own** reservation, so the attempts of one occurrence add up against the run. A step the platform stops before work
 (`before_work_stop`: no turn or token, a deadline already past) and an executor that is not an adapter reach no provider and reserve
 nothing, so nothing is ever released for them. **There is no release.**
 
@@ -4038,16 +4038,31 @@ unread; downgrading the migration drops the table and loses the charges counted 
 | the step | result | recover by |
 | --- | --- | --- |
 | would take the run past its budget | `token_budget_exhausted`, nothing reserved, adapter not called | a larger `CALIBER_AGENT_RUN_MAX_TOKENS` (a new run: a finished run's budget is its own) |
-| runs again on an attempt that holds a reservation (a node retry in the same process, or a process-level re-execution) | `reservation_replayed`, adapter not called | a node retry is the next attempt and reserves afresh; after a crash the attempt counter restarts at 1, so the resumed governed node is refused and the run fails: start a new run (see the known limit below) |
+| reaches an attempt that already holds a reservation (two resumers of one step racing for the same derived attempt) | `reservation_replayed`, adapter not called | nothing: the other resumer holds the reservation and calls the provider. A node retry, and a resume after a crash, are the next attempt and reserve afresh |
 | the store cannot reserve | `store_failed`, adapter not called | the database; nothing was reserved |
 | the worker died or was cancelled mid-call | the reservation stays `reserved`, counted in full, then `abandoned` after the grace | nothing: it is already charged; see the [recovery runbook](m-65-recovery-runbook.md#a-governed-step-refused-for-its-token-budget-or-left-a-reservation-open) |
 
-**Known limit: crash recovery of a governed step is terminal (follow-up #1073).** The attempt counter (`_STEP_ATTEMPT`) restarts at 1 on every
-process-level re-execution of a run. After a crash between the reservation and the settlement (or between the settlement and the
-recording of the proposal) the resumed governed node reaches the same `(run, node, occurrence, attempt)`, finds the reservation, and is
-refused with `reservation_replayed`: the run fails and only a new run proceeds. That fails closed and avoids a second provider spend
-under one reservation, but it means a governed step cannot be resumed after a crash. The follow-up is to persist or derive the attempt so
-a legitimate resume reuses or supersedes the open reservation safely.
+**Resuming a governed step after a crash.** The runtime's attempt counter (`_STEP_ATTEMPT`) restarts at 1 whenever a process re-executes a run,
+so the attempt a governed node takes is derived from what is stored before its context manifest and request are built:
+`next_attempt` returns the larger of the counter and one past the highest attempt the `(run, node, occurrence)` has reserved, in
+any state. The `step_request_id`, the context manifest and the reservation therefore carry one attempt. A node resumed after a crash
+between the reservation and the settlement, or between the settlement and the recording of the proposal, is the next attempt and takes its
+own reservation; the earlier attempt's reservation is never touched (open, settled or abandoned, it keeps counting in full), so the run's
+budget adds up both attempts and the resume can be refused for budget (`token_budget_exhausted`) like any other step. The resumed call is
+a second provider call: the first call's outcome is unknown, and the platform charges it conservatively rather than reuse its reservation.
+A proposal already recorded for the occurrence still short-circuits the step before any attempt is derived, so a step resumed after its
+proposal was recorded asks nothing and reserves nothing, and the effect is one per occurrence however many attempts ran. Two resumers
+of one step that derive the same attempt meet at the unique key: one reserves and calls the provider, the other is handed that row and is refused
+with `reservation_replayed` before it reaches the provider. **A resume cannot tell a live earlier worker from a dead one.** A worker B that starts the same step after worker A has reserved
+attempt 1 but before A has settled it derives attempt 2 and makes a second, concurrent provider call under its own reservation (before this
+change B was refused with `reservation_replayed`). Both calls are charged in full and the run budget bounds the spend; the occurrence still
+has one proposal and one approval request, and dispatching the approved effect still needs the execution-owner lease. `reserve_step_tokens`
+and `next_attempt` do not check the lease themselves, so what keeps two workers off one run is the worker's own run claim, not the
+reservation. **Crash loops burn budget.** Each crash leaves its whole ceiling counted and nothing releases it, so repeated crashes of one step
+accumulate full ceilings against the run until a resume is refused with `token_budget_exhausted`; the remedy is a larger
+`CALIBER_AGENT_RUN_MAX_TOKENS` or a new run. Nothing is persisted for this (no migration): the attempt is read from the
+reservations, and a store that cannot be read refuses the step with `store_failed`. Only a governed step with an adapter executor derives
+an attempt; the development profile and every ungoverned node keep the plain counter.
 
 Deleting a workflow whose runs hold reservations is refused with `409` (`cannot delete workflow: its runs have step token
 reservations`), like run manifests and effect proposals.
@@ -4058,12 +4073,13 @@ reservations are open and final. No route lists reservations yet.
 **For the conformance suite (#769).** `reserve_step_tokens(session_factory, request, run_budget_tokens=...)` returns a
 `StepReservation` (`created`, `state`, `reserved_tokens`, `charged_tokens`, `charge_basis`) or raises `ReservationRefused` whose `code`
 is one of `token_budget_exhausted`, `reservation_replayed`, `request_invalid`, `budget_invalid`, `run_not_found`,
-`reservation_mismatch`; `settle_step_tokens(session_factory, reservation, result)` returns the final row; `charge_for(reserved, result)`
+`reservation_mismatch`; `next_attempt(session_factory, run, node, occurrence, floor=...)` is the attempt a resumed step takes (one past the highest reserved, never below `floor`);
+`settle_step_tokens(session_factory, reservation, result)` returns the final row; `charge_for(reserved, result)`
 is the pure rule; `abandon_stale(session_factory, lease, grace_seconds=...)` is the owner janitor. The scenario
 `tests/egi_scenarios/test_v08_timeout_retry.py::test_budget_refuses_before_call` and the PostgreSQL races in
 `tests/egi_scenarios/test_b08_token_reservation.py` are the oracle; `tests/conformance/test_agent_adapter_governed_plan.py` runs each
 provider adapter through the reservation (charged as reported for honest usage, the whole reservation for every other result, no second
-provider call on a replay).
+provider call under one reservation).
 
 ## Adapter conformance suite: the rules every provider adapter passes (B08.5, #769)
 
@@ -4463,8 +4479,8 @@ intact adapter passes all 41. The rules the boundary decides (`limits_before_wor
 **Inside a governed plan** (`test_agent_adapter_governed_plan.py`, SQLite, the real interpreter and reservation ledger): for each shipped
 adapter, a protected call is one recorded proposal charged as reported with the protected tool's mutation counter at zero; a lying effect
 class records nothing; a provider error, a timeout, unreadable, missing or malformed usage, and a claimed commit are each charged the
-whole reservation (`conservative`) and carry no provider text into the run error or the log; a replayed step is refused with
-`reservation_replayed` and its provider is not reached again; a step past the run's budget never reaches the provider; a timed-out
+whole reservation (`conservative`) and carry no provider text into the run error or the log; a re-executed step is the next attempt, reserved
+and charged on its own (the earlier call stays charged, and the provider is reached once for each reservation); a step past the run's budget never reaches the provider; a timed-out
 attempt keeps its reservation, and its retry is reserved again and calls the provider once; a cancelled step leaves its reservation open
 and counted in full; and a governed agent with a handoff is refused before any adapter runs.
 
@@ -4954,9 +4970,14 @@ from caliber.acceptance import HARBORLIGHT_V1, Observations, evaluate_all
 
 observations = Observations(
     {
-        "proposal": {"document_type": "pay_statement", "expected_version": 1},
+        "proposal": {
+            "case_id": "MORT-2026-000184",
+            "document_type": "pay_statement",
+            "expected_version": 1,
+        },
         "receipt": {"downstream_request_id": "DR-0001"},
         "case_record": {
+            "case_id": "MORT-2026-000184",
             "version": 2,
             "document_requests": [
                 {"request_id": "DR-0001", "document_type": "pay_statement", "case_version": 2}
@@ -4971,49 +4992,61 @@ for result in evaluate_all(HARBORLIGHT_V1, observations):
 ```
 
 - **`Observations`** is a frozen mapping of downstream reads and receipts. Dictionaries become read-only mappings and lists
-  become tuples; the source is copied. Only JSON-shaped values are accepted (strings, integers, finite floats, booleans, `None`,
-  string-keyed mappings, lists, at most 32 levels deep), so nothing a predicate sees can change underneath it. `as_dict()`
-  returns a plain copy for a digest or a stored record.
-- **`Predicate(id, criteria_version, rule_ids, evaluate)`** is one criterion. `id` and each `rule_id` are lower-case identifiers
+  become tuples; the source is copied. Only JSON-shaped values are accepted: exact built-in strings, integers, finite floats,
+  booleans and `None` (a `str` or `int` subclass is refused, because it can override equality), string-keyed mappings and lists,
+  at most 32 levels of nesting (the top mapping is level 1), so nothing a predicate sees can change underneath it. A mapping or
+  list whose accessors raise is refused, not propagated. The number of entries is not bounded here; the caller bounds what it
+  reads. `as_dict()` returns a plain copy for a digest or a stored record.
+- **`Predicate(id, criteria_version, rule_ids, evaluate)`** is one criterion (all predicates of a set are critical: a failed one rejects the candidate; there is no `critical` flag). `id` and each `rule_id` are lower-case identifiers
   (`[a-z0-9][a-z0-9._-]{0,127}`, the shape of a rule id in a rule bundle) and `criteria_version` is
   `[a-z0-9][a-z0-9._-]{0,63}`. `evaluate` returns a `CriterionResult(predicate_id, passed, evidence_ref)` whose `evidence_ref` is
   the RFC 6901 JSON pointer, into the observations, of the value that decided it.
 - **`evaluate_all(predicates, observations)`** returns every result in the order given and does not stop at a failure. All the
   predicates must share one `criteria_version` (a decision is made under one version).
 
-**Harborlight, `HARBORLIGHT_V1`** (criteria version `harborlight-v1`) reads `proposal.document_type`,
-`proposal.expected_version`, `case_record.document_requests[]` (each with `request_id`, `document_type`, `case_version`) and an
-optional `receipt.downstream_request_id`:
+**Harborlight, `HARBORLIGHT_V1`** (criteria version `harborlight-v1`) reads three keys, **all required**:
+`proposal` (`case_id`, `document_type`, `expected_version`), `receipt` (`downstream_request_id`) and `case_record` (`case_id` and
+`document_requests[]`, each with `request_id`, `document_type`, `case_version`):
 
 | Predicate | Passes when |
 | --- | --- |
-| `document_request_exists` | the case record lists a request whose `document_type` is exactly the proposal's |
-| `attached_to_expected_version` | such a request's `case_version` is `expected_version + 1` |
+| `document_request_exists` | the case record lists the request the receipt names, with exactly the proposal's `document_type` |
+| `attached_to_expected_version` | that request's `case_version` is `expected_version + 1` |
 
-Both **fail closed**: a missing, malformed or ambiguous value is a failed criterion, never an exception and never a pass. Every
-failure points at what was wrong, for example `/proposal/expected_version` for a version that is missing, not an integer, a
-boolean or negative, `/case_record/document_requests` when no request of the type is listed, and
-`/case_record/document_requests/0/case_version` when the request is listed at the wrong version (a downstream that answered `2xx`
-and left the case where it was: the false success, gap analysis V11).
+Both **fail closed**: a missing, malformed, mismatched or ambiguous value is a failed criterion, never an exception and never a
+pass. Every failure points at what was wrong:
 
-Two choices are worth knowing:
+| `evidence_ref` | Meaning |
+| --- | --- |
+| `/proposal/document_type`, `/proposal/expected_version` | missing, not a (non-empty) string, or not a non-negative integer (a boolean is not an integer) |
+| `/case_record/case_id` | the proposal's `case_id` is missing or empty, or the record is of another case (compared exactly) |
+| `/case_record/document_requests` | the list is missing or not a list, or the receipt's request is not listed (or is listed with another `document_type`) |
+| `/receipt/downstream_request_id` | no usable receipt: the acceptance is judged against nothing |
+| `/case_record/document_requests/N/request_id` | the same `request_id` is listed twice (the receipt would not identify one request) |
+| `/case_record/document_requests/N/case_version` | the request is listed at the wrong or a non-integer version: a downstream that answered `2xx` and left the case where it was, the false success of gap analysis V11 |
+
+Three choices are worth knowing:
 
 - **`expected_version + 1`, not `expected_version`.** The downstream (and the connector that dispatches to it) stamps a stored
   request with the case version **after** its mutation, one more than the `If-Match` it was sent; the document-request
   connector's own lookup check uses the same rule. A literal equality with the proposal's expected version would reject every
   real success, and equality with it now means the downstream did not advance the case.
-- **A receipt, when supplied, is binding.** With `receipt.downstream_request_id` only that request is judged, and a receipt
-  without a usable id fails both criteria. Without a receipt every request of the proposal's type is a candidate, so a refused
-  second proposal for the same document type could be accepted on the first one's request; a caller that holds a receipt (every
-  governed dispatch does) must supply it.
+- **The receipt is required and binding.** Only the request the receipt names is judged. Without that, a refused second
+  proposal for the same document type would be accepted on the first proposal's request. A dispatch that was refused has no
+  receipt and so is not accepted.
+- **The case must be the proposal's.** A case record of another case, or a proposal that names none, proves nothing.
+
+The proposal's `expected_version` is an integer here; the connector's `ProposalView.expected_resource_version` is a string, so
+a caller converts it (and refuses a value that is not a decimal integer) before it builds the observations.
 
 **Contract errors are raised, not judged.** `PredicateError` carries a stable `code` and a message that names a JSON pointer and
 never an observation value: `invalid_observations` (not a mapping, not JSON-shaped, too deep, a non-string key, a non-finite
 number, or observations that were not frozen into `Observations`), `invalid_predicate` (a bad id, criteria version or rule id, a
 non-callable `evaluate`, something that is not a `Predicate`), `empty_predicate_set` (a decision over nothing would accept
 everything), `duplicate_predicate_id`, `mixed_criteria_versions`, `predicate_failed` (a predicate raised; the original is the
-`__cause__`) and `invalid_result` (not the predicate's own `CriterionResult`). Recovery: fix the caller; none of these is retried
-or turned into a rejection of a run.
+`__cause__`) and `invalid_result` (not the predicate's own `CriterionResult`). Recovery: fix the caller. The one exception is
+`invalid_observations` raised while building `Observations` from what a downstream returned (a NaN, a non-JSON value, too deep):
+the caller must catch it and record the acceptance as rejected for that reason, not let it crash the run.
 
 **Configuration, migration and rollback.** No setting, no migration, no endpoint and no stored data: nothing calls these
 predicates yet. Persisting a decision (#784), the runtime and status integration (#791), recording observations (#799) and replay
