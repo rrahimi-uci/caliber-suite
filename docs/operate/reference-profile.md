@@ -4000,11 +4000,11 @@ A value outside its bounds stops the service at startup, naming the setting; the
 that is not an integer in those bounds (a boolean is not a count).
 
 **Idempotent, and a replay is not a second call.** A duplicate request for the same step returns the **same** reservation (`created`
-false) and never reserves twice, whatever the budget is by then. A step that is handed a reservation it did not create (a restarted
-run and the one that was never stopped both reach it, or the same attempt runs again after a crash) is refused with
+false) and never reserves twice, whatever the budget is by then. A step that is handed a reservation it did not create (two resumers of
+one step both derive the same attempt and race for it) is refused with
 `governed agent step token reservation refused: reservation_replayed` and its adapter is not called: the earlier call may have spent,
-and the platform will not call the provider again on that strength. A retry of the node is the next `attempt` and takes its **own**
-reservation, so the attempts of one occurrence add up against the run. A step the platform stops before work
+and the platform will not call the provider again on that strength. A retry of the node, and a resume after a crash, are the next `attempt`
+(see below) and take their **own** reservation, so the attempts of one occurrence add up against the run. A step the platform stops before work
 (`before_work_stop`: no turn or token, a deadline already past) and an executor that is not an adapter reach no provider and reserve
 nothing, so nothing is ever released for them. **There is no release.**
 
@@ -4054,16 +4054,31 @@ unread; downgrading the migration drops the table and loses the charges counted 
 | the step | result | recover by |
 | --- | --- | --- |
 | would take the run past its budget | `token_budget_exhausted`, nothing reserved, adapter not called | a larger `CALIBER_AGENT_RUN_MAX_TOKENS` (a new run: a finished run's budget is its own) |
-| runs again on an attempt that holds a reservation (a node retry in the same process, or a process-level re-execution) | `reservation_replayed`, adapter not called | a node retry is the next attempt and reserves afresh; after a crash the attempt counter restarts at 1, so the resumed governed node is refused and the run fails: start a new run (see the known limit below) |
+| reaches an attempt that already holds a reservation (two resumers of one step racing for the same derived attempt) | `reservation_replayed`, adapter not called | nothing: the other resumer holds the reservation and calls the provider. A node retry, and a resume after a crash, are the next attempt and reserve afresh |
 | the store cannot reserve | `store_failed`, adapter not called | the database; nothing was reserved |
 | the worker died or was cancelled mid-call | the reservation stays `reserved`, counted in full, then `abandoned` after the grace | nothing: it is already charged; see the [recovery runbook](recovery-runbook.md#a-governed-step-refused-for-its-token-budget-or-left-a-reservation-open) |
 
-**Known limit: crash recovery of a governed step is terminal (follow-up #1073).** The attempt counter (`_STEP_ATTEMPT`) restarts at 1 on every
-process-level re-execution of a run. After a crash between the reservation and the settlement (or between the settlement and the
-recording of the proposal) the resumed governed node reaches the same `(run, node, occurrence, attempt)`, finds the reservation, and is
-refused with `reservation_replayed`: the run fails and only a new run proceeds. That fails closed and avoids a second provider spend
-under one reservation, but it means a governed step cannot be resumed after a crash. The follow-up is to persist or derive the attempt so
-a legitimate resume reuses or supersedes the open reservation safely.
+**Resuming a governed step after a crash.** The runtime's attempt counter (`_STEP_ATTEMPT`) restarts at 1 whenever a process re-executes a run,
+so the attempt a governed node takes is derived from what is stored before its context manifest and request are built:
+`next_attempt` returns the larger of the counter and one past the highest attempt the `(run, node, occurrence)` has reserved, in
+any state. The `step_request_id`, the context manifest and the reservation therefore carry one attempt. A node resumed after a crash
+between the reservation and the settlement, or between the settlement and the recording of the proposal, is the next attempt and takes its
+own reservation; the earlier attempt's reservation is never touched (open, settled or abandoned, it keeps counting in full), so the run's
+budget adds up both attempts and the resume can be refused for budget (`token_budget_exhausted`) like any other step. The resumed call is
+a second provider call: the first call's outcome is unknown, and the platform charges it conservatively rather than reuse its reservation.
+A proposal already recorded for the occurrence still short-circuits the step before any attempt is derived, so a step resumed after its
+proposal was recorded asks nothing and reserves nothing, and the effect is one per occurrence however many attempts ran. Two resumers
+of one step that derive the same attempt meet at the unique key: one reserves and calls the provider, the other is handed that row and is refused
+with `reservation_replayed` before it reaches the provider. **A resume cannot tell a live earlier worker from a dead one.** A worker B that starts the same step after worker A has reserved
+attempt 1 but before A has settled it derives attempt 2 and makes a second, concurrent provider call under its own reservation (before this
+change B was refused with `reservation_replayed`). Both calls are charged in full and the run budget bounds the spend; the occurrence still
+has one proposal and one approval request, and dispatching the approved effect still needs the execution-owner lease. `reserve_step_tokens`
+and `next_attempt` do not check the lease themselves, so what keeps two workers off one run is the worker's own run claim, not the
+reservation. **Crash loops burn budget.** Each crash leaves its whole ceiling counted and nothing releases it, so repeated crashes of one step
+accumulate full ceilings against the run until a resume is refused with `token_budget_exhausted`; the remedy is a larger
+`CALIBER_AGENT_RUN_MAX_TOKENS` or a new run. Nothing is persisted for this (no migration): the attempt is read from the
+reservations, and a store that cannot be read refuses the step with `store_failed`. Only a governed step with an adapter executor derives
+an attempt; the development profile and every ungoverned node keep the plain counter.
 
 Deleting a workflow whose runs hold reservations is refused with `409` (`cannot delete workflow: its runs have step token
 reservations`), like run manifests and effect proposals.
@@ -4074,12 +4089,13 @@ reservations are open and final. No route lists reservations yet.
 **For the conformance suite (#769).** `reserve_step_tokens(session_factory, request, run_budget_tokens=...)` returns a
 `StepReservation` (`created`, `state`, `reserved_tokens`, `charged_tokens`, `charge_basis`) or raises `ReservationRefused` whose `code`
 is one of `token_budget_exhausted`, `reservation_replayed`, `request_invalid`, `budget_invalid`, `run_not_found`,
-`reservation_mismatch`; `settle_step_tokens(session_factory, reservation, result)` returns the final row; `charge_for(reserved, result)`
+`reservation_mismatch`; `next_attempt(session_factory, run, node, occurrence, floor=...)` is the attempt a resumed step takes (one past the highest reserved, never below `floor`);
+`settle_step_tokens(session_factory, reservation, result)` returns the final row; `charge_for(reserved, result)`
 is the pure rule; `abandon_stale(session_factory, lease, grace_seconds=...)` is the owner janitor. The scenario
 `tests/egi_scenarios/test_v08_timeout_retry.py::test_budget_refuses_before_call` and the PostgreSQL races in
 `tests/egi_scenarios/test_b08_token_reservation.py` are the oracle; `tests/conformance/test_agent_adapter_governed_plan.py` runs each
 provider adapter through the reservation (charged as reported for honest usage, the whole reservation for every other result, no second
-provider call on a replay).
+provider call under one reservation).
 
 ## Adapter conformance suite: the rules every provider adapter passes (B08.5, #769)
 
@@ -4479,8 +4495,8 @@ intact adapter passes all 41. The rules the boundary decides (`limits_before_wor
 **Inside a governed plan** (`test_agent_adapter_governed_plan.py`, SQLite, the real interpreter and reservation ledger): for each shipped
 adapter, a protected call is one recorded proposal charged as reported with the protected tool's mutation counter at zero; a lying effect
 class records nothing; a provider error, a timeout, unreadable, missing or malformed usage, and a claimed commit are each charged the
-whole reservation (`conservative`) and carry no provider text into the run error or the log; a replayed step is refused with
-`reservation_replayed` and its provider is not reached again; a step past the run's budget never reaches the provider; a timed-out
+whole reservation (`conservative`) and carry no provider text into the run error or the log; a re-executed step is the next attempt, reserved
+and charged on its own (the earlier call stays charged, and the provider is reached once for each reservation); a step past the run's budget never reaches the provider; a timed-out
 attempt keeps its reservation, and its retry is reserved again and calls the provider once; a cancelled step leaves its reservation open
 and counted in full; and a governed agent with a handoff is refused before any adapter runs.
 

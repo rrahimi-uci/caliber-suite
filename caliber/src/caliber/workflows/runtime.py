@@ -5426,7 +5426,8 @@ def _reserve_step_tokens(
     already past) and an executor that is not an adapter never reach a provider, so they reserve nothing. Every other step does,
     and the reservation is taken here, before any adapter code runs. A budget that is exhausted, a store that fails and a
     reservation this step already holds (an earlier call of the same run, node, occurrence and attempt may have spent: the platform
-    will not call the provider again for it) are fixed-code run errors, and the adapter is never called.
+    will not call the provider again for it; a sequential resume never meets one, because :func:`_governed_attempt` derives the next
+    attempt, so this is two resumers of one step racing) are fixed-code run errors, and the adapter is never called.
     """
     if (
         not isinstance(executor, _agent_step.AgentStepAdapter)
@@ -5449,6 +5450,37 @@ def _reserve_step_tokens(
             f"governed agent step token reservation refused: {_step_reservation.RESERVATION_REPLAYED}"
         )
     return reservation
+
+
+def _governed_attempt(
+    context: _step_proposal.GovernedStepContext, executor: WorkflowExecutor, node_id: str
+) -> int:
+    """The attempt a governed node takes now (#1073): its own counter, or one past what the occurrence already reserved if larger.
+
+    ``_STEP_ATTEMPT`` restarts at 1 whenever a process re-executes the run, so a node resumed after a crash would meet its own
+    earlier token reservation. The stored reservations decide instead (:func:`~caliber.budget.step_reservation.next_attempt`): the
+    resume is the next attempt, takes its own reservation, and the earlier one stays charged in full. It is derived before the context
+    manifest and the request are built, so the ``step_request_id``, the manifest and the reservation all carry the same attempt. It cannot tell a live earlier worker from a
+    dead one (a worker starting while another's call is in flight makes its own, charged call). An
+    executor that is not an adapter reserves nothing and keeps its own counter. A store that fails is a fixed-code run error.
+    """
+    attempt = _STEP_ATTEMPT.get()
+    if not isinstance(executor, _agent_step.AgentStepAdapter):
+        return attempt
+    try:
+        return _step_reservation.next_attempt(
+            context.session_factory,
+            context.workflow_run_id,
+            node_id,
+            _STEP_OCCURRENCE.get() or node_id,
+            floor=attempt,
+        )
+    except _step_reservation.ReservationRefused as exc:
+        raise ToolExecutionError(f"governed agent step token reservation refused: {exc}") from None
+    except Exception:
+        raise ToolExecutionError(
+            "governed agent step token reservation refused: store_failed"
+        ) from None
 
 
 def _settle_step_tokens(
@@ -5726,6 +5758,8 @@ def _run_governed_agent_node(
     if extra_tools:
         callables = {**callables, **extra_tools}
     callables = _gate_model_callables(plan, node, callables, preview=preview)
+    # The attempt is fixed here, before the context manifest and the request are built, and both read it from the counter.
+    attempt_token = _STEP_ATTEMPT.set(_governed_attempt(context, executor, nid))
     try:
         _run_agent_with_history(
             plan,
@@ -5755,6 +5789,8 @@ def _run_governed_agent_node(
         return _governed_parked_step(
             node, parked.proposal, step_request_id=parked.step_request_id, usage=parked.usage
         )
+    finally:
+        _STEP_ATTEMPT.reset(attempt_token)
     # A governed step parks (above) or raises: it never produces a turn the graph could use.
     raise AssertionError("a governed step returned a turn")  # pragma: no cover
 
