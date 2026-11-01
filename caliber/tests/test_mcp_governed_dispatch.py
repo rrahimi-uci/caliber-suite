@@ -1626,3 +1626,86 @@ def test_the_development_profile_does_not_refuse_a_first_party_database_write_by
         "proposed and approved: the policy classified it write, the refusal is the reference profile's"
     )
     assert seen == ["insert_rows"]
+
+
+# ---------------------------------------------------------------- the flag build_plan sets decides the MCP path
+
+
+@pytest.mark.parametrize(("profile", "legacy"), [("development", True), ("reference", False)])
+def test_the_flag_build_plan_sets_from_the_profile_decides_a_protected_mcp_call(
+    db_session: Session,
+    mcp: FakeMcp,
+    monkeypatch: pytest.MonkeyPatch,
+    profile: str,
+    legacy: bool,
+) -> None:
+    """End to end from ``build_plan``: a protected MCP call with no authority runs inline only in the development profile."""
+    from caliber.config import CaliberConfig
+    from caliber.db.models import CaliberWorkflowVersion
+    from caliber.workflows import promoter
+    from caliber.workflows.runtime import ToolExecutionError
+    from tests.test_workflow_promoter import _seed_workflow, _version
+    from tests.workflow_helpers import fake_resolver
+
+    own = sessionmaker(bind=db_session.get_bind())
+    use_database(monkeypatch, own)
+    seed_server(own)
+    _seed_workflow(db_session)
+    db_session.add(_version())
+    db_session.commit()
+    version = db_session.get(CaliberWorkflowVersion, "wfv-1")
+    assert version is not None
+    plan = promoter.build_plan(
+        db_session, version, resolver=fake_resolver(), config=CaliberConfig(profile=profile)
+    )
+    assert plan.legacy_guarded_effects is legacy and plan.governed_effects is None
+    plan.mcp_identity = None  # the seeded row is not visible to the workflow's identity; the flag is what is under test
+    monkeypatch.setenv("CALIBER_PROFILE", profile)
+
+    def route() -> Any:
+        return runtime_module._governed_mcp_route(
+            plan,
+            node_id="n",
+            server_id=SERVER_ID,
+            tool_name="issue_write",
+            timeout_seconds=30,
+            arguments={},
+            preview=False,
+        )
+
+    if legacy:
+        assert route() is None, "the development profile keeps the inline path"
+    else:
+        with pytest.raises(ToolExecutionError, match="requires a governed effect context"):
+            route()
+    assert mcp.calls == []
+
+
+# ---------------------------------------------------------------- a managed sidecar host is the first-party DB server
+
+
+@pytest.mark.usefixtures("reference")
+def test_a_write_tool_named_like_a_database_write_on_a_sidecar_host_is_refused_and_elsewhere_proposed(
+    factory: sessionmaker[Session], mcp: FakeMcp, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The compose stack's database servers are remote sidecars: on an attested host the EP-114 refusal applies, elsewhere not."""
+    monkeypatch.setenv("CALIBER_MCP_MANAGED_SIDECAR_HOSTS", "mcp-db-relational")
+    monkeypatch.setenv("CALIBER_MCP_REMOTE_HOST_ALLOWLIST", "mcp-db-relational,mcp.example.test")
+    seed_server(
+        factory,
+        server_id="MCP-sidecar",
+        name="sidecar",
+        uri="https://mcp-db-relational:8101/mcp",
+        tools={"insert_rows": server_policy("write")},
+        discovered=["insert_rows"],
+    )
+    seed_server(factory, tools={"insert_rows": server_policy("write")}, discovered=["insert_rows"])
+
+    on_sidecar = McpRun(factory, mcp_node_manifest("insert_rows", server_id="MCP-sidecar"))
+    refused = on_sidecar.execute()
+    assert "unsupported_effect_path" in (refused.error or "")
+    assert on_sidecar.authorized == [] and proposals(factory) == [] and mcp.calls == []
+
+    elsewhere = node_run(factory, "insert_rows")
+    assert elsewhere.execute().status == "completed"
+    assert len(elsewhere.authorized) == 1

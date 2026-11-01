@@ -455,6 +455,7 @@ def _read_calls(
             tool_callables=tools,
             bindings=bindings,
             fallback_input=loop.step_input.input_text,
+            error_detail=False,
         )
         tally.tool_calls += 1
         messages.append({"role": "tool", "tool_call_id": call.id, "content": text})

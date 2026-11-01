@@ -329,6 +329,10 @@ ignore = [
     "F841",     # unused locals captured for clarity
     "ERA001",   # commented-out example payloads
 ]
+# Test support that ships with the package (B08.5): the conformance rules compare against exact figures the scripts stage (a
+# 1200-token reply against a 1000-token limit), which a named constant per number would only obscure.
+"src/caliber/testing/adapter_conformance.py" = ["PLR2004"]
+"src/caliber/testing/agent_step_conformance.py" = ["PLR2004"]
 # The local storage backend does deliberate low-level filesystem work
 # (os.open O_NOFOLLOW, fsync, atomic os.replace) that pathlib does not model,
 # implements a Protocol whose signatures carry params it doesn't all use, and
