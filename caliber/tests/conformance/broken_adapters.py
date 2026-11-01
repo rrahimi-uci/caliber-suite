@@ -1,4 +1,4 @@
-"""Deliberately broken adapters: one per rule of the conformance suite, each a ``ToyAdapter`` with exactly one defect (B08.5, #769).
+"""Deliberately broken adapters: at least one per rule of the conformance suite, each a ``ToyAdapter`` with exactly one defect (B08.5, #769).
 
 A suite that cannot fail proves nothing. ``test_suite_fails_against_broken_adapters.py`` runs every rule against the adapter
 listed for it here and requires that the rule fails (and that the intact ``ToyAdapter`` passes every rule), so a rule that is
@@ -12,6 +12,7 @@ Rules the platform's boundary enforces whatever an adapter does (``limits_before
 
 from __future__ import annotations
 
+import asyncio
 import dataclasses
 import importlib
 import itertools
@@ -440,6 +441,50 @@ class IgnoresTheDeadline(ToyAdapter):
             return "refused"
 
 
+class AcceptsOverBudgetResponses(ToyAdapter):
+    """token_limit: a response that took the step past ``max_tokens`` is still acted on (the proposal is returned)."""
+
+    @staticmethod
+    def _over_budget(request: AgentStepRequest, tally: _Tally) -> bool:
+        return False
+
+
+class SendsToolErrorText(ToyAdapter):
+    """read_tool_failure_is_class_only: a failing read tool's exception message is handed to the provider as its result."""
+
+    @staticmethod
+    def _run_read_tool(tool: Callable[..., Any], arguments: dict[str, Any]) -> Any:
+        try:
+            return tool(**arguments)
+        except (StepToolBudgetExceeded, StepDeadlineReached):
+            raise
+        except Exception as exc:
+            return f"error: {exc}"
+
+
+class OffersHandoffTargets(ToyAdapter):
+    """offered_tools_are_the_agents_own: the model is offered a ``transfer_to_<agent>`` tool for each handoff target."""
+
+    def run_step(self, request: AgentStepRequest, step_input: AgentStepInput) -> AgentStepResult:
+        self._targets = list(step_input.handoff_agents or {})
+        return super().run_step(request, step_input)
+
+    def _call_provider(self, messages: list[dict[str, Any]], tools: list[str]) -> Any:
+        return super()._call_provider(
+            messages, [*tools, *(f"transfer_to_{t}" for t in self._targets)]
+        )
+
+
+class ReportsAsyncioTimeoutsAsErrors(ToyAdapter):
+    """asyncio_timeout_is_adapter_timeout: an ``asyncio`` timeout is not recognised (the Python 3.10 miss), so it is an error."""
+
+    def _call_provider(self, messages: list[dict[str, Any]], tools: list[str]) -> Any:
+        try:
+            return super()._call_provider(messages, tools)
+        except asyncio.TimeoutError as exc:
+            raise RuntimeError("the provider failed") from exc
+
+
 class ClampsMalformedUsage(ToyAdapter):
     """malformed_usage_charged_whole: usage that cannot be read is taken as one token."""
 
@@ -552,10 +597,14 @@ MUTANTS: tuple[Mutant, ...] = (
     Mutant("turn_limit", IgnoresTheTurnLimit),
     Mutant("tool_call_limit", IgnoresTheToolCallLimit),
     Mutant("token_limit", IgnoresTheTokenLimit),
+    Mutant("token_limit", AcceptsOverBudgetResponses),
+    Mutant("read_tool_failure_is_class_only", SendsToolErrorText),
+    Mutant("offered_tools_are_the_agents_own", OffersHandoffTargets),
     Mutant("deadline_limit", IgnoresTheDeadline),
     Mutant("honest_usage_is_charged_as_reported", ReportsProviderUsageAsEstimated),
     Mutant("missing_usage_not_fabricated", FabricatesUsage),
     Mutant("malformed_usage_charged_whole", ClampsMalformedUsage),
+    Mutant("asyncio_timeout_is_adapter_timeout", ReportsAsyncioTimeoutsAsErrors),
     Mutant("no_hidden_retry", RetriesTheProviderOnce),
     Mutant("cancellation_propagates", SwallowsCancellation),
     Mutant("errors_are_payload_free", LogsProviderErrorText),

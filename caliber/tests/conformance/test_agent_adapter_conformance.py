@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import asyncio
 import io
+import logging
 import warnings
 from collections.abc import Callable
 from typing import Any
@@ -29,7 +30,6 @@ from typing import Any
 import pytest
 
 from caliber.testing.adapter_conformance import (
-    IN_LOOP_STOPS,
     MALFORMED_USAGE,
     RULES,
     RULES_BY_ID,
@@ -58,7 +58,11 @@ from caliber.testing.agent_step_conformance import (
     PROTECTED_TOOL,
     Scenario,
     assert_claim_mismatch,
+    canary_protected_tool,
+    canary_read_tool,
+    capture_logs,
     make_context,
+    running,
 )
 from tests.conformance.anthropic_stub import anthropic_subject
 from tests.conformance.test_agent_adapter_openai_agents import (
@@ -97,18 +101,29 @@ def test_the_registered_adapters_are_the_four_shipped_ones_and_every_rule_runs_f
         assert report.unsupported == () and len(report.results) == len(RULES), report.render()
 
 
-def test_only_the_agents_sdk_adapter_cannot_stop_asking_the_provider_between_calls() -> None:
+def test_no_shipped_adapter_declares_a_stop_it_cannot_make_between_provider_calls() -> None:
+    """The Agents SDK offers ``tool_use_behavior`` (stop at a tool, or a function), so every stop is available to every adapter."""
     declared = {subject.name: subject.unbounded_in_loop for subject in SUBJECTS}
-    assert declared == {
-        "openai_chat": frozenset(),
-        "openai_responses": frozenset(),
-        "openai_agents": AGENTS_UNBOUNDED_IN_LOOP,
-        "anthropic": frozenset(),
-    }
-    assert IN_LOOP_STOPS - frozenset() == AGENTS_UNBOUNDED_IN_LOOP
-    text = conformance_report(SUBJECTS[2]).render()
-    assert "cannot stop asking the provider at: deadline, proposal, tokens, tool_calls" in text
-    assert "cannot stop asking" not in conformance_report(SUBJECTS[0]).render()
+    assert declared == dict.fromkeys(
+        ("openai_chat", "openai_responses", "openai_agents", "anthropic"), frozenset()
+    )
+    assert frozenset() == AGENTS_UNBOUNDED_IN_LOOP
+    assert "cannot stop asking" not in conformance_report(SUBJECTS[2]).render()
+
+
+def test_a_subject_that_declares_stops_it_cannot_make_has_them_printed_first_in_the_report() -> (
+    None
+):
+    subject = AdapterUnderTest(
+        name="declares",
+        build=toy_subject().build,
+        unbounded_in_loop=frozenset({"deadline", "tokens"}),
+    )
+    lines = conformance_report(subject).render().splitlines()
+    assert lines[0] == "adapter conformance: declares"
+    assert lines[1] == "  cannot stop asking the provider at: deadline, tokens"
+    # and the rules then do not demand those stops of it
+    assert run_rule(subject, "deadline_limit").status is Status.PASS
 
 
 def test_the_rules_are_registered_once_with_a_title_and_a_stable_order() -> None:
@@ -136,9 +151,15 @@ def _subject_that_cannot_stage(reason: str) -> AdapterUnderTest:
 def test_an_optional_rule_may_be_unsupported_and_a_mandatory_one_may_not() -> None:
     report = conformance_report(_subject_that_cannot_stage("no such transport"))
     by_rule = {result.rule: result for result in report.results}
-    assert by_rule["invalid_argument_text"].status is Status.UNSUPPORTED
+    optional = {rule.id for rule in RULES if rule.optional}
+    assert optional == {
+        "invalid_argument_text",
+        "read_tool_failure_is_class_only",
+        "offered_tools_are_the_agents_own",
+    }
+    assert {r.rule for r in report.unsupported} == optional
     assert by_rule["invalid_argument_text"].detail == "no such transport"
-    mandatory = [r for r in report.results if r.rule != "invalid_argument_text"]
+    mandatory = [r for r in report.results if r.rule not in optional]
     assert all(r.status is Status.FAIL and "mandatory" in r.detail for r in mandatory)
     assert not report.passed
     with pytest.raises(ConformanceFailure, match="mandatory"):
@@ -311,3 +332,57 @@ def test_binding_a_claim_that_differs_is_not_something_the_platform_does() -> No
     assert assert_claim_mismatch(action, PROTECTED_CLASS).name == "effect_class"
     with pytest.raises(AssertionError, match="bound a claim that differs"):
         assert_claim_mismatch(ctx.protected_action(), PROTECTED_CLASS)
+
+
+def test_a_canary_tool_called_outside_a_run_says_so_instead_of_an_index_error() -> None:
+    with pytest.raises(RuntimeError, match="outside a conformance run"):
+        canary_protected_tool()
+    ctx = make_context()
+    with running(ctx):
+        canary_protected_tool(x=1)
+        canary_read_tool(y=2)
+    assert ctx.protected_calls == [{"x": 1}] and ctx.read_calls == [{"y": 2}]
+    with pytest.raises(RuntimeError, match="outside a conformance run"):
+        canary_read_tool()
+
+
+def test_log_capture_sees_every_logger_every_level_and_the_extra_fields() -> None:
+    quiet = logging.getLogger("conformance.test.quiet")
+    private = logging.getLogger("conformance.test.private")
+    quiet.setLevel(logging.ERROR)
+    private.propagate = False
+    capture, restore = capture_logs()
+    try:
+        quiet.info("dropped by its own level, seen by the capture")
+        private.warning("a logger that does not propagate")
+        private.info("with fields", extra={"provider_payload": "payload-in-an-extra"})
+    finally:
+        restore()
+    text = "\n".join(capture.text)
+    assert "dropped by its own level" in text and "does not propagate" in text
+    assert "payload-in-an-extra" in text
+    assert quiet.level == logging.ERROR and private.handlers == [], "the loggers are restored"
+
+
+def test_the_probe_records_what_the_transport_says_it_offered_and_sent() -> None:
+    ctx = make_context()
+    ctx.provider_called()
+    ctx.provider_called(tools=["a", "b"], sent="the request text")
+    assert ctx.provider_calls == 2
+    assert ctx.offered_tools == [("a", "b")] and ctx.sent_to_provider == ["the request text"]
+
+
+def test_a_transport_that_reports_nothing_leaves_the_rules_that_need_it_unsupported() -> None:
+    def build(script: Any, probe: Any) -> object:
+        class Quiet(ToyAdapter):
+            def _call_provider(self, messages: Any, tools: Any) -> Any:
+                reply = super()._call_provider(messages, tools)
+                probe.offered_tools.clear()
+                probe.sent_to_provider.clear()
+                return reply
+
+        return Quiet(toy_provider(script, probe), now=probe.clock.now)
+
+    subject = AdapterUnderTest(name="quiet", build=build)
+    for rule in ("offered_tools_are_the_agents_own", "read_tool_failure_is_class_only"):
+        assert run_rule(subject, rule).status is Status.UNSUPPORTED, rule

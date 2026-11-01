@@ -25,15 +25,19 @@ reads the real clock, opens a socket or needs a provider SDK: every rule is dete
 **What a subject supplies.** One function, ``build(script, probe) -> adapter``: a *fresh* adapter whose provider transport plays
 ``script``, an ordered list of what the provider does on its first, second, ... call (:class:`Reply`, :class:`Fault`,
 :class:`Garbage`). The transport must call ``probe.provider_called()`` each time the provider would be called (the rules count
-calls: a hidden retry or a call past a limit is a failure) and the adapter must read time from ``probe.clock`` (a fake that only
-moves when a rule moves it). A transport that cannot stage something raises :class:`Unsupported`, which is a pass for a rule
+calls: a hidden retry or a call past a limit is a failure), ideally as ``probe.provider_called(tools=[names offered to the model],
+sent="the request's text")`` (two rules, ``offered_tools_are_the_agents_own`` and ``read_tool_failure_is_class_only``, need them
+and are unsupported without), and the adapter must read time from ``probe.clock`` (a fake that only moves when a rule moves it). A transport that cannot stage something raises :class:`Unsupported`, which is a pass for a rule
 marked ``optional`` and a failure for every other.
 
 **What a rule is.** A rule runs the adapter through the platform's entry (``run_agent_step``) *and* calls the adapter directly
-(a fresh copy), because an adapter may not rely on the boundary to catch its mistakes. Every run, whatever the rule, also checks
-what must always hold: the result is schema-valid and answers the asked step; no protected tool ran (a canary sits behind the
-protected tool's binding and in the unfiltered tool registry); the provider payload planted in the script is in no result, log
-record, warning or output stream; the adapter returned a typed result instead of raising.
+(a fresh copy), because an adapter may not rely on the boundary to catch its mistakes. Every run of a rule written here (all but
+the nine that come from the per-scenario harness) also checks what must always hold: the result is schema-valid and answers the
+asked step; no protected tool ran (a canary sits behind the protected tool's binding and in the unfiltered tool registry); the
+provider payload planted in the script is in no result, log record (every logger, every level, ``extra=`` fields included),
+warning, stdout or stderr; the adapter returned a typed result instead of raising. The nine harness scenarios check the result,
+the canaries and the log records. Log capture cannot see a logger created during the run that turns propagation off, or output that
+bypasses ``logging``, ``warnings`` and the standard streams.
 
 **Limits of the claim.** The suite proves an adapter's behaviour over its stub of the provider, not the provider's. It cannot
 show that an adapter's real client is configured as its stub is, that a provider's tokens are what it reported, or that a model
@@ -141,7 +145,7 @@ class Fault:
     """The provider call fails. ``text`` is the failure's message (the rules plant the secret marker in it).
 
     ``error`` raises an ordinary exception, ``timeout`` the transport's own timeout (a subject builds it: an SDK's timeout class
-    differs), ``cancel`` is ``asyncio.CancelledError`` and ``interrupt`` is ``KeyboardInterrupt``: the last two must reach the
+    differs), ``asyncio_timeout`` is what ``asyncio.wait_for`` raises (a class of its own before Python 3.11), ``cancel`` is ``asyncio.CancelledError`` and ``interrupt`` is ``KeyboardInterrupt``: the last two must reach the
     caller, never become a result.
     """
 
@@ -160,12 +164,27 @@ ScriptItem = Reply | Fault | Garbage
 Script = Sequence[ScriptItem]
 
 
+def _real_asyncio_timeout(text: str) -> BaseException:
+    """What ``asyncio.wait_for`` raises when a call outlasts its timeout: a distinct class from the builtin before Python 3.11."""
+
+    async def slow() -> None:
+        await asyncio.sleep(60)
+
+    try:
+        asyncio.run(asyncio.wait_for(slow(), timeout=0.001))
+    except asyncio.TimeoutError as exc:
+        return type(exc)(text)
+    raise AssertionError("wait_for did not time out")
+
+
 def fault_exception(fault: Fault) -> BaseException:
-    """The exception for a ``cancel``, ``interrupt`` or ``error`` fault; a ``timeout`` is the transport's to build."""
+    """The exception for a ``cancel``, ``interrupt``, ``asyncio_timeout`` or ``error`` fault; a ``timeout`` is the transport's."""
     if fault.kind == "cancel":
         return asyncio.CancelledError(fault.text)
     if fault.kind == "interrupt":
         return KeyboardInterrupt(fault.text)
+    if fault.kind == "asyncio_timeout":
+        return _real_asyncio_timeout(fault.text)
     if fault.kind == "error":
         return RuntimeError(f"upstream said {fault.text}")
     raise ValueError(f"a {fault.kind!r} fault is built by the subject's own transport")
@@ -180,7 +199,9 @@ class ProviderProbe(Protocol):
 
     clock: StepClock
 
-    def provider_called(self) -> None: ...
+    def provider_called(
+        self, *, tools: Sequence[str] | None = None, sent: str | None = None
+    ) -> None: ...
 
 
 #: What an adapter that hands the provider loop to an SDK may be unable to stop between provider calls (see
@@ -192,12 +213,13 @@ IN_LOOP_STOPS: Final = frozenset({"proposal", "tool_calls", "tokens", "deadline"
 class AdapterUnderTest:
     """An adapter and how to stage its provider: ``build(script, probe)`` returns a fresh adapter that plays ``script``.
 
-    ``unbounded_in_loop`` is for an adapter whose provider loop belongs to an SDK that cannot be told to stop (the OpenAI Agents
-    SDK takes a turn limit and nothing else): the stops it cannot make *between* provider calls, from ``proposal``,
-    ``tool_calls``, ``tokens`` and ``deadline``. The platform still holds the result to every limit (the over-limit step stops,
-    its proposal is dropped, a tool past the limit does not run); what the rules then do not demand is that the adapter stops
-    *asking the provider*, so the spend past a limit is bounded by the token reservation only. Every name is shown in
-    :meth:`ConformanceReport.render`; none is a way to skip a rule.
+    ``unbounded_in_loop`` is for an adapter whose provider loop belongs to an SDK that offers no hook between provider calls for
+    one of the stops ``proposal``, ``tool_calls``, ``tokens`` and ``deadline``. The platform still holds the result to every limit
+    (the over-limit step stops, its proposal is dropped, a tool past the limit does not run); what the rules then do not demand is
+    that the adapter stops *asking the provider*, so the spend past a limit is bounded by the token reservation only. No shipped
+    adapter declares any (the Agents SDK has ``tool_use_behavior``, which the adapter uses). The declaration is the subject's own,
+    so it is public: :meth:`ConformanceReport.render` prints it on the second line of every report, and a reviewer reads it in the
+    pull request or CI log. It is not a way to skip a rule: only the spend checks named above are relaxed.
     """
 
     name: str
@@ -329,7 +351,7 @@ class _Sinks:
 def _capture_sinks() -> Iterator[_Sinks]:
     """Log records (every level), warnings, stdout and stderr, for the length of the block."""
     sinks = _Sinks()
-    capture, restore = harness._capture_logs()
+    capture, restore = harness.capture_logs()
     out, err = io.StringIO(), io.StringIO()
     try:
         with (
@@ -423,18 +445,14 @@ def observe(
     runs: list[tuple[StepContext, AgentStepResult, object]] = []
     for how in ("through the platform", "alone"):
         ctx = _context(scenario, request_changes, setup)
-        harness._ACTIVE.append(ctx)
-        try:
-            with _capture_sinks() as sinks:
-                adapter = _build(subject, script, ctx)
-                if wrap is not None:
-                    adapter = wrap(adapter)
-                if how == "alone":
-                    result = _run_alone(adapter, ctx)
-                else:
-                    result = run_agent_step(adapter, ctx.request, ctx.step_input, clock=ctx.clock)
-        finally:
-            harness._ACTIVE.pop()
+        with harness.running(ctx), _capture_sinks() as sinks:
+            adapter = _build(subject, script, ctx)
+            if wrap is not None:
+                adapter = wrap(adapter)
+            if how == "alone":
+                result = _run_alone(adapter, ctx)
+            else:
+                result = run_agent_step(adapter, ctx.request, ctx.step_input, clock=ctx.clock)
         _always_holds(ctx, result, sinks, f"{subject.name} ({how})", marker=marker)
         runs.append((ctx, result, adapter))
     (ctx, result, adapter), (direct_ctx, direct, _) = runs
@@ -910,9 +928,9 @@ def _handoff_not_followed(subject: AdapterUnderTest) -> None:
         ctx.custom_input = _handoff_input(ctx, ran)
 
     calls = (
-        Call("billing", {"reason": "hand me over"}),
         Call("transfer_to_billing", {}),
         Call("billing_lookup", {"case_id": "case-1"}),
+        Call("billing", {"reason": "hand me over"}),
     )
     obs = observe(subject, (Reply(text=None, calls=calls), Reply(text="done")), setup=setup)
     _require(ran == [], "a handoff target's tool was run")
@@ -921,6 +939,69 @@ def _handoff_not_followed(subject: AdapterUnderTest) -> None:
             result.stop_reason in ("error", "refused") and result.proposed_actions == (),
             f"a handoff ({label}): the step is {result.stop_reason}",
         )
+
+
+def _failing_read_tool_input(ctx: StepContext) -> AgentStepInput:
+    """The default input, whose one read tool raises an exception whose message is the secret marker."""
+    base = ctx.default_input
+
+    def fails(**_arguments: Any) -> str:
+        raise RuntimeError(f"the tool said {SECRET_MARKER}")
+
+    return AgentStepInput(
+        agent=base.agent, input_text=base.input_text, read_tools={READ_TOOL: fails}
+    )
+
+
+@_rule(
+    "read_tool_failure_is_class_only",
+    "a read tool that raises never crashes the adapter, and its message is not handed to the provider",
+    optional=True,
+)
+def _read_tool_failure(subject: AdapterUnderTest) -> None:
+    def setup(ctx: StepContext) -> None:
+        ctx.custom_input = _failing_read_tool_input(ctx)
+
+    ctx = make_context()
+    script = (
+        Reply(text=None, calls=(_read_call(ctx),), usage=ProviderUsage(70, 10)),
+        Reply(text="done"),
+    )
+    obs = observe(subject, script, setup=setup)
+    for label, result in (("through the platform", obs.result), ("alone", obs.direct)):
+        _require(
+            result.stop_reason in ("completed", "error") and result.proposed_actions == (),
+            f"a failing read tool ({label}): the step is {result.stop_reason}",
+        )
+    for run in (obs.ctx, obs.direct_ctx):
+        if not run.sent_to_provider:
+            raise Unsupported("the transport does not report what the provider was sent")
+        _require(
+            not any(SECRET_MARKER in text for text in run.sent_to_provider),
+            "a read tool's exception message was handed to the provider (only its class may be)",
+        )
+
+
+@_rule(
+    "offered_tools_are_the_agents_own",
+    "the model is offered only tools the agent has: no handoff, no target's tool",
+    optional=True,
+)
+def _offered_tools(subject: AdapterUnderTest) -> None:
+    def setup(ctx: StepContext) -> None:
+        ctx.custom_input = _handoff_input(ctx, [])
+
+    obs = observe(subject, (Reply(text="done"),), setup=setup)
+    for label, run in (("through the platform", obs.ctx), ("alone", obs.direct_ctx)):
+        if not run.offered_tools:
+            raise Unsupported("the transport does not report the tools it offers the model")
+        own = {binding.local_name for binding in run.step_input.agent.tools}
+        for offered in run.offered_tools:
+            _require(
+                set(offered) <= own,
+                f"offered tools ({label}): {sorted(set(offered) - own)} are not tools of the agent",
+            )
+            _require(READ_TOOL in offered, f"offered tools ({label}): the read tool is not offered")
 
 
 @_rule(
@@ -1095,6 +1176,30 @@ def _token_limit(subject: AdapterUnderTest) -> None:
         _require(
             obs.ctx.provider_calls == 1, "over max_tokens: the adapter asked the provider again"
         )
+        # The adapter's own answer, not the platform's: it stops at the limit itself and keeps what was spent.
+        _require(
+            obs.direct.stop_reason == "max_tokens" and obs.direct.usage.total_tokens == 1200,
+            f"1200 tokens, limit 1000 (alone): the step is {obs.direct.stop_reason} "
+            f"with {obs.direct.usage.total_tokens}",
+        )
+    if subject.stops_in_loop("tokens"):
+        # Exactly the budget is spent and the model wants another turn: there is nothing left to ask it with.
+        used_up = Reply(text=None, calls=(_read_call(ctx),), usage=ProviderUsage(500, 500))
+        spent_exactly = observe(
+            subject, (used_up, Reply(text="done")), request_changes=limits_changes(max_tokens=1000)
+        )
+        for label, result in (
+            ("through the platform", spent_exactly.result),
+            ("alone", spent_exactly.direct),
+        ):
+            _require(
+                result.stop_reason == "max_tokens" and result.usage.total_tokens == 1000,
+                f"the whole budget spent, more wanted ({label}): the step is {result.stop_reason}",
+            )
+        _require(
+            spent_exactly.ctx.provider_calls == 1,
+            "the whole budget spent: the adapter asked the provider again",
+        )
     proposing = observe(
         subject,
         (Reply(text=None, calls=_reply_with_protected_call(ctx).calls, usage=spent),),
@@ -1108,15 +1213,22 @@ def _token_limit(subject: AdapterUnderTest) -> None:
         proposing.result.usage.total_tokens == 1200,
         "a proposal over max_tokens: usage was not kept",
     )
+    if subject.stops_in_loop("tokens"):
+        _require(
+            proposing.direct.stop_reason == "max_tokens"
+            and proposing.direct.proposed_actions == (),
+            f"a proposal over max_tokens (alone): the adapter returned {proposing.direct.stop_reason}",
+        )
     exact = observe(
         subject,
         (Reply(text="done", usage=ProviderUsage(900, 100)),),
         request_changes=limits_changes(max_tokens=1000),
     )
-    _require(
-        exact.result.stop_reason == "completed",
-        f"exactly max_tokens is within the limit: the step is {exact.result.stop_reason}",
-    )
+    for label, result in (("through the platform", exact.result), ("alone", exact.direct)):
+        _require(
+            result.stop_reason == "completed",
+            f"exactly max_tokens is within the limit ({label}): the step is {result.stop_reason}",
+        )
 
 
 def _slow_provider(ctx: StepContext) -> None:
@@ -1141,6 +1253,10 @@ def _deadline_limit(subject: AdapterUnderTest) -> None:
     if subject.stops_in_loop("deadline"):
         _require(
             obs.ctx.provider_calls == 1, "past the deadline: the adapter asked the provider again"
+        )
+        _require(
+            obs.direct.stop_reason == "deadline",
+            f"a call that ran past the deadline (alone): the adapter returned {obs.direct.stop_reason}",
         )
     _require(obs.ctx.read_calls == [], "past the deadline: a read tool ran")
     proposing = observe(
@@ -1271,6 +1387,16 @@ def _malformed_usage(subject: AdapterUnderTest) -> None:
 
 
 @_rule(
+    "asyncio_timeout_is_adapter_timeout",
+    "a timeout raised by asyncio itself is adapter_timeout, on every supported Python",
+)
+def _asyncio_timeout(subject: AdapterUnderTest) -> None:
+    obs = observe(subject, (Fault("asyncio_timeout", SECRET_MARKER), Reply(text="done")))
+    _typed_failure(obs, ADAPTER_TIMEOUT, "an asyncio timeout")
+    _require(obs.ctx.provider_calls == 1, "an asyncio timeout was retried")
+
+
+@_rule(
     "no_hidden_retry",
     "a failed provider call is not retried: the provider is called once, and the retry is the platform's",
 )
@@ -1298,23 +1424,26 @@ def _cancelled(subject: AdapterUnderTest, fault: Fault, expected: type[BaseExcep
     for how in ("through the platform", "alone"):
         ctx = make_context()
         adapter = _build(subject, (fault, Reply(text="done")), ctx)
-        harness._ACTIVE.append(ctx)
-        try:
-            with _capture_sinks():
+        reached = False
+        with harness.running(ctx), _capture_sinks() as sinks:
+            try:
                 if how == "alone":
                     adapter.run_step(ctx.request, ctx.step_input)  # type: ignore[attr-defined]
                 else:
                     run_agent_step(adapter, ctx.request, ctx.step_input, clock=ctx.clock)
-        except expected:
-            continue
-        except BaseException as exc:
-            raise ConformanceFailure(
-                f"{fault.kind} ({how}) surfaced as {type(exc).__name__}, not {expected.__name__}"
-            ) from None
-        finally:
-            harness._ACTIVE.pop()
-        raise ConformanceFailure(
-            f"{fault.kind} ({how}) was swallowed and turned into a result: the caller never learns"
+            except expected:
+                reached = True
+            except BaseException as exc:
+                raise ConformanceFailure(
+                    f"{fault.kind} ({how}) surfaced as {type(exc).__name__}, not {expected.__name__}"
+                ) from None
+        _require(
+            reached,
+            f"{fault.kind} ({how}) was swallowed and turned into a result: the caller never learns",
+        )
+        _require(
+            not sinks.contains(SECRET_MARKER),
+            f"{fault.kind} ({how}): the provider's text reached a log, a warning or an output",
         )
 
 
@@ -1323,8 +1452,8 @@ def _cancelled(subject: AdapterUnderTest, fault: Fault, expected: type[BaseExcep
     "cancellation and interruption reach the caller, so the reservation stays open (the call may have spent)",
 )
 def _cancellation(subject: AdapterUnderTest) -> None:
-    _cancelled(subject, Fault("cancel"), asyncio.CancelledError)
-    _cancelled(subject, Fault("interrupt"), KeyboardInterrupt)
+    _cancelled(subject, Fault("cancel", SECRET_MARKER), asyncio.CancelledError)
+    _cancelled(subject, Fault("interrupt", SECRET_MARKER), KeyboardInterrupt)
 
 
 _FAILURE_CHANNELS: Final[tuple[Callable[[StepContext], Script], ...]] = (
@@ -1407,18 +1536,10 @@ def _fresh_state(subject: AdapterUnderTest) -> None:
     expected = observe(subject, (second_reply,), request_changes=_SECOND_STEP)
 
     context = _context(Scenario.COMPLETES, None, None)
-    harness._ACTIVE.append(context)
-    try:
-        with _capture_sinks():
-            adapter = _build(subject, (first_reply, second_reply), context)
-            first = run_agent_step(
-                adapter, context.request, context.step_input, clock=context.clock
-            )
-            second = run_agent_step(
-                adapter, second_request, context.step_input, clock=context.clock
-            )
-    finally:
-        harness._ACTIVE.pop()
+    with harness.running(context), _capture_sinks():
+        adapter = _build(subject, (first_reply, second_reply), context)
+        first = run_agent_step(adapter, context.request, context.step_input, clock=context.clock)
+        second = run_agent_step(adapter, second_request, context.step_input, clock=context.clock)
     _require(first.stop_reason == "completed", f"the first step is {first.stop_reason}")
     _require(
         second.step_request_id == second_request.step_request_id,

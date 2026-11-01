@@ -3007,11 +3007,13 @@ through the executor and the ordinary conformance tests use a deterministic offl
   Runner, `max_tool_calls` stops read callbacks before another read runs, and provider usage above `max_tokens` returns
   `max_tokens` with the usage retained. Provider input/output/total usage and cached input tokens are summed over raw
   SDK responses; when the SDK supplies no raw response usage, the adapter marks the bounded estimate as `estimated`. A read
-  tool the platform refuses because the deadline has passed ends the step `deadline` (not a tool failure). The SDK owns the loop and
-  takes only `max_turns`, so the adapter cannot stop it between model calls for a proposal, the tool-call limit, the token budget or
-  the deadline: the platform still returns the limit's stop with the proposal dropped, and the extra model calls are bounded by the
-  [token reservation](#token-reservations-reserved-before-the-call-charged-conservatively-settled-once-b084-761) only (declared as
-  `unbounded_in_loop` in the [conformance suite](#adapter-conformance-suite-the-rules-every-provider-adapter-passes-b085-769)).
+  tool the platform refuses because the deadline has passed is not a tool failure: the step ends `deadline`. The SDK takes
+  `max_turns` for the run and `tool_use_behavior` for everything else: the adapter passes a function that, after each turn's tools,
+  ends the run for a recorded proposal, the tool-call limit, a spent token budget (`>= max_tokens`, as the other adapters) or the
+  deadline, so the model is not asked again after any of them. The SDK is given no handoffs, and a read tool that raises ends the step
+  `malformed_result` with the exception's text kept out of the result, the log and the model's context. The
+  [conformance suite](#adapter-conformance-suite-the-rules-every-provider-adapter-passes-b085-769) checks all of it, and
+  `test_agent_adapter_openai_agents_real_sdk.py` runs it on the installed SDK with a scripted model.
 - **Failures.** Provider timeouts are `adapter_timeout`, other provider exceptions are `provider_error`, unreadable SDK
   output or proposals are `malformed_result`, a provider refusal is `refused` with `model_refused`, and an unavailable
   optional SDK is `refused` with `provider_unavailable`. Provider text, tool arguments and exception messages are not copied
@@ -3425,38 +3427,253 @@ can run what the repository runs:
 **Run it for the shipped adapters.** The real executor classes over canned transports, every rule, offline:
 
 ```text
-cd caliber && pytest tests/conformance/test_agent_adapter_conformance.py     # 4 adapters x 37 rules
+cd caliber && pytest tests/conformance/test_agent_adapter_conformance.py     # 4 adapters x 40 rules
 pytest tests/conformance/test_suite_fails_against_broken_adapters.py         # the suite fails when an adapter is broken
 pytest tests/conformance/test_agent_adapter_governed_plan.py                 # the same adapters under the interpreter
+pytest tests/conformance/test_agent_adapter_openai_agents_real_sdk.py        # the Agents adapter on the installed SDK
 ```
 
 **Run it for your adapter.** An adapter is any object with `run_step(request, step_input) -> AgentStepResult`
 (`AgentStepAdapter`). The suite needs one function from you, `build(script, probe)`: it returns a *fresh* adapter whose provider
 transport plays `script`, an ordered list of what your provider does on its first, second, ... call (`Reply`, `Fault`, `Garbage`).
-The transport calls `probe.provider_called()` each time the provider would be called, and the adapter reads time from
-`probe.clock` (the fake the rules move; an adapter that reads the real clock cannot be tested for a deadline). Something your transport
-cannot express raises `Unsupported(reason)`: that passes for the one rule marked optional and fails for every other.
+The transport calls `probe.provider_called(tools=[...], sent="...")` each time the provider would be called (`tools`, the names the
+request offers the model, and `sent`, the request's text, are optional; the rules `offered_tools_are_the_agents_own` and
+`read_tool_failure_is_class_only` are reported unsupported without them), and the adapter reads time from `probe.clock` (the fake the
+rules move; an adapter that reads the real clock cannot be tested for a deadline). Something your transport cannot express raises
+`Unsupported(reason)`: that passes for a rule marked optional (`invalid_argument_text`, `read_tool_failure_is_class_only`, `offered_tools_are_the_agents_own`) and fails for every other.
+
+The complete example below is a correct adapter for a made-up provider and the `build` that stages the suite's scripts on it. It is
+the file `tests/conformance/toy_adapter.py`, which `tests/conformance/test_example_third_party_adapter.py` runs exactly as the last
+lines of the example say, and checks that the code quoted here is the file's. Every rule passes against it.
 
 ```python
-import pytest
-from caliber.testing.adapter_conformance import RULES, AdapterUnderTest, check_rule, conformance_report
+from __future__ import annotations
 
-SUBJECT = AdapterUnderTest(name="acme", build=build_acme_adapter)
+import asyncio
+import json
+import logging
+from collections.abc import Callable, Mapping
+from dataclasses import dataclass
+from datetime import datetime
+from typing import Any
+
+from caliber.contracts.agent_step import (
+    AgentStepRequest,
+    AgentStepResult,
+    ProposedAction,
+    StepUsage,
+)
+from caliber.contracts.registry import ContractValidationError
+from caliber.effects.records import ProposalError
+from caliber.testing.adapter_conformance import (
+    MALFORMED_USAGE,
+    AdapterUnderTest,
+    Call,
+    Fault,
+    Garbage,
+    ProviderProbe,
+    ProviderUsage,
+    Reply,
+    Script,
+    fault_exception,
+)
+from caliber.workflows.agent_step import (
+    ADAPTER_TIMEOUT,
+    MALFORMED_RESULT,
+    PROVIDER_ERROR,
+    AgentStepInput,
+    StepDeadlineReached,
+    StepToolBudgetExceeded,
+    answer,
+    failure,
+)
+
+logger = logging.getLogger("acme_adapter")
+
+_ENVELOPE = {"connector", "connector_version", "effect_class", "resource", "args"}
+_OPTIONAL = {"expected_resource_version"}
 
 
-@pytest.mark.parametrize("rule", RULES, ids=lambda rule: rule.id)
-def test_acme_conforms(rule):
-    check_rule(SUBJECT, rule.id)      # raises ConformanceFailure naming the adapter, the rule and what was seen
+class _Unreadable(Exception):  # noqa: N818 - what the provider sent cannot be read; never carries its text
+    pass
 
 
-print(conformance_report(SUBJECT).render())   # one table: PASS / FAIL / UNSUPPORTED per rule, then a verdict
-```
+@dataclass
+class _Tally:
+    prompt: int = 0
+    completion: int = 0
+    turns: int = 0
+    tool_calls: int = 0
+    estimated: bool = False
 
-`tests/conformance/toy_adapter.py` is a complete, correct example for a made-up provider (about 200 lines: the adapter, and the `build`
-below). Every rule passes against it, and `tests/conformance/test_example_third_party_adapter.py` runs it exactly as above, and checks
-that the `build` quoted here is the file's. The `build` for the example:
+    def usage(self) -> StepUsage:
+        total = self.prompt + self.completion
+        return StepUsage(self.prompt, self.completion, total, self.turns, self.tool_calls)
 
-```python
+    @property
+    def source(self) -> str:
+        return "estimated" if self.estimated else "provider"
+
+
+def _count(value: object) -> int:
+    if type(value) is not int or not 0 <= value <= 2_147_483_647:
+        raise _Unreadable
+    return value
+
+
+class ToyAdapter:
+    """One governed step against a provider callable; the example every rule of the conformance suite is run on."""
+
+    def __init__(
+        self,
+        provider: Callable[[list[dict[str, Any]], list[str]], Any],
+        *,
+        now: Callable[[], datetime],
+    ):
+        self._provider = provider
+        self._now = now
+
+    def run_step(  # noqa: PLR0911, PLR0912 - one loop, one exit per way a step can end
+        self, request: AgentStepRequest, step_input: AgentStepInput
+    ) -> AgentStepResult:
+        tally = _Tally()
+        read_tools = dict(step_input.read_tools)
+        messages = [*step_input.history, {"role": "user", "content": step_input.input_text}]
+        while True:
+            if (limit := self._limit_reached(request, tally)) is not None:
+                return self._stop(request, limit, tally)
+            try:
+                reply = self._call_provider(messages, sorted(read_tools))
+            except (TimeoutError, asyncio.TimeoutError):
+                return failure(request, ADAPTER_TIMEOUT)
+            except Exception as exc:
+                return self._provider_failed(request, exc)
+            try:
+                calls = self._read_reply(reply, tally, step_input)
+                if reply.get("finish") == "length" or self._over_budget(request, tally):
+                    return self._stop(request, "max_tokens", tally)
+                protected = [call for call in calls if call["name"] not in read_tools]
+                if protected:
+                    return self._propose(request, protected[0], tally, step_input)
+                if not calls:
+                    return answer(
+                        request, "completed", usage=tally.usage(), usage_source=tally.source
+                    )
+                for call in calls:
+                    if self._tool_limit_reached(request, tally):
+                        return self._stop(request, "max_tool_calls", tally)
+                    tally.tool_calls += 1
+                    try:
+                        result = self._run_read_tool(read_tools[call["name"]], call["arguments"])
+                    except StepToolBudgetExceeded:
+                        return self._stop(request, "max_tool_calls", tally)
+                    except StepDeadlineReached:
+                        return self._stop(request, "deadline", tally)
+                    except Exception as exc:
+                        # The model is told which kind of failure it was; the message is the tool's, not the model's.
+                        result = json.dumps({"_error": type(exc).__name__})
+                    messages.append({"role": "tool", "content": str(result)})
+            except _Unreadable:
+                return failure(request, MALFORMED_RESULT)
+
+    @staticmethod
+    def _stop(request: AgentStepRequest, reason: str, tally: _Tally) -> AgentStepResult:
+        return answer(request, reason, usage=tally.usage(), usage_source=tally.source)
+
+    def _limit_reached(self, request: AgentStepRequest, tally: _Tally) -> str | None:
+        """A limit that forbids another provider call: turns, tokens, then the deadline."""
+        limits = request.limits
+        if tally.turns >= limits.max_turns:
+            return "max_turns"
+        if tally.prompt + tally.completion >= limits.max_tokens:
+            return "max_tokens"
+        if self._now() >= limits.deadline_at:
+            return "deadline"
+        return None
+
+    @staticmethod
+    def _over_budget(request: AgentStepRequest, tally: _Tally) -> bool:
+        """The response just read took the step past ``max_tokens``: whatever it asked for is not acted on."""
+        return tally.prompt + tally.completion > request.limits.max_tokens
+
+    @staticmethod
+    def _tool_limit_reached(request: AgentStepRequest, tally: _Tally) -> bool:
+        return tally.tool_calls >= request.limits.max_tool_calls
+
+    def _call_provider(self, messages: list[dict[str, Any]], tools: list[str]) -> Any:
+        return self._provider(messages, tools)
+
+    @staticmethod
+    def _provider_failed(request: AgentStepRequest, exc: Exception) -> AgentStepResult:
+        # Only the exception's class is logged: its text is the provider's, and may quote the prompt.
+        logger.warning("provider call failed (%s)", type(exc).__name__)
+        return failure(request, PROVIDER_ERROR)
+
+    @staticmethod
+    def _run_read_tool(tool: Callable[..., Any], arguments: dict[str, Any]) -> Any:
+        return tool(**arguments)
+
+    def _read_reply(
+        self, reply: Any, tally: _Tally, step_input: AgentStepInput
+    ) -> list[dict[str, Any]]:
+        """The reply's tool calls (name and decoded arguments); its usage is added to ``tally``."""
+        if not isinstance(reply, Mapping):
+            raise _Unreadable
+        usage = reply.get("usage")
+        if usage is None:
+            tally.estimated = True
+            tally.prompt += len(step_input.input_text.split())
+            tally.completion += len(str(reply.get("text") or "").split())
+        elif isinstance(usage, Mapping):
+            tally.prompt += _count(usage.get("prompt"))
+            tally.completion += _count(usage.get("completion"))
+        else:
+            raise _Unreadable
+        tally.turns += 1
+        names = {binding.local_name for binding in step_input.agent.tools}
+        calls = []
+        try:
+            for raw in reply.get("tool_calls") or []:
+                text = raw["arguments"]
+                arguments = json.loads(text) if isinstance(text, str) else text
+                if not isinstance(arguments, dict) or raw["name"] not in names:
+                    raise _Unreadable
+                calls.append({"name": raw["name"], "arguments": arguments})
+        except (KeyError, TypeError, ValueError):
+            raise _Unreadable from None
+        return calls
+
+    def _propose(
+        self,
+        request: AgentStepRequest,
+        call: dict[str, Any],
+        tally: _Tally,
+        step_input: AgentStepInput,
+    ) -> AgentStepResult:
+        """The model's protected call as one unbound proposal: its claims are kept exactly as it made them."""
+        del step_input
+        envelope = call["arguments"]
+        if not _ENVELOPE <= set(envelope) <= _ENVELOPE | _OPTIONAL:
+            raise _Unreadable
+        try:
+            action = ProposedAction(
+                connector=envelope["connector"],
+                connector_version=envelope["connector_version"],
+                effect_class=envelope["effect_class"],
+                resource=envelope["resource"],
+                args=envelope["args"],
+                expected_resource_version=envelope.get("expected_resource_version"),
+            )
+        except (ProposalError, ContractValidationError, TypeError, ValueError):
+            raise _Unreadable from None
+        return answer(
+            request,
+            "proposed_action",
+            usage=tally.usage(),
+            proposed_actions=(action,),
+            usage_source=tally.source,
+        )
+
 def toy_provider(
     script: Script, probe: ProviderProbe
 ) -> Callable[[list[dict[str, Any]], list[str]], Any]:
@@ -3464,8 +3681,7 @@ def toy_provider(
     remaining = list(script)
 
     def provider(messages: list[dict[str, Any]], tools: list[str]) -> Any:
-        del messages, tools
-        probe.provider_called()
+        probe.provider_called(tools=tools, sent=json.dumps(messages, default=str))
         if not remaining:
             raise RuntimeError("the script has no reply left")
         item = remaining.pop(0)
@@ -3502,15 +3718,31 @@ def toy_subject() -> AdapterUnderTest:
         name="toy",
         build=lambda script, probe: ToyAdapter(toy_provider(script, probe), now=probe.clock.now),
     )
+
+
+import pytest
+
+from caliber.testing.adapter_conformance import RULES, check_rule, conformance_report
+
+SUBJECT = toy_subject()  # for your adapter: AdapterUnderTest(name="acme", build=your_build)
+
+
+@pytest.mark.parametrize("rule", RULES, ids=lambda rule: rule.id)
+def test_acme_conforms(rule):
+    check_rule(SUBJECT, rule.id)  # raises ConformanceFailure naming the adapter, the rule and what was seen
+
+
+print(conformance_report(SUBJECT).render())  # one table: PASS / FAIL / UNSUPPORTED per rule, then a verdict
 ```
 
 **What every run checks, whatever the rule.** A rule plays its script twice: through the platform's entry (`run_agent_step`) and
 by calling the adapter alone on a fresh copy, because an adapter may not rely on the boundary to catch its mistakes. Both runs must
 satisfy: the result is a schema-valid `agent_step_result` that answers the asked step; **no protected tool ran** (a canary sits behind
 the protected tool's binding and in the unfiltered tool registry); the provider payload planted in the script (`SECRET_MARKER`) is in no
-result, log record at any level, warning, or stdout and stderr; and the adapter returned a typed result instead of raising. (The nine
-rules that come from the per-scenario harness, from `completes` to `claims_commit`, check the result and the log records, which is what
-that harness has always checked; the other rules check every output above.)
+result, log record (every logger, every level, `extra=` fields included), warning, stdout or stderr; and the adapter returned a typed
+result instead of raising. (The nine rules that come from the per-scenario harness, from `completes` to `claims_commit`, check the
+result, the canaries and the log records, which is what that harness has always checked.) Log capture cannot see a logger created during
+the run that turns propagation off, or output that bypasses `logging`, `warnings` and the standard streams.
 
 | Rule | What it demands |
 | --- | --- |
@@ -3535,6 +3767,8 @@ that harness has always checked; the other rules check every output above.)
 | `one_proposed_action` | Two protected calls in one response are at most one proposal, and the second never runs |
 | `proposal_ends_step` | A proposal ends the step: the provider is not asked again after it |
 | `handoff_not_followed` | A governed step never follows a handoff: the target's tools are not run |
+| `read_tool_failure_is_class_only` | A read tool that raises never crashes the adapter, and its message is not handed to the provider |
+| `offered_tools_are_the_agents_own` | The model is offered only tools the agent has: no handoff, no target's tool |
 | `invalid_request_refused` | A request that is not a valid step, or not for this agent, never reaches the adapter |
 | `limits_before_work` | A step with no turn, no token or no time left never reaches the adapter or its provider |
 | `turn_limit` | The adapter asks the provider for no more turns than the limit, and a stopped step proposes nothing |
@@ -3545,6 +3779,7 @@ that harness has always checked; the other rules check every output above.)
 | `honest_usage_is_charged_as_reported` | Usage the provider reported is reported as the provider's, so it is charged as spent |
 | `missing_usage_not_fabricated` | A response without usage is reported estimated or unknown, never as genuine figures |
 | `malformed_usage_charged_whole` | Unreadable usage never lowers the charge, and no proposal rides on it |
+| `asyncio_timeout_is_adapter_timeout` | A timeout raised by asyncio itself is adapter_timeout, on every supported Python |
 | `no_hidden_retry` | A failed provider call is not retried: the provider is called once, and the retry is the platform's |
 | `cancellation_propagates` | Cancellation and interruption reach the caller, so the reservation stays open (the call may have spent) |
 | `errors_are_payload_free` | A failure is a fixed code: no provider text, argument or tool name reaches a result or any output |
@@ -3555,20 +3790,29 @@ that harness has always checked; the other rules check every output above.)
 **The platform enforces some of this whatever an adapter does**, and the suite says so rather than pretend otherwise. The limits are
 held by the boundary (`before_work_stop`, the tool meter, `_enforce_limits`): an adapter that overruns still has its proposal dropped and
 the typed stop returned. What an adapter alone decides is what it *spends*: whether it stops asking the provider once a limit is
-reached. A rule therefore asserts both: the result (the platform's) and the provider calls it made (the adapter's). A subject whose
-provider loop belongs to an SDK may declare the stops it cannot make with `AdapterUnderTest(unbounded_in_loop=...)`, from `proposal`,
-`tool_calls`, `tokens` and `deadline`: the rules then do not demand the adapter's own stop for those, the report lists them, and the
-overrun is bounded by the token reservation only. Exactly one shipped adapter declares any: `OpenAIAgentsWorkflowExecutor` hands the loop
-to the Agents SDK, which takes `max_turns` and nothing else, so it declares all four (after a proposal, a refused tool, a spent budget or
-a passed deadline the SDK asks the model again before the adapter can answer; the platform still returns the limit's stop and drops the
-proposal). The other three declare none.
+reached. A rule therefore asserts both: the result through the platform and the adapter's own answer when called alone, and the
+provider calls it made. `adapter_cannot_raise_limits` is the one limit rule with no "alone" half: its point is that the boundary holds
+an adapter to the limits it set although the adapter was told otherwise.
 
-**The suite has been shown to fail.** `tests/conformance/broken_adapters.py` holds 34 deliberately broken adapters, each the reference
+**A subject may declare the stops it cannot make.** `AdapterUnderTest(unbounded_in_loop=...)`, from `proposal`, `tool_calls`, `tokens` and
+`deadline`, is for an adapter whose SDK offers no hook between provider calls for that stop: the rules then do not demand the adapter's own
+stop (the spend past the limit is bounded by the token reservation only). The declaration is the subject's own, so it is public: the report
+prints it on its second line (`cannot stop asking the provider at: ...`), and it is read in the pull request or the CI log like any other
+line of the report. It relaxes only those spend checks, never a rule. **No shipped adapter declares any.** The OpenAI Agents SDK takes
+`max_turns` for the run and `tool_use_behavior` (a function; present since `openai-agents` 0.0.7 and run here on 0.20 and 0.24, where the SDK requires the
+function to return its own `ToolsToFinalOutputResult`, which the adapter uses) for everything else: after each turn's tools the adapter's function ends the run for a proposal, the tool-call limit, the token budget
+or the deadline, before the model is asked again. `test_agent_adapter_openai_agents_real_sdk.py` runs that on the installed SDK with a scripted
+model, so the emulation the conformance suite uses cannot drift from what the SDK does. (Separately and before this change: the adapter
+already builds `FunctionTool(needs_approval=..., timeout_seconds=...)`, which `openai-agents` 0.0.7 does not accept, so the declared
+minimum `>=0.0.7` is stale for the adapter as a whole; follow-up.)
+
+**The suite has been shown to fail.** `tests/conformance/broken_adapters.py` holds 38 deliberately broken adapters, each the reference
 adapter with exactly one defect (it runs a protected tool, strips a claimed `receipt_id` and proposes anyway, forgets usage on a cut-off,
-fabricates figures for a response without usage, retries a provider call, swallows a cancellation, logs the model's text or the
-provider's exception, ignores a limit, carries the first step's result into the second, rewrites the limits of the request it was handed),
-and `test_suite_fails_against_broken_adapters.py` requires that each fails the rule written for it for a reason the rule states, and that
-the intact adapter passes all 37. The rules the boundary decides (`limits_before_work`, `adapter_cannot_raise_limits`,
+fabricates figures for a response without usage, retries a provider call, swallows a cancellation, misses an asyncio timeout, logs the
+model's text or the provider's exception, hands a tool's exception message to the provider, offers a handoff target, ignores a limit,
+carries the first step's result into the second, rewrites the limits of the request it was handed), and
+`test_suite_fails_against_broken_adapters.py` requires that each fails the rule written for it for a reason the rule states, and that the
+intact adapter passes all 40. The rules the boundary decides (`limits_before_work`, `adapter_cannot_raise_limits`,
 `invalid_request_refused` and the copy half of `input_isolation`) are shown to fail against a boundary with that enforcement removed.
 
 **Inside a governed plan** (`test_agent_adapter_governed_plan.py`, SQLite, the real interpreter and reservation ledger): for each shipped
@@ -3579,29 +3823,44 @@ whole reservation (`conservative`) and carry no provider text into the run error
 attempt keeps its reservation, and its retry is reserved again and calls the provider once; a cancelled step leaves its reservation open
 and counted in full; and a governed agent with a handoff is refused before any adapter runs.
 
-A failure reads like this (a reference adapter that retries a failed provider call; two of its 37 rules failed):
+A failure reads like this (a reference adapter that retries a failed provider call; 3 of its 40 rules failed). The output
+is what the suite prints, and `test_example_third_party_adapter.py` runs it again and requires these lines:
 
 ```text
 adapter conformance: RetriesTheProviderOnce
-  FAIL        provider_timeout                     scenario provider_timeout: provider_error
+  FAIL        provider_timeout                     scenario provider_timeout: expected adapter_timeout, got provider_error
+  FAIL        asyncio_timeout_is_adapter_timeout   an asyncio timeout (through the platform): expected an error with no proposal, got completed with 0 proposed
   FAIL        no_hidden_retry                      an error (through the platform): expected an error with no proposal, got completed with 0 proposed
-DOES NOT CONFORM (2 failed)
+DOES NOT CONFORM (3 failed)
 ```
 
-**A finding the suite produced, and what was done.** The OpenAI Agents adapter turned a read tool the platform refused for the deadline
-(`StepDeadlineReached`) into a tool failure, so a step that ran past its deadline ended `error` / `malformed_result` instead of
-`deadline`. It no longer reads the refusal as a tool failure, so the boundary, which remembers the refusal, ends the step `deadline`. The
-old result was typed and charged the whole reservation, so it never undercharged; it lost the stop's name. The harness' direct call of the
-adapter was not checked for logs; it is now.
+**Findings the suite produced, and what was done.**
+
+- The OpenAI Agents adapter read a read tool the platform refused for the deadline (`StepDeadlineReached`) as a tool failure, so a step
+  that ran past its deadline ended `error` / `malformed_result` instead of `deadline`. It no longer does.
+- The OpenAI Agents adapter let the SDK ask the model again after a proposal, a refused tool, a spent budget or a passed deadline, because
+  it chose `tool_use_behavior="run_llm_again"`; the extra model calls were bounded only by the reservation. It now passes a function that
+  ends the run at those points (an earlier version of this section called the SDK unable to do that: wrong, the SDK has the hook).
+- The chat and Responses adapters handed a failing read tool's exception message (`Type: message`) to the provider as the tool result;
+  the Agents and Anthropic adapters sent the class name only. The governed paths of the chat and Responses adapters now send the class
+  name only (`_execute_model_tool_call(..., error_detail=False)`); the ungoverned loops are unchanged.
+- The Anthropic adapter recognised only the builtin `TimeoutError`; on Python 3.10, where `asyncio.TimeoutError` is a different class, an
+  asyncio timeout became `provider_error` instead of `adapter_timeout`. It now recognises both, and a rule (`asyncio_timeout_is_adapter_timeout`)
+  raises a real `asyncio.wait_for` timeout at every adapter.
+- The harness' direct call of the adapter was not checked for logs; it is now.
 
 **Not covered, so not claimed.** The suite proves an adapter's behaviour over its stub of the provider, not the provider's: it cannot show
 that a real client is configured as its stub is, that a provider's tokens are what it reported, or that a model cannot be talked into a
 harmful proposal (a proposal is only ever the model's claim, which the platform binds and an approver reads). `another_steps_result`
 (a provider that answers another step's identity) cannot be staged through a provider script and stays in the per-scenario harness. The
-adapters and the boundary emit no spans today, so no span is checked; the checked outputs are the result, log records, warnings,
-stdout and stderr. `FakeWorkflowExecutor` is the platform's scripted adapter (its entries are structured, so a hostile model cannot be
-staged through it) and has its own tests (`tests/test_agent_step_adapter.py`); the suite covers the four provider adapters, not five.
-Run it without `python -O`: the harness uses `assert` and the suite refuses to run without them.
+Agents and Anthropic adapters and the boundary emit no spans; the chat and Responses adapters run a read tool through a shared helper
+that opens a tool span carrying the model's arguments and the tool's output (the ungoverned loops do too), and no span is checked: the
+checked outputs are the result, log records, warnings, stdout and stderr. A read tool that raises ends an Agents step `malformed_result` but
+lets the other adapters' model recover: both are allowed (the rule requires only that the message is not handed to the provider and that
+nothing crashes), and the Agents policy is pinned by its own test. `FakeWorkflowExecutor` is the platform's scripted adapter (its entries
+are structured, so a hostile model cannot be staged through it) and has its own tests (`tests/test_agent_step_adapter.py`); the suite
+covers the four provider adapters, not five. Run it without `python -O`: the harness uses `assert` and the suite refuses to run
+without them.
 
 ## Policy decisions
 

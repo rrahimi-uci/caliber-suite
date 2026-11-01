@@ -10,8 +10,10 @@ scripts on its provider; ``tests/conformance/broken_adapters.py`` derives one de
 The code between the ``# --8<--`` markers is quoted in ``docs/operate/reference-profile.md`` and a test keeps the two equal.
 """
 
+# --8<-- imports
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 from collections.abc import Callable, Mapping
@@ -50,7 +52,8 @@ from caliber.workflows.agent_step import (
     failure,
 )
 
-logger = logging.getLogger("tests.conformance.toy_adapter")
+logger = logging.getLogger("acme_adapter")
+# --8<-- end imports
 
 # --8<-- adapter
 _ENVELOPE = {"connector", "connector_version", "effect_class", "resource", "args"}
@@ -96,7 +99,7 @@ class ToyAdapter:
         self._provider = provider
         self._now = now
 
-    def run_step(  # noqa: PLR0911 - one loop, one exit per way a step can end
+    def run_step(  # noqa: PLR0911, PLR0912 - one loop, one exit per way a step can end
         self, request: AgentStepRequest, step_input: AgentStepInput
     ) -> AgentStepResult:
         tally = _Tally()
@@ -107,13 +110,13 @@ class ToyAdapter:
                 return self._stop(request, limit, tally)
             try:
                 reply = self._call_provider(messages, sorted(read_tools))
-            except TimeoutError:
+            except (TimeoutError, asyncio.TimeoutError):
                 return failure(request, ADAPTER_TIMEOUT)
             except Exception as exc:
                 return self._provider_failed(request, exc)
             try:
                 calls = self._read_reply(reply, tally, step_input)
-                if reply.get("finish") == "length":
+                if reply.get("finish") == "length" or self._over_budget(request, tally):
                     return self._stop(request, "max_tokens", tally)
                 protected = [call for call in calls if call["name"] not in read_tools]
                 if protected:
@@ -132,6 +135,9 @@ class ToyAdapter:
                         return self._stop(request, "max_tool_calls", tally)
                     except StepDeadlineReached:
                         return self._stop(request, "deadline", tally)
+                    except Exception as exc:
+                        # The model is told which kind of failure it was; the message is the tool's, not the model's.
+                        result = json.dumps({"_error": type(exc).__name__})
                     messages.append({"role": "tool", "content": str(result)})
             except _Unreadable:
                 return failure(request, MALFORMED_RESULT)
@@ -150,6 +156,11 @@ class ToyAdapter:
         if self._now() >= limits.deadline_at:
             return "deadline"
         return None
+
+    @staticmethod
+    def _over_budget(request: AgentStepRequest, tally: _Tally) -> bool:
+        """The response just read took the step past ``max_tokens``: whatever it asked for is not acted on."""
+        return tally.prompt + tally.completion > request.limits.max_tokens
 
     @staticmethod
     def _tool_limit_reached(request: AgentStepRequest, tally: _Tally) -> bool:
@@ -241,8 +252,7 @@ def toy_provider(
     remaining = list(script)
 
     def provider(messages: list[dict[str, Any]], tools: list[str]) -> Any:
-        del messages, tools
-        probe.provider_called()
+        probe.provider_called(tools=tools, sent=json.dumps(messages, default=str))
         if not remaining:
             raise RuntimeError("the script has no reply left")
         item = remaining.pop(0)

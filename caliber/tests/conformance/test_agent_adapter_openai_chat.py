@@ -119,7 +119,10 @@ class StubClient:
 
     def _create(self, **kwargs: Any) -> Any:
         if self.ctx is not None:
-            self.ctx.provider_called()
+            self.ctx.provider_called(
+                tools=[t["function"]["name"] for t in kwargs.get("tools") or []],
+                sent=json.dumps(kwargs.get("messages"), default=str),
+            )
         self.requests.append(copy.deepcopy(kwargs))
         entry = self.script.pop(0)
         if isinstance(entry, BaseException):

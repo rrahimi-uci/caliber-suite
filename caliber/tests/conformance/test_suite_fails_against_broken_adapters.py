@@ -49,7 +49,9 @@ def test_each_rule_fails_against_its_broken_adapter(mutant: Mutant) -> None:
 def test_every_rule_has_a_broken_adapter_or_a_broken_boundary() -> None:
     covered = {mutant.rule for mutant in MUTANTS} | BOUNDARY_RULES
     assert covered == set(RULES_BY_ID), sorted(set(RULES_BY_ID) ^ covered)
-    assert len(MUTANTS) == len({mutant.rule for mutant in MUTANTS}), "one broken adapter per rule"
+    assert len({mutant.name for mutant in MUTANTS}) == len(MUTANTS), (
+        "each broken adapter is its own defect"
+    )
 
 
 def test_a_broken_adapter_makes_the_report_say_so() -> None:

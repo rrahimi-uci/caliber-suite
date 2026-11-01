@@ -8,6 +8,7 @@ scenario and calls ``ctx.provider_called()`` on every ``messages.create``.
 
 from __future__ import annotations
 
+import json
 from collections.abc import Callable
 from datetime import datetime, timezone
 from typing import Any
@@ -130,7 +131,10 @@ class Messages:
 
     def create(self, **kwargs: Any) -> Any:
         if self.ctx is not None:
-            self.ctx.provider_called()
+            self.ctx.provider_called(
+                tools=[t["name"] for t in kwargs.get("tools") or []],
+                sent=json.dumps(kwargs.get("messages"), default=str),
+            )
         self.calls.append(kwargs)
         if self.on_call is not None:
             self.on_call()

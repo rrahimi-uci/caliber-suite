@@ -41,9 +41,10 @@ stage and to fail one).
 
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
-from collections.abc import Callable
+from collections.abc import Callable, Iterator, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from enum import Enum
@@ -152,15 +153,33 @@ MANDATORY = frozenset(
 _ACTIVE: list[StepContext] = []
 
 
+def _active_run() -> StepContext:
+    if not _ACTIVE:
+        raise RuntimeError(
+            "a conformance canary tool ran outside a conformance run: something called a tool it was not handed"
+        )
+    return _ACTIVE[-1]
+
+
+@contextlib.contextmanager
+def running(ctx: StepContext) -> Iterator[StepContext]:
+    """``ctx`` is the step being run for the length of the block: the canary tools record into it."""
+    _ACTIVE.append(ctx)
+    try:
+        yield ctx
+    finally:
+        _ACTIVE.pop()
+
+
 def canary_protected_tool(**arguments: Any) -> str:
     """What the agent's protected tool binding resolves to. Running it is a conformance failure."""
-    _ACTIVE[-1].protected_calls.append(arguments)
+    _active_run().protected_calls.append(arguments)
     return "mutated"
 
 
 def canary_read_tool(**arguments: Any) -> str:
     """What the agent's read tool binding resolves to."""
-    _ACTIVE[-1].read_calls.append(arguments)
+    _active_run().read_calls.append(arguments)
     return "data"
 
 
@@ -186,6 +205,9 @@ class StepContext:
     protected_calls: list[dict[str, Any]] = field(default_factory=list)
     read_calls: list[dict[str, Any]] = field(default_factory=list)
     provider_calls: int = 0
+    #: What each provider call offered the model (names), and the text it carried, when the transport reports them.
+    offered_tools: list[tuple[str, ...]] = field(default_factory=list)
+    sent_to_provider: list[str] = field(default_factory=list)
     #: What the staged provider reports for the scenario, when a driver's adapter counts turns and tool calls itself and the
     #: default :attr:`staged_usage` cannot be produced by its loop (three turns and no tool call, for a budget stop). A driver
     #: sets it before its transport answers; the tokens it states are the ones the stub must report. Additive (B08.anthropic).
@@ -199,9 +221,19 @@ class StepContext:
     #: clock here.
     on_provider_call: Callable[[], None] | None = None
 
-    def provider_called(self) -> None:
-        """A driver's stubbed transport calls this each time the provider would be called."""
+    def provider_called(
+        self, *, tools: Sequence[str] | None = None, sent: str | None = None
+    ) -> None:
+        """A driver's stubbed transport calls this each time the provider would be called.
+
+        ``tools`` (the names of the tools the request offers the model) and ``sent`` (the request's text: messages, tool results)
+        are optional; a transport that gives them lets the rules that need them run.
+        """
         self.provider_calls += 1
+        if tools is not None:
+            self.offered_tools.append(tuple(tools))
+        if sent is not None:
+            self.sent_to_provider.append(sent)
         if self.on_provider_call is not None:
             self.on_provider_call()
 
@@ -361,34 +393,50 @@ class _LogCapture(logging.Handler):
         self.text: list[str] = []
 
     def emit(self, record: logging.LogRecord) -> None:
+        # The formatted message, and every field of the record: ``extra=`` values, the arguments, an exception's text.
         self.text.append(self.format(record))
+        self.text.append(repr(vars(record)))
 
 
-def _capture_logs() -> tuple[_LogCapture, Callable[[], None]]:
-    """Capture every record at DEBUG: the root and ``caliber`` loggers are lowered for the run and restored by the callback."""
+def capture_logs() -> tuple[_LogCapture, Callable[[], None]]:
+    """Capture every log record, at every level, and return the capture and the callback that restores the loggers.
+
+    The handler is on the root logger and on every existing logger that does not propagate; every existing logger's level is
+    lowered to DEBUG for the run (so a logger set to WARNING still shows what it drops). What it cannot see: a logger created
+    during the run that turns propagation off, and output that does not go through ``logging``.
+    """
     capture = _LogCapture()
-    loggers = [logging.getLogger(), logging.getLogger("caliber")]
+    root = logging.getLogger()
+    named = [
+        logger
+        for logger in list(logging.root.manager.loggerDict.values())
+        if isinstance(logger, logging.Logger)
+    ]
+    loggers = [root, *named]
     levels = [(logger, logger.level) for logger in loggers]
+    attached = [logger for logger in loggers if logger is root or not logger.propagate]
     for logger in loggers:
         logger.setLevel(logging.DEBUG)
-    loggers[0].addHandler(capture)
+    for logger in attached:
+        logger.addHandler(capture)
 
     def restore() -> None:
-        loggers[0].removeHandler(capture)
+        for logger in attached:
+            logger.removeHandler(capture)
         for logger, level in levels:
             logger.setLevel(level)
 
     return capture, restore
 
 
+_capture_logs = capture_logs
+
+
 def _run(driver: AdapterDriver, ctx: StepContext) -> AgentStepResult:
-    _ACTIVE.append(ctx)
-    try:
+    with running(ctx):
         return run_agent_step(
             driver.adapter_for(ctx.scenario, ctx), ctx.request, ctx.step_input, clock=ctx.clock
         )
-    finally:
-        _ACTIVE.pop()
 
 
 def run_scenario(driver: AdapterDriver, scenario: Scenario) -> tuple[AgentStepResult, StepContext]:
