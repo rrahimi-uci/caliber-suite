@@ -138,7 +138,9 @@ In the reference profile a manifest-backed plan without this governed context is
 sender. Outside the reference profile it is not refused: see [Profiles and a missing governed context](#profiles-and-a-missing-governed-context-1068).
 Legacy plans without a workflow manifest retain the existing `_perform_guarded_effect` ledger behavior and do not create an
 effect proposal. The runtime integration that owns a run must bind the context with the run id, exact approval provider, live
-execution-owner lease and endpoint-specific verifier; no new environment variable, SDK route or migration is required.
+execution-owner lease and endpoint-specific verifier. Since #1051 the worker does bind it in the reference profile (see
+[The worker binds the governed path](#the-worker-binds-the-governed-path-1051)), but with no verifier for the generic `http` connector
+(#1055) a webhook or API-request node is refused `no_authoritative_verifier` before its proposal is recorded.
 
 ## Governed registered tools (B04.3)
 
@@ -193,7 +195,7 @@ them there (read-class tools are unaffected; outside the reference profile see [
 
 | plan built by | used for | registry reader | protected registry tool |
 | --- | --- | --- | --- |
-| `promoter.build_plan` | worker runs, synchronous version runs, sub-workflows, Aria previews | bound | reference profile: refused until a governed context is bound (#1051); development profile: runs on the legacy guarded path (#1068); a preview stubs it |
+| `promoter.build_plan` | worker runs, synchronous version runs, sub-workflows, Aria previews | bound | a worker run of an admitted reference-profile run gets a governed context (#1051) and the tool is refused `no_authoritative_verifier` before it is recorded; every other `build_plan` plan (synchronous, sub-workflow, preview) has none: refused in the reference profile, legacy guarded path in development (#1068); a preview stubs it |
 | `refinement._replay` (via `orchestrator/workflow_stages.py::run_workflow_eval`) | candidate evaluation | bound by the stage | refused (typed, nothing recorded); read-class tools run |
 | `calibration._replay_calibration_manifest` (via `evaluate_workflow_calibration_candidates` in the stage) | calibration replay | bound by the stage | refused; read-class tools run |
 | `promoter` deploy-gate replay | release gate evaluation | none, but `preview=True` | stubbed, never run for real |
@@ -333,7 +335,7 @@ approval is already consumed**: ask for a new proposal (run the node again after
 proposed before they reach the entry, see [Model-selected tool calls](#model-selected-tool-calls-b046-768)), the Aria assistant's published-tool call (inventory EP-034: there is no workflow run to propose into; owned by #1063),
 standalone exports and plans a caller builds itself (#1051: `build_plan` binds the registry reader but no governed context, so a
 in the
-reference profile a deployed workflow's **protected** OpenAPI nodes are refused until #1051 binds one, and outside it they run
+reference profile a deployed workflow's **protected** OpenAPI nodes are refused (the worker's context has no verifier for the connector yet, #1055, #1051), and outside it they run
 inline through a named legacy entry, see [Profiles and a missing governed context](#profiles-and-a-missing-governed-context-1068);
 read-class `GET` nodes always run) all reach
 the **public** entry, which refuses a protected method with `unsupported_effect_path`. So none of them can perform an OpenAPI
@@ -350,6 +352,87 @@ new one fails until it is routed or pinned with a reason.
 `openapi-http` become reserved tool names like the other connectors (`409 reserved_tool_name`); a tool already registered
 under one is untrusted and unaffected. Reverting the change restores the direct call (a proposal already recorded remains
 readable).
+
+## The worker binds the governed path (#1051)
+
+In the reference profile the workflow-run worker builds the governed contexts for an **admitted** run it owns, from state the
+server holds (`caliber.effects.governed_context`). Nothing a request, a manifest, a tool call or a model supplies becomes
+authority, and a trusted input that is missing is a refusal, never an implicit allow.
+
+| trusted input | where it comes from |
+| --- | --- |
+| the execution-owner lease | a provider the lifespan binds to the process's `ExecutionRoleController` (`WorkflowRunWorker.bind_lease_provider`), read **at the moment an effect is dispatched** and compared in the claim and in every settlement write. No lease: `lease_unavailable`, nothing is claimed |
+| the approver's authority | the decision route records *who* decided (`decided_by` and the quorum). The scopes a dispatch attests are derived **then** from the configured user lists (`CALIBER_ADMIN_USERS`, `CALIBER_APPROVER_USERS`, `CALIBER_OPERATOR_USERS`) for every one of those approvers and **intersected**, so a scope revoked since the decision is gone (`role_revoked`) and a quorum is as strong as its weakest approver. Project role, membership, the requester and the initiator are re-derived by the commit recheck itself, as before |
+| the requester | the run's initiator, `run.created_by`, read from the run row (an approval request names it; the approver must be someone else) |
+| which tools may be proposed through | `CALIBER_AGENT_STEP_TOOL_BACKENDS`, keyed by the tool's **registry identity** `(name, version)`, never by a local name in a manifest |
+| the downstream an effect is sent to | the `base_url` of the connector's binding in `CALIBER_EFFECT_CALLBACK_CONNECTORS` for the run's project: the address the reconciler asks, so an effect is never sent where it cannot be looked up. No binding: `connector_unbound`, refused before anything is claimed |
+| step limits and the run's token budget | the operator's ceilings (`CALIBER_AGENT_STEP_MAX_*`) and `CALIBER_AGENT_RUN_MAX_TOKENS` |
+
+**An agent step, end to end.** An agent node bound to a mapped tool runs as a governed step; every other agent node runs as before
+(a governed step has no text output, so only an agent built to propose is governed). The scripted or real model *proposes* a
+protected action: the platform binds it to the inventory, records one `proposed` effect and the approval request bound to that
+exact intent, and the run parks `waiting_approval` on that request. A person other than the initiator decides it over HTTP
+(`POST /workflow-runs/{id}/approval/approve`). **A decision does not wake the run** (it records the human decision and nothing
+else); an operator resumes it (`POST /workflow-runs/{id}/resume`), which is the one point where the run runs again. The node finds
+its proposal instead of asking the model again, and the producer's `dispatch_approved` crosses the dispatcher: the approval is
+consumed and the dispatch claimed in one transaction under the lease **before** the downstream is called, the downstream is sent the
+proposal's stable key exactly once, and the receipt is read back by the connector's own lookup by key. `committed` completes the node;
+anything short of it (an ambiguous answer, a receipt that could not be read back, a worker killed after the send) leaves the proposal
+`dispatched` or `unknown` and the run `waiting_effect`, which the reconciler settles by key and then wakes. A rejected request is final
+(`approval_rejected`); an expired one is asked again; a revoked approver, a lost lease or an unbound connector fails the node with its
+fixed code and sends nothing.
+
+**What each plan shape gets.** `legacy_guarded_effects` stays, so the development profile is unchanged.
+
+| plan | governed context |
+| --- | --- |
+| a worker run, admitted, reference profile | the effect context, and the step context when an agent node is bound to a mapped tool |
+| the same, with an agent bound to a mapped tool but no lease binding, no initiator, no usable manifest digest or a configuration that does not parse | the **run fails** (`governed_context_unavailable`) before the model is asked: never a legacy agent |
+| the same, but the run was not admitted | the **run fails** (`run_not_admitted`) if an agent in it can reach a mapped tool; otherwise nothing is bound and a protected node is refused for want of a context |
+| a worker run in the development profile | nothing bound: the legacy path of [Profiles and a missing governed context](#profiles-and-a-missing-governed-context-1068) |
+| a synchronous version run and the sub-workflows of a worker run (`build_plan` outside the worker's own run) | no owner lease in the process that builds the plan, so **no context**: a protected node is refused in the reference profile and takes the legacy path in development, exactly as before. An agent in such a plan that is bound to a mapped tool, **or whose handoffs can reach one, directly or through other agents**, is **refused** when it runs (`agent '<id>' can reach a tool the operator mapped to a governed backend, and this plan has no governed step for it`): `build_plan` records the agents bound to a mapped tool (`RuntimePlan.agents_requiring_governance`, reference profile only) and the interpreter checks each agent's handoff closure, cycle-safe |
+| an evaluation, a gate replay or an Aria preview | run as previews (`preview=True`): protected tools are stubbed, so the refusal above does not apply to them |
+| refinement and calibration replays (the stage tells the replay which agents are mapped, `agents_requiring_governance`) | not previews: this change makes a mapped agent (or one that hands off to one) **refused** in the replay, so evaluating or calibrating a workflow whose agent is bound to a mapped tool scores an error in the reference profile (give the replay a manifest without the mapped agent); what a replay does with a protected registry tool is the [registered-tools table](#governed-registered-tools-b043) above, and protected model-chosen tool calls in replays are #1079's |
+| the deploy-gate replay | unchanged: a preview, protected tools stubbed |
+| standalone exports and plans a caller builds itself | unchanged: not governed |
+
+**A workflow node (webhook, API request, registered tool, OpenAPI tool, MCP tool) is bound to the context and refused.** The context the
+worker binds has the whole mechanism (a proposal, an approval request bound to the exact intent, a park behind it, a dispatch under the
+lease), but it names no backend it can verify: the generic `http`, `registered_tool`, `openapi_http` and `mcp` connectors have no lookup by key
+the platform can call, so an outcome it could not read back would end `unknown` and park the run with no way out (#1055). Such a node is
+therefore refused **before its proposal is recorded**, so no approval is asked for or spent on it:
+
+```text
+HTTP effect refused: no_authoritative_verifier
+registered tool effect refused: no_authoritative_verifier
+OpenAPI effect refused: no_authoritative_verifier
+MCP effect refused: no_authoritative_verifier
+```
+
+A verifier for a backend (`effect_context(authority, verifiers={...})`) is what makes it reachable; until #1055 settles which connectors
+have one, the only backend a production run reaches is `document_request`, through a governed agent step. A protected MCP tool call (B04.5) goes
+through the same context and is refused the same way.
+
+**Limits, stated plainly.**
+
+- A governed workflow effect, or a governed agent, inside a fan-out, loop, error boundary, handoff or `parallel` branch cannot park the
+  run: the run is refused up front (agents) or fails (effects).
+- The legacy `requires_approval` gate of a tool node still asks first, with its own node-level request; a governed effect then asks the
+  exact-intent question, so such a node is approved twice.
+- A proposal that names a resource version is sent only through a connector whose downstream enforces the precondition atomically with
+  the write (`document_request` does: a stale version is the downstream's 412, a definitive rejection). The platform has no read of its
+  own for another connector's target, so a versioned proposal for any other connector is `version_unverifiable`.
+- A revoked approver, a lease that is gone *before* the claim, or a connector with no binding ends the run `failed` with the proposal
+  still `proposed`; a downstream that rejects ends it with the proposal `failed`. Settling the proposal of an ended run and withdrawing
+  an approved, unconsumed decision are #1074. A refusal or an error that arrives *after* the downstream was called (settling refused
+  because the lease moved on, a verifier that raised) is not a failure of the run: the proposal is read again, an open one
+  (`dispatched`, `unknown`) parks the run `waiting_effect` for the reconciler and a committed one completes the node.
+- Model-chosen tool calls of an agent that is **not** governed are not routed (#768). An agent that is bound to a mapped tool, or can reach one through handoffs, is either governed (the worker's own graph) or refused in every plan `build_plan` and the refinement and calibration replays build outside a preview; a plan a caller builds by hand and passes no `agents_requiring_governance` is not covered (it is not governed either: see the table).
+- If the store is down at both the settlement and the re-read that follows a failed dispatch, the run fails `store_failed`; the proposal is still the reconciler's (it was claimed, so it is `dispatched` or `unknown` and is settled by key).
+- `CALIBER_AGENT_STEP_TOOL_BACKENDS` outside the reference profile is ignored and logged at startup (there is no lease to dispatch under).
+
+No migration. The new setting is `CALIBER_AGENT_STEP_TOOL_BACKENDS` (default `[]`: no agent is governed, and a reference profile with
+the default behaves as before). Rolling back is reverting the change; a recorded proposal stays readable and reconcilable.
 
 ### Draft preview is read-only (#1072)
 
@@ -505,9 +588,10 @@ recorded remains readable).
 
 ## Profiles and a missing governed context (#1068)
 
-No production code binds a `GovernedEffectContext` yet: `build_plan` (worker runs, synchronous version runs, sub-workflows)
-binds the registry reader but no execution-owner lease and no exact-intent approval provider (#1051, which also needs the bound
-approval decision route of #735). The dispatcher routing of B04.2, B04.3 and B04.4 made every **protected** node of a
+`build_plan` (worker runs, synchronous version runs, sub-workflows) binds the registry reader but no execution-owner lease and no
+exact-intent approval provider. Since #1051 the **worker** binds a `GovernedEffectContext` after `build_plan` for an admitted run in the
+reference profile ([The worker binds the governed path](#the-worker-binds-the-governed-path-1051)); the plans `build_plan` returns to
+every other caller still have none, and this section is what they do. The dispatcher routing of B04.2, B04.3 and B04.4 made every **protected** node of a
 manifest-backed plan fail for that reason in **every** profile, which broke the shipped cookbook labs (03, 04, 05, 07, 08, 09, 16
 and 19) on `main`. The decision, from ADR 0001 ("Features outside the shape keep working in `development`", "The profile never
 silently falls back to a weaker control"), the B04.2 scope ("keep `_perform_guarded_effect` for runs without a manifest
@@ -553,18 +637,19 @@ OpenAPI binding. `bind_legacy_openapi_http_tool` is named only by `workflows/run
 `tests/test_effect_path_matrix.py::test_the_development_profile_legacy_entry_is_named_only_by_the_runtime`). There is no
 setting, environment variable, route or migration, and no approval hook: nothing returns `True` for an authorization.
 
-**Cookbook labs.** The labs run the development profile and create manifest-backed plans, so they depend on this path until
-#1051 binds a context. Their UI specs depended on a second profile-blind rule: the console's Run control (#968) required an
+**Cookbook labs.** The labs run the development profile and create manifest-backed plans, so they depend on this path: the worker
+binds the governed context (#1051) in the reference profile only. Their UI specs depended on a second profile-blind rule: the console's Run control (#968) required an
 approved workspace release and environment for every project workflow, which the development server does not require, so its
 Run button stayed disabled. The console now offers and requires the pair only when `GET /capabilities` reports
 `workflow_runs.lineage_required` (true exactly where the server refuses a run without lineage: the reference profile). The `Cookbook labs` workflow now also runs on pull requests that touch the workflow runtime, the effect
 dispatcher, integrations, policy, the run worker and routes, `profile.py` and `config.py`, and on every push to `main` that
 touches them (it takes about fifty minutes, so it is not a required check).
 
-**Moving off it.** #1051 wires the context (an authorization provider, the execution-owner lease, an authoritative receipt
-verifier, park and resume while an approval is pending). When it lands, `legacy_guarded_effects` is removed and the development
-profile uses the governed path like the reference one; until then a deployment that needs the exact-intent guarantees must run
-`CALIBER_PROFILE=reference`.
+**Moving off it.** #1051 wired the context in the worker (an authorization provider, the execution-owner lease, park and resume while
+an approval is pending), for the reference profile only: the development profile has no execution-owner lease to dispatch under, and no
+generic connector has an authoritative receipt verifier yet (#1055). `legacy_guarded_effects` is therefore **not** removed: it goes when
+the development profile can dispatch under a lease and the workflow connectors can be verified. A deployment that needs the exact-intent
+guarantees must run `CALIBER_PROFILE=reference`, where a protected workflow node is refused rather than sent without them.
 
 ## Memory is owned, derived and read-mostly
 
@@ -3590,10 +3675,11 @@ job and is described in [Governed agent steps](#governed-agent-steps-a-protected
 ## Governed agent steps: a protected action is a proposal (B08.2, #744)
 
 `caliber.effects.step_proposal` is what the platform (the interpreter, never an adapter) does with a step that stops with
-`proposed_action`. It adds no route, table or setting. It is switched on per plan: `RuntimePlan.governed_agent_steps` is a
-`GovernedStepContext`, and **nothing in production builds one yet** (the producer that admits a run will; the worker, the
-reference profile and every existing plan run agent nodes exactly as before). With one, an agent node no longer calls
-`run_agent`: it runs through `run_agent_step`.
+`proposed_action`. It is switched on per plan: `RuntimePlan.governed_agent_steps` is a `GovernedStepContext`. Since #1051 the worker
+builds one in the reference profile for an admitted run, **only for the agent nodes bound to a tool the operator mapped**
+(`CALIBER_AGENT_STEP_TOOL_BACKENDS`, `GovernedStepContext.governed_nodes`; see [The worker binds the governed
+path](#the-worker-binds-the-governed-path-1051)); every other plan, and every other agent node, runs exactly as before. With one, an
+agent node no longer calls `run_agent`: it runs through `run_agent_step`.
 
 1. **The platform classifies the agent's tools; the model's claim decides nothing.** `registry_tool_classifier` answers, for each
    tool bound to the agent, the protected-effect inventory's class for the tool's *registry identity*: the binding names its row
@@ -3641,7 +3727,7 @@ reference profile and every existing plan run agent nodes exactly as before). Wi
    not live and bound to this run, node and proposal. The routes accept the checkpoint kind (`runtime_approval`), and the parked run is decided by naming
    the request's `runtime_approval_id` while the run is `waiting_approval` at that node (B06.4, #735; the default selection with no id never picks
    a bound request). The decision does not resume the run: an operator's `POST .../resume` does, and the dispatcher consumes the approval when the
-   step's effect is claimed.
+   step's effect is claimed (since #1051, by the context's `dispatch_approved`).
 5. **A resumed or retried step does not ask the model again.** Before the provider is called the node looks for its occurrence's
    proposal: `committed` completes the node, `failed` fails it, `proposed` parks it again behind its live request (re-asked when the
    last one expired, was superseded or was consumed; a *rejected* request is final, `approval_rejected`), and any state in between
@@ -3685,10 +3771,11 @@ plan.governed_agent_steps = GovernedStepContext(
 )
 ```
 
-Not covered, so not claimed: dispatching an approved proposal (an approved proposal stays `proposed` and the run stays
-`waiting_approval` until the producer that owns the execution lease resumes it and dispatches, #1051; B04.6 records proposals
-of registered, OpenAPI and MCP tools in the node's own intent shape so the existing backends can send them, see
-[Model-selected tool calls](#model-selected-tool-calls-b046-768)), the token reservation
+Dispatching an approved proposal is the context's `dispatch_approved` (#1051): a context without one leaves an approved proposal
+`proposed` and the run `waiting_approval`, as before; the worker's sends it once, under the lease, through the `document_request`
+backend (B04.6 records proposals of registered, OpenAPI and MCP tools in the node's own intent shape so the existing backends can
+send them, see [Model-selected tool calls](#model-selected-tool-calls-b046-768); the worker dispatches only `document_request`,
+the other backends having no verifier yet, #1055). Not covered, so not claimed: the token reservation
 (B08.4), handoffs, inline targets and parallel branches (refused), and the output text of a governed step (a step that completes is refused). A
 proposal that does not name its tool (a scripted or third-party adapter that still claims its target) is bound within a connector at
 the strictest class of the tools that map to it; the shipped adapters name the tool (B04.6), which makes the class exact.
@@ -4701,7 +4788,8 @@ ADR 0001 describes the whole reference shape; this table is what the *process* c
 - **The shape itself:** one tenant and region, MLflow addressed by `MLFLOW_TRACKING_URI`, an S3-compatible object store, at least two projects, and one real model provider next to the scripted adapter. Readiness reporting for MLflow and the object store is #535. The PostgreSQL version and the `pgvector` extension are checked by the migrations (migration `0060`) and the migration-parity CI job, not by the profile.
 - **Origin rules** (#533). ADR 0001 names them, but #533 has no allowed-origins task yet; that rule is not scheduled.
 - **Run-time refusal of the `refuse` inventory rows**, including the host-file tools and the DB MCP write tools (#774; see "Reserved tool names and refused paths"), **the trusted-connector set** (#534), **the full attack pack** (#535), **a single execution owner** (#536) and **the Apply separation-of-duties flag** (#589).
-- **A governed effect context in `build_plan` plans** (#1051, #1068): the worker and synchronous runs bind none, so the reference profile refuses protected nodes and the development profile runs them on the legacy guarded path; see "Profiles and a missing governed context".
+- **A governed effect context outside the worker's own graph** (#1051, #1068): the worker binds one for an admitted reference-profile run, but synchronous version runs, evaluation, gate and Aria previews, and the sub-workflows of a worker run have no owner lease and bind none, so the reference profile refuses their protected nodes (and an agent in them that can reach a mapped tool) and the development profile runs them on the legacy guarded path; see "Profiles and a missing governed context".
+- **A verifier for the generic workflow connectors** (#1055, #1051): a webhook, API-request, registered-tool, OpenAPI or MCP node is refused `no_authoritative_verifier` in the reference profile because no connector other than `document_request` has a lookup by key; only a governed agent step reaches a backend end to end. Model-chosen calls of an agent that is not governed (B04.6, #768) are not routed.
 - **Cookie flags:** `auth_session_cookie_secure` is not checked.
 - **The database role:** whether the application connects as a role without `UPDATE`, `DELETE` or `TRUNCATE` on `caliber_run_manifests` (see "Run manifests are written once").
 

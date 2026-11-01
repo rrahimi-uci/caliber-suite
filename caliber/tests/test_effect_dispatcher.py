@@ -306,6 +306,38 @@ def test_valid_path_commits_with_receipt_and_calls_backend_after_claim_commit(
             assert session.scalar(select(CaliberEffectReceipt.receipt_id)) == result.receipt_id
 
 
+def test_dispatch_reaches_the_two_fault_barriers_around_the_send_and_unarmed_they_do_nothing(
+    tmp_path: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A scenario kills the process at ``before_dispatch`` (claimed, nothing sent) and ``after_downstream_commit`` (answered, nothing recorded)."""
+    with _database("sqlite", tmp_path, monkeypatch) as (_, factory):
+        _seed_run(factory)
+        with factory() as session:
+            proposal_id = _submit(session)
+            approval_id = _approval(session, proposal_id)
+            lease = leased(session, "dispatcher")
+            session.commit()
+        backend = _Backend(factory, proposal_id)
+        admit_fake_backend(monkeypatch, "test", backend)
+        order: list[str] = []
+        monkeypatch.setattr(
+            dispatcher_module,
+            "barrier",
+            lambda name: order.append(f"{name}:{'called' if backend.called else 'not-called'}"),
+        )
+        dispatch(
+            factory,
+            proposal_id,
+            approval_id=approval_id,
+            approver_scopes={"caliber.approver"},
+            lease=lease,
+            backend_kind="test",
+            approval_validator=_validator,
+            now=AT,
+        )
+        assert order == ["before_dispatch:not-called", "after_downstream_commit:called"]
+
+
 def test_unregistered_backend_kind_is_unsupported_without_claiming(
     tmp_path: Any, monkeypatch: pytest.MonkeyPatch
 ) -> None:

@@ -85,6 +85,7 @@ from caliber.integrations.openapi import executor as _raw_connector_transport
 from caliber.integrations.openapi.executor import OpenApiPreflightError
 from caliber.observability.span_attributes import GovernedSpan, governed_span
 from caliber.ownership import Lease
+from caliber.testing.fault_barriers import barrier
 from caliber.workflows.agent_step import ProposedAction
 from caliber.workflows.approval_policy import (
     ApprovalCommit,
@@ -1077,10 +1078,14 @@ def dispatch(
         if isinstance(claim, EffectOutcome):
             return claim
         request, captured_lease, attempt = claim.request, claim.lease, claim.attempt
+        # The claim is committed (``dispatched``, approval consumed) and nothing is sent: a scenario kills the process here.
+        barrier("before_dispatch")
         try:
             transport = _backend_call(registration.backend, request, backend_config)
         except Exception as exc:
             transport = TransportResult(classify_error(exc))
+        # The downstream has answered and nothing is recorded: a scenario kills the process here (unarmed, this does nothing).
+        barrier("after_downstream_commit")
 
         try:
             with _session_scope(session_or_factory) as session:

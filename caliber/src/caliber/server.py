@@ -37,6 +37,7 @@ from caliber.config import CaliberConfig, ConfigError, resolve_assistant_engine
 from caliber.csrf import CSRFMiddleware, build_token_manager
 from caliber.db.session import create_engine_from_config, sessionmaker_from_engine
 from caliber.db_url import shared_sqlite_store
+from caliber.effects.tool_backends import parse_tool_backends
 from caliber.egress import EgressPolicy
 from caliber.eval.provider import EvalProvider
 from caliber.eval.provider import build_provider as build_eval_provider
@@ -192,6 +193,14 @@ def _require_reference_profile(config: CaliberConfig) -> None:
             FAULT_BARRIERS_ENV,
         )
     if config.profile != "reference":
+        if parse_tool_backends(config.agent_step_tool_backends):
+            # Governed agent steps need the execution-owner lease, which only the reference profile has: say so rather than
+            # let an operator believe the mapped tools are governed here (#1051).
+            logger.warning(
+                "CALIBER_AGENT_STEP_TOOL_BACKENDS maps tools but CALIBER_PROFILE is %r: the map is ignored and agents run "
+                "ungoverned. Governed agent steps exist only in the reference profile.",
+                config.profile,
+            )
         return
     violations = reference_profile_violations(config)
     if violations:
@@ -413,6 +422,9 @@ def _build_lifespan(  # noqa: PLR0915 - one lifespan: every owner loop's start a
     if effect_reconciler is not None and leased:
         # It reconciles only under the exact lease this process holds, and does nothing without one.
         effect_reconciler.bind_lease_provider(lambda: role.lease)
+    if workflow_run_worker is not None and leased:
+        # A run's protected effects are dispatched only under the exact lease this process holds, read when each one is sent (#1051).
+        workflow_run_worker.bind_lease_provider(lambda: role.lease)
 
     @asynccontextmanager
     async def lifespan(_app: Starlette) -> AsyncIterator[None]:

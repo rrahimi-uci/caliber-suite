@@ -2504,6 +2504,16 @@ class GovernedEffectContext:
     authorize: Callable[[RecordedProposal], EffectAuthorization | None]
     receipt_verifier: Callable[[EffectRequest, Mapping[str, Any]], Any]
     backend_config: Mapping[str, Any] = field(default_factory=dict)
+    #: The backend kinds this context may dispatch through (``None``: every admitted backend, the original behavior). The
+    #: producer names only the kinds it has an authoritative receipt verifier for; a node whose backend is not named is refused
+    #: **before** its proposal is recorded (``no_authoritative_verifier``), so no approval is asked for, or spent on, an effect the
+    #: platform could never confirm and whose ambiguous outcome would park the run with no way out (#1055).
+    dispatchable_backends: frozenset[str] | None = None
+
+
+#: ``ir -> the agent nodes that can reach an operator-mapped tool`` (:func:`caliber.effects.governed_context.mapped_agent_nodes`, with the
+#: caller's configuration bound). A replay that builds its own plan passes one so its agents are refused like any other plan's (#1051).
+AgentsRequiringGovernance = Callable[[IRWorkflow], frozenset[str]]
 
 
 @dataclass
@@ -2596,6 +2606,11 @@ class RuntimePlan:
     #: effect plus an approval request, and the node parks (``waiting_approval``) instead of executing it. A governed step has
     #: no output text channel in the v1 result contract, so one that completes without proposing is refused.
     governed_agent_steps: _step_proposal.GovernedStepContext | None = None
+    #: The agent nodes of this plan that are bound to a tool the operator mapped to a governed backend (``build_plan`` and the replay
+    #: builders fill it in the reference profile). A plan whose ``governed_agent_steps`` does not govern one of them (a sub-workflow,
+    #: a synchronous run, a replay) refuses to run it, **and any agent whose handoffs can reach it, directly or through others**,
+    #: outside a preview, rather than as a legacy agent (#1051).
+    agents_requiring_governance: frozenset[str] = frozenset()
     #: Reads a registry tool's own row by ``(name, version)`` (B04.3, #741). The registry row, not the manifest binding, says
     #: whether a tool is CALIBER's own and how risky it is; ``build_plan`` binds this to the database. A plan with neither this
     #: reader nor a governed context is not governed: registered tools keep running as before.
@@ -2703,6 +2718,7 @@ def _resume_checkpoint_kind_matches_node(
     node: IRNode,
     *,
     governed_agent_steps: bool = False,
+    governed_effects: bool = False,
 ) -> bool:
     if checkpoint_kind == "wait_for_event":
         return isinstance(node, IRWaitForEvent)
@@ -2711,10 +2727,17 @@ def _resume_checkpoint_kind_matches_node(
     if checkpoint_kind == "human_approval":
         return isinstance(node, IRHumanApproval)
     if checkpoint_kind == "runtime_approval":
-        # A gated tool node, or a governed agent step parked behind the approval of its proposed action (B08.2): an agent
-        # node resumes from this kind only in a plan that runs governed steps.
-        return (isinstance(node, IRAgent) and governed_agent_steps) or (
-            isinstance(node, IRTool) and node.binding is not None and node.binding.requires_approval
+        # A gated tool node, a governed agent step parked behind the approval of its proposed action (B08.2) or a governed
+        # workflow effect parked behind its exact approval (#1051): an agent node resumes from this kind only when the plan
+        # governs it, and a webhook, API or tool node only in a plan that has a governed effect context.
+        return (
+            (isinstance(node, IRAgent) and governed_agent_steps)
+            or (governed_effects and isinstance(node, IRWebhook | IRApiRequest | IRTool))
+            or (
+                isinstance(node, IRTool)
+                and node.binding is not None
+                and node.binding.requires_approval
+            )
         )
     return True
 
@@ -3952,7 +3975,9 @@ def _interpret(  # noqa: PLR0911, PLR0912, PLR0915 - graph interpreter dispatch
     resume_checkpoint: RuntimeResumeCheckpoint | None = None,
 ) -> WorkflowRunResult:
     ir = plan.ir
-    if plan.governed_agent_steps is not None and (refusal := _governed_plan_refusal(ir)):
+    if plan.governed_agent_steps is not None and (
+        refusal := _governed_plan_refusal(ir, plan.governed_agent_steps.governs)
+    ):
         return WorkflowRunResult(
             status="error",
             output="",
@@ -4237,6 +4262,70 @@ def _interpret(  # noqa: PLR0911, PLR0912, PLR0915 - graph interpreter dispatch
             guardrail_results=guardrail_results,
         )
 
+    def _approval_waiting_result(exc: _step_proposal.EffectApprovalPending) -> WorkflowRunResult:
+        """Park the node whose governed effect is waiting for its exact approval (``waiting_approval``), or refuse the run.
+
+        The checkpoint is the ``runtime_approval`` kind the decision and resume routes accept, naming the proposal and the
+        approval request that already exist (identifiers and the intent hash, never the effect's arguments) plus the node's
+        input snapshot, so a resume runs the same node again and finds its one logical effect.
+        """
+        node_id = exc.blocked_node_id
+        node = ir.nodes.get(node_id) if node_id else None
+        if (
+            node_id is None
+            or node is None
+            or any(node_id in _inline_children(n) for n in ir.nodes.values())
+        ):
+            # Only a node of the graph can park the run: a target of a fan-out, loop or boundary runs inside its parent and
+            # cannot carry the park, so its effect would wait on an approval nobody can resume.
+            return WorkflowRunResult(
+                status="error",
+                output="",
+                steps=steps,
+                tags=base_tags,
+                tokens=total_tokens,
+                error=(
+                    "ToolExecutionError: a governed effect waiting for approval cannot run inline in a "
+                    f"fan-out, loop or boundary: node {node_id!r}"
+                ),
+                guardrail_results=guardrail_results,
+            )
+        input_by_port = dict(exc.blocked_inputs or {})
+        step = NodeStep(
+            node_id=node_id,
+            node_type=node.node_type.value,
+            status="blocked",
+            detail=f"waiting_approval:{node_id}",
+            input_by_port=input_by_port,
+            checkpoint_state={
+                "kind": "runtime_approval",
+                "node_id": node_id,
+                "proposal_id": exc.proposal_id,
+                "approval_request_id": exc.approval_request_id,
+                "intent_hash": exc.intent_hash,
+                "reason": "effect_proposal_awaiting_approval",
+                "resume_policy": "same_run_same_occurrence",
+            },
+        )
+        return _finalize_step(
+            nid=node_id,
+            node=node,
+            gathered_inputs=input_by_port,
+            step=step,
+            tokens=0,
+            cache_key=None,
+            node_outputs={},
+            extra_guardrail_results=[],
+        ) or WorkflowRunResult(
+            status="blocked",
+            output="",
+            steps=steps,
+            tags=base_tags,
+            tokens=total_tokens,
+            error=step.detail,
+            guardrail_results=guardrail_results,
+        )
+
     def _run_parallel_ready_batch(batch_ids: list[str]) -> list[dict[str, Any]]:
         base_port_values = dict(port_values)
         results_by_node_id: dict[str, dict[str, Any]] = {}
@@ -4427,7 +4516,8 @@ def _interpret(  # noqa: PLR0911, PLR0912, PLR0915 - graph interpreter dispatch
         if not _resume_checkpoint_kind_matches_node(
             resume_checkpoint.checkpoint_kind,
             node,
-            governed_agent_steps=plan.governed_agent_steps is not None,
+            governed_agent_steps=_governs_agent(plan, node),
+            governed_effects=plan.governed_effects is not None,
         ):
             return WorkflowRunResult(
                 status="error",
@@ -4638,6 +4728,8 @@ def _interpret(  # noqa: PLR0911, PLR0912, PLR0915 - graph interpreter dispatch
                 return blocked_result
     except UnknownEffectError as exc:
         return _effect_waiting_result(exc)
+    except _step_proposal.EffectApprovalPending as approval_pending:
+        return _approval_waiting_result(approval_pending)
     except GuardrailBlockedError as exc:  # pragma: no cover - converted to step above
         return WorkflowRunResult(
             status="blocked",
@@ -5114,8 +5206,35 @@ def _governed_read_tools(
     )
 
 
-def _governed_plan_refusal(ir: IRWorkflow) -> str | None:
+def _handoff_closure(ir: IRWorkflow, agent_id: str) -> tuple[str, ...]:
+    """``agent_id`` and every agent its handoffs can reach, directly or through others (cycle-safe, in discovery order).
+
+    The executor follows handoffs recursively, so an agent that hands off to one that hands off to a mapped tool can reach it.
+    """
+    seen: dict[str, None] = {agent_id: None}
+    pending = [agent_id]
+    while pending:
+        node = ir.nodes.get(pending.pop())
+        if not isinstance(node, IRAgent):
+            continue
+        for handoff in node.handoffs:
+            if handoff.target_node_id not in seen:
+                seen[handoff.target_node_id] = None
+                pending.append(handoff.target_node_id)
+    return tuple(seen)
+
+
+def _governs_agent(plan: RuntimePlan, node: IRNode) -> bool:
+    """Whether ``node`` is an agent node that runs as a governed step in ``plan`` (the context names it, or names every agent)."""
+    context = plan.governed_agent_steps
+    return isinstance(node, IRAgent) and context is not None and context.governs(node.node_id)
+
+
+def _governed_plan_refusal(ir: IRWorkflow, governs: Callable[[str], bool]) -> str | None:
     """Why a plan with governed agent steps cannot run, or ``None``: a payload-free reason naming only workflow node ids.
+
+    ``governs`` says which agent nodes (by node id) run as governed steps; an agent it does not name runs as before and is not
+    held to these rules, except that it may not hand off to one that is governed.
 
     A governed agent node parks the run behind an approval, and only a node of the graph can park it: a fan-out, loop or boundary
     runs its target inline and cannot carry the park, so an agent there would leave a proposal and an approval request nobody
@@ -5123,8 +5242,10 @@ def _governed_plan_refusal(ir: IRWorkflow) -> str | None:
     front, before any node runs and so before any proposal exists.
     """
     for edge in ir.edges:
-        if isinstance(ir.nodes.get(edge.from_node), IRParallel) and isinstance(
-            ir.nodes.get(edge.to_node), IRAgent
+        if (
+            isinstance(ir.nodes.get(edge.from_node), IRParallel)
+            and isinstance(ir.nodes.get(edge.to_node), IRAgent)
+            and governs(edge.to_node)
         ):
             return (
                 f"governed agent steps cannot run in parallel branches: agent {edge.to_node!r} "
@@ -5132,13 +5253,19 @@ def _governed_plan_refusal(ir: IRWorkflow) -> str | None:
             )
     for node in ir.nodes.values():
         if isinstance(node, IRAgent):
-            if node.handoffs:
+            if governs(node.node_id) and node.handoffs:
                 return (
                     f"governed agent steps do not follow handoffs: agent {node.node_id!r} has some"
                 )
+            for handoff in node.handoffs:
+                if governs(handoff.target_node_id):
+                    return (
+                        f"governed agent steps cannot run inline: agent {handoff.target_node_id!r} "
+                        f"is a handoff target of agent {node.node_id!r}"
+                    )
             continue
         for child_id in _inline_children(node):
-            if isinstance(ir.nodes.get(child_id), IRAgent):
+            if isinstance(ir.nodes.get(child_id), IRAgent) and governs(child_id):
                 return (
                     f"governed agent steps cannot run inline: agent {child_id!r} is a target of "
                     f"{node.node_type.value} node {node.node_id!r}"
@@ -5353,6 +5480,80 @@ def _publish_governed_outputs(
     port_values.setdefault((nid, "final_output"), output)
 
 
+def _completed_governed_step(
+    node: IRAgent, port_values: dict[tuple[str, str], Any], proposal_id: str
+) -> tuple[int, NodeStep]:
+    """The finished node of a governed step whose proposed effect committed: it names the effect, never its arguments."""
+    committed = f"effect {proposal_id} committed"
+    _publish_governed_outputs(node, port_values, committed, [])
+    return 0, NodeStep(node.node_id, node.node_type.value, "ok", output=committed)
+
+
+#: Proposal states in which the dispatcher (or the reconciler) holds the effect and the node must wait for it.
+_OPEN_EFFECT_STATES = frozenset({"approved", "dispatched", "unknown", "reconciled"})
+
+
+def _dispatch_approved_step(
+    context: _step_proposal.GovernedStepContext,
+    node: IRAgent,
+    prior: _step_proposal.PriorProposal,
+    port_values: dict[tuple[str, str], Any],
+) -> tuple[int, NodeStep] | None:
+    """Send a governed step's proposal once its exact approval is decided (#1051), or ``None`` to park behind the request.
+
+    The producer's ``dispatch_approved`` does the whole crossing (the exact approval, the execution-owner lease, the backend and
+    the downstream it is bound to) through the dispatcher, which consumes the approval and claims the dispatch in one
+    transaction before anything is sent. A context without one sends nothing: the proposal stays ``proposed`` and the node keeps
+    parking, as before the producer. A dispatcher refusal is a run error carrying only its fixed code. An outcome short of
+    ``committed`` (the answer was ambiguous, the receipt could not be read back) is the existing effect-reconciliation park: the
+    run waits for the reconciler, and the node is never sent a second time. If the dispatch raised after it may have sent, the
+    proposal is read again before the run fails, so an effect that is now ``dispatched`` or ``unknown`` parks instead.
+    """
+    dispatcher = context.dispatch_approved
+    if dispatcher is None:
+        return None
+    nid = node.node_id
+
+    def settled_after_failure(failure: ToolExecutionError) -> tuple[int, NodeStep]:
+        """What a dispatch that raised left behind: the proposal is read again before the run is failed.
+
+        A refusal or an exception can come *after* the downstream was called (a settlement the lease no longer allows, a
+        verifier that raised, a store that went away): the dispatcher then leaves the proposal ``dispatched`` or ``unknown``, and
+        failing the run would hide an effect that was sent. So an open proposal parks the run for the reconciler, a committed one
+        completes the node, and only a proposal that never moved (``proposed``: nothing was claimed) is the failure. None of the
+        exception's text, which can carry the statement's parameters, reaches the run error.
+        """
+        try:
+            current = _step_proposal.prior_proposal(
+                context.session_factory, context.workflow_run_id, nid, _STEP_OCCURRENCE.get() or nid
+            )
+        except Exception:
+            current = None
+        if current is not None and current.state in _OPEN_EFFECT_STATES:
+            raise UnknownEffectError([(current.proposal_id, nid, current.state)]) from None
+        if current is not None and current.state == "committed":
+            return _completed_governed_step(node, port_values, current.proposal_id)
+        raise failure from None
+
+    try:
+        outcome = dispatcher(prior)
+    except EffectRefused as exc:
+        return settled_after_failure(
+            ToolExecutionError(f"governed agent step dispatch refused: {exc.code}")
+        )
+    except Exception:
+        return settled_after_failure(
+            ToolExecutionError("governed agent step dispatch failed: store_failed")
+        )
+    if outcome is None:
+        return None
+    if outcome.state == "committed":
+        return _completed_governed_step(node, port_values, prior.proposal_id)
+    if outcome.state == "failed":
+        raise ToolExecutionError("governed agent step: its proposed effect failed")
+    raise UnknownEffectError([(prior.proposal_id, nid, outcome.state)])
+
+
 def _run_governed_agent_node(
     node: IRAgent,
     ir: IRWorkflow,
@@ -5383,12 +5584,13 @@ def _run_governed_agent_node(
     )
     if prior is not None:
         if prior.state == "committed":
-            committed = f"effect {prior.proposal_id} committed"
-            _publish_governed_outputs(node, port_values, committed, [])
-            return 0, NodeStep(nid, node.node_type.value, "ok", output=committed)
+            return _completed_governed_step(node, port_values, prior.proposal_id)
         if prior.state == "failed":
             raise ToolExecutionError("governed agent step: its proposed effect failed")
         if prior.state == "proposed":
+            dispatched = _dispatch_approved_step(context, node, prior, port_values)
+            if dispatched is not None:
+                return dispatched
             try:
                 proposal = _step_proposal.reask_approval(context, prior)
             except EffectRefused as exc:
@@ -5750,7 +5952,16 @@ def _submit_authorize_dispatch(
     refuses at each step with a payload-free ``ToolExecutionError`` naming only ``label`` and the dispatcher's refusal
     code: a missing or malformed authorization, a proposal the dispatcher refuses, a dispatch it refuses, or any outcome
     short of ``committed`` (the effect may still have happened; the proposal stays recoverable by the reconciler).
+
+    While the exact approval is still pending, ``authorize`` raises :class:`~caliber.effects.step_proposal.EffectApprovalPending`;
+    it propagates untouched (it is not a refusal) and the interpreter parks the node behind the bound request. A retry or a
+    resume records the same proposal again (one logical effect per node occurrence) and asks again.
     """
+    if (
+        context.dispatchable_backends is not None
+        and backend_kind not in context.dispatchable_backends
+    ):
+        raise ToolExecutionError(f"{label} refused: no_authoritative_verifier")
     try:
         with context.session_factory() as session:
             recorded = submit_proposal(
@@ -5769,6 +5980,11 @@ def _submit_authorize_dispatch(
 
     try:
         authorization = context.authorize(recorded)
+    except _step_proposal.EffectApprovalPending:
+        raise
+    except EffectRefused as exc:
+        # A fixed code (no lease, a rejected request, ...): the reason a person can act on, never a value.
+        raise ToolExecutionError(f"{label} authorization refused: {exc.code}") from exc
     except Exception as exc:
         raise ToolExecutionError(f"{label} authorization failed: {type(exc).__name__}") from exc
     if not isinstance(authorization, EffectAuthorization):
@@ -7548,7 +7764,7 @@ def _run_node(  # noqa: PLR0911, PLR0912, PLR0915 - per-node-type dispatch
                             for name, content in child_artifacts.items()
                         }
                     )
-                except (ContextDenied, UnknownEffectError):
+                except (ContextDenied, UnknownEffectError, _step_proposal.EffectApprovalPending):
                     raise
                 except Exception as exc:
                     logger.warning("for_each target item failed: %s", exc, exc_info=True)
@@ -7752,7 +7968,7 @@ def _run_node(  # noqa: PLR0911, PLR0912, PLR0915 - per-node-type dispatch
                     tool_calls=target_step.tool_calls,
                     detail=target_step.detail,
                 )
-            except (ContextDenied, UnknownEffectError):
+            except (ContextDenied, UnknownEffectError, _step_proposal.EffectApprovalPending):
                 raise  # a refused context, or an effect nobody can vouch for, is not an error a boundary may absorb
             except Exception as exc:
                 compensation_tokens = 0
@@ -8077,8 +8293,8 @@ def _run_node(  # noqa: PLR0911, PLR0912, PLR0915 - per-node-type dispatch
         }
         try:
             result = _perform_http_effect(plan, node=node, node_id=nid, request=request)
-        except ToolExecutionError:
-            raise
+        except (ToolExecutionError, _step_proposal.EffectApprovalPending):
+            raise  # a refusal is already worded; a pending approval is the node's park, not a failure
         except Exception as exc:
             raise ToolExecutionError(
                 f"webhook node {nid!r} failed for {node.method} {url}: {type(exc).__name__}: {exc}"
@@ -8140,8 +8356,8 @@ def _run_node(  # noqa: PLR0911, PLR0912, PLR0915 - per-node-type dispatch
         }
         try:
             api_result = _perform_http_effect(plan, node=node, node_id=nid, request=request)
-        except ToolExecutionError:
-            raise
+        except (ToolExecutionError, _step_proposal.EffectApprovalPending):
+            raise  # a refusal is already worded; a pending approval is the node's park, not a failure
         except Exception as exc:
             raise ToolExecutionError(
                 f"api_request node {nid!r} failed for {method} {req_url}: "
@@ -8595,7 +8811,22 @@ def _run_node(  # noqa: PLR0911, PLR0912, PLR0915 - per-node-type dispatch
         )
 
     if isinstance(node, IRAgent):
-        if plan.governed_agent_steps is not None:
+        ungoverned = [
+            agent_id
+            for agent_id in _handoff_closure(ir, nid)
+            if agent_id in plan.agents_requiring_governance
+            and not (
+                plan.governed_agent_steps is not None
+                and plan.governed_agent_steps.governs(agent_id)
+            )
+        ]
+        if ungoverned and not preview:
+            raise ToolExecutionError(
+                f"agent {ungoverned[0]!r} can reach a tool the operator mapped to a governed backend, and this plan has no "
+                "governed step for it (a sub-workflow, a synchronous run, or a plan built outside the worker's own run): "
+                "it does not run as a legacy agent"
+            )
+        if _governs_agent(plan, node):
             return _run_governed_agent_node(
                 node,
                 ir,
@@ -9182,6 +9413,14 @@ def _run_node_with_policy(  # noqa: PLR0912, PLR0915 - policy execution has expl
             if getattr(exc, "blocked_inputs", None) is None:
                 exc.blocked_inputs = dict(inputs)
             raise  # a retry cannot make an effect nobody can vouch for known
+        except _step_proposal.EffectApprovalPending as exc:
+            # The effect's approval has no decision yet: the node parks, it does not fail and is not retried (a retry would
+            # only ask again). Keep the exact node and gathered inputs for the input-snapshot checkpoint, as for an open effect.
+            if exc.blocked_node_id is None:
+                exc.blocked_node_id = node.node_id
+            if exc.blocked_inputs is None:
+                exc.blocked_inputs = dict(inputs)
+            raise
         except Exception as exc:
             last_exc = exc
             if attempt + 1 >= attempts:

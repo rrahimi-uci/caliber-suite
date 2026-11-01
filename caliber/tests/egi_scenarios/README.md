@@ -47,3 +47,8 @@ with ServerProcess(
 `env` it is given alone (no ambient `CALIBER_*` variable reaches it), waits for the health endpoint, and supports `kill()`, `restart()`, `wait_for_exit()`, `exit_code` and the context manager.
 The platform's own barriers arrive with the dispatcher and the ledger (#522); until then
 `harness/barrier_app.py` reaches a barrier on request so the harness itself is tested.
+
+The dispatcher itself calls two of them, `before_dispatch` (the claim is committed, nothing is sent) and
+`after_downstream_commit` (the downstream answered, nothing is recorded). `harness/worker_child.py` is one execution-owner
+pass of the workflow-run worker in its own process (the lease, a scripted model, one tick), so
+`test_b05_governed_worker_wiring.py` can kill a worker at either of them and show that the new owner never sends a second time.
