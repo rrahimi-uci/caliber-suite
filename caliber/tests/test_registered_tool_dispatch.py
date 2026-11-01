@@ -229,6 +229,7 @@ class Run:
         lookup: bool = True,
         workflow_version_id: str | None = "version-b04-3",
         binding: dict[str, Any] | None = None,
+        legacy: bool = False,
     ) -> None:
         self.factory = factory
         self.tool = tool
@@ -248,6 +249,7 @@ class Run:
             ir=build_ir(manifest, resolver, version="1"),
             resolver=resolver,
             workflow_version_id=workflow_version_id,
+            legacy_guarded_effects=legacy,
             registered_tool_identity=(
                 (lambda name, version: _read_identity(factory, name, version)) if lookup else None
             ),
@@ -1063,6 +1065,163 @@ def test_a_preview_never_dispatches_and_does_not_run_a_write_tool(
     assert run.authorized == []
     assert proposals(factory) == []
     assert result.status in {"completed", "error"}
+
+
+# ---------------------------------------------------------------- the profiles differ exactly as documented (#1068)
+
+
+@pytest.mark.parametrize("level", ["write", "external_action"])
+def test_development_profile_runs_a_protected_tool_on_the_legacy_path_when_no_context_is_bound(
+    factory: sessionmaker[Session], level: str
+) -> None:
+    """``legacy_guarded_effects`` is what ``build_plan`` sets outside the reference profile."""
+    entry = tool_entry("open_ticket", level)
+    seed_row(factory, entry)
+    tool = Tool()
+    run = Run(factory, entry, tool, context=False, legacy=True)
+
+    result = run.execute()
+
+    assert result.status == "completed", result.error
+    assert len(tool.calls) == 1
+    # Not the governed path: no proposal, no approval, no lease, no receipt.
+    assert run.authorized == []
+    assert proposals(factory) == []
+    assert count(factory, CaliberEffectReceipt) == 0
+
+
+def test_the_reference_profile_still_refuses_the_same_protected_tool_without_a_context(
+    factory: sessionmaker[Session],
+) -> None:
+    entry = tool_entry("open_ticket", "write")
+    seed_row(factory, entry)
+    tool = Tool()
+
+    result = Run(factory, entry, tool, context=False, legacy=False).execute()
+
+    assert result.status == "error"
+    assert "requires a governed effect context to run protected registered tool" in (
+        result.error or ""
+    )
+    assert tool.calls == []
+    assert proposals(factory) == []
+
+
+def test_a_bound_context_is_always_used_even_where_the_legacy_path_is_allowed(
+    factory: sessionmaker[Session],
+) -> None:
+    entry = tool_entry("open_ticket", "write")
+    seed_row(factory, entry)
+    tool = Tool()
+    run = Run(factory, entry, tool, context=True, legacy=True)
+
+    result = run.execute()
+
+    assert result.status == "completed", result.error
+    assert len(tool.calls) == 1
+    assert len(run.authorized) == 1
+    (proposal,) = proposals(factory)
+    assert proposal.state == "committed"
+
+
+def test_a_context_that_refuses_is_not_bypassed_by_the_legacy_flag(
+    factory: sessionmaker[Session],
+) -> None:
+    entry = tool_entry("open_ticket", "write")
+    seed_row(factory, entry)
+    tool = Tool()
+
+    result = Run(factory, entry, tool, authorize=lambda _proposal: None, legacy=True).execute()
+
+    assert result.status == "error"
+    assert "authorization was not granted" in (result.error or "")
+    assert tool.calls == []
+
+
+def test_the_legacy_path_does_not_hide_a_tool_whose_row_cannot_be_trusted_from_the_registry_checks(
+    factory: sessionmaker[Session],
+) -> None:
+    """Only the missing-context refusal is relaxed: a binding that is not its registry row is still refused."""
+    entry = tool_entry("lookup_policy", "read")
+    seed_row(factory, replace(entry, execution_backend="openapi_http"))
+    tool = Tool()
+
+    result = Run(factory, entry, tool, context=False, legacy=True).execute()
+
+    assert result.status == "error"
+    assert "does not match its registry row" in (result.error or "")
+    assert tool.calls == []
+
+
+def test_the_legacy_path_keeps_an_unreadable_registry_a_refusal(
+    factory: sessionmaker[Session],
+) -> None:
+    entry = tool_entry("open_ticket", "write")
+    seed_row(factory, entry)
+    tool = Tool()
+    run = Run(factory, entry, tool, context=False, legacy=True)
+
+    def unreadable(_name: str, _version: str) -> Any:
+        raise ConnectionError(f"the store said {SENTINEL}")
+
+    run.plan.registered_tool_identity = unreadable
+
+    result = run.execute()
+
+    assert result.status == "error"
+    assert "identity could not be read: ConnectionError" in (result.error or "")
+    assert SENTINEL not in (result.error or "")
+    assert tool.calls == []
+
+
+@pytest.mark.parametrize("name", ["grep_files", "read_text_file", "sandbox_python"])
+def test_the_legacy_path_never_runs_a_builtin_the_inventory_refuses(
+    factory: sessionmaker[Session], name: str
+) -> None:
+    """EP-055 and ``sandbox_python`` are refused in every profile (``unsupported_effect_path``), legacy included."""
+    with factory() as session:
+        register_builtin_tools(session)
+        session.commit()
+    entry = tool_entry(name, "read", module_path=_builtin_module(name), callable_name=name)
+    tool = Tool()
+
+    result = Run(factory, entry, tool, context=False, legacy=True).execute()
+
+    assert result.status == "error"
+    assert f"registered tool {name!r} refused: unsupported_effect_path" in (result.error or "")
+    assert tool.calls == []
+
+
+@pytest.mark.parametrize("legacy", [False, True])
+def test_a_read_class_tool_runs_inline_in_both_profiles(
+    factory: sessionmaker[Session], legacy: bool
+) -> None:
+    entry = tool_entry("lookup_policy", "read")
+    seed_row(factory, entry)
+    tool = Tool()
+
+    result = Run(factory, entry, tool, context=False, legacy=legacy).execute()
+
+    assert result.status == "completed", result.error
+    assert len(tool.calls) == 1
+    assert proposals(factory) == []
+
+
+def test_the_legacy_path_runs_an_unverifiable_tool_name_inline_as_it_did_before_the_dispatcher(
+    factory: sessionmaker[Session],
+) -> None:
+    """A tool with no registry row is the fail-closed class: refused in the reference profile, legacy elsewhere."""
+    entry = tool_entry("open_ticket", "read")  # no row is seeded
+    tool = Tool()
+
+    refused = Run(factory, entry, tool, context=False, legacy=False).execute()
+    assert refused.status == "error"
+    assert tool.calls == []
+
+    legacy = Run(factory, entry, tool, context=False, legacy=True).execute()
+    assert legacy.status == "completed", legacy.error
+    assert len(tool.calls) == 1
+    assert proposals(factory) == []
 
 
 @pytest.mark.parametrize(

@@ -702,6 +702,8 @@ export interface WorkflowRunCapabilities {
   supports_resume: boolean;
   runtime_approvals_enabled: boolean;
   checkpointing_enabled: boolean;
+  /** True where the server refuses a run without a workspace release and environment (the reference profile). */
+  lineage_required?: boolean;
   event_backend: string;
   approval_readiness: {
     status: "ready" | "configuration_required";

@@ -94,9 +94,10 @@ facts matching the proposal's connector, resource, intent hash and attempt. A mi
 missing lease is refused before transport; a response that cannot be verified does not become `committed` and remains
 recoverable as an unknown effect. The platform makes no universal exactly-once claim for arbitrary HTTP services.
 
-A manifest-backed plan without this governed context is refused rather than falling back to the raw sender. Legacy plans
-without a workflow manifest retain the existing `_perform_guarded_effect` ledger behavior and do not create an effect
-proposal. The runtime integration that owns a run must bind the context with the run id, exact approval provider, live
+In the reference profile a manifest-backed plan without this governed context is refused rather than falling back to the raw
+sender. Outside the reference profile it is not refused: see [Profiles and a missing governed context](#profiles-and-a-missing-governed-context-1068).
+Legacy plans without a workflow manifest retain the existing `_perform_guarded_effect` ledger behavior and do not create an
+effect proposal. The runtime integration that owns a run must bind the context with the run id, exact approval provider, live
 execution-owner lease and endpoint-specific verifier; no new environment variable, SDK route or migration is required.
 
 ## Governed registered tools (B04.3)
@@ -147,12 +148,12 @@ registered tool 'open_ticket' identity could not be read: ConnectionError
 Recovery: a `proposed` effect needs an exact approval, after which the run can be resumed or resubmitted (the proposal
 is reused for the same node occurrence, so the tool still runs once); an `unknown` effect is settled by the reconciler
 (B05) or an operator, never by re-running the node; a manifest-backed deployment whose run owner has not bound a
-governed context must keep protected registered tools out of its workflows, because it refuses them (read-class tools
-are unaffected). Every construction site of a runtime plan (`RuntimePlan(`) in the code, and what it does with a protected registry tool:
+governed context must keep protected registered tools out of its workflows **in the reference profile**, because it refuses
+them there (read-class tools are unaffected; outside the reference profile see [Profiles and a missing governed context](#profiles-and-a-missing-governed-context-1068)). Every construction site of a runtime plan (`RuntimePlan(`) in the code, and what it does with a protected registry tool:
 
 | plan built by | used for | registry reader | protected registry tool |
 | --- | --- | --- | --- |
-| `promoter.build_plan` | worker runs, synchronous version runs, sub-workflows, Aria previews | bound | refused until a governed context is bound (#1051); a preview stubs it |
+| `promoter.build_plan` | worker runs, synchronous version runs, sub-workflows, Aria previews | bound | reference profile: refused until a governed context is bound (#1051); development profile: runs on the legacy guarded path (#1068); a preview stubs it |
 | `refinement._replay` (via `orchestrator/workflow_stages.py::run_workflow_eval`) | candidate evaluation | bound by the stage | refused (typed, nothing recorded); read-class tools run |
 | `calibration._replay_calibration_manifest` (via `evaluate_workflow_calibration_candidates` in the stage) | calibration replay | bound by the stage | refused; read-class tools run |
 | `promoter` deploy-gate replay | release gate evaluation | none, but `preview=True` | stubbed, never run for real |
@@ -274,8 +275,10 @@ approval is already consumed**: ask for a new proposal (run the node again after
 
 **Not covered by this change, and still outside the dispatcher:** model-chosen tool calls inside an agent step (B04.6,
 #768), the Aria assistant's published-tool call (inventory EP-034: there is no workflow run to propose into; owned by #1063), standalone
-exports and plans a caller builds itself (#1051: `build_plan` binds the registry reader but no governed context, so a
-deployed workflow's **protected** OpenAPI nodes are refused until #1051 binds one; read-class `GET` nodes still run),
+exports and plans a caller builds itself (#1051: `build_plan` binds the registry reader but no governed context, so in the
+reference profile a deployed workflow's **protected** OpenAPI nodes are refused until #1051 binds one, and outside it they run
+inline on the legacy path, see [Profiles and a missing governed context](#profiles-and-a-missing-governed-context-1068);
+read-class `GET` nodes always run),
 and the operator's draft preview route (EP-033, exempt). The raw executor's remaining callers are pinned by
 `tests/test_effect_path_matrix.py::test_the_raw_openapi_executor_is_named_only_by_pinned_callers`, so a new one fails
 until it is routed or pinned with a reason.
@@ -296,9 +299,14 @@ from three things CALIBER itself holds, for exactly the tool being called:
 2. the **tool policy an administrator wrote** (`tool_policies`: `allowed`, `side_effect_level`, `requires_approval`), which
    the policy gate already requires to be explicit and complete: a tool the server lists but nobody classified is refused,
    not guessed at; and
-3. the **protected-effect inventory** (EP-114), which applies to the first-party PostgreSQL MCP server only. That server is
-   recognised by how its record launches it (the CALIBER interpreter running `-m caliber.mcp_servers.db`), never by the tool
-   names a server reports: a remote server that calls a tool `insert_rows` is a third-party tool, classified by its own
+3. the **protected-effect inventory** (EP-114), which applies to the first-party PostgreSQL MCP server only, and only under
+   the reference profile (#774 owns the switch for every inventory row). That server is recognised from the **record and the
+   deployment settings**, never from the tool names a server reports: a `stdio` server that runs the CALIBER interpreter with
+   `-m caliber.mcp_servers.db`, or a remote server whose host the operator listed in `CALIBER_MCP_MANAGED_SIDECAR_HOSTS` (the
+   shipped compose stack runs the three first-party database servers as such sidecars). That setting attests an isolation
+   boundary, not an identity, so **a third-party server on an attested sidecar host is treated as the first-party one too** and
+   its tools named like EP-114's are refused (the conservative direction): list only hosts that run the first-party servers if
+   that matters. A server on any other host, however it names its tools, is third-party and is classified by its own
    administrator's policy.
 
 | the server record, policy and inventory say | the tool node or MCP node |
@@ -307,9 +315,9 @@ from three things CALIBER itself holds, for exactly the tool being called:
 | `write` | proposed, approved and dispatched; recorded `irreversible_write` (the inventory does not list a third-party MCP tool) |
 | `external_action` | proposed, approved and dispatched; recorded `irreversible_write` |
 | the server lists the tool but there is no complete policy for it, the policy is invalid or has `allowed: false`, the tool is not in the discovered list, or the server is not ready (status, transport, allowlist, blocked address) | refused with a stable code before anything is recorded or sent |
-| a write tool of the **first-party database server** (EP-114), whatever the administrator classified it as | refused: `unsupported_effect_path` |
+| a write tool of the **first-party database server** (EP-114), whatever the administrator classified it as, **under the reference profile** | refused: `unsupported_effect_path` (the development profile classifies it by the policy like any tool) |
 | a server the run's identity cannot read, or a timeout the connector does not accept | refused: `mcp_server_unavailable`, `mcp_timeout_invalid` |
-| a protected call in a plan with no governed context, or replaced by an injected callable | refused: nothing is recorded or sent |
+| a protected call in a plan with no governed context (reference profile; the development profile runs it inline as before, see below), or replaced by an injected callable | refused: nothing is recorded or sent |
 
 The binding's declared `side_effect_level` and a server's `readOnlyHint` decide nothing: a binding that claims `read` cannot make an
 administrator's `write` inline, and a server that claims a tool is read-only does not change it.
@@ -349,10 +357,12 @@ kind `mcp`, settings `call` and `receipt_verifier`, accepted risks `write_not_ex
   server's making survives into a record or a response. No credential is read into a record: the proposal holds the arguments and
   the digest, never the server's environment, headers or authentication.
 
-**The gateway entry points refuse a protected call.** `invoke_tool_sync` and `invoke_tool_by_server_id_sync` (what the runtime's
-MCP-bound callables, MCP nodes and exported workflows call) run only a tool whose trusted classification is `read`, and raise
-`EffectRefused` (`mcp_effect_requires_proposal`; `unsupported_effect_path` for a first-party database write tool) for every other,
-with nothing sent. The one caller of the ungated transport (`invoke_tool_raw_sync`) is the dispatcher's `mcp` backend;
+**Under the reference profile the gateway entry points refuse a protected call.** `invoke_tool_sync` and
+`invoke_tool_by_server_id_sync` (what the runtime's MCP-bound callables, MCP nodes and exported workflows call) run only a tool
+whose trusted classification is `read`, and raise `EffectRefused` (`mcp_effect_requires_proposal`; `unsupported_effect_path` for a
+first-party database write tool) for every other, with nothing sent. **Under the development profile (the default) they let a
+protected call through, as before the dispatcher** (#1068): that inline call has no proposal, exact-intent approval, lease or
+receipt and is **not** the governed path (see "Profiles and a missing governed context" below). The one caller of the ungated transport (`invoke_tool_raw_sync`) is the dispatcher's `mcp` backend;
 `tests/test_effect_path_matrix.py` pins every module that names the gateway, so a new caller fails until it is routed or pinned
 with a reason. The operator's discover, test and playground routes use the async transport directly (EP-038 to EP-040, exempt: they
 are not agent-reachable and need the operator scope).
@@ -385,20 +395,80 @@ example `PATCH /mcp-servers/{server_id}/tools/{tool_name}/policy` with an explic
 new proposal. An `unknown` effect is settled by the receipt verifier, a receipt callback or an operator (see the
 [recovery runbook](recovery-runbook.md)), never by running the node again: check the server's own system of record first.
 
-**Behaviour changes to plan for.** A **protected** MCP node or tool node is refused in a plan with no governed context, and
-`build_plan` binds the registry reader but no governed context (#1051), so a deployed workflow's protected MCP calls are refused
-until one is bound; read-class tools still run. A model-chosen call to a protected MCP tool inside an agent step is refused by the
-gateway entry point (`EffectRefused`, shown to the model as an error marker) until B04.6 (#768) proposes it. A generated export that
-calls a protected MCP tool is refused the same way. The first-party database server's write tools are refused in every profile
-when reached through a workflow (their reference-profile switch is #774); an operator can still call them from the playground.
+**Behaviour changes to plan for.** What happens to a **protected** MCP call depends on the profile (the classification itself
+does not):
 
-**Not covered by this change:** model-selected calls (B04.6, #768), the refusal switch for every inventory row marked `refuse`
+| the call | reference profile | development profile (the default) |
+| --- | --- | --- |
+| MCP node or tool node, an authority is bound (`governed_effects`) | proposed, approved, dispatched | proposed, approved, dispatched |
+| MCP node or tool node in a `build_plan` plan, no authority bound (#1051) | refused: `requires a governed effect context to run protected MCP tool` | runs inline, as before B04.5, behind the node's own approval gate: **not governed** (`legacy_guarded_effects`) |
+| a model-chosen call inside an agent step, a caller-built plan, a generated export | refused by the gateway entry point (`EffectRefused`; a model sees an error marker) until B04.6 (#768) proposes it | runs inline, as before: not governed |
+| a first-party database write tool (EP-114) | refused: `unsupported_effect_path` | classified by the administrator's policy like any tool |
+| an unclassified, blocked, undiscovered or not-ready tool | refused (both profiles) | refused (both profiles) |
+
+An operator can still call any tool from the playground (EP-039/040, exempt).
+
+**Not covered by this change:** a governed path for the development profile (it keeps the alpha inline call until #1051), model-selected calls (B04.6, #768), the refusal switch for every inventory row marked `refuse`
 (B04.7, #774), the startup refusal of an MCP allowlist entry the profile does not list (B12.3b, #746), a key channel to MCP servers
 that could use one, pinning the resolved address to the connection, and a governed context for deployed workflows (#1051).
 
 **Configuration, migration and rollback.** No new setting, no route and no migration. The names `mcp` and `mcp-tool` become reserved
 tool names like the other connectors (`409 reserved_tool_name`). Reverting the change restores the direct call (a proposal already
 recorded remains readable).
+
+## Profiles and a missing governed context (#1068)
+
+No production code binds a `GovernedEffectContext` yet: `build_plan` (worker runs, synchronous version runs, sub-workflows)
+binds the registry reader but no execution-owner lease and no exact-intent approval provider (#1051, which also needs the bound
+approval decision route of #735). The dispatcher routing of B04.2, B04.3 and B04.4 made every **protected** node of a
+manifest-backed plan fail for that reason in **every** profile, which broke the shipped cookbook labs (03, 04, 05, 07, 08, 09, 16
+and 19) on `main`. The decision, from ADR 0001 ("Features outside the shape keep working in `development`", "The profile never
+silently falls back to a weaker control"), the B04.2 scope ("keep `_perform_guarded_effect` for runs without a manifest
+(legacy)") and #774 (the refusals are `config.profile == "reference"`): **the refusal is a reference-profile control, not a
+development-profile one.** `build_plan` therefore sets `RuntimePlan.legacy_guarded_effects` from the profile, and a protected
+node with no governed context behaves like this:
+
+| node | reference profile (`CALIBER_PROFILE=reference`) | development profile (the default) |
+| --- | --- | --- |
+| webhook or API-request node, no context | refused: `'<node>' requires a governed effect context for manifest HTTP execution` | `_perform_guarded_effect`: egress policy, then the legacy effect ledger (at most one send per run, node and input across a restart; a definitive failure is retryable, an ambiguous one is reported indeterminate) |
+| protected registered tool, no context | refused: `'<node>' requires a governed effect context to run protected registered tool '<name>'` | runs inline, as before B04.3, behind the node's own approval gate (`requires_approval`); no ledger, as before |
+| protected OpenAPI tool, no context | refused: `'<node>' requires a governed effect context to run protected OpenAPI tool '<name>'` | runs inline, as before B04.4, behind the node's own approval gate |
+| protected MCP tool or MCP node, no context (B04.5) | refused: `'<node>' requires a governed effect context to run protected MCP tool '<name>'` | runs inline through the gateway entry point, as before B04.5, behind the node's own approval gate; unclassified and blocked tools are still refused |
+| read-class tool, `GET` OpenAPI node or read-class MCP tool | runs inline | runs inline (unchanged) |
+| any node, a context **is** bound | governed path | governed path: a bound context is never bypassed and a refusal from it is final |
+
+**What the development path does not guarantee.** It is **not** the governed path and gives none of its guarantees: no persisted
+proposal, no exact-intent approval (the node's own approval is a legacy gate that approves "this node may run", not "this
+exact request"), no distinct-approver check at the effect, no execution-owner lease recheck, no receipt, no
+`registered_tool`/`http`/`openapi_http` connector admission, no reconciler. The HTTP path keeps the legacy ledger's at-most-once
+claim; the tool paths have only what they had before the dispatcher. Nothing about it is a Beta or reference claim (ADR 0001:
+features outside the shape stay out of Beta claims), and the operator effects view labels such rows `legacy_ledger`, not
+proposals.
+
+**What stays refused in every profile.** Only the "no governed context" refusal is profile-dependent. Everything else in the
+route still applies in both: the built-ins the inventory refuses (EP-055 host-file tools, `sandbox_python`:
+`unsupported_effect_path`), a binding that is not its registry row, an unreadable registry, a tool with no readable OpenAPI row,
+an OpenAPI call replaced by an injected callable once governed, egress policy, and the preflight checks. The evaluation, calibration
+and deploy-gate replays never take the development path: they do not set `legacy_guarded_effects`, so a candidate manifest's
+protected tools are still refused there (a replay must not cause real effects; see the plan table above).
+
+**How the switch is made.** `RuntimePlan.legacy_guarded_effects` defaults to `False` (fail-closed), so a plan built by any
+caller other than `build_plan` and every reference-profile plan refuses. `build_plan` sets it to
+`config.profile != "reference"`; a missing config is the development profile, as everywhere else in `build_plan`. There is no
+setting, environment variable, route or migration, and no approval hook: nothing returns `True` for an authorization.
+
+**Cookbook labs.** The labs run the development profile and create manifest-backed plans, so they depend on this path until
+#1051 binds a context. Their UI specs depended on a second profile-blind rule: the console's Run control (#968) required an
+approved workspace release and environment for every project workflow, which the development server does not require, so its
+Run button stayed disabled. The console now offers and requires the pair only when `GET /capabilities` reports
+`workflow_runs.lineage_required` (true exactly where the server refuses a run without lineage: the reference profile). The `Cookbook labs` workflow now also runs on pull requests that touch the workflow runtime, the effect
+dispatcher, integrations, policy, the run worker and routes, `profile.py` and `config.py`, and on every push to `main` that
+touches them (it takes about fifty minutes, so it is not a required check).
+
+**Moving off it.** #1051 wires the context (an authorization provider, the execution-owner lease, an authoritative receipt
+verifier, park and resume while an approval is pending). When it lands, `legacy_guarded_effects` is removed and the development
+profile uses the governed path like the reference one; until then a deployment that needs the exact-intent guarantees must run
+`CALIBER_PROFILE=reference`.
 
 ## Memory is owned, derived and read-mostly
 
@@ -959,7 +1029,8 @@ synchronous real run (`POST /workflow-versions/{id}/run`) is never queued, so wi
    keeps the lineage of the run it retries (a fresh lineage record for the new run, refused with `409` if the release is
    no longer eligible) and a run that never had one cannot be retried in the reference profile (`422`). Development
    leaves lineage optional. **Not covered, tracked:** the assistant's run tool (a chat has no release to name) is
-   refused with the same code. The console's Run and Trigger actions load the project's active environments and approved
+   refused with the same code. In the reference profile (`GET /capabilities` reports `workflow_runs.lineage_required: true`; development
+   reports `false` and the console then offers no picker and sends no lineage, #1068) the console's Run and Trigger actions load the project's active environments and approved
    workspace releases, offer only exact current-release/environment pairs, and submit both IDs. If no eligible pair is
    available, the controls show the same `lineage_required` refusal and do not issue a run or trigger request; the server
    still revalidates project scope, approval and freshness (#968).
@@ -2912,7 +2983,7 @@ checked = approval_valid_at_commit(
 An agent step is one bounded unit of model work in a workflow node. Two control records (ADR 0003) describe it, and
 `caliber.contracts.agent_step` is the gate in front of both: it validates a record and refuses it **before anything is
 dispatched**. This page is the contract; the adapters that produce results (B08.1b onwards), the limit enforcement
-([B08.3](#central-step-limits-turns-tool-calls-tokens-and-the-deadline-b083-752)) and the token budget (B08.4) build on it and are not part of it.
+([B08.3](#central-step-limits-turns-tool-calls-tokens-and-the-deadline-b083-752)) and the token reservation ([B08.4](#token-reservations-reserved-before-the-call-charged-conservatively-settled-once-b084-761)) build on it and are not part of it.
 
 - **`agent_step_request` v1** names the step (`step_request_id`, `workflow_run_id`, `node_id`, the durable `occurrence_id`
   and the `attempt`), what it was given (`run_manifest_digest` and `context_manifest_digest`, each 64 lowercase hex digits),
@@ -2951,7 +3022,7 @@ dispatched**. This page is the contract; the adapters that produce results (B08.
 - **Usage and the token reservation.** `usage.total_tokens` is what a budget settles against: it may not be less than
   `prompt_tokens + completion_tokens`, and `cached_prompt_tokens` may not exceed `prompt_tokens`. When a call failed or the
   provider gave no usage, report `usage_source` `estimated` or `unknown` rather than figures that look genuine. **A refused or
-  malformed result does not release the step's token reservation**: B08.4 keeps a conservative charge for it.
+  malformed result does not release the step's token reservation**: the [reservation ledger](#token-reservations-reserved-before-the-call-charged-conservatively-settled-once-b084-761) charges the whole reservation for it.
 - **Integers are integers.** `1.0` is not an integer for these two kinds; `attempt: 1.0` is refused, not coerced.
 
 ```python
@@ -2998,7 +3069,7 @@ the other limits are checked by the platform around the provider call (B08.3), n
 
 `caliber.workflows.agent_step` is the seam between the agent-step contracts above and a model provider. It adds no route, no
 table and no setting. It defines what an executor must do to take part in *governed* execution and how the platform treats
-the answer; the limits ([B08.3](#central-step-limits-turns-tool-calls-tokens-and-the-deadline-b083-752)), the token reservation (B08.4) and turning a model's tool call into a recorded proposal (B08.2)
+the answer; the limits ([B08.3](#central-step-limits-turns-tool-calls-tokens-and-the-deadline-b083-752)), the token reservation ([B08.4](#token-reservations-reserved-before-the-call-charged-conservatively-settled-once-b084-761)) and turning a model's tool call into a recorded proposal (B08.2)
 build on it.
 
 - **`AgentStepAdapter`** (`caliber.workflows.runtime.AgentStepAdapter` is the same protocol) is
@@ -3031,10 +3102,12 @@ build on it.
      name and the step id are logged, and a result dropped as malformed logs the usage *numbers* it reported. `BaseException`
      (`KeyboardInterrupt`, `SystemExit`, `asyncio.CancelledError`, `GeneratorExit`) propagates.
 - **Refusals and failures keep the reservation.** A `refused` or `error` result the boundary creates carries zero usage with
-  `usage_source: "unknown"`: "the provider may have been called and nothing is known", never "nothing was used". B08.4 keeps a
-  conservative charge for each of them, and **for any `BaseException` that escapes**, because the provider call may have
-  happened. The only deliberate exception is `NOT_CALLED_CODES` (`adapter_unsupported`, `adapter_not_integrated`): the adapter
-  body never ran, so B08.4 may release such a reservation, and only for those codes.
+  `usage_source: "unknown"`: "the provider may have been called and nothing is known", never "nothing was used". The ledger
+  charges the whole reservation for each of them, and **for any `BaseException` that escapes** it leaves the reservation open at
+  its whole ceiling, because the provider call may have happened. `NOT_CALLED_CODES` (`adapter_unsupported`,
+  `adapter_not_integrated`) mark a body that never ran, but the ledger does not infer "not called" from a result an adapter
+  could write itself: the platform decides before it reserves (an executor that is not an adapter, and a step `before_work_stop`
+  stops, reserve nothing), and every reservation it does take is kept.
 - **Timeouts.** The boundary maps `TimeoutError` (`asyncio.TimeoutError` is the same class from Python 3.11) to
   `adapter_timeout` and nothing else; it does not know a provider's exception types. A provider adapter (#727-#730) catches its
   SDK's timeouts (openai, anthropic, httpx) and returns `failure(request, ADAPTER_TIMEOUT)` itself.
@@ -3080,7 +3153,7 @@ if result.stop_reason == "proposed_action":
 Failures the boundary returns (all `stop_reason` `error` unless noted). Every result the boundary creates has
 `usage_source: "unknown"`, no proposal and the asked step's identity; an adapter's own failure keeps the usage it reports.
 Recovery is always the same shape: the occurrence is retried as the next `attempt`, after the reservation of this one is settled
-(B08.4):
+([B08.4](#token-reservations-reserved-before-the-call-charged-conservatively-settled-once-b084-761)):
 
 | the adapter | result | recover by |
 | --- | --- | --- |
@@ -3094,8 +3167,8 @@ Recovery is always the same shape: the occurrence is retried as the next `attemp
 
 An invalid *request*, or a step input for another node, is not a result: `run_agent_step` raises `ContractValidationError` (for
 example `attempt: violates minimum 1`) before anything runs. The request's limits are enforced by this boundary for every adapter
-([below](#central-step-limits-turns-tool-calls-tokens-and-the-deadline-b083-752)). Not covered here, so not claimed: no token
-reservation is made (B08.4) and a blocking adapter is not interrupted. The interpreter calls
+([below](#central-step-limits-turns-tool-calls-tokens-and-the-deadline-b083-752)). The interpreter reserves the step's tokens before calling it and
+settles them after ([B08.4](#token-reservations-reserved-before-the-call-charged-conservatively-settled-once-b084-761)). Not covered here, so not claimed: a blocking adapter is not interrupted. The interpreter calls
 `run_agent_step` only for a plan that carries a governed-step context, and then records the proposal it returns
 ([Governed agent steps: a protected action is a proposal](#governed-agent-steps-a-protected-action-is-a-proposal-b082-744)).
 
@@ -3178,7 +3251,7 @@ now). It takes the step's request and `AgentStepInput` and answers with the type
   log carries the step id, the exception's class name, a fixed reason token and counts.
 
 Results this adapter returns (recover as for any step: the occurrence is retried as the next `attempt`, after this one's reservation
-is settled, B08.4):
+is settled, [B08.4](#token-reservations-reserved-before-the-call-charged-conservatively-settled-once-b084-761)):
 
 | the provider or model | result | recover by |
 | --- | --- | --- |
@@ -3370,8 +3443,7 @@ defaults, never uncapped.
 
 1. **Before work** (`before_work_stop`): a step with `max_turns` of 0, with `max_tokens` of 0, or whose deadline is now or past
    (on the platform's clock) stops with that reason and **the adapter is not called**: zero usage, `usage_source: "estimated"`
-   (nothing was called, so a reservation made for it may be released by B08.4; no step that is stopped here has a provider
-   charge). `max_tool_calls` of 0 does not stop a step: it may still answer without a tool.
+   (nothing was called; the interpreter checks this before it reserves, so a step stopped here reserves nothing, B08.4). `max_tool_calls` of 0 does not stop a step: it may still answer without a tool.
 2. **During work**: every read tool the adapter is handed (its own and its handoff targets') goes through a platform counter. The
    call past `max_tool_calls` is refused with `StepToolBudgetExceeded` (the tool does not run, the text is fixed), and two calls
    racing for the last slot cannot both run. A read tool called at or after the deadline (on the platform's monotonic-based
@@ -3398,15 +3470,15 @@ is not a finite number, is refused with `ValueError` before the adapter runs.
 | has no turn or no token to spend, or its deadline has passed | `max_turns`, `max_tokens` or `deadline`, usage 0, `estimated`; the adapter was not called; the run error is `governed agent step stopped: max_tokens (turns=0 tool_calls=0 tokens=0)` | a larger limit from the producer (within the ceilings) on a new run |
 | reports usage over a limit, or the platform counted a call past it | the limit's stop, proposal dropped, the reported usage kept; `governed agent step stopped: max_tokens (turns=1 tool_calls=0 tokens=15)`; no proposal and no approval request | the node's retry is the next attempt with a fresh budget |
 | finishes after its deadline | `deadline`, proposal dropped, usage kept | as above |
-| reports usage that contradicts itself (a total below the parts, a boolean or negative count, more than 2147483647) | `error`, `malformed_result`, zero usage, `usage_source: "unknown"` (the reservation is kept, B08.4) | the adapter reporting the provider's own figures |
+| reports usage that contradicts itself (a total below the parts, a boolean or negative count, more than 2147483647) | `error`, `malformed_result`, zero usage, `usage_source: "unknown"` (the whole reservation is charged, B08.4) | the adapter reporting the provider's own figures |
 | asks for a tool past `max_tool_calls` | the tool is not run; the adapter sees `StepToolBudgetExceeded`; the step ends `max_tool_calls` if it went on | raising the limit within the ceiling |
 | asks for a tool at or after the deadline | the tool is not run and not counted; the adapter sees `StepDeadlineReached`; the step ends `deadline` if it went on | a later deadline within the ceiling on a new run |
 
 **No double counting.** The boundary keeps no state between calls: each call has its own counter and reads only its own result. A
 retry is the next `attempt` of the same occurrence with the full limits, and a resumed step that finds its recorded proposal asks
-nobody and reports no usage. Adding the usage of several attempts to one budget is B08.4's ledger, not this check.
+nobody and reports no usage. Adding the usage of several attempts to one budget is the [reservation ledger](#token-reservations-reserved-before-the-call-charged-conservatively-settled-once-b084-761), not this check.
 
-**For B08.4 and B08.5.** `before_work_stop(request, clock=...)` is the pre-work check a reservation should call first (a step it
+**For B08.5.** `before_work_stop(request, clock=...)` is the pre-work check the reservation calls first (a step it
 stops needs no reservation); the stop reasons are `caliber.workflows.agent_step.LIMIT_STOPS`. The conformance harness
 (`caliber/tests/agent_step_conformance.py`) gains `FakeStepClock`, `fixed_clock`, `limits_changes` and `stop_before_work`, and every
 `run_scenario` runs on a fixed clock (`StepContext.clock`); `caliber/tests/test_agent_step_bounds.py` runs the five executors over
@@ -3414,8 +3486,118 @@ tripwire clients through `stop_before_work`.
 
 Not covered, so not claimed: the platform cannot observe a provider's turns or tokens, only what the adapter reports, so for those two
 the check bounds what is *recorded* and stops the proposal, while an adapter's own in-loop checks bound what is *spent* (a lying
-adapter can under-report tokens; the reservation, B08.4, is what charges a conservative figure). A blocking provider call is not
-interrupted. The usage of a stopped step is in its result and in the run error text; persisting it in a ledger is B08.4.
+adapter can under-report tokens; the [reservation](#token-reservations-reserved-before-the-call-charged-conservatively-settled-once-b084-761)
+charges a conservative figure unless a trusted result says less). A blocking provider call is not interrupted. The usage of a stopped step
+is in its result and in the run error text, and its charge is persisted by the reservation ledger.
+
+## Token reservations: reserved before the call, charged conservatively, settled once (B08.4, #761)
+
+The platform cannot observe a provider's tokens, only what the adapter reports, and a crash, a timeout or a refused result leaves
+nobody knowing what was charged. So a governed step's **ceiling is reserved first**, a charge is lowered only on a figure the
+platform believes, and nothing is ever released on a guess. `caliber.budget.step_reservation` holds the ledger (table
+`caliber_step_token_reservations`, migration `0133`); the interpreter reserves in `_run_governed_step`, immediately before
+`run_agent_step`, and settles right after it returns. It is **not** a second budget authority for later milestones: the per-run figure
+below is the Beta per-step ledger, and the persistent budgets of M08 extend this table rather than add another.
+
+**The reservation.** One row per `(workflow_run_id, node_id, occurrence_id, attempt)` (unique, and the step's `step_request_id` is
+stored with it). Its `reserved_tokens` is the step's `limits.max_tokens` after the B08.3 ceilings, and it is taken **before the adapter
+is called**, in one transaction under the run's row lock (`FOR UPDATE`, the first lock of the run, proposal, request order every
+writer of a run uses; on SQLite, which has no row lock and whose driver reads outside a transaction, the same section starts with
+`BEGIN IMMEDIATE`): two workers asking together are serialized, so the sum of what a run has reserved or been charged plus the new
+ceiling can never pass the run's budget. Past it the step is refused with a typed, payload-free run error and **the adapter is never
+called**:
+
+```text
+governed agent step token reservation refused: token_budget_exhausted (budget=39999 committed=0 requested=40000)
+```
+
+| Setting | Default | Accepted | Meaning |
+| --- | --- | --- | --- |
+| `CALIBER_AGENT_RUN_MAX_TOKENS` | `2000000` | 1 to 1000000000 | The most tokens one run's governed steps may reserve and be charged in total. Reaches a live step through `GovernedStepContext.run_token_budget` (the producer passes `config.agent_run_max_tokens`); a context that names none is bounded at this default, never unbounded. A ceiling larger than the whole budget refuses every step. |
+| `CALIBER_AGENT_RESERVATION_GRACE_SECONDS` | `300` | 1 to 86400, finite | How long past its step's deadline an open reservation is left before the execution owner finalizes it as `abandoned`. |
+
+A value outside its bounds stops the service at startup, naming the setting; the context and the reservation functions refuse a budget
+that is not an integer in those bounds (a boolean is not a count).
+
+**Idempotent, and a replay is not a second call.** A duplicate request for the same step returns the **same** reservation (`created`
+false) and never reserves twice, whatever the budget is by then. A step that is handed a reservation it did not create (a restarted
+run and the one that was never stopped both reach it, or the same attempt runs again after a crash) is refused with
+`governed agent step token reservation refused: reservation_replayed` and its adapter is not called: the earlier call may have spent,
+and the platform will not call the provider again on that strength. A retry of the node is the next `attempt` and takes its **own**
+reservation, so the attempts of one occurrence add up against the run. A step the platform stops before work
+(`before_work_stop`: no turn or token, a deadline already past) and an executor that is not an adapter reach no provider and reserve
+nothing, so nothing is ever released for them. **There is no release.**
+
+**What is charged.** `charge_for` decides, from the stored ceiling and the result, never from a caller's copy:
+
+| the result | charge | basis |
+| --- | --- | --- |
+| a figure **above** the reservation (an overrun), from any source | the figure, in full (the overage included) | `reported` |
+| a step that ran to an answer, `usage_source` `provider` (or absent: the contract reads that as the provider), a non-zero total at or below the reservation | the reported total; the unused part goes back to the run | `reported` |
+| `refused`, `error`, an `estimated` or `unknown` source, a zero total, a malformed or inconsistent usage, no result | the **whole reservation** | `conservative` |
+
+Believing a figure can only lower a charge when the result is one the platform trusts; believing a figure above the reservation can
+only raise it, so that is always done. **What this does not do:** it cannot verify a provider's number. The adapters are the platform's
+own code and report the provider's usage; this ledger refuses to let a result that carries no usable figure shrink a charge, and stores
+what the adapter said (`reported_tokens`, `usage_source`, `stop_reason` and a fixed-token `error_code`, never free text) for audit.
+
+**Settled once.** `settle_step_tokens` is a compare-and-set from `reserved` to `settled` on the stored row: a retry, a duplicate, a
+settlement racing the janitor finds a final row, changes nothing and gets that row back, so a charge is never written twice and never
+lowered after the fact. A store that fails to settle leaves the reservation **open**, which counts at its whole ceiling (it can only
+overcharge); the step still goes on with the result in hand, the failure is logged by exception class only.
+
+**Open counts in full; nothing is released.** A reservation is `reserved` from the moment it is taken. An exception out of the adapter
+that is not a result, a cancellation, a `KeyboardInterrupt` or a worker that is killed leaves it open at its whole ceiling, because
+the provider may have been called. There is no operator action that lowers a charge: nothing the platform can check would back it
+(the same rule as for effect proposals). A run that needs more budget gets a larger `CALIBER_AGENT_RUN_MAX_TOKENS`.
+
+**Abandoned, owner only.** After each pass the execution owner's effect reconciler loop (the same lease, compared in the transaction
+that writes) runs `abandon_stale`: a reservation still open past its step's deadline plus `CALIBER_AGENT_RESERVATION_GRACE_SECONDS`
+moves to `abandoned` **at its whole reservation**, oldest first and bounded per pass. The run's total does not move; the row only stops
+being open. A worker that returns after that finds a final row and its settlement changes nothing, **including an overrun**: a step that
+returns usage above its reservation after the sweep abandoned it (more than the step's deadline plus the grace) keeps the abandoned
+charge, the reservation, and the overage is not recorded (very unlikely: a provider timeout is capped at the remaining step deadline). The sweep runs only where the reconciler loop
+does (the reference profile, with `CALIBER_EFFECT_RECONCILER_ENABLED` on, its default); elsewhere, or with it off, open rows stay open
+and keep counting in full, which is safe. A process that does not hold the lease changes nothing.
+
+**Final means final.** The ORM refuses every edit and delete of a reservation. The database refuses the same: CHECK constraints keep
+every figure non-negative, a `conservative` charge equal to the reservation, a `reported` charge equal to the reported figure, an
+`abandoned` row conservative, and a final row complete; a trigger refuses any UPDATE of a `settled` or `abandoned` row and any change
+to the identity and the reserved figures of an open one, and refuses DELETE (PostgreSQL also TRUNCATE, and revokes both from
+`PUBLIC`).
+
+**Migration and rollout.** `0133` only adds the table and its guards (nothing else references it and nothing reads it before the code
+that writes it). Run it before the new code serves: a process on the new code with no table refuses a governed step with
+`governed agent step token reservation refused: store_failed` and never calls its adapter. Rolling back the code leaves the table
+unread; downgrading the migration drops the table and loses the charges counted against runs, so never do it where they matter.
+
+| the step | result | recover by |
+| --- | --- | --- |
+| would take the run past its budget | `token_budget_exhausted`, nothing reserved, adapter not called | a larger `CALIBER_AGENT_RUN_MAX_TOKENS` (a new run: a finished run's budget is its own) |
+| runs again on an attempt that holds a reservation (a node retry in the same process, or a process-level re-execution) | `reservation_replayed`, adapter not called | a node retry is the next attempt and reserves afresh; after a crash the attempt counter restarts at 1, so the resumed governed node is refused and the run fails: start a new run (see the known limit below) |
+| the store cannot reserve | `store_failed`, adapter not called | the database; nothing was reserved |
+| the worker died or was cancelled mid-call | the reservation stays `reserved`, counted in full, then `abandoned` after the grace | nothing: it is already charged; see the [recovery runbook](recovery-runbook.md#a-governed-step-refused-for-its-token-budget-or-left-a-reservation-open) |
+
+**Known limit: crash recovery of a governed step is terminal (follow-up #1073).** The attempt counter (`_STEP_ATTEMPT`) restarts at 1 on every
+process-level re-execution of a run. After a crash between the reservation and the settlement (or between the settlement and the
+recording of the proposal) the resumed governed node reaches the same `(run, node, occurrence, attempt)`, finds the reservation, and is
+refused with `reservation_replayed`: the run fails and only a new run proceeds. That fails closed and avoids a second provider spend
+under one reservation, but it means a governed step cannot be resumed after a crash. The follow-up is to persist or derive the attempt so
+a legitimate resume reuses or supersedes the open reservation safely.
+
+Deleting a workflow whose runs hold reservations is refused with `409` (`cannot delete workflow: its runs have step token
+reservations`), like run manifests and effect proposals.
+
+Reading it back: `caliber.budget.step_reservation.run_token_usage(session_factory, run_id)` returns what a run has counted and how many
+reservations are open and final. No route lists reservations yet.
+
+**For B08.5 and the conformance task (#769).** `reserve_step_tokens(session_factory, request, run_budget_tokens=...)` returns a
+`StepReservation` (`created`, `state`, `reserved_tokens`, `charged_tokens`, `charge_basis`) or raises `ReservationRefused` whose `code`
+is one of `token_budget_exhausted`, `reservation_replayed`, `request_invalid`, `budget_invalid`, `run_not_found`,
+`reservation_mismatch`; `settle_step_tokens(session_factory, reservation, result)` returns the final row; `charge_for(reserved, result)`
+is the pure rule; `abandon_stale(session_factory, lease, grace_seconds=...)` is the owner janitor. The scenario
+`tests/egi_scenarios/test_v08_timeout_retry.py::test_budget_refuses_before_call` and the PostgreSQL races in
+`tests/egi_scenarios/test_b08_token_reservation.py` are the oracle.
 
 ## Policy decisions
 
@@ -3663,11 +3845,13 @@ trust rule as `effect_class`. The DB MCP write tools are not registry rows, so `
 answers `dispatch` for those names (a registry row is never the first-party server); their refusal rests on the MCP server's
 identity, which the MCP route now establishes from the server record (`tool_disposition_for_mcp_tool`,
 [Governed MCP tools](#governed-mcp-tools-b045)): a workflow tool node or MCP node reaching one of these tools on the first-party
-server is refused with `unsupported_effect_path`. **The switch that raises `unsupported_in_reference_profile` for every refused
-row is #774.** The four host-file tools are already refused by a workflow `tool` node in a manifest-backed
+server is refused with `unsupported_effect_path` **under the reference profile** (the development profile classifies it by the
+administrator's policy; the first-party server is recognised from its stdio launch or an operator-attested managed sidecar host).
+**The switch that raises `unsupported_in_reference_profile` for every refused row is #774.** The four host-file tools are already refused by a workflow `tool` node in a manifest-backed
 plan (see "Governed registered tools"); until #774 lands, model-chosen tool calls still run the host-file tools if a workflow
 uses them, so do not wire the four host-file tools into a reference workflow. The first-party database server's write tools are
-refused through a workflow (B04.5), but a deployment that does not need the server should still not register it.
+refused through a workflow under the reference profile (B04.5), but a deployment that does not need the server should still not
+register it.
 
 **Configuration, migration and rollback.** No new setting, no migration and no stored data change. Rolling back is
 reverting the change; rows already refused were never written.
@@ -3679,6 +3863,7 @@ ADR 0001 describes the whole reference shape; this table is what the *process* c
 - **The shape itself:** one tenant and region, MLflow addressed by `MLFLOW_TRACKING_URI`, an S3-compatible object store, at least two projects, and one real model provider next to the scripted adapter. Readiness reporting for MLflow and the object store is #535. The PostgreSQL version and the `pgvector` extension are checked by the migrations (migration `0060`) and the migration-parity CI job, not by the profile.
 - **Origin rules** (#533). ADR 0001 names them, but #533 has no allowed-origins task yet; that rule is not scheduled.
 - **Run-time refusal of the `refuse` inventory rows**, including the host-file tools and the DB MCP write tools (#774; see "Reserved tool names and refused paths"), **the trusted-connector set** (#534), **the full attack pack** (#535), **a single execution owner** (#536) and **the Apply separation-of-duties flag** (#589).
+- **A governed effect context in `build_plan` plans** (#1051, #1068): the worker and synchronous runs bind none, so the reference profile refuses protected nodes and the development profile runs them on the legacy guarded path; see "Profiles and a missing governed context".
 - **Cookie flags:** `auth_session_cookie_secure` is not checked.
 - **The database role:** whether the application connects as a role without `UPDATE`, `DELETE` or `TRUNCATE` on `caliber_run_manifests` (see "Run manifests are written once").
 

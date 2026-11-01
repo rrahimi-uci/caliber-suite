@@ -46,6 +46,7 @@ from typing import Any, NoReturn, Protocol
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from caliber.auth import CaliberIdentity
+from caliber.budget import step_reservation as _step_reservation
 from caliber.config import provider_request_timeout
 from caliber.context.authorize import ContextDenied
 from caliber.effects import step_proposal as _step_proposal
@@ -2536,8 +2537,16 @@ class RuntimePlan:
     effect_ledger: Any | None = None
     #: B04.2 context for manifest-backed webhook/API nodes. A plan with a
     #: workflow version but no context refuses these nodes rather than falling
-    #: back to the legacy raw sender.
+    #: back to the legacy raw sender, unless ``legacy_guarded_effects`` is set.
     governed_effects: GovernedEffectContext | None = None
+    #: The non-reference (development) profile's compatibility mode (#1068). When ``True`` and no ``governed_effects`` is
+    #: bound, a manifest-backed plan runs a protected webhook/API node through ``_perform_guarded_effect`` and a protected
+    #: registered or OpenAPI tool inline, exactly as before the dispatcher routing, instead of refusing. It is **not** the
+    #: governed path: no exact-intent approval, no execution-owner lease, no proposal and no receipt. ``build_plan`` sets it
+    #: from the deployment profile (``config.profile != "reference"``); the default ``False`` keeps every other plan, and
+    #: every reference-profile plan, fail-closed. It never overrides a bound context (a bound context is always used) and
+    #: never relaxes a refusal that is not about a missing context (EP-055, a registry mismatch, an unsupported path).
+    legacy_guarded_effects: bool = False
     #: B08.2 context for governed agent steps (``caliber.effects.step_proposal``). ``None`` (every plan the runtime builds
     #: today) runs agent nodes exactly as before. With one, an agent node runs through ``run_agent_step``: the adapter is
     #: handed only the tools the platform classified ``read``, a protected action it proposes becomes a recorded ``proposed``
@@ -4978,6 +4987,63 @@ def _governed_limits(
         raise ToolExecutionError("governed agent step limits unavailable: limits_invalid") from None
 
 
+def _reserve_step_tokens(
+    context: _step_proposal.GovernedStepContext,
+    executor: WorkflowExecutor,
+    request: _agent_step.AgentStepRequest,
+) -> _step_reservation.StepReservation | None:
+    """Reserve the step's token ceiling before its adapter is called (B08.4), or ``None`` for a step that will not call one.
+
+    A step the platform stops before work (:func:`~caliber.workflows.agent_step.before_work_stop`: no turn or token, a deadline
+    already past) and an executor that is not an adapter never reach a provider, so they reserve nothing. Every other step does,
+    and the reservation is taken here, before any adapter code runs. A budget that is exhausted, a store that fails and a
+    reservation this step already holds (an earlier call of the same run, node, occurrence and attempt may have spent: the platform
+    will not call the provider again for it) are fixed-code run errors, and the adapter is never called.
+    """
+    if (
+        not isinstance(executor, _agent_step.AgentStepAdapter)
+        or _agent_step.before_work_stop(request, clock=context.clock) is not None
+    ):
+        return None
+    try:
+        reservation = _step_reservation.reserve_step_tokens(
+            context.session_factory, request, run_budget_tokens=context.run_token_budget
+        )
+    except _step_reservation.ReservationRefused as exc:
+        raise ToolExecutionError(f"governed agent step token reservation refused: {exc}") from None
+    except Exception:
+        # A store failure carries the statement's parameters; none of it reaches the run error, only a fixed code.
+        raise ToolExecutionError(
+            "governed agent step token reservation refused: store_failed"
+        ) from None
+    if not reservation.created:
+        raise ToolExecutionError(
+            f"governed agent step token reservation refused: {_step_reservation.RESERVATION_REPLAYED}"
+        )
+    return reservation
+
+
+def _settle_step_tokens(
+    context: _step_proposal.GovernedStepContext,
+    reservation: _step_reservation.StepReservation,
+    result: _agent_step.AgentStepResult,
+) -> None:
+    """Settle the step's reservation from its result, once. A failure here keeps the reservation open (counted in full).
+
+    The provider has been called and the result is in hand, so a settlement the store cannot take is not a reason to discard it:
+    the reservation stays ``reserved`` and counts at its whole ceiling until the janitor finalizes it, which can only overcharge,
+    never undercharge. Only the exception's class is logged.
+    """
+    try:
+        _step_reservation.settle_step_tokens(context.session_factory, reservation, result)
+    except Exception as exc:
+        logger.warning(
+            "governed agent step %s: token settlement failed (%s); the reservation stays open at its whole ceiling",
+            reservation.step_request_id,
+            type(exc).__name__,
+        )
+
+
 def _run_governed_step(
     context: _step_proposal.GovernedStepContext,
     executor: WorkflowExecutor,
@@ -5013,7 +5079,12 @@ def _run_governed_step(
         history=tuple(history),
         read_tools=_governed_read_tools(trust, tool_callables),
     )
+    reservation = _reserve_step_tokens(context, executor, request)
+    # Nothing between the reservation and the settlement may release it: an exception or a cancellation out of the adapter leaves
+    # it open, counted in full, for the owner janitor to finalize (B08.4); only the result of a step that returned settles it.
     result = _agent_step.run_agent_step(executor, request, step_input, clock=context.clock)
+    if reservation is not None:
+        _settle_step_tokens(context, reservation, result)
     if result.stop_reason == "proposed_action":
         try:
             proposal = _step_proposal.record_step_proposal(context, request, result, trust)
@@ -5419,13 +5490,15 @@ def _perform_http_effect(
     """Route a manifest HTTP node through proposal, approval and dispatch.
 
     Plans without a workflow version are the legacy/test execution surface and
-    retain the existing ledger behavior. A manifest-backed plan must provide a
-    complete governed context; missing authority or receipt verification is a
-    refusal, never an implicit allow or a raw sender call.
+    retain the existing ledger behavior, and so does a manifest-backed plan with
+    no context whose ``legacy_guarded_effects`` is set (the development profile,
+    #1068; it is not the governed path). Otherwise a manifest-backed plan must
+    provide a complete governed context; missing authority or receipt
+    verification is a refusal, never an implicit allow or a raw sender call.
     """
     sender = plan.webhook_sender or partial(_default_webhook_sender, policy=plan.egress_policy)
     if plan.governed_effects is None:
-        if plan.workflow_version_id is None:
+        if plan.workflow_version_id is None or plan.legacy_guarded_effects:
             return _perform_guarded_effect(
                 plan, node_id=node_id, request=request, perform=lambda: sender(request)
             )
@@ -5526,7 +5599,9 @@ def _governed_tool_route(
     Only a plan wired to the registry (an identity reader, as ``build_plan`` binds) or to an authority (a governed
     context) is governed: a plan that has neither, such as a standalone export or a test plan, keeps calling the tool
     directly, as do previews, which never reach a real effect. OpenAPI bindings are routed by
-    :func:`_governed_openapi_route` (B04.4) and MCP bindings by their own B04 task. The decision is made from the
+    :func:`_governed_openapi_route` (B04.4) and MCP bindings by their own B04 task. A protected tool with no governed
+    context is refused, except in a plan whose ``legacy_guarded_effects`` is set (the development profile, #1068), where it
+    runs inline as before the dispatcher. The decision is made from the
     tool's **registry row** (``plan.registered_tool_identity``), never from ``binding.side_effect_level`` or the
     binding's names, which a workflow or an export author wrote.
     """
@@ -5564,6 +5639,10 @@ def _governed_tool_route(
     if route.route == INLINE:
         return None
     if plan.governed_effects is None:
+        if plan.legacy_guarded_effects:
+            # Development profile, no authority bound (#1068): the pre-dispatcher behavior. The tool runs inline behind the
+            # node's own approval gate; there is no proposal, exact-intent approval or lease.
+            return None
         raise ToolExecutionError(
             f"{node_id!r} requires a governed effect context to run protected registered tool "
             f"{binding.local_name!r}"
@@ -5679,6 +5758,9 @@ def _governed_openapi_route(
     if route.route == INLINE:
         return None
     if plan.governed_effects is None:
+        if plan.legacy_guarded_effects:
+            # Development profile, no authority bound (#1068): the pre-dispatcher behavior, the call runs inline.
+            return None
         raise ToolExecutionError(
             f"{node_id!r} requires a governed effect context to run protected OpenAPI tool {name!r}"
         )
@@ -5774,9 +5856,10 @@ def _governed_mcp_route(
     (read from the database, scoped to the run's identity), the administrator's explicit tool policy for exactly that tool
     and the protected-effect inventory: never from the binding's ``side_effect_level``, a description or annotation the
     server reported, or the model. A tool nobody classified, a blocked tool, a server that is not ready and a first-party
-    database write tool are refused here, before any proposal or approval exists. Only a ``read``-class tool runs inline; every
-    other call needs the governed effect context, and a protected call that an injected callable replaces is refused (no
-    proposal could describe it).
+    database write tool (reference profile only) are refused here, before any proposal or approval exists. Only a ``read``-class
+    tool runs inline; every other call needs the governed effect context, except in a plan whose ``legacy_guarded_effects`` is
+    set (the development profile, #1068), where it runs inline as before the dispatcher; a protected call that an injected
+    callable replaces is refused once governed (no proposal could describe it).
     """
     if preview or (plan.registered_tool_identity is None and plan.governed_effects is None):
         return None
@@ -5799,6 +5882,11 @@ def _governed_mcp_route(
     if route.route == INLINE:
         return None
     if plan.governed_effects is None:
+        if plan.legacy_guarded_effects:
+            # Development profile, no authority bound (#1068): the pre-dispatcher behavior. The call runs inline through the
+            # gateway entry point (which lets it through outside the reference profile), behind the node's own approval gate;
+            # there is no proposal, exact-intent approval, lease or receipt.
+            return None
         raise ToolExecutionError(
             f"{node_id!r} requires a governed effect context to run protected {label}"
         )

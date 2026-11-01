@@ -83,8 +83,9 @@ Playground invocation, calibration, workflow runtime, and deployment; bundled
 database presets arrive with explicit policies rather than relying on a name
 heuristic.
 
-A protected call does not go straight to the transport. The synchronous gateway entry points that the workflow runtime calls run
-only a tool whose trusted classification is `read`: the server record, the administrator's policy for exactly that tool and the
+A protected call does not go straight to the transport. Under the reference profile the synchronous gateway entry points that the
+workflow runtime calls run only a tool whose trusted classification is `read` (the development profile keeps the inline call as before,
+which is not the governed path): the server record, the administrator's policy for exactly that tool and the
 protected-effect inventory decide, never the tool names, descriptions, annotations (`readOnlyHint`) or results a server reports.
 Every other call is proposed, approved by an exact approval and sent once by the dispatcher's private `mcp` backend, which reads
 the server record again and runs the same policy, address and stdio checks before it sends. An MCP server has no key, precondition

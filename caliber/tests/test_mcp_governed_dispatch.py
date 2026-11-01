@@ -1526,3 +1526,103 @@ def test_the_backend_refuses_a_verifier_answer_that_is_not_receipt_facts(
         transport.verify()
     assert refused.value.code == "receipt_verifier_invalid"
     assert len(mcp.calls) == 1
+
+
+# ---------------------------------------------------------------- the two profiles (#1068)
+
+
+@pytest.mark.parametrize("kind", [tool_run, node_run], ids=["tool-node", "mcp-node"])
+def test_the_development_profile_runs_a_protected_call_inline_when_no_authority_is_bound(
+    factory: sessionmaker[Session], mcp: FakeMcp, kind: Callable[..., McpRun]
+) -> None:
+    """``legacy_guarded_effects`` (what ``build_plan`` sets outside the reference profile): the alpha behaviour, not governed."""
+    seed_server(factory)
+    run = kind(factory, context=False)
+    run.plan.legacy_guarded_effects = True
+
+    result = run.execute('{"title": "t"}')
+
+    assert result.status == "completed", result.error
+    assert mcp.calls == [{"name": "issue_write", "arguments": {"title": "t"}}]
+    assert run.authorized == [] and proposals(factory) == []
+
+
+@pytest.mark.parametrize("kind", [tool_run, node_run], ids=["tool-node", "mcp-node"])
+@pytest.mark.usefixtures("reference")
+def test_the_reference_profile_refuses_a_protected_call_with_no_authority_even_if_the_plan_says_legacy(
+    factory: sessionmaker[Session], mcp: FakeMcp, kind: Callable[..., McpRun]
+) -> None:
+    """Defence in depth: a plan wrongly marked legacy under the reference profile still cannot send, the gateway refuses it."""
+    seed_server(factory)
+    plain = kind(factory, context=False)
+    refused = plain.execute()
+    assert "requires a governed effect context to run protected MCP tool" in (refused.error or "")
+
+    legacy = kind(factory, context=False)
+    legacy.plan.legacy_guarded_effects = True
+    result = legacy.execute()
+
+    assert result.status == "error"
+    assert "mcp_effect_requires_proposal" in (result.error or "")
+    assert mcp.calls == [] and proposals(factory) == []
+
+
+def test_a_bound_authority_is_never_bypassed_by_the_development_path(
+    factory: sessionmaker[Session], mcp: FakeMcp
+) -> None:
+    seed_server(factory)
+    run = tool_run(factory)
+    run.plan.legacy_guarded_effects = True
+
+    result = run.execute()
+
+    assert result.status == "completed", result.error
+    assert len(run.authorized) == 1 and only_proposal(factory).state == "committed"
+
+
+def test_the_development_path_still_refuses_what_is_refused_in_every_profile(
+    factory: sessionmaker[Session], mcp: FakeMcp
+) -> None:
+    seed_server(factory, tools={"mystery": None, "blocked": server_policy("write", allowed=False)})
+    for tool, code in (("mystery", "mcp_tool_unclassified"), ("blocked", "mcp_tool_not_allowed")):
+        run = node_run(factory, tool, context=False)
+        run.plan.legacy_guarded_effects = True
+        result = run.execute()
+        assert f"refused: {code}" in (result.error or ""), tool
+    assert mcp.calls == []
+
+
+def test_the_development_profile_lets_a_model_chosen_protected_call_run_as_in_the_alpha(
+    factory: sessionmaker[Session], mcp: FakeMcp
+) -> None:
+    """The bound callable a model's tool loop calls reaches the gateway entry point, which is permissive outside the reference
+    profile (that is the alpha behaviour; B04.6 proposes such calls)."""
+    seed_server(factory)
+    binding = tool_run(factory).plan.ir.nodes["tool_node"].binding  # type: ignore[attr-defined]
+
+    result = runtime_module._bind_mcp_tool(binding)({"title": "x"})
+
+    assert result["result"] == {"ok": True}
+    assert mcp.calls == [{"name": "issue_write", "arguments": {"title": "x"}}]
+
+
+def test_the_development_profile_does_not_refuse_a_first_party_database_write_by_name(
+    factory: sessionmaker[Session], mcp: FakeMcp, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("CALIBER_MCP_STDIO_COMMAND_ALLOWLIST", sys.executable)
+    first_party_server(factory, insert_rows=server_policy("write"))
+    seen: list[str] = []
+    monkeypatch.setattr(
+        gateway_module,
+        "invoke_tool_raw_sync",
+        lambda _server, *, tool_name, **_k: seen.append(tool_name) or {"ok": True},
+    )
+    run = node_run(factory, "insert_rows")
+
+    result = run.execute()
+
+    assert result.status == "completed", result.error
+    assert len(run.authorized) == 1, (
+        "proposed and approved: the policy classified it write, the refusal is the reference profile's"
+    )
+    assert seen == ["insert_rows"]

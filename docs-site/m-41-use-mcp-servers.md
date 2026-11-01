@@ -52,7 +52,8 @@ hints such as `readOnlyHint`; CALIBER treats all of it as data and never as a cl
 classified `read` runs inline; a tool you classified `write` or `external_action` is proposed, approved by an exact approval and
 dispatched once (and left `unknown`, never resent, if the server's answer is lost, because most MCP servers cannot confirm their
 own effects); a tool you have not classified, or blocked, is refused with a code such as `mcp_tool_unclassified` before anything
-is sent. The first-party database server's write tools are refused in a workflow. See
+is sent (under the reference profile; the default development profile keeps running a protected tool inline as before, which is not the
+governed path). The first-party database server's write tools are refused in a workflow under the reference profile. See
 [Governed MCP tools](m-64-reference-profile.md#governed-mcp-tools-b045) for the exact codes and recovery.
 
 Inside a project, creating, changing or deleting a server and changing a tool policy need the global
