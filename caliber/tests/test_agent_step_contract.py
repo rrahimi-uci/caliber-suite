@@ -1358,3 +1358,34 @@ def test_every_executor_implements_run_step(monkeypatch: pytest.MonkeyPatch) -> 
             assert (result.stop_reason, result.error_code) == ("error", "provider_error"), name
         else:
             assert result.error_code != ADAPTER_NOT_INTEGRATED, name
+
+
+def _named(**changes: Any) -> ProposedAction:
+    fields: dict[str, Any] = {
+        "connector": "unclaimed",
+        "connector_version": "unclaimed",
+        "effect_class": "read",
+        "resource": "unclaimed",
+        "args": {"a": 1},
+        "tool": "open_ticket",
+    }
+    fields.update(changes)
+    return ProposedAction(**fields)
+
+
+def test_the_tool_a_proposal_names_is_not_part_of_its_intent_and_survives_the_record() -> None:
+    named, anonymous = _named(), _named(tool=None)
+    assert named.intent_hash == anonymous.intent_hash, (
+        "the called function's name is a selector, not part of the intent"
+    )
+    assert named != anonymous, "but two proposals are equal only if they name the same tool"
+    assert named.record()["tool"] == "open_ticket" and "tool" not in anonymous.record()
+    assert ProposedAction.from_record(named.record()) == named
+    assert ProposedAction.from_record(anonymous.record()).tool is None
+    assert named.bound_to("read").tool == "open_ticket", "binding keeps the name"
+
+
+@pytest.mark.parametrize("tool", ["", " padded ", "new\nline", "x" * 129, 7])
+def test_a_tool_name_that_is_not_a_printable_name_is_refused(tool: Any) -> None:
+    with pytest.raises(ProposalError):
+        _named(tool=tool)
