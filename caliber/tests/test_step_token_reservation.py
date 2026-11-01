@@ -47,6 +47,7 @@ from caliber.budget.step_reservation import (
     StepReservation,
     abandon_stale,
     charge_for,
+    next_attempt,
     reserve_step_tokens,
     run_token_usage,
     settle_step_tokens,
@@ -61,6 +62,7 @@ from caliber.config import (
 from caliber.contracts.agent_step import StepLimits, StepUsage
 from caliber.db.immutable import ImmutableRecordError
 from caliber.db.models import CaliberStepTokenReservation, CaliberWorkflowRun
+from caliber.effects import step_proposal
 from caliber.ownership import LeaseLost, release
 from caliber.workflows.agent_step import AgentStepResult, ScriptedStep, answer
 from caliber.workflows.runtime import FakeWorkflowExecutor, execute
@@ -69,6 +71,7 @@ from tests.test_governed_agent_step import (  # noqa: F401 - the fixtures and bu
     RUN,
     USAGE,
     Canaries,
+    Recorder,
     _another_run,
     _context,
     _migrated_template,
@@ -967,21 +970,6 @@ def test_a_step_whose_ceiling_exactly_fits_the_run_budget_runs(world: Any) -> No
     assert len(executor.seen) == 1
 
 
-def test_a_step_that_already_holds_a_reservation_is_not_called_again(world: Any) -> None:
-    """A restart of the same step may not call the provider on the strength of a reservation that already may have spent."""
-    first = FakeWorkflowExecutor(step_script=[ScriptedStep("completed", usage=USAGE)])
-    assert _go(_plan(world), first).status == "error"
-    (row,) = _all(world)
-
-    second = _Watcher(world, step_script=[_proposing()])
-    result = _go(_plan(world), second)
-    assert result.error == (
-        "ToolExecutionError: governed agent step token reservation refused: reservation_replayed"
-    )
-    assert second.seen == [] and second.step_requests == []
-    assert [r.reservation_id for r in _all(world)] == [row.reservation_id]
-
-
 def test_a_failed_provider_call_keeps_the_whole_reservation(world: Any) -> None:
     executor = FakeWorkflowExecutor(step_script=[TimeoutError()])
     result = _go(_plan(world), executor)
@@ -1167,3 +1155,416 @@ def test_deleting_a_workflow_whose_runs_hold_token_reservations_is_a_409(
     assert "step token reservations" in refused.text
     assert client.get(f"{PREFIX}/workflows/{kept}").status_code == 200
     assert db_session.get(CaliberStepTokenReservation, "tres-del") is not None
+
+
+# -------------------------------------------------------------------------- resuming a governed step after a crash (#1073)
+
+
+def _ids(executor: FakeWorkflowExecutor, recorder: Recorder) -> list[tuple[int, str]]:
+    """What the adapter was asked, as ``(attempt, step_request_id)``, after checking the manifest the recorder wrote agrees."""
+    asked = [(r.attempt, r.step_request_id) for r in executor.step_requests]
+    recorded = [
+        (a.attempt, f"step-{a.node_id}-{a.occurrence_id}-{a.attempt}") for a in recorder.assemblies
+    ]
+    assert asked == recorded, (
+        "the request, the context manifest and the reservation carry one attempt"
+    )
+    return asked
+
+
+def _by_attempt(world: Any) -> list[tuple[int, str, int | None, str | None]]:
+    rows = sorted(_all(world), key=lambda row: row.attempt)
+    return [(r.attempt, r.state, r.charged_tokens, r.charge_basis) for r in rows]
+
+
+def _crash_after_reservation(world: Any) -> None:
+    """A first execution killed inside the adapter call (simulated: KeyboardInterrupt in run_step): the reservation is persisted and open."""
+
+    class Dies(FakeWorkflowExecutor):
+        def run_step(self, request: Any, step_input: Any) -> Any:
+            raise KeyboardInterrupt
+
+    with pytest.raises(KeyboardInterrupt):
+        _go(_plan(world), Dies())
+    assert _by_attempt(world) == [(1, RESERVED, None, None)]
+
+
+def _abandon(world: Any) -> int:
+    """Run the owner janitor now; how many open reservations it finalized (the ones whose deadline is long past)."""
+    with world() as session:
+        lease = leased(session, "owner-1")
+        session.commit()
+    return abandon_stale(world, lease, grace_seconds=1)
+
+
+def test_next_attempt_is_the_callers_counter_when_nothing_is_reserved(world: Any) -> None:
+    assert next_attempt(world, RUN, "agent", "occ-1", floor=1) == 1
+    assert next_attempt(world, RUN, "agent", "occ-1", floor=3) == 3
+    assert _all(world) == [], "deriving an attempt writes nothing"
+
+
+@pytest.mark.parametrize("final", [None, "settled", "abandoned"])
+def test_next_attempt_is_one_past_the_highest_reserved_attempt_in_any_state(
+    world: Any, final: str | None
+) -> None:
+    stale = final == "abandoned"
+    deadline = PAST if stale else FUTURE
+    _open(world, deadline=deadline, attempt=1, step_request_id="s1")
+    held = _open(world, deadline=deadline, attempt=2, step_request_id="s2")
+    if final == "settled":
+        settle_step_tokens(world, held, _ran(_step(attempt=2, step_request_id="s2"), 10))
+    elif stale:
+        assert _abandon(world) == 2
+    before = _by_attempt(world)
+
+    assert next_attempt(world, RUN, "agent", "occ-1", floor=1) == 3
+    assert next_attempt(world, RUN, "agent", "occ-1", floor=2) == 3, (
+        "one past the highest, not the floor"
+    )
+    assert _by_attempt(world) == before, "deriving an attempt neither writes nor releases anything"
+
+
+def test_next_attempt_keeps_a_higher_counter_than_what_is_stored(world: Any) -> None:
+    _reserve(world, _step(attempt=1))
+    assert next_attempt(world, RUN, "agent", "occ-1", floor=2) == 2
+    assert next_attempt(world, RUN, "agent", "occ-1", floor=5) == 5
+
+
+def test_next_attempt_looks_only_at_its_own_run_node_and_occurrence(world: Any) -> None:
+    other = _another_run(world, "RUN-other")
+    _reserve(world, _step(attempt=4, step_request_id="a"))
+    _reserve(world, _step(attempt=7, node_id="other-node", step_request_id="b"))
+    _reserve(world, _step(attempt=8, occurrence_id="occ-2", step_request_id="c"))
+    _reserve(world, _step(attempt=9, workflow_run_id=other, step_request_id="d"))
+    assert next_attempt(world, RUN, "agent", "occ-1", floor=1) == 5
+    assert next_attempt(world, RUN, "agent", "occ-3", floor=1) == 1
+
+
+@pytest.mark.parametrize("floor", [0, -1, True, False, 1.0, "1", None, 2_147_483_648])
+def test_next_attempt_refuses_a_counter_outside_the_request_contract(
+    world: Any, floor: Any
+) -> None:
+    with pytest.raises(ReservationRefused) as raised:
+        next_attempt(world, RUN, "agent", "occ-1", floor=floor)
+    assert raised.value.code == REQUEST_INVALID
+
+
+def test_next_attempt_stops_at_the_largest_attempt_the_contract_allows(world: Any) -> None:
+    top = 2_147_483_647
+    assert next_attempt(world, RUN, "agent", "occ-1", floor=top) == top
+    _reserve(world, _step(attempt=top))
+    with pytest.raises(ReservationRefused) as raised:
+        next_attempt(world, RUN, "agent", "occ-1", floor=1)
+    assert raised.value.code == REQUEST_INVALID
+
+
+def test_a_step_resumed_after_a_crash_before_its_settlement_takes_its_own_reservation(
+    world: Any,
+) -> None:
+    """The first run dies mid-call. The resume reserves again as the next attempt: the old one stays open and charged in full."""
+    _crash_after_reservation(world)
+    (first,) = _all(world)
+
+    recorder, canaries = Recorder(), Canaries()
+    resumed = _Watcher(world, step_script=[_proposing()])
+    result = execute(
+        _plan(world, recorder=recorder), "ask", executor=resumed, extra_tools=canaries.tools()
+    )
+
+    assert result.status == "blocked", result.error
+    assert _ids(resumed, recorder) == [(2, "step-agent-agent-2")]
+    assert resumed.seen == [
+        [(RESERVED, CEILING, first.step_request_id), (RESERVED, CEILING, "step-agent-agent-2")]
+    ], "the resumed call's own reservation was open in the database when the adapter ran"
+    assert _by_attempt(world) == [(1, RESERVED, None, None), (2, SETTLED, 15, BASIS_REPORTED)]
+    assert _row(world, first.reservation_id).state == RESERVED, "the earlier one was not released"
+    assert run_token_usage(world, RUN).counted_tokens == CEILING + 15, "both attempts add up"
+    proposals, requests = _rows(world)
+    assert len(proposals) == 1 and len(requests) == 1 and canaries.mutations == []
+
+
+def test_a_step_resumed_after_a_crash_before_its_proposal_is_recorded_proposes_once(
+    world: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The first run settles, then dies before the proposal is recorded: the resume is a second call, one proposal, one request."""
+    real = step_proposal.record_step_proposal
+    died: list[bool] = []
+
+    def dies_once(*args: Any, **kwargs: Any) -> Any:
+        if not died:
+            died.append(True)
+            raise KeyboardInterrupt
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(step_proposal, "record_step_proposal", dies_once)
+    with pytest.raises(KeyboardInterrupt):
+        _go(_plan(world), FakeWorkflowExecutor(step_script=[_proposing()]))
+    assert _by_attempt(world) == [(1, SETTLED, 15, BASIS_REPORTED)]
+    assert _rows(world) == ([], []), "nothing was recorded before the crash"
+
+    recorder, canaries = Recorder(), Canaries()
+    resumed = FakeWorkflowExecutor(step_script=[_proposing()])
+    result = execute(
+        _plan(world, recorder=recorder), "ask", executor=resumed, extra_tools=canaries.tools()
+    )
+
+    assert result.status == "blocked", result.error
+    assert _ids(resumed, recorder) == [(2, "step-agent-agent-2")]
+    assert _by_attempt(world) == [
+        (1, SETTLED, 15, BASIS_REPORTED),
+        (2, SETTLED, 15, BASIS_REPORTED),
+    ]
+    assert run_token_usage(world, RUN).counted_tokens == 30, "both calls are charged"
+    proposals, requests = _rows(world)
+    assert len(proposals) == 1 and len(requests) == 1, "the downstream sees at most one effect"
+    assert canaries.mutations == []
+
+    # a third execution finds the recorded proposal: the model is not asked and nothing more is reserved
+    third = FakeWorkflowExecutor(step_script=[_proposing()])
+    again = _go(_plan(world), third)
+    assert again.status == "blocked", again.error
+    assert third.step_requests == [] and third.step_script.remaining == 1
+    assert len(_all(world)) == 2 and len(_rows(world)[0]) == 1
+
+
+def test_a_step_resumed_after_its_reservation_was_abandoned_reserves_again(world: Any) -> None:
+    """The owner janitor finalized the dead worker's reservation (still at its whole ceiling): the resume reserves its own."""
+    # the dead worker's step: the runtime's own occurrence for the node, a deadline long past
+    _open(world, deadline=PAST, occurrence_id="agent", step_request_id="step-agent-agent-1")
+    assert _abandon(world) == 1
+
+    resumed = FakeWorkflowExecutor(step_script=[_proposing()])
+    assert _go(_plan(world), resumed).status == "blocked"
+    assert _by_attempt(world) == [
+        (1, ABANDONED, CEILING, BASIS_CONSERVATIVE),
+        (2, SETTLED, 15, BASIS_REPORTED),
+    ]
+    assert run_token_usage(world, RUN).counted_tokens == CEILING + 15
+
+
+def test_a_resumed_step_whose_own_reservation_exactly_fits_the_budget_runs(world: Any) -> None:
+    _crash_after_reservation(world)
+    resumed = FakeWorkflowExecutor(step_script=[_proposing()])
+    result = _go(_plan(world, run_token_budget=2 * CEILING), resumed)
+    assert result.status == "blocked", result.error
+    assert len(resumed.step_requests) == 1
+
+
+def test_a_resumed_step_one_token_over_the_budget_is_refused_for_the_budget_not_as_a_replay(
+    world: Any,
+) -> None:
+    """The earlier attempt's open reservation counts in full, so the resume needs room for its own ceiling as well."""
+    _crash_after_reservation(world)
+    resumed = _Watcher(world, step_script=[_proposing()])
+    result = _go(_plan(world, run_token_budget=2 * CEILING - 1), resumed)
+    assert result.error == (
+        "ToolExecutionError: governed agent step token reservation refused: "
+        f"token_budget_exhausted (budget={2 * CEILING - 1} committed={CEILING} requested={CEILING})"
+    )
+    assert resumed.seen == [] and resumed.step_requests == [], "the provider was not reached"
+    assert _by_attempt(world) == [(1, RESERVED, None, None)], "nothing reserved, nothing released"
+
+
+def test_a_resumed_step_that_fails_is_retried_as_the_attempt_after_its_own(world: Any) -> None:
+    """In-process retries after a resume keep climbing: past the resume's reservation, not just past the counter."""
+    _crash_after_reservation(world)
+    recorder = Recorder()
+    plan = _plan(world, recorder=recorder)
+    node = plan.ir.nodes["agent"]
+    node.execution_policy = replace(node.execution_policy, max_retries=2)
+    executor = FakeWorkflowExecutor(step_script=[TimeoutError(), _proposing()])
+
+    result = execute(plan, "ask", executor=executor, extra_tools=Canaries().tools())
+
+    assert result.status == "blocked", result.error
+    assert _ids(executor, recorder) == [(2, "step-agent-agent-2"), (3, "step-agent-agent-3")]
+    assert [row[0] for row in _by_attempt(world)] == [1, 2, 3]
+    assert run_token_usage(world, RUN).counted_tokens == CEILING + CEILING + 15
+
+
+def test_two_resumers_that_derive_one_attempt_reserve_once_and_call_the_provider_once(
+    world: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The second resumer derived the attempt before the first reserved it: it is handed the first's row, refused as a replay."""
+    _crash_after_reservation(world)
+    real = step_reservation.next_attempt
+    rival = FakeWorkflowExecutor(step_script=[_proposing()])
+    rivals: list[Any] = []
+    derived: list[int] = []
+
+    def derive_then_lose_the_race(*args: Any, **kwargs: Any) -> int:
+        attempt = real(*args, **kwargs)
+        derived.append(attempt)
+        if (
+            len(derived) == 1
+        ):  # the other resumer reserves the attempt this one just derived, and runs it
+            rivals.append(_go(_plan(world), rival))
+        return attempt
+
+    monkeypatch.setattr(step_reservation, "next_attempt", derive_then_lose_the_race)
+    loser = _Watcher(world, step_script=[_proposing()])
+    result = _go(_plan(world), loser)
+
+    assert derived == [2, 2], "both resumers derived the same attempt"
+    assert rivals[0].status == "blocked", rivals[0].error
+    assert result.error == (
+        "ToolExecutionError: governed agent step token reservation refused: reservation_replayed"
+    )
+    assert loser.seen == [] and loser.step_requests == []
+    assert len(rival.step_requests) == 1, "the provider was called once between the two resumers"
+    assert _by_attempt(world) == [(1, RESERVED, None, None), (2, SETTLED, 15, BASIS_REPORTED)]
+
+
+def test_a_store_that_fails_to_derive_the_attempt_refuses_the_step_with_a_fixed_code(
+    world: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def broken(*_args: Any, **_kwargs: Any) -> Any:
+        raise RuntimeError("password=hunter2 SELECT secrets")
+
+    monkeypatch.setattr(step_reservation, "next_attempt", broken)
+    executor = _Watcher(world, step_script=[_proposing()])
+    result = _go(_plan(world), executor)
+    assert result.error == (
+        "ToolExecutionError: governed agent step token reservation refused: store_failed"
+    )
+    assert executor.seen == [] and executor.step_requests == [] and _all(world) == []
+    assert "hunter2" not in (result.error or "")
+
+
+def test_an_attempt_that_would_pass_the_contract_is_a_fixed_refusal_before_the_provider(
+    world: Any,
+) -> None:
+    _reserve(world, _step(occurrence_id="agent", attempt=2_147_483_647, step_request_id="top"))
+    executor = _Watcher(world, step_script=[_proposing()])
+    result = _go(_plan(world), executor)
+    assert result.error == (
+        "ToolExecutionError: governed agent step token reservation refused: request_invalid"
+    )
+    assert executor.seen == [] and executor.step_requests == []
+    assert len(_all(world)) == 1
+
+
+def test_an_executor_that_is_not_an_adapter_never_derives_an_attempt(
+    world: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    asked: list[tuple[Any, ...]] = []
+    real = step_reservation.next_attempt
+
+    def spy(*args: Any, **kwargs: Any) -> int:
+        asked.append(args)
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(step_reservation, "next_attempt", spy)
+
+    class Legacy:
+        def run_agent(self, *args: Any, **kwargs: Any) -> Any:  # pragma: no cover - never reached
+            raise AssertionError("a governed step never uses the legacy path")
+
+    result = _go(_plan(world), Legacy())
+    assert result.status == "error" and "AssertionError" not in (result.error or "")
+    assert asked == [], "an executor that reserves nothing must not read the reservation store"
+    assert _all(world) == []
+
+
+def test_the_development_profile_never_derives_an_attempt(
+    world: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Without a governed context the agent runs as before: no reservation, no derivation, the plain attempt counter."""
+
+    def forbidden(*_args: Any, **_kwargs: Any) -> Any:  # pragma: no cover - failing is the point
+        raise AssertionError("an ungoverned node must not read the reservation store")
+
+    monkeypatch.setattr(step_reservation, "next_attempt", forbidden)
+    recorder = Recorder()
+    executor = FakeWorkflowExecutor(step_script=[_proposing()])
+    result = execute(
+        _plan(world, governed=False, recorder=recorder),
+        "hello",
+        executor=executor,
+        extra_tools=Canaries().tools(),
+    )
+    assert result.status == "completed", result.error
+    assert recorder.assemblies and {a.attempt for a in recorder.assemblies} == {1}
+    assert _all(world) == []
+
+
+def test_a_worker_that_starts_while_the_first_is_still_in_flight_calls_the_provider_under_its_own_reservation(
+    world: Any,
+) -> None:
+    """Pinned decision (#1073): a resume cannot tell a live earlier worker from a dead one.
+
+    Worker A has reserved attempt 1 and its provider call is in flight (the reservation is still open) when worker B starts the same
+    step. B derives attempt 2 and makes its own, concurrent provider call (before this change B was refused as a replay). Both calls
+    are charged in full against the run budget, and the occurrence still has one proposal and one approval request.
+    """
+    second = FakeWorkflowExecutor(step_script=[_proposing()])
+    seen_by_second: list[Any] = []
+
+    class FirstInFlight(FakeWorkflowExecutor):
+        def run_step(self, request: Any, step_input: Any) -> Any:
+            # A's reservation is open in the database; B starts now and runs the whole step to its end
+            seen_by_second.append(_by_attempt(world))
+            seen_by_second.append(_go(_plan(world), second))
+            return super().run_step(request, step_input)
+
+    first = FirstInFlight(step_script=[_proposing()])
+    result = _go(_plan(world), first)
+
+    assert seen_by_second[0] == [(1, RESERVED, None, None)]
+    assert seen_by_second[1].status == "blocked", seen_by_second[1].error
+    assert result.status == "blocked", result.error
+    assert [r.attempt for r in first.step_requests] == [1]
+    assert [r.attempt for r in second.step_requests] == [2], "B made its own provider call"
+    assert _by_attempt(world) == [
+        (1, SETTLED, 15, BASIS_REPORTED),
+        (2, SETTLED, 15, BASIS_REPORTED),
+    ]
+    assert run_token_usage(world, RUN).counted_tokens == 30, "both concurrent calls are charged"
+    proposals, requests = _rows(world)
+    assert len(proposals) == 1 and len(requests) == 1, (
+        "one proposal per occurrence, whoever got there first"
+    )
+
+
+def test_each_crash_leaves_a_full_reservation_counted_until_the_run_budget_is_exhausted(
+    world: Any,
+) -> None:
+    """Crash-loop budget burn (#1073): every crash keeps its whole ceiling, none is released, so repeated crashes run the run dry."""
+
+    class Dies(FakeWorkflowExecutor):
+        def run_step(self, request: Any, step_input: Any) -> Any:
+            raise KeyboardInterrupt
+
+    budget = 3 * CEILING
+    for expected in (1, 2, 3):
+        with pytest.raises(KeyboardInterrupt):
+            _go(_plan(world, run_token_budget=budget), Dies())
+        assert [r[0] for r in _by_attempt(world)] == list(range(1, expected + 1))
+        assert run_token_usage(world, RUN).counted_tokens == expected * CEILING
+    survivor = _Watcher(world, step_script=[_proposing()])
+    result = _go(_plan(world, run_token_budget=budget), survivor)
+    assert result.error == (
+        "ToolExecutionError: governed agent step token reservation refused: "
+        f"token_budget_exhausted (budget={budget} committed={budget} requested={CEILING})"
+    )
+    assert survivor.seen == [] and len(_all(world)) == 3
+
+
+def test_the_attempt_is_derived_for_the_runtimes_own_occurrence_not_the_node_id(
+    world: Any,
+) -> None:
+    """A node run in another occurrence (a loop pass, a fan-out branch) resumes from that occurrence's reservations only."""
+    from caliber.workflows import runtime
+
+    context = _plan(world).governed_agent_steps
+    assert context is not None
+    _reserve(world, _step(occurrence_id="agent", attempt=5, step_request_id="own"))
+    _reserve(world, _step(occurrence_id="pass-2", attempt=1, step_request_id="loop"))
+    adapter = FakeWorkflowExecutor(step_script=[])
+
+    assert runtime._governed_attempt(context, adapter, "agent") == 6
+    token = runtime._STEP_OCCURRENCE.set("pass-2")
+    try:
+        assert runtime._governed_attempt(context, adapter, "agent") == 2
+    finally:
+        runtime._STEP_OCCURRENCE.reset(token)
