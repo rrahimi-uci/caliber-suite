@@ -3074,6 +3074,80 @@ checked = approval_valid_at_commit(
 # approval and claims dispatch. No connector is called by this function.
 ```
 
+### The approval panel: what the approver sees and what the console obeys (B06.5, #743)
+
+A person deciding a bound request has to see *what* they are approving. The console shows it in an inline approval panel under
+**Recovery Diagnostics** of a run (`ApprovalDecisionPanel`, opened by `BoundApprovalReview`) for every bound request that is `pending`, or
+`approved` and not yet consumed. A legacy node-level request (no `proposal_id`) keeps the plain Approve and Reject buttons it always had; for
+a bound one those header buttons are not shown, because they would approve it unseen. The panel reads one record,
+`GET /workflow-runs/{run_id}/approvals/{approval_id}` (`caliber.workflows.approval_view`), and decides nothing itself.
+
+**Who may read it.** The access of reading the run (a run you cannot see is `404`) **plus** the project `read` role, evaluated now. A caller who
+fails either, an approval of another run and an unknown id all get the same `404`. A caller who also holds the project `approve` action (owner or
+reviewer) sees the effect and who requested it; anyone else with read access sees the pins, the state and the quorum, `proposal` is `null` and
+`binding.requested_by` is `null` (deliberate: the view is a project-`read` surface and shows any reader a request's state, as the list route already showed its status and who decided; the *decision routes* still tell a caller who may not decide nothing about the state, because they check authority before state).
+The SDK reads it as `client.workflows.runs.approval(run_id, approval_id)`, untyped like `approvals()`. The list route
+(`GET .../approvals`) gains optional `proposal_id`, `expires_at`, `superseded_by` and `consumed_at`, so the console can tell a bound request from a
+legacy one; an older client ignores them. They follow the view's rule: filled only for a caller with the project `read` role, `null` for anyone else
+(the rest of the list is unchanged).
+
+**What it returns.**
+
+| Field | Content |
+| --- | --- |
+| `binding` | `proposal_id`, `intent_hash`, `evidence_hash`, `policy_digest`, `expected_resource_version`, `expires_at`, `requested_by`, `superseded_by`, `consumed_at`; `null` for a legacy request |
+| `proposal` | `connector`, `connector_version`, `effect_class` (the risk class: read only, reversible write, irreversible write or data export), `resource`, `state`, and the **shape** of the arguments: each top-level name (only when it is a plain identifier, otherwise unnamed) and the kind of its value, at most 50 |
+| `policy`, `quorum` | the node's `required_role`, `approval_count`, `timeout_behavior`, `allow_self_approval`; who approved so far, how many are required and how many remain |
+| `state` | `open`, or why the request cannot be decided now, most final first: `already_consumed`, `superseded` (with `superseded_by`), `expired`, `rejected`, `run_not_waiting` (a rejection and a cancellation both clear the run's current node, so they are named before the node is compared), `approval_not_current` (another node's request of a waiting run), `already_decided` |
+| `allowed_responses` | the decisions the routes accept now: `approve` and `reject`. `request_changes` is in the contract but has no route, so it is not offered |
+| `caller` | the authenticated principal, and for `approve` and `reject` whether it is allowed now and, when not, the first reason: the request's state, a disabled deployment switch (`queue_disabled`, `approvals_disabled`, and for an approval `checkpointing_disabled`, which the routes check first and answer with a plain `409`), `project_role_required`, `insufficient_scope`, `self_approval` or `duplicate_approver` |
+
+**No argument value ever leaves the server.** The arguments are the one place a secret or a personal datum can sit, the platform's other
+operator views never load them, and the `intent_hash` binds every value, so the panel shows names, kinds and counts and says that the values are
+pinned by the digest. Showing values needs a connector-owned preview that redacts, which does not exist yet; the console does not guess at one.
+Nothing in a response is logged by the console, and a refusal message is chosen from the `reason_code` the server sent, with values from the view,
+never from response text.
+
+**The server decides, the console renders.** `caller` is computed with the decision routes' own rules (the project `approve` action, the node's
+`required_role` scope, the requester and run-initiator rule, one approval per person) and the panel only disables a button from it
+(`aria-disabled`, with the reason attached through `aria-describedby`, so the button stays focusable and the reason is read). The route re-derives
+everything under its locks, so a stale panel cannot approve what the server would refuse. A decision sends `{runtime_approval_id, reason}` and
+nothing else; who decides is the authenticated principal.
+
+Refusals, with the text the panel shows and the recovery (the decision route's `409` codes arrive as `reason_code`; the ability reasons arrive in
+the view):
+
+| Code | Where it comes from | Panel text (abridged) | Recovery |
+| --- | --- | --- | --- |
+| `expired` | view state, `409` on decide | "This request expired at 2026-11-01 14:30 UTC. Nothing was done. Ask the requester to send it again." | ask for a new request |
+| `superseded` | view state, `409` | "A newer request replaced this one (RAP-...). Open the newer request." | decide the newer request (linked when it is on the page) |
+| `already_decided` | view state, `409` | "This request already holds a decision ... waiting for the system to act on it." | nothing; dispatch consumes it |
+| `already_consumed` | view state, `409` | "This approval was already used to run the action." | ask for a new request if needed again |
+| `approval_not_current` | view state, `409` | "This request is not for the step the run is waiting at." | decide the run's current request |
+| `run_not_waiting` | view state | "This run is no longer waiting for approval ..." | none |
+| `approval_busy` | `503` on decide | "This request is being decided or dispatched right now. Nothing was decided. Wait a moment, then press the button again." | press again; the buttons stay live |
+| `self_approval` | view ability | "You started this run, so you cannot approve it. A second person must decide." | a second person decides; Reject stays available |
+| `duplicate_approver` | view ability | "You already approved this step. It needs 2 different approvers; 1 more is needed." | another approver decides |
+| `queue_disabled`, `approvals_disabled`, `checkpointing_disabled` | view ability | "Deciding approvals is switched off for this deployment ..." | an administrator enables the switch (`checkpointing_disabled` blocks only Approve) |
+| `insufficient_scope`, `project_role_required` | view ability | "This step needs the caliber.approver role and your account does not hold it ..." | ask for the role |
+| a network failure or any other `5xx` | decide | "We could not confirm whether your decision was recorded ... check it before deciding again." | the panel refetches; it never retries by itself, because a retry would answer `duplicate_approver` |
+
+**Not built, stated plainly.** The contract's `stale_version`, `intent_mismatch`, `fenced_owner` and `role_revoked` messages are in the panel and
+render when a `reason_code` of that name reaches it, but today the platform refuses those only at dispatch (`effect.approval.commit_check`
+span, `EffectRefused`), never as the answer to a decision, and the view cannot read them back: there is no persisted commit-time refusal to show
+(the `causal-links` route says as much). The view does not carry the target's current state, a before-and-after preview (both need a connector
+query operation), `requested_by_type` (the platform has no principal type yet; the requester's id is shown), `evidence_url` (there is no
+evidence package yet) or the policy decision's reason codes. `request_changes` and a `intent_hash` in the decision body are not implemented in
+the routes. Approving the last required approval does not resume the run: the run stays `waiting_approval` until someone with the operator role
+resumes it, and the panel says so.
+
+**What the browser checks cover.** The Playwright spec asserts roles, accessible names and descriptions, keyboard order, focus and the announced text with
+role and name queries and an accessibility-tree snapshot. The repository has no axe integration, so there is no automated colour-contrast or
+rule-engine audit of the panel; contrast follows the console's existing slate, amber and red palette and has not been measured.
+
+**Configuration, migration and rollback.** No new setting, no migration and no stored data change. The view is read-only and the list fields are
+optional additions. Rolling back is reverting the change; a console without it ignores the new list fields and keeps the plain buttons.
+
 ## Agent steps: a request, a result, and no effects (B08.1a, #713)
 
 An agent step is one bounded unit of model work in a workflow node. Two control records (ADR 0003) describe it, and

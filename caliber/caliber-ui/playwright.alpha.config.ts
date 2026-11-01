@@ -17,6 +17,9 @@ import { defineConfig, devices } from "@playwright/test";
  *   - build-workflows.spec.ts and workflow-studio.spec.ts (alpha gap P1-22): the skill
  *     and tool builders, and the workflow studio from template to run, approval, and
  *     the wait-for-event and wait-until resumes, with the run queue on.
+ *   - approval-panel.spec.ts (B06.5, #743): the exact-intent approval panel against the real
+ *     decision routes, on runs seeded by scripts/approval_panel_e2e_seed.py (the server is
+ *     started with CALIBER_E2E_SEED_APPROVAL_PANEL=1): keyboard, focus, announcements and refusals.
  *   - feature-flags.spec.ts: the four feature-flagged areas (Aria, MCP and OpenAPI
  *     integrations, cookbooks, release-candidate signoff) carry their shipped defaults —
  *     Aria on, the other three off, hidden and refused.
@@ -42,6 +45,7 @@ export default defineConfig({
     "build-workflows.spec.ts",
     "workflow-studio.spec.ts",
     "feature-flags.spec.ts",
+    "approval-panel.spec.ts",
   ],
   // The object store needs MinIO, which this harness does not start; the stack smoke covers it.
   grepInvert: /object store/,
@@ -59,7 +63,7 @@ export default defineConfig({
     viewport: { width: 1440, height: 900 },
   },
   webServer: {
-    command: `unset CALIBER_FEATURE_ARIA CALIBER_FEATURE_INTEGRATIONS CALIBER_FEATURE_COOKBOOKS CALIBER_FEATURE_RELEASE_CANDIDATES; MLFLOW_PORT=${PORT} MLFLOW_WORKERS=1 CALIBER_E2E_ENV_FILE=/dev/null CALIBER_DATABASE_URL= CALIBER_E2E_TMP_ROOT=$PWD/../.tmp/alpha-journey CALIBER_SKIP_KNOWLEDGE_WARMUP=1 bash ../scripts/run-playwright-server.sh`,
+    command: `unset CALIBER_FEATURE_ARIA CALIBER_FEATURE_INTEGRATIONS CALIBER_FEATURE_COOKBOOKS CALIBER_FEATURE_RELEASE_CANDIDATES; MLFLOW_PORT=${PORT} MLFLOW_WORKERS=1 CALIBER_E2E_ENV_FILE=/dev/null CALIBER_DATABASE_URL= CALIBER_E2E_TMP_ROOT=$PWD/../.tmp/alpha-journey CALIBER_SKIP_KNOWLEDGE_WARMUP=1 CALIBER_E2E_SEED_APPROVAL_PANEL=1 bash ../scripts/run-playwright-server.sh`,
     url: `http://127.0.0.1:${PORT}/ajax-api/2.0/mlflow/caliber/health`,
     timeout: 360_000,
     reuseExistingServer: false,

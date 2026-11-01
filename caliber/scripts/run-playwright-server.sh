@@ -437,6 +437,18 @@ run_owner_bootstrap() {
     "$VENV_DIR/bin/python" scripts/two_week_alpha_e2e_seed.py
   fi
 
+  # The approval panel's runs (B06.5, #743): parked runs with requests bound to an effect proposal, recorded through the
+  # runtime's own writers (scripts/approval_panel_e2e_seed.py). Same slot and reason as the seed above: before the server
+  # listens, so the browser never sees a half-seeded database. Opt-in (the alpha gate sets it): the other specs'
+  # databases do not need an extra workflow. Migrations are idempotent, so this works on its own too
+  # (CALIBER_E2E_SEED_ALPHA_JOURNEY=0).
+  if [[ "${CALIBER_E2E_SEED_APPROVAL_PANEL:-0}" == "1" ]]; then
+    echo ">> applying caliber migrations for the approval-panel E2E seed"
+    "$VENV_DIR/bin/alembic" upgrade head
+    echo ">> seeding approval-panel fixtures for Playwright"
+    "$VENV_DIR/bin/python" scripts/approval_panel_e2e_seed.py
+  fi
+
   if [[ "${CALIBER_SKIP_KNOWLEDGE_WARMUP:-0}" != "1" ]]; then
     echo ">> prewarming MiniLM knowledge embedding model for Playwright"
     "$VENV_DIR/bin/python" - <<'PY'
