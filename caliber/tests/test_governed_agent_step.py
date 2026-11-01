@@ -63,6 +63,7 @@ from caliber.workflows.manifest import parse_manifest
 from caliber.workflows.runtime import FakeWorkflowExecutor, RuntimePlan, execute
 from caliber.workflows.tools import InMemoryToolResolver, ToolRegistryEntry
 from tests.agent_step_conformance import FakeStepClock
+from tests.effect_helpers import SHIPPED_TOOL_CALLABLE, SHIPPED_TOOL_MODULE
 from tests.test_effect_proposals import _seed_run
 from tests.test_event_outbox import _database
 from tests.workflow_helpers import make_manifest
@@ -108,8 +109,8 @@ def _seed_registry(factory: Callable[[], Session]) -> None:
                 tool_id=new_tool_id(),
                 name=PROTECTED,
                 version="1.0",
-                module_path="downstream_tools",
-                callable_name=PROTECTED,
+                module_path=SHIPPED_TOOL_MODULE,
+                callable_name=SHIPPED_TOOL_CALLABLE,
                 side_effect_level="external_action",
                 requires_approval=True,
                 owner="@ops",
@@ -154,8 +155,8 @@ def _resolver() -> InMemoryToolResolver:
             ToolRegistryEntry(
                 name=PROTECTED,
                 version="1.0",
-                module_path="downstream_tools",
-                callable_name=PROTECTED,
+                module_path=SHIPPED_TOOL_MODULE,
+                callable_name=SHIPPED_TOOL_CALLABLE,
                 side_effect_level="external_action",
                 requires_approval=True,
             ),

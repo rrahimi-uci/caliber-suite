@@ -21,10 +21,13 @@ from caliber.db.models import (
     CaliberKnowledgeBase,
     CaliberKnowledgeBaseVersion,
     CaliberSkill,
+    CaliberToolRegistry,
     CaliberWorkflowRun,
 )
+from caliber.ids import new_tool_id
 from caliber.orchestrator.workflow_run_worker import WorkflowRunWorker
 from caliber.workflows import deployment_bundle
+from caliber.workflows.builtin_tools import register_builtin_tools
 from caliber.workflows.ir import IRAgent, IRKnowledgeQuery
 from tests.egi_scenarios.conftest import (
     EDITOR_A,
@@ -33,7 +36,7 @@ from tests.egi_scenarios.conftest import (
     Workspaces,
     seed_release,
 )
-from tests.workflow_helpers import make_manifest, make_tool_payload
+from tests.workflow_helpers import make_manifest
 
 PREFIX = "/ajax-api/2.0/mlflow/caliber"
 SKILL = "pins-triage"
@@ -42,6 +45,9 @@ SKILL_V1, SKILL_V2 = "SKILL-ONE: check the order.", "SKILL-TWO: ignore the order
 
 
 ADMIN = "@egi-admin"
+#: A tool CALIBER ships (a seeded built-in). The reference profile refuses an administrator-registered Python
+#: module (B04.7, #774), so the tool-version pin is exercised with the one kind of Python tool it still runs.
+TOOL = "grok_parse"
 
 
 def _call(
@@ -93,10 +99,8 @@ def _manifest(workflow_id: str, kind: str, child: tuple[str, str] | None = None)
             {"id": "e2", "from": "knowledge", "to": "final", "map": {"answer": "response"}},
         ]
     elif kind == "tool":
-        agent["tools"] = ["lookup_policy"]
-        manifest["tools"] = {
-            "lookup_policy": {"registry_ref": "lookup_policy", "version_constraint": ">=1.0"}
-        }
+        agent["tools"] = [TOOL]
+        manifest["tools"] = {TOOL: {"registry_ref": TOOL, "version_constraint": ">=1.0"}}
     return manifest
 
 
@@ -243,11 +247,9 @@ def _seed(app: ReferenceApp, kind: str) -> None:
             approve_source(session, PROJECT_A, "KB-pins", "KBV-1", EDITOR_A)
             session.commit()
     elif kind == "tool":
-        app.client.app.state.config = app.client.app.state.config.model_copy(  # type: ignore[attr-defined]
-            update={"admin_users": ADMIN}
-        )
-        registered = _call(app, "POST", "/tools", make_tool_payload("lookup_policy"), admin=True)
-        assert registered.status_code == 201, (registered.status_code, registered.text)
+        with app.session_factory() as session:
+            register_builtin_tools(session)  # the shipped tool at version 1.0 (what admission pins)
+            session.commit()
 
 
 def _move_the_world(app: ReferenceApp, kind: str, prompt: dict[str, Any]) -> None:
@@ -267,10 +269,26 @@ def _move_the_world(app: ReferenceApp, kind: str, prompt: dict[str, Any]) -> Non
             kb.active_version_id = "KBV-2"
             session.commit()
     elif kind == "tool":
-        newer = _call(
-            app, "POST", "/tools", make_tool_payload("lookup_policy", version="2.0"), admin=True
-        )
-        assert newer.status_code in (201, 409), newer.text
+        # A newer version of the same tool appears in the registry after admission (written directly: the routes
+        # reserve a shipped tool's name, so the world is moved the way a registry migration would move it).
+        with app.session_factory() as session:
+            session.add(
+                CaliberToolRegistry(
+                    tool_id=new_tool_id(),
+                    name=TOOL,
+                    version="2.0",
+                    description="a newer version",
+                    module_path="caliber.workflows.demo_tools",
+                    callable_name=TOOL,
+                    side_effect_level="read",
+                    requires_approval=False,
+                    allow_in_preview=True,
+                    owner=ADMIN,
+                    visibility="public",
+                    status="active",
+                )
+            )
+            session.commit()
     else:
         app.client.app.state.config = app.client.app.state.config.model_copy(  # type: ignore[attr-defined]
             update={"llm_provider": "openai"}

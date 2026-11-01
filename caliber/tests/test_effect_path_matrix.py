@@ -7,8 +7,12 @@ decision, or a trust rule loosened, fails here.
 
 from __future__ import annotations
 
+import ast
+import json
+import re
 from collections.abc import Iterator
 from dataclasses import replace
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -16,11 +20,13 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from caliber.db.models import CaliberToolRegistry
 from caliber.effects.connectors.openapi_http import OpenApiOperation
-from caliber.effects.dispatcher import EffectRefused, dispatch
+from caliber.effects.dispatcher import EffectRefused, UnsupportedEffectPath, dispatch
 from caliber.effects.inventory import (
     EFFECT_CLASSES,
     FAIL_CLOSED,
+    InventoryRow,
     effect_class,
+    load_inventory,
     tool_disposition,
 )
 from caliber.effects.registered_tools import (
@@ -35,6 +41,12 @@ from caliber.effects.registered_tools import (
     tool_resource,
 )
 from caliber.workflows.builtin_tools import BUILTIN_TOOL_NAMES, register_builtin_tools
+from tests.refusal_probes import (
+    DEVELOPMENT_PROBES,
+    PROBES,
+    ProbeEnv,
+    shipped_tool_still_runs_in_the_reference_sandbox,
+)
 from tests.test_openapi_governed_dispatch import (
     OpenApiRun,
     Server,
@@ -1050,3 +1062,381 @@ def test_model_tool_call_returns_proposal_not_effect(
     proposal, _ = parked(world, result)
     assert proposal.state == "proposed"
     assert downstream.calls == [], "downstream.mutations() == 0"
+
+
+# ------------------------------------------------------------- B04.7 (#774): refusals and the matrix itself
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+MATRIX_PATH = Path(__file__).with_name("fixtures") / "effect_path_matrix.json"
+
+#: What each inventory disposition means as a matrix outcome.
+OUTCOME_OF_DISPOSITION = {"dispatch": "dispatched", "refuse": "refused", "exempt": "exempt"}
+#: The ``dispatch`` rows that no B04 child routes through the dispatcher yet (they have no connector). They are recorded as
+#: such, never claimed ``dispatched``: a row leaves this set when a connector routes it (and its case gets evidence), and a
+#: row joins it only by an edit here that a reviewer sees.
+UNROUTED_DISPATCH_ROWS = frozenset(
+    {
+        "EP-009",
+        "EP-010",
+        "EP-013",
+        "EP-017",
+        "EP-034",
+        "EP-051",
+        "EP-059",
+        "EP-070",
+        "EP-071",
+        "EP-072",
+        "EP-075",
+        "EP-076",
+        "EP-077",
+        "EP-081",
+        "EP-090",
+    }
+)
+
+
+def _load_matrix() -> dict[str, dict[str, str]]:
+    document = json.loads(MATRIX_PATH.read_text(encoding="utf-8"))
+    assert document["version"] == 1
+    return dict(document["cases"])
+
+
+def _defines(path: Path, name: str) -> bool:
+    return any(
+        isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == name
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8")))
+    )
+
+
+def matrix_problems(
+    rows: list[Any], cases: dict[str, dict[str, str]], *, repo_root: Path = REPO_ROOT
+) -> list[str]:
+    """Everything wrong with ``cases`` as a matrix over inventory ``rows``; an empty list is a sound matrix.
+
+    A row without a case is a problem (that is the oracle: a new inventory row fails until it is decided), and so is a case
+    for a row that is gone, an outcome that is not the row's disposition, and a case whose claim has nothing behind it:
+    ``dispatched``/``routed`` and ``refused`` need a test that exists, ``dispatched``/``unrouted`` needs an owner note and is
+    pinned in :data:`UNROUTED_DISPATCH_ROWS`, ``exempt`` rests on the inventory's own note.
+    """
+    problems = [f"{row.id} has no matrix case" for row in rows if row.id not in cases]
+    by_id = {row.id: row for row in rows}
+    problems += [
+        f"{case_id} is a matrix case for no inventory row"
+        for case_id in cases
+        if case_id not in by_id
+    ]
+    for row_id, case in cases.items():
+        row = by_id.get(row_id)
+        if row is None:
+            continue
+        expected = OUTCOME_OF_DISPOSITION[row.disposition]
+        if case.get("outcome") != expected:
+            problems.append(
+                f"{row_id}: disposition {row.disposition!r} is outcome {expected!r}, the case says {case.get('outcome')!r}"
+            )
+            continue
+        problems += _case_problems(row_id, case, cases, repo_root=repo_root)
+    return problems
+
+
+def _case_problems(
+    row_id: str, case: dict[str, str], cases: dict[str, dict[str, str]], *, repo_root: Path
+) -> list[str]:
+    outcome, status = case["outcome"], case.get("status")
+    if outcome == "exempt":
+        return (
+            []
+            if case.get("evidence") == "inventory"
+            else [f"{row_id}: an exempt row rests on the inventory"]
+        )
+    if outcome == "dispatched" and status == "unrouted":
+        problems = (
+            []
+            if re.search(r"#\d+", case.get("owner", ""))
+            else [
+                f"{row_id}: an unrouted row needs an owner note that names its follow-up issue (#nnn)"
+            ]
+        )
+        if row_id not in UNROUTED_DISPATCH_ROWS:
+            problems.append(f"{row_id} is unrouted but not pinned in UNROUTED_DISPATCH_ROWS")
+        return problems
+    if outcome == "dispatched" and status != "routed":
+        return [f"{row_id}: a dispatched case is 'routed' or 'unrouted', not {status!r}"]
+    problems = []
+    if row_id in UNROUTED_DISPATCH_ROWS:
+        problems.append(f"{row_id} is pinned unrouted but its case says routed")
+    evidence = case.get("evidence", "")
+    path_text, _, rest = evidence.partition("::")
+    function = rest.partition("[")[0]
+    target = repo_root / path_text
+    if not path_text or not function or not target.is_file():
+        problems.append(f"{row_id}: evidence {evidence!r} does not name a test file and a test")
+    elif not _defines(target, function):
+        problems.append(f"{row_id}: evidence {evidence!r}: {path_text} defines no {function}")
+    if "via" in case and cases.get(case["via"], {}).get("outcome") != "refused":
+        problems.append(f"{row_id}: it is enforced via {case['via']!r}, which is not a refused row")
+    return problems
+
+
+def test_inventory_rows_have_matrix_cases() -> None:
+    """The oracle of #774: every inventory row has a case, and every case is true to its row and backed by a test."""
+    rows = list(load_inventory())
+    cases = _load_matrix()
+
+    assert matrix_problems(rows, cases) == []
+    # Counted from the inventory, so a row that changes disposition moves the count, not just a label.
+    assert len(cases) == len(rows)
+    outcomes = {row.disposition: 0 for row in rows}
+    for row in rows:
+        outcomes[row.disposition] += 1
+    assert sum(1 for c in cases.values() if c["outcome"] == "refused") == outcomes["refuse"]
+    assert {
+        row_id for row_id, c in cases.items() if c.get("status") == "unrouted"
+    } == UNROUTED_DISPATCH_ROWS
+
+
+def _row(row_id: str, disposition: str) -> InventoryRow:
+    return InventoryRow(
+        id=row_id,
+        entry_point="caliber/src/caliber/x.py::f",
+        tool_names=(),
+        effect_class="read",
+        current_guard="none",
+        disposition=disposition,
+        notes="a note that is long enough to say why",
+    )
+
+
+def test_a_row_without_a_matrix_case_fails_the_matrix() -> None:
+    rows = [_row("EP-001", "refuse"), _row("EP-002", "exempt")]
+    cases = {"EP-002": {"outcome": "exempt", "evidence": "inventory"}}
+
+    assert matrix_problems(rows, cases) == ["EP-001 has no matrix case"]
+
+
+def test_a_case_for_no_row_a_wrong_outcome_and_an_unbacked_claim_all_fail_the_matrix() -> None:
+    rows = [_row("EP-001", "refuse"), _row("EP-002", "dispatch"), _row("EP-003", "exempt")]
+    cases = {
+        "EP-001": {"outcome": "dispatched", "status": "routed", "evidence": "x"},
+        "EP-002": {"outcome": "dispatched", "status": "maybe"},
+        "EP-003": {"outcome": "exempt"},
+        "EP-004": {"outcome": "exempt", "evidence": "inventory"},
+    }
+
+    assert matrix_problems(rows, cases) == [
+        "EP-004 is a matrix case for no inventory row",
+        "EP-001: disposition 'refuse' is outcome 'refused', the case says 'dispatched'",
+        "EP-002: a dispatched case is 'routed' or 'unrouted', not 'maybe'",
+        "EP-003: an exempt row rests on the inventory",
+    ]
+
+
+def test_evidence_must_name_a_test_that_exists(tmp_path: Path) -> None:
+    (tmp_path / "tests").mkdir()
+    (tmp_path / "tests" / "test_x.py").write_text("def test_real():\n    pass\n", encoding="utf-8")
+    rows = [_row("EP-001", "refuse")]
+
+    def problems(evidence: str) -> list[str]:
+        return matrix_problems(
+            rows, {"EP-001": {"outcome": "refused", "evidence": evidence}}, repo_root=tmp_path
+        )
+
+    assert problems("tests/test_x.py::test_real") == []
+    assert problems("tests/test_x.py::test_real[EP-001]") == []
+    assert problems("tests/test_x.py::test_gone") == [
+        "EP-001: evidence 'tests/test_x.py::test_gone': tests/test_x.py defines no test_gone"
+    ]
+    assert problems("tests/test_missing.py::test_real") == [
+        "EP-001: evidence 'tests/test_missing.py::test_real' does not name a test file and a test"
+    ]
+    assert problems("") == ["EP-001: evidence '' does not name a test file and a test"]
+    assert problems("tests/test_x.py") == [
+        "EP-001: evidence 'tests/test_x.py' does not name a test file and a test"
+    ]
+
+
+def test_an_unrouted_row_needs_an_owner_that_names_an_issue_and_a_pin_and_a_routed_row_cannot_be_pinned(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "t.py").write_text("def test_real():\n    pass\n", encoding="utf-8")
+    pinned, unpinned, unissued = sorted(UNROUTED_DISPATCH_ROWS)[:3]
+    rows = [
+        _row(pinned, "dispatch"),
+        _row(unpinned, "dispatch"),
+        _row(unissued, "dispatch"),
+        _row("EP-999", "dispatch"),
+    ]
+    cases = {
+        pinned: {"outcome": "dispatched", "status": "unrouted"},
+        unpinned: {"outcome": "dispatched", "status": "routed", "evidence": "t.py::test_real"},
+        # an owner that names nobody's issue is a note nobody can follow up
+        unissued: {"outcome": "dispatched", "status": "unrouted", "owner": "somebody"},
+        "EP-999": {"outcome": "dispatched", "status": "unrouted", "owner": "tracked in #1086"},
+    }
+    needs_issue = "an unrouted row needs an owner note that names its follow-up issue (#nnn)"
+
+    assert matrix_problems(rows, cases, repo_root=tmp_path) == [
+        f"{pinned}: {needs_issue}",
+        f"{unpinned} is pinned unrouted but its case says routed",
+        f"{unissued}: {needs_issue}",
+        "EP-999 is unrouted but not pinned in UNROUTED_DISPATCH_ROWS",
+    ]
+
+
+def test_a_via_row_must_be_enforced_through_a_refused_row(tmp_path: Path) -> None:
+    (tmp_path / "t.py").write_text("def test_real():\n    pass\n", encoding="utf-8")
+    rows = [_row("EP-001", "refuse"), _row("EP-002", "refuse"), _row("EP-003", "exempt")]
+    base = {"outcome": "refused", "evidence": "t.py::test_real"}
+    cases = {
+        "EP-001": {**base, "via": "EP-002"},
+        "EP-002": {**base, "via": "EP-003"},
+        "EP-003": {"outcome": "exempt", "evidence": "inventory"},
+    }
+
+    assert matrix_problems(rows, cases, repo_root=tmp_path) == [
+        "EP-002: it is enforced via 'EP-003', which is not a refused row"
+    ]
+
+
+REFUSE_ROWS = sorted(row.id for row in load_inventory() if row.disposition == "refuse")
+
+
+def test_every_refuse_row_has_exactly_one_reference_profile_probe_and_one_development_probe() -> (
+    None
+):
+    assert sorted(PROBES) == REFUSE_ROWS
+    assert set(DEVELOPMENT_PROBES) <= set(PROBES)
+    # The rows with no development probe are the ones with no profile-specific entry point of their own: they are
+    # enforced through another row's, and the matrix says which.
+    assert {row_id for row_id in PROBES if row_id not in DEVELOPMENT_PROBES} == {
+        "EP-025",
+        "EP-026",
+        "EP-028",
+        "EP-042",
+        "EP-054",
+        "EP-055",
+    }
+    cases = _load_matrix()
+    assert {row_id for row_id, case in cases.items() if "via" in case} == {
+        "EP-025",
+        "EP-026",
+        "EP-054",
+        "EP-055",
+    }
+
+
+@pytest.mark.parametrize("row_id", REFUSE_ROWS)
+def test_refused_paths_raise_in_reference_profile(
+    row_id: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, request: pytest.FixtureRequest
+) -> None:
+    """The oracle of #774: each ``refuse`` row's real entry point raises ``UnsupportedEffectPath`` in the reference profile.
+
+    The probe drives the entry point itself (a node, a binder, a sandbox, a route, a CLI, a tool) and asserts the refusal
+    names the row and the setting that allows the path elsewhere, and that nothing forbidden happened first: no child
+    process, import, file, directory or database connection.
+    """
+    PROBES[row_id](ProbeEnv(tmp_path, monkeypatch, request))
+
+
+@pytest.mark.parametrize("row_id", sorted(DEVELOPMENT_PROBES))
+def test_refused_paths_are_unchanged_in_the_development_profile(
+    row_id: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, request: pytest.FixtureRequest
+) -> None:
+    """A refusal is a reference-profile control: the same entry point still does its job under the default profile."""
+    DEVELOPMENT_PROBES[row_id](ProbeEnv(tmp_path, monkeypatch, request))
+
+
+def test_a_shipped_read_class_tool_still_runs_in_the_reference_profiles_sandbox(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, request: pytest.FixtureRequest
+) -> None:
+    """The one exemption is real, not only unrefused: CALIBER's own built-in is run by a sandbox built for the profile."""
+    shipped_tool_still_runs_in_the_reference_sandbox(ProbeEnv(tmp_path, monkeypatch, request))
+
+
+#: Every call that names the row it refuses for: ``refuse_in_reference_profile("EP-011", config)`` and its siblings.
+REFUSING_CALLS = frozenset(
+    {
+        "refuse_in_reference_profile",
+        "refuse_unshipped_tool_in_reference_profile",
+        "refuse_route_in_reference_profile",
+        "_refuse_in_reference_profile",
+        "_refused_in_reference_profile",
+        "refusal",
+    }
+)
+#: The refuse rows whose refusal is raised by another row's call site, and which one (the matrix's ``via``).
+ENFORCED_VIA = {"EP-025": "EP-023", "EP-026": "EP-023", "EP-054": "EP-020", "EP-055": "EP-020"}
+
+
+def _sites_naming_a_row() -> dict[str, set[str]]:
+    """Production module -> the ``EP-nnn`` literals passed to a refusing call."""
+    import caliber
+
+    root = Path(caliber.__file__).resolve().parent
+    found: dict[str, set[str]] = {}
+    for path in sorted(root.rglob("*.py")):
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+            if not isinstance(node, ast.Call) or not node.args:
+                continue
+            func = node.func
+            name = func.id if isinstance(func, ast.Name) else getattr(func, "attr", None)
+            if name not in REFUSING_CALLS:
+                continue
+            for arg in node.args:
+                if (
+                    isinstance(arg, ast.Constant)
+                    and isinstance(arg.value, str)
+                    and re.fullmatch(r"EP-\d{3}", arg.value)
+                ):
+                    found.setdefault(path.relative_to(root).as_posix(), set()).add(arg.value)
+    return found
+
+
+def test_every_refuse_row_has_a_call_site_that_names_it_and_every_site_names_a_refuse_row() -> None:
+    sites = _sites_naming_a_row()
+    named = {row_id for ids in sites.values() for row_id in ids}
+
+    # A new ``refuse`` row without a site fails here; a site naming a row that is not ``refuse`` fails at run time and here.
+    assert named | set(ENFORCED_VIA) == set(REFUSE_ROWS)
+    assert named <= set(REFUSE_ROWS)
+    assert set(ENFORCED_VIA) & named == set()
+    assert {ENFORCED_VIA[row_id] for row_id in ENFORCED_VIA} <= named
+
+
+def test_no_refusal_site_is_a_development_profile_one() -> None:
+    """Every production file that raises a refusal reads the profile through :mod:`caliber.effects.refusals` only."""
+    import caliber
+
+    root = Path(caliber.__file__).resolve().parent
+    for path in sorted(root.rglob("*.py")):
+        text = path.read_text(encoding="utf-8")
+        if path.name == "refusals.py" or "unsupported_in_reference_profile" not in text:
+            continue
+        # A module that spells the code itself would decide a refusal on its own: it must come from the helper.
+        assert '"unsupported_in_reference_profile"' not in text, path.name
+
+
+def test_the_export_kind_is_registered_and_its_perform_raises_but_it_is_never_admitted() -> None:
+    """``export`` names a backend that says no in its own words, and admission refuses it before it could be reached."""
+    from caliber.effects.dispatcher import (
+        BACKENDS,
+        EXPORT_BACKEND_KIND,
+        REFUSAL_ONLY_BACKENDS,
+        admit_backend,
+    )
+    from caliber.profile import REFERENCE_CONNECTORS
+
+    registration = BACKENDS[EXPORT_BACKEND_KIND]
+    assert EXPORT_BACKEND_KIND in REFUSAL_ONLY_BACKENDS
+    assert EXPORT_BACKEND_KIND not in {t.backend_kind for t in REFERENCE_CONNECTORS}
+
+    with pytest.raises(UnsupportedEffectPath) as performed:
+        registration.backend.perform(None, None)  # type: ignore[arg-type,union-attr]
+    assert performed.value.code == "unsupported_effect_path"
+    assert "export" in str(performed.value)
+    with pytest.raises(UnsupportedEffectPath) as admitted:
+        admit_backend(EXPORT_BACKEND_KIND)
+    assert admitted.value.code == "connector_not_admitted"
+    # A kind nobody registered is refused the same way, so an export cannot be named into existence.
+    with pytest.raises(UnsupportedEffectPath):
+        admit_backend("export ")

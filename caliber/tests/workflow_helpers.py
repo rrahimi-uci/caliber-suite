@@ -192,6 +192,27 @@ def make_tool_payload(name: str = "lookup_policy", **overrides: Any) -> dict[str
     return payload
 
 
+def register_shipped_demo_tools(client: TestClient) -> None:
+    """Register ``lookup_policy``, ``get_order`` and ``escalate`` as rows that point at one of CALIBER's own shipped tools.
+
+    The reference profile binds no administrator-registered Python module (B04.7, #774), so a test that builds or runs the
+    support workflow under that profile needs rows the profile admits. The names, levels and approval flags are the demo
+    tools' own; only the (module, callable) pair is the shipped one. Call it before :func:`register_demo_tools` (a second
+    registration of the same name and version is ignored).
+    """
+    shipped = {"module_path": "caliber.workflows.demo_tools", "callable_name": "write_workdir_file"}
+    client.post(
+        f"{PREFIX}/tools", json=make_tool_payload("lookup_policy", allow_in_preview=True, **shipped)
+    )
+    client.post(
+        f"{PREFIX}/tools", json=make_tool_payload("get_order", allow_in_preview=True, **shipped)
+    )
+    client.post(
+        f"{PREFIX}/tools",
+        json=make_tool_payload("escalate", side_effect_level="external_action", **shipped),
+    )
+
+
 def register_demo_tools(client: TestClient) -> None:
     """Register lookup_policy, get_order, escalate against the demo module."""
     client.post(f"{PREFIX}/tools", json=make_tool_payload("lookup_policy", allow_in_preview=True))

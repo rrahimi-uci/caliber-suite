@@ -7,8 +7,9 @@ editor authors a workflow with a ``python_code`` or an ``external_app`` node thr
 * validate reports ``unsupported_in_reference_profile`` at the node, compile and publish refuse, and the version stays a draft;
 * a version published before the profile was switched on cannot be promoted onto an alias, and a run of it fails closed by
   that code with the node never executed;
-* with the registered-tool sandbox switched off, a workflow whose agent uses a registered Python tool is refused the same
-  way, and with it on (the default) the same workflow is admitted.
+* a workflow whose agent uses an administrator-registered Python tool is refused the same way at validation and publish
+  (B04.7, #774); with the registered-tool sandbox switched off even CALIBER's own shipped tool is refused, and with it on
+  (the default) the shipped tool is admitted.
 """
 
 from __future__ import annotations
@@ -23,6 +24,7 @@ from caliber.config import CaliberConfig
 from caliber.db.models import CaliberToolRegistry, CaliberWorkflowDeployment, CaliberWorkflowVersion
 from caliber.ids import new_tool_id
 from caliber.server import create_app
+from caliber.workflows.builtin_tools import register_builtin_tools
 from caliber.workflows.code_policy import REFUSAL_CODE, CodePolicy, bind_code_policy
 from tests.egi_scenarios.conftest import (
     EDITOR_A,
@@ -207,38 +209,67 @@ def test_a_version_published_before_the_profile_cannot_be_promoted_or_run(
     assert executed == []
 
 
-def _registered_tool_workflow(app: ReferenceApp) -> tuple[str, str]:
-    """A workflow whose agent uses an administrator-registered Python tool (the row is seeded: registering needs admin)."""
+def _registered_tool_workflow(app: ReferenceApp, *, shipped: bool = False) -> tuple[str, str]:
+    """A workflow whose agent uses a registered Python tool: an administrator's (the row is seeded: registering needs admin),
+    or, with ``shipped``, CALIBER's own seeded ``grok_parse`` built-in."""
     with app.session_factory() as session:
-        session.add(
-            CaliberToolRegistry(
-                tool_id=new_tool_id(),
-                name="lookup_policy",
-                version="1.0",
-                module_path="mycompany.tools",
-                callable_name="lookup_policy",
-                side_effect_level="read",
-                owner="@ops",
-                visibility="public",
+        if shipped:
+            register_builtin_tools(session)
+        else:
+            session.add(
+                CaliberToolRegistry(
+                    tool_id=new_tool_id(),
+                    name="lookup_policy",
+                    version="1.0",
+                    module_path="mycompany.tools",
+                    callable_name="lookup_policy",
+                    side_effect_level="read",
+                    owner="@ops",
+                    visibility="public",
+                )
             )
-        )
         session.commit()
     data = make_manifest("placeholder")
     data["tools"] = {
-        "lookup": {"type": "registered_function", "registry_ref": "tool.lookup_policy.v1"}
+        "lookup": {
+            "type": "registered_function",
+            "registry_ref": "tool.grok_parse.v1" if shipped else "tool.lookup_policy.v1",
+        }
     }
     data["nodes"]["agent"]["tools"] = ["lookup"]
     return _draft(app, lambda workflow_id: {**data, "workflow_id": workflow_id})
 
 
-def test_a_registered_python_tool_is_refused_only_while_the_sandbox_is_off(
+def test_an_administrators_python_tool_is_refused_at_author_time_with_the_sandbox_on(
+    reference_app: ReferenceApp, two_workspaces: Workspaces
+) -> None:
+    """B04.7 (#774): administrator Python is a refused path in the reference profile, so an author hears it at validation
+    and publish, not as a refused run after a clean publish."""
+    _need_reference(reference_app)
+    _, version_id = _registered_tool_workflow(reference_app)
+
+    validated = _call(
+        reference_app, "POST", EDITOR_A, PROJECT_A, f"/workflow-versions/{version_id}/validate"
+    )
+    assert validated.status_code == 200, validated.text
+    errors = validated.json()["data"]["errors"]
+    assert [(e["code"], e["path"]) for e in errors] == [(REFUSAL_CODE, "nodes.agent.tools.lookup")]
+    assert "not one of CALIBER's own shipped tools" in errors[0]["message"]
+    published = _call(
+        reference_app, "POST", EDITOR_A, PROJECT_A, f"/workflow-versions/{version_id}/publish"
+    )
+    assert published.status_code == 400, published.text
+    assert REFUSAL_CODE in published.json()["detail"]
+
+
+def test_a_shipped_python_tool_is_refused_only_while_the_sandbox_is_off(
     reference_app: ReferenceApp, two_workspaces: Workspaces
 ) -> None:
     _need_reference(reference_app)
-    _, version_id = _registered_tool_workflow(reference_app)
+    _, version_id = _registered_tool_workflow(reference_app, shipped=True)
     path = f"/workflow-versions/{version_id}/validate"
 
-    # The shipped default: the tool runs in the sandbox child, which is trusted-code admission, so it is admitted.
+    # The shipped default: CALIBER's own tool runs in the sandbox child, so it is admitted.
     admitted = _call(reference_app, "POST", EDITOR_A, PROJECT_A, path)
     assert admitted.status_code == 200, admitted.text
     assert admitted.json()["data"]["errors"] == []
