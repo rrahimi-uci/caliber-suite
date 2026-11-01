@@ -2521,6 +2521,11 @@ class GovernedEffectContext:
     #: **before** its proposal is recorded (``no_authoritative_verifier``), so no approval is asked for, or spent on, an effect the
     #: platform could never confirm and whose ambiguous outcome would park the run with no way out (#1055).
     dispatchable_backends: frozenset[str] | None = None
+    #: For a backend kind named here, the only resources (the proposal's ``resource``: for an HTTP node, the exact URL) the
+    #: producer's verifier covers: a node that would send to any other is refused before its proposal is recorded, exactly as
+    #: for a backend that is not dispatchable. The generic HTTP backend has a read-back only at the endpoints an operator listed
+    #: (``CALIBER_EFFECT_HTTP_VERIFIERS``), so it is covered per URL. A kind that is not a key of the mapping is not limited.
+    verifiable_resources: Mapping[str, frozenset[str]] = field(default_factory=dict)
 
 
 #: ``ir -> the agent nodes that can reach an operator-mapped tool`` (:func:`caliber.effects.governed_context.mapped_agent_nodes`, with the
@@ -6104,10 +6109,11 @@ def _submit_authorize_dispatch(
     it propagates untouched (it is not a refusal) and the interpreter parks the node behind the bound request. A retry or a
     resume records the same proposal again (one logical effect per node occurrence) and asks again.
     """
+    covered = context.verifiable_resources.get(backend_kind)
     if (
         context.dispatchable_backends is not None
         and backend_kind not in context.dispatchable_backends
-    ):
+    ) or (covered is not None and proposal.get("resource") not in covered):
         raise ToolExecutionError(f"{label} refused: no_authoritative_verifier")
     try:
         with context.session_factory() as session:

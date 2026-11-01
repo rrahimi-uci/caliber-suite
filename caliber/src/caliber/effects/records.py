@@ -464,6 +464,9 @@ class ProposalView:
     intent_hash: str
     attempt: int | None
     state: str
+    #: The recorded arguments (plain JSON, a copy), for a connector that verifies a stored request against them (the generic
+    #: ``http`` connector's read-back, #1055). ``None`` when the view was built without them.
+    args: Mapping[str, Any] | None = field(default=None, repr=False, compare=False)
 
 
 def proposal_view(session: Session, proposal_id: str) -> ProposalView:
@@ -482,6 +485,7 @@ def proposal_view(session: Session, proposal_id: str) -> ProposalView:
         intent_hash=row.intent_hash,
         attempt=row.attempt,
         state=row.state,
+        args=copy.deepcopy(row.args) if isinstance(row.args, dict) else None,
     )
 
 

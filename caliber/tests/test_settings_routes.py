@@ -195,6 +195,26 @@ def test_runtime_settings_lists_grouped_config_surface(client: TestClient) -> No
     assert data["summary"]["total"] == len(settings)
 
 
+def test_runtime_settings_lists_the_http_verifiers_by_count_and_never_their_urls(
+    client: TestClient,
+) -> None:
+    """#1055: the operator's endpoint list is shown as a count; a lookup URL is not echoed."""
+    listing = (
+        '[{"project_id": "P", "resource": "https://hooks.example.test/a",'
+        ' "lookup_url": "https://hooks.example.test/lookups"}]'
+    )
+    client.app.state.config = client.app.state.config.model_copy(
+        update={"effect_http_verifiers": listing}
+    )
+    resp = client.get(f"{PREFIX}/settings/runtime")
+    assert resp.status_code == 200
+    setting = _settings_by_key(resp.json()["data"])["effect_http_verifiers"]
+    assert setting["env_var"] == "CALIBER_EFFECT_HTTP_VERIFIERS"
+    assert setting["sensitive"] is True
+    assert setting["display_value"] == "1 verified endpoint(s)"
+    assert "hooks.example.test" not in resp.text
+
+
 def test_runtime_settings_masks_database_password(client: TestClient) -> None:
     client.app.state.config = client.app.state.config.model_copy(
         update={"database_url": "postgresql://caliber:super-secret@db.example/caliber"}

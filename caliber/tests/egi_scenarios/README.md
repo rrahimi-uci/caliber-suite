@@ -52,3 +52,5 @@ The dispatcher itself calls two of them, `before_dispatch` (the claim is committ
 `after_downstream_commit` (the downstream answered, nothing is recorded). `harness/worker_child.py` is one execution-owner
 pass of the workflow-run worker in its own process (the lease, a scripted model, one tick), so
 `test_b05_governed_worker_wiring.py` can kill a worker at either of them and show that the new owner never sends a second time.
+
+`test_b05_http_unknown_settlement.py` (#1055) drives a webhook workflow through the same worker against a second downstream of its own (an in-process server that counts its commits, honours the key and answers the read-by-key contract of the generic `http` connector): a timeout after the send, a worker killed on either side of it and a lookup that never shows the request all end with one commit and no second send.

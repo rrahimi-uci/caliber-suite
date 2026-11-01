@@ -26,7 +26,8 @@ having to remember to. It adds no second lease protocol and no second queue:
   records ``unknown`` at once for a settle that fails while it still holds its lease, and this bound is the backstop for
   one that could not even do that (the store was down, the thread died).
 * **Targets** are the connector bindings of ``CALIBER_EFFECT_CALLBACK_CONNECTORS`` (the same ``(connector, project)`` that
-  may report a receipt is the one asked). With none bound the pass still abandons the dispatches of lost leases and expires
+  may report a receipt is the one asked) and the generic ``http`` lookup endpoints an operator listed in
+  ``CALIBER_EFFECT_HTTP_VERIFIERS`` (#1055). With none bound the pass still abandons the dispatches of lost leases and expires
   stuck in-flight ones; lookups report ``not_bound`` and nothing is settled by guessing.
 * **Step token reservations.** After each pass the same lease finalizes the step token reservations of governed agent steps that a
   crashed or cancelled worker left open past the step's deadline plus ``CALIBER_AGENT_RESERVATION_GRACE_SECONDS`` as ``abandoned``,
@@ -61,13 +62,12 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from caliber.budget.step_reservation import abandon_stale
 from caliber.config import AGENT_RESERVATION_GRACE_BOUNDS, AGENT_RESERVATION_GRACE_DEFAULT
-from caliber.effects.callbacks import parse_bindings
 from caliber.effects.reconcile import (
     Lookup,
     Reconciliation,
     ask_downstream,
     reconcile_pass_from,
-    targets_from_bindings,
+    targets_from_config,
 )
 from caliber.effects.records import LEASE_LOST, ProposalError
 from caliber.observability.trace import bind_trace_id
@@ -173,9 +173,7 @@ class EffectReconcilerTask:
             config, "execution_lease_seconds", _DEFAULT_EXECUTION_LEASE_SECONDS, 1.0, 3600.0
         )
         # Parsed once: the setting is validated at startup, and a pass must not depend on re-reading it.
-        self._targets = targets_from_bindings(
-            parse_bindings(getattr(config, "effect_callback_connectors", "[]"))
-        )
+        self._targets = targets_from_config(config)
         self._lease_provider = lease_provider
         self._lookup = lookup
         self._worker_id = new_worker_id("effect-reconciler", self)

@@ -115,6 +115,15 @@ UNSAFE: dict[str, tuple[dict[str, Any], str]] = {
         {"memory_enabled": True, "memory_infer": True},
         "CALIBER_MEMORY_INFER",
     ),
+    "http_lookup_cleartext": (
+        {
+            "effect_http_verifiers": (
+                '[{"project_id": "P", "resource": "https://hooks.example.test/a",'
+                ' "lookup_url": "http://hooks.example.test/lookups"}]'
+            )
+        },
+        "CALIBER_EFFECT_HTTP_VERIFIERS",
+    ),
 }
 
 
@@ -536,7 +545,7 @@ def test_the_refusal_counts_and_bullets_every_violation(app_config: CaliberConfi
     with pytest.raises(ConfigError) as refused:
         create_app(_config(app_config, **every_unsafe))
     lines = str(refused.value).splitlines()
-    assert lines[0] == "reference profile refused (11 violations):"
+    assert lines[0] == "reference profile refused (12 violations):"
     assert len(lines) == 1 + len(UNSAFE)
     assert all(line.startswith("- ") for line in lines[1:])
     # Each line ends with its violation's stable code, in the fixed order.
@@ -1526,3 +1535,27 @@ def test_a_proposal_for_the_real_connector_needs_the_admission_for_that_connecto
             )
         assert not_an_admission.value.code == "connector_not_admitted"
         assert _proposal_count(factory) == 0
+
+
+def test_the_reference_profile_accepts_https_lookups_and_the_development_profile_any_scheme(
+    app_config: CaliberConfig,
+) -> None:
+    """#1055: the read-back's answer commits an effect, so the reference profile requires https for it."""
+    listing = (
+        '[{"project_id": "P", "resource": "https://hooks.example.test/a",'
+        ' "lookup_url": "%s://hooks.example.test/lookups"}]'
+    )
+    assert (
+        reference_profile_violations(_config(app_config, effect_http_verifiers=listing % "https"))
+        == []
+    )
+    assert reference_profile_violations(_config(app_config, effect_http_verifiers="[]")) == []
+    cleartext = reference_profile_violations(
+        _config(app_config, effect_http_verifiers=listing % "HTTP")
+    )
+    assert _codes(cleartext) == ["http_lookup_cleartext"]
+    assert "hooks.example.test" not in cleartext[0].message, (
+        "the message names what to change, not what was configured"
+    )
+    # the development profile never calls reference_profile_violations: the listing itself is valid either way
+    assert CaliberConfig(effect_http_verifiers=listing % "http").profile == "development"

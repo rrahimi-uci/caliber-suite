@@ -19,10 +19,15 @@ from state the **server** holds, and it takes nothing from a request, a manifest
 * **Step limits** are the operator's ceilings (``CALIBER_AGENT_STEP_MAX_*``) and the run's token budget is
   ``CALIBER_AGENT_RUN_MAX_TOKENS``.
 
-What is **not** here, on purpose: an authoritative receipt verifier for the generic ``http``, ``registered_tool`` and
-``openapi_http`` backends. They have no lookup by key the platform can call, so an outcome the platform cannot read back would end
-``unknown`` and park the run with no way out (#1055). The effect context therefore names the backends it has a verifier for
-(:attr:`GovernedEffectContext.dispatchable_backends`, none in production) and a workflow node that would send through any other is
+* **Which workflow HTTP endpoints can be verified** is ``CALIBER_EFFECT_HTTP_VERIFIERS`` for the run's project (#1055): the listed
+  ``resource`` URLs, each with the lookup the platform reads back by key (:mod:`caliber.effects.connectors.http_lookup`). The
+  receipt verifier of the ``http`` backend is that lookup, and the reconciler asks the same one about an outcome that ended unknown.
+
+What is **not** here, on purpose: an authoritative receipt verifier for the ``registered_tool`` and ``openapi_http`` backends, or
+for an ``http`` URL no operator listed. They have no lookup by key the platform can call, so an outcome the platform cannot read
+back would end ``unknown`` and park the run with no way out. The effect context therefore names the backends it has a verifier for
+(:attr:`GovernedEffectContext.dispatchable_backends`: ``http`` only when the project lists an endpoint) and, for ``http``, the
+resources it covers (:attr:`GovernedEffectContext.verifiable_resources`); a workflow node that would send through any other is
 refused **before** its proposal is recorded: ``no_authoritative_verifier``.
 """
 
@@ -32,7 +37,7 @@ import hashlib
 import logging
 import unicodedata
 from collections.abc import Callable, Iterable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from typing import Any, Final
 
@@ -48,6 +53,7 @@ from caliber.db.models import (
     CaliberWorkflowRun,
 )
 from caliber.effects.callbacks import parse_bindings
+from caliber.effects.connectors import http_lookup as _http_lookup
 from caliber.effects.dispatcher import (
     BACKENDS,
     EffectOutcome,
@@ -55,7 +61,8 @@ from caliber.effects.dispatcher import (
     EffectRequest,
     dispatch,
 )
-from caliber.effects.reconcile import targets_from_bindings
+from caliber.effects.http_verifiers import VerifierEndpoint, endpoints_for_project, parse_endpoints
+from caliber.effects.reconcile import CONNECTORS, Lookup, ask_downstream, targets_from_bindings
 from caliber.effects.records import PROPOSED, RecordedProposal, proposal_view
 from caliber.effects.step_proposal import (
     AGENT_STEP_BACKENDS,
@@ -68,6 +75,7 @@ from caliber.effects.step_proposal import (
     stored_context_manifest_digest,
 )
 from caliber.effects.tool_backends import parse_tool_backends
+from caliber.integrations.openapi.executor import OpenApiExecutionError
 from caliber.ownership import Lease
 from caliber.run_manifest import canonical_bytes
 from caliber.workflows.agent_step import StepCeilings
@@ -89,6 +97,8 @@ CONFIGURATION_INVALID: Final = "configuration_invalid"
 LEASE_UNAVAILABLE: Final = "lease_unavailable"
 CONNECTOR_UNBOUND: Final = "connector_unbound"
 VERSION_UNVERIFIABLE: Final = "version_unverifiable"
+#: The backend kind of the generic HTTP transport (``dispatcher.BACKENDS``), the one a read-back by key can verify (#1055).
+HTTP_BACKEND_KIND: Final = "http"
 
 LeaseProvider = Callable[[], Lease | None]
 #: ``(request, response) -> receipt facts``: the authoritative read-back a backend needs to settle an outcome as ``committed``.
@@ -161,6 +171,8 @@ class RunAuthority:
     approval_ttl_seconds: int
     #: ``(connector, project) -> the downstream's base URL``, from ``CALIBER_EFFECT_CALLBACK_CONNECTORS``.
     targets: Mapping[tuple[str, str], str]
+    #: ``resource URL -> its lookup``, the operator's ``CALIBER_EFFECT_HTTP_VERIFIERS`` rows for this run's project (#1055).
+    http_endpoints: Mapping[str, VerifierEndpoint] = field(default_factory=dict)
 
     # -- the authorization ---------------------------------------------------------------------
 
@@ -324,6 +336,9 @@ def run_authority(
         targets = targets_from_bindings(
             parse_bindings(getattr(config, "effect_callback_connectors", "[]"))
         )
+        http_endpoints = endpoints_for_project(
+            parse_endpoints(getattr(config, "effect_http_verifiers", "[]")), run.project_id
+        )
         ttl = configured_ttl_seconds(config)
     except ValueError:
         raise GovernedContextUnavailable(CONFIGURATION_INVALID) from None
@@ -340,22 +355,61 @@ def run_authority(
         ),
         approval_ttl_seconds=ttl,
         targets=targets,
+        http_endpoints=http_endpoints,
     )
+
+
+def http_receipt_verifier(
+    endpoints: Mapping[str, VerifierEndpoint], *, lookup: Lookup = ask_downstream
+) -> ReceiptVerifier:
+    """The authoritative receipt verifier of the generic ``http`` backend: the read-back by key at the operator's endpoint (#1055).
+
+    After a 2xx the platform asks the lookup the operator listed for the proposal's own resource, by the proposal's logical key,
+    through the same read-only executor the reconciler uses (egress policy applies), and returns receipt facts only for a stored
+    request that is this proposal's effect (:func:`caliber.effects.connectors.http_lookup.facts_from_lookup`). A resource nobody
+    listed is refused (``no_authoritative_verifier``, which the context's gate makes unreachable); a lookup that cannot be made,
+    that answers anything but 200 or that answers something else is ``None``, so the proposal is ``unknown`` and the reconciler
+    asks again. Nothing the downstream's answer says is trusted beyond that comparison; the response of the send is not read.
+    """
+    connector = CONNECTORS[_http_lookup.CONNECTOR]
+
+    def verify(request: EffectRequest, _response: Mapping[str, Any]) -> Any:
+        endpoint = endpoints.get(request.view.resource)
+        if endpoint is None:
+            raise EffectRefused("no_authoritative_verifier")
+        try:
+            answer = lookup(connector, endpoint.lookup_url, request.view.logical_key)
+        except OpenApiExecutionError:
+            return None
+        # (only a 200 can be a receipt: ``facts_from_lookup`` refuses every other status)
+        return connector.facts(
+            request.view, lookup_status=answer.status_code, lookup_body=answer.body
+        )
+
+    return verify
 
 
 def effect_context(
     authority: RunAuthority,
     *,
     verifiers: Mapping[str, ReceiptVerifier] | None = None,
+    lookup: Lookup = ask_downstream,
 ) -> GovernedEffectContext:
     """The ``GovernedEffectContext`` of a run: an exact-approval authorization and the backends it can verify.
 
     ``verifiers`` maps a backend kind to its authoritative receipt verifier; the context dispatches only through those kinds
-    (``dispatchable_backends``). The worker passes none today (no generic connector has a lookup by key, #1055), so every
-    workflow HTTP, registered-tool or OpenAPI node is refused before it is recorded; the mechanism (a proposal, a bound request,
-    a park behind it, a dispatch under the lease) is the one a verifier plugs into.
+    (``dispatchable_backends``). Without ``verifiers`` (the worker passes none) the one verifier the platform has is the
+    ``http`` read-back at the endpoints the operator listed for the run's project (:func:`http_receipt_verifier`, #1055): the
+    context then dispatches ``http`` for exactly those resources (``verifiable_resources``) and no other backend, and with no
+    endpoint listed it dispatches nothing. Every other workflow HTTP, registered-tool or OpenAPI node is refused before it is
+    recorded; the mechanism (a proposal, a bound request, a park behind it, a dispatch under the lease) is the one a verifier
+    plugs into. ``lookup`` is how the read-back asks (the reconciler's own, unless a test injects one).
     """
     by_kind = dict(verifiers or {})
+    covered: dict[str, frozenset[str]] = {}
+    if verifiers is None and authority.http_endpoints:
+        by_kind[HTTP_BACKEND_KIND] = http_receipt_verifier(authority.http_endpoints, lookup=lookup)
+        covered[HTTP_BACKEND_KIND] = frozenset(authority.http_endpoints)
     by_connector = {
         BACKENDS[kind].connector: verifier for kind, verifier in by_kind.items() if kind in BACKENDS
     }
@@ -374,6 +428,7 @@ def effect_context(
         authorize=authority.authorize_recorded,
         receipt_verifier=receipt_verifier,
         dispatchable_backends=frozenset(by_kind),
+        verifiable_resources=covered,
     )
 
 
@@ -485,6 +540,7 @@ __all__ = [
     "CONFIGURATION_INVALID",
     "CONNECTOR_UNBOUND",
     "CONTEXT_RECORDER_UNAVAILABLE",
+    "HTTP_BACKEND_KIND",
     "LEASE_PROVIDER_UNBOUND",
     "LEASE_UNAVAILABLE",
     "REQUESTER_UNAVAILABLE",
@@ -499,6 +555,7 @@ __all__ = [
     "effect_context",
     "effect_evidence_hash",
     "governed_agent_nodes",
+    "http_receipt_verifier",
     "mapped_agent_nodes",
     "run_authority",
     "step_context",
