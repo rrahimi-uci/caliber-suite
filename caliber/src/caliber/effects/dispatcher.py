@@ -961,6 +961,9 @@ def _claim_dispatch(
         if approval_row is None or approval_row.consumed_at is not None:
             raise EffectRefused("approval_already_consumed")
         approval_row.consumed_at = _naive_utc(now)
+        # The same UPDATE records which commit-time decision authorised this effect (B11.3c, #1061); a trigger refuses any
+        # other write of the column, and a rollback of this claim leaves neither it nor the consumption.
+        approval_row.commit_decision_id = checked.decision_id
         run = session.get(CaliberWorkflowRun, intent_record["workflow_run_id"])
         # The proposal reader is authoritative for intent.  The run lookup is
         # only for the outbox aggregate's project scope.

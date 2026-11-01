@@ -128,8 +128,13 @@ def _approval_row(
     return approval_id
 
 
-def _exact_intent_committed(session: Session, occurrence: str = "occ-exact") -> str:
+def _exact_intent_committed(
+    session: Session, occurrence: str = "occ-exact", *, commit_decision_id: str | None = None
+) -> str:
     """An irreversible write approved by an exact-intent request, dispatched and committed with a verified receipt.
+
+    ``commit_decision_id`` is what the dispatcher's claim stores on the request in the UPDATE that consumes it (B11.3c,
+    #1061); ``None`` is a request consumed before that column existed.
 
     Every payload-bearing column holds the canary: the intent's resource and arguments, who requested and decided, the
     decision's prose, the downstream's request id.
@@ -156,7 +161,7 @@ def _exact_intent_committed(session: Session, occurrence: str = "occ-exact") -> 
         policy_digest=POLICY,
         expected_resource_version=f"{CANARY}-v1",
         grant_id="gr-1",
-        decision_id="pd_run_commit_time",
+        decision_id=commit_decision_id or "pd_run_commit_time",
         run_identity=SimpleNamespace(),  # type: ignore[arg-type]
     )
     _move(session, proposal_id, APPROVED, approval=commit)
@@ -172,7 +177,7 @@ def _exact_intent_committed(session: Session, occurrence: str = "occ-exact") -> 
             connector_version=view.connector_version,
             resource=view.resource,
             intent_hash=view.intent_hash,
-            downstream_request_id=f"{CANARY}-downstream-request",
+            downstream_request_id=f"{CANARY}-downstream-request-{occurrence}",
             response_digest="sha256:" + "a" * 64,
             resource_version=f"{CANARY}-v2",
         ),
@@ -182,6 +187,7 @@ def _exact_intent_committed(session: Session, occurrence: str = "occ-exact") -> 
     row = session.get(CaliberRuntimeApprovalRequest, approval_id)
     assert row is not None
     row.consumed_at = NAIVE_AT + timedelta(minutes=1)
+    row.commit_decision_id = commit_decision_id
     session.flush()
     return proposal_id
 
@@ -212,7 +218,12 @@ def _seed(factory: sessionmaker[Session]) -> tuple[dict[str, str], str, str]:
         session.flush()
         effects: dict[str, str] = {}
         effects["complete"] = _at(session, COMMITTED, occurrence="occ-complete")
+        # consumed before the decision id was stored: its decision stays unrecorded
         effects["exact"] = _exact_intent_committed(session)
+        # consumed since: the claim stored the commit-time decision id beside ``consumed_at``
+        effects["exact_recorded"] = _exact_intent_committed(
+            session, "occ-exact-recorded", commit_decision_id="pd_commit_exact_recorded"
+        )
         effects["bare"] = _at(session, PROPOSED, occurrence="occ-bare")
         effects["asking"] = _at(session, PROPOSED, occurrence="occ-asking")
         _approval_row(session, effects["asking"], status="pending", approval_id="rap-asking")
@@ -247,6 +258,23 @@ def _seed(factory: sessionmaker[Session]) -> tuple[dict[str, str], str, str]:
                 reason_codes=["grant_active", "role_ok"],
                 policy_version="policy-v1",
                 input_hash="1" * 64,
+                evaluated_at=NAIVE_AT,
+            )
+        )
+        session.add(
+            CaliberPolicyDecision(
+                decision_id="pd_commit_exact_recorded",
+                workflow_run_id=RUN,
+                grant_id="gr-1",
+                subject_user_id=f"{CANARY}-subject",
+                workload_id="wl_" + "0" * 64,
+                action="resource.execute",
+                resource="workflow:wf-ep",
+                purpose=f"{CANARY} purpose",
+                result="allow",
+                reason_codes=["grant_active", "role_ok"],
+                policy_version="policy-v1",
+                input_hash="2" * 64,
                 evaluated_at=NAIVE_AT,
             )
         )
@@ -355,7 +383,9 @@ def test_an_exact_intent_effect_links_its_approval_and_says_its_decision_is_reco
     assert (effect["decision"]["status"], effect["decision"]["code"]) == (
         "unrecorded",
         "decision_recorded_per_run_only",
-    ), "the commit-time decision is not stored against the effect, so it is not guessed"
+    ), (
+        "consumed before migration 0134 stored the decision id, so the pairing is not guessed from the run's decisions"
+    )
     assert effect["decision"]["decision_id"] is None
     assert effect["missing_links"] == [], "nothing here is broken"
     assert effect["unrecorded_links"] == ["context_manifest", "decision"]
@@ -364,6 +394,42 @@ def test_an_exact_intent_effect_links_its_approval_and_says_its_decision_is_reco
         "caliber.approval_id": "rap-occ-exact",
         "caliber.effect_id": effect["effect"]["effect_id"],
     }
+
+
+def test_an_exact_intent_effect_consumed_since_the_decision_id_was_stored_links_its_decision(
+    world: World,
+) -> None:
+    """B11.3c, #1061: the chain of a governed write is complete, the decision named by the consumed approval itself."""
+    effect = _by_node(world)["exact_recorded"]
+    decision = effect["decision"]
+    assert decision["status"] == "linked" and decision["code"] is None
+    assert decision["decision_id"] == "pd_commit_exact_recorded"
+    assert (decision["action"], decision["result"]) == ("resource.execute", "allow")
+    assert decision["reason_codes"] == ["grant_active", "role_ok"]
+    assert (decision["policy_version"], decision["input_hash"]) == ("policy-v1", "2" * 64)
+    assert effect["approval"]["status"] == "linked"
+    assert effect["approval"]["approval_id"] == "rap-occ-exact-recorded"
+    assert effect["missing_links"] == []
+    assert effect["unrecorded_links"] == ["context_manifest"], (
+        "the decision is no longer unrecorded"
+    )
+    assert effect["span_attributes"] == {
+        "caliber.proposal_id": world.effects["exact_recorded"],
+        "caliber.decision_id": "pd_commit_exact_recorded",
+        "caliber.approval_id": "rap-occ-exact-recorded",
+        "caliber.effect_id": effect["effect"]["effect_id"],
+    }
+    # the id is the persisted decision row the run lists, not a value made up from a neighbour
+    listed = {
+        item["decision_id"]: item
+        for item in _page(world, section="policy_decisions", limit=service.MAX_LIMIT)[
+            "policy_decisions"
+        ]
+    }
+    assert listed["pd_commit_exact_recorded"]["input_hash"] == decision["input_hash"]
+    # the sibling consumed before the id was stored is untouched: no pairing is guessed from the run's other decision
+    legacy = _by_node(world)["exact"]["decision"]
+    assert (legacy["status"], legacy["decision_id"]) == ("unrecorded", None)
 
 
 @pytest.mark.parametrize(
@@ -561,7 +627,7 @@ def test_keyset_pages_cover_every_row_once_in_a_stable_order(
     whole = _all(world, section, key, id_key, service.MAX_LIMIT)
     paged = _all(world, section, key, id_key, limit)
     assert paged == whole and len(set(paged)) == len(paged) > 0
-    expected = {"effects": 7, "context_manifests": 4, "policy_decisions": 4}[section]
+    expected = {"effects": 8, "context_manifests": 4, "policy_decisions": 5}[section]
     assert len(whole) == expected, "the second run's rows are not among them"
 
 
@@ -911,7 +977,7 @@ def test_the_route_pages_with_the_cursor_it_returns(client: Any, seeded: World) 
         if not page["has_more"]:
             break
         url = f"{_url()}?limit=3&cursor={page['next_cursor']}"
-    assert len(set(seen)) == len(seen) == 7
+    assert len(set(seen)) == len(seen) == 8
     assert sorted(seen) == sorted(seeded.effects.values())
 
 
@@ -972,6 +1038,67 @@ def test_an_id_stored_on_one_run_never_pulls_in_another_runs_row(
         None,
     )
     assert "rap-other-run" not in response.text and seeded.other_decision not in response.text
+
+
+def _effect_and_body(client: Any, proposal_id: str) -> tuple[dict[str, Any], str]:
+    response = client.get(_url(), params={"limit": 200})
+    effects = {e["proposal_id"]: e for e in response.json()["data"]["effects"]}
+    return effects[proposal_id], response.text
+
+
+def _set_approval(factory: sessionmaker[Session], approval_id: str, **values: Any) -> None:
+    """Bend a row of the unmigrated application database (no triggers there), through Core."""
+    with factory() as session:
+        session.execute(
+            update(CaliberRuntimeApprovalRequest)
+            .where(CaliberRuntimeApprovalRequest.runtime_approval_id == approval_id)
+            .values(**values)
+        )
+        session.commit()
+
+
+def test_a_stored_commit_decision_id_that_names_another_runs_decision_is_not_followed(
+    client: Any, seeded: World
+) -> None:
+    """The decision lookup is filtered by the run like the approval lookup: a foreign id is a broken link, never a row."""
+    _set_approval(
+        seeded.factory, "rap-occ-exact-recorded", commit_decision_id=seeded.other_decision
+    )
+    effect, body = _effect_and_body(client, seeded.effects["exact_recorded"])
+    decision = effect["decision"]
+    assert (decision["status"], decision["code"], decision["decision_id"]) == (
+        "missing",
+        "decision_row_missing",
+        None,
+    )
+    assert effect["missing_links"] == ["decision"]
+    assert "caliber.decision_id" not in effect["span_attributes"]
+    assert seeded.other_decision not in body
+
+
+def test_a_stored_commit_decision_id_that_names_no_decision_is_a_broken_link(
+    client: Any, seeded: World
+) -> None:
+    _set_approval(seeded.factory, "rap-occ-exact-recorded", commit_decision_id="pd-vanished")
+    effect, body = _effect_and_body(client, seeded.effects["exact_recorded"])
+    assert effect["decision"]["status"] == "missing"
+    assert effect["missing_links"] == ["decision"]
+    assert effect["unrecorded_links"] == ["context_manifest"]
+    assert "pd-vanished" not in body
+
+
+def test_the_commit_decision_of_an_approval_bound_to_another_proposal_is_not_followed(
+    client: Any, seeded: World
+) -> None:
+    """The decision id counts only through the effect's own approval request, as the approval link does."""
+    _set_approval(seeded.factory, "rap-occ-exact-recorded", proposal_id=seeded.effects["bare"])
+    effect, _ = _effect_and_body(client, seeded.effects["exact_recorded"])
+    assert effect["approval"]["status"] == "missing"
+    assert (effect["decision"]["status"], effect["decision"]["code"]) == (
+        "unrecorded",
+        "decision_recorded_per_run_only",
+    )
+    assert "caliber.decision_id" not in effect["span_attributes"]
 
 
 def test_a_committed_effect_whose_receipt_row_is_gone_is_reported_missing(
@@ -1062,9 +1189,9 @@ def test_a_receipt_id_stored_on_one_proposal_never_attaches_another_proposals_re
 @pytest.mark.parametrize(
     ("section", "key", "total"),
     [
-        ("effects", "effects", 7),
+        ("effects", "effects", 8),
         ("context_manifests", "context_manifests", 4),
-        ("policy_decisions", "policy_decisions", 4),
+        ("policy_decisions", "policy_decisions", 5),
     ],
 )
 def test_has_more_is_exact_at_the_page_boundary(

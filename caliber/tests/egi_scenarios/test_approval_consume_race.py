@@ -32,6 +32,7 @@ import caliber.effects.dispatcher as dispatcher_module
 from caliber.db.models import (
     CaliberEffectProposal,
     CaliberEventOutbox,
+    CaliberPolicyDecision,
     CaliberProject,
     CaliberProjectMember,
     CaliberRuntimeApprovalRequest,
@@ -240,11 +241,26 @@ def _refused(result: object, code: str) -> None:
     assert result.code == code, result.code
 
 
+def _decisions(app: ReferenceApp, run_id: str) -> int:
+    """How many policy decisions the run has: the claim's commit check records one, in the claim's own transaction."""
+    with app.session_factory() as session:
+        return int(
+            session.execute(
+                select(func.count())
+                .select_from(CaliberPolicyDecision)
+                .where(CaliberPolicyDecision.workflow_run_id == run_id)
+            ).scalar_one()
+        )
+
+
 def _unconsumed(app: ReferenceApp, approval_id: str, proposal_id: str) -> None:
     """The refusal left the approval unconsumed, the proposal ``proposed`` and no outbox row (nothing was claimed)."""
     with app.session_factory() as session:
         row = session.get(CaliberRuntimeApprovalRequest, approval_id)
         assert row is not None and row.consumed_at is None
+        assert row.commit_decision_id is None, (
+            "no consumption, so no decision stored against it (B11.3c)"
+        )
         assert proposal_state(session, proposal_id).state == "proposed"
         assert (
             session.execute(
@@ -260,6 +276,11 @@ def _consumed_once(app: ReferenceApp, approval_id: str, proposal_id: str, state:
     with app.session_factory() as session:
         row = session.get(CaliberRuntimeApprovalRequest, approval_id)
         assert row is not None and row.consumed_at is not None
+        # B11.3c (#1061): consumption stored the commit-time decision, which is a persisted allow of this very run
+        assert row.commit_decision_id is not None
+        decision = session.get(CaliberPolicyDecision, row.commit_decision_id)
+        assert decision is not None and decision.workflow_run_id == row.workflow_run_id
+        assert (decision.action, decision.result) == ("resource.execute", "allow")
         assert proposal_state(session, proposal_id).state == state
         outbox = session.execute(
             select(CaliberEventOutbox.event_id).where(
@@ -787,6 +808,7 @@ def test_two_consumers_one_dispatch(
     def consume() -> EffectOutcome | EffectRefused:
         return _dispatch(approver, proposal_id, approval_id, lease)
 
+    before = _decisions(approver, run_id)
     with _holding_run_lock(approver, run_id):
         workers = _queue(approver, [consume, consume])
     results = [worker.finished() for worker in workers]
@@ -796,6 +818,8 @@ def test_two_consumers_one_dispatch(
     _refused(loser, "already_consumed")
     assert backend.calls == 1
     _consumed_once(approver, approval_id, proposal_id, "committed")
+    # the commit-time decision is stored once, by the winner's claim; the refused contender recorded and stored nothing
+    assert _decisions(approver, run_id) == before + 1
 
 
 @pytest.mark.parametrize("first", ["approve", "dispatch"])
@@ -1059,8 +1083,9 @@ def test_the_claim_is_one_transaction_a_failed_enqueue_consumes_nothing(
     approver: ReferenceApp, monkeypatch: pytest.MonkeyPatch, backend: CountingBackend
 ) -> None:
     """Consumption, the state moves and the outbox row commit together: a failure inside the claim rolls all of them back."""
-    _run, approval_id, proposal_id, lease = _prepare(approver, monkeypatch, occurrence="atomic")
+    run_id, approval_id, proposal_id, lease = _prepare(approver, monkeypatch, occurrence="atomic")
     real_enqueue = dispatcher_module.enqueue
+    before = _decisions(approver, run_id)
 
     def boom(*_args: Any, **_kwargs: Any) -> None:
         raise RuntimeError("the outbox is unavailable")
@@ -1070,10 +1095,14 @@ def test_the_claim_is_one_transaction_a_failed_enqueue_consumes_nothing(
         _dispatch(approver, proposal_id, approval_id, lease)
 
     assert backend.calls == 0
+    # the enqueue runs after the claim wrote the commit-time decision id: the rollback leaves neither it nor the decision
+    # the commit check recorded in the same transaction (B11.3c, #1061)
     _unconsumed(approver, approval_id, proposal_id)
+    assert _decisions(approver, run_id) == before
 
     monkeypatch.setattr(dispatcher_module, "enqueue", real_enqueue)
     retried = _dispatch(approver, proposal_id, approval_id, lease)
     assert isinstance(retried, EffectOutcome) and retried.state == "committed"
     assert backend.calls == 1
     _consumed_once(approver, approval_id, proposal_id, "committed")
+    assert _decisions(approver, run_id) == before + 1

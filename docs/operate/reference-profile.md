@@ -700,36 +700,48 @@ not one per effect.
 | --- | --- | --- |
 | `context_manifest` | the latest context manifest of this node occurrence (highest attempt, then highest revision), by id, revision, attempt and digest | `unrecorded` / `no_context_manifest_for_node_step` (a step that is not an agent step has none, and the proposal does not say which kind of step it came from, so its absence is neither followable nor proven broken) |
 | `approval` | an exact-intent approval request the proposal records, bound to this proposal in this run: ids, digests, request status, `superseded_by`, requested, decided, expires and consumed timestamps | `not_required` / `approved_by_policy_decision`; `pending` / `approval_not_consumed` (a request exists but the dispatcher has not consumed it; its id and status are shown), `approval_not_requested`; `not_required` / `failed_before_approval` (settled `failed` with no approval ever recorded); `missing` / `approval_row_missing` (the stored approval id names no row bound to this proposal in this run) |
-| `decision` | the policy decision a *policy-approved read* records: id, action, result, reason codes, policy version, input hash, evaluated-at | `unrecorded` / `decision_recorded_per_run_only` (exact-intent approvals, below); `pending` / `not_approved_yet`; `not_required` / `failed_before_approval`; `missing` / `decision_row_missing` |
+| `decision` | the policy decision that authorised the effect, by id and run: the one a *policy-approved read* names, or, for an exact-intent effect consumed since migration 0134, the commit-time decision stored on its approval request. Id, action, result, reason codes, policy version, input hash, evaluated-at | `unrecorded` / `decision_recorded_per_run_only` (an exact-intent effect consumed before 0134, below); `pending` / `not_approved_yet`; `not_required` / `failed_before_approval`; `missing` / `decision_row_missing` (the stored decision id names no decision of this run) |
 | `effect` | the verified receipt: `effect_id` (the receipt id, **the id `caliber.effect_id` carries**), attempt, receipt and response digests, verified-at, and `committed` (true when the proposal records that receipt as the one that settled it) | `pending` with `not_dispatched`, `outcome_pending`, `outcome_unknown` or `reconciled_without_receipt`, by the proposal's state (the effect is not settled); `not_required` / `failed_without_receipt` (settled `failed`: nothing was verified and nothing will be); `missing` / `receipt_row_missing` (settled `committed`, which requires a receipt, but no receipt row is there) |
 
 `missing_links` lists only the `missing` links (a broken chain) and `unrecorded_links` the `unrecorded` ones, so a
-complete chain (`missing_links == []`) is distinguishable from a broken one, and a healthy exact-intent effect has
-`missing_links == []` with `unrecorded_links` naming `decision` (and `context_manifest` for a non-agent step). **An absent
+complete chain (`missing_links == []`) is distinguishable from a broken one, and a healthy exact-intent effect consumed since
+migration 0134 has `missing_links == []` and a `linked` `decision` (`unrecorded_links` names only `context_manifest` for a
+non-agent step; one consumed earlier also names `decision`). **An absent
 `effect_id` is the marker for an effect that has no verified receipt**, in the API as on the span; it is never filled in
 from a neighbouring row, a timestamp or the proposal's state.
 
 `span_attributes` is the `caliber.*` attribute map that the effect's resolved rows support, built by the same allow-list
 function (`causal_attributes`). It is a **derived union, not what any one span carries**: each span binds only the ids it
-had read when it closed (the receipt span binds the proposal's recorded approval ref even if that row is gone, and the
-dispatch span carries the commit-time `decision_id`, which is not persisted against the effect and so is not listed
-here). An id is listed only when its row resolved for this run. Nothing is read from the tracing backend, so it cannot
+had read when it closed (the receipt span binds the proposal's recorded approval ref even if that row is gone). The
+commit-time `decision_id` of an exact-intent effect is listed when its approval request stored it and the decision row
+resolved for this run; for an effect consumed before 0134 it is not listed (the dispatch span still carries it). An id is
+listed only when its row resolved for this run. Nothing is read from the tracing backend, so it cannot
 confirm that a trace was exported.
 
 **Digests.** `manifest_digest` (run and context manifests), `receipt_digest` and a policy decision's `input_hash` are bare
 lowercase SHA-256 hex (64 characters). `intent_hash`, `evidence_hash`, `policy_digest` and `response_digest` are
 `sha256:`-prefixed (71 characters). They are stored in those forms and returned unchanged; compare like with like.
 
-**The decision of an exact-intent approval is not stored against the effect.** The commit-time check records a run
-decision (`resource.execute` on `workflow:<id>`, the run authority) and the dispatch span names it, but the proposal row stores only the
-approval id, so for an exact-intent effect `decision` is `unrecorded` and its `caliber.decision_id` is not in
-`span_attributes`. That decision *is* persisted, per run: `section=policy_decisions` lists the run's decisions
-(`decision_id`, `grant_id`, `action`, `resource`, `result`, `reason_codes`, `policy_version`, `input_hash`,
-`evaluated_at`), so the `caliber.decision_id` on a span can be checked against a row, but nothing says which effect asked.
-Persisting the pairing needs its own migration and must not touch the proposal's frozen columns (follow-up #1061); this
-endpoint does not guess it. **Until #1061 lands, a consumer such as the evidence package (B14.1, #818) should treat
-`decision: unrecorded` on an exact-intent effect as "run authority asserted per run only": include the run's
-`policy_decisions` section in the package and do not fail the chain or invent a pairing.**
+**The decision of an exact-intent approval (B11.3c, #1061).** The commit-time check (`approval_valid_at_commit`) records a
+run decision (`resource.execute` on `workflow:<id>`, the run authority) and the dispatch span names it. Since migration
+`0134` the dispatcher also stores that decision's id on the approval request it consumes
+(`caliber_runtime_approval_requests.commit_decision_id`), in the same claim transaction and the same `UPDATE` that sets
+`consumed_at`, from the `ApprovalCommit` the validator returned; a refused or rolled-back dispatch leaves neither. The
+proposal's frozen columns are not touched. The API resolves the id by run (and the request by proposal, as for `approval`),
+so for an exact-intent effect consumed after `0134` `decision` is `linked` with the decision's fields, `caliber.decision_id`
+is in `span_attributes`, and the id equals the `PolicyDecision` row in `section=policy_decisions` and the span's
+`caliber.decision_id`. A stored id that names no decision of this run is `missing` / `decision_row_missing`.
+
+The database enforces the write (PostgreSQL and SQLite triggers): an `INSERT` cannot carry the column; an `UPDATE` may set it
+only from `NULL`, to a non-empty value, on a bound request whose `consumed_at` moves from `NULL` to a value in that same
+`UPDATE`; once set, neither it nor `consumed_at` can change. **There is no backfill.** A request consumed before `0134` keeps
+`NULL`, its effect's `decision` stays `unrecorded` / `decision_recorded_per_run_only` and its `caliber.decision_id` is not in
+`span_attributes`; the run's decisions are still listed per run (`section=policy_decisions`), and the API does not pair
+them by time. **A consumer such as the evidence package (B14.1, #818) should treat `decision: unrecorded` on an exact-intent
+effect as "run authority asserted per run only" for those older effects: include the run's `policy_decisions` section and
+do not fail the chain or invent a pairing.** The approval request's `approval_request` v1 contract is unchanged (the column
+is lifecycle state, like `consumed_at`, not part of what the approver is asked), and the causal-links response schema gains
+no field: the decision link already carries the decision's fields.
 
 **Whole-run markers.** `run_manifest` is `linked` (id, schema version, digest, creation time; the manifest body stays at
 `/admission-manifest`), `legacy` (`legacy_run_has_no_manifest`: a run admitted before manifests has none and never will)
@@ -764,8 +776,10 @@ linked. A link that appears is always a row that exists; none is ever inferred.
 **SDK, configuration and rollback.** `client.workflows.runs.causal_links(run_id, section=, limit=, cursor=)` (sync) and
 `client.workflows.causal_links(...)` (async) return a typed `CausalLinks` page (`CausalEffect`, `CausalContextManifest`,
 `CausalPolicyDecision` and the link models are in `caliber_sdk.models`); an unknown field is kept in `extra` and a missing
-`status` decodes as `None`, never as `linked`. No new setting, no migration, no stored data change; the endpoint is a
-read, so rolling back is reverting the change.
+`status` decodes as `None`, never as `linked`. No new setting. The endpoint is a read, but the exact-intent `decision` link needs migration `0134` (above), which adds one
+nullable column and two triggers and changes no stored data; migrations run before the new code serves. Rolling the code back
+leaves the column in place and unused (the old code ignores it); `alembic downgrade 0133` drops it with its triggers, and the
+decision ids it held (the decisions themselves are immutable rows and stay).
 
 ## A configuration that passes
 
@@ -1667,7 +1681,9 @@ with session_factory() as session:
   approver lost after deciding is not seen, while a lost project role or membership is. It sets `consumed_at` in the same commit as
   `proposed -> approved -> dispatched` and the outbox row, so concurrent dispatchers consume once. If the process dies after
   that commit and before the remote call, the durable dispatched row and outbox entry remain recoverable; a retry reads the
-  proposal state (`already_dispatched`) and does not send again.
+  proposal state (`already_dispatched`) and does not send again. The same `UPDATE` stores the commit-time policy decision's id
+  on the request (`commit_decision_id`, migration `0134`; see the causal-links section), so a refused or rolled-back claim
+  leaves neither the consumption nor the id.
   **A decision does not wake the run.** It stays `waiting_approval` until `POST .../resume` (operator scope) requeues it.
   **Limits.** An approved decision that dispatch has not consumed cannot be withdrawn, other than by revoking the approver's
   project role (the claim rechecks it) or by superseding the request; rejecting a bound request fails the run but leaves its
@@ -2999,7 +3015,10 @@ A request has a lifetime and is replaced by a newer one for the same step (see "
   the schema); no backfill. Downgrade drops the trigger and function, the checks, the index and the columns; a legacy request is untouched and a
   bound one is lost. It needs `0126` (B05.5b) to be applied first. **B06.2 adds no migration:** `expires_at`, `superseded_by` and `consumed_at` are
   already in `0127` (the trigger lets `status` and `superseded_by` move), so there is no schema change, rollback or deployment step beyond the
-  new optional setting `CALIBER_APPROVAL_TTL_SECONDS`.
+  new optional setting `CALIBER_APPROVAL_TTL_SECONDS`. **`0134` (B11.3c, #1061)** adds one nullable column, `commit_decision_id`
+  (the policy decision the dispatcher's commit check recorded in the claim that consumed the request), and two triggers that make it
+  write-once and settable only by consumption (see the causal-links section); it adds the column in place, so the `0127` trigger is kept,
+  and it does not backfill. Downgrade drops the triggers, their functions and the column.
 - **Distinct actors.** The separation-of-duties rule of `record_approval` is now `assert_distinct_actor(actor, initiated_by, *, allow_self)`
   (`approval_policy.py`): it raises `ApprovalPolicyError` ("the account that triggered this run cannot approve it; a second person must decide
   ...") when the actor is the initiator, unless `allow_self` (`CALIBER_APPROVAL_ALLOW_SELF_APPROVAL`) is set; an unknown initiator is not
@@ -3115,6 +3134,80 @@ checked = approval_valid_at_commit(
 # Keep the run, proposal and approval locks until the same transaction consumes
 # approval and claims dispatch. No connector is called by this function.
 ```
+
+### The approval panel: what the approver sees and what the console obeys (B06.5, #743)
+
+A person deciding a bound request has to see *what* they are approving. The console shows it in an inline approval panel under
+**Recovery Diagnostics** of a run (`ApprovalDecisionPanel`, opened by `BoundApprovalReview`) for every bound request that is `pending`, or
+`approved` and not yet consumed. A legacy node-level request (no `proposal_id`) keeps the plain Approve and Reject buttons it always had; for
+a bound one those header buttons are not shown, because they would approve it unseen. The panel reads one record,
+`GET /workflow-runs/{run_id}/approvals/{approval_id}` (`caliber.workflows.approval_view`), and decides nothing itself.
+
+**Who may read it.** The access of reading the run (a run you cannot see is `404`) **plus** the project `read` role, evaluated now. A caller who
+fails either, an approval of another run and an unknown id all get the same `404`. A caller who also holds the project `approve` action (owner or
+reviewer) sees the effect and who requested it; anyone else with read access sees the pins, the state and the quorum, `proposal` is `null` and
+`binding.requested_by` is `null` (deliberate: the view is a project-`read` surface and shows any reader a request's state, as the list route already showed its status and who decided; the *decision routes* still tell a caller who may not decide nothing about the state, because they check authority before state).
+The SDK reads it as `client.workflows.runs.approval(run_id, approval_id)`, untyped like `approvals()`. The list route
+(`GET .../approvals`) gains optional `proposal_id`, `expires_at`, `superseded_by` and `consumed_at`, so the console can tell a bound request from a
+legacy one; an older client ignores them. They follow the view's rule: filled only for a caller with the project `read` role, `null` for anyone else
+(the rest of the list is unchanged).
+
+**What it returns.**
+
+| Field | Content |
+| --- | --- |
+| `binding` | `proposal_id`, `intent_hash`, `evidence_hash`, `policy_digest`, `expected_resource_version`, `expires_at`, `requested_by`, `superseded_by`, `consumed_at`; `null` for a legacy request |
+| `proposal` | `connector`, `connector_version`, `effect_class` (the risk class: read only, reversible write, irreversible write or data export), `resource`, `state`, and the **shape** of the arguments: each top-level name (only when it is a plain identifier, otherwise unnamed) and the kind of its value, at most 50 |
+| `policy`, `quorum` | the node's `required_role`, `approval_count`, `timeout_behavior`, `allow_self_approval`; who approved so far, how many are required and how many remain |
+| `state` | `open`, or why the request cannot be decided now, most final first: `already_consumed`, `superseded` (with `superseded_by`), `expired`, `rejected`, `run_not_waiting` (a rejection and a cancellation both clear the run's current node, so they are named before the node is compared), `approval_not_current` (another node's request of a waiting run), `already_decided` |
+| `allowed_responses` | the decisions the routes accept now: `approve` and `reject`. `request_changes` is in the contract but has no route, so it is not offered |
+| `caller` | the authenticated principal, and for `approve` and `reject` whether it is allowed now and, when not, the first reason: the request's state, a disabled deployment switch (`queue_disabled`, `approvals_disabled`, and for an approval `checkpointing_disabled`, which the routes check first and answer with a plain `409`), `project_role_required`, `insufficient_scope`, `self_approval` or `duplicate_approver` |
+
+**No argument value ever leaves the server.** The arguments are the one place a secret or a personal datum can sit, the platform's other
+operator views never load them, and the `intent_hash` binds every value, so the panel shows names, kinds and counts and says that the values are
+pinned by the digest. Showing values needs a connector-owned preview that redacts, which does not exist yet; the console does not guess at one.
+Nothing in a response is logged by the console, and a refusal message is chosen from the `reason_code` the server sent, with values from the view,
+never from response text.
+
+**The server decides, the console renders.** `caller` is computed with the decision routes' own rules (the project `approve` action, the node's
+`required_role` scope, the requester and run-initiator rule, one approval per person) and the panel only disables a button from it
+(`aria-disabled`, with the reason attached through `aria-describedby`, so the button stays focusable and the reason is read). The route re-derives
+everything under its locks, so a stale panel cannot approve what the server would refuse. A decision sends `{runtime_approval_id, reason}` and
+nothing else; who decides is the authenticated principal.
+
+Refusals, with the text the panel shows and the recovery (the decision route's `409` codes arrive as `reason_code`; the ability reasons arrive in
+the view):
+
+| Code | Where it comes from | Panel text (abridged) | Recovery |
+| --- | --- | --- | --- |
+| `expired` | view state, `409` on decide | "This request expired at 2026-11-01 14:30 UTC. Nothing was done. Ask the requester to send it again." | ask for a new request |
+| `superseded` | view state, `409` | "A newer request replaced this one (RAP-...). Open the newer request." | decide the newer request (linked when it is on the page) |
+| `already_decided` | view state, `409` | "This request already holds a decision ... waiting for the system to act on it." | nothing; dispatch consumes it |
+| `already_consumed` | view state, `409` | "This approval was already used to run the action." | ask for a new request if needed again |
+| `approval_not_current` | view state, `409` | "This request is not for the step the run is waiting at." | decide the run's current request |
+| `run_not_waiting` | view state | "This run is no longer waiting for approval ..." | none |
+| `approval_busy` | `503` on decide | "This request is being decided or dispatched right now. Nothing was decided. Wait a moment, then press the button again." | press again; the buttons stay live |
+| `self_approval` | view ability | "You started this run, so you cannot approve it. A second person must decide." | a second person decides; Reject stays available |
+| `duplicate_approver` | view ability | "You already approved this step. It needs 2 different approvers; 1 more is needed." | another approver decides |
+| `queue_disabled`, `approvals_disabled`, `checkpointing_disabled` | view ability | "Deciding approvals is switched off for this deployment ..." | an administrator enables the switch (`checkpointing_disabled` blocks only Approve) |
+| `insufficient_scope`, `project_role_required` | view ability | "This step needs the caliber.approver role and your account does not hold it ..." | ask for the role |
+| a network failure or any other `5xx` | decide | "We could not confirm whether your decision was recorded ... check it before deciding again." | the panel refetches; it never retries by itself, because a retry would answer `duplicate_approver` |
+
+**Not built, stated plainly.** The contract's `stale_version`, `intent_mismatch`, `fenced_owner` and `role_revoked` messages are in the panel and
+render when a `reason_code` of that name reaches it, but today the platform refuses those only at dispatch (`effect.approval.commit_check`
+span, `EffectRefused`), never as the answer to a decision, and the view cannot read them back: there is no persisted commit-time refusal to show
+(the `causal-links` route says as much). The view does not carry the target's current state, a before-and-after preview (both need a connector
+query operation), `requested_by_type` (the platform has no principal type yet; the requester's id is shown), `evidence_url` (there is no
+evidence package yet) or the policy decision's reason codes. `request_changes` and a `intent_hash` in the decision body are not implemented in
+the routes. Approving the last required approval does not resume the run: the run stays `waiting_approval` until someone with the operator role
+resumes it, and the panel says so.
+
+**What the browser checks cover.** The Playwright spec asserts roles, accessible names and descriptions, keyboard order, focus and the announced text with
+role and name queries and an accessibility-tree snapshot. The repository has no axe integration, so there is no automated colour-contrast or
+rule-engine audit of the panel; contrast follows the console's existing slate, amber and red palette and has not been measured.
+
+**Configuration, migration and rollback.** No new setting, no migration and no stored data change. The view is read-only and the list fields are
+optional additions. Rolling back is reverting the change; a console without it ignores the new list fields and keeps the plain buttons.
 
 ## Agent steps: a request, a result, and no effects (B08.1a, #713)
 

@@ -248,7 +248,13 @@ class CausalApprovalLink:
 
 @dataclass
 class CausalDecisionLink:
-    """The policy decision that approved an effect, when the effect records it."""
+    """The policy decision that authorised an effect, when the effect records it.
+
+    A policy-approved effect names it; an exact-intent effect names the commit-time decision stored
+    on its consumed approval request. An exact-intent effect consumed before that id was stored is
+    ``unrecorded`` (``code="decision_recorded_per_run_only"``): the run's decisions are listed in
+    the ``policy_decisions`` section, and the pairing is never guessed.
+    """
 
     status: str | None = None
     code: str | None = None
