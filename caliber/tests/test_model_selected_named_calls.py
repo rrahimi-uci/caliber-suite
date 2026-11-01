@@ -241,6 +241,44 @@ def test_a_named_call_of_a_tool_that_needs_a_destination_must_name_it(
         run(named("list_workdir_files", {}, resource=RESOURCE))
     assert read.value.code == "tool_not_protected"
 
+    def refused_with_context(**changes: Any) -> str:
+        other = _context(factory, **changes)
+        with pytest.raises(EffectRefused) as stopped:
+            record_step_proposal(
+                other,
+                request,
+                answer(
+                    request,
+                    "proposed_action",
+                    usage=USAGE,
+                    proposed_actions=(named(PROTECTED, {"document_type": "x"}, resource=RESOURCE),),
+                ),
+                trust,
+                bindings=agent.tools,
+            )
+        return str(stopped.value.code)
+
+    assert refused_with_context(tool_backends={}) == "connector_not_mapped"
+    assert refused_with_context(tool_backends={PROTECTED_ID: "no_such_backend"}) == (
+        "connector_not_mapped"
+    )
+    assert refused_with_context(tool_backends={PROTECTED_ID: "http"}) == (
+        "backend_not_for_agent_steps"
+    )
+    trust[PROTECTED] = ToolTrust(PROTECTED, FAIL_CLOSED, False, "refuse", PROTECTED_ID)
+    assert refused_with_context() == "unsupported_effect_path"
+
+
+def test_arguments_that_only_fit_before_the_platform_wraps_them_are_refused_not_recorded(
+    factory: Any,  # noqa: F811
+) -> None:
+    """The recorded intent wraps the model's arguments (tool, version, input): a size that fit unwrapped may not fit wrapped."""
+    from caliber.effects.records import MAX_INTENT_BYTES
+
+    world = _registered(factory, schema=None)
+    blob = {"blob": "x" * (MAX_INTENT_BYTES - 200)}
+    refused_with(world, propose(world, named("open_ticket", blob)), "bad_field")
+
 
 # ----------------------------------------------------- the whole path: a model-style call through a real adapter
 
