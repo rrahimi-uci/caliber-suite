@@ -371,6 +371,7 @@ def test_the_oracle_remote_host_from_the_environment_refuses_startup() -> None:
     with pytest.raises(ConfigError) as refused:
         create_app(config)
     assert "CALIBER_MCP_REMOTE_HOST_ALLOWLIST" in str(refused.value)
+    assert str(refused.value).endswith("[mcp_allowlist_not_in_profile]")
     assert "example.com" not in str(refused.value)
     empty = CaliberConfig.load(environ={**environ, "CALIBER_MCP_REMOTE_HOST_ALLOWLIST": ""})
     assert reference_profile_violations(empty) == []
@@ -521,6 +522,8 @@ def test_the_refusal_counts_and_bullets_every_violation(app_config: CaliberConfi
     assert lines[0] == "reference profile refused (11 violations):"
     assert len(lines) == 1 + len(UNSAFE)
     assert all(line.startswith("- ") for line in lines[1:])
+    # Each line ends with its violation's stable code, in the fixed order.
+    assert [line.rsplit(" [", 1)[1].rstrip("]") for line in lines[1:]] == list(UNSAFE)
 
 
 def test_a_single_violation_is_not_pluralised(app_config: CaliberConfig) -> None:
