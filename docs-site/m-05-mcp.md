@@ -93,6 +93,9 @@ or lookup, so a result is only a claim the run's receipt verifier must confirm, 
 left is `unknown`, never resent. See
 [Governed MCP tools](m-64-reference-profile.md#governed-mcp-tools-b045).
 
+Under the reference profile the stdio and remote-host allowlists must be empty (startup refuses any entry, B12.3b, #746; see
+[MCP allowlists](m-64-reference-profile.md#mcp-allowlists-b123b-746)), so no server is reachable there until the profile lists one.
+
 ## 3. Runtime architecture
 
 The diagram below shows how those owners connect. Operator actions flow from the

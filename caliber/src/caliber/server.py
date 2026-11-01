@@ -207,7 +207,7 @@ def _require_reference_profile(config: CaliberConfig) -> None:
         count = len(violations)
         raise ConfigError(
             f"reference profile refused ({count} violation{'s' if count != 1 else ''}):\n"
-            + "\n".join(f"- {v.message}" for v in violations)
+            + "\n".join(f"- {v.message} [{v.code}]" for v in violations)
         )
 
 

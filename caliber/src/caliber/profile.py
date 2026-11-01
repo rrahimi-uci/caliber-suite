@@ -157,6 +157,14 @@ REFERENCE_CONNECTORS: Final[tuple[TrustedConnector, ...]] = (
 )
 
 
+#: The MCP stdio commands and remote hosts the reference profile allows an administrator to put on
+#: ``CALIBER_MCP_STDIO_COMMAND_ALLOWLIST`` / ``CALIBER_MCP_REMOTE_HOST_ALLOWLIST`` (B12.3b, #746). It is empty for the Beta
+#: (ADR 0001): an MCP stdio command or remote host is arbitrary code or an arbitrary endpoint, and the dispatcher admits an
+#: MCP *call* (``REFERENCE_CONNECTORS``, ``mcp``) but never a server, so no server is allowlisted until its exact contract
+#: is supported. Adding an entry here is an ADR change: the profile refuses every allowlist entry that is not listed.
+REFERENCE_MCP_ALLOWLIST: Final[tuple[str, ...]] = ()
+
+
 def reserved_connector_names() -> frozenset[str]:
     """Every name a trusted connector goes by (its backend kind and its connector id).
 
@@ -276,6 +284,13 @@ REFERENCE_REQUIREMENTS: tuple[Requirement, ...] = (
         "Plain-HTTP MCP servers send tool calls and results in the clear.",
     ),
     Requirement(
+        "mcp_allowlist_not_in_profile",
+        "mcp_stdio_command_allowlist, mcp_remote_host_allowlist",
+        "CALIBER_MCP_STDIO_COMMAND_ALLOWLIST, CALIBER_MCP_REMOTE_HOST_ALLOWLIST",
+        "empty (the profile lists no MCP command or host)",
+        "An allowlisted stdio command is arbitrary code on the CALIBER host and an allowlisted remote host is an endpoint nobody reviewed; the dispatcher admits an MCP call, never a server.",
+    ),
+    Requirement(
         "self_approval_allowed",
         "approval_allow_self_approval",
         "CALIBER_APPROVAL_ALLOW_SELF_APPROVAL",
@@ -313,6 +328,28 @@ def _violation(code: str, setting: str, value: str, env_var: str, safe: str) -> 
         env_var=env_var,
         message=f"{setting} is {value}; set {env_var}={safe} for the reference profile",
     )
+
+
+def _allowlist_entries(raw: str) -> list[str]:
+    """The entries of a comma-separated allowlist, stripped, without blanks (how ``mcp_policy`` reads one)."""
+    return [item.strip() for item in raw.split(",") if item.strip()]
+
+
+def _unlisted_mcp_allowlists(config: CaliberConfig) -> list[tuple[str, str]]:
+    """The MCP allowlists that hold an entry ``REFERENCE_MCP_ALLOWLIST`` does not list, as ``(setting, env var)``.
+
+    A command is compared as written; a host the way ``mcp_policy`` compares one, without regard to case.
+    """
+    listed = set(REFERENCE_MCP_ALLOWLIST)
+    listed_hosts = {entry.lower() for entry in REFERENCE_MCP_ALLOWLIST}
+    offending: list[tuple[str, str]] = []
+    if any(e not in listed for e in _allowlist_entries(config.mcp_stdio_command_allowlist)):
+        offending.append(("mcp_stdio_command_allowlist", "CALIBER_MCP_STDIO_COMMAND_ALLOWLIST"))
+    if any(
+        e.lower() not in listed_hosts for e in _allowlist_entries(config.mcp_remote_host_allowlist)
+    ):
+        offending.append(("mcp_remote_host_allowlist", "CALIBER_MCP_REMOTE_HOST_ALLOWLIST"))
+    return offending
 
 
 def reference_profile_violations(config: CaliberConfig) -> list[ProfileViolation]:
@@ -387,6 +424,22 @@ def reference_profile_violations(config: CaliberConfig) -> list[ProfileViolation
                 "true",
                 "CALIBER_MCP_ALLOW_INSECURE_HTTP",
                 "false",
+            )
+        )
+    offending = _unlisted_mcp_allowlists(config)
+    if offending:
+        # The entries are not quoted: the message names what to change, not what was configured.
+        settings = ", ".join(setting for setting, _ in offending)
+        env_vars = ", ".join(env_var for _, env_var in offending)
+        found.append(
+            ProfileViolation(
+                code="mcp_allowlist_not_in_profile",
+                setting=settings,
+                env_var=env_vars,
+                message=(
+                    f"{settings} lists an MCP command or host the reference profile does not allow "
+                    f"(it allows none); set {env_vars} to empty for the reference profile"
+                ),
             )
         )
     if config.approval_allow_self_approval:
