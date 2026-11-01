@@ -33,13 +33,21 @@ from caliber.budget.step_reservation import (
     settle_step_tokens,
 )
 from caliber.contracts.agent_step import StepLimits, StepUsage
-from caliber.db.models import CaliberStepTokenReservation
+from caliber.db.models import CaliberEffectProposal, CaliberStepTokenReservation
+from caliber.effects import step_proposal
 from caliber.ownership import acquire
 from caliber.workflows.agent_step import ScriptedStep, answer
 from caliber.workflows.runtime import FakeWorkflowExecutor, execute
 from tests.egi_scenarios.conftest import ReferenceApp, Workspaces
 from tests.egi_scenarios.test_v04_stale_approval import NODE, _waiting_run
-from tests.test_governed_agent_step import USAGE, Canaries, _plan, _request
+from tests.test_governed_agent_step import (
+    USAGE,
+    Canaries,
+    _plan,
+    _proposing,
+    _request,
+    _seed_registry,
+)
 
 CEILING = 20000
 WORKERS = 8
@@ -364,3 +372,160 @@ def test_two_workers_running_the_same_step_call_the_provider_once(
     assert len(rows) == 1 and (rows[0].state, rows[0].charged_tokens) == (SETTLED, 15)
     usage = run_token_usage(reference_app.session_factory, run_id)
     assert (usage.open_reservations, usage.final_reservations, usage.counted_tokens) == (0, 1, 15)
+
+
+# ------------------------------------------------------------------------------- resuming a crashed step (#1073)
+
+
+class _Dies(FakeWorkflowExecutor):
+    """An adapter whose process dies in the call (a simulated kill): a ``BaseException`` is not a result, so the reservation stays open.
+
+    The kill is simulated (``KeyboardInterrupt`` in ``run_step`` or in ``record_step_proposal``); the persisted database state is real.
+    """
+
+    def run_step(self, request: Any, step_input: Any) -> Any:
+        raise KeyboardInterrupt
+
+
+class _Counting(FakeWorkflowExecutor):
+    def __init__(self, calls: list[str], **kwargs: Any) -> None:
+        super().__init__(**kwargs)
+        self._calls = calls
+
+    def run_step(self, request: Any, step_input: Any) -> Any:
+        self._calls.append(f"{request.step_request_id}@{request.attempt}")
+        return super().run_step(request, step_input)
+
+
+def _attempts(app: ReferenceApp, run_id: str) -> list[tuple[int, str, int | None]]:
+    rows = sorted(_rows(app, run_id), key=lambda r: r.attempt)
+    return [(r.attempt, r.state, r.charged_tokens) for r in rows]
+
+
+def _effects(app: ReferenceApp) -> int:
+    with app.session_factory() as session:
+        return int(
+            session.execute(select(func.count()).select_from(CaliberEffectProposal)).scalar_one()
+        )
+
+
+def _execute(app: ReferenceApp, run_id: str, executor: Any) -> Any:
+    return execute(
+        _plan(app.session_factory, workflow_run_id=run_id),
+        "ask",
+        executor=executor,
+        extra_tools=Canaries().tools(),
+    )
+
+
+def test_a_simulated_kill_between_reserve_and_settle_is_resumed_without_double_spend(
+    reference_app: ReferenceApp, two_workspaces: Workspaces
+) -> None:
+    """The simulated-kill worker's reservation stays open and charged in full; the resume takes its own and the run's total adds up both."""
+    _postgres_only(reference_app)
+    run_id = _waiting_run(reference_app)
+    with pytest.raises(KeyboardInterrupt):
+        _execute(reference_app, run_id, _Dies())
+    assert _attempts(reference_app, run_id) == [(1, RESERVED, None)]
+
+    calls: list[str] = []
+    result = _execute(
+        reference_app,
+        run_id,
+        _Counting(calls, step_script=[ScriptedStep("completed", usage=USAGE)]),
+    )
+
+    assert result.status == "error" and RESERVATION_REPLAYED not in (result.error or ""), (
+        result.error
+    )
+    assert len(calls) == 1 and calls[0].endswith("@2"), "one provider call, for the resumed attempt"
+    assert _attempts(reference_app, run_id) == [(1, RESERVED, None), (2, SETTLED, 15)]
+    usage = run_token_usage(reference_app.session_factory, run_id)
+    assert (usage.open_reservations, usage.final_reservations) == (1, 1)
+    assert usage.counted_tokens == CEILING + 15, (
+        "the dead worker's ceiling and the resumed call's usage"
+    )
+    assert _counted(reference_app, run_id) == usage.counted_tokens
+
+
+def test_a_simulated_kill_after_settling_is_resumed_and_the_budget_sums_both_calls(
+    reference_app: ReferenceApp, two_workspaces: Workspaces, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The first call settled and the process died before its proposal was recorded: the resume is a second, charged call."""
+    _postgres_only(reference_app)
+    run_id = _waiting_run(reference_app)
+    _seed_registry(reference_app.session_factory)
+    real = step_proposal.record_step_proposal
+    died: list[bool] = []
+
+    def dies_once(*args: Any, **kwargs: Any) -> Any:
+        if not died:
+            died.append(True)
+            raise KeyboardInterrupt
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(step_proposal, "record_step_proposal", dies_once)
+    first_calls: list[str] = []
+    with pytest.raises(KeyboardInterrupt):
+        _execute(reference_app, run_id, _Counting(first_calls, step_script=[_proposing()]))
+    assert _attempts(reference_app, run_id) == [(1, SETTLED, 15)]
+    assert _effects(reference_app) == 0, "nothing was recorded before the crash"
+
+    calls: list[str] = []
+    result = _execute(reference_app, run_id, _Counting(calls, step_script=[_proposing()]))
+
+    assert result.status == "blocked", result.error
+    assert len(first_calls) == 1 and len(calls) == 1 and calls[0].endswith("@2")
+    assert _attempts(reference_app, run_id) == [(1, SETTLED, 15), (2, SETTLED, 15)]
+    assert _counted(reference_app, run_id) == 30
+    assert _effects(reference_app) == 1, "the downstream sees one proposed effect, not two"
+
+    third_calls: list[str] = []
+    again = _execute(reference_app, run_id, _Counting(third_calls, step_script=[_proposing()]))
+    assert again.status == "blocked", again.error
+    assert third_calls == [] and len(_attempts(reference_app, run_id)) == 2
+    assert _effects(reference_app) == 1
+
+
+def test_two_resumers_of_one_crashed_step_reserve_once_between_them(
+    reference_app: ReferenceApp, two_workspaces: Workspaces, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Both derive the same next attempt before either reserves it: the unique key lets one in and the other is refused as a replay."""
+    _postgres_only(reference_app)
+    run_id = _waiting_run(reference_app)
+    with pytest.raises(KeyboardInterrupt):
+        _execute(reference_app, run_id, _Dies())
+    derived: list[int] = []
+    real_next = step_reservation.next_attempt
+    real_reserve = step_reservation.reserve_step_tokens
+    arrived = threading.Barrier(2)
+
+    def record_derivation(*args: Any, **kwargs: Any) -> int:
+        attempt = real_next(*args, **kwargs)
+        derived.append(attempt)
+        return attempt
+
+    def both_arrive_first(*args: Any, **kwargs: Any) -> Any:
+        arrived.wait(30)
+        return real_reserve(*args, **kwargs)
+
+    monkeypatch.setattr(step_reservation, "next_attempt", record_derivation)
+    monkeypatch.setattr(step_reservation, "reserve_step_tokens", both_arrive_first)
+    calls: list[str] = []
+
+    def resumer() -> Any:
+        return _execute(
+            reference_app,
+            run_id,
+            _Counting(calls, step_script=[ScriptedStep("completed", usage=USAGE)]),
+        )
+
+    results = _in_threads(resumer, resumer)
+
+    assert all(not isinstance(r, BaseException) for r in results), results
+    assert derived == [2, 2], "both resumers derived the same attempt"
+    assert len(calls) == 1, "the provider was called by one resumer only"
+    replayed = [r for r in results if RESERVATION_REPLAYED in (r.error or "")]
+    assert len(replayed) == 1, "the other was refused before it reached the provider"
+    assert _attempts(reference_app, run_id) == [(1, RESERVED, None), (2, SETTLED, 15)]
+    assert _counted(reference_app, run_id) == CEILING + 15

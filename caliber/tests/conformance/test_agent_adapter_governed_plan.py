@@ -40,6 +40,7 @@ from tests.test_governed_agent_step import (
     LIMITS,
     PROTECTED,
     RESOURCE,
+    RUN,
     Canaries,
     _manifest,
     _plan,
@@ -186,23 +187,28 @@ def test_a_step_the_provider_or_the_adapter_could_not_account_for_is_charged_its
     assert (row.state, row.charged_tokens, row.charge_basis) == ("settled", CEILING, "conservative")
 
 
-def test_a_step_that_answers_without_proposing_is_settled_as_reported_and_its_replay_never_reaches_the_provider(
+def test_a_step_that_answers_without_proposing_is_settled_as_reported_and_its_resume_is_its_own_reservation(
     world: Any, subject: AdapterUnderTest
 ) -> None:
     script = (Reply(text="done", usage=ProviderUsage(100, 20)),)
     first, probe, _ = _run(world, subject, script)
     assert first.status == "error" and "without an output channel" in (first.error or "")
     (row,) = _rows(world)
-    assert (row.charged_tokens, row.charge_basis) == (120, "reported")
+    assert (row.attempt, row.charged_tokens, row.charge_basis) == (1, 120, "reported")
     assert probe.provider_calls == 1
 
-    again, replay_probe, canaries = _run(world, subject, script)
-    assert again.status == "error"
-    assert "reservation_replayed" in (again.error or ""), again.error
-    assert replay_probe.provider_calls == 0, "a replayed step reached the provider a second time"
+    # a re-execution of the run (a resume): the earlier call stays charged and the new call is the next attempt, under its own
+    # reservation (#1073); the provider is reached once for it and never twice under either reservation
+    again, resume_probe, canaries = _run(world, subject, script)
+    assert again.status == "error" and "without an output channel" in (again.error or ""), (
+        again.error
+    )
+    assert resume_probe.provider_calls == 1
     assert canaries.mutations == []
-    (kept,) = _rows(world)
-    assert kept.charged_tokens == 120, "the replay changed the charge"
+    kept, resumed = sorted(_rows(world), key=lambda r: r.attempt)
+    assert (kept.attempt, kept.charged_tokens) == (1, 120), "the resume changed the earlier charge"
+    assert (resumed.attempt, resumed.charged_tokens, resumed.charge_basis) == (2, 120, "reported")
+    assert run_token_usage(world, RUN).counted_tokens == 240
 
 
 def test_a_step_that_would_pass_the_runs_budget_is_refused_before_the_provider(
