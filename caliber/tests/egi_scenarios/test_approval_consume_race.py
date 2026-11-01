@@ -945,6 +945,7 @@ def test_a_decision_that_cannot_get_its_lock_is_a_retryable_503_and_decides_noth
     assert busy.status_code == 503, busy.text
     body = busy.json()
     assert body["reason_code"] == "approval_busy" and body["status_code"] == 503
+    assert busy.headers["Retry-After"] == "1"
     for secret in (approval_id, proposal_id, run_id, APPROVER_A):
         assert secret not in busy.text
     with approver.session_factory() as session:
@@ -987,6 +988,10 @@ def test_a_decision_that_is_a_deadlock_victim_is_a_retryable_503_and_decides_not
     before = _run_state(approver, run_id)
     deadlocks = _deadlocks(approver)
     with _holding_request_lock(approver, approval_id) as writer:
+        # The victim is the transaction whose deadlock check runs first. The decision starts waiting first and checks after
+        # the server's ``deadlock_timeout`` (1 s); the writer's own check is pushed out of reach for this transaction, so
+        # however loaded the machine is, the writer can never be picked as the victim.
+        writer.execute(text("SET LOCAL deadlock_timeout = '300s'"))
         decision = Worker(lambda: _decide(approver, run_id, approval_id, action=action))
         decision.start()
         deadline = time.monotonic() + 20
@@ -1006,6 +1011,7 @@ def test_a_decision_that_is_a_deadlock_victim_is_a_retryable_503_and_decides_not
     assert busy.status_code == 503, busy.text
     body = busy.json()
     assert body["reason_code"] == "approval_busy" and body["status_code"] == 503
+    assert busy.headers["Retry-After"] == "1"
     for secret in (approval_id, proposal_id, run_id, APPROVER_A):
         assert secret not in busy.text
     assert resolved < 60  # the deadlock detector, not the 120 s lock timeout
@@ -1041,6 +1047,7 @@ def test_a_busy_sqlite_database_is_a_retryable_503_and_a_decision_decides_nothin
     assert busy.status_code == 503, busy.text
     body = busy.json()
     assert body["reason_code"] == "approval_busy" and body["status_code"] == 503
+    assert busy.headers["Retry-After"] == "1"
     for secret in (approval_id, proposal_id, run_id, APPROVER_A):
         assert secret not in busy.text
     with approver.session_factory() as session:

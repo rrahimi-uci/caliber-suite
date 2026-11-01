@@ -2736,6 +2736,7 @@ def test_a_decision_session_maps_only_lock_contention_to_a_busy_503(error: str, 
             with routes._decision_session(lambda: session):
                 raise OperationalError("SELECT 1", {}, DriverError(error))
         assert (raised.value.status_code, raised.value.reason_code) == (503, "approval_busy")
+        assert raised.value.headers == {"Retry-After": "1"}
         assert session.rolled_back
     else:
         with pytest.raises(OperationalError):

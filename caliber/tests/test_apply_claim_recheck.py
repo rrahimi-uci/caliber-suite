@@ -880,6 +880,7 @@ def test_lock_contention_in_the_claim_is_a_payload_free_503_with_nothing_written
     assert response.status_code == 503
     assert response.json()["reason_code"] == APPLY_BUSY
     assert response.json()["detail"] == APPLY_RECHECK_DETAIL[APPLY_BUSY]
+    assert response.headers["Retry-After"] == "1"
     _assert_payload_free(response)
     assert _job_status(db_session) == "candidate_ready"
     assert job.app.state.promoter.calls == []  # type: ignore[attr-defined]

@@ -46,7 +46,7 @@ from caliber.routes._deps import (
     scoped_child_or_404,
 )
 from caliber.routes._errors import CaliberHTTPException
-from caliber.routes._job_access import LOCK_TIMEOUT_MS, is_lock_contention
+from caliber.routes._job_access import LOCK_TIMEOUT_MS, RETRY_AFTER_SECONDS, is_lock_contention
 from caliber.run_manifest import canonical_bytes, digest_of
 from caliber.schemas import (
     AdmissionManifestSchema,
@@ -1935,7 +1935,10 @@ def _approval_busy(session: Session) -> CaliberHTTPException:
     """Release what the aborted transaction held and answer the retryable, payload-free ``503``."""
     session.rollback()
     return CaliberHTTPException(
-        status_code=503, detail=_APPROVAL_BUSY_DETAIL, reason_code=APPROVAL_BUSY
+        status_code=503,
+        detail=_APPROVAL_BUSY_DETAIL,
+        reason_code=APPROVAL_BUSY,
+        headers={"Retry-After": RETRY_AFTER_SECONDS},
     )
 
 

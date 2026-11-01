@@ -60,6 +60,7 @@ from caliber.routes._errors import CaliberHTTPException
 from caliber.routes._job_access import (
     ACTION_APPLY,
     ACTION_REVIEW,
+    RETRY_AFTER_SECONDS,
     is_lock_contention,
     load_visible_job,
     lock_job_and_authority,
@@ -529,6 +530,7 @@ def _lock_contention_is_busy(session: Any) -> Iterator[None]:
             status_code=503,
             detail=APPLY_RECHECK_DETAIL[APPLY_BUSY],
             reason_code=APPLY_BUSY,
+            headers={"Retry-After": RETRY_AFTER_SECONDS},
         ) from None
 
 

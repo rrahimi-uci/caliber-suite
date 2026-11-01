@@ -2861,8 +2861,9 @@ agent, project, membership). The opposite order can deadlock against Apply: Post
 transactions with `DeadlockDetected` (SQLSTATE `40P01`), and either side can be the victim. When Apply is the victim it
 answers `503` `apply_busy` like a lock timeout (`is_lock_contention` recognises both), with nothing written; the other
 transaction, if it is yours, continues, so a writer that must not be retried should expect the deadlock error itself.
-An Apply that answers `500` is therefore not a lock problem: check the job's status before retrying, because an error after
-the claim committed can leave the job `applying` for the release reconciler.
+An Apply that answers `500` is not one of these lock cases (a serialization failure, SQLSTATE `40001`, is deliberately not
+mapped and also answers `500`): check the job's status before retrying, because an error after the claim committed can leave
+the job `applying` for the release reconciler. The busy `503`s (`apply_busy`, `approval_busy`) carry `Retry-After: 1`.
 
 #### SQLite and PostgreSQL
 

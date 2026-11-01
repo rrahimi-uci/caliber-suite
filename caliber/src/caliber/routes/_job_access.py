@@ -89,6 +89,9 @@ def load_visible_job(
 #: is held by a transaction that is about to commit (another claim, a membership or candidate edit), so a wait is short;
 #: a stuck one must not pin a request handler. Fixed, not a setting: it only bounds a wait, it never changes an outcome.
 LOCK_TIMEOUT_MS = 5000
+#: ``Retry-After`` (seconds) of the busy ``503`` answers (Apply, approval decisions): a lock is held by a transaction about to
+#: commit, so a retry after about a second is the right pace.
+RETRY_AFTER_SECONDS = "1"
 _LOCK_NOT_AVAILABLE = "55P03"
 _DEADLOCK_DETECTED = "40P01"
 #: The PostgreSQL errors that mean "another transaction held a lock we needed": the wait ran out, or the wait could never

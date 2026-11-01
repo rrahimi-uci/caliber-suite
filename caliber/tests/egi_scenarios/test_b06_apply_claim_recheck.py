@@ -386,6 +386,10 @@ def test_a_reverse_order_deadlock_is_a_retryable_payload_free_503_and_decides_no
     monkeypatch.setattr(job_access, "LOCK_TIMEOUT_MS", 120_000)
     before = _deadlocks(reference_app)
     with reference_app.session_factory() as writer:
+        # The victim is the transaction whose deadlock check runs first. Apply starts waiting first and checks after the
+        # server's ``deadlock_timeout`` (1 s); the writer's own check is pushed out of reach for this transaction, so
+        # however loaded the machine is, the writer can never be picked as the victim.
+        writer.execute(text("SET LOCAL deadlock_timeout = '300s'"))
         writer.execute(
             update(CaliberProjectMember)
             .where(CaliberProjectMember.member_id == MEMBER_ID)
@@ -409,6 +413,7 @@ def test_a_reverse_order_deadlock_is_a_retryable_payload_free_503_and_decides_no
     response = apply.result()
     assert response.status_code == 503, response.text
     assert response.json()["reason_code"] == APPLY_BUSY
+    assert response.headers["Retry-After"] == "1"
     assert "RFN-B066" not in response.text and "sha256:" not in response.text
     assert resolved < 60  # the deadlock detector (about 1 s), not the 120 s lock timeout
     deadline = time.monotonic() + WAIT_SECONDS
@@ -439,6 +444,7 @@ def test_a_busy_sqlite_database_is_a_retryable_payload_free_503_and_decides_noth
         response = _apply(reference_app, EDITOR_B, "RFN-B066-BUSY")
     assert response.status_code == 503, response.text
     assert response.json()["reason_code"] == APPLY_BUSY
+    assert response.headers["Retry-After"] == "1"
     assert "RFN-B066" not in response.text and "sha256:" not in response.text
     assert _state(reference_app, "RFN-B066-BUSY") == ("candidate_ready", 0)
     assert _promotions(reference_app) == 0

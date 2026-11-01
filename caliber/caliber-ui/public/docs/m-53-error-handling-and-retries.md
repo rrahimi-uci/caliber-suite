@@ -53,7 +53,9 @@ on SQLite it is the write lock held past the 30 second busy timeout. The SDK doe
 `caliber.jobs.apply(...)` raises `CaliberServerError` with `reason_code == "apply_busy"`
 and the caller waits and calls again. The other codes need a person to act (a different
 account, a restored grant, another evaluation pass). A `500` from Apply carries no code
-and is not a lock problem: read the job's status before calling again. The table of codes, the recovery for each and an SDK example are in
+and is not one of these lock cases (a serialization failure, `40001`, is deliberately not mapped
+and also answers `500`): read the job's status before calling again. The `503` carries
+`Retry-After: 1`. The table of codes, the recovery for each and an SDK example are in
 [Apply: refusal catalogue, audit and recovery](m-64-reference-profile.md#apply-refusal-catalogue-audit-and-recovery-b065-762).
 
 ## 2. Use waiters for long-running operations
