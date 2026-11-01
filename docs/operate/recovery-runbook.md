@@ -217,13 +217,14 @@ what depends on them, are `dispatched`, `unknown` and `reconciled`.
 
 **How an unknown effect gets settled.** Only the owner's reconciler asks, by the original logical key, through the
 connector's own lookup, at the `base_url` of the `CALIBER_EFFECT_CALLBACK_CONNECTORS` binding for that connector and
-project. What comes back:
+project (for the generic `http` connector, at the `lookup_url` the operator listed for the effect's exact URL in
+`CALIBER_EFFECT_HTTP_VERIFIERS`). What comes back:
 
 | The downstream says | Result |
 | --- | --- |
 | a stored request that is this proposal's effect | verified receipt, `committed` |
 | 404 from a connector that proves absence final | `failed` (`absence_proven`) |
-| 404 from any other connector (document-request included) | still `unknown`: **delayed visibility** or a request still in flight |
+| 404 from any other connector (document-request and `http` included) | still `unknown`: **delayed visibility** or a request still in flight |
 | 5xx, 401 or any other status | still `unknown` (detail `http_<code>`) |
 | a 2xx whose body is not this proposal's effect (unreadable, or another request under the key) | still `unknown`, reported `unverified` |
 | cannot be reached, or no binding for the connector and project | still `unknown` (`lookup_failed`, `not_bound`) |
@@ -281,10 +282,27 @@ and `failed` only when the connector proves absence final; marking it failed on 
 on it while the effect may in fact have happened (the legacy ledger's `resolve` does take your word, a proposal never does).
 What that means in practice: a downstream that cannot yet show the request (a 404 is delayed visibility as far as anyone can
 tell) leaves the proposal `unknown` and its dependents blocked, and every later pass and `reconcile` asks again until the
-downstream shows it, or its owner redelivers the receipt callback. A connector with no lookup by key bound for the project
-(`not_bound`, which is every `http` connector proposal today: a generic webhook or API request has no read-by-key contract)
+downstream shows it, or its owner redelivers the receipt callback. A proposal with no lookup bound for the project
+(`not_bound`: a connector with no lookup by key, or an `http` effect whose URL is no longer listed in `CALIBER_EFFECT_HTTP_VERIFIERS`)
 cannot be settled by the platform at all; confirm what happened with the downstream's owner, keep that evidence with the
-incident, leave the row and its parked run as they are, and escalate: the follow-up is a connector with a lookup, not an override.
+incident, leave the row and its parked run as they are, and escalate: the follow-ups are a lookup for the connector, or the attested
+operator resolution (#1054, not built yet), not an override.
+
+### An `http` effect that ended `unknown` (#1055)
+
+A governed webhook or API-request node is sent only to a URL the operator listed in `CALIBER_EFFECT_HTTP_VERIFIERS`, so every such
+proposal has a lookup by key and the reconciler settles it without sending again.
+
+| You see | Do |
+| --- | --- |
+| the run `failed` with `HTTP effect did not commit: ambiguous:...` or `receipt_unverified`, the proposal `unknown` | Nothing by hand. The loop asks the listed `lookup_url` by the proposal's `logical_key` every pass; the proposal becomes `committed` (with a receipt) when the downstream shows the request. **Do not run the workflow again until it has settled**: a new run is a new effect with a new key, and the downstream may already hold the first |
+| the proposal `unknown` for hours, `reconcile` answers `unknown` with detail `http_404` | The downstream does not show the request: either it never arrived or its lookup is behind. Ask its owner by the `logical_key`; a late request still commits on the next pass. Nothing marks it failed on your word |
+| `reconcile` answers `not_bound` | The effect's URL is not (or no longer) listed for the project. Restore the entry in `CALIBER_EFFECT_HTTP_VERIFIERS` (the URL must match the proposal's `resource` exactly) and restart; then ask again |
+| `reconcile` answers `lookup_failed` | The lookup could not be made (down, refused by the egress policy, a timeout). Fix reachability; nothing changed |
+| `reconcile` answers `unverified` | The lookup answered, but the stored request is not this effect (another key, URL, method or body). Treat as an incident with the downstream's owner |
+
+The failed run is **not** resumed by a settlement. A settled effect is exactly one effect (the downstream counted one mutation); whether to
+run the workflow again is a business decision made with the proposal in hand.
 
 **What is never safe.** Re-sending the request; creating the same effect from a new run; editing the proposal row;
 deleting it; moving it with SQL. There is no operator action that fails an `unknown` proposal without the downstream's

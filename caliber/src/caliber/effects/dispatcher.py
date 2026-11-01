@@ -51,6 +51,7 @@ from caliber.effects.connectors import (
     classify_result,
 )
 from caliber.effects.connectors import document_request as _document_request
+from caliber.effects.connectors import http_lookup as _http_lookup
 from caliber.effects.connectors import mcp_tool as _mcp_tool
 from caliber.effects.connectors import openapi_http as _openapi_http
 from caliber.effects.inventory import EFFECT_CLASSES, effect_class, tool_disposition
@@ -98,27 +99,14 @@ logger = logging.getLogger("caliber.effects.dispatcher")
 _CASE_RESOURCE = re.compile(
     r"^cases/(?P<case_id>[A-Za-z0-9][A-Za-z0-9._-]{0,127})/document-requests$"
 )
-HTTP_CONNECTOR = "http"
-HTTP_VERSION = "1"
-# Generic HTTP has no platform-wide promise about key scope, retention, or a
-# read-by-key endpoint.  The runtime may still dispatch it, but the caller must
-# provide an authoritative receipt verifier for each endpoint.  This capability
-# deliberately cannot claim exactly-once semantics on its own.
-HTTP_CAPABILITY = ConnectorCapability(
-    connector=HTTP_CONNECTOR,
-    version=HTTP_VERSION,
-    idempotency_key_header="Idempotency-Key",
-    key_scope="unknown",
-    key_retention="unconfirmed",
-    key_retention_seconds=None,
-    key_conflict_status=None,
-    precondition_header=None,
-    stale_precondition_status=None,
-    definitive_rejection_statuses=frozenset(),
-    lookup_by_key=False,
-    lookup_consistency="unknown",
-    absence_proves_noncommit=False,
-)
+HTTP_CONNECTOR = _http_lookup.CONNECTOR
+HTTP_VERSION = _http_lookup.VERSION
+# Generic HTTP has no platform-wide promise about key scope or retention.  The runtime may still dispatch it, but only to an
+# endpoint whose operator listed a read-by-key lookup (``CALIBER_EFFECT_HTTP_VERIFIERS``, the contract in
+# ``caliber.effects.connectors.http_lookup``): the caller provides the authoritative receipt verifier for that endpoint, and the
+# reconciler asks the same lookup about an outcome that ended unknown (#1055).  This capability deliberately cannot claim
+# exactly-once semantics on its own, and a lookup that finds nothing proves nothing.
+HTTP_CAPABILITY = _http_lookup.CAPABILITY
 
 
 class EffectRefused(RuntimeError):  # noqa: N818 - stable public refusal name in the issue contract
@@ -291,7 +279,18 @@ class _HttpBackend:
         if not isinstance(headers, Mapping):
             raise _TransportRefusedError("connector_intent_unsupported")
         outgoing["headers"] = {str(key): str(value) for key, value in headers.items()}
-        outgoing["headers"].setdefault("Idempotency-Key", request.view.logical_key)
+        # The key is the platform's: the lookup that settles this effect asks by the logical key, so a workflow-supplied key that
+        # is any other value (in any header-name case) would commit downstream under a key nobody can ask about. It is refused
+        # before anything is sent, never replaced and never sent twice.
+        carried = [
+            value
+            for name, value in outgoing["headers"].items()
+            if name.casefold() == _http_lookup.KEY_HEADER.casefold()
+        ]
+        if any(value != request.view.logical_key for value in carried) or len(carried) > 1:
+            raise _TransportRefusedError("connector_intent_unsupported")
+        if not carried:
+            outgoing["headers"][_http_lookup.KEY_HEADER] = request.view.logical_key
         try:
             result = sender(outgoing)
         except Exception as exc:
@@ -508,10 +507,13 @@ DOCUMENT_REQUEST_CONFIGURATION: Mapping[str, Any] = {
     "lookup": _document_request.lookup_config("<downstream>"),
     "resource": _CASE_RESOURCE.pattern,
 }
-#: The generic HTTP transport has no fixed destination; what it sends with is the key header and the two callables
-#: the caller must supply (a sender and an authoritative receipt verifier).
+#: The generic HTTP transport has no fixed destination; what it sends with is the key header (the platform's, a different
+#: caller-supplied value is refused) and the two callables the caller must supply (a sender and an authoritative receipt
+#: verifier, which reads back by key at an endpoint the operator listed: ``caliber.effects.connectors.http_lookup``).
 HTTP_CONFIGURATION: Mapping[str, Any] = {
     "idempotency_key_header": HTTP_CAPABILITY.idempotency_key_header,
+    "idempotency_key": "the proposal's logical key; a different caller-supplied value is refused",
+    "lookup": "GET <operator-listed lookup url>?idempotency_key=<key>, read by the platform",
     "receipt_verifier": "required",
     "sender": "required",
 }

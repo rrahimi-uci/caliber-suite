@@ -95,7 +95,7 @@ from caliber.effects.receipts import RECEIPT_STATE, ReceiptFacts
 from caliber.effects.reconcile import (
     ask_downstream,
     commit_found,
-    targets_from_bindings,
+    targets_from_config,
     wake_parked_runs,
 )
 from caliber.effects.records import (
@@ -359,7 +359,7 @@ async def reconcile_effect_proposal(request: Request) -> JSONResponse:
             actor=actor,
             reason=reason,
             lease=lease,
-            targets=targets_from_bindings(parse_bindings(config.effect_callback_connectors)),
+            targets=targets_from_config(config),
             in_flight_seconds=config.effect_in_flight_max_seconds,
             lookup=ask_downstream,
         )

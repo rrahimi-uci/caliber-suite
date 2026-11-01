@@ -1030,6 +1030,18 @@ def _runtime_groups(config: CaliberConfig) -> list[dict[str, Any]]:
                     formatter=lambda value: f"{len(json.loads(str(value)))} connector binding(s)",
                     sensitive=True,
                 ),
+                _setting(
+                    config,
+                    key="effect_http_verifiers",
+                    env_var="CALIBER_EFFECT_HTTP_VERIFIERS",
+                    label="HTTP effect verifiers",
+                    description=(
+                        "Endpoints whose webhook and API-request effects the platform can read back by idempotency key "
+                        "(lookup URLs are not shown)."
+                    ),
+                    formatter=lambda value: f"{len(json.loads(str(value)))} verified endpoint(s)",
+                    sensitive=True,
+                ),
             ],
         ),
         _group(
