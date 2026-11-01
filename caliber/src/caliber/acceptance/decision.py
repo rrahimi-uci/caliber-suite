@@ -180,9 +180,8 @@ def judge(predicates: Sequence[Predicate], observations: Mapping[str, Any]) -> V
     (``invalid_observations``: not a mapping, not JSON-shaped, too deep, text that is not Unicode) give a rejected verdict
     with no criteria. Any other :class:`PredicateError` (a bad predicate set, a predicate that raises) propagates.
     """
-    items = check_predicate_set(
-        predicates
-    )  # a contract error is never a verdict, even for unreadable observations
+    # A contract error is never a verdict, even for unreadable observations.
+    items = check_predicate_set(predicates)
     version = items[0].criteria_version
     try:
         frozen = (
