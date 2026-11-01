@@ -26,6 +26,7 @@ protect there, and the caller's global-scope check still applies.
 
 from __future__ import annotations
 
+import sqlite3
 from typing import Any
 
 from sqlalchemy import Select, or_, select, text
@@ -88,15 +89,47 @@ def load_visible_job(
 #: is held by a transaction that is about to commit (another claim, a membership or candidate edit), so a wait is short;
 #: a stuck one must not pin a request handler. Fixed, not a setting: it only bounds a wait, it never changes an outcome.
 LOCK_TIMEOUT_MS = 5000
+#: ``Retry-After`` (seconds) of the busy ``503`` answers (Apply, approval decisions): a lock is held by a transaction about to
+#: commit, so a retry after about a second is the right pace.
+RETRY_AFTER_SECONDS = "1"
 _LOCK_NOT_AVAILABLE = "55P03"
+_DEADLOCK_DETECTED = "40P01"
+#: The PostgreSQL errors that mean "another transaction held a lock we needed": the wait ran out, or the wait could never
+#: end because two transactions took the same rows in opposite orders and the server aborted this one as the victim.
+_LOCK_CONTENTION_SQLSTATES = frozenset({_LOCK_NOT_AVAILABLE, _DEADLOCK_DETECTED})
+#: SQLite's result codes for "the database file (or a table of it) is locked by another connection": ``SQLITE_BUSY`` and
+#: ``SQLITE_LOCKED``, compared on the primary code because extended codes such as ``SQLITE_BUSY_SNAPSHOT`` share it.
+_SQLITE_BUSY_CODES = frozenset({5, 6})
+_SQLITE_BUSY_MESSAGES = ("database is locked", "database table is locked")
 
 
-def is_lock_timeout(exc: BaseException) -> bool:
-    """Whether ``exc`` is PostgreSQL's ``lock_not_available`` (SQLSTATE 55P03), what ``lock_timeout`` raises."""
+def is_lock_contention(exc: BaseException) -> bool:
+    """Whether ``exc`` is the database saying another transaction held a lock this one needed (B06 follow-up, #1066).
+
+    That is the one failure the claim and the approval decision turn into a retryable ``503``: nothing was decided, the
+    aborted transaction wrote nothing, and trying again is safe. Three cases, each an ``OperationalError``:
+
+    * PostgreSQL ``lock_not_available`` (SQLSTATE ``55P03``): a row-lock wait outlasted ``lock_timeout``;
+    * PostgreSQL ``deadlock_detected`` (SQLSTATE ``40P01``): two transactions took the same rows in opposite orders and the
+      server aborted this one (either side can be the victim);
+    * SQLite ``database is locked`` (``SQLITE_BUSY`` / ``SQLITE_LOCKED``): another connection held the write lock for the
+      whole busy timeout (30 s, :func:`caliber.db.session.create_engine_from_config`).
+
+    Anything else (a serialization failure, a connection loss, a syntax error) is not contention and is not mapped.
+    """
     if not isinstance(exc, OperationalError):
         return False
     orig = exc.orig
-    return (getattr(orig, "sqlstate", None) or getattr(orig, "pgcode", None)) == _LOCK_NOT_AVAILABLE
+    if (
+        getattr(orig, "sqlstate", None) or getattr(orig, "pgcode", None)
+    ) in _LOCK_CONTENTION_SQLSTATES:
+        return True
+    if isinstance(orig, sqlite3.OperationalError):
+        code = getattr(orig, "sqlite_errorcode", None)
+        if isinstance(code, int):
+            return (code & 0xFF) in _SQLITE_BUSY_CODES
+        return any(message in str(orig).lower() for message in _SQLITE_BUSY_MESSAGES)
+    return False
 
 
 def lock_job_and_authority(
@@ -113,8 +146,9 @@ def lock_job_and_authority(
     Locks are taken in a fixed order: the job (``FOR UPDATE``), its agent, the agent's project, then the caller's
     membership row in that project (each ``FOR SHARE``, so concurrent applies do not serialise on them while any writer of
     those rows does). SQLite has no row locks and ignores the clause; its single-writer file lock is the equivalent.
-    On PostgreSQL the waits are bounded by :data:`LOCK_TIMEOUT_MS`; a wait that runs out raises ``OperationalError``
-    (:func:`is_lock_timeout`), which the caller maps to a retryable refusal.
+    On PostgreSQL the waits are bounded by :data:`LOCK_TIMEOUT_MS`; a wait that runs out, or a deadlock with a writer that
+    takes these rows in another order, raises ``OperationalError`` (:func:`is_lock_contention`), which the caller maps to a
+    retryable refusal.
     Every statement refreshes the identity map first, otherwise ``session.get`` in :func:`load_visible_job` would answer
     from objects loaded before the lock.
     """

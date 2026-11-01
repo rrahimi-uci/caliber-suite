@@ -12,10 +12,12 @@ from __future__ import annotations
 
 import os
 import signal
+import sqlite3
 import subprocess
 import sys
 import time
 from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import IO, Any
@@ -23,6 +25,7 @@ from typing import IO, Any
 import httpx
 import pytest
 from alembic import command
+from sqlalchemy import event
 from sqlalchemy.orm import Session, sessionmaker
 from starlette.testclient import TestClient
 
@@ -264,6 +267,35 @@ def reference_app(
                 session_factory=app.state.session_factory,
                 proxy_headers={"X-CALIBER-Proxy-Secret": PROXY_SECRET},
             )
+
+
+@contextmanager
+def holding_sqlite_write_lock(app: ReferenceApp, *, busy_ms: int = 150) -> Iterator[None]:
+    """Hold SQLite's one write lock on the app's database from a second connection, with the app's busy timeout shortened.
+
+    The app's engine waits 30 s for the lock (``create_engine_from_config``); here its new connections wait ``busy_ms``, so a
+    request that needs to write while the lock is held fails fast with ``database is locked``, which is exactly what a
+    held lock does after 30 s. The lock is released, and the timeout restored, when the block ends.
+    """
+    assert app.dialect == "sqlite"
+    engine = app.session_factory.kw["bind"]
+
+    def shorten(dbapi_connection: Any, _record: Any) -> None:
+        dbapi_connection.execute(f"PRAGMA busy_timeout = {int(busy_ms)}")
+
+    event.listen(engine, "connect", shorten)
+    engine.dispose()  # connections made from here on carry the short timeout
+    holder = sqlite3.connect(app.database_url.removeprefix("sqlite:///"), isolation_level=None)
+    try:
+        holder.execute(
+            "BEGIN IMMEDIATE"
+        )  # the RESERVED lock: readers go on, any other writer is told the file is locked
+        yield
+    finally:
+        holder.execute("ROLLBACK")
+        holder.close()
+        event.remove(engine, "connect", shorten)
+        engine.dispose()
 
 
 @dataclass(frozen=True)

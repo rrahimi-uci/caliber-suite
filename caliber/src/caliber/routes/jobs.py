@@ -8,7 +8,8 @@ Read-only for now: jobs are created by the verify endpoint
 from __future__ import annotations
 
 import logging
-from collections.abc import Sequence
+from collections.abc import Iterator, Sequence
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from typing import Any, Final, NoReturn
 
@@ -59,7 +60,8 @@ from caliber.routes._errors import CaliberHTTPException
 from caliber.routes._job_access import (
     ACTION_APPLY,
     ACTION_REVIEW,
-    is_lock_timeout,
+    RETRY_AFTER_SECONDS,
+    is_lock_contention,
     load_visible_job,
     lock_job_and_authority,
     scope_jobs_to_visible_agents,
@@ -506,6 +508,32 @@ def _with_distinct_requester(statement: Any, actor: str, *, dialect: str) -> Any
     )
 
 
+@contextmanager
+def _lock_contention_is_busy(session: Any) -> Iterator[None]:
+    """Turn lock contention anywhere in the Apply claim into the retryable, payload-free ``503`` ``apply_busy`` (#1066).
+
+    Wraps the whole claim transaction, from the row locks to the commit of the claim and its approval anchor: a PostgreSQL
+    lock wait that outlasts the lock timeout (``55P03``), a reverse-order deadlock in which the server picked this
+    transaction as the victim (``40P01``), and on SQLite the busy timeout (``database is locked``) that surfaces at the claim
+    ``UPDATE`` or the commit, because SQLite has no row locks to wait on earlier. None of them has decided anything: the
+    aborted transaction is rolled back (releasing what it held), the job keeps its status, no approval anchor, promotion or
+    audit row exists (a refusal is evidence of a decision, and none was made), and the client may retry. Any other database
+    error propagates unchanged. The promoter and its compensation run after the claim, outside this block.
+    """
+    try:
+        yield
+    except OperationalError as exc:
+        if not is_lock_contention(exc):
+            raise
+        session.rollback()
+        raise CaliberHTTPException(
+            status_code=503,
+            detail=APPLY_RECHECK_DETAIL[APPLY_BUSY],
+            reason_code=APPLY_BUSY,
+            headers={"Retry-After": RETRY_AFTER_SECONDS},
+        ) from None
+
+
 def _refuse_apply(
     session: Any, *, job_id: str, actor: str, status_code: int, reason_code: str, detail: str
 ) -> NoReturn:
@@ -558,7 +586,8 @@ def _recheck_claim(
     Run inside the claim transaction, so the rows read here cannot change before the claim commits (see
     :func:`~caliber.routes._job_access.lock_job_and_authority`). Raises, in this order and before anything is written:
 
-    0. ``503`` :data:`~caliber.apply.APPLY_BUSY` when, on PostgreSQL, a row lock is not granted within the lock timeout;
+    0. ``503`` :data:`~caliber.apply.APPLY_BUSY` when a lock is not granted in time or the transaction is chosen as a
+       deadlock victim (see :func:`_lock_contention_is_busy`, which :func:`apply_job` wraps around this and the claim);
     1. ``404`` when the job no longer exists;
     2. ``403`` :data:`~caliber.apply.APPLY_PERMISSION_REVOKED` when the caller no longer holds ``release.apply`` on the
        job's project or can no longer see the job (the request-start check is not trusted);
@@ -569,18 +598,7 @@ def _recheck_claim(
 
     Returns the locked job, which the caller then claims with a conditional UPDATE.
     """
-    try:
-        locked = lock_job_and_authority(session, job_id, user_id=identity.user_id)
-    except OperationalError as exc:
-        if not is_lock_timeout(exc):
-            raise
-        # Nothing was decided and nothing was written: release what the aborted transaction held and say so.
-        session.rollback()
-        raise CaliberHTTPException(
-            status_code=503,
-            detail=APPLY_RECHECK_DETAIL[APPLY_BUSY],
-            reason_code=APPLY_BUSY,
-        ) from None
+    locked = lock_job_and_authority(session, job_id, user_id=identity.user_id)
     if locked is None:
         raise HTTPException(status_code=404, detail=f"refinement job {job_id!r} not found")
     try:
@@ -710,73 +728,74 @@ async def apply_job(request: Request) -> JSONResponse:
         # anchor are committed *before* the promoter runs (see below), so a racing request observes
         # rowcount=0 (or waits for this commit and sees ``applying``) before any provider effect, and
         # the write lock is never held across the provider call.
-        locked = _recheck_claim(
-            session,
-            identity=identity,
-            actor=actor,
-            job_id=job_id,
-            require_distinct=require_distinct,
-        )
-        evaluated_digest = locked.candidate_digest
-        claim_statement = (
-            update(CaliberRefinementJob)
-            .where(CaliberRefinementJob.job_id == job_id)
-            .where(CaliberRefinementJob.status == "candidate_ready")
-            .where(CaliberRefinementJob.candidate_digest == evaluated_digest)
-        )
-        if require_distinct:
-            claim_statement = _with_distinct_requester(
-                claim_statement, actor, dialect=session.get_bind().dialect.name
-            )
-        claim = session.execute(claim_statement.values(status="applying"))
-        if int(getattr(claim, "rowcount", 0) or 0) != 1:
-            # The locked read passed but the conditional write matched nothing: the row changed in the
-            # gap SQLite leaves open. Recheck for the precise refusal; if it somehow passes, still refuse.
-            _recheck_claim(
+        with _lock_contention_is_busy(session):
+            locked = _recheck_claim(
                 session,
                 identity=identity,
                 actor=actor,
                 job_id=job_id,
                 require_distinct=require_distinct,
             )
-            raise HTTPException(
-                status_code=409,
-                detail=f"job {job_id!r} cannot be applied: it changed while being claimed",
+            evaluated_digest = locked.candidate_digest
+            claim_statement = (
+                update(CaliberRefinementJob)
+                .where(CaliberRefinementJob.job_id == job_id)
+                .where(CaliberRefinementJob.status == "candidate_ready")
+                .where(CaliberRefinementJob.candidate_digest == evaluated_digest)
             )
-        candidate_snapshot = _verified_claim_snapshot(
-            session,
-            identity=identity,
-            actor=actor,
-            job_id=job_id,
-            evaluated_digest=evaluated_digest,
-        )
-        job = session.get(CaliberRefinementJob, job_id)
-        assert job is not None
+            if require_distinct:
+                claim_statement = _with_distinct_requester(
+                    claim_statement, actor, dialect=session.get_bind().dialect.name
+                )
+            claim = session.execute(claim_statement.values(status="applying"))
+            if int(getattr(claim, "rowcount", 0) or 0) != 1:
+                # The locked read passed but the conditional write matched nothing: the row changed in the
+                # gap SQLite leaves open. Recheck for the precise refusal; if it somehow passes, still refuse.
+                _recheck_claim(
+                    session,
+                    identity=identity,
+                    actor=actor,
+                    job_id=job_id,
+                    require_distinct=require_distinct,
+                )
+                raise HTTPException(
+                    status_code=409,
+                    detail=f"job {job_id!r} cannot be applied: it changed while being claimed",
+                )
+            candidate_snapshot = _verified_claim_snapshot(
+                session,
+                identity=identity,
+                actor=actor,
+                job_id=job_id,
+                evaluated_digest=evaluated_digest,
+            )
+            job = session.get(CaliberRefinementJob, job_id)
+            assert job is not None
 
-        now = datetime.now(timezone.utc)
-        approval = CaliberApprovalRequest(
-            approval_id=new_approval_id(),
-            job_id=job.job_id,
-            agent_id=job.agent_id,
-            status="approved",
-            attempt_number=job.attempt_count or 1,
-            eval_results=job.eval_results,
-            candidate_snapshot=candidate_snapshot,
-            diagnosis_snapshot=dict(job.diagnosis) if job.diagnosis else None,
-            approved_by=actor,
-            approved_at=now,
-        )
-        session.add(approval)
-        # Intent first: commit the claim and the approval anchor before any
-        # provider call. Previously they stayed in one open write transaction
-        # across ``apply_candidate``, and MLflow registers the new prompt
-        # version through its own engine. On a SQLite file shared by CALIBER and
-        # MLflow that engine waited on this request's own write lock until its
-        # busy timeout expired, so Apply failed every time (alpha gap P0-2).
-        # The cost is that a failure must now compensate explicitly instead of
-        # relying on rollback; see ``_revert_unstarted_apply``.
-        session.commit()
-        approval_id = approval.approval_id
+            now = datetime.now(timezone.utc)
+            approval = CaliberApprovalRequest(
+                approval_id=new_approval_id(),
+                job_id=job.job_id,
+                agent_id=job.agent_id,
+                status="approved",
+                attempt_number=job.attempt_count or 1,
+                eval_results=job.eval_results,
+                candidate_snapshot=candidate_snapshot,
+                diagnosis_snapshot=dict(job.diagnosis) if job.diagnosis else None,
+                approved_by=actor,
+                approved_at=now,
+            )
+            session.add(approval)
+            # Intent first: commit the claim and the approval anchor before any
+            # provider call. Previously they stayed in one open write transaction
+            # across ``apply_candidate``, and MLflow registers the new prompt
+            # version through its own engine. On a SQLite file shared by CALIBER and
+            # MLflow that engine waited on this request's own write lock until its
+            # busy timeout expired, so Apply failed every time (alpha gap P0-2).
+            # The cost is that a failure must now compensate explicitly instead of
+            # relying on rollback; see ``_revert_unstarted_apply``.
+            session.commit()
+            approval_id = approval.approval_id
 
         # A ``fake`` promoter (explicitly opted into) records a promotion without
         # touching the registry. Say so in the audit rows and the response so a

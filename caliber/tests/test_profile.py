@@ -47,6 +47,7 @@ from caliber.profile import (
     REFERENCE_CONNECTORS,
     ProfileViolation,
     apply_distinct_approver_required,
+    openapi_draft_preview_read_only,
     reference_profile_violations,
 )
 from caliber.server import create_app
@@ -215,6 +216,22 @@ def test_apply_distinct_approver_required_matrix(profile: str, flag: bool, requi
 
 def test_apply_distinct_approver_required_is_closed_without_a_config() -> None:
     assert apply_distinct_approver_required(None) is True
+
+
+@pytest.mark.parametrize(
+    ("profile", "read_only"),
+    [("reference", True), ("development", False), ("", False)],
+)
+def test_the_draft_preview_is_read_only_in_the_reference_profile_only(
+    profile: str, read_only: bool
+) -> None:
+    """#1072: the reference profile previews only a read; any other profile keeps the exempt any-method preview."""
+    assert openapi_draft_preview_read_only(SimpleNamespace(profile=profile)) is read_only
+
+
+def test_the_draft_preview_is_read_only_without_a_config() -> None:
+    """With nothing to say the profile is not the development one: the cautious answer is read-only."""
+    assert openapi_draft_preview_read_only(None) is True
 
 
 def test_a_truthy_non_boolean_flag_does_not_switch_the_rule_on() -> None:
