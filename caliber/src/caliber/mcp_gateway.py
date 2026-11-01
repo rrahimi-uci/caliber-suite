@@ -290,13 +290,18 @@ def discover_tools_sync(
 
 
 def _require_inline(server: McpServerConfig, tool_name: str) -> None:
-    """Refuse a protected call that reaches the synchronous gateway without a proposal (B04.5, #759).
+    """Refuse a protected call that reaches the synchronous gateway without a proposal, under the reference profile (B04.5, #759).
 
     The classification is the **trusted** one (:func:`caliber.effects.mcp_tools.route_mcp_tool`): the server record, the
-    administrator's tool policy and the protected-effect inventory, never what the server reports about its tools. Only a
-    ``read``-class tool runs here. A tool whose policy gate refuses it falls through, so the transport raises the same
-    configuration error it always has; every other tool is an ``EffectRefused``, because the one way a protected MCP call
-    reaches a server is the dispatcher's ``mcp`` backend (:func:`invoke_tool_raw_sync`).
+    administrator's tool policy and the protected-effect inventory, never what the server reports about its tools. Under
+    ``CALIBER_PROFILE=reference`` only a ``read``-class tool runs here: every other tool is an ``EffectRefused``, because the one
+    way a protected MCP call reaches a server is the dispatcher's ``mcp`` backend (:func:`invoke_tool_raw_sync`), and a first-party
+    database write tool is ``unsupported_effect_path`` (EP-114). A tool whose policy gate refuses it falls through, so the
+    transport raises the same configuration error it always has.
+
+    Under the development profile this guard lets a protected call through, exactly as before the dispatcher (#1068): that
+    inline call has no proposal, exact-intent approval, lease or receipt, and is **not** the governed path. The runtime still
+    proposes the call whenever an authority is bound.
     """
     from caliber.effects.dispatcher import EffectRefused, UnsupportedEffectPath  # noqa: PLC0415
     from caliber.effects.mcp_tools import DISPATCH, INLINE, REFUSE, route_mcp_tool  # noqa: PLC0415
@@ -305,6 +310,8 @@ def _require_inline(server: McpServerConfig, tool_name: str) -> None:
     if route.route == INLINE or (route.route == REFUSE and route.policy_refused):
         return
     if route.route == DISPATCH:
+        if not route.reference_profile:
+            return
         raise EffectRefused("mcp_effect_requires_proposal")
     raise UnsupportedEffectPath(route.code or "unsupported_effect_path")
 
@@ -340,10 +347,11 @@ def invoke_tool_sync(
     arguments: dict[str, Any],
     timeout_seconds: float = 45.0,
 ) -> Any:
-    """Synchronous wrapper around :func:`invoke_tool` for a ``read``-class tool; any other tool is refused (B04.5, #759).
+    """Synchronous wrapper around :func:`invoke_tool`; under the reference profile a tool that is not ``read``-class is refused (B04.5, #759).
 
     A tool whose trusted classification is not ``read`` raises ``EffectRefused`` (``mcp_effect_requires_proposal``) and
-    nothing is sent: it must be proposed, approved and dispatched. See :func:`_require_inline`.
+    nothing is sent: it must be proposed, approved and dispatched. The development profile keeps the pre-dispatcher inline
+    call. See :func:`_require_inline`.
     """
     _assert_no_running_event_loop("invoke_tool_sync")
     _require_inline(server, tool_name)
@@ -363,7 +371,7 @@ def invoke_tool_by_server_id_sync(
     timeout_seconds: float = 45.0,
     identity: CaliberIdentity | None = None,
 ) -> Any:
-    """Resolve a visible server from DB and invoke a ``read``-class tool (sync); any other tool is refused (B04.5, #759)."""
+    """Resolve a visible server from DB and invoke a tool (sync); under the reference profile only a ``read``-class tool runs (B04.5, #759)."""
     if identity is None:
         # Preserve the strict legacy helper signature used by direct callers and
         # test doubles; visibility-aware runtime callers pass the identity branch.

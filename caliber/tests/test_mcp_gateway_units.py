@@ -656,6 +656,11 @@ def test_invoke_tool_error_records_failed_span(monkeypatch: pytest.MonkeyPatch) 
 # ---------------------------------------------------------------------------
 
 
+@pytest.fixture
+def reference(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("CALIBER_PROFILE", "reference")
+
+
 def _classified_server(level: str | None, **overrides: Any) -> McpServerConfig:
     policies: dict[str, Any] = {}
     if level is not None:
@@ -690,6 +695,7 @@ def _counting(monkeypatch: pytest.MonkeyPatch, **kwargs: Any) -> _CountingSessio
     return session
 
 
+@pytest.mark.usefixtures("reference")
 @pytest.mark.parametrize("level", ["write", "external_action"])
 def test_the_sync_entry_points_refuse_a_protected_tool_and_send_nothing(
     monkeypatch: pytest.MonkeyPatch, level: str
@@ -732,6 +738,7 @@ def test_a_tool_the_policy_gate_refuses_keeps_raising_the_gateways_own_error(
     assert session.calls == 0
 
 
+@pytest.mark.usefixtures("reference")
 def test_the_sync_entry_point_refuses_a_first_party_database_write_by_the_inventory(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -872,3 +879,48 @@ def test_a_known_never_sent_is_not_overwritten() -> None:
     assert unknown.never_sent is None
     gw._mark_sent(unknown, sent=True)
     assert unknown.never_sent is False
+
+
+# ---------------------------------------------------------------------------
+# The development profile keeps the pre-dispatcher inline call (#1068); it is not the governed path
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("level", ["write", "external_action"])
+def test_the_development_profile_lets_a_protected_tool_through_the_sync_entry_points(
+    monkeypatch: pytest.MonkeyPatch, level: str
+) -> None:
+    monkeypatch.delenv("CALIBER_PROFILE", raising=False)
+    session = _counting(monkeypatch)
+    monkeypatch.setattr(gw, "load_server_config", lambda *_a, **_k: _classified_server(level))
+
+    direct = gw.invoke_tool_sync(_classified_server(level), tool_name="w", arguments={})
+    by_id = gw.invoke_tool_by_server_id_sync(server_id="S", tool_name="w", arguments={})
+
+    assert direct == by_id == {"ok": True}
+    assert session.calls == 2
+
+
+def test_the_development_profile_does_not_refuse_a_first_party_database_write_by_name(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """EP-114's refusal is the reference profile's (#774 switches it for every row); the policy gate still applies."""
+    monkeypatch.delenv("CALIBER_PROFILE", raising=False)
+    session = _counting(monkeypatch)
+    server = _server(
+        discovered_tools=({"name": "insert_rows"},),
+        tool_policies={
+            "insert_rows": {
+                "allowed": True,
+                "side_effect_level": "write",
+                "requires_approval": True,
+            }
+        },
+    )
+
+    assert gw.invoke_tool_sync(server, tool_name="insert_rows", arguments={}) == {"ok": True}
+    assert session.calls == 1
+    unclassified = _server(discovered_tools=({"name": "insert_rows"},), tool_policies={})
+    with pytest.raises(McpGatewayConfigError, match="no explicit allow"):
+        gw.invoke_tool_sync(unclassified, tool_name="insert_rows", arguments={})
+    assert session.calls == 1

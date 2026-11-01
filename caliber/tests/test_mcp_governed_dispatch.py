@@ -89,6 +89,12 @@ def each_dialect(
 
 
 @pytest.fixture
+def reference(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The reference profile: the only one in which the gateway refuses a protected call that has no proposal (EP-114 too)."""
+    monkeypatch.setenv("CALIBER_PROFILE", "reference")
+
+
+@pytest.fixture
 def mcp(monkeypatch: pytest.MonkeyPatch) -> FakeMcp:
     _reset_rate_limits_for_tests()
     return FakeMcp().install(monkeypatch)
@@ -506,6 +512,7 @@ def first_party_server(factory: sessionmaker[Session], **tools: dict[str, Any]) 
     )
 
 
+@pytest.mark.usefixtures("reference")
 def test_a_first_party_database_write_tool_is_refused_whatever_the_administrator_classified(
     factory: sessionmaker[Session], mcp: FakeMcp, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -596,6 +603,7 @@ def test_a_read_call_without_a_governed_context_still_runs(
     assert len(mcp.calls) == 1
 
 
+@pytest.mark.usefixtures("reference")
 def test_a_plan_wired_to_neither_the_registry_nor_an_authority_still_cannot_run_a_protected_tool(
     factory: sessionmaker[Session], mcp: FakeMcp
 ) -> None:
@@ -623,6 +631,7 @@ def test_an_ungoverned_plan_keeps_calling_a_read_tool_directly(
     assert len(mcp.calls) == 1
 
 
+@pytest.mark.usefixtures("reference")
 def test_a_model_chosen_protected_mcp_call_cannot_reach_the_server(
     factory: sessionmaker[Session], mcp: FakeMcp
 ) -> None:

@@ -143,6 +143,24 @@ def _seed_ready_mcp_docs_server(client) -> None:
         session.commit()
 
 
+def _serve_mcp_servers_from_the_test_database(client, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The runtime classifies an MCP call from the server record it loads (B04.5), so the record must be loadable.
+
+    The runtime's gateway reads the process-wide database, not this client's; these fixtures fake only the transport call
+    (``invoke_tool_by_server_id_sync``), so the loader must serve the row the fixture seeded.
+    """
+    from caliber.mcp_gateway import McpServerConfig
+
+    def _load(server_id: str, *, identity: object = None) -> McpServerConfig:
+        del identity
+        with client.app.state.session_factory() as session:
+            row = session.get(CaliberMcpServer, server_id)
+            assert row is not None, server_id
+            return McpServerConfig.from_row(row)
+
+    monkeypatch.setattr("caliber.workflows.runtime.load_server_config", _load)
+
+
 def _enable_runtime_approvals(client) -> None:
     client.app.state.config = client.app.state.config.model_copy(
         update={
@@ -8326,6 +8344,7 @@ def test_worker_marks_mcp_resource_gateway_failures_as_runtime_errors(
 ) -> None:
     _enable_queue(client)
     _seed_ready_mcp_docs_server(client)
+    _serve_mcp_servers_from_the_test_database(client, monkeypatch)
     workflow_id = "mcp-resource-failure-worker-wf"
     manifest = _mcp_resource_manifest(workflow_id)
     _wid, vid = create_and_publish(
@@ -8382,6 +8401,7 @@ def test_worker_executes_mcp_resource_path_to_completion(
 ) -> None:
     _enable_queue(client)
     _seed_ready_mcp_docs_server(client)
+    _serve_mcp_servers_from_the_test_database(client, monkeypatch)
     workflow_id = "mcp-resource-success-worker-wf"
     manifest = _mcp_resource_manifest(workflow_id)
     _wid, vid = create_and_publish(

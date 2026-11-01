@@ -474,6 +474,12 @@ def mcp_world(monkeypatch: pytest.MonkeyPatch) -> Any:
     return FakeMcp().install(monkeypatch)
 
 
+@pytest.fixture
+def reference(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The reference profile: where the gateway refuses a protected call with no proposal and EP-114 is refused."""
+    monkeypatch.setenv("CALIBER_PROFILE", "reference")
+
+
 def test_the_mcp_route_names_are_the_registered_tool_route_names() -> None:
     from caliber.effects import mcp_tools
 
@@ -568,6 +574,7 @@ def _policies(*names: str, level: str) -> dict[str, Any]:
     }
 
 
+@pytest.mark.usefixtures("reference")
 def test_every_first_party_database_write_tool_is_refused_whatever_its_policy_says(
     mcp_world: Any, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -658,6 +665,7 @@ def test_the_digest_binds_the_record_and_the_classification_but_no_credential_va
     assert server_digest(with_token, "t", policy) != digest
 
 
+@pytest.mark.usefixtures("reference")
 def test_mcp_write_tool_requires_proposal(
     factory: sessionmaker[Session], mcp_world: Any, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -845,3 +853,63 @@ def test_no_classification_is_read_from_what_an_mcp_server_reports() -> None:
         }
         for forbidden in ("readOnlyHint", "destructiveHint", "idempotentHint", "annotations"):
             assert forbidden not in names | strings, (module.__name__, forbidden)
+
+
+def test_the_development_profile_classifies_the_same_but_refuses_nothing_by_inventory(
+    mcp_world: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The route's decision is profile-independent; EP-114's refusal and the gateway's refusal are the reference profile's."""
+    import sys
+
+    from caliber.effects.mcp_tools import route_mcp_tool
+
+    monkeypatch.setenv("CALIBER_MCP_STDIO_COMMAND_ALLOWLIST", sys.executable)
+    server = _first_party(**_policies("insert_rows", level="write"))
+
+    monkeypatch.delenv("CALIBER_PROFILE", raising=False)
+    development = route_mcp_tool(server, "insert_rows")
+    monkeypatch.setenv("CALIBER_PROFILE", "reference")
+    reference = route_mcp_tool(server, "insert_rows")
+
+    assert (development.route, development.reference_profile, development.first_party) == (
+        DISPATCH,
+        False,
+        True,
+    )
+    assert (reference.route, reference.reference_profile, reference.code) == (
+        REFUSE,
+        True,
+        "unsupported_effect_path",
+    )
+
+
+def _sidecar(host: str = "mcp-db-relational", **overrides: Any) -> Any:
+    return _mcp_server(
+        transport="streamable-http",
+        uri=f"http://{host}:8101/mcp",
+        **_policies("insert_rows", level="write"),
+        **overrides,
+    )
+
+
+def test_a_server_on_an_attested_managed_sidecar_host_is_treated_as_the_first_party_one(
+    mcp_world: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The shipped compose stack runs the first-party DB servers as streamable-http sidecars on attested hosts."""
+    from caliber.effects.mcp_tools import INVENTORY_REFUSAL, route_mcp_tool
+    from caliber.mcp_policy import is_first_party_db_server
+
+    monkeypatch.setenv("CALIBER_MCP_MANAGED_SIDECAR_HOSTS", "mcp-db-relational,mcp-db-vector")
+    monkeypatch.setenv("CALIBER_MCP_REMOTE_HOST_ALLOWLIST", "mcp-db-relational,mcp-db-vector,other")
+    monkeypatch.setenv("CALIBER_MCP_ALLOW_INSECURE_HTTP", "true")
+    monkeypatch.setenv("CALIBER_PROFILE", "reference")
+
+    assert is_first_party_db_server(_sidecar("mcp-db-relational")) is True
+    assert is_first_party_db_server(_sidecar("MCP-DB-VECTOR")) is True
+    assert is_first_party_db_server(replace(_sidecar("mcp-db-relational"), transport="sse")) is True
+    assert is_first_party_db_server(_sidecar("other")) is False
+    assert is_first_party_db_server(replace(_sidecar(), uri="not a url")) is False
+    assert is_first_party_db_server(replace(_sidecar(), transport="carrier-pigeon")) is False
+    decided = route_mcp_tool(_sidecar("mcp-db-relational"), "insert_rows")
+    assert (decided.route, decided.code) == (REFUSE, INVENTORY_REFUSAL)
+    assert route_mcp_tool(_sidecar("other"), "insert_rows").route == DISPATCH

@@ -486,15 +486,29 @@ def validate_tool_access(
     return policy
 
 
-def is_first_party_db_server(server: Any) -> bool:
-    """Whether ``server`` launches CALIBER's own PostgreSQL MCP server: the CALIBER interpreter running ``-m caliber.mcp_servers.db``.
+def is_first_party_db_server(server: Any, *, config: CaliberConfig | None = None) -> bool:
+    """Whether ``server`` is CALIBER's own PostgreSQL MCP server, as its **record** and the operator's configuration say.
 
-    This is the identity the protected-effect inventory's EP-114 names (its tools can write to a database). It rests on how
-    the **server record** launches the child, never on the tool names or descriptions the server reports: the command must
-    resolve to the interpreter running CALIBER and the first arguments must be exactly ``-m caliber.mcp_servers.db``. A
-    remote server, another interpreter or another module, however it names its tools, is a third-party server.
+    This is the identity the protected-effect inventory's EP-114 names (its tools can write to a database). It rests on the
+    server record and deployment settings, never on the tool names or descriptions the server reports:
+
+    * a ``stdio`` server whose command resolves to the interpreter running CALIBER and whose first arguments are exactly
+      ``-m caliber.mcp_servers.db``; or
+    * a remote (``sse`` or ``streamable-http``) server whose host the operator listed in ``CALIBER_MCP_MANAGED_SIDECAR_HOSTS``
+      (the shipped compose stack runs the three first-party database servers as such sidecars). That setting attests an
+      isolation boundary, not an identity: CALIBER cannot tell which program answers on an attested host, so a **third-party**
+      server on an attested sidecar host is treated as the first-party one too, and its tools named like EP-114's are refused.
+      That is the conservative direction; list only hosts that run the first-party servers if that matters to you.
+
+    A server on any other remote host, another interpreter or another module, however it names its tools, is a third-party
+    server.
     """
-    if str(getattr(server, "transport", "")).strip().lower() != "stdio":
+    transport = str(getattr(server, "transport", "")).strip().lower()
+    if transport in {"sse", "streamable-http"}:
+        host = (urlsplit(str(getattr(server, "uri", "")).strip()).hostname or "").lower()
+        resolved = config or CaliberConfig.load()
+        return bool(host) and host in _csv_values(resolved.mcp_managed_sidecar_hosts)
+    if transport != "stdio":
         return False
     command = str(getattr(server, "command", "")).strip()
     args = [str(arg) for arg in (getattr(server, "args", ()) or ())]
