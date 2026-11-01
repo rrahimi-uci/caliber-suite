@@ -94,12 +94,19 @@ def test_a_receipt_pins_the_request_among_several_of_the_same_type(downstream: D
 def test_a_stale_precondition_commits_nothing_and_so_nothing_is_accepted(
     downstream: Downstream,
 ) -> None:
-    assert _post(downstream, "b09-first", if_match=1).status_code == 201
+    first = _post(downstream, "b09-first", if_match=1)
+    assert first.status_code == 201
     stale = _post(downstream, "b09-second", if_match=1)  # the case is already at version 2
     assert stale.status_code == 412
     assert downstream.mutations() == 1
-    # a proposal that expected the current version (2) finds no request attached at version 3
-    assert _passed(_observe(downstream, expected_version=2)) == {
+    # the refused proposal has no receipt: the first proposal's request (version 2 = 1 + 1) must not accept it
+    assert _passed(_observe(downstream, expected_version=1)) == {
+        "document_request_exists": False,
+        "attached_to_expected_version": False,
+    }
+    # a proposal that expected the current version (2) finds the first request, attached to the wrong version
+    first_id = first.json()["request_id"]
+    assert _passed(_observe(downstream, 2, first_id)) == {
         "document_request_exists": True,
         "attached_to_expected_version": False,
     }
@@ -114,26 +121,30 @@ def test_no_request_at_all_fails_both(downstream: Downstream) -> None:
 
 
 def test_a_replayed_answer_is_one_accepted_request(downstream: Downstream) -> None:
-    assert _post(downstream, "b09-replay", if_match=1).status_code == 201
+    created = _post(downstream, "b09-replay", if_match=1)
+    assert created.status_code == 201
     replay = _post(downstream, "b09-replay", if_match=1)
     assert replay.status_code == 200
-    observations = _observe(downstream, expected_version=1)
+    assert replay.json() == created.json()
+    observations = _observe(downstream, 1, replay.json()["request_id"])
     assert len(observations["case_record"]["document_requests"]) == 1
     assert all(_passed(observations).values())
 
 
 def test_a_2xx_that_left_the_case_where_it_was_is_not_accepted(downstream: Downstream) -> None:
     """The transport said success; the case record says the version never advanced (the V11 false success)."""
-    assert _post(downstream, "b09-false-success", if_match=1).status_code == 201
-    observations = _observe(downstream, expected_version=1).as_dict()
+    response = _post(downstream, "b09-false-success", if_match=1)
+    assert response.status_code == 201
+    observations = _observe(downstream, 1, response.json()["request_id"]).as_dict()
     observations["case_record"]["document_requests"][0]["case_version"] = 1
     verdicts = _passed(Observations(observations))
     assert verdicts == {"document_request_exists": True, "attached_to_expected_version": False}
 
 
 def test_judging_calls_nothing_and_changes_nothing(downstream: Downstream) -> None:
-    assert _post(downstream, "b09-readonly", if_match=1).status_code == 201
-    observations = _observe(downstream, expected_version=1)
+    response = _post(downstream, "b09-readonly", if_match=1)
+    assert response.status_code == 201
+    observations = _observe(downstream, 1, response.json()["request_id"])
     before: dict[str, Any] = downstream.client.get(f"/cases/{CASE}").json()
     mutations = downstream.mutations()
     calls: list[httpx.Request] = []

@@ -4968,9 +4968,14 @@ from caliber.acceptance import HARBORLIGHT_V1, Observations, evaluate_all
 
 observations = Observations(
     {
-        "proposal": {"document_type": "pay_statement", "expected_version": 1},
+        "proposal": {
+            "case_id": "MORT-2026-000184",
+            "document_type": "pay_statement",
+            "expected_version": 1,
+        },
         "receipt": {"downstream_request_id": "DR-0001"},
         "case_record": {
+            "case_id": "MORT-2026-000184",
             "version": 2,
             "document_requests": [
                 {"request_id": "DR-0001", "document_type": "pay_statement", "case_version": 2}
@@ -4985,49 +4990,61 @@ for result in evaluate_all(HARBORLIGHT_V1, observations):
 ```
 
 - **`Observations`** is a frozen mapping of downstream reads and receipts. Dictionaries become read-only mappings and lists
-  become tuples; the source is copied. Only JSON-shaped values are accepted (strings, integers, finite floats, booleans, `None`,
-  string-keyed mappings, lists, at most 32 levels deep), so nothing a predicate sees can change underneath it. `as_dict()`
-  returns a plain copy for a digest or a stored record.
-- **`Predicate(id, criteria_version, rule_ids, evaluate)`** is one criterion. `id` and each `rule_id` are lower-case identifiers
+  become tuples; the source is copied. Only JSON-shaped values are accepted: exact built-in strings, integers, finite floats,
+  booleans and `None` (a `str` or `int` subclass is refused, because it can override equality), string-keyed mappings and lists,
+  at most 32 levels of nesting (the top mapping is level 1), so nothing a predicate sees can change underneath it. A mapping or
+  list whose accessors raise is refused, not propagated. The number of entries is not bounded here; the caller bounds what it
+  reads. `as_dict()` returns a plain copy for a digest or a stored record.
+- **`Predicate(id, criteria_version, rule_ids, evaluate)`** is one criterion (all predicates of a set are critical: a failed one rejects the candidate; there is no `critical` flag). `id` and each `rule_id` are lower-case identifiers
   (`[a-z0-9][a-z0-9._-]{0,127}`, the shape of a rule id in a rule bundle) and `criteria_version` is
   `[a-z0-9][a-z0-9._-]{0,63}`. `evaluate` returns a `CriterionResult(predicate_id, passed, evidence_ref)` whose `evidence_ref` is
   the RFC 6901 JSON pointer, into the observations, of the value that decided it.
 - **`evaluate_all(predicates, observations)`** returns every result in the order given and does not stop at a failure. All the
   predicates must share one `criteria_version` (a decision is made under one version).
 
-**Harborlight, `HARBORLIGHT_V1`** (criteria version `harborlight-v1`) reads `proposal.document_type`,
-`proposal.expected_version`, `case_record.document_requests[]` (each with `request_id`, `document_type`, `case_version`) and an
-optional `receipt.downstream_request_id`:
+**Harborlight, `HARBORLIGHT_V1`** (criteria version `harborlight-v1`) reads three keys, **all required**:
+`proposal` (`case_id`, `document_type`, `expected_version`), `receipt` (`downstream_request_id`) and `case_record` (`case_id` and
+`document_requests[]`, each with `request_id`, `document_type`, `case_version`):
 
 | Predicate | Passes when |
 | --- | --- |
-| `document_request_exists` | the case record lists a request whose `document_type` is exactly the proposal's |
-| `attached_to_expected_version` | such a request's `case_version` is `expected_version + 1` |
+| `document_request_exists` | the case record lists the request the receipt names, with exactly the proposal's `document_type` |
+| `attached_to_expected_version` | that request's `case_version` is `expected_version + 1` |
 
-Both **fail closed**: a missing, malformed or ambiguous value is a failed criterion, never an exception and never a pass. Every
-failure points at what was wrong, for example `/proposal/expected_version` for a version that is missing, not an integer, a
-boolean or negative, `/case_record/document_requests` when no request of the type is listed, and
-`/case_record/document_requests/0/case_version` when the request is listed at the wrong version (a downstream that answered `2xx`
-and left the case where it was: the false success, gap analysis V11).
+Both **fail closed**: a missing, malformed, mismatched or ambiguous value is a failed criterion, never an exception and never a
+pass. Every failure points at what was wrong:
 
-Two choices are worth knowing:
+| `evidence_ref` | Meaning |
+| --- | --- |
+| `/proposal/document_type`, `/proposal/expected_version` | missing, not a (non-empty) string, or not a non-negative integer (a boolean is not an integer) |
+| `/case_record/case_id` | the proposal's `case_id` is missing or empty, or the record is of another case (compared exactly) |
+| `/case_record/document_requests` | the list is missing or not a list, or the receipt's request is not listed (or is listed with another `document_type`) |
+| `/receipt/downstream_request_id` | no usable receipt: the acceptance is judged against nothing |
+| `/case_record/document_requests/N/request_id` | the same `request_id` is listed twice (the receipt would not identify one request) |
+| `/case_record/document_requests/N/case_version` | the request is listed at the wrong or a non-integer version: a downstream that answered `2xx` and left the case where it was, the false success of gap analysis V11 |
+
+Three choices are worth knowing:
 
 - **`expected_version + 1`, not `expected_version`.** The downstream (and the connector that dispatches to it) stamps a stored
   request with the case version **after** its mutation, one more than the `If-Match` it was sent; the document-request
   connector's own lookup check uses the same rule. A literal equality with the proposal's expected version would reject every
   real success, and equality with it now means the downstream did not advance the case.
-- **A receipt, when supplied, is binding.** With `receipt.downstream_request_id` only that request is judged, and a receipt
-  without a usable id fails both criteria. Without a receipt every request of the proposal's type is a candidate, so a refused
-  second proposal for the same document type could be accepted on the first one's request; a caller that holds a receipt (every
-  governed dispatch does) must supply it.
+- **The receipt is required and binding.** Only the request the receipt names is judged. Without that, a refused second
+  proposal for the same document type would be accepted on the first proposal's request. A dispatch that was refused has no
+  receipt and so is not accepted.
+- **The case must be the proposal's.** A case record of another case, or a proposal that names none, proves nothing.
+
+The proposal's `expected_version` is an integer here; the connector's `ProposalView.expected_resource_version` is a string, so
+a caller converts it (and refuses a value that is not a decimal integer) before it builds the observations.
 
 **Contract errors are raised, not judged.** `PredicateError` carries a stable `code` and a message that names a JSON pointer and
 never an observation value: `invalid_observations` (not a mapping, not JSON-shaped, too deep, a non-string key, a non-finite
 number, or observations that were not frozen into `Observations`), `invalid_predicate` (a bad id, criteria version or rule id, a
 non-callable `evaluate`, something that is not a `Predicate`), `empty_predicate_set` (a decision over nothing would accept
 everything), `duplicate_predicate_id`, `mixed_criteria_versions`, `predicate_failed` (a predicate raised; the original is the
-`__cause__`) and `invalid_result` (not the predicate's own `CriterionResult`). Recovery: fix the caller; none of these is retried
-or turned into a rejection of a run.
+`__cause__`) and `invalid_result` (not the predicate's own `CriterionResult`). Recovery: fix the caller. The one exception is
+`invalid_observations` raised while building `Observations` from what a downstream returned (a NaN, a non-JSON value, too deep):
+the caller must catch it and record the acceptance as rejected for that reason, not let it crash the run.
 
 **Configuration, migration and rollback.** No setting, no migration, no endpoint and no stored data: nothing calls these
 predicates yet. Persisting a decision (#784), the runtime and status integration (#791), recording observations (#799) and replay

@@ -103,8 +103,17 @@ def test_stale_case_version_is_a_rejected_false_success() -> None:
     assert not all(passed for passed, _ in verdicts.values())
 
 
-def test_no_request_fails_both() -> None:
+def test_no_request_and_no_receipt_fails_both() -> None:
     assert _verdicts(_observations("no_request")) == {
+        EXISTS: (False, "/receipt/downstream_request_id"),
+        ATTACHED: (False, "/receipt/downstream_request_id"),
+    }
+
+
+def test_a_receipt_for_a_request_the_record_does_not_list_fails_both() -> None:
+    """The false success: a receipt names a request, the case record has none."""
+    observations = _observations("no_request", receipt={"downstream_request_id": "DR-0001"})
+    assert _verdicts(observations) == {
         EXISTS: (False, "/case_record/document_requests"),
         ATTACHED: (False, "/case_record/document_requests"),
     }
@@ -146,13 +155,13 @@ LISTED = [
 ]
 
 
-def test_without_a_receipt_every_request_of_the_type_is_a_candidate() -> None:
+def test_without_a_receipt_nothing_is_accepted() -> None:
     data = _fixture("happy_path")
     del data["receipt"]
     data["case_record"]["document_requests"] = copy.deepcopy(LISTED)
     assert _verdicts(Observations(data)) == {
-        EXISTS: (True, "/case_record/document_requests/1"),
-        ATTACHED: (True, "/case_record/document_requests/2/case_version"),
+        EXISTS: (False, "/receipt/downstream_request_id"),
+        ATTACHED: (False, "/receipt/downstream_request_id"),
     }
 
 
@@ -198,20 +207,22 @@ def test_a_refused_second_proposal_is_not_accepted_on_the_first_ones_request() -
     """Both proposals ask for a pay statement; the first committed (version 2), the second was refused as stale."""
     first_only = _fixture("happy_path")
     second = copy.deepcopy(first_only)
-    second["receipt"] = {
-        "downstream_request_id": "DR-0002"
-    }  # the receipt of a request the record never listed
     assert all(passed for passed, _ in _verdicts(Observations(first_only)).values())
+    # the refused proposal has no receipt: the first one's request must not be enough
+    del second["receipt"]
+    assert _verdicts(Observations(second)) == {
+        EXISTS: (False, "/receipt/downstream_request_id"),
+        ATTACHED: (False, "/receipt/downstream_request_id"),
+    }
+    # nor a receipt for a request the record never listed
+    second["receipt"] = {"downstream_request_id": "DR-0002"}
     assert [passed for passed, _ in _verdicts(Observations(second)).values()] == [False, False]
-    del second[
-        "receipt"
-    ]  # without the receipt the first request is (wrongly) enough: the documented limitation
-    assert all(passed for passed, _ in _verdicts(Observations(second)).values())
 
 
 @pytest.mark.parametrize(
     "receipt",
     [
+        _MISSING,
         None,
         {},
         {"downstream_request_id": ""},
@@ -353,6 +364,82 @@ def test_a_json_pointer_escapes_its_reserved_characters() -> None:
         Observations({"a/b~c": {"d": float("nan")}})
 
 
+# --- the proposal's case, and ambiguity -------------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "edit",
+    [
+        {"proposal__case_id": "MORT-2026-000185"},  # a record of another case
+        {"proposal__case_id": _MISSING},
+        {"proposal__case_id": ""},
+        {"proposal__case_id": "", "case_record__case_id": ""},  # equal, but not a case
+        {"proposal__case_id": None},
+        {"proposal__case_id": 184},
+        {"case_record__case_id": _MISSING},
+        {"case_record__case_id": ""},
+        {"case_record__case_id": None},
+        {"case_record__case_id": "mort-2026-000184"},  # case ids compare exactly
+        {"case_record__case_id": "MORT-2026-000184 "},
+    ],
+)
+def test_a_record_of_another_or_an_unnamed_case_fails_both(edit: dict[str, Any]) -> None:
+    assert _verdicts(_observations(**edit)) == {
+        EXISTS: (False, "/case_record/case_id"),
+        ATTACHED: (False, "/case_record/case_id"),
+    }
+
+
+def test_the_same_case_id_on_both_sides_is_judged() -> None:
+    other = _observations(proposal__case_id="OTHER", case_record__case_id="OTHER")
+    assert all(passed for passed, _ in _verdicts(other).values())
+
+
+def test_a_case_record_that_is_not_a_mapping_has_no_case_id() -> None:
+    data = _fixture("happy_path")
+    data["case_record"] = ["MORT-2026-000184"]
+    assert [ref for _, ref in _verdicts(Observations(data)).values()] == [
+        "/case_record/case_id"
+    ] * 2
+
+
+def test_a_request_id_listed_twice_is_ambiguous_and_fails_closed() -> None:
+    data = _fixture("happy_path")
+    data["case_record"]["document_requests"] = [
+        {"request_id": "DR-0001", "document_type": "pay_statement", "case_version": 2},
+        {"request_id": "DR-0001", "document_type": "pay_statement", "case_version": 7},
+    ]
+    assert _verdicts(Observations(data)) == {
+        EXISTS: (False, "/case_record/document_requests/1/request_id"),
+        ATTACHED: (False, "/case_record/document_requests/1/request_id"),
+    }
+    # the duplicate is ambiguous whatever it is a duplicate of, even another type's entry
+    data["case_record"]["document_requests"][1]["document_type"] = "id_card"
+    assert [passed for passed, _ in _verdicts(Observations(data)).values()] == [False, False]
+
+
+def test_entries_without_a_usable_request_id_are_not_duplicates() -> None:
+    data = _fixture("happy_path")
+    data["case_record"]["document_requests"] += [
+        {"document_type": "id_card", "case_version": 3},
+        {"request_id": "", "document_type": "id_card", "case_version": 3},
+        {"request_id": "", "document_type": "id_card", "case_version": 3},
+        {"request_id": 5, "document_type": "id_card", "case_version": 3},
+        {"request_id": 5, "document_type": "id_card", "case_version": 3},
+        "not a request",
+    ]
+    assert all(passed for passed, _ in _verdicts(Observations(data)).values())
+
+
+def test_the_receipts_request_without_a_document_type_is_not_a_match() -> None:
+    data = _fixture("happy_path")
+    del data["case_record"]["document_requests"][0]["document_type"]
+    assert _verdicts(Observations(data)) == {
+        EXISTS: (False, "/case_record/document_requests"),
+        ATTACHED: (False, "/case_record/document_requests"),
+    }
+
+
 # --- observations are frozen --------------------------------------------------------------------------------------------
 
 
@@ -426,24 +513,83 @@ def test_observations_need_a_mapping(value: object) -> None:
     assert caught.value.code == "invalid_observations"
 
 
-def test_depth_is_bounded_and_a_cycle_is_refused() -> None:
+def _nested(levels: int) -> dict[str, Any]:
+    """A mapping nested ``levels`` deep (the top mapping is level 1) with a scalar in the innermost one."""
+    node: dict[str, Any] = {"leaf": 1}
+    for _ in range(levels - 1):
+        node = {"n": node}
+    return node
+
+
+def test_depth_is_bounded_exactly_and_a_cycle_is_refused() -> None:
     limit = predicates_module.MAX_DEPTH
-    deep: dict[str, Any] = {}
-    node = deep
-    for _ in range(
-        limit - 1
-    ):  # the top mapping is depth 0, the innermost leaf mapping is depth limit - 1
-        node["n"] = {}
-        node = node["n"]
-    assert Observations(deep)
-    node["n"] = {}
-    node["n"]["n"] = {}
+    assert limit == 32
+    assert Observations(_nested(limit))  # 32 levels of mappings: accepted
+    with pytest.raises(PredicateError, match="nested deeper than 32 levels"):
+        Observations(_nested(limit + 1))
     with pytest.raises(PredicateError, match="nested deeper"):
-        Observations(deep)
+        Observations({"a": _nested(limit)})  # the same structure one level lower
+    as_lists: Any = [1]
+    for _ in range(limit - 2):
+        as_lists = [as_lists]
+    assert Observations({"a": as_lists})  # lists count as levels too: 1 + (limit - 1) levels
+    with pytest.raises(PredicateError, match="nested deeper"):
+        Observations({"a": [as_lists]})
     cyclic: dict[str, Any] = {}
     cyclic["self"] = cyclic
     with pytest.raises(PredicateError, match="nested deeper"):
         Observations(cyclic)
+
+
+def test_nested_sequences_are_frozen_to_tuples() -> None:
+    observations = Observations({"a": [[1, 2], (3,), []], "b": ((4,),)})
+    assert observations["a"] == ((1, 2), (3,), ())
+    assert observations["b"] == ((4,),)
+    assert observations.as_dict() == {"a": [[1, 2], [3], []], "b": [[4]]}
+
+
+def test_a_str_or_int_subclass_cannot_spoof_a_comparison() -> None:
+    class Always(str):
+        def __eq__(self, other: object) -> bool:
+            return True
+
+        __hash__ = str.__hash__
+
+    class AlwaysInt(int):
+        def __eq__(self, other: object) -> bool:
+            return True
+
+        __hash__ = int.__hash__
+
+    for hostile in (Always("anything"), AlwaysInt(2)):
+        with pytest.raises(PredicateError, match="not JSON-shaped") as caught:
+            Observations({"a": [hostile]})
+        assert caught.value.code == "invalid_observations"
+    with pytest.raises(PredicateError, match="key that is not a string"):
+        Observations({Always("proposal"): 1})
+    data = _fixture("happy_path")
+    data["case_record"]["document_requests"][0]["document_type"] = Always("pay_statement")
+    with pytest.raises(PredicateError):
+        Observations(data)
+
+
+def test_a_hostile_container_becomes_a_predicate_error() -> None:
+    class Boom(dict):  # type: ignore[type-arg]
+        def items(self) -> Any:
+            raise RuntimeError("secret detail 0xBEEF")
+
+    class BoomList(list):  # type: ignore[type-arg]
+        def __iter__(self) -> Any:
+            raise RuntimeError("secret detail 0xBEEF")
+
+    for hostile in (Boom(a=1), BoomList([1])):
+        with pytest.raises(PredicateError, match="could not be read") as caught:
+            Observations({"a": hostile})
+        assert caught.value.code == "invalid_observations"
+        assert "0xBEEF" not in str(caught.value)
+        assert isinstance(caught.value.__cause__, RuntimeError)
+    with pytest.raises(PredicateError, match="could not be read"):
+        Observations(Boom(a=1))
 
 
 def test_an_error_message_names_the_path_but_never_quotes_a_value() -> None:

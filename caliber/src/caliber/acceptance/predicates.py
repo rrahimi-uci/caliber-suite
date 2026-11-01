@@ -8,26 +8,27 @@ in, so a predicate does no I/O, reads no clock and draws no random number, the s
 replay, B09.4, #805). The module imports only the standard library; a test asserts it.
 
 Observations are a frozen mapping: JSON-shaped values (``dict`` and ``list`` become read-only mappings and tuples; strings,
-integers, finite floats, booleans and ``None`` stay), string keys only, bounded depth. A value that cannot be recorded as
-JSON is refused at the door (``invalid_observations``), so nothing a predicate sees can change underneath it.
+integers, finite floats, booleans and ``None`` stay, as exact built-in types only), string keys only, at most 32 levels of
+nesting (the top mapping is level 1). A value that cannot be recorded as JSON, or whose container cannot be read, is refused
+at the door (``invalid_observations``), so nothing a predicate sees can change underneath it. The number of entries is not
+bounded here; the caller bounds what it reads.
 
-The Harborlight set :data:`HARBORLIGHT_V1` reads three keys of the observations:
+The Harborlight set :data:`HARBORLIGHT_V1` reads three keys of the observations, all required:
 
-* ``proposal``: ``document_type`` (a non-empty string) and ``expected_version`` (the case version the effect was proposed
-  against, a non-negative integer).
-* ``case_record``: ``document_requests``, the list the downstream case record returns, each entry a mapping with
-  ``request_id``, ``document_type`` and ``case_version``.
-* ``receipt`` (optional): ``downstream_request_id``, the request the dispatch's receipt names. When present it is binding:
-  only that request is judged, and a receipt without a usable id fails both criteria. Without it every request of the
-  proposal's type is a candidate, which can accept a refused proposal on another proposal's request; a caller that holds a
-  receipt (every governed dispatch does) should always supply it.
+* ``proposal``: ``case_id``, ``document_type`` (a non-empty string) and ``expected_version`` (the case version the effect was
+  proposed against, a non-negative integer).
+* ``receipt``: ``downstream_request_id``, the request the dispatch's receipt names. Only that request is judged: without it a
+  second proposal of the same type that the downstream refused would be "accepted" on another proposal's request.
+* ``case_record``: ``case_id`` (it must equal the proposal's: a record of another case proves nothing) and
+  ``document_requests``, the list the downstream returns, each entry a mapping with ``request_id``, ``document_type`` and
+  ``case_version``. A ``request_id`` listed twice is ambiguous and fails closed.
 
-Its two predicates, both **fail closed**: a missing, malformed or ambiguous value is a failed criterion (never an exception, and
+Its two predicates, both **fail closed**: a missing, malformed, mismatched or ambiguous value is a failed criterion (never an exception, and
 never a pass), and every :class:`CriterionResult` names, in ``evidence_ref``, the RFC 6901 JSON pointer into the observations
 of the value that decided it.
 
-* ``document_request_exists``: the case record lists a request whose ``document_type`` is exactly the proposal's.
-* ``attached_to_expected_version``: a request of the proposal's ``document_type`` carries the case version the effect
+* ``document_request_exists``: the case record lists the receipt's request, with exactly the proposal's ``document_type``.
+* ``attached_to_expected_version``: that request carries the case version the effect
   *produces*, ``expected_version + 1``. The issue text says "equals the proposal's expected version", but the downstream (and
   the connector that dispatches to it, :func:`caliber.effects.connectors.document_request.facts_from_lookup`) stamps a stored
   request with the version **after** its mutation, one more than the ``If-Match`` it was sent; a literal equality would reject
@@ -90,32 +91,45 @@ class PredicateError(ValueError):
 
 
 def _freeze(value: object, path: str, depth: int) -> Any:
-    if depth > MAX_DEPTH:
-        raise PredicateError(
-            INVALID_OBSERVATIONS, f"{path or '/'} is nested deeper than {MAX_DEPTH} levels"
-        )
-    if value is None or isinstance(value, str | bool | int):
+    # Exact scalar types only: a ``str`` or ``int`` subclass can override ``__eq__`` and spoof a comparison.
+    kind = type(value)
+    if value is None or kind in (str, bool, int):
         return value
-    if isinstance(value, float):
-        if not math.isfinite(value):
+    if kind is float:
+        if not math.isfinite(value):  # type: ignore[arg-type]
             raise PredicateError(INVALID_OBSERVATIONS, f"{path} is not a finite number")
         return value
+    if isinstance(value, Mapping | list | tuple):
+        if depth >= MAX_DEPTH:
+            raise PredicateError(
+                INVALID_OBSERVATIONS, f"{path or '/'} is nested deeper than {MAX_DEPTH} levels"
+            )
+        try:
+            return _freeze_container(value, path, depth)
+        except PredicateError:
+            raise
+        except Exception as exc:  # a hostile Mapping or sequence whose accessors raise
+            raise PredicateError(
+                INVALID_OBSERVATIONS, f"{path or '/'} could not be read ({type(exc).__name__})"
+            ) from exc
+    raise PredicateError(
+        INVALID_OBSERVATIONS, f"{path or '/'} is a {kind.__name__}, which is not JSON-shaped"
+    )
+
+
+def _freeze_container(
+    value: Mapping[Any, Any] | list[Any] | tuple[Any, ...], path: str, depth: int
+) -> Any:
     if isinstance(value, Mapping):
         frozen: dict[str, Any] = {}
         for key, item in value.items():
-            if not isinstance(key, str):
+            if type(key) is not str:
                 raise PredicateError(
                     INVALID_OBSERVATIONS, f"{path or '/'} has a key that is not a string"
                 )
             frozen[key] = _freeze(item, f"{path}/{key.translate(_POINTER_ESCAPES)}", depth + 1)
         return MappingProxyType(frozen)
-    if isinstance(value, list | tuple):
-        return tuple(
-            _freeze(item, f"{path}/{index}", depth + 1) for index, item in enumerate(value)
-        )
-    raise PredicateError(
-        INVALID_OBSERVATIONS, f"{path or '/'} is a {type(value).__name__}, which is not JSON-shaped"
-    )
+    return tuple(_freeze(item, f"{path}/{index}", depth + 1) for index, item in enumerate(value))
 
 
 def _thaw(value: Any) -> Any:
@@ -271,6 +285,8 @@ def evaluate_all(
 
 
 _REQUESTS_REF: Final = "/case_record/document_requests"
+_CASE_ID_REF: Final = "/case_record/case_id"
+_RECEIPT_REF: Final = "/receipt/downstream_request_id"
 
 
 def _proposal_field(observations: Observations, name: str) -> object:
@@ -287,28 +303,44 @@ def _requests(observations: Observations) -> tuple[Any, ...] | None:
 def _candidates(observations: Observations) -> list[tuple[int, Mapping[str, Any]]] | str:
     """The listed requests that could be the proposal's effect, or the pointer of the value that makes judging impossible.
 
-    A candidate is a mapping whose ``document_type`` is exactly the proposal's. When the observations carry a ``receipt``, it
-    must name a ``downstream_request_id`` and only the request with that ``request_id`` is a candidate: without that, a second
-    proposal of the same type that the downstream refused would be "accepted" on the strength of the first one's request.
+    Judging is impossible (both criteria fail, closed) unless: the proposal names a ``document_type``; its ``case_id`` is the
+    case record's ``case_id`` (a record of another case proves nothing); the ``receipt`` names a ``downstream_request_id``
+    (without the receipt, a second proposal of the same type that the downstream refused would be "accepted" on the first
+    one's request); and no two listed requests share a ``request_id`` (the receipt would not identify one request). A
+    candidate is then the request with the receipt's ``request_id`` **and** exactly the proposal's ``document_type``.
     """
     document_type = _proposal_field(observations, "document_type")
     if not isinstance(document_type, str) or not document_type:
         return "/proposal/document_type"
+    case_id = _proposal_field(observations, "case_id")
+    record = observations.get("case_record")
+    if (
+        not isinstance(case_id, str)
+        or not case_id
+        or not isinstance(record, Mapping)
+        or record.get("case_id") != case_id
+    ):
+        return _CASE_ID_REF
     requests = _requests(observations)
     if requests is None:
         return _REQUESTS_REF
-    request_id: object = None
-    if "receipt" in observations:
-        receipt = observations["receipt"]
-        request_id = receipt.get("downstream_request_id") if isinstance(receipt, Mapping) else None
-        if not isinstance(request_id, str) or not request_id:
-            return "/receipt/downstream_request_id"
+    receipt = observations.get("receipt")
+    request_id = receipt.get("downstream_request_id") if isinstance(receipt, Mapping) else None
+    if not isinstance(request_id, str) or not request_id:
+        return _RECEIPT_REF
+    seen: set[str] = set()
+    for index, request in enumerate(requests):
+        listed = request.get("request_id") if isinstance(request, Mapping) else None
+        if isinstance(listed, str) and listed:
+            if listed in seen:
+                return f"{_REQUESTS_REF}/{index}/request_id"
+            seen.add(listed)
     return [
         (index, request)
         for index, request in enumerate(requests)
         if isinstance(request, Mapping)
+        and request.get("request_id") == request_id
         and request.get("document_type") == document_type
-        and (request_id is None or request.get("request_id") == request_id)
     ]
 
 
