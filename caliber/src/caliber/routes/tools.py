@@ -45,6 +45,7 @@ from caliber.db.models import (
     CaliberWorkflowVersion,
 )
 from caliber.db.scoping import apply_visibility_filter, get_visible
+from caliber.effects.dispatcher import UnsupportedEffectPath
 from caliber.egress import EgressPolicy
 from caliber.ids import new_tool_id, new_tool_test_run_id
 from caliber.orchestrator import calibration_drain
@@ -358,13 +359,21 @@ def _resolve_tool_source(
     from caliber.tool_sandbox.service import sandbox_from_optional_config  # noqa: PLC0415
 
     sandbox = sandbox_from_optional_config(config)
-    inspected = sandbox.inspect_tool(
-        ToolSandboxInspectRequest(
-            module_path=module_path,
-            callable_name=callable_name,
-            timeout_seconds=float(getattr(config, "registered_tool_sandbox_timeout_seconds", 30.0)),
+    try:
+        inspected = sandbox.inspect_tool(
+            ToolSandboxInspectRequest(
+                module_path=module_path,
+                callable_name=callable_name,
+                timeout_seconds=float(
+                    getattr(config, "registered_tool_sandbox_timeout_seconds", 30.0)
+                ),
+            )
         )
-    )
+    except UnsupportedEffectPath as exc:
+        # Importing an administrator's module to read its source is execution, which the reference profile does not
+        # support (EP-021, B04.7, #774); a shipped built-in is still described.
+        result["error"] = str(exc)
+        return result
     result.update(
         {
             "available": inspected.available,
@@ -756,20 +765,26 @@ def _invoke_tool_under_preview_policy(
 
             isolation = "subprocess"
             sandbox = sandbox_from_optional_config(config)
-            result = sandbox.run_tool(
-                ToolSandboxRunRequest(
-                    module_path=binding.module_path,
-                    callable_name=binding.callable_name,
-                    input=tool_input,
-                    timeout_seconds=float(
-                        getattr(config, "registered_tool_sandbox_timeout_seconds", 30.0)
-                    ),
+            try:
+                result = sandbox.run_tool(
+                    ToolSandboxRunRequest(
+                        module_path=binding.module_path,
+                        callable_name=binding.callable_name,
+                        input=tool_input,
+                        timeout_seconds=float(
+                            getattr(config, "registered_tool_sandbox_timeout_seconds", 30.0)
+                        ),
+                    )
                 )
-            )
-            if result.status == "completed":
-                output = result.output
+            except UnsupportedEffectPath as exc:
+                # An administrator's module is not run in the reference profile, a test run included (EP-020).
+                error = str(exc)
+                isolation = "refused"
             else:
-                error = result.error or result.status
+                if result.status == "completed":
+                    output = result.output
+                else:
+                    error = result.error or result.status
 
     duration_ms = round((time.monotonic() - start_time) * 1000, 1)
     return {

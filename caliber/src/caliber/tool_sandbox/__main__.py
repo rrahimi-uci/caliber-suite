@@ -6,6 +6,9 @@ import argparse
 import importlib
 from types import ModuleType
 
+from caliber.config import CaliberConfig
+from caliber.effects.refusals import refuse_in_reference_profile
+
 try:
     uvicorn_mod: ModuleType | None = importlib.import_module("uvicorn")
 except ImportError:  # pragma: no cover - depends on optional extra.
@@ -17,6 +20,10 @@ def main() -> None:
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", default=8787, type=int)
     args = parser.parse_args()
+
+    # The service has no authentication, so the reference profile does not start it (EP-029, B04.7, #774). Refused before
+    # anything binds a port, from the same configuration the service itself would load.
+    refuse_in_reference_profile("EP-029", CaliberConfig.load())
 
     if uvicorn_mod is None:
         raise SystemExit(

@@ -77,6 +77,17 @@ context is used in every profile. The reference profile still never falls back t
 the development path does and does not guarantee, are in `docs/operate/reference-profile.md` ("Profiles and a missing
 governed context").
 
+### Amendment, 2026-11-01 (#774): the refusal switch, and two final dispositions
+
+The refusal the paragraph above describes is implemented once, in `caliber.effects.refusals` (B04.7): every site that is the entry
+point of an inventory `refuse` row names its row and raises `UnsupportedEffectPath` (code `unsupported_in_reference_profile`) when
+`config.profile == "reference"`; the development profile is unchanged. CALIBER's own shipped read-class tools, identified by the
+module-and-callable pair the registry seed writes, are the one exemption for the tool-execution rows. Two rows have a different final
+disposition than the first inventory: EP-043 (generating the export text) is `exempt`, because the text is sealed into every
+deployment bundle and refusing it would refuse every publish (serving it, EP-044 and EP-045, and running an export, EP-041, are
+refused); EP-047 and EP-048 (the working-directory writes nothing binds to a run) are `refuse` instead of `dispatch`. The mechanics,
+the refusal list and the recovery for each are in `docs/operate/reference-profile.md` ("Refused paths in the reference profile").
+
 ### Amendment, 2026-10-31 (#746): the profile lists no MCP command or host
 
 An MCP stdio command is arbitrary code on the CALIBER host and a remote MCP host is an endpoint nobody reviewed; the dispatcher

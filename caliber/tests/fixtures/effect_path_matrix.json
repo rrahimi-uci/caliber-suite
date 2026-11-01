@@ -1,0 +1,589 @@
+{
+  "version": 1,
+  "cases": {
+    "EP-001": {
+      "outcome": "dispatched",
+      "status": "routed",
+      "evidence": "caliber/tests/test_workflow_http_dispatch.py::test_manifest_http_nodes_use_proposal_dispatch_and_receipt"
+    },
+    "EP-002": {
+      "outcome": "dispatched",
+      "status": "routed",
+      "evidence": "caliber/tests/test_workflow_http_dispatch.py::test_manifest_http_nodes_use_proposal_dispatch_and_receipt"
+    },
+    "EP-003": {
+      "outcome": "dispatched",
+      "status": "routed",
+      "evidence": "caliber/tests/test_workflow_http_dispatch.py::test_manifest_http_node_refuses_raw_sender_without_governed_context"
+    },
+    "EP-004": {
+      "outcome": "dispatched",
+      "status": "routed",
+      "evidence": "caliber/tests/test_effect_path_matrix.py::test_model_tool_call_returns_proposal_not_effect"
+    },
+    "EP-005": {
+      "outcome": "dispatched",
+      "status": "routed",
+      "evidence": "caliber/tests/test_effect_path_matrix.py::test_model_tool_call_returns_proposal_not_effect"
+    },
+    "EP-006": {
+      "outcome": "dispatched",
+      "status": "routed",
+      "evidence": "caliber/tests/test_effect_path_matrix.py::test_registered_write_tool_requires_proposal"
+    },
+    "EP-007": {
+      "outcome": "dispatched",
+      "status": "routed",
+      "evidence": "caliber/tests/test_effect_path_matrix.py::test_mcp_write_tool_requires_proposal"
+    },
+    "EP-008": {
+      "outcome": "dispatched",
+      "status": "routed",
+      "evidence": "caliber/tests/test_effect_path_matrix.py::test_mcp_write_tool_requires_proposal"
+    },
+    "EP-009": {
+      "outcome": "dispatched",
+      "status": "unrouted",
+      "owner": "no B04 child (#724, #733, #741, #750, #759, #768, #774) routes this path: it has no dispatcher connector yet, so its disposition is the decision and the routing is a follow-up"
+    },
+    "EP-010": {
+      "outcome": "dispatched",
+      "status": "unrouted",
+      "owner": "no B04 child (#724, #733, #741, #750, #759, #768, #774) routes this path: it has no dispatcher connector yet, so its disposition is the decision and the routing is a follow-up"
+    },
+    "EP-011": {
+      "outcome": "refused",
+      "evidence": "caliber/tests/test_effect_path_matrix.py::test_refused_paths_raise_in_reference_profile[EP-011]"
+    },
+    "EP-012": {
+      "outcome": "refused",
+      "evidence": "caliber/tests/test_effect_path_matrix.py::test_refused_paths_raise_in_reference_profile[EP-012]"
+    },
+    "EP-013": {
+      "outcome": "dispatched",
+      "status": "unrouted",
+      "owner": "no B04 child (#724, #733, #741, #750, #759, #768, #774) routes this path: it has no dispatcher connector yet, so its disposition is the decision and the routing is a follow-up"
+    },
+    "EP-014": {
+      "outcome": "refused",
+      "evidence": "caliber/tests/test_effect_path_matrix.py::test_refused_paths_raise_in_reference_profile[EP-014]"
+    },
+    "EP-015": {
+      "outcome": "refused",
+      "evidence": "caliber/tests/test_effect_path_matrix.py::test_refused_paths_raise_in_reference_profile[EP-015]"
+    },
+    "EP-016": {
+      "outcome": "refused",
+      "evidence": "caliber/tests/test_effect_path_matrix.py::test_refused_paths_raise_in_reference_profile[EP-016]"
+    },
+    "EP-017": {
+      "outcome": "dispatched",
+      "status": "unrouted",
+      "owner": "no B04 child (#724, #733, #741, #750, #759, #768, #774) routes this path: it has no dispatcher connector yet, so its disposition is the decision and the routing is a follow-up"
+    },
+    "EP-018": {
+      "outcome": "exempt",
+      "evidence": "inventory"
+    },
+    "EP-019": {
+      "outcome": "refused",
+      "evidence": "caliber/tests/test_effect_path_matrix.py::test_refused_paths_raise_in_reference_profile[EP-019]"
+    },
+    "EP-020": {
+      "outcome": "refused",
+      "evidence": "caliber/tests/test_effect_path_matrix.py::test_refused_paths_raise_in_reference_profile[EP-020]"
+    },
+    "EP-021": {
+      "outcome": "refused",
+      "evidence": "caliber/tests/test_effect_path_matrix.py::test_refused_paths_raise_in_reference_profile[EP-021]"
+    },
+    "EP-022": {
+      "outcome": "refused",
+      "evidence": "caliber/tests/test_effect_path_matrix.py::test_refused_paths_raise_in_reference_profile[EP-022]"
+    },
+    "EP-023": {
+      "outcome": "refused",
+      "evidence": "caliber/tests/test_effect_path_matrix.py::test_refused_paths_raise_in_reference_profile[EP-023]"
+    },
+    "EP-024": {
+      "outcome": "exempt",
+      "evidence": "inventory"
+    },
+    "EP-025": {
+      "outcome": "refused",
+      "evidence": "caliber/tests/test_effect_path_matrix.py::test_refused_paths_raise_in_reference_profile[EP-025]",
+      "via": "EP-023"
+    },
+    "EP-026": {
+      "outcome": "refused",
+      "evidence": "caliber/tests/test_effect_path_matrix.py::test_refused_paths_raise_in_reference_profile[EP-026]",
+      "via": "EP-023"
+    },
+    "EP-027": {
+      "outcome": "refused",
+      "evidence": "caliber/tests/test_effect_path_matrix.py::test_refused_paths_raise_in_reference_profile[EP-027]"
+    },
+    "EP-028": {
+      "outcome": "refused",
+      "evidence": "caliber/tests/test_effect_path_matrix.py::test_refused_paths_raise_in_reference_profile[EP-028]"
+    },
+    "EP-029": {
+      "outcome": "refused",
+      "evidence": "caliber/tests/test_effect_path_matrix.py::test_refused_paths_raise_in_reference_profile[EP-029]"
+    },
+    "EP-030": {
+      "outcome": "dispatched",
+      "status": "routed",
+      "evidence": "caliber/tests/test_effect_path_matrix.py::test_openapi_non_get_requires_proposal"
+    },
+    "EP-031": {
+      "outcome": "dispatched",
+      "status": "routed",
+      "evidence": "caliber/tests/test_effect_path_matrix.py::test_openapi_non_get_requires_proposal"
+    },
+    "EP-032": {
+      "outcome": "dispatched",
+      "status": "routed",
+      "evidence": "caliber/tests/test_effect_path_matrix.py::test_openapi_non_get_requires_proposal"
+    },
+    "EP-033": {
+      "outcome": "exempt",
+      "evidence": "inventory"
+    },
+    "EP-034": {
+      "outcome": "dispatched",
+      "status": "unrouted",
+      "owner": "no B04 child (#724, #733, #741, #750, #759, #768, #774) routes this path: it has no dispatcher connector yet, so its disposition is the decision and the routing is a follow-up"
+    },
+    "EP-035": {
+      "outcome": "dispatched",
+      "status": "routed",
+      "evidence": "caliber/tests/test_effect_path_matrix.py::test_the_mcp_gateway_is_named_only_by_pinned_callers"
+    },
+    "EP-036": {
+      "outcome": "dispatched",
+      "status": "routed",
+      "evidence": "caliber/tests/test_effect_path_matrix.py::test_the_mcp_gateway_is_named_only_by_pinned_callers"
+    },
+    "EP-037": {
+      "outcome": "dispatched",
+      "status": "routed",
+      "evidence": "caliber/tests/test_effect_path_matrix.py::test_the_mcp_gateway_is_named_only_by_pinned_callers"
+    },
+    "EP-038": {
+      "outcome": "exempt",
+      "evidence": "inventory"
+    },
+    "EP-039": {
+      "outcome": "exempt",
+      "evidence": "inventory"
+    },
+    "EP-040": {
+      "outcome": "exempt",
+      "evidence": "inventory"
+    },
+    "EP-041": {
+      "outcome": "refused",
+      "evidence": "caliber/tests/test_effect_path_matrix.py::test_refused_paths_raise_in_reference_profile[EP-041]"
+    },
+    "EP-042": {
+      "outcome": "refused",
+      "evidence": "caliber/tests/test_effect_path_matrix.py::test_refused_paths_raise_in_reference_profile[EP-042]"
+    },
+    "EP-043": {
+      "outcome": "exempt",
+      "evidence": "inventory"
+    },
+    "EP-044": {
+      "outcome": "refused",
+      "evidence": "caliber/tests/test_effect_path_matrix.py::test_refused_paths_raise_in_reference_profile[EP-044]"
+    },
+    "EP-045": {
+      "outcome": "refused",
+      "evidence": "caliber/tests/test_effect_path_matrix.py::test_refused_paths_raise_in_reference_profile[EP-045]"
+    },
+    "EP-046": {
+      "outcome": "exempt",
+      "evidence": "inventory"
+    },
+    "EP-047": {
+      "outcome": "refused",
+      "evidence": "caliber/tests/test_effect_path_matrix.py::test_refused_paths_raise_in_reference_profile[EP-047]"
+    },
+    "EP-048": {
+      "outcome": "refused",
+      "evidence": "caliber/tests/test_effect_path_matrix.py::test_refused_paths_raise_in_reference_profile[EP-048]"
+    },
+    "EP-049": {
+      "outcome": "dispatched",
+      "status": "routed",
+      "evidence": "caliber/tests/test_effect_path_matrix.py::test_every_seeded_builtin_is_inline_dispatched_or_refused_as_the_inventory_decided"
+    },
+    "EP-050": {
+      "outcome": "exempt",
+      "evidence": "inventory"
+    },
+    "EP-051": {
+      "outcome": "dispatched",
+      "status": "unrouted",
+      "owner": "no B04 child (#724, #733, #741, #750, #759, #768, #774) routes this path: it has no dispatcher connector yet, so its disposition is the decision and the routing is a follow-up"
+    },
+    "EP-052": {
+      "outcome": "exempt",
+      "evidence": "inventory"
+    },
+    "EP-053": {
+      "outcome": "exempt",
+      "evidence": "inventory"
+    },
+    "EP-054": {
+      "outcome": "refused",
+      "evidence": "caliber/tests/test_effect_path_matrix.py::test_refused_paths_raise_in_reference_profile[EP-054]",
+      "via": "EP-020"
+    },
+    "EP-055": {
+      "outcome": "refused",
+      "evidence": "caliber/tests/test_effect_path_matrix.py::test_refused_paths_raise_in_reference_profile[EP-055]",
+      "via": "EP-020"
+    },
+    "EP-056": {
+      "outcome": "dispatched",
+      "status": "routed",
+      "evidence": "caliber/tests/test_effect_path_matrix.py::test_every_seeded_builtin_is_inline_dispatched_or_refused_as_the_inventory_decided"
+    },
+    "EP-057": {
+      "outcome": "dispatched",
+      "status": "routed",
+      "evidence": "caliber/tests/test_effect_path_matrix.py::test_every_seeded_builtin_is_inline_dispatched_or_refused_as_the_inventory_decided"
+    },
+    "EP-058": {
+      "outcome": "exempt",
+      "evidence": "inventory"
+    },
+    "EP-059": {
+      "outcome": "dispatched",
+      "status": "unrouted",
+      "owner": "no B04 child (#724, #733, #741, #750, #759, #768, #774) routes this path: it has no dispatcher connector yet, so its disposition is the decision and the routing is a follow-up"
+    },
+    "EP-060": {
+      "outcome": "exempt",
+      "evidence": "inventory"
+    },
+    "EP-061": {
+      "outcome": "exempt",
+      "evidence": "inventory"
+    },
+    "EP-062": {
+      "outcome": "exempt",
+      "evidence": "inventory"
+    },
+    "EP-063": {
+      "outcome": "exempt",
+      "evidence": "inventory"
+    },
+    "EP-064": {
+      "outcome": "exempt",
+      "evidence": "inventory"
+    },
+    "EP-065": {
+      "outcome": "exempt",
+      "evidence": "inventory"
+    },
+    "EP-066": {
+      "outcome": "exempt",
+      "evidence": "inventory"
+    },
+    "EP-067": {
+      "outcome": "exempt",
+      "evidence": "inventory"
+    },
+    "EP-068": {
+      "outcome": "exempt",
+      "evidence": "inventory"
+    },
+    "EP-069": {
+      "outcome": "exempt",
+      "evidence": "inventory"
+    },
+    "EP-070": {
+      "outcome": "dispatched",
+      "status": "unrouted",
+      "owner": "no B04 child (#724, #733, #741, #750, #759, #768, #774) routes this path: it has no dispatcher connector yet, so its disposition is the decision and the routing is a follow-up"
+    },
+    "EP-071": {
+      "outcome": "dispatched",
+      "status": "unrouted",
+      "owner": "no B04 child (#724, #733, #741, #750, #759, #768, #774) routes this path: it has no dispatcher connector yet, so its disposition is the decision and the routing is a follow-up"
+    },
+    "EP-072": {
+      "outcome": "dispatched",
+      "status": "unrouted",
+      "owner": "no B04 child (#724, #733, #741, #750, #759, #768, #774) routes this path: it has no dispatcher connector yet, so its disposition is the decision and the routing is a follow-up"
+    },
+    "EP-073": {
+      "outcome": "exempt",
+      "evidence": "inventory"
+    },
+    "EP-074": {
+      "outcome": "exempt",
+      "evidence": "inventory"
+    },
+    "EP-075": {
+      "outcome": "dispatched",
+      "status": "unrouted",
+      "owner": "no B04 child (#724, #733, #741, #750, #759, #768, #774) routes this path: it has no dispatcher connector yet, so its disposition is the decision and the routing is a follow-up"
+    },
+    "EP-076": {
+      "outcome": "dispatched",
+      "status": "unrouted",
+      "owner": "no B04 child (#724, #733, #741, #750, #759, #768, #774) routes this path: it has no dispatcher connector yet, so its disposition is the decision and the routing is a follow-up"
+    },
+    "EP-077": {
+      "outcome": "dispatched",
+      "status": "unrouted",
+      "owner": "no B04 child (#724, #733, #741, #750, #759, #768, #774) routes this path: it has no dispatcher connector yet, so its disposition is the decision and the routing is a follow-up"
+    },
+    "EP-078": {
+      "outcome": "refused",
+      "evidence": "caliber/tests/test_effect_path_matrix.py::test_refused_paths_raise_in_reference_profile[EP-078]"
+    },
+    "EP-079": {
+      "outcome": "refused",
+      "evidence": "caliber/tests/test_effect_path_matrix.py::test_refused_paths_raise_in_reference_profile[EP-079]"
+    },
+    "EP-080": {
+      "outcome": "refused",
+      "evidence": "caliber/tests/test_effect_path_matrix.py::test_refused_paths_raise_in_reference_profile[EP-080]"
+    },
+    "EP-081": {
+      "outcome": "dispatched",
+      "status": "unrouted",
+      "owner": "no B04 child (#724, #733, #741, #750, #759, #768, #774) routes this path: it has no dispatcher connector yet, so its disposition is the decision and the routing is a follow-up"
+    },
+    "EP-082": {
+      "outcome": "exempt",
+      "evidence": "inventory"
+    },
+    "EP-083": {
+      "outcome": "exempt",
+      "evidence": "inventory"
+    },
+    "EP-084": {
+      "outcome": "exempt",
+      "evidence": "inventory"
+    },
+    "EP-085": {
+      "outcome": "exempt",
+      "evidence": "inventory"
+    },
+    "EP-086": {
+      "outcome": "exempt",
+      "evidence": "inventory"
+    },
+    "EP-087": {
+      "outcome": "exempt",
+      "evidence": "inventory"
+    },
+    "EP-088": {
+      "outcome": "exempt",
+      "evidence": "inventory"
+    },
+    "EP-089": {
+      "outcome": "exempt",
+      "evidence": "inventory"
+    },
+    "EP-090": {
+      "outcome": "dispatched",
+      "status": "unrouted",
+      "owner": "no B04 child (#724, #733, #741, #750, #759, #768, #774) routes this path: it has no dispatcher connector yet, so its disposition is the decision and the routing is a follow-up"
+    },
+    "EP-091": {
+      "outcome": "exempt",
+      "evidence": "inventory"
+    },
+    "EP-092": {
+      "outcome": "exempt",
+      "evidence": "inventory"
+    },
+    "EP-093": {
+      "outcome": "exempt",
+      "evidence": "inventory"
+    },
+    "EP-094": {
+      "outcome": "exempt",
+      "evidence": "inventory"
+    },
+    "EP-095": {
+      "outcome": "exempt",
+      "evidence": "inventory"
+    },
+    "EP-096": {
+      "outcome": "exempt",
+      "evidence": "inventory"
+    },
+    "EP-097": {
+      "outcome": "exempt",
+      "evidence": "inventory"
+    },
+    "EP-098": {
+      "outcome": "exempt",
+      "evidence": "inventory"
+    },
+    "EP-099": {
+      "outcome": "exempt",
+      "evidence": "inventory"
+    },
+    "EP-100": {
+      "outcome": "exempt",
+      "evidence": "inventory"
+    },
+    "EP-101": {
+      "outcome": "exempt",
+      "evidence": "inventory"
+    },
+    "EP-102": {
+      "outcome": "exempt",
+      "evidence": "inventory"
+    },
+    "EP-103": {
+      "outcome": "exempt",
+      "evidence": "inventory"
+    },
+    "EP-104": {
+      "outcome": "exempt",
+      "evidence": "inventory"
+    },
+    "EP-105": {
+      "outcome": "exempt",
+      "evidence": "inventory"
+    },
+    "EP-106": {
+      "outcome": "exempt",
+      "evidence": "inventory"
+    },
+    "EP-107": {
+      "outcome": "exempt",
+      "evidence": "inventory"
+    },
+    "EP-108": {
+      "outcome": "exempt",
+      "evidence": "inventory"
+    },
+    "EP-109": {
+      "outcome": "exempt",
+      "evidence": "inventory"
+    },
+    "EP-110": {
+      "outcome": "exempt",
+      "evidence": "inventory"
+    },
+    "EP-111": {
+      "outcome": "exempt",
+      "evidence": "inventory"
+    },
+    "EP-112": {
+      "outcome": "exempt",
+      "evidence": "inventory"
+    },
+    "EP-113": {
+      "outcome": "exempt",
+      "evidence": "inventory"
+    },
+    "EP-114": {
+      "outcome": "refused",
+      "evidence": "caliber/tests/test_effect_path_matrix.py::test_refused_paths_raise_in_reference_profile[EP-114]"
+    },
+    "EP-115": {
+      "outcome": "exempt",
+      "evidence": "inventory"
+    },
+    "EP-116": {
+      "outcome": "exempt",
+      "evidence": "inventory"
+    },
+    "EP-117": {
+      "outcome": "exempt",
+      "evidence": "inventory"
+    },
+    "EP-118": {
+      "outcome": "exempt",
+      "evidence": "inventory"
+    },
+    "EP-119": {
+      "outcome": "exempt",
+      "evidence": "inventory"
+    },
+    "EP-120": {
+      "outcome": "exempt",
+      "evidence": "inventory"
+    },
+    "EP-121": {
+      "outcome": "exempt",
+      "evidence": "inventory"
+    },
+    "EP-122": {
+      "outcome": "exempt",
+      "evidence": "inventory"
+    },
+    "EP-123": {
+      "outcome": "exempt",
+      "evidence": "inventory"
+    },
+    "EP-124": {
+      "outcome": "exempt",
+      "evidence": "inventory"
+    },
+    "EP-125": {
+      "outcome": "dispatched",
+      "status": "routed",
+      "evidence": "caliber/tests/test_effect_path_matrix.py::test_every_seeded_builtin_is_inline_dispatched_or_refused_as_the_inventory_decided"
+    },
+    "EP-126": {
+      "outcome": "dispatched",
+      "status": "routed",
+      "evidence": "caliber/tests/test_effect_path_matrix.py::test_every_seeded_builtin_is_inline_dispatched_or_refused_as_the_inventory_decided"
+    },
+    "EP-127": {
+      "outcome": "dispatched",
+      "status": "routed",
+      "evidence": "caliber/tests/test_effect_path_matrix.py::test_every_seeded_builtin_is_inline_dispatched_or_refused_as_the_inventory_decided"
+    },
+    "EP-128": {
+      "outcome": "exempt",
+      "evidence": "inventory"
+    },
+    "EP-129": {
+      "outcome": "exempt",
+      "evidence": "inventory"
+    },
+    "EP-130": {
+      "outcome": "dispatched",
+      "status": "routed",
+      "evidence": "caliber/tests/test_effect_path_matrix.py::test_model_tool_call_returns_proposal_not_effect"
+    },
+    "EP-131": {
+      "outcome": "dispatched",
+      "status": "routed",
+      "evidence": "caliber/tests/test_workflow_http_dispatch.py::test_manifest_http_nodes_use_proposal_dispatch_and_receipt"
+    },
+    "EP-132": {
+      "outcome": "dispatched",
+      "status": "routed",
+      "evidence": "caliber/tests/test_effect_path_matrix.py::test_registered_write_tool_requires_proposal"
+    },
+    "EP-133": {
+      "outcome": "dispatched",
+      "status": "routed",
+      "evidence": "caliber/tests/test_effect_path_matrix.py::test_openapi_non_get_requires_proposal"
+    },
+    "EP-134": {
+      "outcome": "dispatched",
+      "status": "routed",
+      "evidence": "caliber/tests/test_effect_path_matrix.py::test_mcp_write_tool_requires_proposal"
+    },
+    "EP-135": {
+      "outcome": "exempt",
+      "evidence": "inventory"
+    }
+  }
+}

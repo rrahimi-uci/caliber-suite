@@ -227,7 +227,7 @@ _REVIEWED_BARE_LOOKUPS: dict[str, str] = {
         "one, and the checker does not chase through `_get_run_or_404` into "
         "its scoped lookup, so it is recorded by hand."
     ),
-    "caliber.routes.workflow_versions._run_workflow_version_sync:934": (
+    "caliber.routes.workflow_versions._run_workflow_version_sync:935": (
         "The parent workflow was already authorized a few lines above via "
         "`_get_version_or_404(session, version_id, request=request)`, which "
         "calls `_deps.py::scoped_child_or_404` -- itself gated on this exact "

@@ -135,6 +135,14 @@ class UnsupportedEffectPath(EffectRefused):
         super().__init__(code, message)
 
 
+class UnsupportedInReferenceProfile(UnsupportedEffectPath):
+    """An inventory ``refuse`` row's path, refused because the process runs the reference profile (B04.7, #774).
+
+    Raised only by :mod:`caliber.effects.refusals`. A subclass so that a caller which isolates one item's failure (a ``for_each``
+    item, an ``error_boundary``) can let this one through: a node the profile does not support is not an item's own error.
+    """
+
+
 @dataclass(frozen=True)
 class EffectOutcome:
     """The durable proposal state after dispatch and any safe settlement."""
@@ -548,6 +556,29 @@ OPENAPI_HTTP_CONFIGURATION = _openapi_http.CONFIGURATION
 MCP_CAPABILITY = _mcp_tool.CAPABILITY
 MCP_CONFIGURATION = _mcp_tool.CONFIGURATION
 
+#: The backend kind of the ``export`` effect class (B04.7, #774). It is registered so that an export proposal names a
+#: backend that **says no** in its own words, instead of resolving to nothing; it is never pinned in
+#: ``caliber.profile.REFERENCE_CONNECTORS`` (:data:`REFUSAL_ONLY_BACKENDS`), so admission refuses it first.
+EXPORT_BACKEND_KIND = "export"
+
+
+class _ExportBackend:
+    """The ``export`` effect class has no connector: data that leaves the platform boundary is refused, never sent.
+
+    Admission (``connector_not_admitted``: there is no pinned record) refuses an ``export`` proposal before a proposal is
+    recorded or an approval spent; this ``perform`` is the second line, so a registration that someone pinned or called
+    directly still cannot send anything. The refusal is the same in every profile because no connector for the class exists
+    (the inventory rows of class ``export`` are EP-044, EP-045 and EP-055, refused in the reference profile).
+    """
+
+    def perform(self, request: EffectRequest, config: Mapping[str, Any] | None) -> TransportResult:
+        del request, config
+        raise UnsupportedEffectPath(
+            "unsupported_effect_path",
+            "unsupported_effect_path: no connector carries the export effect class",
+        )
+
+
 # Backend names are intentionally explicit.  Future B04 children add their
 # private adapters here; an arbitrary caller-supplied kind never gets a callable.
 # Being listed is not being admitted: :func:`admit_backend` is the gate (B12.3a, #738).
@@ -587,7 +618,15 @@ BACKENDS: dict[str, BackendRegistration] = {
         capability=MCP_CAPABILITY,
         configuration=MCP_CONFIGURATION,
     ),
+    EXPORT_BACKEND_KIND: BackendRegistration(
+        backend=_ExportBackend(),
+        connector=EXPORT_BACKEND_KIND,
+        connector_version="1",
+    ),
 }
+
+#: Registered backends that exist to refuse: they have no pinned record in ``REFERENCE_CONNECTORS`` and must never get one.
+REFUSAL_ONLY_BACKENDS: frozenset[str] = frozenset({EXPORT_BACKEND_KIND})
 
 
 def admit_backend(backend_kind: object) -> AdmittedConnector:

@@ -24,6 +24,7 @@ from caliber.config import CaliberConfig
 from caliber.context.authorize import GOVERNED_RUN_REQUIRED, ContextDenied
 from caliber.db.models import CaliberWorkflowDeployment, CaliberWorkflowVersion
 from caliber.db.session import create_engine_from_config, sessionmaker_from_engine
+from caliber.effects.refusals import refuse_in_reference_profile
 from caliber.knowledge.schemas import KnowledgeBaseVersionCreateRequest, KnowledgeQueryRequest
 from caliber.knowledge.service import KnowledgeBaseService
 from caliber.workflows.ir import IRKnowledgeBuild, IRKnowledgeQuery, IRSubworkflow, IRWorkflow
@@ -333,6 +334,9 @@ def _default_knowledge_build_runner(
     identity: CaliberIdentity,
     require_source_guard: bool = False,
 ) -> Callable[[dict[str, Any]], dict[str, Any]]:
+    # Creates and activates knowledge-base versions with the default service identity and no guard: not supported in the
+    # reference profile (EP-042, B04.7, #774).
+    refuse_in_reference_profile("EP-042", config)
     knowledge_service = KnowledgeBaseService(config=config, session_factory=session_factory)
 
     def _run_knowledge_build(payload: dict[str, Any]) -> dict[str, Any]:
@@ -449,33 +453,7 @@ def _default_knowledge_build_runner(
     return _run_knowledge_build
 
 
-def _has_ungoverned_reference_runner(
-    ir: IRWorkflow,
-    *,
-    config: CaliberConfig,
-    knowledge_query_runner: Callable[[dict[str, Any]], dict[str, Any]] | None,
-    knowledge_build_runner: Callable[[dict[str, Any]], dict[str, Any]] | None,
-    subworkflow_runner: Callable[..., Any] | None,
-) -> bool:
-    if config.profile != "reference":
-        return False
-    return (
-        (
-            knowledge_query_runner is not None
-            and any(isinstance(node, IRKnowledgeQuery) for node in ir.nodes.values())
-        )
-        or (
-            knowledge_build_runner is not None
-            and any(isinstance(node, IRKnowledgeBuild) for node in ir.nodes.values())
-        )
-        or (
-            subworkflow_runner is not None
-            and any(isinstance(node, IRSubworkflow) for node in ir.nodes.values())
-        )
-    )
-
-
-def execute_exported_workflow(  # noqa: PLR0912 - one central runtime wiring boundary
+def execute_exported_workflow(
     ir: IRWorkflow,
     input_text: str,
     *,
@@ -498,7 +476,16 @@ def execute_exported_workflow(  # noqa: PLR0912 - one central runtime wiring bou
     session_memory_store: WorkflowSessionMemoryStore | None = None,
     source_guard: Callable[[str], None] | None = None,
 ) -> WorkflowRunResult:
-    """Execute an exported workflow IR through the full CALIBER interpreter."""
+    """Execute an exported workflow IR through the full CALIBER interpreter.
+
+    Not supported in the reference profile (``UnsupportedEffectPath``, inventory EP-041, B04.7, #774): a standalone export
+    runs a whole workflow in the exporter's process with no egress policy bound to the plan, no effect ledger, no runtime
+    approval and a default operator identity, so it cannot satisfy the dispatcher's contract. It is refused before anything
+    is read, bound or run, whatever runners the caller supplies. Run the workflow through the platform's own run routes.
+    """
+
+    resolved_config = config if config is not None else CaliberConfig.load()
+    refuse_in_reference_profile("EP-041", resolved_config)
 
     if any(getattr(node, "file_ref", None) is not None for node in ir.nodes.values()):
         raise RuntimeError(
@@ -506,18 +493,8 @@ def execute_exported_workflow(  # noqa: PLR0912 - one central runtime wiring bou
             "execute this version through a project-scoped CALIBER runtime"
         )
 
-    resolved_config = config if config is not None else CaliberConfig.load()
     resolved_resolver = resolver if resolver is not None else InMemoryToolResolver()
     resolved_identity = identity or _default_identity(active_project_id=active_project_id)
-
-    if _has_ungoverned_reference_runner(
-        ir,
-        config=resolved_config,
-        knowledge_query_runner=knowledge_query_runner,
-        knowledge_build_runner=knowledge_build_runner,
-        subworkflow_runner=subworkflow_runner,
-    ):
-        raise ContextDenied(GOVERNED_RUN_REQUIRED)
 
     runtime_session_factory = session_factory
     if (

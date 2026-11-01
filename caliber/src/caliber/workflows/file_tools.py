@@ -27,6 +27,7 @@ from sqlalchemy.orm import Session
 
 from caliber.config import WorkflowStorageConfig
 from caliber.db.models import CaliberProject, CaliberWorkflowFile
+from caliber.effects.refusals import refuse_in_reference_profile
 from caliber.storage import VISIBLE_STATUSES, FileKind, StorageError
 from caliber.storage.base import parse_ref
 from caliber.storage.service import (
@@ -347,8 +348,15 @@ def write_workdir_file(
     kind: FileKind = "work",
     node_id: str | None = None,
     metadata: dict[str, Any] | None = None,
+    config: object | None = None,
 ) -> dict[str, Any]:
-    """Write a file to ``work/``/``artifacts/``/``logs/`` (prefix-excluded path)."""
+    """Write a file to ``work/``/``artifacts/``/``logs/`` (prefix-excluded path).
+
+    Not supported in the reference profile (``UnsupportedEffectPath``, inventory EP-047, B04.7, #774): nothing binds this write
+    to a run (the runtime injects only the read tools, :func:`bind_run_read_tools`), so no dispatcher, proposal or approval
+    stands in front of it. ``config`` names the deployment profile of the caller; no ``config`` is the development default.
+    """
+    refuse_in_reference_profile("EP-047", config)
     if content is not None:
         data = content.encode("utf-8")
     elif content_base64 is not None:
@@ -381,8 +389,13 @@ def create_artifact(
     media_type: str | None = None,
     node_id: str | None = None,
     metadata: dict[str, Any] | None = None,
+    config: object | None = None,
 ) -> dict[str, Any]:
-    """Write and register a final artifact in one call (kind=artifact)."""
+    """Write and register a final artifact in one call (kind=artifact).
+
+    Not supported in the reference profile, for the reason :func:`write_workdir_file` gives (inventory EP-048).
+    """
+    refuse_in_reference_profile("EP-048", config)
     return write_workdir_file(
         service,
         session,
@@ -394,6 +407,7 @@ def create_artifact(
         kind="artifact",
         node_id=node_id,
         metadata=metadata,
+        config=config,
     )
 
 
