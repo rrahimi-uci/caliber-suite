@@ -2468,6 +2468,174 @@ describe("WorkflowEditor handler branches", () => {
     expect(await screen.findByTestId("editor-run-message")).toHaveTextContent("Approval recorded");
   });
 
+  it("decides a bound approval in the monitor's approval panel and hides the blind buttons", async () => {
+    const decisions: Array<Record<string, unknown>> = [];
+    const waitingApprove = makeRun({
+      workflow_run_id: "WR-BOUND",
+      status: "waiting_approval",
+      current_node_id: "review",
+      summary: { output: "", node_path: ["start", "review"], steps: [] },
+    });
+    const bound = {
+      runtime_approval_id: "RA-BOUND",
+      workflow_run_id: "WR-BOUND",
+      project_id: null,
+      node_id: "review",
+      status: "pending",
+      requested_at: NOW,
+      decided_at: null,
+      decided_by: null,
+      decision_reason: null,
+      policy_snapshot: null,
+      proposal_id: "EP-BOUND",
+      expires_at: "2099-01-01T00:00:00",
+      superseded_by: null,
+      consumed_at: null,
+    };
+
+    server.use(
+      http.get(`${API_BASE}/workflow-versions/WFV-1`, () =>
+        HttpResponse.json(envelope(makeVersion())),
+      ),
+      http.get(`${API_BASE}/tools`, () => HttpResponse.json(envelope([]))),
+      http.get(`${API_BASE}/prompts`, () => HttpResponse.json(envelope([]))),
+      http.get(`${API_BASE}/skills`, () => HttpResponse.json(envelope([]))),
+      http.get(`${API_BASE}/mcp-servers`, () => HttpResponse.json(envelope([]))),
+      http.get(`${API_BASE}/workflow-components`, () =>
+        HttpResponse.json(envelope({ schema_version: 1, components: [] })),
+      ),
+      http.get(`${API_BASE}/capabilities`, () =>
+        HttpResponse.json(
+          envelope({
+            workflow_runs: {
+              queue_enabled: true,
+              supports_async_submit: true,
+              supports_cancel: true,
+              supports_retry: true,
+              supports_resume: true,
+              runtime_approvals_enabled: true,
+              checkpointing_enabled: true,
+            },
+          }),
+        ),
+      ),
+      http.get(`${API_BASE}/workflows/WF-1/runs`, () =>
+        HttpResponse.json(envelope([waitingApprove])),
+      ),
+      http.get(`${API_BASE}/workflow-runs/WR-BOUND`, () =>
+        HttpResponse.json(envelope(waitingApprove)),
+      ),
+      http.get(`${API_BASE}/workflow-runs/WR-BOUND/events`, () =>
+        HttpResponse.json(envelope([])),
+      ),
+      http.get(`${API_BASE}/workflow-runs/WR-BOUND/checkpoints`, () =>
+        HttpResponse.json(
+          envelope([
+            {
+              checkpoint_id: "CP-WR-BOUND",
+              workflow_run_id: "WR-BOUND",
+              project_id: null,
+              sequence: 1,
+              node_id: "review",
+              state_blob: { kind: "human_approval", node_id: "review", output: "approval requested" },
+              created_at: NOW,
+            },
+          ]),
+        ),
+      ),
+      http.get(`${API_BASE}/workflow-runs/WR-BOUND/approvals`, () =>
+        HttpResponse.json(envelope([bound])),
+      ),
+      http.get(`${API_BASE}/workflow-runs/WR-BOUND/approvals/RA-BOUND`, () =>
+        HttpResponse.json(
+          envelope({
+            approval: {
+              runtime_approval_id: "RA-BOUND",
+              workflow_run_id: "WR-BOUND",
+              project_id: null,
+              node_id: "review",
+              status: "pending",
+              requested_at: NOW,
+              decided_at: null,
+              decided_by: null,
+              decision_reason: null,
+            },
+            binding: {
+              proposal_id: "EP-BOUND",
+              intent_hash: `sha256:${"3f9a1c0b77d2".padEnd(64, "a")}`,
+              evidence_hash: `sha256:${"e".repeat(64)}`,
+              policy_digest: `sha256:${"5e7b".padEnd(64, "c")}`,
+              expected_resource_version: null,
+              expires_at: "2099-01-01T00:00:00",
+              requested_by: "editor_a",
+              superseded_by: null,
+              consumed_at: null,
+            },
+            proposal: {
+              proposal_id: "EP-BOUND",
+              connector: "document-request",
+              connector_version: "1.0.0",
+              effect_class: "reversible_write",
+              resource: "cases/MORT-1/document-requests",
+              state: "proposed",
+              args_fields: [],
+              args_field_count: 0,
+              args_truncated: false,
+            },
+            policy: {
+              required_role: "caliber.approver",
+              approval_count: 1,
+              timeout_behavior: "block",
+              allow_self_approval: false,
+            },
+            quorum: { approvers: [], required: 1, remaining: 1 },
+            state: { code: "open", superseded_by: null },
+            allowed_responses: ["approve", "reject"],
+            caller: {
+              principal: "@test",
+              approve: { allowed: true, reason_code: null },
+              reject: { allowed: true, reason_code: null },
+            },
+          }),
+        ),
+      ),
+      http.get(`${API_BASE}/workflow-runs/WR-BOUND/manifest`, () =>
+        HttpResponse.json(
+          envelope({
+            workflow_run_id: "WR-BOUND",
+            workflow_id: "WF-1",
+            workflow_version_id: "WFV-1",
+            manifest_mode: "saved_version",
+            manifest_hash: "hash1",
+            manifest: makeVersion().manifest,
+          }),
+        ),
+      ),
+      http.get(`${API_BASE}/workflows/WF-1/session-memory`, () =>
+        HttpResponse.json(envelope([])),
+      ),
+      http.post(`${API_BASE}/workflow-runs/WR-BOUND/approval/approve`, async ({ request }) => {
+        decisions.push((await request.json()) as Record<string, unknown>);
+        return HttpResponse.json(envelope(waitingApprove));
+      }),
+    );
+
+    const user = userEvent.setup();
+    renderEditor();
+    expect(await screen.findByTestId("workflow-editor")).toBeInTheDocument();
+    await user.click(screen.getByTestId("editor-run-monitor"));
+    await user.click(await screen.findByTestId("run-history-select-WR-BOUND"));
+
+    expect(await screen.findByTestId("approval-decision-panel")).toBeInTheDocument();
+    expect(screen.getByTestId("run-bound-approval-note")).toBeInTheDocument();
+    expect(screen.queryByTestId("run-approve")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("run-reject")).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Approve" }));
+    await waitFor(() => expect(decisions).toEqual([{ runtime_approval_id: "RA-BOUND" }]));
+    expect(await screen.findByTestId("editor-run-message")).toHaveTextContent("Approval recorded");
+  });
+
   it("hides approval actions in the monitor when the workflow run queue is disabled", async () => {
     const waitingApprove = makeRun({
       workflow_run_id: "WR-APPROVE-QUEUE-DISABLED",

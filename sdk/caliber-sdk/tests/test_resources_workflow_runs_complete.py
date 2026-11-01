@@ -115,11 +115,13 @@ def test_approvals_approve_and_reject_hit_the_documented_paths() -> None:
 
     with client_with(handler) as caliber:
         caliber.workflows.runs.approvals("WFR-1")
+        caliber.workflows.runs.approval("WFR-1", "RAP-1")
         caliber.workflows.runs.approve("WFR-1", node_id="approve-1", reason="looks fine")
         caliber.workflows.runs.reject("WFR-1", node_id="approve-1", reason="needs changes")
 
     assert seen == [
         "GET /workflow-runs/WFR-1/approvals",
+        "GET /workflow-runs/WFR-1/approvals/RAP-1",
         "POST /workflow-runs/WFR-1/approval/approve",
         "POST /workflow-runs/WFR-1/approval/reject",
     ]

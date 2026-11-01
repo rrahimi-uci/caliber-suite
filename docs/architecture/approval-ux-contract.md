@@ -12,6 +12,30 @@ Two kinds of thing appear below and the difference matters. A **record field** i
 - **Errors.** Routes raise `HTTPException` with a string `detail`; the platform's own mechanism for a machine-readable cause is `CaliberHTTPException(reason_code=...)`, rendered by `routes/_errors.py` as `{"detail", "status_code", "reason_code"}`.
 - **Absent.** `request_changes`, version checks at decision time, a diff, and the richer approval view (#523 tasks 1–4). Expiry and supersession are enforced by the decision route and dispatcher recheck; a bound decision is consumed exactly once by the dispatch claim transaction.
 
+## What shipped for the panel (B06.5, #743)
+
+The panel (`ApprovalDecisionPanel`, opened by `BoundApprovalReview` in the recovery panel's approvals section) and a read-only view route,
+`GET /workflow-runs/{run_id}/approvals/{approval_id}`, are built; `docs/operate/reference-profile.md` ("The approval panel") is the reference for
+the route and its refusals. They implement a **subset** of this contract, because the decision routes and the platform's records are what they are.
+Where this page and that one differ, that one describes what runs.
+
+| This contract | What shipped |
+| --- | --- |
+| `current_state`, `current_state_error`, `preview` (before and after) | not returned: they need a connector query operation that does not exist. The panel shows the effect's connector, class and resource, and the **names and kinds of the arguments, never a value**; the `intent_hash` binds the values |
+| `requested_by_type` (person or agent) | not returned: the platform has no `principal_type`; the requester's id is shown |
+| `evidence_url`, `policy_decision.reason_codes` | not returned (no evidence package, no per-proposal decision link yet); the digests are shown |
+| `request_changes` and its route | not built; the panel offers exactly the `allowed_responses` the server lists, which are `approve` and `reject` |
+| `intent_hash` in the approve body | not sent: a bound request's intent is frozen, so a stale panel is refused as `superseded`; the route's body is `{runtime_approval_id, reason}` |
+| approving resumes the run | not built: the run stays `waiting_approval` until `POST .../resume` (operator role) |
+| `self_approval`, `duplicate_approver` as `403` codes | the routes answer a plain `403`; the view's `caller` block computes the same decision from the same rules and names the reason before a button is pressed |
+| `stale_version`, `intent_mismatch`, `fenced_owner`, `role_revoked` | the messages are in the panel and render for a `reason_code` of that name, but the platform raises them only at dispatch and does not persist them where a view can read them, so the panel cannot show them yet |
+| `stale_version` banner and "Ask for a new request" button | not built (no current version to compare) |
+
+Everything under "Accessibility" is built as written: the inline panel, focus on the heading when nothing else holds focus and on the result
+message afterwards, one polite status element and one alert element (always in the document), `aria-disabled` with `aria-describedby`, a reason that is
+required to reject and announced before any call, the inline reject confirmation, and a countdown that refreshes once a minute outside the live
+regions.
+
 ## Decisions this contract makes for #523
 
 1. **Machine-readable cause: `reason_code`, one vocabulary.** Every refusal below is a `CaliberHTTPException` whose `reason_code` is the code in the tables. #523 task 2 names its two expiry errors `{"error": "approval_expired"}` and `approval_superseded` and task 4 `approval_already_consumed`; they are replaced by the `reason_code` values `expired`, `superseded` and `already_consumed`, in the envelope above, so a client sees one shape.

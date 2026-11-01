@@ -4554,6 +4554,129 @@ describe("WorkflowDetail calibration", () => {
     });
   });
 
+  it("decides a request bound to an exact action in the approval panel, not with a blind button", async () => {
+    const decisions: Array<Record<string, unknown>> = [];
+    server.use(
+      ...detailHandlers({
+        capabilities: {
+          queue_enabled: true,
+          supports_async_submit: true,
+          supports_cancel: true,
+          supports_retry: true,
+          supports_resume: true,
+          runtime_approvals_enabled: true,
+          checkpointing_enabled: true,
+          event_backend: "in_process",
+        },
+        runs: [
+          makeRun({
+            workflow_run_id: "WR-BOUND",
+            status: "waiting_approval",
+            trace_id: "trace-bound",
+            current_node_id: "approval",
+          }),
+        ],
+        runApprovalsById: {
+          "WR-BOUND": [
+            {
+              runtime_approval_id: "RA-BOUND",
+              workflow_run_id: "WR-BOUND",
+              project_id: null,
+              node_id: "approval",
+              status: "pending",
+              requested_at: NOW,
+              decided_at: null,
+              decided_by: null,
+              decision_reason: null,
+              policy_snapshot: null,
+              proposal_id: "EP-BOUND",
+              expires_at: "2099-01-01T00:00:00",
+              superseded_by: null,
+              consumed_at: null,
+            },
+          ],
+        },
+      }),
+      http.get(`${API_BASE}/workflow-runs/WR-BOUND/approvals/RA-BOUND`, () =>
+        HttpResponse.json(
+          envelope({
+            approval: {
+              runtime_approval_id: "RA-BOUND",
+              workflow_run_id: "WR-BOUND",
+              project_id: null,
+              node_id: "approval",
+              status: "pending",
+              requested_at: NOW,
+              decided_at: null,
+              decided_by: null,
+              decision_reason: null,
+            },
+            binding: {
+              proposal_id: "EP-BOUND",
+              intent_hash: `sha256:${"3f9a1c0b77d2".padEnd(64, "a")}`,
+              evidence_hash: `sha256:${"e".repeat(64)}`,
+              policy_digest: `sha256:${"5e7b".padEnd(64, "c")}`,
+              expected_resource_version: "7",
+              expires_at: "2099-01-01T00:00:00",
+              requested_by: "editor_a",
+              superseded_by: null,
+              consumed_at: null,
+            },
+            proposal: {
+              proposal_id: "EP-BOUND",
+              connector: "document-request",
+              connector_version: "1.0.0",
+              effect_class: "irreversible_write",
+              resource: "cases/MORT-1/document-requests",
+              state: "proposed",
+              args_fields: [{ name: "document_type", kind: "string" }],
+              args_field_count: 1,
+              args_truncated: false,
+            },
+            policy: {
+              required_role: "caliber.approver",
+              approval_count: 1,
+              timeout_behavior: "block",
+              allow_self_approval: false,
+            },
+            quorum: { approvers: [], required: 1, remaining: 1 },
+            state: { code: "open", superseded_by: null },
+            allowed_responses: ["approve", "reject"],
+            caller: {
+              principal: "@test",
+              approve: { allowed: true, reason_code: null },
+              reject: { allowed: true, reason_code: null },
+            },
+          }),
+        ),
+      ),
+      http.post(
+        `${API_BASE}/workflow-runs/WR-BOUND/approval/approve`,
+        async ({ request }) => {
+          decisions.push((await request.json()) as Record<string, unknown>);
+          return HttpResponse.json(
+            envelope(makeRun({ workflow_run_id: "WR-BOUND", status: "waiting_approval" })),
+          );
+        },
+      ),
+    );
+
+    renderAt(<WorkflowDetail />, "/workflows/WF-1", "/workflows/:workflowId");
+    await userEvent.click(await screen.findByTestId("tab-runs"));
+    await userEvent.click(await screen.findByTestId("run-WR-BOUND"));
+
+    expect(await screen.findByTestId("approval-decision-panel")).toBeInTheDocument();
+    expect(screen.getByTestId("run-bound-approval-note")).toBeInTheDocument();
+    // The header's blind buttons are gone: this request is decided where its exact action is shown.
+    expect(screen.queryByTestId("run-approve")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("run-reject")).not.toBeInTheDocument();
+    expect(screen.getByText("cases/MORT-1/document-requests", { selector: "code" })).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: "Approve" }));
+    await waitFor(() => expect(decisions).toEqual([{ runtime_approval_id: "RA-BOUND" }]));
+    expect(await screen.findByText(/Approved\. The quorum is met/)).toBeInTheDocument();
+  });
+
   it("refreshes exact run-history counts after retry queues a new run", async () => {
     let runs = [
       makeRun({

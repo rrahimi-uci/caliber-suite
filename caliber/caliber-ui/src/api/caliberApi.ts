@@ -231,6 +231,8 @@ import type {
   AdmissionManifest,
   WorkflowSessionMemoryClearResult,
   WorkflowSessionMemoryEntry,
+  WorkflowApprovalPartialAck,
+  WorkflowApprovalView,
   WorkflowRuntimeApproval,
   WorkflowRunEvent,
   WorkflowRunLineage,
@@ -3371,6 +3373,37 @@ export const caliberApi = {
   ): Promise<WorkflowRun> {
     return request<WorkflowRun>(
       `/workflow-runs/${encodeURIComponent(runId)}/retry`,
+      { method: "POST", body: stripNulls(payload) },
+    );
+  },
+
+  /**
+   * GET /workflow-runs/{id}/approvals/{approval_id}: the approver's view of one request (B06.5, #743). Read-only; the
+   * decision routes stay the authority.
+   */
+  getWorkflowRunApprovalView(
+    runId: string,
+    approvalId: string,
+    signal?: AbortSignal,
+  ): Promise<WorkflowApprovalView> {
+    return request<WorkflowApprovalView>(
+      `/workflow-runs/${encodeURIComponent(runId)}/approvals/${encodeURIComponent(approvalId)}`,
+      { signal },
+    );
+  },
+
+  /**
+   * POST /workflow-runs/{id}/approval/approve or `/reject` for the approval panel (B06.5, #743). The body carries the
+   * request id and an optional reason and nothing else: who is deciding is the authenticated principal, never a field.
+   * A decision that leaves the quorum open answers with the partial acknowledgement instead of the run.
+   */
+  decideWorkflowRunApproval(
+    runId: string,
+    decision: "approve" | "reject",
+    payload: { runtime_approval_id: string; reason?: string },
+  ): Promise<WorkflowRun | WorkflowApprovalPartialAck> {
+    return request<WorkflowRun | WorkflowApprovalPartialAck>(
+      `/workflow-runs/${encodeURIComponent(runId)}/approval/${decision}`,
       { method: "POST", body: stripNulls(payload) },
     );
   },

@@ -51,6 +51,7 @@ from caliber.schemas import (
     AdmissionManifestSchema,
     CausalLinksSchema,
     RuntimeApprovalAckSchema,
+    WorkflowApprovalViewSchema,
     WorkflowRunApprovalDecisionRequest,
     WorkflowRunCancelRequest,
     WorkflowRunCheckpointSchema,
@@ -89,6 +90,7 @@ from caliber.workflows.approval_policy import (
     assert_distinct_actor,
     record_approval,
 )
+from caliber.workflows.approval_view import build_approval_view
 from caliber.workflows.manifest import (
     StartNode,
     StartTrigger,
@@ -132,6 +134,7 @@ CHECKPOINTS_PATH = DETAIL_PATH + "/checkpoints"
 CANCEL_PATH = DETAIL_PATH + "/cancel"
 RETRY_PATH = DETAIL_PATH + "/retry"
 APPROVALS_PATH = DETAIL_PATH + "/approvals"
+APPROVAL_VIEW_PATH = APPROVALS_PATH + "/{approval_id}"
 APPROVE_PATH = DETAIL_PATH + "/approval/approve"
 REJECT_PATH = DETAIL_PATH + "/approval/reject"
 RESUME_PATH = DETAIL_PATH + "/resume"
@@ -3081,6 +3084,61 @@ async def resume_workflow_run_by_event(  # noqa: PLR0912, PLR0915
     return envelope_response(data, status_code=202)
 
 
+async def get_workflow_run_approval_view(request: Request) -> JSONResponse:
+    """The approver's view of one approval request of a run: what is being decided and what the caller may do (B06.5, #743).
+
+    Read-only; the decision routes stay the authority and re-derive everything under their locks. Access is the run's
+    workflow visibility **plus** a ``read`` role in the run's project, evaluated now; a run you cannot read, an approval of
+    another run and an unknown id are the same ``404``. The caller who also holds the project ``approve`` action sees the
+    effect (connector, class, resource and the shape of its arguments, never a value); anyone else sees the pins, the state and
+    the quorum. ``caller`` says, from the decision routes' own rules, whether the authenticated principal may approve or reject
+    now and why not, so a client disables a button from this and decides nothing itself. See :mod:`caliber.workflows.approval_view`.
+    """
+    from caliber.auth import resolve_identity  # noqa: PLC0415 - avoids an import cycle
+
+    actor = require_user(request)
+    run_id = request.path_params["run_id"]
+    approval_id = request.path_params["approval_id"]
+    factory = get_session_factory(request)
+    with factory() as session:
+        run = _get_run_or_404(session, run_id, request=request)
+        identity = resolve_identity(request)
+        try:
+            require_project_access_if_scoped(session, identity, run.project_id, "read")
+        except HTTPException as exc:
+            # A run you can see but whose project you have no role in is, for this record, a run that is not there.
+            raise HTTPException(
+                status_code=404, detail=f"workflow run {run_id!r} not found"
+            ) from exc
+        approval = session.execute(
+            select(CaliberRuntimeApprovalRequest)
+            .where(CaliberRuntimeApprovalRequest.runtime_approval_id == approval_id)
+            .where(CaliberRuntimeApprovalRequest.workflow_run_id == run.workflow_run_id)
+        ).scalar_one_or_none()
+        if approval is None:
+            raise HTTPException(
+                status_code=404,
+                detail=f"runtime approval {approval_id!r} not found for workflow run {run_id!r}",
+            )
+        try:
+            require_project_access_if_scoped(session, identity, run.project_id, ACTION_APPROVE)
+            project_allows_approve = True
+        except HTTPException:
+            project_allows_approve = False
+        data = WorkflowApprovalViewSchema.model_validate(
+            build_approval_view(
+                session,
+                run=run,
+                approval=approval,
+                actor=actor,
+                scopes=current_scopes(request),
+                project_allows_approve=project_allows_approve,
+                now=_utc_now(),
+            )
+        )
+    return envelope_response(data)
+
+
 def register(app: Starlette) -> None:
     app.routes.append(Route(CREATE_PATH, create_workflow_run, methods=["POST"]))
     app.routes.append(Route(DETAIL_PATH, get_workflow_run, methods=["GET"]))
@@ -3096,6 +3154,7 @@ def register(app: Starlette) -> None:
     app.routes.append(Route(CANCEL_PATH, cancel_workflow_run, methods=["POST"]))
     app.routes.append(Route(RETRY_PATH, retry_workflow_run, methods=["POST"]))
     app.routes.append(Route(APPROVALS_PATH, list_workflow_run_approvals, methods=["GET"]))
+    app.routes.append(Route(APPROVAL_VIEW_PATH, get_workflow_run_approval_view, methods=["GET"]))
     app.routes.append(Route(APPROVE_PATH, approve_workflow_run_approval, methods=["POST"]))
     app.routes.append(Route(REJECT_PATH, reject_workflow_run_approval, methods=["POST"]))
     app.routes.append(Route(RESUME_PATH, resume_workflow_run, methods=["POST"]))
