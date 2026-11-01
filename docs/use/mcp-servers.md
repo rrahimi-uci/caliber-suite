@@ -69,7 +69,9 @@ classified `read` runs inline; a tool you classified `write` or `external_action
 dispatched once (and left `unknown`, never resent, if the server's answer is lost, because most MCP servers cannot confirm their
 own effects); a tool you have not classified, or blocked, is refused with a code such as `mcp_tool_unclassified` before anything
 is sent (under the reference profile; the default development profile keeps running a protected tool inline as before, which is not the
-governed path). The first-party database server's write tools are refused in a workflow under the reference profile. See
+governed path). The first-party database server's write tools are refused in a workflow under the reference profile. A reference
+deployment must also set `CALIBER_MCP_STDIO_COMMAND_ALLOWLIST` and `CALIBER_MCP_REMOTE_HOST_ALLOWLIST` to empty, so no server is
+reachable there yet (see [MCP allowlists](../operate/reference-profile.md#mcp-allowlists-b123b-746)). See
 [Governed MCP tools](../operate/reference-profile.md#governed-mcp-tools-b045) for the exact codes and recovery.
 
 Inside a project, creating, changing or deleting a server and changing a tool policy need the global

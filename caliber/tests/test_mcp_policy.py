@@ -483,3 +483,44 @@ def test_the_rate_limit_refusal_has_its_own_code() -> None:
         _consume_rate("S-rate", "t", 1)
     assert refused.value.code == RATE_LIMITED
     mcp_policy._reset_rate_limits_for_tests()
+
+
+def test_empty_allowlists_leave_no_mcp_server_ready_which_is_the_reference_profile_state() -> None:
+    """B12.3b (#746): the reference profile requires both allowlists empty, so no server can be reached.
+
+    The control: with entries, the first-party stdio module and an operator-attested sidecar are ready. With
+    both lists empty (what the profile requires) none of the first-party stdio module, an arbitrary stdio
+    command, a loopback remote or the attested sidecar host is. This is what the profile's docs claim.
+    """
+    from caliber.profile import reference_profile_violations
+
+    stdio_module = _server()
+    stdio_other = _server(command="npx", args=("server",))
+    loopback = _server(
+        transport="streamable-http", uri="https://localhost:8443/mcp", command="", args=()
+    )
+    sidecar = _server(
+        transport="streamable-http", uri="http://mcp-db-relational:8101/mcp", command="", args=()
+    )
+    attested = {
+        "CALIBER_MCP_REMOTE_HOST_ALLOWLIST": "localhost,mcp-db-relational",
+        "CALIBER_MCP_MANAGED_SIDECAR_HOSTS": "mcp-db-relational",
+    }
+    assert execution_readiness(stdio_module, config=_config(**attested)).ready is True
+    assert execution_readiness(sidecar, config=_config(**attested)).ready is True
+
+    empty = _config(
+        **{**attested, "CALIBER_MCP_REMOTE_HOST_ALLOWLIST": ""},
+        CALIBER_MCP_STDIO_COMMAND_ALLOWLIST="",
+        CALIBER_PROFILE="reference",
+    )
+    assert "mcp_allowlist_not_in_profile" not in [
+        v.code for v in reference_profile_violations(empty)
+    ]
+    for server in (stdio_module, stdio_other, loopback, sidecar):
+        readiness = execution_readiness(server, config=empty)
+        assert readiness.ready is False, server.uri or server.command
+        assert readiness.transport_ready is False
+        assert any("ALLOWLIST" in item for item in readiness.blockers)
+    assert execution_readiness(stdio_module, config=empty).command_allowed is False
+    assert execution_readiness(sidecar, config=empty).remote_host_allowed is False

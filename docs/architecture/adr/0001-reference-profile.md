@@ -34,7 +34,7 @@ source of truth for the list).
 | projects | at least two, so isolation between them is always exercised | not yet; the scenario fixtures seed two |
 | identity | server-validated sessions, or `trusted_header` only with a proxy secret | yes: `trusted_header_without_proxy_secret`, `dev_fallback_enabled`, `insecure_bootstrap` |
 | request integrity | CSRF protection on | yes: `csrf_disabled` |
-| egress and connectors | egress policy on; plain-HTTP MCP off; trusted connectors only | yes for `egress_policy_disabled` and `mcp_insecure_http`; the trusted-connector list is #534 |
+| egress and connectors | egress policy on; plain-HTTP MCP off; trusted connectors only | yes for `egress_policy_disabled`, `mcp_insecure_http` and `mcp_allowlist_not_in_profile`; the trusted-connector list is #534 |
 | approvals | no self-approval | yes: `self_approval_allowed` |
 | model adapters | the scripted adapter (`caliber/src/caliber/llm/fake.py`) for deterministic runs, and one real provider | not yet |
 | connector | keep: the OpenAPI document-request connector (decided by the D1 experiment, `docs/reports/egi/D1-connector-capability.md`) | not yet (#534) |
@@ -76,6 +76,16 @@ node's own approval gate for tools). That path is not the exact-intent governed 
 context is used in every profile. The reference profile still never falls back to a weaker control. The mechanics, and what
 the development path does and does not guarantee, are in `docs/operate/reference-profile.md` ("Profiles and a missing
 governed context").
+
+### Amendment, 2026-10-31 (#746): the profile lists no MCP command or host
+
+An MCP stdio command is arbitrary code on the CALIBER host and a remote MCP host is an endpoint nobody reviewed; the dispatcher
+admits an MCP *call* (`REFERENCE_CONNECTORS`, `mcp`), never a server. The reference profile therefore fixes
+`caliber.profile.REFERENCE_MCP_ALLOWLIST` as an **empty tuple** for the Beta, and `CALIBER_PROFILE=reference` refuses to start
+(`mcp_allowlist_not_in_profile`) while `CALIBER_MCP_STDIO_COMMAND_ALLOWLIST` or `CALIBER_MCP_REMOTE_HOST_ALLOWLIST` holds any
+entry, the shipped defaults included. Adding an entry to the tuple is a change to this record, made only when the exact
+dispatcher contract for that server is supported. A reference deployment consequently reaches no MCP server, the first-party
+PostgreSQL database servers (EP-114) included. The development profile never runs the check.
 
 ## Consequences
 
