@@ -140,7 +140,7 @@ def _same_json(left: object, right: object) -> bool:
     """Whether two JSON values are the same canonical document, integral floats read as integers (``False`` for anything that
     is not plain JSON, or too deeply nested to compare)."""
     try:
-        return canonical_bytes(_integral(left)) == canonical_bytes(_integral(right))  # type: ignore[arg-type]
+        return canonical_bytes(_integral(left)) == canonical_bytes(_integral(right))
     except (TypeError, ValueError, RecursionError):
         return False
 
