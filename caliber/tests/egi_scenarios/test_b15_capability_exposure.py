@@ -30,8 +30,10 @@ pytestmark = pytest.mark.xdist_group("egi-scenario-processes")
 
 API = "/ajax-api/2.0/mlflow/caliber"
 
-#: What an operator adds to turn the supported release path on: the feature, its evaluator and a real provider.
+#: What an operator adds to turn the supported release path on: the background loops the recovery evidence relies on
+#: (the scenario fixture turns them off), the feature, its evaluator and a real provider.
 RELEASE_PATH_ON = {
+    "CALIBER_BACKGROUND_TASKS_ENABLED": "true",
     "CALIBER_FEATURE_RELEASE_CANDIDATES": "true",
     "CALIBER_WORKSPACE_RELEASE_EVALUATOR_ENABLED": "true",
     "CALIBER_EVAL_PROVIDER": "mlflow",
@@ -50,12 +52,16 @@ def _proposals(reference_app: ReferenceApp) -> int:
         return session.execute(select(func.count()).select_from(CaliberEffectProposal)).scalar_one()
 
 
-def test_a_default_reference_deployment_supports_the_connector_and_promotes_nothing_else(
+def test_a_reference_deployment_supports_the_connector_and_promotes_nothing_else(
     reference_app: ReferenceApp,
 ) -> None:
     before = _proposals(reference_app)
+    configured = CaliberConfig.load(
+        environ={**reference_app.env, "CALIBER_BACKGROUND_TASKS_ENABLED": "true"}
+    )
 
-    adapters = _adapters(reference_app.client, reference_app)
+    with TestClient(create_app(configured)) as client:
+        adapters = _adapters(client, reference_app)
 
     reference = reference_app.profile == "reference"
     connector = adapters["document_request_connector"]
@@ -81,6 +87,24 @@ def test_a_default_reference_deployment_supports_the_connector_and_promotes_noth
         assert adapters[adapter_id]["evidence"] == []
     # Reading the answer wrote nothing.
     assert _proposals(reference_app) == before
+
+
+def test_the_scenario_fixture_with_its_loops_off_is_not_a_supported_deployment(
+    reference_app: ReferenceApp,
+) -> None:
+    """The cited recovery evidence relies on the reconciler and evaluator loops, so loops off withdraws support."""
+    adapters = _adapters(reference_app.client, reference_app)
+
+    connector = adapters["document_request_connector"]
+    if reference_app.profile == "reference":
+        assert (connector["status"], connector["reason_code"]) == (
+            "unavailable",
+            "background_tasks_disabled",
+        )
+        assert connector["disabled_by"] == "CALIBER_BACKGROUND_TASKS_ENABLED"
+    else:
+        assert connector["status"] == "preview"
+    assert all(a["status"] != "supported" for a in adapters.values())
 
 
 def test_the_release_path_is_supported_only_with_a_real_provider_and_no_flag_promotes_mcp(

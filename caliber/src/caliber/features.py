@@ -173,12 +173,17 @@ REASON_EVALUATOR_DISABLED: Final[str] = "evaluator_disabled"
 REASON_SIMULATED_PROVIDER: Final[str] = "simulated_provider"
 REASON_EVALUATOR_MISMATCH: Final[str] = "evaluator_evidence_mismatch"
 REASON_MCP_NOT_IN_PROFILE: Final[str] = "mcp_not_in_reference_profile"
+REASON_RECONCILER_DISABLED: Final[str] = "reconciler_disabled"
+REASON_BACKGROUND_DISABLED: Final[str] = "background_tasks_disabled"
+REASON_PROVIDER_UNRECOGNIZED: Final[str] = "eval_provider_unrecognized"
 
 #: ``disabled_by`` when no setting changes the answer: the reference profile does not cover the adapter.
 DISABLED_BY_PROFILE: Final[str] = "profile"
 PROFILE_ENV_VAR: Final[str] = "CALIBER_PROFILE"
 EVALUATOR_ENV_VAR: Final[str] = "CALIBER_WORKSPACE_RELEASE_EVALUATOR_ENABLED"
 EVAL_PROVIDER_ENV_VAR: Final[str] = "CALIBER_EVAL_PROVIDER"
+RECONCILER_ENV_VAR: Final[str] = "CALIBER_EFFECT_RECONCILER_ENABLED"
+BACKGROUND_ENV_VAR: Final[str] = "CALIBER_BACKGROUND_TASKS_ENABLED"
 
 #: Adapter ids, in the order ``/capabilities`` lists them.
 DOCUMENT_REQUEST_CONNECTOR: Final[str] = "document_request_connector"
@@ -367,10 +372,38 @@ def _preview_only(spec: AdapterSpec) -> dict[str, Any]:
     }
 
 
+def _needs_loops(spec: AdapterSpec, config: CaliberConfig, what: str) -> dict[str, Any] | None:
+    """``unavailable`` while the background loops are off: the scenario evidence relies on ``what`` running."""
+    if config.background_tasks_enabled:
+        return None
+    return _entry(
+        spec,
+        UNAVAILABLE,
+        f"{spec.label} is unavailable: {what} runs in a background loop and "
+        f"{BACKGROUND_ENV_VAR} is false. Set {BACKGROUND_ENV_VAR}=true to enable it.",
+        reason_code=REASON_BACKGROUND_DISABLED,
+        disabled_by=BACKGROUND_ENV_VAR,
+    )
+
+
 def _document_request_connector(spec: AdapterSpec, config: CaliberConfig) -> dict[str, Any]:
     refused = _outside_reference(spec, config)
     if refused is not None:
         return refused
+    # The cited recovery scenarios (a killed or lost dispatch is found by key and never re-sent) pass because the
+    # reconciler loop runs, so a deployment that turns it, or the loops, off is not the one the evidence covers.
+    stopped = _needs_loops(spec, config, "the effect reconciler")
+    if stopped is not None:
+        return stopped
+    if not config.effect_reconciler_enabled:
+        return _entry(
+            spec,
+            UNAVAILABLE,
+            f"{spec.label} is unavailable: the effect reconciler is off, so an effect whose outcome was never "
+            f"recorded stays blocked. Set {RECONCILER_ENV_VAR}=true to enable it.",
+            reason_code=REASON_RECONCILER_DISABLED,
+            disabled_by=RECONCILER_ENV_VAR,
+        )
     code = _verify_connector_admission()
     if code is not None:
         return _entry(
@@ -401,13 +434,24 @@ def _release_evaluation(spec: AdapterSpec, config: CaliberConfig) -> dict[str, A
     refused = _outside_reference(spec, config)
     if refused is not None:
         return refused
-    if str(config.eval_provider).strip().lower() in {"", "fake"}:
+    stopped = _needs_loops(spec, config, "the release evaluator")
+    if stopped is not None:
+        return stopped
+    # An allowlist, spelled the way ``caliber.eval.provider.build_provider`` reads it (``lower()``, no stripping):
+    # anything else is either simulated (``fake``) or not a provider this build can construct, never a real one.
+    provider = str(config.eval_provider).lower()
+    if provider != "mlflow":
+        simulated = provider == "fake"
         return _entry(
             spec,
             PREVIEW,
-            f"{spec.label} is preview while its scores are simulated. Set {EVAL_PROVIDER_ENV_VAR}=mlflow so "
-            "the evaluation is a real one.",
-            reason_code=REASON_SIMULATED_PROVIDER,
+            (
+                f"{spec.label} is preview while its scores are simulated. "
+                if simulated
+                else f"{spec.label} is preview: {EVAL_PROVIDER_ENV_VAR} is not a provider this build supports. "
+            )
+            + f"Set {EVAL_PROVIDER_ENV_VAR}=mlflow so the evaluation is a real one.",
+            reason_code=REASON_SIMULATED_PROVIDER if simulated else REASON_PROVIDER_UNRECOGNIZED,
             disabled_by=EVAL_PROVIDER_ENV_VAR,
         )
     code = _verify_evaluator_evidence(SUPPORT_EVIDENCE[spec.id])

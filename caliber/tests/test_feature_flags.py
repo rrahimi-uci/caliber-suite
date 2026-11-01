@@ -59,6 +59,7 @@ from caliber.features import (
     feature_enabled,
     feature_for_path,
 )
+from caliber.profile import reference_profile_violations
 from caliber.schemas import AdapterCapabilitySchema, FeatureFlagSchema, PlatformCapabilitiesSchema
 from caliber.server import create_app
 from caliber.workflows.component_catalog import evaluate_requirements
@@ -572,13 +573,82 @@ def test_release_evaluation_is_preview_outside_the_reference_profile() -> None:
     assert block["disabled_by"] == "CALIBER_PROFILE"
 
 
-@pytest.mark.parametrize("provider", ["fake", "FAKE", "  fake ", ""])
+@pytest.mark.parametrize("provider", ["fake", "FAKE", "Fake"])
 def test_release_evaluation_with_simulated_scores_is_preview(provider: str) -> None:
     block = adapter_capabilities(_reference(eval_provider=provider))["release_evaluation"]
 
     assert (block["status"], block["reason_code"]) == (PREVIEW, "simulated_provider")
     assert block["disabled_by"] == "CALIBER_EVAL_PROVIDER"
+    assert "scores are simulated" in block["message"]
     assert "CALIBER_EVAL_PROVIDER=mlflow" in block["message"]
+
+
+@pytest.mark.parametrize(
+    "provider", ["bogus", " mlflow ", "mlflow ", "auto", "", "  fake ", "openai"]
+)
+def test_only_the_exact_mlflow_provider_is_a_real_one(provider: str) -> None:
+    """An allowlist spelled the way ``build_provider`` reads it: anything else is never supported."""
+    block = adapter_capabilities(_reference(eval_provider=provider))["release_evaluation"]
+
+    assert (block["status"], block["reason_code"]) == (PREVIEW, "eval_provider_unrecognized")
+    assert block["disabled_by"] == "CALIBER_EVAL_PROVIDER"
+    assert "not a provider this build supports" in block["message"]
+    assert block["evidence"] == []
+
+
+@pytest.mark.parametrize("provider", ["mlflow", "MLFLOW", "MLflow"])
+def test_mlflow_is_a_real_provider_however_it_is_cased(provider: str) -> None:
+    block = adapter_capabilities(_reference(eval_provider=provider))["release_evaluation"]
+
+    assert block["status"] == SUPPORTED
+
+
+@pytest.mark.parametrize("adapter_id", ["document_request_connector", "release_evaluation"])
+def test_supported_fails_closed_when_the_background_loops_are_off(adapter_id: str) -> None:
+    """The cited recovery scenarios pass because the reconciler and evaluator loops run; with them off, not supported."""
+    block = adapter_capabilities(_reference(background_tasks_enabled=False))[adapter_id]
+
+    assert (block["status"], block["reason_code"]) == (UNAVAILABLE, "background_tasks_disabled")
+    assert block["disabled_by"] == "CALIBER_BACKGROUND_TASKS_ENABLED"
+    assert "Set CALIBER_BACKGROUND_TASKS_ENABLED=true" in block["message"]
+    assert block["evidence"] == []
+
+
+def test_the_connector_is_unavailable_while_the_effect_reconciler_is_off() -> None:
+    adapters = adapter_capabilities(_reference(effect_reconciler_enabled=False))
+
+    block = adapters["document_request_connector"]
+    assert (block["status"], block["reason_code"]) == (UNAVAILABLE, "reconciler_disabled")
+    assert block["disabled_by"] == "CALIBER_EFFECT_RECONCILER_ENABLED"
+    assert "Set CALIBER_EFFECT_RECONCILER_ENABLED=true" in block["message"]
+    assert block["evidence"] == []
+    # The release evaluator's evidence does not rely on the effect reconciler.
+    assert adapters["release_evaluation"]["status"] == SUPPORTED
+
+
+def test_the_workflow_run_queue_is_not_a_condition_of_either_claim() -> None:
+    """The cited scenarios run with the queue at its default (off), so it must not withdraw support."""
+    adapters = adapter_capabilities(_reference(workflow_run_queue_enabled=False))
+
+    assert adapters["document_request_connector"]["status"] == SUPPORTED
+    assert adapters["release_evaluation"]["status"] == SUPPORTED
+
+
+def test_the_evaluator_switch_is_checked_before_the_profile() -> None:
+    """Evaluator off is ``unavailable`` even outside the reference profile, never the weaker ``preview``."""
+    block = adapter_capabilities(_development(workspace_release_evaluator_enabled=False))[
+        "release_evaluation"
+    ]
+
+    assert (block["status"], block["reason_code"]) == (UNAVAILABLE, "evaluator_disabled")
+
+
+def test_the_connector_checks_the_profile_before_the_reconciler() -> None:
+    block = adapter_capabilities(_development(effect_reconciler_enabled=False))[
+        "document_request_connector"
+    ]
+
+    assert (block["status"], block["reason_code"]) == (PREVIEW, "not_reference_profile")
 
 
 @pytest.mark.parametrize("adapter_id", ["document_request_connector", "release_evaluation"])
@@ -590,6 +660,14 @@ def test_a_reference_configuration_that_breaks_the_profile_is_unavailable(adapte
     assert (block["status"], block["reason_code"]) == (UNAVAILABLE, "reference_profile_violations")
     assert block["disabled_by"] == "profile"
     assert "csrf_disabled, mcp_insecure_http" in block["message"]
+    # Codes are listed in the order the profile checks them, which is not alphabetical.
+    unsorted_config = _reference(csrf_enabled=False, database_url="sqlite:///x.db")
+    unsorted = adapter_capabilities(unsorted_config)[adapter_id]["message"]
+    assert "(sqlite_database, csrf_disabled)" in unsorted
+    assert [v.code for v in reference_profile_violations(unsorted_config)] == [
+        "sqlite_database",
+        "csrf_disabled",
+    ]
     # The codes are named; no configured value is.
     assert "db.example.invalid" not in block["message"]
     assert "secret" not in block["message"]
@@ -661,6 +739,38 @@ def test_support_is_derived_never_asserted() -> None:
         assert spec.feature_id is None or spec.feature_id in ALL
     for adapter_id, evidence in SUPPORT_EVIDENCE.items():
         assert evidence.adapter_id == adapter_id
+
+
+def test_the_cited_scenarios_are_exactly_the_reviewed_ones() -> None:
+    """Pin the content of each claim, so swapping a cited test for another is a reviewed change."""
+    assert SUPPORT_EVIDENCE["document_request_connector"].scenarios == (
+        "tests/egi_scenarios/test_connector_capabilities.py::test_stable_key_mutates_once",
+        "tests/egi_scenarios/test_connector_capabilities.py::test_stale_precondition_returns_412_and_no_mutation",
+        "tests/egi_scenarios/test_connector_capabilities.py::test_query_by_key_after_lost_response",
+        "tests/egi_scenarios/test_b04_dispatcher.py::test_dispatcher_uses_canonical_approval_and_registered_connector",
+        "tests/egi_scenarios/test_v07_restart_exactly_once.py::test_kill_after_downstream_commit",
+    )
+    release = SUPPORT_EVIDENCE["release_evaluation"]
+    assert release.scenarios == (
+        "tests/egi_scenarios/test_v13_release_evaluation.py::test_evaluator_crash_recovers",
+        "tests/egi_scenarios/test_v13_release_evaluation.py::test_worker_records_provider_run_before_completion_crash",
+        "tests/egi_scenarios/test_v13_release_evaluation.py::test_recovery_before_provider_result_keeps_attempt_history",
+    )
+    assert release.implementation == (
+        "caliber.orchestrator.workspace_release_evaluator:WorkspaceReleaseEvaluator"
+    )
+    assert release.evidence_schema_version == 1
+
+
+def test_the_adapters_are_listed_in_the_documented_order() -> None:
+    """``docs/operate/reference-profile.md`` lists them in this order, and so does ``/capabilities``."""
+    assert ADAPTER_IDS == [
+        "document_request_connector",
+        "release_evaluation",
+        "mcp_servers",
+        "openapi_integrations",
+    ]
+    assert list(adapter_capabilities(CaliberConfig())) == ADAPTER_IDS
 
 
 def test_every_support_scenario_names_a_real_test_function() -> None:

@@ -4971,7 +4971,10 @@ Each adapter is resolved in this order; the first rule that matches decides:
 | `mcp_servers`, `openapi_integrations` | otherwise (flag on) | `preview` | `no_support_evidence` | `profile` |
 | `document_request_connector`, `release_evaluation` | the profile is not `reference` | `preview` | `not_reference_profile` | `CALIBER_PROFILE` |
 | `document_request_connector`, `release_evaluation` | the configuration breaks the reference profile | `unavailable` | `reference_profile_violations` | `profile` |
+| `document_request_connector`, `release_evaluation` | `CALIBER_BACKGROUND_TASKS_ENABLED` is false (the reconciler and evaluator loops the cited recovery scenarios rely on do not run) | `unavailable` | `background_tasks_disabled` | that variable |
+| `document_request_connector` | `CALIBER_EFFECT_RECONCILER_ENABLED` is false (an effect whose outcome was never recorded stays blocked) | `unavailable` | `reconciler_disabled` | that variable |
 | `release_evaluation` | `CALIBER_EVAL_PROVIDER` is `fake` (simulated scores) | `preview` | `simulated_provider` | `CALIBER_EVAL_PROVIDER` |
+| `release_evaluation` | `CALIBER_EVAL_PROVIDER` is anything but `mlflow` or `fake` (an unknown, padded or unresolved value such as `auto`) | `preview` | `eval_provider_unrecognized` | `CALIBER_EVAL_PROVIDER` |
 | `document_request_connector` | the live transport is not the one `REFERENCE_CONNECTORS` pins | `unavailable` | the admission code (for example `connector_capability_mismatch`) | `profile` |
 | `release_evaluation` | the evaluator class or the evidence schema version differs from the pin | `unavailable` | `evaluator_evidence_mismatch` | `profile` |
 | the two supported adapters | none of the above | `supported` | `null` | `null` |
@@ -5016,8 +5019,8 @@ MCP servers are unavailable under the reference profile: it lists no MCP command
 
 Recovery is the variable named in `disabled_by`; for `profile` there is nothing to set: the reference profile does not cover the
 adapter (MCP servers and OpenAPI integrations), or a pin no longer matches the code and a reviewer must re-confirm the scenarios
-(`SUPPORT_EVIDENCE`, `REFERENCE_CONNECTORS`). A `reference_profile_violations` message names the violation codes (see the table above
-for each one's variable), never a configured value.
+(`SUPPORT_EVIDENCE`, `REFERENCE_CONNECTORS`). A `reference_profile_violations` message names the violation codes in the order the profile checks them (not alphabetically; see the table above
+for each one's variable), never a configured value. The queue (`CALIBER_WORKFLOW_RUN_QUEUE_ENABLED`) is not a condition: the cited scenarios run with it at its default.
 
 - **Compatibility.** The `features` block, its keys and its `stability` values (`preview`, `record_only`) are unchanged, as is the
   top-level `openapi_integrations` block (`stability: "beta"` is the SDK tier, not a support claim). `adapters` is additive: a client
