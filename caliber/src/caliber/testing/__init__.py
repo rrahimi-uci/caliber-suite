@@ -1,1 +1,1 @@
-"""Test support that ships with CALIBER because production code calls into it (fault barriers)."""
+"""Test support that ships with CALIBER: the fault barriers production code calls into, and the agent-step adapter conformance suite."""

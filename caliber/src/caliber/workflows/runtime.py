@@ -2295,8 +2295,13 @@ def _execute_model_tool_call(
     tool_callables: dict[str, Callable[..., Any]],
     bindings: dict[str, IRToolBinding],
     fallback_input: str,
+    error_detail: bool = True,
 ) -> tuple[Any, str]:
     """Execute one model-chosen tool call inside a TOOL span.
+
+    A tool that raises is reported to the model as an ``_error`` marker: the exception's class and message by default (the
+    ungoverned loops), the class alone with ``error_detail=False`` (a governed step: an exception's text is the tool's, not the
+    model's, and is not handed to the provider).
 
     Side-effect gating for write/external tools in preview is already applied by
     ``_resolve_tool_callables`` (callables are preview-wrapped). ``requires_approval``
@@ -2334,7 +2339,8 @@ def _execute_model_tool_call(
     except Exception as exc:  # fail soft: a failing tool must not crash the whole run
         # The span already recorded failed status (the exception propagated through
         # it). Feed an error marker back so the model can adapt instead of aborting.
-        marker = {"_error": f"{type(exc).__name__}: {exc}"[:500], "tool": name}
+        detail = f"{type(exc).__name__}: {exc}"[:500] if error_detail else type(exc).__name__
+        marker = {"_error": detail, "tool": name}
         return marker, _tool_result_text(marker)
 
 

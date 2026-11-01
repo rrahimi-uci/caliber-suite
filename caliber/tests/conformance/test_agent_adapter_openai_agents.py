@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import sys
 from datetime import datetime, timezone
 from types import SimpleNamespace
 from typing import Any
@@ -12,9 +13,21 @@ import httpx
 import pytest
 
 from caliber.contracts.agent_step import AgentStepResult, parse_step_result
+from caliber.testing.adapter_conformance import (
+    MALFORMED_USAGE,
+    AdapterUnderTest,
+    Call,
+    Fault,
+    Garbage,
+    ProviderProbe,
+    ProviderUsage,
+    Reply,
+    Script,
+    fault_exception,
+)
 from caliber.workflows import step_openai_agents as adapter
-from caliber.workflows.agent_step import run_agent_step
-from caliber.workflows.ir import IRToolBinding
+from caliber.workflows.agent_step import AgentStepInput, StepHandoffTarget, run_agent_step
+from caliber.workflows.ir import IRAgent, IRToolBinding, NodeType
 from caliber.workflows.runtime import OpenAIAgentsWorkflowExecutor
 from tests.agent_step_conformance import (
     PROTECTED_CLASS,
@@ -22,6 +35,7 @@ from tests.agent_step_conformance import (
     READ_TOOL,
     SCENARIOS,
     SECRET_MARKER,
+    FakeStepClock,
     Scenario,
     StepContext,
     make_context,
@@ -219,6 +233,138 @@ class _Driver:
 
     def adapter_for(self, scenario: Scenario, ctx: StepContext) -> object:
         return self._executor(ctx, scenario)
+
+
+#: What the Agents SDK leaves the adapter unable to stop between model calls: nothing. ``Runner.run_sync`` takes ``max_turns``, and
+#: ``tool_use_behavior`` (a function, in every SDK version the adapter supports) is called after each turn's tools, which is where
+#: the adapter ends the run for a proposal, the tool-call limit, the token budget and the deadline.
+AGENTS_UNBOUNDED_IN_LOOP: frozenset[str] = frozenset()
+
+
+def _invoking(function: Any) -> Any:
+    async def invoke(_ctx: Any, payload: str) -> str:
+        return str(function(**json.loads(payload)))
+
+    return invoke
+
+
+def _agents_run(script: Script, probe: ProviderProbe) -> Any:  # noqa: PLR0915 - an emulation of the SDK loop
+    """The SDK's own loop over a conformance script: one model turn per script item until the run ends.
+
+    Like ``Runner.run_sync``: call the model, run the tools it asked for (``agent.handoffs`` are offered as ``transfer_to_<agent>``
+    tools, and following one makes the target's tools the agent's), then ask ``agent.tool_use_behavior`` whether the tool results are
+    the final output (``"run_llm_again"`` never, a ``stop_at_tool_names`` dict when a listed tool ran, a function when it says so),
+    and stop for ``max_turns``. The run context carries the usage so far. A reply with no tool call is the model's answer; a script
+    that ends on a tool call ends the run there.
+    """
+    items = list(script)
+
+    def handler(agent: Any, _input: Any, **kwargs: Any) -> Any:  # noqa: PLR0912, PLR0915 - the SDK loop
+        raw_responses: list[Any] = []
+        tools = {tool.name: tool for tool in agent.tools}
+        handoffs = {
+            f"transfer_to_{getattr(getattr(h, 'agent', h), 'node_id', '')}": h
+            for h in agent.handoffs
+        }
+        context = SimpleNamespace(usage=SimpleNamespace(total_tokens=0))
+        transcript: list[Any] = [_input]
+        while items:
+            if len(raw_responses) >= kwargs["max_turns"]:
+                raise _MaxTurnsExceededError(raw_responses)
+            probe.provider_called(
+                tools=[*tools, *handoffs], sent=json.dumps(transcript, default=str)
+            )
+            item = items.pop(0)
+            if isinstance(item, Fault):
+                raise (
+                    httpx.ReadTimeout(item.text)
+                    if item.kind == "timeout"
+                    else fault_exception(item)
+                )
+            if isinstance(item, Garbage):
+                return SimpleNamespace(
+                    final_output=item.text,
+                    raw_responses=[_Response(usage=("many", 20, 120))],
+                    last_agent=agent,
+                )
+            if item.usage is None:
+                response = _Response(text=item.text or "")
+                response.usage = None
+            elif item.usage is MALFORMED_USAGE:
+                response = _Response(text=item.text or "", usage=("many", "some", "lots", 0))
+            else:
+                assert isinstance(item.usage, ProviderUsage)
+                usage = item.usage
+                response = _Response(
+                    text=item.text or "",
+                    usage=(usage.prompt, usage.completion, usage.total_tokens, 0),
+                )
+                context.usage.total_tokens += usage.total_tokens
+            raw_responses.append(response)
+            if item.cut_off:
+                raise _MaxTurnsExceededError(raw_responses)
+            results = []
+            for call in item.calls:
+                tool = tools.get(call.name)
+                if tool is None and call.name in handoffs:
+                    # Following a handoff: the target's tools are the agent's from here on.
+                    target = handoffs[call.name]
+                    tools = {
+                        name: SimpleNamespace(name=name, on_invoke_tool=_invoking(fn))
+                        for name, fn in getattr(target, "read_tools", {}).items()
+                    }
+                    handed = SimpleNamespace(name=call.name)
+                    results.append(SimpleNamespace(tool=handed, output="handed off"))
+                    continue
+                if tool is None:
+                    raise RuntimeError(f"the SDK found no tool {call.name}")
+                payload = (
+                    call.arguments
+                    if isinstance(call.arguments, str)
+                    else json.dumps(call.arguments)
+                )
+                output = asyncio.run(tool.on_invoke_tool(None, payload))
+                transcript.append(output)
+                results.append(SimpleNamespace(tool=tool, output=output))
+            if not item.calls or not items:
+                return SimpleNamespace(
+                    final_output=item.text or "", raw_responses=raw_responses, last_agent=agent
+                )
+            behavior = agent.tool_use_behavior
+            if isinstance(behavior, dict):
+                names = behavior.get("stop_at_tool_names", [])
+                stop = next((r.output for r in results if r.tool.name in names), None)
+                final = stop is not None
+            elif callable(behavior):
+                verdict = behavior(context, results)
+                final, stop = verdict.is_final_output, verdict.final_output
+            else:
+                final, stop = False, None
+            if final:
+                return SimpleNamespace(
+                    final_output=str(stop), raw_responses=raw_responses, last_agent=agent
+                )
+        raise RuntimeError("the script has no reply left")
+
+    return handler
+
+
+def agents_subject() -> AdapterUnderTest:
+    """The conformance suite's subject for ``OpenAIAgentsWorkflowExecutor``: the real executor over a stubbed SDK."""
+
+    def build(script: Script, probe: ProviderProbe) -> object:
+        _Runner.handler = _agents_run(script, probe)
+
+        class StubExecutor(OpenAIAgentsWorkflowExecutor):
+            @staticmethod
+            def _sdk() -> tuple[Any, ...]:
+                return sdk()
+
+        return StubExecutor(api_key="unused", default_model="gpt-4o", step_clock=probe.clock.now)
+
+    return AdapterUnderTest(
+        name="openai_agents", build=build, unbounded_in_loop=AGENTS_UNBOUNDED_IN_LOOP
+    )
 
 
 @pytest.mark.parametrize("scenario", SCENARIOS)
@@ -551,3 +697,79 @@ def test_agents_defensive_decoders_and_unconfigured_loader(  # noqa: PLR0915 - d
     monkeypatch.setattr(original, "_openai_agents_output_text", lambda **_kwargs: object())
     with pytest.raises(adapter._Unreadable):
         adapter._output_text(SimpleNamespace(final_output="x"), _ItemHelpers, [])
+
+
+def test_a_read_tool_the_platform_refuses_for_the_deadline_ends_the_step_at_the_deadline() -> None:
+    """Found by the conformance suite: the refusal was read as a tool failure, so the step ended ``error``, not ``deadline``."""
+    fake = FakeStepClock()
+    ctx = make_context()
+    ctx.clock = fake.step_clock()
+    ctx.on_provider_call = lambda: fake.advance(
+        700.0
+    )  # one model call outlasts the ten-minute deadline
+    script = (
+        Reply(
+            text=None, calls=(Call(READ_TOOL, ctx.staged_read_args),), usage=ProviderUsage(70, 10)
+        ),
+        Reply(text="done", usage=ProviderUsage(10, 5)),
+    )
+    executor = agents_subject().build(script, ctx)
+    result = run_agent_step(executor, ctx.request, ctx.step_input, clock=ctx.clock)
+    assert (result.stop_reason, result.error_code, result.proposed_actions) == (
+        "deadline",
+        None,
+        (),
+    )
+    assert ctx.read_calls == [], "the platform refused the tool; it did not run"
+    assert result.usage_source == "provider" and result.usage.total_tokens >= 80, (
+        "what was spent is kept"
+    )
+
+
+def test_the_stop_verdict_is_the_sdks_own_class_and_a_plain_one_where_there_is_no_sdk(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setitem(sys.modules, "agents", None)  # not importable
+    assert adapter._verdict_class() is adapter._Verdict
+    verdict = adapter._verdict_class()(is_final_output=True, final_output="x")
+    assert (verdict.is_final_output, verdict.final_output) == (True, "x")
+
+
+def test_the_sdk_is_handed_no_handoffs_even_when_the_step_has_handoff_targets() -> None:
+    ctx = make_context()
+    base = ctx.default_input
+    target = IRAgent(node_id="billing", node_type=NodeType.AGENT, name="Billing", tools=[])
+    ctx.custom_input = AgentStepInput(
+        base.agent,
+        base.input_text,
+        read_tools=base.read_tools,
+        handoff_agents={"billing": StepHandoffTarget(target)},
+    )
+    executor = agents_subject().build((Reply(text="done"),), ctx)
+    assert run_agent_step(executor, ctx.request, ctx.step_input, clock=ctx.clock).stop_reason == (
+        "completed"
+    )
+    assert _Agent.instances[-1].handoffs == []
+
+
+def test_a_read_tool_that_raises_ends_the_step_with_a_fixed_code(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """The adapter's own policy (the other adapters let the model recover): a failing tool is ``malformed_result``, no text."""
+    ctx = make_context()
+    base = ctx.default_input
+
+    def fails(**_: Any) -> str:
+        raise RuntimeError(f"the tool said {SECRET_MARKER}")
+
+    ctx.custom_input = AgentStepInput(base.agent, base.input_text, read_tools={READ_TOOL: fails})
+    script = (
+        Reply(
+            text=None, calls=(Call(READ_TOOL, ctx.staged_read_args),), usage=ProviderUsage(70, 10)
+        ),
+        Reply(text="done"),
+    )
+    executor = agents_subject().build(script, ctx)
+    result = run_agent_step(executor, ctx.request, ctx.step_input, clock=ctx.clock)
+    assert (result.stop_reason, result.error_code) == ("error", "malformed_result")
+    assert SECRET_MARKER not in caplog.text and SECRET_MARKER not in repr(result)
