@@ -290,3 +290,27 @@ def test_a_node_requiring_admin_refuses_a_mere_operator() -> None:
         )
     # The message names the missing scope; "you may not" without a reason is unusable.
     assert "caliber.admin" in str(excinfo.value)
+
+
+def test_an_approver_of_a_project_less_run_is_checked_only_for_distinctness() -> None:
+    from types import SimpleNamespace
+
+    from caliber.workflows.approval_policy import REFUSAL_SELF_APPROVAL, _approver_refusal
+
+    run = SimpleNamespace(project_id=None, created_by="initiator")
+
+    def refusal(approver: str, *, allow_self: bool = False) -> str | None:
+        return _approver_refusal(
+            None,  # type: ignore[arg-type]  # a project-less run never reads the session
+            run=run,  # type: ignore[arg-type]
+            project=None,
+            approver=approver,
+            requested_by="requester",
+            scopes=frozenset(),
+            allow_self=allow_self,
+        )
+
+    assert refusal("someone-else") is None
+    assert refusal("initiator") == REFUSAL_SELF_APPROVAL
+    assert refusal("requester") == REFUSAL_SELF_APPROVAL
+    assert refusal("initiator", allow_self=True) is None

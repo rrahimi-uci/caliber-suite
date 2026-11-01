@@ -2707,8 +2707,8 @@ class CaliberRuntimeApprovalRequest(Base):
     fact: a CHECK allows only all-``NULL`` or fully bound, hash and digest columns are exactly 71 characters, and a BEFORE
     UPDATE trigger (SQLite and PostgreSQL) refuses any change to the binding columns, so an UPDATE or raw SQL cannot
     re-bind a request to another intent. ``status``, ``consumed_at`` and ``superseded_by`` and the decision columns may
-    still move. The decision route does not decide a bound row yet: it answers ``409`` with ``superseded``, ``expired`` (B06.2,
-    #712) or ``approval_bound_not_wired``.
+    still move. The decision route records the explicit decision for a bound row and leaves ``consumed_at`` untouched. The
+    dispatcher rechecks the exact proposal, authority and policy pins, then consumes the decision in its claim transaction.
     """
 
     __tablename__ = "caliber_runtime_approval_requests"
