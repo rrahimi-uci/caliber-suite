@@ -37,6 +37,7 @@ from caliber.integrations.openapi.executor import (
     OpenApiUnsupportedEffectPathError,
     _send_raw,
     bind_openapi_http_tool,
+    execute_legacy_openapi_draft_preview,
     execute_openapi_http_tool,
 )
 from tests.effect_helpers import leased
@@ -260,6 +261,21 @@ def test_the_private_transport_sends_a_protected_method_without_retrying_it_with
 
     assert result["status_code"] == 503 and result["attempts"] == 1
     assert [r["method"] for r in server.requests] == ["POST"]
+
+
+def test_the_development_profile_preview_entry_sends_a_protected_method_through_the_transport(
+    server: Server,
+) -> None:
+    """#1072: the named legacy entry is the raw transport (any method); the public entry still refuses the same call."""
+    cfg = config(server.url, idempotency_key_header=None)
+
+    result = _call(execute_legacy_openapi_draft_preview, cfg)
+
+    assert result["status_code"] == 201
+    assert [r["method"] for r in server.requests] == ["POST"]
+    with pytest.raises(OpenApiUnsupportedEffectPathError):
+        _call(execute_openapi_http_tool, cfg)
+    assert len(server.requests) == 1
 
 
 def test_the_private_transport_keeps_the_header_denylist_and_the_egress_policy(
