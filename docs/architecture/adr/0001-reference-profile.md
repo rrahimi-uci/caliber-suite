@@ -98,6 +98,22 @@ entry, the shipped defaults included. Adding an entry to the tuple is a change t
 dispatcher contract for that server is supported. A reference deployment consequently reaches no MCP server, the first-party
 PostgreSQL database servers (EP-114) included. The development profile never runs the check.
 
+### Amendment, 2026-11-01 (#754): executable code is refused from the compiler's kind registry
+
+ADR 0001 marks a path that runs arbitrary code `refuse` and names the refusal `unsupported_in_reference_profile`. B12.4a (#754)
+raises that code, for code execution only, at four boundaries (validation, compile, promotion and runtime entry), reading the
+kinds from `caliber.workflows.ir.NodeType` rather than a hand-kept list: `python_code` and `external_app` are the node kinds
+that execute code, and every other kind is classified as a tool carrier (`agent`, `tool`) or inert, so a new kind cannot
+arrive unclassified (`tests/test_profile_code_refusal.py`). A tool is judged by its execution form: an OpenAPI or MCP tool runs
+no registered Python; a registered `python_callable` tool is refused unless it is one of CALIBER's own shipped read-class tools (the
+exact module-and-callable pair the registry seed writes, B04.7 #774), because administrator-registered Python is a refused path
+(inventory EP-015, EP-016, EP-019), and even a shipped tool is refused when the sandbox is off
+(`CALIBER_REGISTERED_TOOL_SANDBOX_ENABLED`, on by default), because it would then be imported into the control plane. A `python_code` node is refused although it runs in that sandbox: the
+built-in sandbox is a process boundary with ambient filesystem and network authority, and the code is the workflow author's. A
+sandbox label is never isolation, and nothing a tool, manifest or registry row carries decides it. Plugin allowlisting is
+trusted-code admission, not containment of hostile code, and is #763. The development profile keeps every one of these.
+The remaining `refuse` rows of the inventory stay with B04.7 (#774).
+
 ## Consequences
 
 - Scenario tests (V01–V35) run on this shape: the "EGI scenarios (PostgreSQL)" job is the one that proves the

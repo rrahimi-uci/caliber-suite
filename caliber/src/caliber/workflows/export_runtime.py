@@ -27,6 +27,7 @@ from caliber.db.session import create_engine_from_config, sessionmaker_from_engi
 from caliber.effects.refusals import refuse_in_reference_profile
 from caliber.knowledge.schemas import KnowledgeBaseVersionCreateRequest, KnowledgeQueryRequest
 from caliber.knowledge.service import KnowledgeBaseService
+from caliber.workflows.code_policy import CodePolicy
 from caliber.workflows.ir import IRKnowledgeBuild, IRKnowledgeQuery, IRSubworkflow, IRWorkflow
 from caliber.workflows.runtime import (
     FakeWorkflowExecutor,
@@ -586,6 +587,7 @@ def execute_exported_workflow(
         sandbox_max_open_files=resolved_config.tool_sandbox_max_open_files,
         sandbox_config=resolved_config,
         foreach_max_workers=resolved_config.workflow_foreach_max_workers,
+        code_policy=CodePolicy.from_config(resolved_config),
     )
     return execute(
         plan,

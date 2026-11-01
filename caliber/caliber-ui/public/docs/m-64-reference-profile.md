@@ -4790,7 +4790,7 @@ processes, the loaded configuration or the process environment).
 | EP-011 | the `python_code` node | the node fails the run before a sandbox is built, whatever sandbox backend is configured |
 | EP-012 | the `external_app` node | refused before the allowlist is read or anything is imported (an allowlisted entrypoint is refused too) |
 | EP-014 | the `output_folder` node | refused before the path is confined or any directory is created |
-| EP-015, EP-016, EP-019 | binding a registered Python tool (the runtime, a generated export, `bind_registered_tool`) | an administrator's module is refused when the tool is bound, before a proposal is recorded or an approval spent; CALIBER's own shipped read-class tools still bind |
+| EP-015, EP-016, EP-019 | binding a registered Python tool (the runtime, a generated export, `bind_registered_tool`) | an administrator's module is refused when the tool is bound, before a proposal is recorded or an approval spent, **and at author time**: validation, compile and promotion refuse it with the same code ([Executable code is refused](#executable-code-is-refused-b124a-754)); CALIBER's own shipped read-class tools still bind |
 | EP-020 to EP-023, EP-025, EP-026 | the local subprocess sandbox | a sandbox built for the profile runs only CALIBER's own shipped read-class tools; authored source, an administrator's module and every test suite are refused, and so is any other payload at the single spawn point |
 | EP-027, EP-028, EP-029 | the standalone tool-sandbox service | the CLI refuses before it binds a port, `create_app` refuses to build the app, and a handler of an app whose configuration says reference answers `409` |
 | EP-041, EP-042 | `execute_exported_workflow`, the export's knowledge-build runner | refused before anything is read, bound or run, whatever runners or resolvers the caller supplies |
@@ -4862,6 +4862,82 @@ change. Reverting the change restores the paths; nothing is stored. The developm
 **Oracle.** `caliber/tests/test_effect_path_matrix.py` (the matrix, one probe per row, the call-site scan), `caliber/tests/test_effect_refusals.py`
 (the switch, the shipped-tool boundary, how an agent, a preview, a route and a node surface a refusal) and the public-path scenario
 `caliber/tests/egi_scenarios/test_b04_refusals.py` (the export routes and the real sandbox service process).
+
+## Executable code is refused (B12.4a, #754)
+
+A workflow can run code in two ways, and the reference profile refuses both, except for CALIBER's own shipped read-class tools
+(B04.7, #774; see [Refused paths in the reference profile](#refused-paths-in-the-reference-profile-b047-774)). The kinds are read from the compiler's own IR kind registry (`caliber.workflows.ir.NodeType`), not from
+a list kept by hand: each kind is classified once in `caliber.workflows.code_policy` (code, tool carrier or inert), and
+`tests/test_profile_code_refusal.py` fails when a kind is added to the registry without being classified. Until it is, the kind is **refused**: the profile admits a kind only when it is classified as inert or as a tool carrier (fail closed).
+
+| form | in the reference profile | why |
+| --- | --- | --- |
+| `python_code` node | refused | runs the author's Python source. The tool sandbox it runs in is a process boundary (separate interpreter, empty environment, rlimits) with ambient filesystem and network authority, not a container, VM or seccomp boundary. **A sandbox label does not establish isolation.** |
+| `external_app` node | refused | imports and calls installed Python inside the control-plane process (EP-012) |
+| registered `python_callable` tool that is one of CALIBER's own shipped read-class built-ins (the exact module and callable the registry seed writes, not refused by the inventory), sandbox on (the default) | admitted | CALIBER's own code, run in the sandbox child |
+| registered `python_callable` tool that is anything else (an administrator's module) | refused | administrator-registered Python is a refused path in the reference profile (EP-015, EP-016, EP-019, B04.7, #774): it is refused at validation, compile and promotion with this code, and again when it is bound, so an author never gets a clean publish followed by a refused run |
+| registered `python_callable` tool, `CALIBER_REGISTERED_TOOL_SANDBOX_ENABLED=false` | refused | the tool would be imported into the control plane (EP-015, EP-016, EP-019) |
+| tool with any other execution backend | refused | the profile cannot establish that it runs no code (fail closed) |
+| `openapi_http` tool, MCP tool binding | not code | an HTTP call the effect dispatcher governs, and an MCP call (no MCP server is allowlisted in the profile, #746) |
+
+**One code, four boundaries.** Every refusal carries `unsupported_in_reference_profile`, the code ADR 0001 names for a refused path:
+
+| boundary | what happens | where you see it |
+| --- | --- | --- |
+| validation (`POST /workflow-versions/{id}/validate`, and the validation inside compile and publish) | an error issue per node or tool, `path` `nodes.<id>` or `nodes.<id>.tools.<tool>` | `data.errors[].code` |
+| compile (`POST /workflow-versions/{id}/compile`, publish, a run's plan) | `CompileError`; the same issues in `report.errors` | `400` with `report.errors[].code`; publish answers `400` with the code in `detail`; a run fails with `error_code` |
+| promotion (promote, approve, rollback and every other alias move) | the alias does not move | `400` (promote) or `409` (approve) with the code in `detail` |
+| runtime entry (`runtime.execute`, and the in-process tool binders) | the run ends `error` before any node runs, whatever built the plan | `WorkflowRunResult.error_code`, `error` starts with the code |
+
+The runtime entry walks the whole IR, not only the nodes reachable from the start, so a dormant code node is refused too, and
+a plan built by hand in a reference process (without `build_plan`) is refused by the process-wide policy that `create_app`
+binds from the configuration. The in-process binders (`runtime._bind_in_process`, `bind_exported_tool`) refuse as a last
+backstop. Nothing is written when a boundary refuses, and the node, the tool and the sandbox never run.
+
+```text
+POST /ajax-api/2.0/mlflow/caliber/workflow-versions/WFV-6219b6e5/validate
+200 {"data": {"valid": false, "errors": [{"code": "unsupported_in_reference_profile", "path": "nodes.code",
+     "message": "python_code node 'code' runs author-supplied Python source in a sandbox that is a process boundary, not
+     isolation (a sandbox label does not establish it); the reference profile does not support it, so remove the node or
+     run this workflow outside the reference profile", "severity": "error"}], "warnings": []}}
+
+POST /ajax-api/2.0/mlflow/caliber/workflow-versions/WFV-6219b6e5/publish
+400 {"detail": "version does not compile: unsupported_in_reference_profile: python_code node 'code' runs ..."}
+
+POST /ajax-api/2.0/mlflow/caliber/workflows/WF-adb7d7f0/deployments/staging/promote   {"version_id": "WFV-6219b6e5"}
+400 {"detail": "deployment preflight failed for alias 'staging': unsupported_in_reference_profile: python_code node 'code' runs ..."}
+```
+
+A run that was admitted before the code was refused ends `failed` with `error_code: unsupported_in_reference_profile` and the
+node never executed. A registered Python tool that is not one of CALIBER's shipped built-ins is refused at
+`nodes.<id>.tools.<tool>` with the message `tool 'lookup_policy' runs a registered Python module (execution backend
+python_callable) that is not one of CALIBER's own shipped tools, which the reference profile does not support; publish it as an
+openapi_http tool or run this workflow outside the reference profile`. With the sandbox switched off, any registered Python tool
+is refused with the message `tool 'lookup_policy' runs registered Python (execution backend python_callable) and
+CALIBER_REGISTERED_TOOL_SANDBOX_ENABLED is false, so it would run unsandboxed inside the control plane, ...`.
+
+**Recovery.**
+
+- A `python_code` or `external_app` node: remove it. Use an OpenAPI tool or a built-in data-transform or template node for the
+  same job, or author the workflow in a development deployment.
+- A registered Python tool that is not a shipped built-in: publish the same operation as an OpenAPI tool
+  ([Governed OpenAPI tools](#governed-openapi-tools-b044)), or author the workflow in a development deployment.
+- An unsandboxed tool: set `CALIBER_REGISTERED_TOOL_SANDBOX_ENABLED=true` (the default) and restart the process.
+- A version that was published before the profile was switched on and now holds code: it cannot be promoted or run. Author a
+  new draft without the node and publish that; existing aliases keep pointing where they pointed, and are not rewritten.
+
+**Configuration, migration and rollback.** No new setting, no migration and no stored data change. The development profile is
+unchanged: all of these forms keep working there, and a version authored there is refused when a reference process validates,
+compiles, promotes or runs it. The policy is process-wide state bound at startup (like the registered-tool module allowlist), so
+a change of profile or sandbox setting needs a restart. Rolling back is reverting the change; nothing refused was written.
+
+**What this does not do.** It does not decide which modules a registered tool may import (the module allowlist, #763) and does not
+contain hostile tool code (the sandbox is trusted-code admission, see "Who is trusted to write tools" in the tools guide); the
+other `refuse` inventory rows are refused at run time by B04.7 (#774, [Refused paths in the reference profile](#refused-paths-in-the-reference-profile-b047-774)). A subworkflow node is not
+expanded at the parent: the parent validates, compiles and promotes, and the child is checked at its own validation, compile,
+promotion and runtime entry. A parent run over a child that holds code fails with the same code
+(`error_code: unsupported_in_reference_profile`, `error` naming the child and the node) and the child's node never runs. The refinement, calibration and deploy-gate replays that build a plan without a configuration are covered by the
+process-wide policy; in a reference deployment the app binds it at startup.
 
 ## Not enforced yet
 

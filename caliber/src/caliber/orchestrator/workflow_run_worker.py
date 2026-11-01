@@ -49,6 +49,7 @@ from caliber.policy.grants import GrantDenied, load_grant
 from caliber.secrets import resolve_secret
 from caliber.storage import StorageError, WorkingDirectoryService, build_backend
 from caliber.workflows.admission import CONTEXT_READ_ACTION, AdmissionSettings
+from caliber.workflows.code_policy import REFUSAL_CODE, report_has_refusal
 from caliber.workflows.compiler import CompileError
 from caliber.workflows.effect_ledger import SqlEffectLedger
 from caliber.workflows.file_tools import (
@@ -156,6 +157,11 @@ def _manifest_summary_metadata(summary: dict[str, Any] | None) -> dict[str, Any]
         if key in summary:
             copied[key] = summary[key]
     return copied
+
+
+def _compile_error_code(exc: CompileError) -> str:
+    """The run's error code for a compile failure: the reference profile's refusal of code keeps its own (B12.4a, #754)."""
+    return REFUSAL_CODE if report_has_refusal(exc.report) else "runtime_error"
 
 
 def _compile_error_summary(exc: CompileError) -> str:
@@ -1847,7 +1853,7 @@ class WorkflowRunWorker:
                 self._mark_failed(
                     session,
                     run,
-                    error_code="runtime_error",
+                    error_code=_compile_error_code(exc),
                     error_summary=_compile_error_summary(exc),
                 )
                 return
@@ -2243,10 +2249,14 @@ class WorkflowRunWorker:
                 session,
                 row,
                 result=result,
-                # a refused context source keeps its own code (the reasons are in the summary)
-                error_code="context_denied"
-                if (result.error or "").startswith("ContextDenied: ")
-                else "runtime_error",
+                # a refused context source keeps its own code (the reasons are in the summary), and so does the reference
+                # profile's refusal of executable code (B12.4a, #754)
+                error_code=result.error_code
+                or (
+                    "context_denied"
+                    if (result.error or "").startswith("ContextDenied: ")
+                    else "runtime_error"
+                ),
                 error_summary=result.error or "workflow runtime failed",
             )
 

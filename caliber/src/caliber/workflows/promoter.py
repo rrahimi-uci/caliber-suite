@@ -75,6 +75,13 @@ from caliber.knowledge.schemas import KnowledgeBaseVersionCreateRequest, Knowled
 from caliber.knowledge.service import KnowledgeBaseService
 from caliber.secrets import resolve_secret
 from caliber.storage.base import StorageError
+from caliber.workflows.code_policy import (
+    REFUSAL_CODE,
+    CodePolicy,
+    manifest_refusals,
+    report_has_refusal,
+    resolve_code_policy,
+)
 from caliber.workflows.compiler import CompileError, CompileResult, compile_workflow
 from caliber.workflows.deploy_gate import GateMetrics, evaluate_thresholds
 from caliber.workflows.deployment_bundle import (
@@ -914,14 +921,15 @@ def build_plan(  # noqa: PLR0915 - central workflow plan assembler
         if use_sealed_bundle
         else _skill_contents_for(session, manifest, version, compiled_bundle=bundle)
     )
+    resolved_config = config or CaliberConfig()
     result = compile_workflow(
         manifest,
         resolver=resolver,
         version=str(version.version_number),
         use_cache=True,
         skill_contents=embedded_skills,
+        code_policy=CodePolicy.from_config(resolved_config),
     )
-    resolved_config = config or CaliberConfig()
     runtime_session_factory = session_factory or sessionmaker(
         bind=session.get_bind(),
         class_=Session,
@@ -1063,19 +1071,31 @@ def build_plan(  # noqa: PLR0915 - central workflow plan assembler
         # and fail closed if that legacy key cannot identify one exact pin.
         pinned_version_id = _subworkflow_version_pin(result.ir, workflow_id, run_alias)
         target_version = _resolve_version(workflow_id, run_alias, pinned_version_id)
-        sub_plan = build_plan(
-            session,
-            target_version,
-            resolver=resolver,
-            alias=run_alias,
-            subworkflow_depth=depth,
-            config=config,
-            session_factory=runtime_session_factory,
-            source_guard=source_guard,
-            require_source_guard=require_source_guard,
-            context_recorder=context_recorder,
-            memory_read_authorizer=memory_read_authorizer,
-        )
+        try:
+            sub_plan = build_plan(
+                session,
+                target_version,
+                resolver=resolver,
+                alias=run_alias,
+                subworkflow_depth=depth,
+                config=config,
+                session_factory=runtime_session_factory,
+                source_guard=source_guard,
+                require_source_guard=require_source_guard,
+                context_recorder=context_recorder,
+                memory_read_authorizer=memory_read_authorizer,
+            )
+        except CompileError as exc:
+            if not report_has_refusal(exc.report):
+                raise
+            # The child holds executable code the reference profile refuses: the parent run keeps the one code (B12.4a, #754).
+            return {
+                "status": "error",
+                "output": "",
+                "error": _compile_failure_detail(exc),
+                "error_code": REFUSAL_CODE,
+                "tokens": 0,
+            }
         run_ctx = current_run_context()
         execution_result = execute(
             sub_plan,
@@ -1092,6 +1112,7 @@ def build_plan(  # noqa: PLR0915 - central workflow plan assembler
             "workflow_version_number": target_version.version_number,
             "output": execution_result.output,
             "error": execution_result.error,
+            "error_code": execution_result.error_code,
             "tokens": execution_result.tokens,
             "steps": [step.node_id for step in execution_result.steps],
         }
@@ -1359,6 +1380,8 @@ def build_plan(  # noqa: PLR0915 - central workflow plan assembler
         # The development profile keeps the pre-dispatcher guarded path while no governed context is bound (#1068, #1051);
         # an allow-list: the reference profile, and any profile added later, refuse a protected node without a context.
         legacy_guarded_effects=resolved_config.profile == "development",
+        # The reference profile refuses executable code at the runtime entry too (B12.4a, #754).
+        code_policy=CodePolicy.from_config(resolved_config),
         # The agents that can reach an operator-mapped tool (reference profile only): a plan with no governed step context, such
         # as a sub-workflow or a synchronous run, refuses to run them as legacy agents (#1051). The worker governs its own.
         agents_requiring_governance=mapped_agent_nodes(
@@ -1669,6 +1692,22 @@ def workflow_run_summary(result: WorkflowRunResult, *, preview: bool) -> dict[st
 # ---------------------------------------------------------------------------
 
 
+def _compile_failure_detail(exc: CompileError) -> str:
+    """A compile failure for an HTTP detail: the reference profile's refusals by their code, else the error's own text.
+
+    The validation report travels on ``exc.report``; without this the publish response would say "failed validation" and
+    omit the one structured code the caller needs (B12.4a, #754).
+    """
+    report = exc.report if isinstance(exc.report, dict) else {}
+    errors = [e for e in report.get("errors") or [] if isinstance(e, dict)]
+    refused = [str(e.get("message", "")) for e in errors if e.get("code") == REFUSAL_CODE]
+    if not refused:
+        return str(exc)
+    others = [str(e.get("message", "")) for e in errors if e.get("code") != REFUSAL_CODE]
+    detail = f"{REFUSAL_CODE}: " + "; ".join(refused)
+    return f"{detail}; other errors: " + "; ".join(others) if others else detail
+
+
 def publish_version(
     session: Session,
     version: CaliberWorkflowVersion,
@@ -1688,7 +1727,7 @@ def publish_version(
     try:
         compile_version(session, version, persist=True)
     except CompileError as exc:
-        raise PublishError(f"version does not compile: {exc}") from exc
+        raise PublishError(f"version does not compile: {_compile_failure_detail(exc)}") from exc
 
     compiled_bundle = version.compiled_bundle if isinstance(version.compiled_bundle, dict) else {}
     deployment_bundle = compiled_bundle.get("deployment_bundle")
@@ -1861,8 +1900,14 @@ def evaluate_deploy_gates(
     if not gates:
         return GateResult(has_gate=False, passed=True)
 
-    compiled = compile_workflow(manifest, resolver=resolver, version="gate", use_cache=True)
     resolved_config = config or CaliberConfig()
+    compiled = compile_workflow(
+        manifest,
+        resolver=resolver,
+        version="gate",
+        use_cache=True,
+        code_policy=CodePolicy.from_config(resolved_config),
+    )
     workflow_identity = build_workflow_identity(
         session,
         manifest.workflow_id,
@@ -2413,6 +2458,13 @@ def require_alias_target_ready(
     blockers.extend(_managed_file_blockers(session, version, config=config))
     blockers.extend(_host_path_blockers(version, alias=alias, config=config))
     blockers.extend(_tool_sandbox_blockers(version, alias=alias, config=config))
+    blockers.extend(
+        _reference_code_blockers(
+            manifest_for_deploy,
+            lambda: resolver_from_session(session, identity),
+            config=config,
+        )
+    )
     if blockers:
         raise AliasPreflightError(
             f"deployment preflight failed for alias {alias!r}: " + "; ".join(blockers),
@@ -2525,6 +2577,35 @@ def _host_path_blockers(
         f"nodes: {', '.join(sorted(offenders))}. Bind a managed project file, or widen "
         f"CALIBER_WORKFLOW_HOST_PATH_NODES_ALLOWED_ENVIRONMENT_CLASSES "
         f"(currently: {allowed})."
+    ]
+
+
+def _reference_code_blockers(
+    manifest_payload: dict[str, Any],
+    resolver_factory: Callable[[], InMemoryToolResolver],
+    *,
+    config: CaliberConfig | None,
+) -> list[str]:
+    """Refuse a rotation that would put executable code live under the reference profile (B12.4a, #754).
+
+    The reference profile does not support a node kind the compiler's IR registry marks as executing code
+    (``python_code``, ``external_app``) or a tool of an unsupported execution form, so no alias may point at a version that
+    holds one, whatever the alias's environment class (the host-path and tool-sandbox gates above are class-keyed; this
+    one is keyed to the profile). Every refusal carries the single code ``unsupported_in_reference_profile``. It reads the
+    manifest that will deploy: the sealed bundle's resolved manifest when the bundle is complete, otherwise the version's.
+    A manifest that does not parse is left to the checks above (they report it). Outside the reference profile it reads
+    nothing: ``resolver_factory`` is only called when the profile is active, so no registry query is made.
+    """
+    policy = CodePolicy.from_config(config) if config is not None else None
+    if not resolve_code_policy(policy).reference:
+        return []
+    try:
+        manifest = parse_manifest(manifest_payload)
+    except Exception:
+        return []
+    return [
+        f"{refusal.code}: {refusal.message}"
+        for refusal in manifest_refusals(manifest, resolver_factory(), policy)
     ]
 
 
@@ -2734,6 +2815,13 @@ def promote(
         else version.manifest
     )
     manifest = parse_manifest(manifest_payload)
+    # The reference profile refuses executable code before a gate replays it (B12.4a, #754).
+    code_blockers = _reference_code_blockers(manifest_payload, lambda: resolver, config=config)
+    if code_blockers:
+        raise AliasPreflightError(
+            f"deployment preflight failed for alias {alias!r}: " + "; ".join(code_blockers),
+            blockers=code_blockers,
+        )
     if executor is None:
         # ``build_executor(None)`` — the previous default — always returned the
         # deterministic fake, so a real provider in application configuration never
