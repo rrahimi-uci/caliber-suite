@@ -11,7 +11,7 @@ Observations are a frozen mapping: JSON-shaped values (``dict`` and ``list`` bec
 integers, finite floats, booleans and ``None`` stay), string keys only, bounded depth. A value that cannot be recorded as
 JSON is refused at the door (``invalid_observations``), so nothing a predicate sees can change underneath it.
 
-The Harborlight set :data:`HARBORLIGHT_V1` reads two keys of the observations:
+The Harborlight set :data:`HARBORLIGHT_V1` reads three keys of the observations:
 
 * ``proposal``: ``document_type`` (a non-empty string) and ``expected_version`` (the case version the effect was proposed
   against, a non-negative integer).
