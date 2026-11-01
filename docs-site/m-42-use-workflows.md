@@ -44,6 +44,11 @@ pinned to a managed file is the one exception). A `python_code` node is authorab
 that is containment, not isolation, and it carries the same trust as a registered tool: the author is
 trusted. See [Who is trusted to write tools](m-39-use-tools.md#who-is-trusted-to-write-tools).
 
+In the **reference profile** (`CALIBER_PROFILE=reference`) a `python_code` or `external_app` node is refused outright, at
+validation, compile, promotion and run time, with the code `unsupported_in_reference_profile`, and so is a registered Python
+tool while `CALIBER_REGISTERED_TOOL_SANDBOX_ENABLED` is off. See
+[Executable code is refused](m-64-reference-profile.md#executable-code-is-refused-b124a-754).
+
 ## How a workflow calibration is scored
 
 Calibrating a workflow replays the baseline and each candidate through the executor and scores them. Under

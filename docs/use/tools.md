@@ -90,6 +90,8 @@ Read this before you let anyone register a tool.
   approval required, and the sandbox mocks it in preview runs.
 - **Workflows add a second boundary of the same kind.** A `python_code` node is authorable by operators.
   Preview refuses it and a published run blocks `import`, but that is containment, not isolation.
+  The reference profile refuses the node altogether (`unsupported_in_reference_profile`); see
+  [Executable code is refused](../operate/reference-profile.md#executable-code-is-refused-b124a-754).
 
 ## 1. What tools are for in CALIBER
 

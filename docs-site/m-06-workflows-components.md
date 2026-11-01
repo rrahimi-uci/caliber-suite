@@ -299,6 +299,8 @@ listed in [What each component needs](#what-each-component-needs).
 | **Python Code** | `python_code` | Run custom Python in the isolated tool sandbox for lightweight glue logic. | `input`, `context` → `text`, `result`, `metadata` | `code`, `timeout_seconds` | Provide Python code |
 | **Note** | `note` | Canvas-only annotation for workflow authors — never executes at runtime. | — → — | `text` | — |
 
+Under `CALIBER_PROFILE=reference`, `python_code` and `external_app` nodes are refused at validation, compile, promotion and run time with `unsupported_in_reference_profile` (see [Executable code is refused](m-64-reference-profile.md#executable-code-is-refused-b124a-754)); the development profile runs them as described here.
+
 ### What each component needs
 
 Most components work on a base install. These need something more. `GET /workflow-components`

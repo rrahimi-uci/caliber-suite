@@ -292,6 +292,20 @@ def _outbox_off_by_default() -> Iterator[None]:
     bind_outbox(False)
 
 
+@pytest.fixture(autouse=True)
+def _code_policy_unbound_by_default() -> Iterator[None]:
+    """The reference profile's code refusal (B12.4a, #754) is process-wide state bound when an app starts.
+
+    A reference-profile app built by one test must not make a later test's ``python_code`` node refuse, so every test
+    begins and ends with the policy unbound; a test that needs it binds it (``create_app`` does, from its configuration).
+    """
+    from caliber.workflows.code_policy import bind_code_policy
+
+    bind_code_policy(None)
+    yield
+    bind_code_policy(None)
+
+
 @pytest.fixture
 def fixed_step_clock(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     """Pin the agent-step boundary's default clock (B08.3) to 2026-10-26T09:00:00Z with no time passing.

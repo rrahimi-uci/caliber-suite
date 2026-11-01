@@ -30,6 +30,7 @@ from dataclasses import dataclass, field, fields, is_dataclass, replace
 from enum import Enum
 from typing import Any
 
+from caliber.workflows.code_policy import CodePolicy, CodeRefusal, ir_refusals, summarize
 from caliber.workflows.ir import (
     IRAgent,
     IRApiRequest,
@@ -1270,6 +1271,20 @@ def _cache_key(
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
 
+def _refuse_code(refusals: list[CodeRefusal]) -> None:
+    """Raise :class:`CompileError` with the validation-report shape for the reference profile's refusals (B12.4a, #754)."""
+    if not refusals:
+        return
+    raise CompileError(
+        summarize(refusals),
+        report={
+            "valid": False,
+            "errors": [r.to_dict() for r in refusals],
+            "warnings": [],
+        },
+    )
+
+
 def compile_workflow(
     manifest: WorkflowManifest,
     *,
@@ -1277,6 +1292,7 @@ def compile_workflow(
     version: str = "draft",
     use_cache: bool = False,
     skill_contents: dict[str, str] | None = None,
+    code_policy: CodePolicy | None = None,
 ) -> CompileResult:
     """Validate, build IR, generate code, and emit a report (plan §10.2).
 
@@ -1284,6 +1300,12 @@ def compile_workflow(
     skill-content) tuple returns a cached :class:`CompileResult` (ext D1).
     ``skill_contents`` (name → content) composes each agent's ``skills`` into
     its system prompt; ``None`` leaves agents skill-free.
+
+    In the reference profile (the process-wide policy, or ``code_policy`` when the caller holds a configuration) a
+    workflow with a node kind the IR registry marks as executing code, or a tool of an unsupported execution form, does
+    not compile: :class:`CompileError` carries the single code ``unsupported_in_reference_profile`` for each (B12.4a,
+    #754). The check runs on the built IR as well as on the manifest, and on a cache hit, so a result compiled outside the
+    profile is never handed back inside it.
     """
     if manifest.runtime.sdk_version_policy != "runtime-pinned":
         raise CompileError(
@@ -1297,11 +1319,13 @@ def compile_workflow(
         hit = _COMPILE_CACHE.get(cache_key)
         if hit is not None:
             _COMPILE_CACHE.move_to_end(cache_key)
+            # A hit may have been compiled outside the reference profile: the policy is not part of the cache key.
+            _refuse_code(ir_refusals(hit.ir, code_policy))
             # Return a copy so callers can't mutate the cached instance.
             return replace(hit, cached=True)
 
     started = time.perf_counter()
-    validation = validate_manifest(manifest, resolver=resolver)
+    validation = validate_manifest(manifest, resolver=resolver, code_policy=code_policy)
     if not validation.valid:
         raise CompileError(
             "manifest failed validation; cannot compile",
@@ -1309,6 +1333,7 @@ def compile_workflow(
         )
 
     ir = build_ir(manifest, resolver, version=version, skill_contents=skill_contents)
+    _refuse_code(ir_refusals(ir, code_policy))
     generated = generate_python(ir)
     report = _report(ir, validation.to_dict())
     requirements = ["openai-agents>=0.1.0", "mlflow>=3.12,<4"]

@@ -475,7 +475,7 @@ service. By default, registered tools and `python_code` nodes execute through th
 configured subprocess sandbox rather than importing author modules into the control
 plane. That is a configurable boundary, not an invariant: an operator can explicitly
 disable registered-tool sandboxing, choose a custom backend, or allow an
-`external_app` entrypoint that remains trusted in-process code. The generated Python
+`external_app` entrypoint that remains trusted in-process code. The reference profile refuses `python_code`, `external_app` and an unsandboxed registered tool outright (`unsupported_in_reference_profile`). The generated Python
 exists for export and review and is not the live execution path; it enters the same
 explicit run configuration before binding tools, so it preserves the selected sandbox
 backend and allowlist. Synchronous SQLAlchemy and synchronous run

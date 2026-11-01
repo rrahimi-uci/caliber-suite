@@ -4771,7 +4771,7 @@ identity, which the MCP route now establishes from the server record (`tool_disp
 [Governed MCP tools](#governed-mcp-tools-b045)): a workflow tool node or MCP node reaching one of these tools on the first-party
 server is refused with `unsupported_effect_path` **under the reference profile** (the development profile classifies it by the
 administrator's policy; the first-party server is recognised from its stdio launch or an operator-attested managed sidecar host).
-**The switch that raises `unsupported_in_reference_profile` for every refused row is #774.** The four host-file tools are already refused by a workflow `tool` node in a manifest-backed
+**The switch that raises `unsupported_in_reference_profile` for every refused row is #774**; the code-execution rows (`python_code`, `external_app` and an unsandboxed registered tool) raise it now ([Executable code is refused](#executable-code-is-refused-b124a-754)). The four host-file tools are already refused by a workflow `tool` node in a manifest-backed
 plan (see "Governed registered tools"); until #774 lands, a model-chosen call of a host-file tool is refused only in a plan wired to the registry
 (`build_plan`, the loop gate of [Model-selected tool calls](#model-selected-tool-calls-b046-768): `unsupported_effect_path`) and still
 runs in the development profile and in a caller-built plan or export, so do not wire the four host-file tools into a reference workflow. The first-party database server's write tools are
@@ -4781,13 +4781,83 @@ register it.
 **Configuration, migration and rollback.** No new setting, no migration and no stored data change. Rolling back is
 reverting the change; rows already refused were never written.
 
+## Executable code is refused (B12.4a, #754)
+
+A workflow can run code in two ways, and the reference profile refuses both unless the platform itself puts the code behind
+the sandbox it trusts. The kinds are read from the compiler's own IR kind registry (`caliber.workflows.ir.NodeType`), not from
+a list kept by hand: each kind is classified once in `caliber.workflows.code_policy` (code, tool carrier or inert), and
+`tests/test_profile_code_refusal.py` fails when a kind is added to the registry without being classified. Until it is, the kind is **refused**: the profile admits a kind only when it is classified as inert or as a tool carrier (fail closed).
+
+| form | in the reference profile | why |
+| --- | --- | --- |
+| `python_code` node | refused | runs the author's Python source. The tool sandbox it runs in is a process boundary (separate interpreter, empty environment, rlimits) with ambient filesystem and network authority, not a container, VM or seccomp boundary. **A sandbox label does not establish isolation.** |
+| `external_app` node | refused | imports and calls installed Python inside the control-plane process (EP-012) |
+| registered `python_callable` tool, sandbox on (the default) | admitted | administrator-registered code run in the sandbox child: trusted-code admission, not containment of hostile code (the module allowlist is #763) |
+| registered `python_callable` tool, `CALIBER_REGISTERED_TOOL_SANDBOX_ENABLED=false` | refused | the tool would be imported into the control plane (EP-015, EP-016, EP-019) |
+| tool with any other execution backend | refused | the profile cannot establish that it runs no code (fail closed) |
+| `openapi_http` tool, MCP tool binding | not code | an HTTP call the effect dispatcher governs, and an MCP call (no MCP server is allowlisted in the profile, #746) |
+
+**One code, four boundaries.** Every refusal carries `unsupported_in_reference_profile`, the code ADR 0001 names for a refused path:
+
+| boundary | what happens | where you see it |
+| --- | --- | --- |
+| validation (`POST /workflow-versions/{id}/validate`, and the validation inside compile and publish) | an error issue per node or tool, `path` `nodes.<id>` or `nodes.<id>.tools.<tool>` | `data.errors[].code` |
+| compile (`POST /workflow-versions/{id}/compile`, publish, a run's plan) | `CompileError`; the same issues in `report.errors` | `400` with `report.errors[].code`; publish answers `400` with the code in `detail`; a run fails with `error_code` |
+| promotion (promote, approve, rollback and every other alias move) | the alias does not move | `400` (promote) or `409` (approve) with the code in `detail` |
+| runtime entry (`runtime.execute`, and the in-process tool binders) | the run ends `error` before any node runs, whatever built the plan | `WorkflowRunResult.error_code`, `error` starts with the code |
+
+The runtime entry walks the whole IR, not only the nodes reachable from the start, so a dormant code node is refused too, and
+a plan built by hand in a reference process (without `build_plan`) is refused by the process-wide policy that `create_app`
+binds from the configuration. The in-process binders (`runtime._bind_in_process`, `bind_exported_tool`) refuse as a last
+backstop. Nothing is written when a boundary refuses, and the node, the tool and the sandbox never run.
+
+```text
+POST /ajax-api/2.0/mlflow/caliber/workflow-versions/WFV-6219b6e5/validate
+200 {"data": {"valid": false, "errors": [{"code": "unsupported_in_reference_profile", "path": "nodes.code",
+     "message": "python_code node 'code' runs author-supplied Python source in a sandbox that is a process boundary, not
+     isolation (a sandbox label does not establish it); the reference profile does not support it, so remove the node or
+     run this workflow outside the reference profile", "severity": "error"}], "warnings": []}}
+
+POST /ajax-api/2.0/mlflow/caliber/workflow-versions/WFV-6219b6e5/publish
+400 {"detail": "version does not compile: unsupported_in_reference_profile: python_code node 'code' runs ..."}
+
+POST /ajax-api/2.0/mlflow/caliber/workflows/WF-adb7d7f0/deployments/staging/promote   {"version_id": "WFV-6219b6e5"}
+400 {"detail": "deployment preflight failed for alias 'staging': unsupported_in_reference_profile: python_code node 'code' runs ..."}
+```
+
+A run that was admitted before the code was refused ends `failed` with `error_code: unsupported_in_reference_profile` and the
+node never executed. A registered Python tool with the sandbox switched off is refused at `nodes.<id>.tools.<tool>` with the
+message `tool 'lookup_policy' runs registered Python (execution backend python_callable) and
+CALIBER_REGISTERED_TOOL_SANDBOX_ENABLED is false, so it would run unsandboxed inside the control plane, ...`.
+
+**Recovery.**
+
+- A `python_code` or `external_app` node: remove it. Use a registered tool behind the sandbox, an OpenAPI tool or a built-in
+  data-transform or template node for the same job, or author the workflow in a development deployment.
+- An unsandboxed tool: set `CALIBER_REGISTERED_TOOL_SANDBOX_ENABLED=true` (the default) and restart the process.
+- A version that was published before the profile was switched on and now holds code: it cannot be promoted or run. Author a
+  new draft without the node and publish that; existing aliases keep pointing where they pointed, and are not rewritten.
+
+**Configuration, migration and rollback.** No new setting, no migration and no stored data change. The development profile is
+unchanged: all of these forms keep working there, and a version authored there is refused when a reference process validates,
+compiles, promotes or runs it. The policy is process-wide state bound at startup (like the registered-tool module allowlist), so
+a change of profile or sandbox setting needs a restart. Rolling back is reverting the change; nothing refused was written.
+
+**What this does not do.** It does not decide which modules a registered tool may import (the module allowlist, #763), does not
+contain hostile tool code (the sandbox is trusted-code admission, see "Who is trusted to write tools" in the tools guide), and
+does not raise `unsupported_in_reference_profile` for the other `refuse` inventory rows (#774). A subworkflow node is not
+expanded at the parent: the parent validates, compiles and promotes, and the child is checked at its own validation, compile,
+promotion and runtime entry. A parent run over a child that holds code fails with the same code
+(`error_code: unsupported_in_reference_profile`, `error` naming the child and the node) and the child's node never runs. The refinement, calibration and deploy-gate replays that build a plan without a configuration are covered by the
+process-wide policy; in a reference deployment the app binds it at startup.
+
 ## Not enforced yet
 
 ADR 0001 describes the whole reference shape; this table is what the *process* checks today. Not checked:
 
 - **The shape itself:** one tenant and region, MLflow addressed by `MLFLOW_TRACKING_URI`, an S3-compatible object store, at least two projects, and one real model provider next to the scripted adapter. Readiness reporting for MLflow and the object store is #535. The PostgreSQL version and the `pgvector` extension are checked by the migrations (migration `0060`) and the migration-parity CI job, not by the profile.
 - **Origin rules** (#533). ADR 0001 names them, but #533 has no allowed-origins task yet; that rule is not scheduled.
-- **Run-time refusal of the `refuse` inventory rows**, including the host-file tools and the DB MCP write tools (#774; see "Reserved tool names and refused paths"), **the trusted-connector set** (#534), **the full attack pack** (#535), **a single execution owner** (#536) and **the Apply separation-of-duties flag** (#589).
+- **Run-time refusal of the other `refuse` inventory rows**, including the host-file tools and the DB MCP write tools (#774; see "Reserved tool names and refused paths"; code execution is refused since B12.4a, #754), **the trusted-connector set** (#534), **the full attack pack** (#535), **a single execution owner** (#536) and **the Apply separation-of-duties flag** (#589).
 - **A governed effect context outside the worker's own graph** (#1051, #1068): the worker binds one for an admitted reference-profile run, but synchronous version runs, evaluation, gate and Aria previews, and the sub-workflows of a worker run have no owner lease and bind none, so the reference profile refuses their protected nodes (and an agent in them that can reach a mapped tool) and the development profile runs them on the legacy guarded path; see "Profiles and a missing governed context".
 - **A verifier for the generic workflow connectors** (#1055, #1051): a webhook, API-request, registered-tool, OpenAPI or MCP node is refused `no_authoritative_verifier` in the reference profile because no connector other than `document_request` has a lookup by key; only a governed agent step reaches a backend end to end. Model-chosen calls of an agent that is not governed (B04.6, #768) are not routed.
 - **Cookie flags:** `auth_session_cookie_secure` is not checked.
