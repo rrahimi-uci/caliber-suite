@@ -409,6 +409,41 @@ def test_a_proposal_is_approved_over_http_resumed_and_sent_exactly_once(
     assert downstream.mutations() == 1
 
 
+def test_an_ambiguous_answer_parks_the_run_and_the_reconciler_settles_it_without_a_second_send(
+    world: tuple[ReferenceApp, Downstream], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The downstream committed and its answer was dropped: the outcome is unknown, so the run waits and nothing is re-sent."""
+    app, downstream = world
+    owner = Owner(app)
+    lease = owner.take()
+    run_id, request_id, worker = park(app, downstream, monkeypatch, owner)
+    assert decide(app, run_id, "approve", request_id).status_code == 200
+    assert resume(app, run_id).status_code == 202
+    downstream.set_fault("drop_response_after_commit")
+
+    worker._tick()
+
+    run = run_row(app, run_id)
+    assert (run.status, run.error_code) == ("waiting_effect", "effect_reconciliation")
+    assert downstream.mutations() == 1, "the downstream did commit; the platform could not tell"
+    (proposal,) = proposals(app)
+    assert proposal.state == "unknown", "an answer nobody can read back is not a commit"
+
+    results = reconcile_pass(
+        app.session_factory,
+        lease=lease,
+        targets=targets_from_bindings(parse_bindings(_bindings(downstream))),
+        lookup=ask_downstream,
+    )
+    assert [item.outcome for item in results] == [RECONCILED_COMMITTED]
+    assert run_row(app, run_id).status == "queued"
+    worker._tick()
+    run = run_row(app, run_id)
+    assert (run.status, run.error_code) == ("completed", None), (run.error_code, run.error_summary)
+    assert downstream.mutations() == 1, "asked by key, never sent again"
+    assert proposals(app)[0].state == "committed"
+
+
 def test_an_approver_whose_role_was_revoked_after_deciding_sends_nothing(
     world: tuple[ReferenceApp, Downstream], monkeypatch: pytest.MonkeyPatch
 ) -> None:

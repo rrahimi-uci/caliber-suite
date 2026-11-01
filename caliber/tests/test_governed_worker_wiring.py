@@ -728,6 +728,39 @@ def test_a_workflow_node_parks_behind_its_bound_request_and_is_sent_once_after_t
     assert spent.consumed_at is not None
 
 
+@pytest.mark.usefixtures("real_validator_stub")
+def test_a_workflow_node_whose_lease_is_gone_fails_with_the_fixed_code_and_sends_nothing(
+    world: Any,
+) -> None:
+    sent: list[Any] = []
+    with world() as session:
+        lease = leased(session, "owner-1")
+        session.commit()
+    holder = Holder(lease)
+    plan = _node_plan(
+        world,
+        effect_context(_authority(world, holder), verifiers={"http": _verify}),
+        sender=lambda request: sent.append(request) or {"status_code": 201},
+    )
+    first = execute(plan, "hello", executor=FakeWorkflowExecutor())
+    (step,) = [item for item in first.steps if item.node_id == "hook"]
+    _decide(world, _requests(world)[0].runtime_approval_id)
+    holder.lease = None
+    checkpoint = RuntimeResumeCheckpoint(
+        node_id="hook",
+        checkpoint_kind="runtime_approval",
+        input_by_port=dict(step.input_by_port or {}),
+        replay_output=False,
+    )
+
+    resumed = execute(plan, "hello", executor=FakeWorkflowExecutor(), resume_checkpoint=checkpoint)
+
+    assert resumed.status == "error"
+    assert "HTTP effect authorization refused: lease_unavailable" in (resumed.error or "")
+    assert sent == []
+    assert _rows(world)[0][0].state == "proposed"
+
+
 def test_a_workflow_node_can_resume_from_an_approval_only_in_a_plan_with_a_governed_context(
     world: Any,
 ) -> None:
@@ -763,35 +796,28 @@ def test_an_api_request_node_parks_the_same_way(world: Any) -> None:
     assert len(_rows(world)[1]) == 1
 
 
-def test_a_workflow_effect_inside_a_fan_out_cannot_park_the_run_and_fails_it(world: Any) -> None:
-    """A target of a fan-out runs inside its parent: there is no node of the graph to resume, so it is an error, not a park."""
-    manifest = _http_manifest("webhook", "https://example.test/governed")
-    manifest["nodes"]["parent"] = {
-        "id": "parent",
-        "type": "for_each",
-        "target_node_id": "hook",
-        "inputs": {"items": {"type": "structured"}},
-        "outputs": {"results": {"type": "structured"}, "text": {"type": "string"}},
-    }
-    manifest["nodes"]["start"] = {
-        "id": "start",
-        "type": "start",
-        "outputs": {"items": {"type": "structured"}},
-    }
-    manifest["edges"] = [
-        {"id": "e1", "from": "start", "to": "parent", "map": {"items": "items"}},
-    ]
-    del manifest["nodes"][
-        next(n for n in manifest["nodes"] if manifest["nodes"][n]["type"] == "output")
-    ]
+@pytest.mark.parametrize("kind", ["for_each", "loop", "error_boundary"])
+def test_a_workflow_effect_inside_a_fan_out_loop_or_boundary_cannot_park_the_run_and_fails_it(
+    world: Any, kind: str
+) -> None:
+    """A target runs inside its parent: there is no node of the graph to resume, so it is an error, never a park, and a
+    boundary may not absorb the signal as a handled error."""
+    manifest = _inline_manifest(kind)
+    hook = _http_manifest("webhook", "https://example.test/governed")["nodes"]["hook"]
+    manifest["nodes"]["hook"] = hook
+    del manifest["nodes"]["agent"]
+    manifest["nodes"]["parent"]["target_node_id"] = "hook"
     plan = _node_plan(
         world, effect_context(_authority(world), verifiers={"http": _verify}), manifest=manifest
     )
 
     result = execute(plan, '["a"]', executor=FakeWorkflowExecutor())
 
-    assert result.status == "error"
+    assert result.status == "error", result.status
     assert "cannot run inline in a fan-out, loop or boundary: node 'hook'" in (result.error or "")
+    assert len(_rows(world)[1]) == 1, (
+        "the approval was asked for once and nobody can answer it: #1074's to settle"
+    )
 
 
 # --------------------------------------------------------------------------------- governed agent nodes

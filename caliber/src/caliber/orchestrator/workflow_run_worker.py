@@ -30,8 +30,8 @@ from caliber.db.models import (
 )
 from caliber.db.scoping import synthetic_identity
 from caliber.effects.governed_context import (
-    GovernedContextUnavailable,
     RUN_NOT_ADMITTED,
+    GovernedContextUnavailable,
     LeaseProvider,
     configured_tool_backends,
     effect_context,
@@ -2250,7 +2250,7 @@ class WorkflowRunWorker:
                 error_summary=result.error or "workflow runtime failed",
             )
 
-    def _bind_governed_contexts(
+    def _bind_governed_contexts(  # noqa: PLR0911 - one early exit per missing trusted input, each a fixed refusal code
         self,
         run: CaliberWorkflowRun,
         plan: Any,

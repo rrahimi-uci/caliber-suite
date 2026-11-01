@@ -217,9 +217,9 @@ class RunAuthority:
         """The downstream's current version of the target, for a proposal that names the version it expects.
 
         The platform has no read of its own for a connector's target, so a versioned proposal is sent only through a connector
-        whose downstream enforces the precondition **atomically with the write** (a precondition header and a stale status in
-        its capability record): a stale version is then a definitive rejection at the downstream (``failed``), not a write over
-        newer data. Any other connector with a versioned proposal is refused (``version_unverifiable``).
+        whose downstream enforces the precondition **atomically with the write** (a precondition header in its capability
+        record): a stale version is then that downstream's own definitive rejection (``failed``), not a write over newer data.
+        Any other connector with a versioned proposal is refused (``version_unverifiable``).
         """
         with self.session_factory() as session:
             view = proposal_view(session, proposal_id)
@@ -231,7 +231,6 @@ class RunAuthority:
                 registration.connector == view.connector
                 and capability is not None
                 and capability.precondition_header is not None
-                and capability.stale_precondition_status is not None
             ):
                 return view.expected_resource_version
         raise EffectRefused(VERSION_UNVERIFIABLE)

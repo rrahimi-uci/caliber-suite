@@ -7259,7 +7259,7 @@ def _run_node(  # noqa: PLR0911, PLR0912, PLR0915 - per-node-type dispatch
                     if child_artifacts:
                         record["artifacts"] = sorted(child_artifacts)
                     return toks, record, namespaced_artifacts
-                except (ContextDenied, UnknownEffectError, _step_proposal.EffectApprovalPending):
+                except (ContextDenied, UnknownEffectError):
                     raise  # a refused context, or an effect nobody can vouch for, fails the node: not an item's own error
                 except Exception as exc:  # per-item isolation for fan-out
                     logger.warning("for_each agent item failed: %s", exc, exc_info=True)
@@ -7573,11 +7573,7 @@ def _run_node(  # noqa: PLR0911, PLR0912, PLR0915 - per-node-type dispatch
                                 inherited_provenance=inherited_provenance,
                             )
                         )
-                    except (
-                        ContextDenied,
-                        UnknownEffectError,
-                        _step_proposal.EffectApprovalPending,
-                    ):
+                    except (ContextDenied, UnknownEffectError):
                         raise
                     except Exception as compensation_exc:
                         raise ToolExecutionError(
