@@ -13,8 +13,9 @@ proposal, the approval request, the policy decision and the verified receipt (wh
   record shows it is not part of this effect's path), ``pending`` (the effect is still in flight and the row is
   expected to appear), ``missing`` (the chain needs a row, the effect is settled or the id names nothing, and there is
   none: a broken chain) or ``unrecorded`` (the platform does not store this link against the effect, so it can be
-  neither followed nor called broken: the commit-time run decision of an exact-intent approval, persisted per run, see
-  the ``policy_decisions`` section; a node occurrence with no context manifest).  Nothing is inferred from timestamps
+  neither followed nor called broken: the commit-time run decision of an exact-intent approval consumed before
+  migration 0134 stored it against the approval request (B11.3c, #1061), persisted per run only, see the
+  ``policy_decisions`` section; a node occurrence with no context manifest).  Nothing is inferred from timestamps
   or neighbours.  An effect's ``missing_links`` lists only the broken ones and ``unrecorded_links`` the others, so a
   complete chain is distinguishable from a broken one.
 * **Scoped to the run.**  Every query is filtered by the run the caller was authorized for, including the by-id lookups
@@ -297,6 +298,7 @@ def _approval_rows(
         model.decided_at,
         model.expires_at,
         model.consumed_at,
+        model.commit_decision_id,
     )
     named = {
         row.approval_ref
@@ -325,13 +327,32 @@ def _approval_rows(
     return by_id, latest
 
 
-def _decision_rows(session: Session, run_id: str, proposals: Sequence[Any]) -> dict[str, Any]:
+def _commit_decision_id(proposal: Any, approvals: dict[str, Any]) -> str | None:
+    """The commit-time decision id stored on the approval request an exact-intent effect consumed, if any."""
+    row = approvals.get(proposal.approval_ref)
+    if row is None or row.proposal_id != proposal.proposal_id:
+        return None
+    return row.commit_decision_id or None
+
+
+def _decision_rows(
+    session: Session, run_id: str, proposals: Sequence[Any], approvals: dict[str, Any]
+) -> dict[str, Any]:
+    """The decision rows of this run that the page's effects name, by decision id.
+
+    A policy-approved effect names its decision in ``approval_ref``.  An exact-intent effect names it through the approval
+    request its dispatcher consumed (``commit_decision_id``, B11.3c); that request counts only when it is the effect's own
+    (the same proposal), as in :func:`_approval_link`.
+    """
     model = CaliberPolicyDecision
-    named = {
-        row.approval_ref
-        for row in proposals
-        if row.approval_kind == POLICY_DECISION and row.approval_ref
-    }
+    named: set[str] = set()
+    for row in proposals:
+        if row.approval_kind == POLICY_DECISION and row.approval_ref:
+            named.add(row.approval_ref)
+        elif row.approval_kind == EXACT_INTENT_APPROVAL:
+            decision_id = _commit_decision_id(row, approvals)
+            if decision_id:
+                named.add(decision_id)
     if not named:
         return {}
     return {
@@ -423,26 +444,36 @@ def _approval_fields(row: Any, status: str, code: str | None) -> dict[str, Any]:
     }
 
 
-def _decision_link(proposal: Any, rows: dict[str, Any]) -> dict[str, Any]:
+def _decision_link(
+    proposal: Any, rows: dict[str, Any], approvals: dict[str, Any]
+) -> dict[str, Any]:
     if proposal.approval_kind == POLICY_DECISION:
-        row = rows.get(proposal.approval_ref)
-        if row is None:
-            return {"status": MISSING, "code": DECISION_ROW_MISSING}
-        return {
-            "status": LINKED,
-            "decision_id": row.decision_id,
-            "action": row.action,
-            "result": row.result,
-            "reason_codes": _codes(row.reason_codes),
-            "policy_version": row.policy_version,
-            "input_hash": row.input_hash,
-            "evaluated_at": row.evaluated_at,
-        }
+        return _decision_fields(rows.get(proposal.approval_ref))
     if proposal.approval_kind == EXACT_INTENT_APPROVAL:
-        return {"status": UNRECORDED, "code": DECISION_PER_RUN_ONLY}
+        decision_id = _commit_decision_id(proposal, approvals)
+        if decision_id is None:
+            # consumed before the decision id was stored (or its approval row is gone): the run's decisions are listed per
+            # run only, and nothing is paired by time
+            return {"status": UNRECORDED, "code": DECISION_PER_RUN_ONLY}
+        return _decision_fields(rows.get(decision_id))
     if proposal.state in _SETTLED_STATES:
         return {"status": NOT_REQUIRED, "code": FAILED_BEFORE_APPROVAL}
     return {"status": PENDING, "code": DECISION_NOT_APPROVED_YET}
+
+
+def _decision_fields(row: Any) -> dict[str, Any]:
+    if row is None:
+        return {"status": MISSING, "code": DECISION_ROW_MISSING}
+    return {
+        "status": LINKED,
+        "decision_id": row.decision_id,
+        "action": row.action,
+        "result": row.result,
+        "reason_codes": _codes(row.reason_codes),
+        "policy_version": row.policy_version,
+        "input_hash": row.input_hash,
+        "evaluated_at": row.evaluated_at,
+    }
 
 
 def _effect_link(proposal: Any, receipts: dict[str, Any]) -> dict[str, Any]:
@@ -517,14 +548,14 @@ def _effects(
         (node_step_id_for(run_id, row.node_id, row.occurrence_id) for row in proposals),
     )
     approvals, newest = _approval_rows(session, run_id, proposals)
-    decisions = _decision_rows(session, run_id, proposals)
+    decisions = _decision_rows(session, run_id, proposals, approvals)
     receipts = _receipt_rows(session, proposals)
     effects: list[dict[str, Any]] = []
     for proposal in proposals:
         links = {
             "context_manifest": _context_link(run_id, proposal, contexts),
             "approval": _approval_link(proposal, approvals, newest),
-            "decision": _decision_link(proposal, decisions),
+            "decision": _decision_link(proposal, decisions, approvals),
             "effect": _effect_link(proposal, receipts),
         }
         effects.append(
@@ -557,9 +588,11 @@ def _span_attributes(proposal: Any, links: dict[str, dict[str, Any]]) -> dict[st
     """The ``caliber.*`` attributes this effect's rows support, through the same allow-list function.
 
     This is a union derived from the resolved rows, **not** what any one span carries: each span binds only the ids it
-    had read when it closed (the receipt span binds the proposal's recorded approval ref even when that row is gone,
-    and the dispatch span carries the commit-time ``decision_id``, which is not persisted against the effect and so is
-    not listed here; see the ``policy_decisions`` section).  An id appears only when its row resolved for this run.
+    had read when it closed (the receipt span binds the proposal's recorded approval ref even when that row is gone).
+    The commit-time ``decision_id`` of an exact-intent effect is listed when the approval request the dispatcher consumed
+    stored it (B11.3c) and its decision row resolved for this run; for an effect consumed earlier it is not listed (the
+    dispatch span still carries it; see the ``policy_decisions`` section).  An id appears only when its row resolved for
+    this run.
     """
 
     def linked(link: str, key: str) -> str | None:

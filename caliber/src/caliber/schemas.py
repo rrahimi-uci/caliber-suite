@@ -1846,7 +1846,8 @@ class AdmissionManifestSchema(BaseModel):
 #: ``missing``       the chain needs a row here, the effect is settled (or the id names nothing) and the platform has
 #:                   none: a broken chain (``code`` says why; never synthesized)
 #: ``unrecorded``    the platform does not persist this link against the effect, so it can be neither followed nor
-#:                   called broken (``code`` says where else to look)
+#:                   called broken (``code`` says where else to look; an exact-intent effect consumed before the
+#:                   commit-time decision id was stored, B11.3c)
 CausalLinkStatus = Literal["linked", "not_required", "pending", "missing", "unrecorded"]
 
 
@@ -1937,7 +1938,11 @@ class CausalApprovalLinkSchema(BaseModel):
 
 
 class CausalDecisionLinkSchema(BaseModel):
-    """The policy decision that approved an effect, when the effect records it."""
+    """The policy decision that authorised an effect, when the effect records it.
+
+    A policy-approved effect names it; an exact-intent effect names the commit-time decision stored on its consumed
+    approval request (B11.3c, #1061). An exact-intent effect consumed before that id was stored is ``unrecorded``.
+    """
 
     model_config = ConfigDict(extra="forbid")
 
