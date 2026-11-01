@@ -641,6 +641,9 @@ class _FakeLoop:
     def __init__(self, name: str, log: list[tuple[str, str, float]], delay: float = 0.0) -> None:
         self.name, self.log, self.delay = name, log, delay
 
+    def bind_lease_provider(self, provider: Any) -> None:
+        """What a loop that dispatches under the lease takes (the workflow-run worker, #1051); this one ignores it."""
+
     async def start(self) -> None:
         self.log.append((self.name, "start", time.monotonic()))
 
@@ -672,6 +675,7 @@ def _lifespan(
     outbox: bool = False,
     evaluator: _FakeEvaluator | None = None,
     reconciler: _FakeEvaluator | None = None,
+    workflow_worker: _FakeEvaluator | None = None,
     session_factory: Any = None,
     reference_profile: bool = False,
 ) -> Any:
@@ -680,6 +684,8 @@ def _lifespan(
     names = ["worker", "workflow", "aria", "knowledge", "imports", "scheduler"]
     loops = [_FakeLoop(n, log, 0.3) for n in names]
     worker, workflow, aria, knowledge, imports, scheduler = loops
+    if workflow_worker is not None:
+        workflow = workflow_worker
     bus = _FakeLoop("bus", log)
     engine = SimpleNamespace(dispose=lambda: log.append(("engine", "dispose", time.monotonic())))
     return _build_lifespan(
@@ -810,6 +816,45 @@ def test_the_effect_reconciler_is_bound_to_the_lease_the_role_holds_and_loses_it
                 assert isinstance(held, Lease)
                 assert held == role.lease, "the exact lease the owner captured"
             assert reconciler.provider() is None, "no lease once the loops are stopped: no pass"
+
+        asyncio.run(scenario())
+
+
+def test_the_workflow_run_worker_is_never_bound_to_a_lease_outside_the_reference_profile() -> None:
+    log: list[tuple[str, str, float]] = []
+    run_worker = _FakeEvaluator("workflow", log)
+
+    async def scenario() -> None:
+        app = SimpleNamespace(state=SimpleNamespace())
+        async with _lifespan(log, workflow_worker=run_worker)(app):
+            assert ("workflow", "start") in [(n, what) for n, what, _ in log]
+
+    asyncio.run(scenario())
+    assert run_worker.provider is _FakeEvaluator.UNBOUND
+
+
+@pytest.mark.parametrize("dialect", DIALECTS)
+def test_the_workflow_run_worker_dispatches_only_under_the_lease_the_role_holds(
+    dialect: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """#1051: a run's protected effects are sent under the exact lease the owner captured, and none once the role lost it."""
+    log: list[tuple[str, str, float]] = []
+    run_worker = _FakeEvaluator("workflow", log)
+    with _database(dialect, tmp_path, monkeypatch) as (_, factory):
+
+        async def scenario() -> None:
+            app = SimpleNamespace(state=SimpleNamespace())
+            lifespan = _lifespan(
+                log, workflow_worker=run_worker, session_factory=factory, reference_profile=True
+            )
+            async with lifespan(app):
+                role = app.state.execution_role
+                held = run_worker.provider()
+                assert isinstance(held, Lease)
+                assert held == role.lease, "the exact lease the owner captured"
+            assert run_worker.provider() is None, (
+                "no lease once the loops are stopped: nothing is dispatched"
+            )
 
         asyncio.run(scenario())
 

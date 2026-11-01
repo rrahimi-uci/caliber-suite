@@ -34,6 +34,7 @@ from caliber.workflows.diff import compute_graph_diff
 from caliber.workflows.manifest import WorkflowManifest, parse_manifest
 from caliber.workflows.patch import PatchError, apply_patch
 from caliber.workflows.runtime import (
+    AgentsRequiringGovernance,
     FakeWorkflowExecutor,
     RuntimePlan,
     WorkflowExecutor,
@@ -330,6 +331,7 @@ def _replay(
     knowledge_query_runner: Callable[[dict[str, Any]], dict[str, Any]] | None = None,
     knowledge_build_runner: Callable[[dict[str, Any]], dict[str, Any]] | None = None,
     registered_tool_identity: Callable[[str, str], RegisteredToolIdentity | None] | None = None,
+    agents_requiring_governance: AgentsRequiringGovernance | None = None,
 ) -> dict[str, float]:
     result = compile_workflow(parse_manifest(manifest_dict), resolver=resolver, version="eval")
     plan = RuntimePlan(
@@ -338,6 +340,9 @@ def _replay(
         knowledge_query_runner=knowledge_query_runner,
         knowledge_build_runner=knowledge_build_runner,
         registered_tool_identity=registered_tool_identity,
+        agents_requiring_governance=(
+            agents_requiring_governance(result.ir) if agents_requiring_governance else frozenset()
+        ),
     )
     per_run = [
         _invoke_scorer(scorer, execute(plan, text, executor=executor), text) for text in inputs
@@ -391,6 +396,7 @@ def evaluate_candidate(
     knowledge_query_runner: Callable[[dict[str, Any]], dict[str, Any]] | None = None,
     knowledge_build_runner: Callable[[dict[str, Any]], dict[str, Any]] | None = None,
     registered_tool_identity: Callable[[str, str], RegisteredToolIdentity | None] | None = None,
+    agents_requiring_governance: AgentsRequiringGovernance | None = None,
 ) -> WorkflowEvalResult:
     """Compile + replay baseline and candidate; gate on score deltas (plan §17.4).
 
@@ -421,6 +427,7 @@ def evaluate_candidate(
             knowledge_query_runner=knowledge_query_runner,
             knowledge_build_runner=knowledge_build_runner,
             registered_tool_identity=registered_tool_identity,
+            agents_requiring_governance=agents_requiring_governance,
         )
     except (CompileError, PatchError, ValueError) as exc:
         return WorkflowEvalResult(
@@ -449,6 +456,7 @@ def evaluate_candidate(
                 knowledge_query_runner=knowledge_query_runner,
                 knowledge_build_runner=knowledge_build_runner,
                 registered_tool_identity=registered_tool_identity,
+                agents_requiring_governance=agents_requiring_governance,
             )
         except (CompileError, PatchError, ValueError) as exc:
             return WorkflowEvalResult(

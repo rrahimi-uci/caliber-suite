@@ -1533,7 +1533,7 @@ def test_a_fan_out_over_a_node_that_is_not_an_agent_is_not_refused(world: Any) -
     }
     manifest["nodes"]["parent"]["target_node_id"] = "worker"
     ir = _plan(world, manifest=manifest).ir
-    assert runtime_module._governed_plan_refusal(ir) is None
+    assert runtime_module._governed_plan_refusal(ir, lambda _node_id: True) is None
 
 
 def test_a_resumed_step_whose_effect_failed_fails_the_node(

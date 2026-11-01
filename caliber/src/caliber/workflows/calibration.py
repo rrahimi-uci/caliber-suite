@@ -38,6 +38,7 @@ from caliber.workflows.refinement import (
     generate_workflow_patch,
 )
 from caliber.workflows.runtime import (
+    AgentsRequiringGovernance,
     FakeWorkflowExecutor,
     RuntimePlan,
     WorkflowExecutor,
@@ -526,6 +527,7 @@ def evaluate_workflow_calibration_candidates(
     knowledge_query_runner: Callable[[dict[str, Any]], dict[str, Any]] | None = None,
     knowledge_build_runner: Callable[[dict[str, Any]], dict[str, Any]] | None = None,
     registered_tool_identity: Callable[[str, str], RegisteredToolIdentity | None] | None = None,
+    agents_requiring_governance: AgentsRequiringGovernance | None = None,
 ) -> WorkflowCalibrationResult:
     """Replay and rank bounded workflow calibration candidates.
 
@@ -569,6 +571,7 @@ def evaluate_workflow_calibration_candidates(
             knowledge_query_runner=knowledge_query_runner,
             knowledge_build_runner=knowledge_build_runner,
             registered_tool_identity=registered_tool_identity,
+            agents_requiring_governance=agents_requiring_governance,
         )
     except (CompileError, ValueError) as exc:
         return WorkflowCalibrationResult(
@@ -601,6 +604,7 @@ def evaluate_workflow_calibration_candidates(
                 knowledge_query_runner=knowledge_query_runner,
                 knowledge_build_runner=knowledge_build_runner,
                 registered_tool_identity=registered_tool_identity,
+                agents_requiring_governance=agents_requiring_governance,
             )
             deltas = _score_deltas(baseline_scores, candidate_scores)
             accepted, reason, gate = _candidate_gate(
@@ -722,6 +726,7 @@ def _replay_calibration_manifest(
     knowledge_query_runner: Callable[[dict[str, Any]], dict[str, Any]] | None = None,
     knowledge_build_runner: Callable[[dict[str, Any]], dict[str, Any]] | None = None,
     registered_tool_identity: Callable[[str, str], RegisteredToolIdentity | None] | None = None,
+    agents_requiring_governance: AgentsRequiringGovernance | None = None,
 ) -> tuple[dict[str, float], list[dict[str, Any]]]:
     compiled = compile_workflow(
         parse_manifest(manifest_dict), resolver=resolver, version="calibration"
@@ -737,6 +742,9 @@ def _replay_calibration_manifest(
         knowledge_query_runner=knowledge_query_runner,
         knowledge_build_runner=knowledge_build_runner,
         registered_tool_identity=registered_tool_identity,
+        agents_requiring_governance=(
+            agents_requiring_governance(compiled.ir) if agents_requiring_governance else frozenset()
+        ),
     )
     per_example: list[dict[str, float]] = []
     details: list[dict[str, Any]] = []

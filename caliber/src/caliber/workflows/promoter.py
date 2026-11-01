@@ -61,6 +61,7 @@ from caliber.deployment_environments import (
     environment_class,
     host_path_nodes_allowed_classes,
 )
+from caliber.effects.governed_context import mapped_agent_nodes
 from caliber.effects.registered_tools import registry_identity_reader
 from caliber.egress import EgressPolicy
 from caliber.eval.scorecard import expected_text, run_scorecard
@@ -1381,6 +1382,11 @@ def build_plan(  # noqa: PLR0915 - central workflow plan assembler
         legacy_guarded_effects=resolved_config.profile == "development",
         # The reference profile refuses executable code at the runtime entry too (B12.4a, #754).
         code_policy=CodePolicy.from_config(resolved_config),
+        # The agents that can reach an operator-mapped tool (reference profile only): a plan with no governed step context, such
+        # as a sub-workflow or a synchronous run, refuses to run them as legacy agents (#1051). The worker governs its own.
+        agents_requiring_governance=mapped_agent_nodes(
+            result.ir.nodes.values(), resolved_config, runtime_session_factory
+        ),
         workflow_version_id=version.version_id,
         workflow_alias=alias,
         compiler_version=result.report["compiler_version"],

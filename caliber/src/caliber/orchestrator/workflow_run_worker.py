@@ -29,7 +29,18 @@ from caliber.db.models import (
     CaliberWorkflowVersion,
 )
 from caliber.db.scoping import synthetic_identity
+from caliber.effects.governed_context import (
+    RUN_NOT_ADMITTED,
+    GovernedContextUnavailable,
+    LeaseProvider,
+    configured_tool_backends,
+    effect_context,
+    governed_agent_nodes,
+    run_authority,
+    step_context,
+)
 from caliber.effects.reconcile import effect_gate
+from caliber.effects.step_proposal import registry_tool_classifier
 from caliber.events.bus import EventBus
 from caliber.ids import new_runtime_approval_id, new_workflow_run_checkpoint_id
 from caliber.mcp_policy import deployment_blockers
@@ -46,6 +57,7 @@ from caliber.workflows.file_tools import (
     bind_run_read_tools,
     managed_file_tool_aliases,
 )
+from caliber.workflows.ir import IRAgent
 from caliber.workflows.manifest import WorkflowManifestError
 from caliber.workflows.memory_tools import bind_run_memory_tools
 from caliber.workflows.promoter import build_executor, build_plan, workflow_run_summary
@@ -205,6 +217,12 @@ def _runtime_execution_error_summary(exc: Exception) -> str:
     return f"workflow runtime raised unexpectedly: {type(exc).__name__}"
 
 
+def _plan_governs_agent(plan: Any, node_id: str) -> bool:
+    """Whether the plan runs agent ``node_id`` as a governed step (the context names it, or names every agent)."""
+    context = getattr(plan, "governed_agent_steps", None)
+    return context is not None and context.governs(node_id)
+
+
 def _resume_checkpoint_preflight_error(  # noqa: PLR0911 - explicit fail-closed gate checks read clearer as early exits
     plan: Any,
     resume_checkpoint: RuntimeResumeCheckpoint | None,
@@ -234,8 +252,13 @@ def _resume_checkpoint_preflight_error(  # noqa: PLR0911 - explicit fail-closed 
         )
     if checkpoint_kind == "runtime_approval" and not (
         (binding is not None and getattr(binding, "requires_approval", False))
-        # a governed agent step parked behind the approval of its proposed action (B08.2)
-        or (node_type == "agent" and getattr(plan, "governed_agent_steps", None) is not None)
+        # a governed agent step parked behind the approval of its proposed action (B08.2): only an agent the plan governs
+        or (node_type == "agent" and _plan_governs_agent(plan, resume_checkpoint.node_id))
+        # a governed workflow effect parked behind its exact approval (#1051)
+        or (
+            node_type in {"webhook", "api_request", "tool"}
+            and getattr(plan, "governed_effects", None) is not None
+        )
     ):
         return (
             f"kind {checkpoint_kind!r} does not match current node "
@@ -412,14 +435,18 @@ def _waiting_approval_checkpoint_payload(
     for step in reversed(result.steps):
         if step.node_id != node_id:
             continue
+        if step.node_type == "agent" or (
+            isinstance(step.checkpoint_state, dict)
+            and step.checkpoint_state.get("kind") == "runtime_approval"
+        ):
+            # A governed agent step parked behind the approval of its proposed action (B08.2), or a governed workflow effect
+            # (a webhook, API or tool node, #1051) parked behind its exact approval: the runtime already recorded the
+            # proposal and its bound approval request, and names both in its checkpoint state.
+            return _bound_proposal_checkpoint_payload(step, node_id)
         if step.node_type == "human_approval":
             kind = "human_approval"
         elif step.node_type == "tool":
             kind = "runtime_approval"
-        elif step.node_type == "agent":
-            # A governed agent step parked behind the approval of its proposed action (B08.2): the runtime already recorded
-            # the proposal and its bound approval request, and names both in its checkpoint state.
-            return _agent_proposal_checkpoint_payload(step, node_id)
         else:
             return None
         if not isinstance(step.input_by_port, dict):
@@ -433,22 +460,20 @@ def _waiting_approval_checkpoint_payload(
     return None
 
 
-_AGENT_PROPOSAL_STATE_KEYS = ("proposal_id", "approval_request_id", "intent_hash")
+_PROPOSAL_STATE_KEYS = ("proposal_id", "approval_request_id", "intent_hash")
 
 
-def _agent_proposal_checkpoint_payload(
+def _bound_proposal_checkpoint_payload(
     step: NodeStep, node_id: str
 ) -> tuple[str, dict[str, Any]] | None:
-    """The ``runtime_approval`` checkpoint of a governed agent step, or ``None`` when the step does not carry a valid one."""
+    """The ``runtime_approval`` checkpoint of a governed step or workflow effect, or ``None`` when the step carries no valid one."""
     state = step.checkpoint_state
     if (
         not isinstance(state, dict)
         or state.get("kind") != "runtime_approval"
         or state.get("node_id") != node_id
         or not isinstance(step.input_by_port, dict)
-        or not all(
-            isinstance(state.get(key), str) and state[key] for key in _AGENT_PROPOSAL_STATE_KEYS
-        )
+        or not all(isinstance(state.get(key), str) and state[key] for key in _PROPOSAL_STATE_KEYS)
     ):
         return None
     return node_id, {
@@ -537,10 +562,12 @@ class WorkflowRunWorker:
         *,
         config: CaliberConfig,
         event_bus: EventBus | None = None,
+        lease_provider: LeaseProvider | None = None,
     ) -> None:
         self._session_factory = session_factory
         self._config = config
         self._event_bus = event_bus
+        self._lease_provider = lease_provider
         self._interval_seconds = float(config.workflow_run_worker_interval_seconds)
         self._lease_duration = timedelta(seconds=float(config.workflow_run_lease_seconds))
         from caliber.observability.worker_registry import new_worker_id  # noqa: PLC0415
@@ -550,6 +577,15 @@ class WorkflowRunWorker:
         self._task: asyncio.Task[None] | None = None
         self._stopped = asyncio.Event()
         self._s3_client: Any = None  # lazily built for run-artifact persistence
+
+    def bind_lease_provider(self, provider: LeaseProvider | None) -> None:
+        """Dispatch a run's protected effects only under the execution-owner lease ``provider`` returns (``None``: none is bound).
+
+        The lifespan binds it once its :class:`~caliber.execution_role.ExecutionRoleController` exists, because this worker is
+        built before that controller is. Every protected effect of a reference-profile run reads the lease through it at the
+        moment it is dispatched, so a process that has lost the lease sends nothing.
+        """
+        self._lease_provider = provider
 
     async def start(self) -> None:
         if self._task is not None:
@@ -1832,6 +1868,23 @@ class WorkflowRunWorker:
             # And no step runs on top of an effect nobody can vouch for: while an effect this node or anything upstream of it
             # asked for is dispatched, unknown or reconciled, the node does not run (B05.5b, #742).
             plan.effect_gate = effect_gate(self._session_factory, run.workflow_run_id)
+            # The reference profile's governed path (#1051): the contexts are bound before the resume checkpoint is checked,
+            # because a checkpoint of a governed node is valid only in a plan that governs it.
+            if (
+                governed_failure := self._bind_governed_contexts(
+                    run, plan, pinned, admitted_identity, source_guard
+                )
+            ) is not None:
+                self._mark_failed(
+                    session,
+                    run,
+                    error_code="governed_context_unavailable",
+                    error_summary=(
+                        "the governed path this run needs cannot be built, so it does not run "
+                        f"ungoverned: {governed_failure}"
+                    ),
+                )
+                return
             preflight_error = _resume_checkpoint_preflight_error(plan, resume_checkpoint)
             if preflight_error is not None:
                 source_run_id = run_summary.get("resume_checkpoint_run_id")
@@ -2206,6 +2259,80 @@ class WorkflowRunWorker:
                 ),
                 error_summary=result.error or "workflow runtime failed",
             )
+
+    def _bind_governed_contexts(  # noqa: PLR0911 - one early exit per missing trusted input, each a fixed refusal code
+        self,
+        run: CaliberWorkflowRun,
+        plan: Any,
+        pinned: Any,
+        admitted_identity: Any,
+        source_guard: Any,
+    ) -> str | None:
+        """Bind the governed effect and step contexts of an admitted reference-profile run, or say why it cannot run (#1051).
+
+        Everything comes from the server's own state: the run row and its stored manifest, the configuration, the execution-owner
+        lease this worker was bound to (never a request or a manifest). Outside the reference profile nothing is bound: the
+        development profile has no lease to dispatch under and keeps its legacy path, exactly as before. In the reference profile
+        a run with no admitted identity binds nothing either, and is refused if an agent in it can reach a mapped tool.
+
+        * The **effect context** (workflow HTTP, registered-tool and OpenAPI nodes) is bound whenever the trusted inputs exist. It
+          dispatches through no backend today (no generic connector has an authoritative verifier, #1055), so those nodes are
+          refused before a proposal is recorded; without the lease binding it is simply not bound and they are refused as before.
+        * The **step context** governs the agent nodes bound to a tool the operator mapped
+          (``CALIBER_AGENT_STEP_TOOL_BACKENDS``) and no other. If there are such nodes and any trusted input is missing (no lease
+          binding, no initiator, no usable manifest digest, a configuration that does not parse), the run **fails closed**: the
+          alternative is a legacy agent whose model-chosen protected call runs directly.
+
+        Returns the fixed code of the missing input, or ``None``.
+        """
+        if getattr(self._config, "profile", "") != "reference":
+            return None
+        try:
+            tool_backends = configured_tool_backends(self._config)
+            agents = [node for node in plan.ir.nodes.values() if isinstance(node, IRAgent)]
+            governed = (
+                governed_agent_nodes(
+                    agents,
+                    classify=registry_tool_classifier(self._session_factory),
+                    tool_backends=tool_backends,
+                )
+                if tool_backends
+                else frozenset()
+            )
+            if admitted_identity is None or pinned is None:
+                # A run with no admitted identity has no grant, no manifest digest and no pinned bundle to govern a step by: an
+                # agent that can reach a mapped tool does not run (the reference profile never runs it as a legacy agent).
+                return RUN_NOT_ADMITTED if governed else None
+            try:
+                authority = run_authority(
+                    session_factory=self._session_factory,
+                    run=run,
+                    config=self._config,
+                    lease_provider=self._lease_provider,
+                    run_manifest_digest=pinned.digest,
+                )
+            except GovernedContextUnavailable as exc:
+                if governed:
+                    return exc.code
+                return None  # no governed agent: a protected workflow node is refused for want of a context
+            plan.governed_effects = effect_context(authority)
+            if not governed:
+                return None
+            if plan.context_recorder is None:
+                # A governed step names the digest of the context manifest its provider is given, so it needs one recorded even
+                # for a run admitted with no sources and no rule bundle.
+                plan.context_recorder = context_recorder_for(
+                    self._session_factory, pinned.record, source_guard
+                )
+            plan.governed_agent_steps = step_context(
+                authority,
+                grant_id=admitted_identity.grant_id,
+                governed_nodes=governed,
+                tool_backends=tool_backends,
+            )
+        except GovernedContextUnavailable as exc:
+            return exc.code
+        return None
 
     def _is_waiting_approval(self, result: WorkflowRunResult) -> bool:
         return bool(
