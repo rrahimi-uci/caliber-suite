@@ -154,7 +154,8 @@ EP-015, EP-016 and EP-019, refused by #774.
 Two limits. An administrator-registered tool declared `read` is trusted as read-class: its declared level is part of the
 definition the deployment bundle pins and re-verifies before a run (`deployment_bundle.tool_snapshot`), but the platform
 does not observe what its code does, so register a tool that writes with `write` or `external_action`. And model-chosen tool
-calls inside an agent step are not routed by this change (B04.6, B04.7); OpenAPI tool nodes are routed by
+calls inside an agent step are classified like a tool node's and refused or proposed, never run, when protected (see
+[Model-selected tool calls](#model-selected-tool-calls-b046-768)); OpenAPI tool nodes are routed by
 [Governed OpenAPI tools](#governed-openapi-tools-b044) and MCP tools by [Governed MCP tools](#governed-mcp-tools-b045).
 
 No migration, no new setting and no new route; rolling back is reverting the change (a `registered_tool` proposal
@@ -274,8 +275,8 @@ that **stopped** passing the egress policy since the proposal, a transient DNS o
 settles the proposal `failed` with the reason `not_sent`; the dispatch's internal refusal code is not surfaced, and **the
 approval is already consumed**: ask for a new proposal (run the node again after fixing the cause).
 
-**Not routed through the dispatcher, and what they can do now (B04.4b).** Model-chosen tool calls inside an agent step (B04.6,
-#768), the Aria assistant's published-tool call (inventory EP-034: there is no workflow run to propose into; owned by #1063),
+**Not routed through the dispatcher, and what they can do now (B04.4b).** Model-chosen tool calls inside an agent step (refused or
+proposed before they reach the entry, see [Model-selected tool calls](#model-selected-tool-calls-b046-768)), the Aria assistant's published-tool call (inventory EP-034: there is no workflow run to propose into; owned by #1063),
 standalone exports and plans a caller builds itself (#1051: `build_plan` binds the registry reader but no governed context, so a
 in the
 reference profile a deployed workflow's **protected** OpenAPI nodes are refused until #1051 binds one, and outside it they run
@@ -411,13 +412,14 @@ does not):
 | --- | --- | --- |
 | MCP node or tool node, an authority is bound (`governed_effects`) | proposed, approved, dispatched | proposed, approved, dispatched |
 | MCP node or tool node in a `build_plan` plan, no authority bound (#1051) | refused: `requires a governed effect context to run protected MCP tool` | runs inline, as before B04.5, behind the node's own approval gate: **not governed** (`legacy_guarded_effects`) |
-| a model-chosen call inside an agent step, a caller-built plan, a generated export | refused by the gateway entry point (`EffectRefused`; a model sees an error marker) until B04.6 (#768) proposes it | runs inline, as before: not governed |
+| a model-chosen call inside an agent step of a `build_plan` plan | refused by the loop gate before the tool is entered (`_refused` marker, code `protected_tool_requires_governed_step`); proposed in a governed agent step ([Model-selected tool calls](#model-selected-tool-calls-b046-768)) | runs inline, as before: not governed |
+| a caller-built plan (no registry reader, no context), a generated export | refused by the gateway entry point (`EffectRefused`; a model sees an error marker) | runs inline, as before: not governed |
 | a first-party database write tool (EP-114) | refused: `unsupported_effect_path` | classified by the administrator's policy like any tool |
 | an unclassified, blocked, undiscovered or not-ready tool | refused (both profiles) | refused (both profiles) |
 
 An operator can still call any tool from the playground (EP-039/040, exempt).
 
-**Not covered by this change:** a governed path for the development profile (it keeps the alpha inline call until #1051), model-selected calls (B04.6, #768), the refusal switch for every inventory row marked `refuse`
+**Not covered by this change:** a governed path for the development profile (it keeps the alpha inline call until #1051), the refusal switch for every inventory row marked `refuse`
 (B04.7, #774), the startup refusal of an MCP allowlist entry the profile does not list (B12.3b, #746), a key channel to MCP servers
 that could use one, pinning the resolved address to the connection, and a governed context for deployed workflows (#1051).
 
@@ -459,7 +461,8 @@ route still applies in both: the built-ins the inventory refuses (EP-055 host-fi
 `unsupported_effect_path`), a binding that is not its registry row, an unreadable registry, a tool with no readable OpenAPI row,
 an OpenAPI call replaced by an injected callable once governed, egress policy, and the preflight checks. A **model-chosen**
 OpenAPI call and Aria's published-tool call are not tool nodes, so they never take the legacy entry: in both profiles they use
-the public executor entry, which refuses a protected method (`unsupported_effect_path`). Calibration and refinement build
+the public executor entry, which refuses a protected method (`unsupported_effect_path`); in a `build_plan` plan of the reference profile the
+loop gate refuses a protected call earlier, with a typed code ([Model-selected tool calls](#model-selected-tool-calls-b046-768)). Calibration and refinement build
 `RuntimePlan` directly, so their flag is `False` and a candidate manifest's protected tools are refused there. The evaluation
 route (`routes/evaluations.py`) calls `build_plan`, so in the development profile its plan carries the flag; that is harmless,
 because a preview blocks HTTP nodes and the governed tool routes return `None` in a preview (a replay does not reach the
@@ -1718,8 +1721,7 @@ registration) or `connector_not_admitted` (registered, not pinned), and the host
 `unsupported_effect_path` through the protected-effect inventory (EP-055, EP-114).
 
 **What is not gated yet.** Only the dispatcher is gated. The paths that would reach host files or a database write do not go
-through it today, so **these tools still execute outside the dispatcher until the later B04 and B12 work**: model-selected
-calls in B04.6 (#768), where a protected MCP tool a model chooses is meanwhile refused by the gateway entry point (B04.5); the raising of `unsupported_in_reference_profile` for every inventory row marked `refuse`, which is what
+through it today, so **these tools still execute outside the dispatcher until the later B04 and B12 work**: the raising of `unsupported_in_reference_profile` for every inventory row marked `refuse`, which is what
 stops the host-file tools (EP-055) and the first-party database MCP write tools (EP-114) at run time, in B04.7 (#774); and the
 startup refusal of an MCP stdio or remote-host allowlist entry that the profile does not list in B12.3b (#746). Until those land, a
 reference deployment must not register the first-party database MCP server and must not wire the host-file tools into a workflow
@@ -3427,9 +3429,12 @@ reference profile and every existing plan run agent nodes exactly as before). Wi
    (`admit_backend`, B12.3a: implementation, capability and configuration pinned in `REFERENCE_CONNECTORS`; a refusal keeps its
    own code) and that admission is what `submit_proposal` requires.
    **Which backends an agent step may reach, and the resource contract.** Only backends in
-   `step_proposal.AGENT_STEP_BACKENDS` (today `document_request`) are reachable; a tool mapped to any other
-   (`http`, whose destination is an arbitrary URL and whose egress check runs at dispatch, after an approval would be spent; a
-   `registered_tool` backend of B04.3, whose configuration `resource` is the literal template `registered-tool/<name>/<version>`) is refused, `backend_not_for_agent_steps`. A
+   `step_proposal.AGENT_STEP_BACKENDS` (today `document_request`) are reachable by the destination pattern; a tool mapped to any other
+   (`http`, whose destination is an arbitrary URL and whose egress check runs at dispatch, after an approval would be spent) is refused,
+   `backend_not_for_agent_steps`. The `registered_tool`, `openapi_http` and `mcp` backends are reached a different way since B04.6
+   (#768): their destination is not a pattern the model chooses within, it is **derived from the tool's trusted identity** and the model's
+   claim must equal it (see [Model-selected tool calls](#model-selected-tool-calls-b046-768)); without the runtime's binder they are
+   still `backend_not_for_agent_steps`. A
    reachable backend must declare a resource **pattern**: its trusted configuration's `resource` is a regular expression the
    destination must fully match (`resource_not_admitted`, also when there is none).
    **The proposal is bound, never trusted.** The class is the strictest among the tools that map to that backend (a tool the
@@ -3494,12 +3499,115 @@ plan.governed_agent_steps = GovernedStepContext(
 )
 ```
 
-Not covered, so not claimed: dispatching an approved proposal (B04.6 routes model-selected calls through the dispatcher; until then
-an approved proposal stays `proposed` and the run stays `waiting_approval`), the token reservation
+Not covered, so not claimed: dispatching an approved proposal (an approved proposal stays `proposed` and the run stays
+`waiting_approval` until the producer that owns the execution lease resumes it and dispatches, #1051; B04.6 records proposals
+of registered, OpenAPI and MCP tools in the node's own intent shape so the existing backends can send them, see
+[Model-selected tool calls](#model-selected-tool-calls-b046-768)), the token reservation
 (B08.4), handoffs, inline targets and parallel branches (refused), and the output text of a governed step (a step that completes is refused). The
 v1 proposal still carries no tool name, so within a connector the class is the strictest of the tools that map to it; an additive
 contract change (the tool name in the envelope) would make it exact. Telling the model the connector, version and class to claim
 is an adapter concern.
+
+## Model-selected tool calls (B04.6, #768)
+
+In an agent loop the **model** chooses the tool and its arguments. Both are untrusted, so a protected call (anything the platform
+does not classify `read`) never runs because a model asked for it. There are two paths and nothing else: a **proposal**
+(a governed agent step) or a **refusal** (every other governed loop). No new setting, route or migration.
+
+**The classification is the node's.** A model-chosen call is classified by the same helpers a workflow tool node uses: the registry
+row for a registered tool (`route_registered_tool`), the row and the method its own configuration selects for an OpenAPI tool
+(`route_openapi_tool`; a pack's operation is chosen by the call), the MCP server record and the administrator's tool policy for an
+MCP tool (`mcp_tool.prepare`). Never the binding's names or level, the model's claim, or what a server reports.
+
+| the model's call | reference profile, `build_plan` plan (a registry reader, no governed context) | a governed effect context is bound | development profile, no governed context | a plan wired to neither (export, caller-built plan) |
+| --- | --- | --- | --- | --- |
+| a `read`-class tool, a `GET` OpenAPI call, a read MCP tool | runs inline | runs inline | runs inline | runs inline |
+| a protected registered tool | **refused before the tool is entered**: `_refused` marker, `protected_tool_requires_governed_step` | refused, never authorized | runs inline, as before the dispatcher (**not governed**) | runs inline (not governed) |
+| a protected OpenAPI call (a `POST`, or a row declared `write`) | refused, same code | refused | refused by the public executor entry (`unsupported_effect_path`, since B04.4b): it cannot send a write | refused by the public entry |
+| a protected MCP call | refused, same code | refused | runs inline through the gateway entry point, as before B04.5 (**not governed**) | the gateway entry point refuses it under the reference profile |
+| a host-file built-in (EP-055) | refused: `unsupported_effect_path` | refused | runs (the refusal switch is #774) | runs |
+| an unclassified, blocked or undiscovered MCP tool | refused with the gate's code (`mcp_tool_unclassified`, ...) | refused | the gateway refuses it | the gateway refuses it |
+| a binding that is not its registry row, an unreadable registry | refused: `registry_row_mismatch`, `registry_row_unreadable` | refused | runs inline (the development path classifies nothing) | runs inline |
+
+**Where the gate sits.** `_gate_model_callables` wraps the **final** callable map of an agent (after `extra_tools` replaced a bound
+tool, for a node's agent, a handoff target and a governed node alike), and `_model_call_check` classifies each call when it is
+made. Every provider loop, the Agents SDK callback and the fake executor's helper run a tool through `_execute_model_tool_call` or
+`_invoke_agent_tools` over those callables, so none of them can answer differently. The refusal is a `_refused` marker holding the
+tool's name and a fixed code and **nothing else** (no argument, no exception text); a call the route cannot classify, or whose route
+raises for any reason, is refused too (`model_tool_route_refused`). The development-profile rule is the one decision
+`_legacy_effects_allowed(plan)` makes for every route: the flag **and** no bound context.
+
+```json
+{"_refused": true, "tool": "open_ticket", "code": "protected_tool_requires_governed_step"}
+```
+
+**A behavior change in the development profile, for replays.** Calibration and refinement replays build their `RuntimePlan` directly with
+the registry reader bound and `legacy_guarded_effects` left `False` (see [Profiles and a missing governed context](#profiles-and-a-missing-governed-context-1068)):
+a protected tool **node** was already refused there, and a protected tool a **model** chooses inside such a replay is now refused too
+(it used to run inline in every profile). The ordinary development run (`build_plan`) is unchanged.
+
+The call sites are pinned by `tests/test_model_tool_call_sites.py` (every module that executes a model-chosen call, with its status:
+`gated`, `governed-step`, `legacy` or `out-of-scope`; and a structural check that every function that resolves an agent's callables
+also gates them), as `RAW_OPENAPI_CALLERS` and `RAW_MCP_CALLERS` pin the transports. **Aria's own tool loops are out of scope** (inventory
+EP-034: there is no workflow run to propose into; #1063) and are listed there as `out-of-scope`.
+
+**A governed agent step proposes.** With `RuntimePlan.governed_agent_steps` bound, the adapter is handed only the callables the platform
+classified `read` and a protected call is one proposed action (see [Governed agent steps](#governed-agent-steps-a-protected-action-is-a-proposal-b082-744)).
+B04.6 makes that proposal exact for the three tool kinds. The model names a `connector`, a `resource` and `args` (its claims); the
+runtime's binder (`_RuntimeToolBinder`) then:
+
+1. finds the agent's tool: a candidate is a tool the platform did not classify `read` whose kind's connector is the one named
+   (`registered_tool`, `openapi-http`, `mcp-tool`), and the proposal is the candidate's only if the resource **it derives from its
+   trusted identity** is the one the model named (`resource_not_admitted` otherwise; two tools that derive different proposals are
+   `connector_ambiguous`);
+2. takes the connector, resource and intent arguments from the trusted identity: the registry row (`registered-tool/<name>/<version>`
+   and the node's `{tool, version, arguments, input}`), the row's operation and its checked input for OpenAPI (method, server and path
+   template; the precondition lifted into `expected_resource_version`), the server record and a digest of the classification for MCP.
+   **The recorded intent is the one a tool node records for the same call**, so the connector's backend can send it once it is approved;
+3. validates the model's arguments against the **trusted input schema before anything is recorded**: the registry row's own schema for a
+   registered or OpenAPI tool (`tool_input_invalid`, `openapi_input_invalid`; the binding's schema is not trusted). An MCP tool has **no
+   trusted schema** (a server's discovered schema is the server's claim), so its arguments are only the bounded plain JSON every intent is
+   (size, depth, control characters and surrogates are refused when the proposal is built, before any of this);
+4. refuses the model's claim if its class, connector version or precondition is not the platform's (`claim_mismatch`), and refuses a tool the
+   producer did not allow: `GovernedStepContext.tool_backends` (registry identity `(name, version)` to backend kind, as before, now also
+   `registered_tool` and `openapi_http`) and the new `GovernedStepContext.mcp_tools` (`(server_id, tool_name)` pairs; an MCP tool has no
+   registry row) are the producer's allow-lists, empty by default (`connector_not_mapped`). The registry row the binder read must be the one
+   the classifier did (`registry_row_mismatch` if it changed in between).
+
+| the step | result | recover by |
+| --- | --- | --- |
+| proposes a tool the platform classifies `read` | `tool_not_protected`, nothing recorded | none: a read runs inline |
+| proposes arguments the row's schema refuses | `tool_input_invalid` / `openapi_input_invalid` / `openapi_key_override_refused` / `openapi_egress_blocked`, nothing recorded | none for this output; the node's retry asks again |
+| proposes a tool no allow-list names | `connector_not_mapped` | mapping the tool in the context, if the agent should reach it |
+| proposes an MCP tool nobody classified | the gate's code (`mcp_tool_unclassified`) | classifying it (the administrator's tool policy) |
+| proposes a host-file built-in | `unsupported_effect_path` | none: refused in the reference profile |
+
+Each is a run error `governed agent step proposal refused: <code>`, with no value from the model.
+
+**What is deliberately not done here, so not claimed.**
+
+- **Dispatching an approved proposal.** B04.6 records the proposal and its approval request and parks the run; sending it after the approval
+  needs the execution-owner lease and an exact-intent authorization, which the producer binds (#1051). The recorded intent is dispatchable by
+  the existing backends (a test sends one through the `registered_tool` backend), but nothing in `build_plan` resumes and dispatches yet.
+- **Telling the model what to claim.** The adapters offer a protected tool as an envelope and do not tell the model the connector, version,
+  class or resource to claim (an adapter concern, unchanged): a model that guesses wrong is refused (`claim_mismatch`,
+  `resource_not_admitted`), never repaired.
+- **Inline reads inside a governed step are CALIBER's own `read` built-ins.** The step classifier keeps the fail-closed class for an
+  administrator-registered tool, an OpenAPI tool and an MCP tool (stricter than a node, which runs a row declared `read` inline), so those are
+  neither run nor proposable in a step when they are read-class (`tool_not_protected`). It now takes the stricter of the inventory's class and
+  the row's declared level for a built-in, as a node does.
+- **Handoffs, inline targets and parallel branches stay refused in a governed plan** (B08.2); in an ungoverned loop a handoff target's tools are
+  gated like the root's.
+- **Aria** (#1063), the development profile's legacy calls, an export and a caller-built plan are not governed (table above).
+
+**A latent defect fixed on the way.** `submit_proposal` rebuilt an intent from a `ProposedAction`'s read-only view of its arguments, which
+`_plain_json` refuses when they contain a nested object; B08.2 only ever proposed flat arguments. It now reads the plain copy
+(`action.intent.plain_args`), covered by every nested-argument test here.
+
+**Configuration, migration and rollback.** No setting, route or migration. `GovernedStepContext.mcp_tools` is a new optional field
+(default empty: no MCP tool is proposable). Rolling back is reverting the change; a proposal already recorded remains readable. A deployment
+that relied on a protected registered tool running from a model loop in the reference profile now gets the `_refused` marker: register the
+call as a workflow tool node, or run the agent as a governed step.
 
 ## Central step limits: turns, tool calls, tokens and the deadline (B08.3, #752)
 
@@ -4395,8 +4503,9 @@ identity, which the MCP route now establishes from the server record (`tool_disp
 server is refused with `unsupported_effect_path` **under the reference profile** (the development profile classifies it by the
 administrator's policy; the first-party server is recognised from its stdio launch or an operator-attested managed sidecar host).
 **The switch that raises `unsupported_in_reference_profile` for every refused row is #774.** The four host-file tools are already refused by a workflow `tool` node in a manifest-backed
-plan (see "Governed registered tools"); until #774 lands, model-chosen tool calls still run the host-file tools if a workflow
-uses them, so do not wire the four host-file tools into a reference workflow. The first-party database server's write tools are
+plan (see "Governed registered tools"); until #774 lands, a model-chosen call of a host-file tool is refused only in a plan wired to the registry
+(`build_plan`, the loop gate of [Model-selected tool calls](#model-selected-tool-calls-b046-768): `unsupported_effect_path`) and still
+runs in the development profile and in a caller-built plan or export, so do not wire the four host-file tools into a reference workflow. The first-party database server's write tools are
 refused through a workflow under the reference profile (B04.5), but a deployment that does not need the server should still not
 register it.
 

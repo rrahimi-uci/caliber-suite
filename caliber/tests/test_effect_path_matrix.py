@@ -1007,3 +1007,34 @@ def test_the_raw_transport_scan_ignores_prose_that_only_mentions_the_name() -> N
     assert not any(
         _names_the_raw_executor(node, {"_send_raw"}) for node in ast.walk(ast.parse(source))
     )
+
+
+# ------------------------------------------------------ B04.6 (#768): model-selected calls
+
+
+def test_model_tool_call_returns_proposal_not_effect(
+    factory: sessionmaker[Session], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The oracle of #768: a model's call of a write tool leaves a ``proposed`` row and the downstream counter at zero.
+
+    The call is the model's (a governed step's scripted adapter proposes it); the tool is a registered write tool whose row,
+    not the model, classifies it. The full matrix (every kind, every refusal) is ``tests/test_model_selected_proposals.py``
+    and ``tests/test_model_selected_calls*.py``; the call sites are pinned by ``tests/test_model_tool_call_sites.py``.
+    """
+    from tests.mcp_fakes import use_database
+    from tests.test_model_selected_calls import SENTINEL
+    from tests.test_model_selected_proposals import (
+        _registered,
+        _registered_action,
+        parked,
+        propose,
+    )
+
+    use_database(monkeypatch, factory)
+    world = _registered(factory)
+    downstream = Tool()
+    result = propose(world, _registered_action(args={"title": SENTINEL}), open_ticket=downstream)
+
+    proposal, _ = parked(world, result)
+    assert proposal.state == "proposed"
+    assert downstream.calls == [], "downstream.mutations() == 0"

@@ -664,6 +664,20 @@ def _inventory_effect_class(
     return resolved
 
 
+def proposal_effect_class(
+    tool_name: str | None, *, caliber_defined: bool, floor: str | None = None
+) -> str:
+    """The class :func:`submit_proposal` records for a proposal of ``tool_name``: the inventory's answer, or the stricter ``floor``.
+
+    A caller that builds the intent itself (a governed agent step binding a model's proposal, B04.6) needs the class before it
+    submits, so that the intent it hands over is the intent that is stored. It is the one computation both use. Raises
+    :class:`UnsupportedEffectPath` for a tool the inventory refuses.
+    """
+    return _inventory_effect_class(
+        tool_name, caliber_defined=caliber_defined, claimed=None, floor=floor
+    )
+
+
 def _action_fields(
     action: ProposedAction | Mapping[str, Any] | None,
     *,
@@ -689,12 +703,13 @@ def _action_fields(
     if action is not None:
         action_fields: dict[str, Any]
         if isinstance(action, ProposedAction):
+            # The action holds a read-only view of its arguments; an intent needs plain JSON, nested objects included.
             action_fields = {
                 "connector": action.connector,
                 "connector_version": action.connector_version,
                 "effect_class": action.effect_class,
                 "resource": action.resource,
-                "args": action.args,
+                "args": action.intent.plain_args,
                 "expected_resource_version": action.expected_resource_version,
             }
         elif isinstance(action, Mapping):
@@ -1171,5 +1186,6 @@ __all__ = [
     "UnsupportedEffectPath",
     "admit_backend",
     "dispatch",
+    "proposal_effect_class",
     "submit_proposal",
 ]
