@@ -79,6 +79,7 @@ from caliber.effects.registered_tools import (
 )
 from caliber.integrations.openapi.executor import (
     OpenApiPreflightError,
+    bind_legacy_openapi_http_tool,
     bind_openapi_http_tool,
     openapi_operation_method,
 )
@@ -2820,8 +2821,15 @@ def _resolve_bound_tool_callable(
     required: bool,
     egress_policy: Any | None = None,
     mcp_identity: CaliberIdentity | None = None,
+    legacy_openapi: bool = False,
 ) -> Callable[..., Any] | None:
-    real = _bind(binding, resolver, egress_policy=egress_policy, mcp_identity=mcp_identity)
+    real = _bind(
+        binding,
+        resolver,
+        egress_policy=egress_policy,
+        mcp_identity=mcp_identity,
+        legacy_openapi=legacy_openapi,
+    )
     chosen = make_preview_callable(binding, real) if preview else real
     if chosen is None:
         if required:
@@ -2852,13 +2860,17 @@ def _bind(
     *,
     egress_policy: Any | None = None,
     mcp_identity: CaliberIdentity | None = None,
+    legacy_openapi: bool = False,
 ) -> Callable[..., Any] | None:
     if binding.binding_type == "mcp_tool":
         return _bind_mcp_tool(binding, identity=mcp_identity)
     if binding.execution_backend == "openapi_http":
         # ``egress_policy=None`` is not "unrestricted": the executor falls back to the
         # process-wide policy bound at startup, and to a safe default before that.
-        return bind_openapi_http_tool(binding, egress_policy=egress_policy)
+        # Development profile, no governed context (#1068): the pre-dispatcher call, NOT the governed path. Otherwise the
+        # public entry, which sends a read and refuses a protected method (``unsupported_effect_path``).
+        binder = bind_legacy_openapi_http_tool if legacy_openapi else bind_openapi_http_tool
+        return binder(binding, egress_policy=egress_policy)
     override: Callable[..., Any] | None = None
     getter = getattr(resolver, "get_callable", None)
     if callable(getter):
@@ -5486,6 +5498,17 @@ def _declared_http_effect_class(node: IRNode) -> str:
     return value if isinstance(value, str) and value.strip() else "reversible_write"
 
 
+def _legacy_effects_allowed(plan: RuntimePlan) -> bool:
+    """Whether a protected node of this plan may take the pre-dispatcher (development-profile) path (#1068).
+
+    The one place that decides it, for the HTTP, registered-tool and OpenAPI routes and for the legacy OpenAPI binding: the
+    plan must carry ``legacy_guarded_effects`` (``build_plan`` sets it only for the development profile) **and** have no
+    governed context bound. A bound context is always used, so this is never true next to one. It relaxes only the refusal
+    for a missing context; every other refusal of a route is unchanged.
+    """
+    return plan.legacy_guarded_effects and plan.governed_effects is None
+
+
 def _perform_http_effect(
     plan: RuntimePlan,
     *,
@@ -5504,7 +5527,7 @@ def _perform_http_effect(
     """
     sender = plan.webhook_sender or partial(_default_webhook_sender, policy=plan.egress_policy)
     if plan.governed_effects is None:
-        if plan.workflow_version_id is None or plan.legacy_guarded_effects:
+        if plan.workflow_version_id is None or _legacy_effects_allowed(plan):
             return _perform_guarded_effect(
                 plan, node_id=node_id, request=request, perform=lambda: sender(request)
             )
@@ -5645,7 +5668,7 @@ def _governed_tool_route(
     if route.route == INLINE:
         return None
     if plan.governed_effects is None:
-        if plan.legacy_guarded_effects:
+        if _legacy_effects_allowed(plan):
             # Development profile, no authority bound (#1068): the pre-dispatcher behavior. The tool runs inline behind the
             # node's own approval gate; there is no proposal, exact-intent approval or lease.
             return None
@@ -5764,7 +5787,7 @@ def _governed_openapi_route(
     if route.route == INLINE:
         return None
     if plan.governed_effects is None:
-        if plan.legacy_guarded_effects:
+        if _legacy_effects_allowed(plan):
             # Development profile, no authority bound (#1068): the pre-dispatcher behavior, the call runs inline.
             return None
         raise ToolExecutionError(
@@ -5832,15 +5855,6 @@ def _perform_openapi_tool_effect(
         backend_kind=_openapi_http.BACKEND_KIND,
         backend_config={"operation": operation, "receipt_verifier": context.receipt_verifier},
     )
-
-
-def _legacy_effects_allowed(plan: RuntimePlan) -> bool:
-    """Whether ``plan`` keeps the pre-dispatcher path when no governed context is bound (the development profile, #1068).
-
-    ``build_plan`` sets ``legacy_guarded_effects`` from an allow-list (``profile == "development"``), so any other profile
-    stays fail-closed. This is **not** the governed path: no proposal, exact-intent approval, lease or receipt.
-    """
-    return plan.legacy_guarded_effects
 
 
 @dataclass(frozen=True)
@@ -7493,6 +7507,14 @@ def _run_node(  # noqa: PLR0911, PLR0912, PLR0915 - per-node-type dispatch
                 required=True,
                 egress_policy=plan.egress_policy,
                 mcp_identity=plan.mcp_identity,
+                # Only the development profile with no authority bound sends a protected OpenAPI call inline (#1068);
+                # a preview never reaches the downstream, and a bound context always routes through the dispatcher.
+                legacy_openapi=(
+                    openapi_effect is None
+                    and binding.execution_backend == OPENAPI_BACKEND
+                    and _legacy_effects_allowed(plan)
+                    and not preview
+                ),
             )
         )
         assert fn is not None

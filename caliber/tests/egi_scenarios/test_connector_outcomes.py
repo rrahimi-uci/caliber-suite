@@ -38,8 +38,8 @@ from caliber.effects.connectors.document_request import (
 from caliber.egress import EgressPolicy
 from caliber.integrations.openapi.executor import (
     OpenApiExecutionError,
+    _send_raw,
     bind_egress_policy,
-    execute_openapi_http_tool,
 )
 from tests.egi_scenarios.conftest import Downstream
 
@@ -62,7 +62,7 @@ def _submit(
     body: dict[str, Any] | None = None,
     **cfg: Any,
 ) -> dict[str, Any]:
-    return execute_openapi_http_tool(
+    return _send_raw(
         execution_config=submit_config(downstream.base_url, **cfg),
         input_schema=None,
         input_data=submit_input(
@@ -75,7 +75,7 @@ def _submit(
 
 
 def _lookup(downstream: Downstream, key: str) -> dict[str, Any]:
-    return execute_openapi_http_tool(
+    return _send_raw(
         execution_config=lookup_config(downstream.base_url),
         input_schema=None,
         input_data=lookup_input(key),
@@ -243,7 +243,7 @@ def test_the_four_outcomes_are_exactly_the_four_the_adr_names() -> None:
 def test_a_refused_connection_is_proven_not_sent(downstream: Downstream) -> None:
     config = submit_config(f"http://127.0.0.1:{_closed_port()}", max_attempts=3)
     with pytest.raises(OpenApiExecutionError) as refused:
-        execute_openapi_http_tool(
+        _send_raw(
             execution_config=config,
             input_schema=None,
             input_data=submit_input(
@@ -267,7 +267,7 @@ def test_a_refusal_before_the_request_is_built_is_proven_not_sent(downstream: Do
         (submit_config(""), None, {}),  # no server
     ):
         with pytest.raises(OpenApiExecutionError) as refused:
-            execute_openapi_http_tool(execution_config=config, input_schema=schema, input_data=data)
+            _send_raw(execution_config=config, input_schema=schema, input_data=data)
         assert refused.value.never_sent is True and refused.value.attempts == 0
     assert downstream.mutations() == 0
 
@@ -340,7 +340,7 @@ def test_a_failed_connect_after_an_answered_attempt_is_ambiguous_not_proven_not_
     port = server.server_address[1]
     try:
         with pytest.raises(OpenApiExecutionError) as mixed:
-            execute_openapi_http_tool(
+            _send_raw(
                 execution_config=submit_config(f"http://127.0.0.1:{port}", max_attempts=3),
                 input_schema=None,
                 input_data=submit_input(
@@ -402,7 +402,7 @@ def test_an_egress_block_found_when_the_connection_is_opened_is_not_sent_unless_
     monkeypatch.setattr(executor, "build_client", lambda **_: _ScriptedClient(script))
     monkeypatch.setattr(executor.time, "sleep", lambda _seconds: None)
     with pytest.raises(OpenApiExecutionError) as blocked:
-        execute_openapi_http_tool(
+        _send_raw(
             execution_config=submit_config("http://127.0.0.1:9", max_attempts=3),
             input_schema=None,
             input_data=submit_input(
@@ -419,7 +419,7 @@ def test_an_egress_block_found_when_the_connection_is_opened_is_not_sent_unless_
 
 def _post_with(data: dict[str, Any], **config: Any) -> dict[str, Any]:
     """POST to a scripted client that answers 201 and records the headers it was sent."""
-    return execute_openapi_http_tool(
+    return _send_raw(
         execution_config=submit_config("http://127.0.0.1:9", **config),
         input_schema=None,
         input_data={"path_params": {"case_id": CASE}, **data},
@@ -514,7 +514,7 @@ def test_any_exception_raised_before_a_request_is_built_is_marked_not_sent(
 ) -> None:
     _recording(monkeypatch, [_Created()])
     with pytest.raises(ValueError) as malformed:
-        execute_openapi_http_tool(
+        _send_raw(
             execution_config={**submit_config("http://127.0.0.1:9"), "timeout_seconds": "soon"},
             input_schema=None,
             input_data={"path_params": {"case_id": CASE}, "body": BODY, "idempotency_key": "k-1"},

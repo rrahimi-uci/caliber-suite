@@ -261,9 +261,10 @@ class TestGating:
         assert out.get("ok") is True, out
         assert out["data"]["name"] == "scope-ok-judge"
 
-    def test_dynamic_openapi_write_tool_requires_mutating_build_policy(
+    def test_dynamic_openapi_write_tool_is_never_offered_to_the_model(
         self, svc, session_factory
     ) -> None:
+        """B04.4b (#750): a write tool could only fail (the public executor refuses it), so no mode projects it."""
         _openapi_tool(
             session_factory,
             tool_id="TL-openapi-write",
@@ -281,12 +282,13 @@ class TestGating:
                 _toolset(svc, session_factory, sid, mode="build", approval="auto_safe")
             )
         )
-        assert any(
-            name.startswith("openapi_tool_create_ticket")
-            for name in _names(
-                _toolset(svc, session_factory, sid, mode="build", approval="auto_all")
+        for approval in ("auto_all", "full_autonomy"):
+            assert not any(
+                name.startswith("openapi_tool_create_ticket")
+                for name in _names(
+                    _toolset(svc, session_factory, sid, mode="build", approval=approval)
+                )
             )
-        )
 
     def test_dynamic_openapi_approval_gated_tool_is_not_exposed(self, svc, session_factory) -> None:
         _openapi_tool(
@@ -429,6 +431,63 @@ class TestReadHandlers:
         assert out["ok"] is True
         assert out["data"]["status_code"] == 200
         assert out["data"]["json"]["status"] == "open"
+
+    def test_a_write_tool_called_through_aria_directly_is_refused_by_the_public_entry_and_sends_nothing(
+        self, svc, session_factory, monkeypatch
+    ) -> None:
+        """B04.4b (#750): defence in depth below the projection: Aria has no run to propose into, so a protected method fails closed."""
+        from caliber.assistant.capabilities import invoke_openapi_published_tool
+
+        _openapi_tool(
+            session_factory,
+            tool_id="TL-openapi-write",
+            name="create_ticket",
+            side_effect_level="write",
+        )
+        sent: list[httpx.Request] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            sent.append(request)
+            return httpx.Response(201, json={"id": "T-9"})
+
+        _mock_openapi(monkeypatch, handler)
+        sid = _session(svc, session_factory)
+        ctx = _toolset(
+            svc, session_factory, sid, mode="build", approval="auto_all"
+        )._capability_context()
+
+        with pytest.raises(ValueError, match="unsupported_effect_path") as refused:
+            invoke_openapi_published_tool(
+                ctx,
+                tool_id="TL-openapi-write",
+                tool_input={"body": {"title": "SECRET-TITLE"}},
+                allowed_side_effect_levels={"write"},
+            )
+
+        assert "SECRET-TITLE" not in str(refused.value)
+        assert sent == []
+
+    def test_an_under_declared_read_tool_that_posts_is_refused_not_sent(
+        self, svc, session_factory, monkeypatch
+    ) -> None:
+        """A row that says ``read`` but whose operation is a ``POST`` used to run through Aria's read-only surface."""
+        _openapi_tool(
+            session_factory, tool_id="TL-openapi-liar", name="get_ticket", side_effect_level="read"
+        )
+        with session_factory() as db:
+            row = db.get(CaliberToolRegistry, "TL-openapi-liar")
+            row.backend_config = {**row.backend_config, "method": "POST", "path": "/tickets"}
+            db.commit()
+        sent: list[httpx.Request] = []
+        _mock_openapi(monkeypatch, lambda request: sent.append(request) or httpx.Response(200))
+        sid = _session(svc, session_factory)
+        ts = _toolset(svc, session_factory, sid, mode="chat", approval="manual")
+        tool_name = next(name for name in _names(ts) if name.startswith("openapi_tool_get_ticket"))
+
+        out = json.loads(ts.dispatch(tool_name, {}))
+
+        assert "unsupported_effect_path" in out["error"]
+        assert sent == []
 
 
 # ---------------------------------------------------------------------------

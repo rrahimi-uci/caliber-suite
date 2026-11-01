@@ -59,7 +59,7 @@ from caliber.effects.records import (
     transition,
 )
 from caliber.egress import EgressPolicy
-from caliber.integrations.openapi.executor import bind_egress_policy, execute_openapi_http_tool
+from caliber.integrations.openapi.executor import _send_raw, bind_egress_policy
 from caliber.orchestrator.effect_reconciler import COMPLETE, LEASE_REFUSED, EffectReconcilerTask
 from caliber.ownership import acquire, current_lease, release
 from caliber.workflows.compiler import build_ir
@@ -385,7 +385,7 @@ def test_dependent_node_blocked_while_unknown(
     # delayed visibility: the request that was "in flight" lands at the downstream late, from somewhere else
     with factory() as session:
         key = proposal_view(session, proposal_id).logical_key
-    late = execute_openapi_http_tool(
+    late = _send_raw(
         execution_config=_submit_config(downstream),
         input_schema=None,
         input_data=_submit_input(key),
@@ -525,7 +525,7 @@ def test_the_owner_loop_leaves_an_unprovable_kill_unknown_pass_after_pass_until_
 
     with factory() as session:
         key = proposal_view(session, proposal_id).logical_key
-    late = execute_openapi_http_tool(
+    late = _send_raw(
         execution_config=_submit_config(downstream),
         input_schema=None,
         input_data=_submit_input(key),

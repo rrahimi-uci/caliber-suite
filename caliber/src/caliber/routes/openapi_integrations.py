@@ -51,7 +51,7 @@ from caliber.integrations.openapi.dependencies import (
     detect_dependencies,
 )
 from caliber.integrations.openapi.diff import diff_operations
-from caliber.integrations.openapi.executor import execute_openapi_http_tool
+from caliber.integrations.openapi.executor import _send_raw
 from caliber.integrations.openapi.graph import build_graph_snapshot
 from caliber.integrations.openapi.loader import OpenApiLoadError, load_spec, probe_spec_source
 from caliber.integrations.openapi.normalize import (
@@ -1630,7 +1630,7 @@ async def preview_openapi_tool_draft(request: Request) -> JSONResponse:
         error: str | None = None
         result: dict[str, Any] | None = None
         try:
-            result = execute_openapi_http_tool(
+            result = _send_raw(
                 execution_config=dict(draft.execution_config or {}),
                 input_schema=(
                     dict(draft.input_schema or {}) if isinstance(draft.input_schema, dict) else None

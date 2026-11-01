@@ -225,7 +225,7 @@ class _Backend:
         except (TypeError, ValueError) as exc:
             raise _TransportRefusedError("backend_config_invalid") from exc
         try:
-            result = _raw_connector_transport.execute_openapi_http_tool(
+            result = _raw_connector_transport._send_raw(
                 execution_config=_document_request.submit_config(
                     base_url,
                     max_attempts=max_attempts,
@@ -246,7 +246,7 @@ class _Backend:
             return TransportResult(classified)
 
         def verify() -> ReceiptFacts | None:
-            found = _raw_connector_transport.execute_openapi_http_tool(
+            found = _raw_connector_transport._send_raw(
                 execution_config=_document_request.lookup_config(base_url),
                 input_schema=None,
                 input_data=_document_request.lookup_input(request.view.logical_key),
@@ -402,7 +402,7 @@ class _OpenApiBackend:
         except OpenApiPreflightError as exc:
             raise _TransportRefusedError("connector_intent_unsupported") from exc
         try:
-            result = _raw_connector_transport.execute_openapi_http_tool(
+            result = _raw_connector_transport._send_raw(
                 execution_config=execution_config,
                 input_schema=None,  # validated against the row's schema by transport_request
                 input_data=input_data,

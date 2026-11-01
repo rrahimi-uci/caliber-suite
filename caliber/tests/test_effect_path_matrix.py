@@ -393,17 +393,33 @@ def test_openapi_non_get_requires_proposal(factory: sessionmaker[Session]) -> No
         assert [r["method"] for r in server.requests] == ["GET"]
 
 
-#: Every production module that names the raw OpenAPI executor, and why it may. A new caller fails this test until it is
-#: routed through the dispatcher or deliberately pinned here with its reason, so an ungoverned alternate call site cannot
-#: appear unnoticed. ``execute_openapi_http_tool`` is the raw transport: nothing here recurses into the dispatcher.
+#: Every production module that names the PUBLIC OpenAPI entry (``execute_openapi_http_tool``, ``bind_openapi_http_tool``),
+#: and why it may. The public entry sends only a read (``GET``, ``HEAD``, ``OPTIONS``) and refuses any other method with
+#: ``unsupported_effect_path`` (B04.4, #750), so none of these can perform a write. A new caller fails this test until it is
+#: routed through the dispatcher or deliberately pinned here with its reason.
 RAW_OPENAPI_CALLERS = {
-    "assistant/capabilities.py": "Aria's published-tool call (EP-034): no workflow run to propose into; not governed yet",
-    "effects/dispatcher.py": "the private connector backends (document request, OpenAPI): the dispatcher's own transport",
+    "assistant/capabilities.py": "Aria's published-tool call (EP-034): reads only, a protected method is refused by the entry; its governed write route is #1063",
     "effects/reconcile.py": "the reconciler's lookup by key: a GET that carries no effect",
     "integrations/openapi/executor.py": "the executor itself",
-    "routes/openapi_integrations.py": "the operator's draft preview route (EP-033, exempt: not agent-reachable)",
     "routes/system_effects.py": "the operator's lookup by key: a GET that carries no effect",
-    "workflows/runtime.py": "inline reads of OpenAPI tool nodes, model-chosen calls (B04.6, #768) and exports (#1051)",
+    "workflows/runtime.py": "inline reads of OpenAPI tool nodes; model-chosen calls (B04.6, #768) and exports (#1051) can read but not write",
+}
+
+#: Every production module that names the PRIVATE raw transport (``_send_raw``), which sends any method with no governance
+#: of its own, and why it may. It is the only door through which a write reaches the network, so the set is deliberately
+#: tiny and a new name here is a design decision.
+RAW_TRANSPORT_CALLERS = {
+    "effects/dispatcher.py": "the private connector backends (document request, OpenAPI): the dispatcher's own transport",
+    "integrations/openapi/executor.py": "defines it; the public entry delegates to it only after refusing a protected method",
+    "routes/openapi_integrations.py": "the operator's draft preview route (EP-033, exempt: one real call fired by a human, gated by allow_in_preview)",
+}
+
+
+#: Every production module that names the DEVELOPMENT-PROFILE legacy entry (``bind_legacy_openapi_http_tool``): it sends any method with no proposal, approval, lease or receipt, for a plan outside the reference
+#: profile with no governed context (#1068). Not the governed path; the runtime binds it only for such a plan.
+LEGACY_OPENAPI_CALLERS = {
+    "integrations/openapi/executor.py": "defines it, over the private raw transport",
+    "workflows/runtime.py": "binds it only for a plan with legacy_guarded_effects and no governed context (development profile)",
 }
 
 
@@ -418,18 +434,21 @@ def _names_the_raw_executor(node: Any, raw: set[str]) -> bool:
         return node.name in raw
     if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
         return node.name in raw
+    if isinstance(node, ast.Constant):
+        # ``getattr(executor, "_send_raw")``, ``vars(executor)["_send_raw"]``, ``importlib`` style access. Only an exact
+        # string is seen: a name assembled from pieces is not (a docstring that merely mentions it is a longer string).
+        return isinstance(node.value, str) and node.value in raw
     return False
 
 
-def test_the_raw_openapi_executor_is_named_only_by_pinned_callers() -> None:
+def _modules_naming(raw: set[str]) -> set[str]:
     import ast
     from pathlib import Path
 
     import caliber
 
     root = Path(caliber.__file__).resolve().parent
-    raw = {"execute_openapi_http_tool", "bind_openapi_http_tool"}
-    found = {
+    return {
         path.relative_to(root).as_posix()
         for path in sorted(root.rglob("*.py"))
         if any(
@@ -437,6 +456,10 @@ def test_the_raw_openapi_executor_is_named_only_by_pinned_callers() -> None:
             for node in ast.walk(ast.parse(path.read_text(encoding="utf-8")))
         )
     }
+
+
+def test_the_raw_openapi_executor_is_named_only_by_pinned_callers() -> None:
+    found = _modules_naming({"execute_openapi_http_tool", "bind_openapi_http_tool"})
     assert found == set(RAW_OPENAPI_CALLERS)
 
 
@@ -939,3 +962,48 @@ def test_a_profile_that_is_not_development_is_fail_closed_whatever_its_name(
         _require_inline(plain, "t")
     with pytest.raises(UnsupportedEffectPath):
         _require_inline(first_party, "insert_rows")
+
+
+def test_the_development_profile_legacy_entry_is_named_only_by_the_runtime() -> None:
+    assert _modules_naming({"bind_legacy_openapi_http_tool"}) == set(LEGACY_OPENAPI_CALLERS)
+
+
+def test_the_private_raw_transport_is_named_only_by_pinned_modules() -> None:
+    """A write reaches the network only through ``_send_raw``: a module that starts naming it fails here."""
+    assert _modules_naming({"_send_raw"}) == set(RAW_TRANSPORT_CALLERS)
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "from caliber.integrations.openapi.executor import _send_raw\n",
+        "from caliber.integrations.openapi import executor\nexecutor._send_raw()\n",
+        "x = _send_raw\n",
+        "def _send_raw():\n    pass\n",
+        "from caliber.integrations.openapi.executor import _send_raw as send\n",
+        'import importlib\nimportlib.import_module("x").__dict__["_send_raw"]\n',
+        'getattr(executor, "_send_raw")(**kwargs)\n',
+    ],
+)
+def test_the_raw_transport_scan_sees_every_spelling_of_the_name(source: str) -> None:
+    import ast
+
+    assert any(_names_the_raw_executor(node, {"_send_raw"}) for node in ast.walk(ast.parse(source)))
+
+
+def test_the_raw_transport_scan_ignores_the_public_entry() -> None:
+    import ast
+
+    source = "from caliber.integrations.openapi.executor import execute_openapi_http_tool\n"
+    assert not any(
+        _names_the_raw_executor(node, {"_send_raw"}) for node in ast.walk(ast.parse(source))
+    )
+
+
+def test_the_raw_transport_scan_ignores_prose_that_only_mentions_the_name() -> None:
+    import ast
+
+    source = '"""Sends through ``executor._send_raw`` (the private transport)."""\nx = "other"\n'
+    assert not any(
+        _names_the_raw_executor(node, {"_send_raw"}) for node in ast.walk(ast.parse(source))
+    )
