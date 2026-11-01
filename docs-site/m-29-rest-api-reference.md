@@ -141,7 +141,7 @@ Use the typed SDK where it exists. When a family is marked `Raw only`, the curre
 | Agents (`agents`) | `ga` | `9` | Typed SDK | `client.agents` | The agent record that verification items, refinement jobs, approvals and rollback checkpoints hang off. |
 | Workflows (`workflows`) | `ga` | `28` | Typed SDK | `client.workflows` | Workflow CRUD plus the umbrella entry point for versions, runs, and services. |
 | Workflow Versions (`workflow-versions`) | `ga` | `16` | Typed SDK | `client.workflows.versions` | Create, validate, compile, and publish immutable workflow versions. |
-| Workflow Runs (`workflow-runs`) | `ga` | `22` | Typed SDK | `client.workflows.runs` | Submit, inspect, cancel, and wait on workflow executions. |
+| Workflow Runs (`workflow-runs`) | `ga` | `23` | Typed SDK | `client.workflows.runs` | Submit, inspect, cancel, and wait on workflow executions. |
 | Workflow Components (`workflow-components`) | `ga` | `1` | Typed SDK | `client.workflows.components()` | The workflow node catalog, with each component's runtime requirements. |
 | Workflow Templates (`workflow-templates`) | `ga` | `1` | Typed SDK | `client.workflows.templates()` | Starter workflow templates. |
 | Workflow Files (`workflow-files`) | `ga` | `1` | Typed SDK | `client.workflows.upload_staging_file()` | Staging uploads for workflow inputs. |
@@ -194,8 +194,8 @@ The served contract is route-table grounded and body-complete: paths and methods
 
 | Field | Value |
 | --- | --- |
-| Route paths | `393` |
-| Operations | `479` |
+| Route paths | `394` |
+| Operations | `480` |
 | Path coverage | `complete` |
 | Request bodies | `complete` |
 | GA families | `23` |
@@ -230,7 +230,7 @@ Use these quick jumps when you already know the CALIBER subsystem and want the d
 | [Agents (`agents`)](#agents-agents) | `9` | `6` |
 | [Workflows (`workflows`)](#workflows-workflows) | `28` | `20` |
 | [Workflow Versions (`workflow-versions`)](#workflow-versions-workflow-versions) | `16` | `15` |
-| [Workflow Runs (`workflow-runs`)](#workflow-runs-workflow-runs) | `22` | `21` |
+| [Workflow Runs (`workflow-runs`)](#workflow-runs-workflow-runs) | `23` | `22` |
 | [Workflow Components (`workflow-components`)](#workflow-components-workflow-components) | `1` | `1` |
 | [Workflow Templates (`workflow-templates`)](#workflow-templates-workflow-templates) | `1` | `1` |
 | [Workflow Files (`workflow-files`)](#workflow-files-workflow-files) | `1` | `1` |
@@ -594,7 +594,7 @@ Supported management routes that belong to the stable public automation surface.
 
 #### Workflow Runs (`workflow-runs`)
 
-22 operation(s) across 21 route path(s).
+23 operation(s) across 22 route path(s).
 
 | Method | Path | Required scope | Parameters | Responses | Details |
 | --- | --- | --- | --- | --- | --- |
@@ -605,7 +605,8 @@ Supported management routes that belong to the stable public automation surface.
 | `GET` | `/ajax-api/2.0/mlflow/caliber/workflow-runs/{run_id}/admission-manifest` | project role (`read`) | `run_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_workflow_runs_run_id_admission_manifest` |
 | `POST` | `/ajax-api/2.0/mlflow/caliber/workflow-runs/{run_id}/approval/approve` | project role | `run_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_workflow_runs_run_id_approval_approve`; request body documented in OpenAPI |
 | `POST` | `/ajax-api/2.0/mlflow/caliber/workflow-runs/{run_id}/approval/reject` | project role | `run_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_workflow_runs_run_id_approval_reject`; request body documented in OpenAPI |
-| `GET` | `/ajax-api/2.0/mlflow/caliber/workflow-runs/{run_id}/approvals` | any authenticated user | `run_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_workflow_runs_run_id_approvals` |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/workflow-runs/{run_id}/approvals` | project role (`read`) | `run_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_workflow_runs_run_id_approvals` |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/workflow-runs/{run_id}/approvals/{approval_id}` | project role (`read`) | `approval_id`, `run_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_workflow_runs_run_id_approvals_approval_id` |
 | `POST` | `/ajax-api/2.0/mlflow/caliber/workflow-runs/{run_id}/artifacts` | `caliber.operator` | `run_id` | `201`, `400`, `401`, `403`, `404` | `operationId`: `post_workflow_runs_run_id_artifacts`; request body documented in OpenAPI |
 | `POST` | `/ajax-api/2.0/mlflow/caliber/workflow-runs/{run_id}/cancel` | project role (`resource.execute`) | `run_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_workflow_runs_run_id_cancel`; request body documented in OpenAPI |
 | `GET` | `/ajax-api/2.0/mlflow/caliber/workflow-runs/{run_id}/causal-links` | project role (`read`) | `run_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_workflow_runs_run_id_causal_links` |

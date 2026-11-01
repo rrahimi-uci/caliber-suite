@@ -49,6 +49,8 @@ export interface DashboardSummary {
 export interface ApiErrorBody {
   detail: string;
   status_code: number;
+  /** Stable machine-readable cause, present on routes that raise `CaliberHTTPException` (the approval routes do). */
+  reason_code?: string;
   errors?: Array<{ loc: string[]; msg: string; type: string }>;
 }
 

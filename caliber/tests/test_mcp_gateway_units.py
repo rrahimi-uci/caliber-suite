@@ -649,3 +649,278 @@ def test_invoke_tool_error_records_failed_span(monkeypatch: pytest.MonkeyPatch) 
     assert span.attributes["caliber.status"] == "failed"
     assert span.attributes["caliber.error_type"] == "McpGatewayTransportError"
     assert "caliber.tool.latency_ms" in span.attributes
+
+
+# ---------------------------------------------------------------------------
+# B04.5 (#759): the synchronous entry points refuse a protected call; the raw transport does not decide
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def reference(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("CALIBER_PROFILE", "reference")
+
+
+def _classified_server(level: str | None, **overrides: Any) -> McpServerConfig:
+    policies: dict[str, Any] = {}
+    if level is not None:
+        policies["w"] = {"allowed": True, "side_effect_level": level, "requires_approval": False}
+    return _server(
+        transport="sse",
+        uri="http://h/mcp",
+        command="",
+        args=(),
+        discovered_tools=({"name": "w"},),
+        tool_policies=policies,
+        **overrides,
+    )
+
+
+class _CountingSession(_FakeClientSession):
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self.calls = 0
+
+    async def call_tool(self, _name: str, _args: dict[str, Any]) -> Any:
+        self.calls += 1
+        return await super().call_tool(_name, _args)
+
+
+def _counting(monkeypatch: pytest.MonkeyPatch, **kwargs: Any) -> _CountingSession:
+    session = _CountingSession(
+        call_result=SimpleNamespace(is_error=False, structured_content={"ok": True}, content=[]),
+        **kwargs,
+    )
+    _patch_session(monkeypatch, session)
+    return session
+
+
+@pytest.mark.usefixtures("reference")
+@pytest.mark.parametrize("level", ["write", "external_action"])
+def test_the_sync_entry_points_refuse_a_protected_tool_and_send_nothing(
+    monkeypatch: pytest.MonkeyPatch, level: str
+) -> None:
+    from caliber.effects.dispatcher import EffectRefused
+
+    session = _counting(monkeypatch)
+    monkeypatch.setattr(gw, "load_server_config", lambda *_a, **_k: _classified_server(level))
+
+    with pytest.raises(EffectRefused) as direct:
+        gw.invoke_tool_sync(_classified_server(level), tool_name="w", arguments={})
+    with pytest.raises(EffectRefused) as by_id:
+        gw.invoke_tool_by_server_id_sync(server_id="S", tool_name="w", arguments={})
+
+    assert direct.value.code == by_id.value.code == "mcp_effect_requires_proposal"
+    assert session.calls == 0
+
+
+def test_the_sync_entry_points_run_a_read_tool(monkeypatch: pytest.MonkeyPatch) -> None:
+    session = _counting(monkeypatch)
+
+    assert gw.invoke_tool_sync(_classified_server("read"), tool_name="w", arguments={}) == {
+        "ok": True
+    }
+    assert session.calls == 1
+
+
+def test_a_tool_the_policy_gate_refuses_keeps_raising_the_gateways_own_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Unclassified and blocked tools are not an ``EffectRefused``: the transport's configuration error, as before."""
+    session = _counting(monkeypatch)
+
+    with pytest.raises(McpGatewayConfigError, match="no explicit allow"):
+        gw.invoke_tool_sync(_classified_server(None), tool_name="w", arguments={})
+    blocked = _classified_server("read")
+    blocked.tool_policies["w"]["allowed"] = False
+    with pytest.raises(McpGatewayConfigError, match="blocked by policy"):
+        gw.invoke_tool_sync(blocked, tool_name="w", arguments={})
+    assert session.calls == 0
+
+
+@pytest.mark.usefixtures("reference")
+def test_the_sync_entry_point_refuses_a_first_party_database_write_by_the_inventory(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from caliber.effects.dispatcher import UnsupportedEffectPath
+
+    session = _counting(monkeypatch)
+    server = _server(
+        discovered_tools=({"name": "insert_rows"},),
+        tool_policies={
+            "insert_rows": {
+                "allowed": True,
+                "side_effect_level": "read",
+                "requires_approval": False,
+            }
+        },
+    )
+
+    with pytest.raises(UnsupportedEffectPath) as refused:
+        gw.invoke_tool_sync(server, tool_name="insert_rows", arguments={})
+
+    assert refused.value.code == "unsupported_effect_path"
+    assert session.calls == 0
+
+
+def test_the_raw_transport_does_not_classify_but_keeps_every_policy_check(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    session = _counting(monkeypatch)
+
+    assert gw.invoke_tool_raw_sync(_classified_server("write"), tool_name="w", arguments={}) == {
+        "ok": True
+    }
+    assert session.calls == 1
+    with pytest.raises(McpGatewayConfigError, match="no explicit allow"):
+        gw.invoke_tool_raw_sync(_classified_server(None), tool_name="w", arguments={})
+    assert session.calls == 1
+
+
+def test_the_raw_transport_cannot_run_inside_an_event_loop() -> None:
+    async def _run() -> None:
+        gw.invoke_tool_raw_sync(_classified_server("write"), tool_name="w", arguments={})
+
+    with pytest.raises(McpGatewayError, match="invoke_tool_raw_sync"):
+        asyncio.run(_run())
+
+
+def test_the_sync_entry_point_refuses_inside_an_event_loop_before_classifying() -> None:
+    async def _run() -> None:
+        gw.invoke_tool_sync(_classified_server("write"), tool_name="w", arguments={})
+
+    with pytest.raises(McpGatewayError, match="invoke_tool_sync"):
+        asyncio.run(_run())
+
+
+# ---------------------------------------------------------------------------
+# never_sent: what the dispatcher's outcome classifier reads
+# ---------------------------------------------------------------------------
+
+
+def test_a_policy_or_configuration_refusal_is_proven_not_sent(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    session = _counting(monkeypatch)
+
+    with pytest.raises(McpGatewayConfigError) as refused:
+        asyncio.run(gw.invoke_tool(_classified_server(None), tool_name="w", arguments={}))
+
+    assert refused.value.never_sent is True
+    assert session.calls == 0
+
+
+def test_a_failure_of_the_call_itself_may_have_been_sent(monkeypatch: pytest.MonkeyPatch) -> None:
+    _counting(monkeypatch, call_error=RuntimeError("dropped"))
+
+    with pytest.raises(gw.McpGatewayTransportError) as failed:
+        asyncio.run(gw.invoke_tool(_classified_server("write"), tool_name="w", arguments={}))
+
+    assert failed.value.never_sent is False
+
+
+def test_a_tool_reported_error_may_have_been_sent(monkeypatch: pytest.MonkeyPatch) -> None:
+    res = SimpleNamespace(
+        is_error=True, structured_content=None, content=[_Dumpable({"text": "bad"})]
+    )
+    _patch_session(monkeypatch, _FakeClientSession(call_result=res))
+
+    with pytest.raises(gw.McpGatewayTransportError) as failed:
+        asyncio.run(gw.invoke_tool(_classified_server("write"), tool_name="w", arguments={}))
+
+    assert failed.value.never_sent is False
+
+
+def test_a_session_that_never_opened_was_not_sent(monkeypatch: pytest.MonkeyPatch) -> None:
+    @asynccontextmanager
+    async def _never_opens(_server: McpServerConfig, *, timeout_seconds: float) -> Any:
+        raise gw.McpGatewayTransportError("MCP session failed: refused")
+        yield  # pragma: no cover - a generator, as the contextmanager needs
+
+    monkeypatch.setattr(gw, "_session_for", _never_opens)
+
+    with pytest.raises(gw.McpGatewayTransportError) as failed:
+        asyncio.run(gw.invoke_tool(_classified_server("write"), tool_name="w", arguments={}))
+
+    assert failed.value.never_sent is True
+
+
+def test_an_unexpected_error_before_the_call_was_not_sent_and_after_it_may_have_been(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    @asynccontextmanager
+    async def _breaks_before(_server: McpServerConfig, *, timeout_seconds: float) -> Any:
+        raise RuntimeError("anyio blew up")
+        yield  # pragma: no cover
+
+    monkeypatch.setattr(gw, "_session_for", _breaks_before)
+    with pytest.raises(gw.McpGatewayTransportError) as before:
+        asyncio.run(gw.invoke_tool(_classified_server("write"), tool_name="w", arguments={}))
+    assert before.value.never_sent is True
+
+    @asynccontextmanager
+    async def _breaks_after(_server: McpServerConfig, *, timeout_seconds: float) -> Any:
+        yield _FakeClientSession(
+            call_result=SimpleNamespace(is_error=False, structured_content={"ok": 1}, content=[])
+        )
+        raise RuntimeError("teardown failed")
+
+    monkeypatch.setattr(gw, "_session_for", _breaks_after)
+    with pytest.raises(gw.McpGatewayTransportError) as after:
+        asyncio.run(gw.invoke_tool(_classified_server("write"), tool_name="w", arguments={}))
+    assert after.value.never_sent is False
+
+
+def test_a_known_never_sent_is_not_overwritten() -> None:
+    error = McpGatewayConfigError("x")
+    gw._mark_sent(error, sent=True)
+    assert error.never_sent is True
+    unknown = gw.McpGatewayTransportError("y")
+    assert unknown.never_sent is None
+    gw._mark_sent(unknown, sent=True)
+    assert unknown.never_sent is False
+
+
+# ---------------------------------------------------------------------------
+# The development profile keeps the pre-dispatcher inline call (#1068); it is not the governed path
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("level", ["write", "external_action"])
+def test_the_development_profile_lets_a_protected_tool_through_the_sync_entry_points(
+    monkeypatch: pytest.MonkeyPatch, level: str
+) -> None:
+    monkeypatch.delenv("CALIBER_PROFILE", raising=False)
+    session = _counting(monkeypatch)
+    monkeypatch.setattr(gw, "load_server_config", lambda *_a, **_k: _classified_server(level))
+
+    direct = gw.invoke_tool_sync(_classified_server(level), tool_name="w", arguments={})
+    by_id = gw.invoke_tool_by_server_id_sync(server_id="S", tool_name="w", arguments={})
+
+    assert direct == by_id == {"ok": True}
+    assert session.calls == 2
+
+
+def test_the_development_profile_does_not_refuse_a_first_party_database_write_by_name(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """EP-114's refusal is the reference profile's (#774 switches it for every row); the policy gate still applies."""
+    monkeypatch.delenv("CALIBER_PROFILE", raising=False)
+    session = _counting(monkeypatch)
+    server = _server(
+        discovered_tools=({"name": "insert_rows"},),
+        tool_policies={
+            "insert_rows": {
+                "allowed": True,
+                "side_effect_level": "write",
+                "requires_approval": True,
+            }
+        },
+    )
+
+    assert gw.invoke_tool_sync(server, tool_name="insert_rows", arguments={}) == {"ok": True}
+    assert session.calls == 1
+    unclassified = _server(discovered_tools=({"name": "insert_rows"},), tool_policies={})
+    with pytest.raises(McpGatewayConfigError, match="no explicit allow"):
+        gw.invoke_tool_sync(unclassified, tool_name="insert_rows", arguments={})
+    assert session.calls == 1

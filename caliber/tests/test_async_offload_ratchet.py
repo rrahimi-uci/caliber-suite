@@ -141,7 +141,13 @@ _ROUTES = Path(__file__).resolve().parents[1] / "src" / "caliber" / "routes"
 #: its sibling `get_workflow_run_admission_manifest`, with
 #: `require_project_access_if_scoped` in the handler's own body so
 #: `scope_inference.py` still documents the project role it needs.
-_BASELINE = 264
+#:
+#: Bumped from 264 to 265: `B06.5` (#743) added `routes/workflow_runs.py::
+#: get_workflow_run_approval_view`, a bounded read (one run, one approval request, one
+#: proposal row read by named columns, no list), inline via `with factory() as session`
+#: like its siblings, with `require_project_access_if_scoped` (twice: `read`, then the
+#: `approve` action that decides whether the effect is shown) in the handler's own body.
+_BASELINE = 265
 
 _SESSION_MARKERS = ("with factory() as session", "with session_factory() as session")
 

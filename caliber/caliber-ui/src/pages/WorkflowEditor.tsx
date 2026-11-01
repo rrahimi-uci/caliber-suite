@@ -100,6 +100,8 @@ import {
   workflowRunStatusPhrase,
   workflowRunStatusVerbPhrase,
 } from "@/lib/workflowRunLabels";
+import { isBoundApproval } from "@/lib/approvalPanel";
+import { isPartialAck } from "@/components/workflows/BoundApprovalReview";
 import { workflowRunPath, workflowRunUrl } from "@/lib/workflowRunLinks";
 import {
   WORKFLOW_LINEAGE_EMPTY_MESSAGE,
@@ -3814,9 +3816,14 @@ export function WorkflowEditor(): JSX.Element {
     queueRunsEnabled &&
     runtimeApprovalsEnabled &&
     activeRun?.status === "waiting_approval" &&
-    pendingApproval,
+    pendingApproval &&
+    // A request bound to an exact effect is decided in the approval panel, which shows what it binds (B06.5, #743).
+    !isBoundApproval(pendingApproval),
   );
   const canRejectRun = canApproveRun;
+  const hasBoundApproval = Boolean(
+    activeRun?.status === "waiting_approval" && isBoundApproval(pendingApproval),
+  );
   const showQueueDisabledNote = Boolean(
     capabilitiesQuery.data && !queueRunsEnabled,
   );
@@ -5014,6 +5021,15 @@ export function WorkflowEditor(): JSX.Element {
                 ) : null}
               </section>
 
+              {hasBoundApproval && (
+                <div
+                  data-testid="run-bound-approval-note"
+                  className="mb-3 rounded-lg border border-amber-200 bg-amber-50 p-2 text-[11px] text-amber-800"
+                >
+                  This run waits on an approval bound to one exact action. Review and decide it in the approval
+                  panel under Recovery Diagnostics.
+                </div>
+              )}
               {canApproveRun && pendingApproval && activeRun && (
                 <div
                   data-testid="run-approval-actions"
@@ -5079,6 +5095,16 @@ export function WorkflowEditor(): JSX.Element {
                       run={activeRun}
                       approvals={runApprovals}
                       approvalsLoadError={runApprovalsError}
+                      onApprovalDecided={(result, decision) => {
+                        refreshRunHistoryQueries();
+                        if (isPartialAck(result)) return;
+                        loadMonitoredRun(
+                          result,
+                          decision === "reject"
+                            ? workflowRunStatusMessage(result.workflow_run_id, result.status)
+                            : `Approval recorded for ${result.workflow_run_id}.`,
+                        );
+                      }}
                       checkpoints={activeRunEffectiveCheckpoints}
                       events={runEvents}
                       eventsLoadError={runEventsError}

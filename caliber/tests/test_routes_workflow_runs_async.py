@@ -2226,6 +2226,7 @@ def _seed_bound_approval(
     occurrence: str = "occ-bound",
     connector: str = "document-request",
     connector_version: str = "1.0.0",
+    args: dict[str, Any] | None = None,
 ) -> tuple[str, str]:
     """A pending approval request bound to an effect proposal (B06.1), newer than any legacy request already seeded.
 
@@ -2249,7 +2250,7 @@ def _seed_bound_approval(
                 connector_version=connector_version,
                 effect_class="irreversible_write",
                 resource="cases/MORT-1/document-requests",
-                args={"document_type": "pay_statement"},
+                args=args if args is not None else {"document_type": "pay_statement"},
                 expected_resource_version="7",
             ),
         )
