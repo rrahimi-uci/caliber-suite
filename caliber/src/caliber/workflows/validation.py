@@ -28,6 +28,7 @@ import re
 from dataclasses import dataclass, field
 from typing import Any
 
+from caliber.workflows.code_policy import CodePolicy, manifest_refusals
 from caliber.workflows.guardrails import known_check_kinds
 from caliber.workflows.ir import IRType
 from caliber.workflows.manifest import (
@@ -202,11 +203,16 @@ def validate_manifest(
     *,
     resolver: ToolResolver | None = None,
     skill_names: set[str] | None = None,
+    code_policy: CodePolicy | None = None,
 ) -> ValidationReport:
     """Validate a parsed manifest and return a structured report.
 
     ``skill_names`` (the registry's known skill names) enables agent-skill-ref
     resolution; ``None`` skips it (the compile path doesn't enforce skills).
+
+    In the reference profile (the process-wide policy, or ``code_policy`` when the caller holds a configuration) every
+    node kind the compiler's registry marks as executing code, and every tool whose execution form is unsupported, is an
+    error with the single code ``unsupported_in_reference_profile`` (B12.4a, #754; ``caliber.workflows.code_policy``).
     """
     report = ValidationReport()
     nodes = manifest.nodes
@@ -231,6 +237,7 @@ def validate_manifest(
     _check_guardrails(report, manifest)
     _check_deploy_gates(report, manifest)
     _check_write_tool_approval(report, manifest, resolver)
+    _check_reference_profile_code(report, manifest, resolver, code_policy)
 
     for secret_path in find_inline_secrets(manifest.to_dict()):
         report.add(
@@ -241,6 +248,16 @@ def validate_manifest(
         )
 
     return report
+
+
+def _check_reference_profile_code(
+    report: ValidationReport,
+    manifest: WorkflowManifest,
+    resolver: ToolResolver | None,
+    code_policy: CodePolicy | None,
+) -> None:
+    for refusal in manifest_refusals(manifest, resolver, code_policy):
+        report.add(refusal.code, refusal.path, refusal.message)
 
 
 def _check_start_output(

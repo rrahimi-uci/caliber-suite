@@ -98,6 +98,13 @@ from caliber.tool_sandbox.service import (
 )
 from caliber.workflows import agent_step as _agent_step
 from caliber.workflows.approval_policy import approval_valid_at_commit
+from caliber.workflows.code_policy import (
+    REFUSAL_CODE,
+    CodePolicy,
+    ir_refusals,
+    require_sandboxed_tool_binding,
+    summarize,
+)
 from caliber.workflows.guardrails import (
     GuardrailBlockedError,
     GuardrailContext,
@@ -2554,6 +2561,11 @@ class RuntimePlan:
     #: every reference-profile plan, fail-closed. It never overrides a bound context (a bound context is always used) and
     #: never relaxes a refusal that is not about a missing context (EP-055, a registry mismatch, an unsupported path).
     legacy_guarded_effects: bool = False
+    #: The reference profile's refusal of executable code (B12.4a, #754), applied by :func:`execute` to the whole IR before
+    #: the first node runs. ``build_plan`` sets it from the configuration; the stricter of this and the process-wide policy
+    #: (``code_policy.bind_code_policy``, bound by ``create_app``) applies, so a plan built by hand in a reference process is
+    #: refused too. ``None`` defers to the process-wide policy, which is inactive outside the reference profile.
+    code_policy: CodePolicy | None = None
     #: B08.2 context for governed agent steps (``caliber.effects.step_proposal``). ``None`` (every plan the runtime builds
     #: today) runs agent nodes exactly as before. With one, an agent node runs through ``run_agent_step``: the adapter is
     #: handed only the tools the platform classified ``read``, a protected action it proposes becomes a recorded ``proposed``
@@ -2627,6 +2639,9 @@ class WorkflowRunResult:
     # persist these onto ``CaliberWorkflowRun.mlflow_run_id`` / for the UI link.
     mlflow_run_id: str | None = None
     mlflow_trace_id: str | None = None
+    #: The structured refusal code when the run was refused before any node ran (B12.4a, #754: the reference profile's
+    #: ``unsupported_in_reference_profile`` for executable code). ``None`` for every other outcome; ``error`` holds the text.
+    error_code: str | None = None
 
 
 @dataclass(frozen=True)
@@ -2909,8 +2924,10 @@ def _bind_sandboxed(binding: IRToolBinding) -> Callable[..., Any] | None:
 def _bind_in_process(binding: IRToolBinding) -> Callable[..., Any] | None:
     """The legacy in-process binder, reached only when the sandbox is disabled.
 
-    ``bind_registered_tool`` enforces the same allowlist before importing.
+    ``bind_registered_tool`` enforces the same allowlist before importing. The reference profile never reaches the import:
+    a tool imported into the control plane is unsandboxed code (B12.4a, #754).
     """
+    require_sandboxed_tool_binding(binding.local_name)
     try:
         from caliber.workflows.tools import ToolRegistryEntry  # noqa: PLC0415
 
@@ -3029,6 +3046,9 @@ def bind_exported_tool(entry: Any, *, config: Any | None = None) -> Callable[...
             callable_name=getattr(entry, "callable_name", "") or "",
         )
         return _sandboxed_registered_tool(binding, config=config)
+    require_sandboxed_tool_binding(
+        getattr(entry, "name", "") or "tool", CodePolicy.from_config(config)
+    )
     return bind_registered_tool(entry, module_allowlist=allowlist)
 
 
@@ -3682,6 +3702,24 @@ def execute(
         trace_group_tags=dict(ir.mlflow_trace_group_tags),
     )
     root_tags = run_tags(root_ctx)
+    # The runtime entry of the reference profile's code refusal (B12.4a, #754): before the preview check, before any node.
+    if code_refusals := ir_refusals(ir, plan.code_policy):
+        return WorkflowRunResult(
+            status="error",
+            output="",
+            steps=[
+                NodeStep(
+                    node_id=node_id,
+                    node_type=ir.nodes[node_id].node_type.value,
+                    status="error",
+                    detail=f"{REFUSAL_CODE}: no workflow node ran",
+                )
+                for node_id in dict.fromkeys(refusal.node_id for refusal in code_refusals)
+            ],
+            tags=root_tags,
+            error=summarize(code_refusals),
+            error_code=REFUSAL_CODE,
+        )
     if preview:
         unisolated_nodes = _preview_unisolated_nodes(ir)
         if unisolated_nodes:

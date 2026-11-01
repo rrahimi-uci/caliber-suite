@@ -26,6 +26,7 @@ from caliber.db.models import CaliberWorkflowDeployment, CaliberWorkflowVersion
 from caliber.db.session import create_engine_from_config, sessionmaker_from_engine
 from caliber.knowledge.schemas import KnowledgeBaseVersionCreateRequest, KnowledgeQueryRequest
 from caliber.knowledge.service import KnowledgeBaseService
+from caliber.workflows.code_policy import CodePolicy
 from caliber.workflows.ir import IRKnowledgeBuild, IRKnowledgeQuery, IRSubworkflow, IRWorkflow
 from caliber.workflows.runtime import (
     FakeWorkflowExecutor,
@@ -609,6 +610,7 @@ def execute_exported_workflow(  # noqa: PLR0912 - one central runtime wiring bou
         sandbox_max_open_files=resolved_config.tool_sandbox_max_open_files,
         sandbox_config=resolved_config,
         foreach_max_workers=resolved_config.workflow_foreach_max_workers,
+        code_policy=CodePolicy.from_config(resolved_config),
     )
     return execute(
         plan,

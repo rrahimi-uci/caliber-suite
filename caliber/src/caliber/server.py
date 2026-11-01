@@ -86,6 +86,7 @@ from caliber.testing.fault_barriers import ENV_VAR as FAULT_BARRIERS_ENV
 from caliber.testing.fault_barriers import armed_barriers
 from caliber.trace_client import MLflowTraceClient
 from caliber.workflows.admission import AdmissionSettings
+from caliber.workflows.code_policy import CodePolicy, bind_code_policy
 from caliber.workflows.runtime import bind_sandbox_config
 from caliber.workflows.tools import bind_module_allowlist
 from caliber.workspace_import_worker import WorkspaceImportWorker
@@ -722,6 +723,9 @@ def create_app(config: CaliberConfig | None = None) -> ASGIApp:  # noqa: PLR0915
     # which was false the moment that wiring was reverted; see
     # `_sandboxed_registered_tool` for why it was, and what closing C8 requires.
     bind_sandbox_config(resolved)
+    # The reference profile's refusal of executable code (B12.4a, #754) is checked by the validator, compiler, promoter and
+    # runtime alike, so the profile is bound once for all of them, like the allowlist above.
+    bind_code_policy(CodePolicy.from_config(resolved))
     # Same reasoning as the allowlist above: the OpenAPI HTTP executor is reached
     # from the preview route, the tool test-run route, the workflow runtime, and
     # standalone exported tools. Bound once so every one of those paths egresses
