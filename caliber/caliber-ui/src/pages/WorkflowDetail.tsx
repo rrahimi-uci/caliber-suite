@@ -84,6 +84,8 @@ import {
   workflowRunStatusPhrase,
   workflowRunStatusRingClass,
 } from "@/lib/workflowRunLabels";
+import { isBoundApproval } from "@/lib/approvalPanel";
+import { isPartialAck } from "@/components/workflows/BoundApprovalReview";
 import { workflowRunPath, workflowRunUrl } from "@/lib/workflowRunLinks";
 import {
   WORKFLOW_LINEAGE_EMPTY_MESSAGE,
@@ -2710,8 +2712,13 @@ export function WorkflowDetail(): JSX.Element {
     runCapabilities?.queue_enabled &&
     runCapabilities?.runtime_approvals_enabled &&
     selectedRun?.status === "waiting_approval" &&
-    selectedPendingApproval !== null;
+    selectedPendingApproval !== null &&
+    // A request bound to an exact effect is decided in the approval panel, which shows what it binds; a blind button
+    // here would approve it unseen (B06.5, #743).
+    !isBoundApproval(selectedPendingApproval);
   const canRejectSelectedRun = canApproveSelectedRun;
+  const selectedRunHasBoundApproval =
+    selectedRun?.status === "waiting_approval" && isBoundApproval(selectedPendingApproval);
   const queueActionEnabled = Boolean(runCapabilities?.queue_enabled);
   const runtimeApprovalsEnabled = Boolean(runCapabilities?.runtime_approvals_enabled);
   const manualResumeEnabled = Boolean(runCapabilities?.supports_resume);
@@ -3942,6 +3949,15 @@ export function WorkflowDetail(): JSX.Element {
                 {selectedRunApprovalsQuery.isLoading && (
                   <div className="mt-2 text-xs text-slate-400">Loading run approvals…</div>
                 )}
+                {selectedRunHasBoundApproval && (
+                  <div
+                    data-testid="run-bound-approval-note"
+                    className="mt-2 rounded-xl border border-amber-200/70 bg-amber-50/80 px-3 py-3 text-xs text-amber-900"
+                  >
+                    This run is waiting on an approval that is bound to one exact action. Review what it
+                    binds and decide it in the approval panel under Recovery Diagnostics below.
+                  </div>
+                )}
                 {(showApprovalCapabilityNote || showResumeCapabilityNote) && (
                   <div className="mt-2 space-y-2">
                     {showApprovalCapabilityNote && (
@@ -4120,6 +4136,21 @@ export function WorkflowDetail(): JSX.Element {
                       ? selectedRunApprovalsQuery.error.message
                       : null
                   }
+                  onApprovalDecided={(result, decision) => {
+                    if (isPartialAck(result)) {
+                      setRunMessage(
+                        `Approval recorded for ${result.workflow_run_id}; ${result.remaining_approvals} more needed.`,
+                      );
+                      refreshRunDiagnostics(result.workflow_run_id, { refreshApprovals: true });
+                      return;
+                    }
+                    handleRunActionSuccess(
+                      result,
+                      decision === "reject"
+                        ? workflowRunStatusMessage(result.workflow_run_id, result.status)
+                        : `Run ${result.workflow_run_id} approval recorded.`,
+                    );
+                  }}
                   checkpoints={selectedRunEffectiveCheckpoints}
                   events={selectedRunEventsQuery.data ?? []}
                   eventsLoadError={

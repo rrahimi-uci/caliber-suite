@@ -357,6 +357,17 @@ class WorkflowRunsAPI(Resource):
         decided."""
         return self._get(f"/workflow-runs/{run_id}/approvals")
 
+    def approval(self, run_id: str, approval_id: str) -> Any:
+        """The approver's view of one approval request: what is being decided and what the
+        caller may do (B06.5). Read-only. For a request bound to an effect proposal it carries
+        the pins (``intent_hash``, evidence and policy digests, expiry, requester), the effect's
+        connector, class and resource and the *names and kinds* of its arguments (never a
+        value), the quorum, the request's ``state`` and ``caller``: whether the authenticated
+        principal may ``approve`` or ``reject`` now and why not. A run you cannot read, an
+        approval of another run and an unknown id are the same
+        :class:`~caliber_sdk.CaliberNotFoundError`."""
+        return self._get(f"/workflow-runs/{run_id}/approvals/{approval_id}")
+
     def approve(self, run_id: str, **payload: Any) -> Any:
         """Approve a pending Human Approval checkpoint. The run does not
         resume automatically -- call :meth:`resume` after."""
