@@ -2768,6 +2768,23 @@ class ToolExecutionError(Exception):
     """Raised when a registered tool fails after its retry budget (plan §18.1)."""
 
 
+class ChildRefusedError(ToolExecutionError):
+    """A subworkflow was refused by the reference profile's code policy (B12.4a, #754); the parent run keeps the code."""
+
+    code = REFUSAL_CODE
+
+
+def _refusal_code_of(exc: BaseException | None) -> str | None:
+    """The reference profile's refusal code carried by ``exc`` or anything it was raised from, else ``None``."""
+    seen: set[int] = set()
+    while exc is not None and id(exc) not in seen:
+        seen.add(id(exc))
+        if getattr(exc, "code", None) == REFUSAL_CODE:
+            return REFUSAL_CODE
+        exc = exc.__cause__ or exc.__context__
+    return None
+
+
 class ToolRouteRefused(ToolExecutionError):  # noqa: N818 - a refusal, named for what it says
     """A tool route refused a call before anything was proposed or run (B04.6, #768).
 
@@ -4694,6 +4711,7 @@ def _interpret(  # noqa: PLR0911, PLR0912, PLR0915 - graph interpreter dispatch
             tags=base_tags,
             tokens=total_tokens,
             error=f"{type(exc).__name__}: {exc}",
+            error_code=_refusal_code_of(exc),
             guardrail_results=guardrail_results,
         )
 
@@ -7431,10 +7449,13 @@ def _run_node(  # noqa: PLR0911, PLR0912, PLR0915 - per-node-type dispatch
         payload.setdefault("alias", node.alias)
         status = str(payload.get("status", "error"))
         if status != "completed":
-            raise ToolExecutionError(
+            message = (
                 f"subworkflow {node.workflow_id!r}@{node.alias!r} failed: "
                 f"{payload.get('error', 'unknown error')}"
             )
+            if payload.get("error_code") == REFUSAL_CODE:
+                raise ChildRefusedError(message)
+            raise ToolExecutionError(message)
         output = str(payload.get("output", ""))
         _publish_declared_outputs(
             node,

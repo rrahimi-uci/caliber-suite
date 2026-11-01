@@ -78,6 +78,7 @@ from caliber.workflows.code_policy import (
     REFUSAL_CODE,
     CodePolicy,
     manifest_refusals,
+    report_has_refusal,
     resolve_code_policy,
 )
 from caliber.workflows.compiler import CompileError, CompileResult, compile_workflow
@@ -1069,19 +1070,31 @@ def build_plan(  # noqa: PLR0915 - central workflow plan assembler
         # and fail closed if that legacy key cannot identify one exact pin.
         pinned_version_id = _subworkflow_version_pin(result.ir, workflow_id, run_alias)
         target_version = _resolve_version(workflow_id, run_alias, pinned_version_id)
-        sub_plan = build_plan(
-            session,
-            target_version,
-            resolver=resolver,
-            alias=run_alias,
-            subworkflow_depth=depth,
-            config=config,
-            session_factory=runtime_session_factory,
-            source_guard=source_guard,
-            require_source_guard=require_source_guard,
-            context_recorder=context_recorder,
-            memory_read_authorizer=memory_read_authorizer,
-        )
+        try:
+            sub_plan = build_plan(
+                session,
+                target_version,
+                resolver=resolver,
+                alias=run_alias,
+                subworkflow_depth=depth,
+                config=config,
+                session_factory=runtime_session_factory,
+                source_guard=source_guard,
+                require_source_guard=require_source_guard,
+                context_recorder=context_recorder,
+                memory_read_authorizer=memory_read_authorizer,
+            )
+        except CompileError as exc:
+            if not report_has_refusal(exc.report):
+                raise
+            # The child holds executable code the reference profile refuses: the parent run keeps the one code (B12.4a, #754).
+            return {
+                "status": "error",
+                "output": "",
+                "error": _compile_failure_detail(exc),
+                "error_code": REFUSAL_CODE,
+                "tokens": 0,
+            }
         run_ctx = current_run_context()
         execution_result = execute(
             sub_plan,
@@ -1098,6 +1111,7 @@ def build_plan(  # noqa: PLR0915 - central workflow plan assembler
             "workflow_version_number": target_version.version_number,
             "output": execution_result.output,
             "error": execution_result.error,
+            "error_code": execution_result.error_code,
             "tokens": execution_result.tokens,
             "steps": [step.node_id for step in execution_result.steps],
         }
@@ -1678,9 +1692,14 @@ def _compile_failure_detail(exc: CompileError) -> str:
     The validation report travels on ``exc.report``; without this the publish response would say "failed validation" and
     omit the one structured code the caller needs (B12.4a, #754).
     """
-    errors = (exc.report or {}).get("errors", [])
-    refused = [str(e["message"]) for e in errors if e.get("code") == REFUSAL_CODE]
-    return f"{REFUSAL_CODE}: " + "; ".join(refused) if refused else str(exc)
+    report = exc.report if isinstance(exc.report, dict) else {}
+    errors = [e for e in report.get("errors") or [] if isinstance(e, dict)]
+    refused = [str(e.get("message", "")) for e in errors if e.get("code") == REFUSAL_CODE]
+    if not refused:
+        return str(exc)
+    others = [str(e.get("message", "")) for e in errors if e.get("code") != REFUSAL_CODE]
+    detail = f"{REFUSAL_CODE}: " + "; ".join(refused)
+    return f"{detail}; other errors: " + "; ".join(others) if others else detail
 
 
 def publish_version(

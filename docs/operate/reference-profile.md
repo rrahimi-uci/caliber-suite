@@ -4699,7 +4699,7 @@ reverting the change; rows already refused were never written.
 A workflow can run code in two ways, and the reference profile refuses both unless the platform itself puts the code behind
 the sandbox it trusts. The kinds are read from the compiler's own IR kind registry (`caliber.workflows.ir.NodeType`), not from
 a list kept by hand: each kind is classified once in `caliber.workflows.code_policy` (code, tool carrier or inert), and
-`tests/test_profile_code_refusal.py` fails when a kind is added to the registry without being classified.
+`tests/test_profile_code_refusal.py` fails when a kind is added to the registry without being classified. Until it is, the kind is **refused**: the profile admits a kind only when it is classified as inert or as a tool carrier (fail closed).
 
 | form | in the reference profile | why |
 | --- | --- | --- |
@@ -4759,8 +4759,9 @@ a change of profile or sandbox setting needs a restart. Rolling back is revertin
 **What this does not do.** It does not decide which modules a registered tool may import (the module allowlist, #763), does not
 contain hostile tool code (the sandbox is trusted-code admission, see "Who is trusted to write tools" in the tools guide), and
 does not raise `unsupported_in_reference_profile` for the other `refuse` inventory rows (#774). A subworkflow node is not
-expanded: the child workflow is checked at its own validation, compile, promotion and runtime entry, and its plan is built with
-the same policy. The refinement, calibration and deploy-gate replays that build a plan without a configuration are covered by the
+expanded at the parent: the parent validates, compiles and promotes, and the child is checked at its own validation, compile,
+promotion and runtime entry. A parent run over a child that holds code fails with the same code
+(`error_code: unsupported_in_reference_profile`, `error` naming the child and the node) and the child's node never runs. The refinement, calibration and deploy-gate replays that build a plan without a configuration are covered by the
 process-wide policy; in a reference deployment the app binds it at startup.
 
 ## Not enforced yet

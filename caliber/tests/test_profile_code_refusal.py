@@ -681,6 +681,49 @@ def test_policy_from_config(overrides: dict[str, Any], expected: CodePolicy) -> 
     assert CodePolicy.from_config(CaliberConfig(**overrides)) == expected
 
 
+def test_only_the_development_profile_is_exempt_a_missing_or_other_profile_is_cautious() -> None:
+    from types import SimpleNamespace
+
+    assert CodePolicy.from_config(SimpleNamespace(profile="development")).reference is False
+    assert CodePolicy.from_config(SimpleNamespace(profile="staging")).reference is True
+    assert CodePolicy.from_config(SimpleNamespace()).reference is True
+    assert CodePolicy.from_config(SimpleNamespace(profile="reference")).reference is True
+
+
+def _without_classification(monkeypatch: pytest.MonkeyPatch, kind: NodeType) -> None:
+    """Simulate a kind added to the registry that nobody classified yet."""
+    from caliber.workflows import code_policy as module
+
+    monkeypatch.setattr(module, "INERT_NODE_KINDS", frozenset(module.INERT_NODE_KINDS - {kind}))
+
+
+def test_an_unclassified_registry_kind_is_refused_until_it_is_classified(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Fail closed: the default for a kind in no set is a refusal, not admission."""
+    assert node_kind_refusal("n", "note") is None
+    _without_classification(monkeypatch, NodeType.NOTE)
+    refusal = node_kind_refusal("n", "note")
+    assert refusal is not None and refusal.code == REFUSAL_CODE
+    assert "has not classified" in refusal.message
+
+    data = make_manifest()
+    data["nodes"]["memo"] = {"id": "memo", "type": "note", "text": "hello"}
+    manifest = parse_manifest(data)
+    assert [r.path for r in manifest_refusals(manifest, fake_resolver(), REFERENCE)] == [
+        "nodes.memo"
+    ]
+    with pytest.raises(CompileError) as raised:
+        compile_workflow(manifest, resolver=fake_resolver(), code_policy=REFERENCE)
+    assert raised.value.report["errors"][0]["code"] == REFUSAL_CODE  # type: ignore[index]
+    # And at the runtime entry, for an IR compiled before the kind was unclassified-refused.
+    monkeypatch.undo()
+    plan = _plan(data, code_policy=REFERENCE)
+    _without_classification(monkeypatch, NodeType.NOTE)
+    result = execute(plan, "x", executor=FakeWorkflowExecutor())
+    assert result.status == "error" and result.error_code == REFUSAL_CODE
+
+
 def test_outside_the_reference_profile_nothing_is_refused_anywhere() -> None:
     manifest = parse_manifest(_python_code_manifest())
     assert manifest_refusals(manifest, fake_resolver(), DEVELOPMENT) == []
@@ -718,7 +761,7 @@ def test_node_kind_refusal_for_a_known_inert_and_an_unregistered_kind() -> None:
     unknown = node_kind_refusal("n", "shell_command")
     assert unknown is not None
     assert unknown.code == REFUSAL_CODE and unknown.node_id == "n"
-    assert "shell_command" in unknown.message and "does not list" in unknown.message
+    assert "shell_command" in unknown.message and "has not classified" in unknown.message
 
 
 def test_a_manifest_node_of_an_unregistered_kind_is_refused(
@@ -774,9 +817,11 @@ def test_a_cached_compile_from_outside_the_profile_is_not_handed_back_inside_it(
 # --------------------------------------------------------------------------------------------------------------------
 
 
-def _published_version(client: TestClient, manifest: dict[str, Any]) -> tuple[str, str]:
+def _published_version(
+    client: TestClient, manifest: dict[str, Any], name: str = "Support Workflow"
+) -> tuple[str, str]:
     """A published version of ``manifest``, made while the profile was not active (a version from before the switch)."""
-    workflow_id = create_workflow(client)
+    workflow_id = create_workflow(client, name)
     version_id, _ = create_draft(client, workflow_id, manifest)
     published = client.post(f"{PREFIX}/workflow-versions/{version_id}/publish")
     assert published.status_code == 200, published.text
@@ -853,6 +898,158 @@ def test_the_promotion_check_reads_nothing_outside_the_profile_and_ignores_an_un
         _python_code_manifest(), lambda: fake_resolver(), config=reference
     )
     assert [b.split(":", 1)[0] for b in blockers] == [REFUSAL_CODE]
+
+
+def test_a_parent_run_over_a_child_that_holds_code_fails_by_the_same_code(
+    client: TestClient,
+) -> None:
+    """A subworkflow is not expanded at the parent; its own boundaries refuse it and the parent run keeps the code."""
+    from caliber.db.models import CaliberWorkflowVersion
+    from caliber.workflows.promoter import build_plan
+
+    child_id, child_version = _published_version(client, _python_code_manifest())
+    rotated = client.post(
+        f"{PREFIX}/workflows/{child_id}/deployments/dev/promote", json={"version_id": child_version}
+    )
+    assert rotated.status_code == 200, rotated.text
+
+    parent = make_manifest()
+    parent["nodes"]["sub"] = {
+        "id": "sub",
+        "type": "subworkflow",
+        "workflow_id": child_id,
+        "alias": "dev",
+    }
+    parent["edges"] = [
+        {"id": "e1", "from": "start", "to": "sub", "map": {"msg": "input"}},
+        {"id": "e2", "from": "sub", "to": "final", "map": {"output": "response"}},
+    ]
+    parent_id, parent_version_id = _published_version(client, parent, "Parent Workflow")
+    reference = CaliberConfig(profile="reference")
+    with client.app.state.session_factory() as session:
+        parent_version = session.get(CaliberWorkflowVersion, parent_version_id)
+        assert parent_version is not None
+        # The parent holds no code, so it validates, compiles and promotes; only the child is refused.
+        assert list(manifest_refusals(parse_manifest(parent), fake_resolver(), REFERENCE)) == []
+        plan = build_plan(session, parent_version, config=reference)
+        result = execute(plan, "hello", executor=FakeWorkflowExecutor())
+
+    assert parent_id
+    assert result.status == "error"
+    assert result.error_code == REFUSAL_CODE
+    assert result.error is not None
+    assert REFUSAL_CODE in result.error and "python_code node 'code'" in result.error
+    assert [s.status for s in result.steps if s.node_id == "sub"] != ["ok"]
+
+
+def test_a_child_the_runtime_entry_refuses_fails_the_parent_by_the_same_code(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The child's own runtime-entry refusal (a plan that compiled, then was refused) reaches the parent with its code."""
+    from caliber.db.models import CaliberWorkflowVersion
+    from caliber.workflows import promoter as promoter_module
+    from caliber.workflows.runtime import WorkflowRunResult
+
+    child_id, child_version = _published_version(client, make_manifest(), "Clean Child")
+    rotated = client.post(
+        f"{PREFIX}/workflows/{child_id}/deployments/dev/promote", json={"version_id": child_version}
+    )
+    assert rotated.status_code == 200, rotated.text
+    parent = make_manifest()
+    parent["nodes"]["sub"] = {
+        "id": "sub",
+        "type": "subworkflow",
+        "workflow_id": child_id,
+        "alias": "dev",
+    }
+    parent["edges"] = [
+        {"id": "e1", "from": "start", "to": "sub", "map": {"msg": "input"}},
+        {"id": "e2", "from": "sub", "to": "final", "map": {"output": "response"}},
+    ]
+    _, parent_version_id = _published_version(client, parent, "Parent Of Clean Child")
+    refused = WorkflowRunResult(
+        status="error", output="", error=f"{REFUSAL_CODE}: child", error_code=REFUSAL_CODE
+    )
+    monkeypatch.setattr(promoter_module, "execute", lambda *a, **k: refused)
+    with client.app.state.session_factory() as session:
+        version = session.get(CaliberWorkflowVersion, parent_version_id)
+        assert version is not None
+        plan = promoter_module.build_plan(session, version, config=CaliberConfig())
+        result = execute(plan, "hello", executor=FakeWorkflowExecutor())
+    assert result.status == "error" and result.error_code == REFUSAL_CODE
+
+
+def test_a_child_failure_that_is_not_a_refusal_keeps_no_code(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Only the reference profile's refusal travels as a code; any other child failure is the parent's plain error."""
+    from caliber.db.models import CaliberWorkflowVersion
+    from caliber.workflows import promoter as promoter_module
+    from caliber.workflows.runtime import WorkflowRunResult
+
+    child_id, child_version = _published_version(client, make_manifest(), "Plain Child")
+    rotated = client.post(
+        f"{PREFIX}/workflows/{child_id}/deployments/dev/promote", json={"version_id": child_version}
+    )
+    assert rotated.status_code == 200, rotated.text
+    parent = make_manifest()
+    parent["nodes"]["sub"] = {
+        "id": "sub",
+        "type": "subworkflow",
+        "workflow_id": child_id,
+        "alias": "dev",
+    }
+    parent["edges"] = [
+        {"id": "e1", "from": "start", "to": "sub", "map": {"msg": "input"}},
+        {"id": "e2", "from": "sub", "to": "final", "map": {"output": "response"}},
+    ]
+    _, parent_version_id = _published_version(client, parent, "Parent Of Plain Child")
+
+    with client.app.state.session_factory() as session:
+        version = session.get(CaliberWorkflowVersion, parent_version_id)
+        assert version is not None
+        plan = promoter_module.build_plan(session, version, config=CaliberConfig())
+
+        # The child runs and fails without a code.
+        monkeypatch.setattr(
+            promoter_module,
+            "execute",
+            lambda *a, **k: WorkflowRunResult(status="error", output="", error="child broke"),
+        )
+        failed = execute(plan, "hello", executor=FakeWorkflowExecutor())
+        assert failed.status == "error" and failed.error_code is None
+        assert failed.error is not None and "child broke" in failed.error
+
+        # The child does not compile for a reason that is not a refusal: the compile error propagates unchanged.
+        def broken(*args: Any, **kwargs: Any) -> Any:
+            raise CompileError(
+                "child does not compile", report={"errors": [{"code": "missing_tool"}]}
+            )
+
+        monkeypatch.setattr(promoter_module, "build_plan", broken)
+        broken_run = execute(plan, "hello", executor=FakeWorkflowExecutor())
+        assert broken_run.status == "error" and broken_run.error_code is None
+        assert broken_run.error is not None and "child does not compile" in broken_run.error
+
+
+def test_the_refusal_code_is_found_on_the_exception_or_what_it_was_raised_from() -> None:
+    from caliber.workflows.runtime import ChildRefusedError, ToolExecutionError, _refusal_code_of
+
+    assert _refusal_code_of(None) is None
+    assert _refusal_code_of(ValueError("plain")) is None
+    assert _refusal_code_of(ChildRefusedError("child")) == REFUSAL_CODE
+    assert _refusal_code_of(CodeRefusalError([])) == REFUSAL_CODE
+    try:
+        try:
+            raise ChildRefusedError("inner")
+        except ChildRefusedError as inner:
+            raise ToolExecutionError("outer") from inner
+    except ToolExecutionError as outer:
+        assert _refusal_code_of(outer) == REFUSAL_CODE
+    # A cycle in the chain ends the walk.
+    first, second = ValueError("a"), ValueError("b")
+    first.__cause__, second.__cause__ = second, first
+    assert _refusal_code_of(first) is None
 
 
 def test_the_deploy_gate_compile_uses_the_callers_reference_config(client: TestClient) -> None:
@@ -937,6 +1134,35 @@ def test_promotion_checks_a_registered_python_tool_against_the_registry_row(
     bind_code_policy(REFERENCE)
     with client.app.state.session_factory() as session:
         require_alias_target_ready(session, "staging", version_id)
+
+
+@pytest.mark.parametrize(
+    ("report", "expected"),
+    [
+        (None, "failed"),
+        ({"errors": []}, "failed"),
+        ({"errors": [{"code": "missing_tool", "message": "no tool"}]}, "failed"),
+        (
+            {"errors": [{"code": REFUSAL_CODE, "message": "no code"}, "junk", None]},
+            f"{REFUSAL_CODE}: no code",
+        ),
+        (
+            {
+                "errors": [
+                    {"code": "missing_tool", "message": "no tool"},
+                    {"code": REFUSAL_CODE, "message": "no code"},
+                ]
+            },
+            f"{REFUSAL_CODE}: no code; other errors: no tool",
+        ),
+    ],
+)
+def test_the_publish_detail_keeps_every_refusal_and_the_other_errors(
+    report: dict[str, Any] | None, expected: str
+) -> None:
+    from caliber.workflows.promoter import _compile_failure_detail
+
+    assert _compile_failure_detail(CompileError("failed", report=report)) == expected
 
 
 def test_publish_refuses_code_in_the_reference_profile(client: TestClient) -> None:

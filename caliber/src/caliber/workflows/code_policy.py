@@ -122,7 +122,8 @@ class CodePolicy:
     def from_config(cls, config: object) -> CodePolicy:
         """The policy a configuration implies (the reference profile refuses; any other profile does not)."""
         return cls(
-            reference=getattr(config, "profile", "") == "reference",
+            # An allow-list for the development profile: any other (or missing) profile gets the stricter answer.
+            reference=getattr(config, "profile", "") != "development",
             sandbox_enabled=bool(getattr(config, "registered_tool_sandbox_enabled", True)),
         )
 
@@ -188,6 +189,14 @@ def summarize(refusals: list[CodeRefusal]) -> str:
     return f"{REFUSAL_CODE}: " + "; ".join(r.message for r in refusals)
 
 
+def report_has_refusal(report: object) -> bool:
+    """Whether a validation/compile report (``{"errors": [{"code": ...}]}``) holds a refusal, tolerating any other shape."""
+    errors = report.get("errors") if isinstance(report, dict) else None
+    return isinstance(errors, list) and any(
+        isinstance(e, dict) and e.get("code") == REFUSAL_CODE for e in errors
+    )
+
+
 def _node_refusal(node_id: str, kind: str, why: str) -> CodeRefusal:
     return CodeRefusal(
         path=f"nodes.{node_id}",
@@ -206,8 +215,8 @@ def _unknown_kind_refusal(node_id: str, kind: str) -> CodeRefusal:
         kind=kind,
         node_id=node_id,
         message=(
-            f"node {node_id!r} has kind {kind!r}, which the compiler's kind registry does not list, "
-            f"so the reference profile cannot tell whether it executes code and refuses it"
+            f"node {node_id!r} has kind {kind!r}, which the reference profile has not classified as free of code "
+            f"(it is not in the compiler's kind registry, or not yet classified), so it refuses it"
         ),
     )
 
@@ -215,16 +224,20 @@ def _unknown_kind_refusal(node_id: str, kind: str) -> CodeRefusal:
 def node_kind_refusal(node_id: str, kind: str) -> CodeRefusal | None:
     """The refusal for a node of registry kind ``kind`` (a :class:`NodeType` value), or ``None``.
 
-    A kind the registry does not list is refused: the profile cannot establish that it executes no code.
+    The decision fails closed: a kind is admitted only when it is classified as inert or as a tool carrier. A kind the
+    registry does not list, or lists but nobody classified, is refused: the profile cannot establish that it executes no code.
     """
     try:
         node_type = NodeType(kind)
     except ValueError:
         return _unknown_kind_refusal(node_id, kind)
     why = CODE_NODE_KINDS.get(node_type)
-    if why is None:
+    if why is not None:
+        return _node_refusal(node_id, node_type.value, why)
+    if node_type in INERT_NODE_KINDS or node_type in TOOL_NODE_KINDS:
         return None
-    return _node_refusal(node_id, node_type.value, why)
+    # A registered kind nobody classified: fail closed until it is (the ratchet test is the early warning).
+    return _unknown_kind_refusal(node_id, node_type.value)
 
 
 def tool_form_refusal(
@@ -392,6 +405,7 @@ __all__ = [
     "ir_refusals",
     "manifest_refusals",
     "node_kind_refusal",
+    "report_has_refusal",
     "require_no_code",
     "require_sandboxed_tool_binding",
     "resolve_code_policy",
