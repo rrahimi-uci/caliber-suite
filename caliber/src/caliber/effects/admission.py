@@ -33,6 +33,7 @@ from typing import Any, Final
 from urllib.parse import urlsplit
 
 from caliber.effects.connectors import ConnectorCapability
+from caliber.effects.connectors.mcp_tool import McpToolCall
 from caliber.effects.connectors.openapi_http import OpenApiOperation
 from caliber.profile import TrustedConnector
 
@@ -219,6 +220,7 @@ _CONFIG_CHECKS: Final[Mapping[str, Callable[[object], bool]]] = {
     "receipt_verifier": callable,
     "invoker": callable,
     "operation": lambda value: isinstance(value, OpenApiOperation),
+    "call": lambda value: isinstance(value, McpToolCall),
 }
 
 

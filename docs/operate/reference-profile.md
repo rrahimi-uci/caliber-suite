@@ -109,7 +109,7 @@ database for the tool being run: its name, owner, version, module, callable and 
 manifest binding, an exported bundle and the model do not decide it (`IRToolBinding` and `ToolRegistryEntry` carry
 no owner, so there is nothing in them to forge). A plan is governed when it is wired to the registry (an identity reader) or to an authority (a governed context); the
 table below lists every place the runtime builds a plan and which it is. OpenAPI bindings are routed the same way by
-[Governed OpenAPI tools](#governed-openapi-tools-b044), and MCP bindings (B04.5) keep their own path.
+[Governed OpenAPI tools](#governed-openapi-tools-b044), and MCP bindings by [Governed MCP tools](#governed-mcp-tools-b045).
 
 | the registry row is | the tool node |
 | --- | --- |
@@ -170,8 +170,8 @@ EP-015, EP-016 and EP-019, refused by #774.
 Two limits. An administrator-registered tool declared `read` is trusted as read-class: its declared level is part of the
 definition the deployment bundle pins and re-verifies before a run (`deployment_bundle.tool_snapshot`), but the platform
 does not observe what its code does, so register a tool that writes with `write` or `external_action`. And model-chosen tool
-calls inside an agent step and MCP tools are not routed by this change (B04.5 to B04.7); OpenAPI tool nodes are routed by
-[Governed OpenAPI tools](#governed-openapi-tools-b044).
+calls inside an agent step are not routed by this change (B04.6, B04.7); OpenAPI tool nodes are routed by
+[Governed OpenAPI tools](#governed-openapi-tools-b044) and MCP tools by [Governed MCP tools](#governed-mcp-tools-b045).
 
 No migration, no new setting and no new route; rolling back is reverting the change (a `registered_tool` proposal
 already recorded remains readable and reconcilable).
@@ -354,9 +354,9 @@ fixed code and sends nothing.
 | refinement and calibration replays, the deploy-gate replay | unchanged: protected tools refused or stubbed |
 | standalone exports and plans a caller builds itself | unchanged: not governed |
 
-**A workflow node (webhook, API request, registered tool, OpenAPI tool) is bound to the context and refused.** The context the
+**A workflow node (webhook, API request, registered tool, OpenAPI tool, MCP tool) is bound to the context and refused.** The context the
 worker binds has the whole mechanism (a proposal, an approval request bound to the exact intent, a park behind it, a dispatch under the
-lease), but it names no backend it can verify: the generic `http`, `registered_tool` and `openapi_http` connectors have no lookup by key
+lease), but it names no backend it can verify: the generic `http`, `registered_tool`, `openapi_http` and `mcp` connectors have no lookup by key
 the platform can call, so an outcome it could not read back would end `unknown` and park the run with no way out (#1055). Such a node is
 therefore refused **before its proposal is recorded**, so no approval is asked for or spent on it:
 
@@ -364,11 +364,12 @@ therefore refused **before its proposal is recorded**, so no approval is asked f
 HTTP effect refused: no_authoritative_verifier
 registered tool effect refused: no_authoritative_verifier
 OpenAPI effect refused: no_authoritative_verifier
+MCP effect refused: no_authoritative_verifier
 ```
 
 A verifier for a backend (`effect_context(authority, verifiers={...})`) is what makes it reachable; until #1055 settles which connectors
-have one, the only backend a production run reaches is `document_request`, through a governed agent step. MCP tool calls (B04.5) are
-not reached by this change.
+have one, the only backend a production run reaches is `document_request`, through a governed agent step. A protected MCP tool call (B04.5) goes
+through the same context and is refused the same way.
 
 **Limits, stated plainly.**
 
@@ -385,6 +386,134 @@ not reached by this change.
 
 No migration. The new setting is `CALIBER_AGENT_STEP_TOOL_BACKENDS` (default `[]`: no agent is governed, and a reference profile with
 the default behaves as before). Rolling back is reverting the change; a recorded proposal stays readable and reconcilable.
+
+## Governed MCP tools (B04.5)
+
+An MCP server is **untrusted**: its tool names, descriptions, annotations such as `readOnlyHint`, and results are data the
+platform reads, never a classification. A workflow `tool` node bound to an MCP tool and an MCP node are therefore classified
+from three things CALIBER itself holds, for exactly the tool being called:
+
+1. the **MCP server record** (`caliber_mcp_servers`: transport, command or URI, arguments, the names of its environment
+   variables and headers), read from the database for the run's identity, never from the manifest binding or the model;
+2. the **tool policy an administrator wrote** (`tool_policies`: `allowed`, `side_effect_level`, `requires_approval`), which
+   the policy gate already requires to be explicit and complete: a tool the server lists but nobody classified is refused,
+   not guessed at; and
+3. the **protected-effect inventory** (EP-114), which applies to the first-party PostgreSQL MCP server only, and only under
+   the reference profile (#774 owns the switch for every inventory row). That server is recognised from the **record and the
+   deployment settings**, never from the tool names a server reports: a `stdio` server that runs the CALIBER interpreter with
+   `-m caliber.mcp_servers.db`, or a remote server whose host the operator listed in `CALIBER_MCP_MANAGED_SIDECAR_HOSTS` (the
+   shipped compose stack runs the three first-party database servers as such sidecars). That setting attests an isolation
+   boundary, not an identity, so **a third-party server on an attested sidecar host is treated as the first-party one too** and
+   its tools named like EP-114's are refused (the conservative direction): list only hosts that run the first-party servers if
+   that matters. A server on any other host, however it names its tools, is third-party and is classified by its own
+   administrator's policy.
+
+| the server record, policy and inventory say | the tool node or MCP node |
+| --- | --- |
+| `side_effect_level: read` (an approval-requiring read keeps the workflow binding's own approval gate) | runs inline, as before: no proposal |
+| `write` | proposed, approved and dispatched; recorded `irreversible_write` (the inventory does not list a third-party MCP tool) |
+| `external_action` | proposed, approved and dispatched; recorded `irreversible_write` |
+| the server lists the tool but there is no complete policy for it, the policy is invalid or has `allowed: false`, the tool is not in the discovered list, or the server is not ready (status, transport, allowlist, blocked address) | refused with a stable code before anything is recorded or sent |
+| a write tool of the **first-party database server** (EP-114), whatever the administrator classified it as, **under the reference profile** | refused: `unsupported_effect_path` (the development profile classifies it by the policy like any tool) |
+| a server the run's identity cannot read, or a timeout the connector does not accept | refused: `mcp_server_unavailable`, `mcp_timeout_invalid` |
+| a protected call in a plan with no governed context (reference profile; the development profile runs it inline as before, see below), or replaced by an injected callable | refused: nothing is recorded or sent |
+
+The binding's declared `side_effect_level` and a server's `readOnlyHint` decide nothing: a binding that claims `read` cannot make an
+administrator's `write` inline, and a server that claims a tool is read-only does not change it.
+
+The proposal (`connector: mcp-tool`) holds the resource `mcp/<server_id>/<tool>` and the arguments
+`{"server_id", "tool", "server_digest", "arguments"}`. `server_digest` binds the server record and the three classification
+fields the decision was made from (no credential **value**: the names of the environment variables and headers and the
+authentication type are in it, a rotated token is not). Dispatch rechecks the exact approval and the captured `execution-owner`
+lease in one transaction, consumes the approval and writes the dispatch event **before** the private `mcp` backend sends. That
+backend **reads the server record again** and classifies the call again: the recorded server, tool, resource and digest must be
+the trusted call's, and the call must still be protected, so an administrator who blocked, reclassified or edited the server
+after the approval was requested is seen, and nothing is sent (the proposal is settled `failed`, reason `not_sent`, and **the
+approval is already consumed**: ask for a new proposal). The recorded arguments are what is sent.
+
+**Execution policy is preserved, and checked again.** The backend sends through the gateway's own transport, so the tool-policy
+gate, the stdio command, module and environment checks, the isolation wrapper, the remote-host allowlist and the resolved-address
+check all run again at dispatch, and a rate limit is consumed by the call that really goes out (an exceeded limit is
+`proven_not_sent`: `failed`, approval spent). The address check is made when the connection is prepared, not pinned to the
+connection: a DNS answer that changes between that check and the connect is an existing limit this change does not close.
+
+**What an MCP server can confirm: nothing the platform can rely on.** MCP has no idempotency key, no precondition and no lookup by
+key, so the `mcp-tool` capability record promises nothing and the connector is a pinned entry of `REFERENCE_CONNECTORS` (backend
+kind `mcp`, settings `call` and `receipt_verifier`, accepted risks `write_not_exactly_once` and `key_retention_unconfirmed`).
+
+- A returned result is a **claim**. It becomes `committed` only when the run's `receipt_verifier` returns facts for this proposal;
+  otherwise the proposal stays `unknown` (`receipt_unverified`). Most MCP servers cannot read their own effects back through a
+  channel the platform trusts, so a deployment that wants `committed` needs a verifier that asks the system of record by something
+  the workflow put in the call's arguments (the platform sends the server no key).
+- Anything that may have reached the server and did not return a result is `unknown`, **not** `failed`: a timeout, a dropped
+  session, an MCP error, and a result the server marks `is_error` (an untrusted server can say a call failed that ran). Only a
+  failure the gateway proves came before the request (policy, egress, command allowlist, a session that never opened, a rate
+  limit) is `failed`. The call is sent **once**: the dispatcher does not redrive an ambiguous effect, the binding's
+  `max_retries` is ignored for a governed call, and the reconciler has no lookup for this connector (`not_bound`), so an
+  `unknown` MCP effect is settled by the verifier, a receipt callback or an operator.
+- **The result is untrusted data.** It must be plain JSON of at most 256 KiB and 32 levels of nesting; anything else is `unknown`
+  (`ambiguous:result_out_of_bounds`) and is neither stored nor returned. The returned object is a JSON round trip, so nothing of the
+  server's making survives into a record or a response. No credential is read into a record: the proposal holds the arguments and
+  the digest, never the server's environment, headers or authentication.
+
+**Under the reference profile the gateway entry points refuse a protected call.** `invoke_tool_sync` and
+`invoke_tool_by_server_id_sync` (what the runtime's MCP-bound callables, MCP nodes and exported workflows call) run only a tool
+whose trusted classification is `read`, and raise `EffectRefused` (`mcp_effect_requires_proposal`; `unsupported_effect_path` for a
+first-party database write tool) for every other, with nothing sent. **Under the development profile (the default) they let a
+protected call through, as before the dispatcher** (#1068; development is an allow-list, so any other profile refuses): that inline call has no proposal, exact-intent approval, lease or
+receipt and is **not** the governed path (see "Profiles and a missing governed context" below). The one caller of the ungated transport (`invoke_tool_raw_sync`) is the dispatcher's `mcp` backend;
+`tests/test_effect_path_matrix.py` pins every module that names the gateway, so a new caller fails until it is routed or pinned
+with a reason. The operator's discover, test and playground routes use the async transport directly (EP-038 to EP-040, exempt: they
+are not agent-reachable and need the operator scope).
+
+Every refusal is a `ToolExecutionError` with a stable code and no argument, URL, header or result:
+
+```text
+MCP tool 'issue_write' refused: mcp_tool_unclassified      # listed by the server, no complete administrator policy
+MCP tool 'issue_write' refused: mcp_tool_not_discovered    # not in the discovered list (run discover-tools)
+MCP tool 'issue_write' refused: mcp_tool_not_allowed       # the policy says allowed: false
+MCP tool 'issue_write' refused: mcp_server_not_ready       # status, transport, allowlist or address blocks the server
+MCP tool 'issue_write' refused: mcp_tools_not_discovered   # nothing discovered yet (run test-connection and discover-tools)
+MCP tool 'insert_rows' refused: unsupported_effect_path    # a first-party database write tool (EP-114)
+MCP tool 'issue_write' refused: mcp_server_unavailable     # the record cannot be read by the run's identity
+MCP tool 'issue_write' refused: mcp_timeout_invalid        # the node's timeout is not a finite number of seconds, at most 300
+MCP node 'n' refused for 'srv'/'tool': mcp_effect_requires_proposal   # a caller-built plan reached the gateway with a write
+MCP effect authorization was not granted                   # no exact approval: the proposal stays `proposed`
+MCP effect dispatch refused: proposal_not_approved         # not approved, or the node already ran
+MCP effect dispatch refused: connector_config_not_admitted # the backend settings are not the pinned ones
+MCP effect did not commit: not_sent                        # failed: a policy, egress or session failure before the request
+MCP effect did not commit: ambiguous:may_have_been_sent    # unknown: the request may have reached the server; nothing is resent
+MCP effect did not commit: ambiguous:result_out_of_bounds  # unknown: the answer was not bounded plain JSON
+MCP effect did not commit: receipt_unverified              # a result the verifier could not confirm: unknown
+'tool_node' requires a governed effect context to run protected MCP tool 'issue_write'
+```
+
+Recovery: a refusal before the proposal needs the policy, the server record or the allowlist corrected (nothing was recorded), for
+example `PATCH /mcp-servers/{server_id}/tools/{tool_name}/policy` with an explicit `allowed`, `side_effect_level` and
+`requires_approval`. A `proposed` effect needs an exact approval, after which the run can be resumed. A `failed` effect needs a
+new proposal. An `unknown` effect is settled by the receipt verifier, a receipt callback or an operator (see the
+[recovery runbook](recovery-runbook.md)), never by running the node again: check the server's own system of record first.
+
+**Behaviour changes to plan for.** What happens to a **protected** MCP call depends on the profile (the classification itself
+does not):
+
+| the call | reference profile | development profile (the default) |
+| --- | --- | --- |
+| MCP node or tool node, an authority is bound (`governed_effects`) | proposed, approved, dispatched | proposed, approved, dispatched |
+| MCP node or tool node in a `build_plan` plan, no authority bound (#1051) | refused: `requires a governed effect context to run protected MCP tool` | runs inline, as before B04.5, behind the node's own approval gate: **not governed** (`legacy_guarded_effects`) |
+| a model-chosen call inside an agent step, a caller-built plan, a generated export | refused by the gateway entry point (`EffectRefused`; a model sees an error marker) until B04.6 (#768) proposes it | runs inline, as before: not governed |
+| a first-party database write tool (EP-114) | refused: `unsupported_effect_path` | classified by the administrator's policy like any tool |
+| an unclassified, blocked, undiscovered or not-ready tool | refused (both profiles) | refused (both profiles) |
+
+An operator can still call any tool from the playground (EP-039/040, exempt).
+
+**Not covered by this change:** a governed path for the development profile (it keeps the alpha inline call until #1051), model-selected calls (B04.6, #768), the refusal switch for every inventory row marked `refuse`
+(B04.7, #774), the startup refusal of an MCP allowlist entry the profile does not list (B12.3b, #746), a key channel to MCP servers
+that could use one, pinning the resolved address to the connection, and a governed context for deployed workflows (#1051).
+
+**Configuration, migration and rollback.** No new setting, no route and no migration. The names `mcp` and `mcp-tool` become reserved
+tool names like the other connectors (`409 reserved_tool_name`). Reverting the change restores the direct call (a proposal already
+recorded remains readable).
 
 ## Profiles and a missing governed context (#1068)
 
@@ -404,7 +533,8 @@ node with no governed context behaves like this:
 | webhook or API-request node, no context | refused: `'<node>' requires a governed effect context for manifest HTTP execution` | `_perform_guarded_effect`: egress policy, then the legacy effect ledger (at most one send per run, node and input across a restart; a definitive failure is retryable, an ambiguous one is reported indeterminate) |
 | protected registered tool, no context | refused: `'<node>' requires a governed effect context to run protected registered tool '<name>'` | runs inline, as before B04.3, behind the node's own approval gate (`requires_approval`); no ledger, as before |
 | protected OpenAPI tool, no context | refused: `'<node>' requires a governed effect context to run protected OpenAPI tool '<name>'` | runs inline, as before B04.4, behind the node's own approval gate, through the named legacy entry `bind_legacy_openapi_http_tool` (the private raw transport; the public entry still refuses a protected method) |
-| read-class tool or `GET` OpenAPI node | runs inline | runs inline (unchanged) |
+| protected MCP tool or MCP node, no context (B04.5) | refused: `'<node>' requires a governed effect context to run protected MCP tool '<name>'` | runs inline through the gateway entry point, as before B04.5, behind the node's own approval gate; unclassified and blocked tools are still refused |
+| read-class tool, `GET` OpenAPI node or read-class MCP tool | runs inline | runs inline (unchanged) |
 | any node, a context **is** bound | governed path | governed path: a bound context is never bypassed and a refusal from it is final |
 
 **What the development path does not guarantee.** It is **not** the governed path and gives none of its guarantees: no persisted
@@ -1664,22 +1794,24 @@ compares the transport registered under `kind` with it, and `caliber.effects.adm
 | the wire configuration | the digest of what the transport sends with (for the document-request connector: the submit and lookup operations, the key header and the accepted resource shape) equals the pinned one | `connector_configuration_mismatch` |
 | the settings handed to `dispatch` | only the record's `config_keys`, every `required_config_keys` present, each value bounded: a `base_url` is `http(s)` with a host, a valid port, and no userinfo, whitespace, control characters, query or fragment; `max_attempts` is 1 to 5; `timeout_seconds` is finite, above 0 and at most 300 | `connector_config_not_admitted` |
 
-The reference profile admits four connectors: `document_request` (connector `document-request`, version 1: the Beta reference
+The reference profile admits five connectors: `document_request` (connector `document-request`, version 1: the Beta reference
 connector, which has a stable key, a precondition and a lookup by key; its key retention is unconfirmed, and that risk is
 accepted by name), the generic `http` transport that governed webhook and API nodes use (it promises no exactly-once
 behaviour, so every effect through it needs the caller's own receipt verifier), the `registered_tool` transport of
 [governed registered tools](#governed-registered-tools-b043), and the `openapi_http` transport of
 [governed OpenAPI tools](#governed-openapi-tools-b044) (connector `openapi-http`; settings `operation` and `receipt_verifier`;
-it promises nothing about the downstream either). **The dispatcher refuses everything else**: MCP
-stdio and remote hosts, host-file exports, PostgreSQL MCP writes and any transport added to `BACKENDS` without a reviewed record.
+it promises nothing about the downstream either), and the `mcp` transport of [governed MCP tools](#governed-mcp-tools-b045)
+(connector `mcp-tool`; settings `call` and `receipt_verifier`; no key, precondition or lookup, so a result is only a claim).
+**The dispatcher refuses everything else**: host-file exports, PostgreSQL MCP writes (EP-114) and any transport added to `BACKENDS`
+without a reviewed record. The `mcp` record admits the MCP *transport* for a classified call, not a server: the stdio command and
+remote-host allowlists still decide which servers can be reached.
 Each has no record in the table, so a proposal or dispatch that goes through the dispatcher is `unsupported_backend` (no
 registration) or `connector_not_admitted` (registered, not pinned), and the host-file and database-write tools are also
 `unsupported_effect_path` through the protected-effect inventory (EP-055, EP-114).
 
-**What is not gated yet.** Only the dispatcher is gated. The paths that would reach MCP, host files or a database write do not go
-through it today, so **these tools still execute outside the dispatcher until the later B04 and B12 work**: the runtime's MCP
-node and MCP-bound tool callables and the MCP gateway (EP-007, EP-008, EP-035 to EP-037) move behind it in B04.5 (#759); model-selected
-calls in B04.6 (#768); the raising of `unsupported_in_reference_profile` for every inventory row marked `refuse`, which is what
+**What is not gated yet.** Only the dispatcher is gated. The paths that would reach host files or a database write do not go
+through it today, so **these tools still execute outside the dispatcher until the later B04 and B12 work**: model-selected
+calls in B04.6 (#768), where a protected MCP tool a model chooses is meanwhile refused by the gateway entry point (B04.5); the raising of `unsupported_in_reference_profile` for every inventory row marked `refuse`, which is what
 stops the host-file tools (EP-055) and the first-party database MCP write tools (EP-114) at run time, in B04.7 (#774); and the
 startup refusal of an MCP stdio or remote-host allowlist entry that the profile does not list in B12.3b (#746). Until those land, a
 reference deployment must not register the first-party database MCP server and must not wire the host-file tools into a workflow
@@ -1696,7 +1828,7 @@ Where it is enforced:
   (implementation, capability and configuration, never settings or payloads) are written into the `effect.proposal.dispatched`
   outbox event as `connector_admission`.
 - **A user tool cannot pose as a connector.** Tool registration (`POST /tools`) and the assistant's tool publisher refuse the
-  names `document_request`, `document-request`, `http`, `registered_tool`, `openapi_http` and `openapi-http` (and their `tool.<name>.vN` and case variants) with `409 reserved_tool_name`,
+  names `document_request`, `document-request`, `http`, `registered_tool`, `openapi_http`, `openapi-http`, `mcp` and `mcp-tool` (and their `tool.<name>.vN` and case variants) with `409 reserved_tool_name`,
   like a built-in's name. A tool already registered under such a name before this rule is not rewritten; it is untrusted, is
   never classified as a connector, and is flagged once by the reserved-name audit (`flag_reserved_tool_name`, plus one `ERROR` log
   per process that names the connector, not a built-in). **Upgrade impact:** no new version can be registered under such a name
@@ -1712,7 +1844,7 @@ Refusal and recovery (every code is stable and carries no payload, setting or UR
 | `connector_implementation_mismatch` | the registered transport is not the pinned implementation | restore the shipped transport; do not subclass or replace it |
 | `connector_capability_unproven` / `connector_capability_mismatch` | no capability record, an unaccepted risk, or a changed promise | restore the record; a changed promise is a code change that updates the pin in review |
 | `connector_configuration_mismatch` | the transport's wire configuration is not the pinned one | restore the shipped configuration |
-| `connector_config_not_admitted` | `backend_config` has an unknown or missing key or an out-of-bounds value | pass only `base_url` (and optionally `max_attempts`, `timeout_seconds`) for `document_request`; `sender` and `receipt_verifier` for `http`; `invoker` and `receipt_verifier` for `registered_tool`; `operation` (an `OpenApiOperation` built from the tool's registry row, never a name or a dict) and `receipt_verifier` for `openapi_http` |
+| `connector_config_not_admitted` | `backend_config` has an unknown or missing key or an out-of-bounds value | pass only `base_url` (and optionally `max_attempts`, `timeout_seconds`) for `document_request`; `sender` and `receipt_verifier` for `http`; `invoker` and `receipt_verifier` for `registered_tool`; `operation` (an `OpenApiOperation` built from the tool's registry row, never a name or a dict) and `receipt_verifier` for `openapi_http`; `call` (an `McpToolCall` the runtime built, never a name or a dict) and `receipt_verifier` for `mcp` |
 
 ```python
 from caliber.effects.dispatcher import UnsupportedEffectPath, admit_backend
@@ -4295,7 +4427,7 @@ trusts a tool's name only when the tool really is CALIBER's own.
 `memory_add`. The comparison is stricter than the resolver's exact match: case and surrounding spaces are ignored, and so are a
 `tool.` prefix and a `.vN` suffix, so `Grep_Files`, ` grep_files ` and `tool.grep_files.v2` are all reserved. A name
 that merely contains one (`grep_files_v2`, `my_grep_files`) is free. The rule applies in every profile, to every
-owner, module and version. The names of the trusted connectors (`document_request`, `document-request`, `http`, `registered_tool`, `openapi_http`, `openapi-http`; see
+owner, module and version. The names of the trusted connectors (`document_request`, `document-request`, `http`, `registered_tool`, `openapi_http`, `openapi-http`, `mcp`, `mcp-tool`; see
 [Trusted connector admission](#trusted-connector-admission-b123a-738)) are reserved the same way, with a message that names
 the connector instead of a built-in tool.
 
@@ -4351,12 +4483,16 @@ the dispatcher (B04.7, #774) will refuse them with `unsupported_in_reference_pro
 
 `effects.inventory.tool_disposition(name, caliber_defined=...)` answers `refuse` or `dispatch` for a tool, on the same
 trust rule as `effect_class`. The DB MCP write tools are not registry rows, so `tool_disposition_for_registry_tool`
-answers `dispatch` for those names today; their refusal rests on the MCP server's identity, which #759 and #774
-establish. **This change records the decision and the lookup; the dispatcher that raises the refusal
-at run time is #774.** The four host-file tools are already refused by a workflow `tool` node in a manifest-backed
-plan (see "Governed registered tools"); until #774 lands, model-chosen tool calls and the MCP path still run these
-tools if a workflow uses them, so do not register the first-party DB MCP server and do not wire the four host-file
-tools into a reference workflow.
+answers `dispatch` for those names (a registry row is never the first-party server); their refusal rests on the MCP server's
+identity, which the MCP route now establishes from the server record (`tool_disposition_for_mcp_tool`,
+[Governed MCP tools](#governed-mcp-tools-b045)): a workflow tool node or MCP node reaching one of these tools on the first-party
+server is refused with `unsupported_effect_path` **under the reference profile** (the development profile classifies it by the
+administrator's policy; the first-party server is recognised from its stdio launch or an operator-attested managed sidecar host).
+**The switch that raises `unsupported_in_reference_profile` for every refused row is #774.** The four host-file tools are already refused by a workflow `tool` node in a manifest-backed
+plan (see "Governed registered tools"); until #774 lands, model-chosen tool calls still run the host-file tools if a workflow
+uses them, so do not wire the four host-file tools into a reference workflow. The first-party database server's write tools are
+refused through a workflow under the reference profile (B04.5), but a deployment that does not need the server should still not
+register it.
 
 **Configuration, migration and rollback.** No new setting, no migration and no stored data change. Rolling back is
 reverting the change; rows already refused were never written.
@@ -4369,7 +4505,7 @@ ADR 0001 describes the whole reference shape; this table is what the *process* c
 - **Origin rules** (#533). ADR 0001 names them, but #533 has no allowed-origins task yet; that rule is not scheduled.
 - **Run-time refusal of the `refuse` inventory rows**, including the host-file tools and the DB MCP write tools (#774; see "Reserved tool names and refused paths"), **the trusted-connector set** (#534), **the full attack pack** (#535), **a single execution owner** (#536) and **the Apply separation-of-duties flag** (#589).
 - **A governed effect context outside the worker's own graph** (#1051, #1068): the worker binds one for an admitted reference-profile run, but synchronous version runs, evaluation, gate and Aria previews, and the sub-workflows of a worker run have no owner lease and bind none, so the reference profile refuses their protected nodes and the development profile runs them on the legacy guarded path; see "Profiles and a missing governed context".
-- **A verifier for the generic workflow connectors** (#1055, #1051): a webhook, API-request, registered-tool or OpenAPI node is refused `no_authoritative_verifier` in the reference profile because no connector other than `document_request` has a lookup by key; only a governed agent step reaches a backend end to end. MCP tool calls (B04.5) and model-chosen calls of an agent that is not governed (B04.6, #768) are not routed.
+- **A verifier for the generic workflow connectors** (#1055, #1051): a webhook, API-request, registered-tool, OpenAPI or MCP node is refused `no_authoritative_verifier` in the reference profile because no connector other than `document_request` has a lookup by key; only a governed agent step reaches a backend end to end. Model-chosen calls of an agent that is not governed (B04.6, #768) are not routed.
 - **Cookie flags:** `auth_session_cookie_secure` is not checked.
 - **The database role:** whether the application connects as a role without `UPDATE`, `DELETE` or `TRUNCATE` on `caliber_run_manifests` (see "Run manifests are written once").
 
