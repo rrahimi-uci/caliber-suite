@@ -14,6 +14,7 @@ from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
 from typing import Any
 
+from caliber.effects.refusals import profile_from_environment, refuse_in_reference_profile
 from caliber.mcp_servers.db.identifiers import DbToolError
 
 
@@ -66,7 +67,17 @@ def _read_only_timeout_ms() -> int:
 
 @contextmanager
 def connect() -> Iterator[Any]:
-    """Open an autocommit connection with dict rows; always close it."""
+    """Open an autocommit connection with dict rows; always close it.
+
+    This is the one door every writing tool goes through (``execute``, ``execute_many``, ``execute_script`` and the ``query``
+    that ``cypher_query`` and the returning-row tools use), and it is refused in the reference profile (inventory EP-114,
+    ``UnsupportedEffectPath``, B04.7, #774): a database write through an MCP server is not supported there until it is
+    routed through the dispatcher with an exact-intent approval. This server is a separate process, so the profile is the one
+    in **its** environment (``CALIBER_PROFILE``); the platform's own refusals (the governed MCP route, the gateway entry points
+    and the empty MCP allowlists) are what keep a reference deployment from reaching it at all. The read tools use
+    :func:`connect_read_only`, which this does not touch.
+    """
+    refuse_in_reference_profile("EP-114", profile_from_environment())
     psycopg, dict_row = _load_psycopg()
     conn = psycopg.connect(_dsn(), autocommit=True, row_factory=dict_row)
     try:
