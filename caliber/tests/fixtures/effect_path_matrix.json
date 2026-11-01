@@ -44,12 +44,12 @@
     "EP-009": {
       "outcome": "dispatched",
       "status": "unrouted",
-      "owner": "no B04 child (#724, #733, #741, #750, #759, #768, #774) routes this path: it has no dispatcher connector yet, so its disposition is the decision and the routing is a follow-up"
+      "owner": "#1086: knowledge-build and object-store writes have no dispatcher connector yet"
     },
     "EP-010": {
       "outcome": "dispatched",
       "status": "unrouted",
-      "owner": "no B04 child (#724, #733, #741, #750, #759, #768, #774) routes this path: it has no dispatcher connector yet, so its disposition is the decision and the routing is a follow-up"
+      "owner": "#1086: knowledge-build and object-store writes have no dispatcher connector yet"
     },
     "EP-011": {
       "outcome": "refused",
@@ -62,7 +62,7 @@
     "EP-013": {
       "outcome": "dispatched",
       "status": "unrouted",
-      "owner": "no B04 child (#724, #733, #741, #750, #759, #768, #774) routes this path: it has no dispatcher connector yet, so its disposition is the decision and the routing is a follow-up"
+      "owner": "#1086: knowledge-build and object-store writes have no dispatcher connector yet"
     },
     "EP-014": {
       "outcome": "refused",
@@ -79,7 +79,7 @@
     "EP-017": {
       "outcome": "dispatched",
       "status": "unrouted",
-      "owner": "no B04 child (#724, #733, #741, #750, #759, #768, #774) routes this path: it has no dispatcher connector yet, so its disposition is the decision and the routing is a follow-up"
+      "owner": "#1088: the synchronous run route (covered by scenario 2 of #1051)"
     },
     "EP-018": {
       "outcome": "exempt",
@@ -153,7 +153,7 @@
     "EP-034": {
       "outcome": "dispatched",
       "status": "unrouted",
-      "owner": "no B04 child (#724, #733, #741, #750, #759, #768, #774) routes this path: it has no dispatcher connector yet, so its disposition is the decision and the routing is a follow-up"
+      "owner": "#1063: Aria's published-tool call has no workflow run to propose into"
     },
     "EP-035": {
       "outcome": "dispatched",
@@ -226,7 +226,7 @@
     "EP-051": {
       "outcome": "dispatched",
       "status": "unrouted",
-      "owner": "no B04 child (#724, #733, #741, #750, #759, #768, #774) routes this path: it has no dispatcher connector yet, so its disposition is the decision and the routing is a follow-up"
+      "owner": "#1086: knowledge-build and object-store writes have no dispatcher connector yet"
     },
     "EP-052": {
       "outcome": "exempt",
@@ -263,7 +263,7 @@
     "EP-059": {
       "outcome": "dispatched",
       "status": "unrouted",
-      "owner": "no B04 child (#724, #733, #741, #750, #759, #768, #774) routes this path: it has no dispatcher connector yet, so its disposition is the decision and the routing is a follow-up"
+      "owner": "#1086: knowledge-build and object-store writes have no dispatcher connector yet"
     },
     "EP-060": {
       "outcome": "exempt",
@@ -308,17 +308,17 @@
     "EP-070": {
       "outcome": "dispatched",
       "status": "unrouted",
-      "owner": "no B04 child (#724, #733, #741, #750, #759, #768, #774) routes this path: it has no dispatcher connector yet, so its disposition is the decision and the routing is a follow-up"
+      "owner": "#1087: prompt and release publishing has no dispatcher connector yet"
     },
     "EP-071": {
       "outcome": "dispatched",
       "status": "unrouted",
-      "owner": "no B04 child (#724, #733, #741, #750, #759, #768, #774) routes this path: it has no dispatcher connector yet, so its disposition is the decision and the routing is a follow-up"
+      "owner": "#1087: prompt and release publishing has no dispatcher connector yet"
     },
     "EP-072": {
       "outcome": "dispatched",
       "status": "unrouted",
-      "owner": "no B04 child (#724, #733, #741, #750, #759, #768, #774) routes this path: it has no dispatcher connector yet, so its disposition is the decision and the routing is a follow-up"
+      "owner": "#1087: prompt and release publishing has no dispatcher connector yet"
     },
     "EP-073": {
       "outcome": "exempt",
@@ -331,17 +331,17 @@
     "EP-075": {
       "outcome": "dispatched",
       "status": "unrouted",
-      "owner": "no B04 child (#724, #733, #741, #750, #759, #768, #774) routes this path: it has no dispatcher connector yet, so its disposition is the decision and the routing is a follow-up"
+      "owner": "#1087: prompt and release publishing has no dispatcher connector yet"
     },
     "EP-076": {
       "outcome": "dispatched",
       "status": "unrouted",
-      "owner": "no B04 child (#724, #733, #741, #750, #759, #768, #774) routes this path: it has no dispatcher connector yet, so its disposition is the decision and the routing is a follow-up"
+      "owner": "#1087: prompt and release publishing has no dispatcher connector yet"
     },
     "EP-077": {
       "outcome": "dispatched",
       "status": "unrouted",
-      "owner": "no B04 child (#724, #733, #741, #750, #759, #768, #774) routes this path: it has no dispatcher connector yet, so its disposition is the decision and the routing is a follow-up"
+      "owner": "#1087: prompt and release publishing has no dispatcher connector yet"
     },
     "EP-078": {
       "outcome": "refused",
@@ -358,7 +358,7 @@
     "EP-081": {
       "outcome": "dispatched",
       "status": "unrouted",
-      "owner": "no B04 child (#724, #733, #741, #750, #759, #768, #774) routes this path: it has no dispatcher connector yet, so its disposition is the decision and the routing is a follow-up"
+      "owner": "#1088: Aria's run_workflow tool (the #1063 problem class: no workflow run to propose into)"
     },
     "EP-082": {
       "outcome": "exempt",
@@ -395,7 +395,7 @@
     "EP-090": {
       "outcome": "dispatched",
       "status": "unrouted",
-      "owner": "no B04 child (#724, #733, #741, #750, #759, #768, #774) routes this path: it has no dispatcher connector yet, so its disposition is the decision and the routing is a follow-up"
+      "owner": "#1088: no production caller exists; a ratchet keeps it that way until a connector routes it"
     },
     "EP-091": {
       "outcome": "exempt",

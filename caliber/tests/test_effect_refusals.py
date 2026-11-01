@@ -68,6 +68,7 @@ def test_only_a_configuration_that_says_exactly_reference_is_the_reference_profi
     [
         ({"CALIBER_PROFILE": "reference"}, "reference"),
         ({"CALIBER_PROFILE": "  reference  "}, "reference"),
+        ({"CALIBER_PROFILE": "Reference"}, "reference"),
         ({"CALIBER_PROFILE": "development"}, "development"),
         ({"CALIBER_PROFILE": ""}, ""),
         ({}, ""),

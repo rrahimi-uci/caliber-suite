@@ -263,7 +263,7 @@ def bind_registered_tool(
     anything else is refused before the import rather than after.
 
     ``config`` names the deployment profile: in the reference profile an administrator's module is never imported here
-    (``UnsupportedEffectPath``, inventory EP-019, B04.7, #774); CALIBER's own shipped read-class tools still are. No
+    (``UnsupportedEffectPath``, inventory EP-019, B04.7, #774); CALIBER's own shipped tools still are. No
     ``config`` is the development default.
     """
     if callable_override is not None:

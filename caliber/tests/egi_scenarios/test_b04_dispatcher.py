@@ -46,7 +46,7 @@ from caliber.workflows.runtime import (
     execute,
 )
 from caliber.workflows.tools import InMemoryToolResolver, ToolRegistryEntry
-from tests.effect_helpers import leased
+from tests.effect_helpers import SHIPPED_TOOL_CALLABLE, SHIPPED_TOOL_MODULE, leased
 from tests.egi_scenarios.conftest import (
     APPROVER_A,
     EDITOR_A,
@@ -542,8 +542,8 @@ def _registered_tool_world(
                 tool_id=new_tool_id(),
                 name="request_document",
                 version="1.0",
-                module_path="ops.document_tools",
-                callable_name="request_document",
+                module_path=SHIPPED_TOOL_MODULE,
+                callable_name=SHIPPED_TOOL_CALLABLE,
                 side_effect_level=level,
                 owner="@ops",
             )
@@ -562,8 +562,8 @@ def _registered_tool_world(
     entry = ToolRegistryEntry(
         name="request_document",
         version="1.0",
-        module_path="ops.document_tools",
-        callable_name="request_document",
+        module_path=SHIPPED_TOOL_MODULE,
+        callable_name=SHIPPED_TOOL_CALLABLE,
         side_effect_level=level,
     )
     resolver = InMemoryToolResolver([entry])
@@ -1330,15 +1330,19 @@ def test_an_mcp_result_the_downstream_cannot_confirm_stays_unknown(
 
 
 def _protected_tool_workflow(reference_app: ReferenceApp) -> str:
-    """A published workflow whose only node is the demo ``escalate`` tool, registered as protected (``external_action``)."""
+    """A published workflow whose only node is a tool registered as protected (``external_action``).
+
+    The row is the administrator's (named ``escalate``), but it points at one of CALIBER's own shipped tools (the only Python
+    the reference profile binds, B04.7 #774), so it publishes in both profiles and what differs is the governed context.
+    """
     with reference_app.session_factory() as session:
         session.add(
             CaliberToolRegistry(
                 tool_id=new_tool_id(),
                 name="escalate",
                 version="1.0",
-                module_path="caliber.workflows.demo_tools",
-                callable_name="escalate",
+                module_path=SHIPPED_TOOL_MODULE,
+                callable_name=SHIPPED_TOOL_CALLABLE,
                 side_effect_level="external_action",
                 requires_approval=True,
                 project_id=PROJECT_A,
@@ -1398,7 +1402,7 @@ def test_the_profiles_differ_on_a_protected_tool_node_when_no_governed_context_i
     if reference_app.profile == "reference":
         assert status == "failed"
         assert "requires a governed effect context to run protected registered tool" in str(summary)
-        assert "escalated" not in json.dumps(output)
+        assert "written" not in json.dumps(output)
     else:
         assert status == "completed", summary
-        assert "escalated" in json.dumps(output)
+        assert "written" in json.dumps(output)

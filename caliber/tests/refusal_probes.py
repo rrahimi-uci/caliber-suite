@@ -45,7 +45,7 @@ DEVELOPMENT = CaliberConfig(profile="development")
 #: A module an administrator could register: it is not one of CALIBER's shipped tools.
 ADMIN_MODULE = "json"
 ADMIN_CALLABLE = "dumps"
-#: One of CALIBER's own shipped read-class tools, as the registry seed writes it.
+#: One of CALIBER's own shipped tools, as the registry seed writes it.
 SHIPPED_MODULE = "caliber.workflows.demo_tools"
 SHIPPED_CALLABLE = "grok_parse"
 
@@ -449,7 +449,7 @@ def probe_ep_026(env: ProbeEnv) -> None:
 
 
 def shipped_tool_still_runs_in_the_reference_sandbox(env: ProbeEnv) -> None:
-    """The one exemption: a shipped read-class built-in is run, for real, by a sandbox built for the reference profile."""
+    """The one exemption: a shipped built-in is run, for real, by a sandbox built for the reference profile."""
     result = _reference_sandbox().run_tool(
         ToolSandboxRunRequest(
             module_path=SHIPPED_MODULE,

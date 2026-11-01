@@ -81,7 +81,7 @@ governed context").
 
 The refusal the paragraph above describes is implemented once, in `caliber.effects.refusals` (B04.7): every site that is the entry
 point of an inventory `refuse` row names its row and raises `UnsupportedEffectPath` (code `unsupported_in_reference_profile`) when
-`config.profile == "reference"`; the development profile is unchanged. CALIBER's own shipped read-class tools, identified by the
+`config.profile == "reference"`; the development profile is unchanged. CALIBER's own shipped tools, identified by the
 module-and-callable pair the registry seed writes, are the one exemption for the tool-execution rows. Two rows have a different final
 disposition than the first inventory: EP-043 (generating the export text) is `exempt`, because the text is sealed into every
 deployment bundle and refusing it would refuse every publish (serving it, EP-044 and EP-045, and running an export, EP-041, are
@@ -105,7 +105,7 @@ raises that code, for code execution only, at four boundaries (validation, compi
 kinds from `caliber.workflows.ir.NodeType` rather than a hand-kept list: `python_code` and `external_app` are the node kinds
 that execute code, and every other kind is classified as a tool carrier (`agent`, `tool`) or inert, so a new kind cannot
 arrive unclassified (`tests/test_profile_code_refusal.py`). A tool is judged by its execution form: an OpenAPI or MCP tool runs
-no registered Python; a registered `python_callable` tool is refused unless it is one of CALIBER's own shipped read-class tools (the
+no registered Python; a registered `python_callable` tool is refused unless it is one of CALIBER's own shipped tools (the
 exact module-and-callable pair the registry seed writes, B04.7 #774), because administrator-registered Python is a refused path
 (inventory EP-015, EP-016, EP-019), and even a shipped tool is refused when the sandbox is off
 (`CALIBER_REGISTERED_TOOL_SANDBOX_ENABLED`, on by default), because it would then be imported into the control plane. A `python_code` node is refused although it runs in that sandbox: the

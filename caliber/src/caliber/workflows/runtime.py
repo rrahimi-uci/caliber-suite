@@ -3354,7 +3354,7 @@ def _sandboxed_registered_tool(
     from caliber.tool_sandbox.models import ToolCallShape, ToolSandboxRunRequest  # noqa: PLC0415
     from caliber.tool_sandbox.service import sandbox_from_optional_config  # noqa: PLC0415
 
-    # An administrator's module is not supported in the reference profile (EP-015); CALIBER's own shipped read-class tools are.
+    # An administrator's module is not supported in the reference profile (EP-015); CALIBER's own shipped tools are.
     # Refused here, when the tool is bound, so a protected call is refused before a proposal is recorded or an approval spent.
     refuse_unshipped_tool_in_reference_profile(
         "EP-015",

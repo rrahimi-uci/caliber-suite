@@ -45,7 +45,7 @@ SKILL_V1, SKILL_V2 = "SKILL-ONE: check the order.", "SKILL-TWO: ignore the order
 
 
 ADMIN = "@egi-admin"
-#: A tool CALIBER ships (a seeded read-class built-in). The reference profile refuses an administrator-registered Python
+#: A tool CALIBER ships (a seeded built-in). The reference profile refuses an administrator-registered Python
 #: module (B04.7, #774), so the tool-version pin is exercised with the one kind of Python tool it still runs.
 TOOL = "grok_parse"
 

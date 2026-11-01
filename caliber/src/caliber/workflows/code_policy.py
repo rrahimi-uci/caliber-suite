@@ -37,7 +37,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Final
 
-from caliber.effects.refusals import shipped_tool
+from caliber.effects.refusals import UNSUPPORTED_IN_REFERENCE_PROFILE, shipped_tool
 from caliber.workflows.ir import IRAgent, IRTool, IRToolBinding, IRWorkflow, NodeType
 from caliber.workflows.manifest import (
     AgentNode,
@@ -48,7 +48,7 @@ from caliber.workflows.manifest import (
 from caliber.workflows.tools import ToolResolutionError, ToolResolver
 
 #: The code ADR 0001 names for a path the reference profile refuses (``unsupported_in_reference_profile``).
-REFUSAL_CODE: Final = "unsupported_in_reference_profile"
+REFUSAL_CODE: Final = UNSUPPORTED_IN_REFERENCE_PROFILE
 
 #: Node kinds that execute code, each with what it executes. These are refused outright in the reference profile.
 CODE_NODE_KINDS: Final[Mapping[NodeType, str]] = {
@@ -256,7 +256,7 @@ def tool_form_refusal(
     """The refusal for a tool binding of this execution form under ``policy``, or ``None`` when it is admitted.
 
     * An MCP binding and an OpenAPI operation run no registered Python and are admitted here.
-    * A ``python_callable`` tool is admitted only when it is one of CALIBER's own shipped read-class tools: the exact
+    * A ``python_callable`` tool is admitted only when it is one of CALIBER's own shipped tools: the exact
       (module, callable) pair the registry seed writes and the protected-effect inventory does not refuse
       (``caliber.effects.refusals.shipped_tool``, B04.7, #774). An administrator-registered Python module is refused (its
       run is refused at bind time, EP-015, EP-016, EP-019, so it is refused here too: an author gets the refusal at validation,

@@ -14,7 +14,8 @@ must be a ``refuse`` row, so a typo, or a row someone later re-classifies, fails
 environment of a separate process); no configuration means no profile was named, which is the development default, so a
 helper that is handed none never refuses by accident.
 
-CALIBER's own shipped read-class tools (the seeded built-ins) are the one exemption, and only for the tool-execution rows
+CALIBER's own shipped tools (the seeded built-ins, write-class ones such as ``create_artifact`` and ``memory_add`` included:
+the dispatcher governs those by class, and what they run is CALIBER's own code) are the one exemption, and only for the tool-execution rows
 (:func:`refuse_unshipped_tool_in_reference_profile`): they are code CALIBER ships and tests, identified by the **pair** of
 module and callable the registry seed writes (``BUILTIN_TOOL_MODULE_BY_NAME``), never by a name, an owner or what a registry
 row or a manifest says. A built-in the inventory itself refuses (EP-054, EP-055) is not exempt.
@@ -51,7 +52,7 @@ def profile_from_environment() -> Any:
     For code that runs in its own process (the standalone sandbox service, the first-party database MCP server) and has no
     application configuration object. An unset or unknown value is the development default.
     """
-    return SimpleNamespace(profile=os.environ.get("CALIBER_PROFILE", "").strip())
+    return SimpleNamespace(profile=os.environ.get("CALIBER_PROFILE", "").strip().lower())
 
 
 def refused_row(row_id: str) -> InventoryRow:

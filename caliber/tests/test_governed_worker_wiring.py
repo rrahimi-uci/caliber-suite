@@ -1478,9 +1478,10 @@ def _reference_config(client: Any, **changes: Any) -> CaliberConfig:
 def _built_plan(client: Any, config: CaliberConfig, version_id: str | None = None) -> RuntimePlan:
     from caliber.db.models import CaliberWorkflowVersion
     from caliber.workflows.promoter import build_plan
-    from tests.workflow_helpers import create_and_publish
+    from tests.workflow_helpers import create_and_publish, register_shipped_demo_tools
 
     if version_id is None:
+        register_shipped_demo_tools(client)
         _workflow_id, version_id = create_and_publish(client)
     factory = client.app.state.session_factory
     with factory() as session:
@@ -1494,8 +1495,9 @@ def _built_plan(client: Any, config: CaliberConfig, version_id: str | None = Non
 def test_build_plan_records_the_agents_bound_to_a_mapped_tool_in_the_reference_profile_only(
     client: Any,
 ) -> None:
-    from tests.workflow_helpers import create_and_publish
+    from tests.workflow_helpers import create_and_publish, register_shipped_demo_tools
 
+    register_shipped_demo_tools(client)
     _workflow_id, version_id = create_and_publish(client)
     mapped = _built_plan(client, _reference_config(client), version_id)
     assert mapped.agents_requiring_governance == {"support_agent"}

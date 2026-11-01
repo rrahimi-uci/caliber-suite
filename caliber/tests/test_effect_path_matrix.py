@@ -1150,7 +1150,13 @@ def _case_problems(
             else [f"{row_id}: an exempt row rests on the inventory"]
         )
     if outcome == "dispatched" and status == "unrouted":
-        problems = [] if case.get("owner") else [f"{row_id}: an unrouted row needs an owner note"]
+        problems = (
+            []
+            if re.search(r"#\d+", case.get("owner", ""))
+            else [
+                f"{row_id}: an unrouted row needs an owner note that names its follow-up issue (#nnn)"
+            ]
+        )
         if row_id not in UNROUTED_DISPATCH_ROWS:
             problems.append(f"{row_id} is unrouted but not pinned in UNROUTED_DISPATCH_ROWS")
         return problems
@@ -1249,21 +1255,30 @@ def test_evidence_must_name_a_test_that_exists(tmp_path: Path) -> None:
     ]
 
 
-def test_an_unrouted_row_needs_an_owner_and_a_pin_and_a_routed_row_cannot_be_pinned(
+def test_an_unrouted_row_needs_an_owner_that_names_an_issue_and_a_pin_and_a_routed_row_cannot_be_pinned(
     tmp_path: Path,
 ) -> None:
     (tmp_path / "t.py").write_text("def test_real():\n    pass\n", encoding="utf-8")
-    pinned, unpinned = sorted(UNROUTED_DISPATCH_ROWS)[:2]
-    rows = [_row(pinned, "dispatch"), _row(unpinned, "dispatch"), _row("EP-999", "dispatch")]
+    pinned, unpinned, unissued = sorted(UNROUTED_DISPATCH_ROWS)[:3]
+    rows = [
+        _row(pinned, "dispatch"),
+        _row(unpinned, "dispatch"),
+        _row(unissued, "dispatch"),
+        _row("EP-999", "dispatch"),
+    ]
     cases = {
         pinned: {"outcome": "dispatched", "status": "unrouted"},
         unpinned: {"outcome": "dispatched", "status": "routed", "evidence": "t.py::test_real"},
-        "EP-999": {"outcome": "dispatched", "status": "unrouted", "owner": "somebody"},
+        # an owner that names nobody's issue is a note nobody can follow up
+        unissued: {"outcome": "dispatched", "status": "unrouted", "owner": "somebody"},
+        "EP-999": {"outcome": "dispatched", "status": "unrouted", "owner": "tracked in #1086"},
     }
+    needs_issue = "an unrouted row needs an owner note that names its follow-up issue (#nnn)"
 
     assert matrix_problems(rows, cases, repo_root=tmp_path) == [
-        f"{pinned}: an unrouted row needs an owner note",
+        f"{pinned}: {needs_issue}",
         f"{unpinned} is pinned unrouted but its case says routed",
+        f"{unissued}: {needs_issue}",
         "EP-999 is unrouted but not pinned in UNROUTED_DISPATCH_ROWS",
     ]
 

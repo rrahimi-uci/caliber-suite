@@ -4790,8 +4790,8 @@ processes, the loaded configuration or the process environment).
 | EP-011 | the `python_code` node | the node fails the run before a sandbox is built, whatever sandbox backend is configured |
 | EP-012 | the `external_app` node | refused before the allowlist is read or anything is imported (an allowlisted entrypoint is refused too) |
 | EP-014 | the `output_folder` node | refused before the path is confined or any directory is created |
-| EP-015, EP-016, EP-019 | binding a registered Python tool (the runtime, a generated export, `bind_registered_tool`) | an administrator's module is refused when the tool is bound, before a proposal is recorded or an approval spent, **and at author time**: validation, compile and promotion refuse it with the same code ([Executable code is refused](#executable-code-is-refused-b124a-754)); CALIBER's own shipped read-class tools still bind |
-| EP-020 to EP-023, EP-025, EP-026 | the local subprocess sandbox | a sandbox built for the profile runs only CALIBER's own shipped read-class tools; authored source, an administrator's module and every test suite are refused, and so is any other payload at the single spawn point |
+| EP-015, EP-016, EP-019 | binding a registered Python tool (the runtime, a generated export, `bind_registered_tool`) | an administrator's module is refused when the tool is bound, before a proposal is recorded or an approval spent, **and at author time**: validation, compile and promotion refuse it with the same code ([Executable code is refused](#executable-code-is-refused-b124a-754)); CALIBER's own shipped tools still bind |
+| EP-020 to EP-023, EP-025, EP-026 | the local subprocess sandbox | a sandbox built for the profile runs only CALIBER's own shipped tools; authored source, an administrator's module and every test suite are refused, and so is any other payload at the single spawn point |
 | EP-027, EP-028, EP-029 | the standalone tool-sandbox service | the CLI refuses before it binds a port, `create_app` refuses to build the app, and a handler of an app whose configuration says reference answers `409` |
 | EP-041, EP-042 | `execute_exported_workflow`, the export's knowledge-build runner | refused before anything is read, bound or run, whatever runners or resolvers the caller supplies |
 | EP-044, EP-045 | `GET .../export/python`, `GET .../export/deployment-bundle` | `409` with `reason_code` `unsupported_in_reference_profile`, before the version is looked up |
@@ -4800,11 +4800,13 @@ processes, the loaded configuration or the process environment).
 | EP-078, EP-079, EP-080 | Aria's tool-draft tests, `run_tool_sandbox`, `evaluate_tool_draft` | the draft test gate reports a failed report whose error is the refusal; the two tools answer their error before they read the draft or build a sandbox |
 | EP-114 | the first-party PostgreSQL MCP server | its one writable door (`connection.connect`) refuses when the server's own environment says `CALIBER_PROFILE=reference`; the read tools are unaffected |
 
-**CALIBER's own shipped tools are the one exemption**, and only for the tool-execution rows. A tool is shipped when its **module and
+**CALIBER's own shipped tools are the one exemption**, and only for the tool-execution rows. The seeded write-class built-ins (`create_artifact`, `write_workdir_file`, `memory_add`) are shipped too: what they run is CALIBER's own code, and the dispatcher governs them by their class. A tool is shipped when its **module and
 callable are the pair the registry seed writes** (`workflows.builtin_tools.BUILTIN_TOOL_MODULE_BY_NAME`) and the inventory does not
-refuse its name: `grok_parse` and the other shipped read-class built-ins that are bound to a module run in the reference sandbox as before. A name, an owner or
+refuse its name: `grok_parse` and the other shipped built-ins that are bound to a module run in the reference sandbox as before. A name, an owner or
 what a registry row or a manifest says decides nothing: a tool called `grok_parse` in an administrator's module, or a callable of
 CALIBER's module that the seed does not list, is not shipped.
+
+**What refusing the export routes does not stop.** EP-044 and EP-045 refuse the two routes that serve the runnable export. The generated Python text (EP-043, exempt) is still sealed into the compiled bundle, so it can leave through `POST /workflow-versions/{id}/compile`, `GET /workflow-versions/{id}` and `POST /workflow-versions/{id}/publish` in the reference profile. Closing that is tracked in #1088; until then, do not treat the two `409`s as a guarantee that no generated Python reaches a client.
 
 **What an operator sees.** Each of these is the refusal for the row named:
 
@@ -4865,7 +4867,7 @@ change. Reverting the change restores the paths; nothing is stored. The developm
 
 ## Executable code is refused (B12.4a, #754)
 
-A workflow can run code in two ways, and the reference profile refuses both, except for CALIBER's own shipped read-class tools
+A workflow can run code in two ways, and the reference profile refuses both, except for CALIBER's own shipped tools
 (B04.7, #774; see [Refused paths in the reference profile](#refused-paths-in-the-reference-profile-b047-774)). The kinds are read from the compiler's own IR kind registry (`caliber.workflows.ir.NodeType`), not from
 a list kept by hand: each kind is classified once in `caliber.workflows.code_policy` (code, tool carrier or inert), and
 `tests/test_profile_code_refusal.py` fails when a kind is added to the registry without being classified. Until it is, the kind is **refused**: the profile admits a kind only when it is classified as inert or as a tool carrier (fail closed).
@@ -4874,7 +4876,7 @@ a list kept by hand: each kind is classified once in `caliber.workflows.code_pol
 | --- | --- | --- |
 | `python_code` node | refused | runs the author's Python source. The tool sandbox it runs in is a process boundary (separate interpreter, empty environment, rlimits) with ambient filesystem and network authority, not a container, VM or seccomp boundary. **A sandbox label does not establish isolation.** |
 | `external_app` node | refused | imports and calls installed Python inside the control-plane process (EP-012) |
-| registered `python_callable` tool that is one of CALIBER's own shipped read-class built-ins (the exact module and callable the registry seed writes, not refused by the inventory), sandbox on (the default) | admitted | CALIBER's own code, run in the sandbox child |
+| registered `python_callable` tool that is one of CALIBER's own shipped built-ins (the exact module and callable the registry seed writes, not refused by the inventory), sandbox on (the default) | admitted | CALIBER's own code, run in the sandbox child |
 | registered `python_callable` tool that is anything else (an administrator's module) | refused | administrator-registered Python is a refused path in the reference profile (EP-015, EP-016, EP-019, B04.7, #774): it is refused at validation, compile and promotion with this code, and again when it is bound, so an author never gets a clean publish followed by a refused run |
 | registered `python_callable` tool, `CALIBER_REGISTERED_TOOL_SANDBOX_ENABLED=false` | refused | the tool would be imported into the control plane (EP-015, EP-016, EP-019) |
 | tool with any other execution backend | refused | the profile cannot establish that it runs no code (fail closed) |
