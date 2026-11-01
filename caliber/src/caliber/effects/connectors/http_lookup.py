@@ -183,7 +183,6 @@ def facts_from_lookup(
         lookup_body.get("idempotency_key") != view.logical_key
         or not isinstance(request_id, str)
         or not request_id.strip()
-        or len(request_id) > MAX_REQUEST_ID_CHARS
         or lookup_body.get("url") != view.resource
         or args.get("url") != view.resource
         or expected_method is None
