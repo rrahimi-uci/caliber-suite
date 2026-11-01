@@ -39,7 +39,7 @@ An unknown profile name is a configuration error. `GET /ajax-api/2.0/mlflow/cali
 | `egress_policy_disabled` | `egress_policy_enabled` | `CALIBER_EGRESS_POLICY_ENABLED` | true | The egress policy is what stops a tool or webhook from reaching internal addresses. |
 | `mcp_insecure_http` | `mcp_allow_insecure_http` | `CALIBER_MCP_ALLOW_INSECURE_HTTP` | false | Plain-HTTP MCP servers send tool calls and results in the clear. |
 | `mcp_allowlist_not_in_profile` | `mcp_stdio_command_allowlist, mcp_remote_host_allowlist` | `CALIBER_MCP_STDIO_COMMAND_ALLOWLIST, CALIBER_MCP_REMOTE_HOST_ALLOWLIST` | empty (the profile lists no MCP command or host) | An allowlisted stdio command is arbitrary code on the CALIBER host and an allowlisted remote host is an endpoint nobody reviewed; the dispatcher admits an MCP call, never a server. |
-| `plugin_not_allowlisted` | `plugin_allowlist` | `CALIBER_PLUGIN_ALLOWLIST` | naming every installed optimizer plugin's distribution, or the plugin uninstalled | A plugin is code that runs inside the control plane and can write the artifact CALIBER promotes; the profile loads one only when its distribution is named, and refuses any other installed plugin. |
+| `plugin_not_allowlisted` | `CALIBER_PLUGIN_ALLOWLIST` | `CALIBER_PLUGIN_ALLOWLIST` | naming every installed optimizer plugin's distribution, or the plugin uninstalled | A plugin is code that runs inside the control plane and can write the artifact CALIBER promotes; the profile loads one only when its distribution is named, and refuses any other installed plugin. |
 | `workflow_file_root_unconfined` | `workflow_file_root` | `CALIBER_WORKFLOW_FILE_ROOT` | unset or a directory, never `unconfined` | `unconfined` lets a host-filesystem node read or write any path the server can reach; the profile confines host paths to a configured root or refuses them. |
 | `self_approval_allowed` | `approval_allow_self_approval` | `CALIBER_APPROVAL_ALLOW_SELF_APPROVAL` | false | The account that started a run could approve its own protected action. |
 | `apply_distinct_approver_disabled` | `apply_require_distinct_approver` | `CALIBER_APPLY_REQUIRE_DISTINCT_APPROVER` | true | The account that requested a refinement job could apply its own candidate to production, and a job with no recorded requester could be applied unreviewed. |
@@ -4887,10 +4887,15 @@ uninstall it, then restart the process. `GET /capabilities` lists each installed
 **Host paths.** `CALIBER_WORKFLOW_FILE_ROOT` confines the host-filesystem nodes (`file_input` without a managed file, `folder_input`,
 `output_folder`) to a directory: the path is resolved first (`..` and symlinks included) and a path that lands outside raises
 `PathOutsideRoot`, a `ValueError` that carries the resolved `path` and the `root`, so `../../outside.txt` is refused whatever the
-working directory. Unset refuses these nodes outright. The reference profile removes the third state, the literal `unconfined`:
+working directory. A `folder_input` node confines the files it reads as well as its folder: with a root configured, a glob pattern
+that is absolute or has a `..` segment is refused, and each file the glob returns is resolved (symlinks included) and checked
+against the root before it is opened, so a symlink inside the root that points outside is refused too (names that merely contain
+dots, such as `a..b.txt` or `*.tar.gz`, are ordinary). Unset refuses these nodes outright. The reference profile removes the third state, the literal `unconfined`:
 startup refuses it (`workflow_file_root_unconfined`), and a process that is running the reference profile and sees it anyway refuses
-the node with `unsupported_in_reference_profile` rather than reading the path. The built-in `read_text_file` family is a different
-tool and is refused by the protected-effect inventory (EP-055), not by this root. The managed file tools
+the node with `unsupported_in_reference_profile` rather than reading the path. The built-in `read_text_file`, `list_folder_files`,
+`grep_files` and `regex_search` tools are a different mechanism and are **not** confined by this root: their refusal in the reference
+profile is inventory row EP-055, implemented by B04.7 (#774, PR #1085). **This PR depends on #1085 for that refusal; it holds only on a
+tree that contains it.** The managed file tools
 (`caliber.workflows.file_tools`) never take a host path: they take a `caliber://` ref, and a traversal in a ref
 (`../../outside.txt`) is rejected by the ref grammar before any storage is touched.
 
@@ -4903,8 +4908,14 @@ file/folder input path '/etc/passwd' is outside the configured workflow file roo
 
 **Not done here, and why.** The registered-tool module allowlist (`CALIBER_REGISTERED_TOOL_MODULE_ALLOWLIST`, unset permits every
 module) is unchanged: whether a reference deployment may run an administrator's module at all is the refusal of the protected-effect
-inventory rows EP-015, EP-016 and EP-019 (#774), and a profile rule that demanded a module list now would be a second, partial answer
-to the same question.
+inventory rows EP-015, EP-016 and EP-019, implemented by B04.7 (#774, PR #1085; this PR depends on it), and a profile rule that
+demanded a module list now would be a second, partial answer to the same question.
+
+**Concurrency and ordering.** The registry holds its lock for the whole load, so a caller that arrives while another is loading
+waits for the result (a refusal included) instead of being served a registry that is still empty. A registry first used before the
+profile was bound (so its load skipped an unlisted plugin as a development load does) checks the installed plugins once the profile
+is bound and refuses then, rather than keeping the earlier state. `CALIBER_PLUGIN_ALLOWLIST` is read from the environment only (it
+has no configuration field), so the profile's requirement names the variable as the setting.
 
 **Configuration, migration and rollback.** No new setting, no migration and no stored data change. A reference deployment that has an
 unlisted plugin installed, or `CALIBER_WORKFLOW_FILE_ROOT=unconfined`, now refuses to start: fix it as above before upgrading. The

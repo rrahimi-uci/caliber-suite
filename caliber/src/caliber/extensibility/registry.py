@@ -157,6 +157,9 @@ class OptimizerRegistry:
         #: The refusal the one discovery pass ended in (reference profile), raised again by every later use: a refused
         #: deployment stays refused rather than falling back to the built-ins on the second call.
         self._refusal: PluginRefused | None = None
+        #: Whether the load (or a later check) ran with the reference profile bound; false means a profile bound later
+        #: still has to look at what is installed.
+        self._reference_checked = False
         #: Load failures, kept rather than raised. One broken plugin must not
         #: make CALIBER unstartable, but the failure has to be visible: this is
         #: what ``/capabilities`` reports so an operator sees "requested and
@@ -284,38 +287,64 @@ class OptimizerRegistry:
         records each refused distribution in :attr:`load_errors`, and raises again on every later use. Elsewhere an
         unlisted plugin is skipped.
         """
+        # Held for the whole load, imports included: a thread that arrives while another is loading waits for the result
+        # (refusal included) instead of being served a registry that is still empty or about to be refused. The lock is
+        # re-entrant, so ``register`` and a plugin that looks the registry up while it imports do not deadlock.
         with self._lock:
             if self._plugins_loaded:
-                if self._refusal is not None:
-                    raise self._refusal
+                self._recheck_reference()
                 return
             self._plugins_loaded = True
 
-        # Imported here to keep the module import graph acyclic: entrypoints
-        # needs the registry types.
-        from caliber.extensibility.entrypoints import (  # noqa: PLC0415
-            discover_optimizer_plugins,
-        )
+            # Imported here to keep the module import graph acyclic: entrypoints
+            # needs the registry types.
+            from caliber.extensibility.entrypoints import (  # noqa: PLC0415
+                discover_optimizer_plugins,
+                reference_admission,
+            )
 
-        try:
-            for spec, error in discover_optimizer_plugins():
-                if error is not None:
-                    self.load_errors[error[0]] = error[1]
-                    logger.warning("optimizer plugin %s failed to load: %s", error[0], error[1])
-                    continue
-                if spec is None:
-                    continue
-                try:
-                    self.register(spec)
-                except PluginError as exc:
-                    self.load_errors[spec.distribution or spec.name] = str(exc)
-                    logger.warning("optimizer plugin %s rejected: %s", spec.name, exc)
-        except PluginRefused as refused:
-            with self._lock:
-                self._refusal = refused
-                for distribution in refused.distributions:
-                    self.load_errors[distribution] = str(refused)
-            raise
+            self._reference_checked, refusal = reference_admission()
+            if refusal is not None:
+                self._refuse(refusal)
+            try:
+                for spec, error in discover_optimizer_plugins():
+                    if error is not None:
+                        self.load_errors[error[0]] = error[1]
+                        logger.warning("optimizer plugin %s failed to load: %s", error[0], error[1])
+                        continue
+                    if spec is None:
+                        continue
+                    try:
+                        self.register(spec)
+                    except PluginError as exc:
+                        self.load_errors[spec.distribution or spec.name] = str(exc)
+                        logger.warning("optimizer plugin %s rejected: %s", spec.name, exc)
+            except PluginRefused as refused:
+                self._refuse(refused)
+
+    def _refuse(self, refused: PluginRefused) -> None:
+        """Keep the refusal, record each refused distribution, and raise it (the caller holds the lock)."""
+        self._refusal = refused
+        for distribution in refused.distributions:
+            self.load_errors[distribution] = str(refused)
+        raise refused
+
+    def _recheck_reference(self) -> None:
+        """A registry that loaded before the reference profile was bound refuses once the profile is (caller holds the lock).
+
+        Raises the stored refusal. Otherwise, if the load did not run under the reference profile, checks the installed
+        plugins once now (metadata only): a plugin skipped as unlisted in a development load is a refusal in the profile.
+        """
+        if self._refusal is not None:
+            raise self._refusal
+        if self._reference_checked:
+            return
+        from caliber.extensibility.entrypoints import reference_admission  # noqa: PLC0415
+
+        active, refusal = reference_admission()
+        self._reference_checked = active
+        if refusal is not None:
+            self._refuse(refusal)
 
     def reset_for_tests(self) -> None:
         """Restore the built-in-only state, for tests that install fake plugins."""
@@ -323,6 +352,7 @@ class OptimizerRegistry:
             self._specs = {}
             self._plugins_loaded = False
             self._refusal = None
+            self._reference_checked = False
             self.load_errors = {}
             for spec in BUILTIN_OPTIMIZERS:
                 self._specs[spec.name] = spec

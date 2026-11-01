@@ -1946,3 +1946,288 @@ def test_the_operator_page_documents_the_plugin_and_file_root_refusals() -> None
     ):
         assert needle in section, needle
     assert "code_execution_not_supported_in_reference_profile" not in page
+
+
+# -- the registry under concurrency, and a registry used before the profile was bound -------------------------------------
+
+
+def test_a_thread_arriving_during_a_refused_load_is_refused_too_not_served_the_builtins(
+    clean_registry: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Review finding: the first loader held no lock during discovery, so a concurrent caller saw the built-ins."""
+    import threading
+
+    from caliber.extensibility import PluginRefused, entrypoints
+
+    monkeypatch.delenv(entrypoints.ALLOWLIST_ENV_VAR, raising=False)
+    entered, release = threading.Event(), threading.Event()
+    entries = [_Entry("acme", _spec(), ACME)]
+
+    def slow_entry_points() -> list[_Entry]:
+        entered.set()
+        assert release.wait(10), "the test never released the first loader"
+        return list(entries)
+
+    monkeypatch.setattr(entrypoints, "_entry_points", slow_entry_points)
+    bind_code_policy(REFERENCE)
+    outcomes: dict[str, object] = {}
+
+    def use(name: str) -> None:
+        try:
+            outcomes[name] = clean_registry.names()
+        except PluginRefused as refused:
+            outcomes[name] = refused
+
+    first = threading.Thread(target=use, args=("first",))
+    first.start()
+    assert entered.wait(10)
+    second = threading.Thread(target=use, args=("second",))
+    second.start()
+    second.join(0.3)
+    assert second.is_alive(), (
+        "the second caller must wait for the load, not be served a half-loaded registry"
+    )
+    release.set()
+    first.join(10)
+    second.join(10)
+    assert isinstance(outcomes["first"], PluginRefused) and isinstance(
+        outcomes["second"], PluginRefused
+    )
+
+
+def test_a_thread_arriving_during_an_allowed_load_sees_the_plugin(
+    clean_registry: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import threading
+
+    from caliber.extensibility import entrypoints
+
+    _allow(monkeypatch, ACME)
+    entered, release = threading.Event(), threading.Event()
+    entry = _Entry("acme", _spec(), ACME)
+
+    def slow_entry_points() -> list[_Entry]:
+        entered.set()
+        assert release.wait(10)
+        return [entry]
+
+    monkeypatch.setattr(entrypoints, "_entry_points", slow_entry_points)
+    seen: dict[str, list[str]] = {}
+    threads = [
+        threading.Thread(target=lambda n=n: seen.__setitem__(n, clean_registry.names()))
+        for n in ("first", "second")
+    ]
+    threads[0].start()
+    assert entered.wait(10)
+    threads[1].start()
+    threads[1].join(0.3)
+    assert threads[1].is_alive()
+    release.set()
+    for thread in threads:
+        thread.join(10)
+    assert "AcmeOptimizer" in seen["first"] and "AcmeOptimizer" in seen["second"]
+    assert entry.loads == 1
+
+
+def test_a_registry_used_before_the_profile_was_bound_refuses_once_it_is(
+    clean_registry: Any,
+    installed: Callable[..., list[_Entry]],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A load that ran before ``create_app`` bound the profile must not latch a state the profile would refuse."""
+    from caliber.extensibility import PluginRefused
+
+    (entry,) = installed(_Entry("acme", _spec(), ACME))
+    assert (
+        "MetaPrompt" in clean_registry.names()
+    )  # a development load: the unlisted plugin is skipped
+    assert entry.loads == 0
+
+    bind_code_policy(REFERENCE)
+    with pytest.raises(PluginRefused) as raised:
+        clean_registry.names()
+    assert raised.value.distribution == ACME and entry.loads == 0
+    with pytest.raises(PluginRefused):  # and it stays refused
+        clean_registry.get("MetaPrompt")
+    assert clean_registry.load_errors[ACME].startswith(REFUSAL_CODE)
+
+
+def test_a_registry_loaded_before_the_profile_is_untouched_when_every_plugin_is_allowlisted(
+    clean_registry: Any,
+    installed: Callable[..., list[_Entry]],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    installed(_Entry("acme", _spec(), ACME))
+    _allow(monkeypatch, ACME)
+    assert "AcmeOptimizer" in clean_registry.names()
+    bind_code_policy(REFERENCE)
+    assert "AcmeOptimizer" in clean_registry.names()
+    assert clean_registry._reference_checked is True
+    clean_registry.names()  # the check ran once; a later call is a plain lookup
+
+
+def test_a_registry_that_is_never_in_the_reference_profile_does_not_recheck(
+    clean_registry: Any, installed: Callable[..., list[_Entry]]
+) -> None:
+    installed(_Entry("acme", _spec(), ACME))
+    clean_registry.names()
+    clean_registry.names()
+    assert clean_registry._reference_checked is False
+
+
+def test_a_refusal_raised_by_discovery_itself_is_kept_like_any_other(
+    clean_registry: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The allowlist can change between the up-front check and discovery: that refusal is kept and recorded too."""
+    from caliber.extensibility import PluginRefused, entrypoints
+
+    def refusing() -> Any:
+        raise PluginRefused(["raced-plugin"], f"{REFUSAL_CODE}: raced")
+        yield  # pragma: no cover - makes this a generator, as the real discovery is
+
+    monkeypatch.setattr(entrypoints, "discover_optimizer_plugins", refusing)
+    with pytest.raises(PluginRefused):
+        clean_registry.load_plugins()
+    assert clean_registry.load_errors == {"raced-plugin": f"{REFUSAL_CODE}: raced"}
+    with pytest.raises(PluginRefused):
+        clean_registry.load_plugins()
+
+
+# -- folder_input: the files a glob names are confined, not only the folder -------------------------------------------------
+
+
+def _folder_tree(tmp_path: Path) -> tuple[Path, Path]:
+    """``root/`` (the configured root, with ``inside.txt``) next to ``outside/`` (``secret.txt``), plus escape links."""
+    root = tmp_path / "root"
+    outside = tmp_path / "outside"
+    (root / "sub").mkdir(parents=True)
+    outside.mkdir()
+    (root / "inside.txt").write_text("fine", encoding="utf-8")
+    (root / "sub" / "nested.txt").write_text("nested", encoding="utf-8")
+    (outside / "secret.txt").write_text("SECRET", encoding="utf-8")
+    (root / "file-link.txt").symlink_to(outside / "secret.txt")
+    (root / "dir-link").symlink_to(outside, target_is_directory=True)
+    return root, outside
+
+
+def _read_folder(
+    base: Path, pattern: str, *, recursive: bool = False
+) -> tuple[str, list[Any], Any]:
+    return runtime_module._read_folder_input_node(
+        base,
+        pattern=pattern,
+        recursive=recursive,
+        max_files=50,
+        max_bytes_per_file=1000,
+        encoding="utf-8",
+    )
+
+
+@pytest.mark.parametrize("policy", [DEVELOPMENT, REFERENCE], ids=["development", "reference"])
+@pytest.mark.parametrize(
+    "pattern",
+    ["../outside/*", "sub/../../outside/*", "..", "../*", "/etc/*", "/*", "\\..\\outside\\*"],
+)
+def test_a_folder_pattern_that_walks_out_of_the_folder_is_refused(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, policy: CodePolicy, pattern: str
+) -> None:
+    from caliber.workflows.runtime import PathOutsideRoot
+
+    root, _ = _folder_tree(tmp_path)
+    monkeypatch.setenv("CALIBER_WORKFLOW_FILE_ROOT", str(root))
+    bind_code_policy(policy)
+    with pytest.raises(PathOutsideRoot) as raised:
+        _read_folder(root.resolve(), pattern)
+    assert "SECRET" not in str(raised.value)
+
+
+@pytest.mark.parametrize("policy", [DEVELOPMENT, REFERENCE], ids=["development", "reference"])
+@pytest.mark.parametrize("pattern", ["*", "*.txt", "**/*"])
+def test_a_symlink_inside_the_root_that_points_outside_is_never_read(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, policy: CodePolicy, pattern: str
+) -> None:
+    from caliber.workflows.runtime import PathOutsideRoot
+
+    root, _ = _folder_tree(tmp_path)
+    monkeypatch.setenv("CALIBER_WORKFLOW_FILE_ROOT", str(root))
+    bind_code_policy(policy)
+    with pytest.raises(PathOutsideRoot) as raised:
+        _read_folder(root.resolve(), pattern, recursive=True)
+    assert "SECRET" not in str(raised.value)
+
+
+@pytest.mark.parametrize("policy", [DEVELOPMENT, REFERENCE], ids=["development", "reference"])
+def test_a_folder_pattern_that_stays_inside_the_root_is_read(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, policy: CodePolicy
+) -> None:
+    root = tmp_path / "root"
+    (root / "sub").mkdir(parents=True)
+    (root / "inside.txt").write_text("fine", encoding="utf-8")
+    (root / "sub" / "nested.txt").write_text("nested", encoding="utf-8")
+    # Dots that are not a ``..`` segment are ordinary names.
+    (root / "archive.tar.gz").write_text("tar", encoding="utf-8")
+    (root / "a..b.txt").write_text("dots", encoding="utf-8")
+    (root / "..hidden.txt").write_text("hidden", encoding="utf-8")
+    monkeypatch.setenv("CALIBER_WORKFLOW_FILE_ROOT", str(root))
+    bind_code_policy(policy)
+    base = root.resolve()
+
+    assert _read_folder(base, "*.txt")[2]["file_count"] == 3
+    assert _read_folder(base, "*.tar.gz")[1][0]["text"] == "tar"
+    assert _read_folder(base, "a..b.txt")[1][0]["text"] == "dots"
+    assert _read_folder(base, "..hidden*")[1][0]["text"] == "hidden"
+    text, files, _ = _read_folder(base, "sub/*.txt")
+    assert [f["relative_path"] for f in files] == ["sub/nested.txt"] and "nested" in text
+    assert _read_folder(base, "**/*.txt", recursive=True)[2]["file_count"] == 4
+
+
+def test_the_development_profile_without_a_root_keeps_its_unconfined_behaviour(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``unconfined`` is the explicit opt-out: there is no boundary, so the pattern and the links are left alone."""
+    root, _ = _folder_tree(tmp_path)
+    monkeypatch.setenv("CALIBER_WORKFLOW_FILE_ROOT", "unconfined")
+    bind_code_policy(DEVELOPMENT)
+    _, files, _ = _read_folder(root, "../outside/*")
+    assert [f["text"] for f in files] == ["SECRET"]
+    _, linked, _ = _read_folder(root, "file-link.txt")
+    assert [f["text"] for f in linked] == ["SECRET"]
+
+
+def test_a_folder_input_node_run_refuses_an_escaping_pattern_and_a_symlink(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root, _ = _folder_tree(tmp_path)
+    (root / "dir-link").unlink()  # leave only the file link, so one run per cause
+    monkeypatch.setenv("CALIBER_WORKFLOW_FILE_ROOT", str(root))
+
+    def manifest(pattern: str) -> dict[str, Any]:
+        data = make_manifest()
+        data["nodes"]["folder_input"] = {
+            "id": "folder_input",
+            "type": "folder_input",
+            "pattern": pattern,
+            "recursive": False,
+            "max_files": 5,
+            "inputs": {"path": {"type": "string"}},
+            "outputs": {
+                "text": {"type": "string"},
+                "files": {"type": "structured"},
+                "metadata": {"type": "structured"},
+            },
+        }
+        data["edges"] = [
+            {"id": "e1", "from": "start", "to": "folder_input", "map": {"msg": "path"}},
+            {"id": "e2", "from": "folder_input", "to": "agent", "map": {"text": "input"}},
+            {"id": "e3", "from": "agent", "to": "final", "map": {"final_output": "response"}},
+        ]
+        return data
+
+    for pattern in ("../outside/*", "*"):
+        refused = execute(_plan(manifest(pattern)), str(root), executor=FakeWorkflowExecutor())
+        assert refused.status != "completed", pattern
+        assert "outside" in str(refused.error)
+        assert "SECRET" not in str(refused.output) + str(refused.error)
+    (root / "file-link.txt").unlink()
+    ok = execute(_plan(manifest("*.txt")), str(root), executor=FakeWorkflowExecutor())
+    assert ok.status == "completed", ok.error

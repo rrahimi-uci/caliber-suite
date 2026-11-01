@@ -293,7 +293,7 @@ REFERENCE_REQUIREMENTS: tuple[Requirement, ...] = (
     ),
     Requirement(
         "plugin_not_allowlisted",
-        "plugin_allowlist",
+        "CALIBER_PLUGIN_ALLOWLIST",
         "CALIBER_PLUGIN_ALLOWLIST",
         "naming every installed optimizer plugin's distribution, or the plugin uninstalled",
         "A plugin is code that runs inside the control plane and can write the artifact CALIBER promotes; the profile loads one only when its distribution is named, and refuses any other installed plugin.",
@@ -376,7 +376,7 @@ def _plugin_and_file_root_violations(config: CaliberConfig) -> list[ProfileViola
         found.append(
             ProfileViolation(
                 code="plugin_not_allowlisted",
-                setting="plugin_allowlist",
+                setting="CALIBER_PLUGIN_ALLOWLIST",
                 env_var=ALLOWLIST_ENV_VAR,
                 message=(
                     f"optimizer plugin {', '.join(refused_plugins)} is installed but not allowlisted, and the reference "

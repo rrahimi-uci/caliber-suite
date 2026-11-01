@@ -1560,7 +1560,8 @@ def test_an_unlisted_plugin_is_a_violation_naming_it_and_the_variable(
     (violation,) = reference_profile_violations(_config(app_config))
     assert violation.code == "plugin_not_allowlisted"
     assert (
-        violation.setting == "plugin_allowlist" and violation.env_var == "CALIBER_PLUGIN_ALLOWLIST"
+        violation.setting == "CALIBER_PLUGIN_ALLOWLIST"
+        and violation.env_var == "CALIBER_PLUGIN_ALLOWLIST"
     )
     assert violation.message == (
         "optimizer plugin alpha-plugin, plugin2, zeta-plugin is installed but not allowlisted, and the "

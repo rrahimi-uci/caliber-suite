@@ -50,7 +50,8 @@ ALLOWLIST_ENV_VAR = "CALIBER_PLUGIN_ALLOWLIST"
 def allowlisted_distributions() -> frozenset[str]:
     """Distributions the deployment permits, normalised.
 
-    Normalised the way packaging does (lowercase, ``_``/``.`` → ``-``) so
+    Normalised by lowercasing and mapping ``_`` and ``.`` to ``-`` (a simplification of PEP 503, which also collapses
+    runs of separators) so
     ``Acme_Caliber_Optimizers`` in the environment matches ``acme-caliber-
     optimizers`` in the metadata. Without that, an allowlist entry could look
     correct and silently match nothing.
@@ -97,6 +98,19 @@ def _refusal(labels: list[str]) -> PluginRefused:
     )
     logger.warning("%s", message)
     return PluginRefused(labels, message)
+
+
+def reference_admission() -> tuple[bool, PluginRefused | None]:
+    """``(reference profile active, the refusal for every installed unlisted plugin or None)``, importing nothing.
+
+    The refusal is built (and logged) only in the reference profile and only when some installed plugin is not
+    allowlisted. The registry uses it before it imports anything, and again when it was first used before the profile was
+    bound, so a registry never latches a state from before the profile existed.
+    """
+    if not _reference_profile_active():
+        return False, None
+    refused = unallowlisted_plugin_labels()
+    return True, (_refusal(refused) if refused else None)
 
 
 def require_admitted_plugin(distribution: str | None) -> None:
@@ -166,9 +180,10 @@ def discover_optimizer_plugins() -> Iterator[tuple[OptimizerSpec | None, tuple[s
     but they are yielded rather than swallowed, because a plugin the operator
     explicitly allowlisted and that then failed to load is a fact they need.
     """
-    if _reference_profile_active() and (refused := unallowlisted_plugin_labels()):
+    _, refusal = reference_admission()
+    if refusal is not None:
         # Before the first plugin is imported, so a refused deployment runs none of them (raised on first iteration).
-        raise _refusal(refused)
+        raise refusal
     allowed = allowlisted_distributions()
     for entry in _entry_points():
         distribution = _distribution_of(entry)
@@ -297,6 +312,7 @@ __all__ = [
     "allowlisted_distributions",
     "available_optimizer_plugins",
     "discover_optimizer_plugins",
+    "reference_admission",
     "require_admitted_plugin",
     "unallowlisted_plugin_labels",
 ]

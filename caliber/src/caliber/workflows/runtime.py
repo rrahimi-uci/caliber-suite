@@ -9716,6 +9716,28 @@ def _read_text_file_node(
     }
 
 
+def _reject_escaping_glob(pattern: str) -> None:
+    """Refuse a folder-input glob that names a path outside the folder, when a file root confines the nodes.
+
+    An absolute pattern or a ``..`` segment walks out of the base path that was confined. With a root configured this
+    raises :class:`PathOutsideRoot`-style refusal up front (the per-file check in the reader is the boundary; this is the
+    clear error). With ``unconfined`` there is no boundary to protect and the pattern is left alone.
+    """
+    from caliber.config import workflow_file_root  # noqa: PLC0415
+
+    root = workflow_file_root()
+    if root is None:
+        return
+    segments = pattern.replace("\\", "/").split("/")
+    if ".." in segments or Path(pattern).is_absolute():
+        raise PathOutsideRoot(
+            f"folder input pattern {pattern!r} names a path outside the folder: an absolute pattern or a '..' segment "
+            f"is not allowed while CALIBER_WORKFLOW_FILE_ROOT confines host paths",
+            path=Path(pattern),
+            root=root,
+        )
+
+
 def _read_folder_input_node(
     path: Path,
     *,
@@ -9733,11 +9755,15 @@ def _read_folder_input_node(
     glob_pattern = pattern or ("**/*" if recursive else "*")
     if not recursive and "**" in glob_pattern:
         glob_pattern = glob_pattern.replace("**/", "").replace("**", "*")
+    _reject_escaping_glob(glob_pattern)
     candidates = sorted((p for p in path.glob(glob_pattern) if p.is_file()), key=str)
     selected = candidates[:max_files]
     files: list[dict[str, Any]] = []
     chunks: list[str] = []
     for file_path in selected:
+        # The base was confined, the files it globs are not the base: a pattern (``../x/*``) or a symlink inside the root
+        # can name a file outside it, so every file is resolved and checked before it is opened (B12.4b, #763).
+        confine_to_file_root(file_path, what="folder input file")
         text, metadata = _read_text_file_node(
             file_path,
             encoding=encoding,
