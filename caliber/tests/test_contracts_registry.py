@@ -572,11 +572,19 @@ NESTED_REQUIRED: dict[tuple[str, tuple[str, ...]], set[str]] = {
 }
 
 
+#: The optional fields a nested object has besides the required ones, stated here for the same reason. A proposed action may name the
+#: function the model called (``tool``, B04.6 #768): a selector that is not part of the intent, so it is never required.
+NESTED_OPTIONAL: dict[tuple[str, tuple[str, ...]], set[str]] = {
+    ("agent_step_result", ("proposed_actions", "[]")): {"tool"},
+}
+
+
 @pytest.mark.parametrize(("kind", "path"), list(NESTED_REQUIRED))
 def test_nested_objects_require_exactly_the_documented_fields(
     kind: str, path: tuple[str, ...]
 ) -> None:
     node = schema_at(load_schema(kind, "v1"), path)
+    optional = NESTED_OPTIONAL.get((kind, path), set())
     assert set(node["required"]) == NESTED_REQUIRED[(kind, path)]
-    assert set(node["properties"]) == NESTED_REQUIRED[(kind, path)]
+    assert set(node["properties"]) == NESTED_REQUIRED[(kind, path)] | optional
     assert node["additionalProperties"] is False

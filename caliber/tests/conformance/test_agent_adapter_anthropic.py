@@ -22,7 +22,6 @@ import pytest
 
 from caliber.config import provider_request_timeout
 from caliber.contracts.agent_step import StepUsage, parse_step_result
-from caliber.effects.inventory import EFFECT_CLASSES
 from caliber.workflows.agent_step import (
     ADAPTER_TIMEOUT,
     AgentStepAdapter,
@@ -229,17 +228,12 @@ def test_a_read_tool_is_offered_as_itself_and_a_protected_tool_as_a_proposal() -
         "input": {"type": "string", "description": "Tool input."}
     }
     protected = specs[PROTECTED_TOOL]
-    assert "never run" in protected["description"]
+    assert "does not run the tool" in protected["description"]
     schema = protected["input_schema"]
     assert schema["additionalProperties"] is False
-    assert schema["required"] == [
-        "connector",
-        "connector_version",
-        "effect_class",
-        "resource",
-        "args",
-    ]
-    assert schema["properties"]["effect_class"]["enum"] == list(EFFECT_CLASSES)
+    # the model is asked for the tool's arguments and nothing it could claim: no connector, version or class (B04.6)
+    assert schema["required"] == ["args"]
+    assert set(schema["properties"]) == {"args", "resource", "expected_resource_version"}
     assert schema["properties"]["args"] == {
         "type": "object",
         "properties": {"document_type": {"type": "string"}},
@@ -267,7 +261,7 @@ def test_a_tool_the_platform_did_not_classify_read_is_a_proposal_even_if_the_bin
     assert result.stop_reason == "proposed_action"
     assert ctx.read_calls == []
     specs = {spec["name"]: spec for spec in client.messages.calls[0]["tools"]}
-    assert "never run" in specs[READ_TOOL]["description"]
+    assert "does not run the tool" in specs[READ_TOOL]["description"]
 
 
 def test_a_read_tool_that_requires_approval_is_never_run() -> None:
@@ -401,7 +395,8 @@ def test_a_protected_call_is_proposed_from_the_models_input_and_never_run() -> N
     )
     assert result.stop_reason == "proposed_action"
     (action,) = result.proposed_actions
-    assert action == ctx.protected_action() and action.platform_bound is False
+    assert action == ctx.named_action() and action.platform_bound is False
+    assert action.tool == PROTECTED_TOOL
     assert action.expected_resource_version is None
     assert used(result) == (30, 7, 37, 1, 0)
     assert ctx.protected_calls == [] and ctx.read_calls == []
@@ -804,7 +799,8 @@ UNREADABLE: dict[str, Callable[[StepContext], Response]] = {
     "stop_sequence_with_a_call": lambda c: reply_with(tool(), stop="stop_sequence"),
     "unknown_tool": lambda c: reply_with(tool(name=f"unknown-{SECRET_MARKER}")),
     "proposal_without_args": lambda c: planted_proposal(c, args=...),
-    "proposal_without_connector": lambda c: planted_proposal(c, connector=...),
+    "proposal_with_a_connector": lambda c: planted_proposal(c, connector="document-request"),
+    "proposal_with_a_version": lambda c: planted_proposal(c, connector_version="1"),
     "proposal_with_state": lambda c: planted_proposal(c, state="committed"),
     "proposal_with_receipt": lambda c: planted_proposal(c, receipt_id=SECRET_MARKER),
     "proposal_with_approval": lambda c: planted_proposal(c, approval=SECRET_MARKER),

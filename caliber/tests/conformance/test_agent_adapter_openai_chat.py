@@ -25,7 +25,12 @@ from typing import Any
 import httpx
 import pytest
 
-from caliber.contracts.agent_step import AgentStepRequest, AgentStepResult, parse_step_result
+from caliber.contracts.agent_step import (
+    UNCLAIMED,
+    AgentStepRequest,
+    AgentStepResult,
+    parse_step_result,
+)
 from caliber.testing.adapter_conformance import (
     MALFORMED_USAGE,
     AdapterUnderTest,
@@ -43,7 +48,6 @@ from caliber.workflows.agent_step import (
 )
 from caliber.workflows.runtime import OpenAIChatWorkflowExecutor
 from tests.agent_step_conformance import (
-    PROTECTED_CLASS,
     PROTECTED_TOOL,
     READ_TOOL,
     SCENARIOS,
@@ -143,16 +147,8 @@ def executor_for(
 
 
 def envelope(ctx: StepContext, **changes: Any) -> dict[str, Any]:
-    """The arguments of a model's call to the protected tool: the action it proposes, with its claims."""
-    proposal = {
-        "connector": "document-request",
-        "connector_version": "1.0.0",
-        "effect_class": PROTECTED_CLASS,
-        "resource": "cases/CASE-1/document-requests",
-        "args": ctx.staged_args,
-    }
-    proposal.update(changes)
-    return proposal
+    """The arguments of a model's call to the protected tool: its own arguments only, no claim (B04.6)."""
+    return ctx.proposal_envelope(**changes)
 
 
 def limits(**changes: Any) -> dict[str, Any]:
@@ -308,14 +304,9 @@ def test_read_tools_are_offered_plainly_and_protected_tools_as_a_proposal() -> N
     assert "proposes the action" in protected["description"]
     schema = protected["parameters"]
     assert schema["additionalProperties"] is False
-    assert set(schema["required"]) == {
-        "connector",
-        "connector_version",
-        "effect_class",
-        "resource",
-        "args",
-    }
-    assert "irreversible_write" in schema["properties"]["effect_class"]["enum"]
+    # the model is asked for the tool's arguments and nothing it could claim: no connector, version or class (B04.6)
+    assert schema["required"] == ["args"]
+    assert set(schema["properties"]) == {"args", "resource", "expected_resource_version"}
     assert request["tool_choice"] == "auto"
     assert request["messages"][0]["role"] == "system"
     assert request["messages"][-1] == {"role": "user", "content": ctx.step_input.input_text}
@@ -715,10 +706,11 @@ def test_a_protected_tool_is_proposed_from_the_models_envelope_and_never_run() -
     )
     (action,) = result.proposed_actions
     assert result.stop_reason == "proposed_action" and usage_of(result) == (40, 10, 50, 1, 0)
+    assert action.tool == PROTECTED_TOOL, "the proposal names the function the model called"
     assert (action.connector, action.connector_version, action.resource) == (
-        "document-request",
-        "1.0.0",
-        "cases/CASE-1/document-requests",
+        UNCLAIMED,
+        UNCLAIMED,
+        UNCLAIMED,
     )
     assert action.expected_resource_version == "v7" and dict(action.args) == ctx.staged_args
     assert action.platform_bound is False
@@ -761,7 +753,6 @@ def bad_envelopes(ctx: StepContext) -> dict[str, Any]:
         "not-json": "{nope",
         "empty-arguments": "",
         "a-list": [good],
-        "missing-resource": {k: v for k, v in good.items() if k != "resource"},
         "missing-args": {k: v for k, v in good.items() if k != "args"},
         "unknown-key": {**good, "state": "committed"},
         "a-receipt": {**good, "receipt_id": "r-1"},

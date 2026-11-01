@@ -298,6 +298,16 @@ Beyond the `proposal` record, the step contract also bounds sizes (`connector` 1
 stays as shipped. A `ProposedAction` is immutable (`args` is a read-only deep view, `intent` and `record()` are fresh copies), and two are
 equal exactly when their canonical intents are.
 
+**`tool` (B04.6, #768, additive, optional).** A ProposedAction may also carry `tool`: the local name of the function the model called
+(a string of 1 to 128 characters, the identifier rule above). It is **not part of the intent**: the canonical bytes, the `intent_hash` and the
+stored `proposal` record are unchanged, and a proposal without it is read exactly as before (readers before writers: the field is optional
+and v1 readers that predate it refuse it as an unknown field only if they are older than this change). With it the model supplies the tool's
+arguments and claims nothing: the `connector`, `connector_version` and `effect_class` it carries are the placeholders `unclaimed`, `unclaimed`
+and `read` (`read` is never a valid class for a protected action, so it cannot be mistaken for a claim), and the platform binds them, and the
+resource of a tool whose destination it derives, from the called tool's trusted identity (`caliber.effects.step_proposal`). `tool` is a
+selector, never an authority: a name that is not one of the agent's tools is refused (`unknown_tool`) and a tool the platform classifies
+`read` is never proposed (`tool_not_protected`).
+
 **Quiet refusals.** Both agent-step kinds take model-influenced input, so `validate_record` refuses them without echoing it: a message
 names the field and the rule it broke (`proposed_actions/0/effect_class: is not one of [...]`), never the offending value, an unexpected
 property name or an unbounded amount of text; at most 20 violations are listed, an unsupported version is named only when it is a short

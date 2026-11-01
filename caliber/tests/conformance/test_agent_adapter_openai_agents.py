@@ -30,7 +30,6 @@ from caliber.workflows.agent_step import AgentStepInput, StepHandoffTarget, run_
 from caliber.workflows.ir import IRAgent, IRToolBinding, NodeType
 from caliber.workflows.runtime import OpenAIAgentsWorkflowExecutor
 from tests.agent_step_conformance import (
-    PROTECTED_CLASS,
     PROTECTED_TOOL,
     READ_TOOL,
     SCENARIOS,
@@ -157,15 +156,8 @@ def _response_for(ctx: StepContext, *, text: str = "done") -> _Response:
 
 
 def _envelope(ctx: StepContext, **changes: Any) -> dict[str, Any]:
-    value: dict[str, Any] = {
-        "connector": "document-request",
-        "connector_version": "1.0.0",
-        "effect_class": PROTECTED_CLASS,
-        "resource": "cases/CASE-1/document-requests",
-        "args": ctx.staged_args,
-    }
-    value.update(changes)
-    return value
+    """The arguments of a model's call to the protected tool: its own arguments only, no claim (B04.6)."""
+    return ctx.proposal_envelope(**changes)
 
 
 def _invoke(tool: Any, payload: Any) -> str:
@@ -555,21 +547,18 @@ def test_agents_defensive_decoders_and_unconfigured_loader(  # noqa: PLR0915 - d
     )
     assert adapter._tool_parameters(binding)["properties"]["id"]["type"] == "string"
     with pytest.raises(adapter._Unreadable):
-        adapter._proposal("{")
+        adapter._proposal("tool", "{")
     with pytest.raises(adapter._Unreadable):
-        adapter._proposal(json.dumps({"connector": "only"}))
+        adapter._proposal("tool", json.dumps({"connector": "only"}))
     with pytest.raises(adapter._Unreadable):
         adapter._proposal(
-            json.dumps(
-                {
-                    "connector": 1,
-                    "connector_version": "1",
-                    "effect_class": PROTECTED_CLASS,
-                    "resource": "r",
-                    "args": {},
-                }
-            )
+            "tool",
+            json.dumps({"connector": "document-request", "effect_class": "read", "args": {}}),
         )
+    with pytest.raises(adapter._Unreadable):
+        adapter._proposal("tool", json.dumps({"args": {}, "resource": 1}))
+    action = adapter._proposal("tool", json.dumps({"args": {"a": 1}}))
+    assert action.tool == "tool" and dict(action.args) == {"a": 1}
     with pytest.raises(adapter._Unreadable):
         adapter._usage(None, turns=1, tool_calls=0)
     with pytest.raises(adapter._Unreadable):
