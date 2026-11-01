@@ -91,6 +91,8 @@ from caliber.config import (
 from caliber.contracts.agent_step import (
     REQUEST_KIND,
     RESULT_KIND,
+    UNCLAIMED,
+    UNCLAIMED_EFFECT_CLASS,
     AgentStepRequest,
     AgentStepResult,
     ProposedAction,
@@ -239,6 +241,69 @@ class AgentStepAdapter(Protocol):
     def run_step(
         self, request: AgentStepRequest, step_input: AgentStepInput
     ) -> AgentStepResult: ...
+
+
+#: The only fields of the arguments a model gives when it calls a protected tool (B04.6, #768). The model supplies the tool's own
+#: arguments under ``args``; it may name the destination (``resource``, for a tool whose destination is the model's to choose within
+#: a connector's pattern) and the version it expects. It supplies **no** connector, connector version or effect class: the platform
+#: derives them from the called tool's trusted identity, and a model that volunteers one is unreadable (``malformed_result``).
+PROPOSAL_REQUIRED: Final = ("args",)
+PROPOSAL_OPTIONAL: Final = ("resource", "expected_resource_version")
+PROPOSAL_FIELDS: Final = frozenset(PROPOSAL_REQUIRED + PROPOSAL_OPTIONAL)
+#: The sentence every adapter adds to a protected tool's description, so the model knows what it is, and is not, asked for.
+PROPOSAL_DESCRIPTION: Final = (
+    "Calling this does not run the tool: it proposes the action for approval. Give only the tool's arguments in `args`; "
+    "the platform decides the connector, its version and the effect class."
+)
+
+
+def proposal_parameters(args_schema: Mapping[str, Any]) -> dict[str, Any]:
+    """The parameters schema a protected tool is offered with: its own arguments under ``args``, and nothing the model could claim."""
+    return {
+        "type": "object",
+        "additionalProperties": False,
+        "required": list(PROPOSAL_REQUIRED),
+        "properties": {
+            "args": dict(args_schema),
+            "resource": {
+                "type": ["string", "null"],
+                "minLength": 1,
+                "maxLength": 512,
+                "description": "Only when the tool asks you to name the destination; otherwise null.",
+            },
+            "expected_resource_version": {
+                "type": ["string", "null"],
+                "minLength": 1,
+                "maxLength": 256,
+                "description": "The version of the resource you expect, or null.",
+            },
+        },
+    }
+
+
+def proposal_from_call(tool: str, envelope: object) -> ProposedAction:
+    """The model's call of the protected tool ``tool`` as a proposal that names it; ``ValueError`` when the call is not one.
+
+    The action carries the **called function's name** (:attr:`ProposedAction.tool`), so the platform binds it from that tool's
+    trusted identity; its connector, version and class are the placeholders (:data:`~caliber.contracts.agent_step.UNCLAIMED`),
+    never a model's claim. An unknown field (a model that volunteers ``effect_class``, ``connector``, ``state`` or ``receipt_id``),
+    a missing ``args`` or a value that cannot be built into an intent is refused here, before the platform sees anything.
+    """
+    if (
+        type(envelope) is not dict
+        or not PROPOSAL_FIELDS.issuperset(envelope)
+        or not set(PROPOSAL_REQUIRED).issubset(envelope)
+    ):
+        raise ValueError("a protected tool's call is not a proposal")
+    return ProposedAction(
+        connector=UNCLAIMED,
+        connector_version=UNCLAIMED,
+        effect_class=UNCLAIMED_EFFECT_CLASS,
+        resource=UNCLAIMED if envelope.get("resource") is None else envelope["resource"],
+        args=envelope["args"],
+        expected_resource_version=envelope.get("expected_resource_version"),
+        tool=tool,
+    )
 
 
 def answer(
@@ -791,6 +856,10 @@ __all__ = [
     "LIMIT_STOPS",
     "MALFORMED_RESULT",
     "NOT_CALLED_CODES",
+    "PROPOSAL_DESCRIPTION",
+    "PROPOSAL_FIELDS",
+    "PROPOSAL_OPTIONAL",
+    "PROPOSAL_REQUIRED",
     "PROVIDER_ERROR",
     "SCRIPT_EXHAUSTED",
     "SYSTEM_CLOCK",
@@ -818,6 +887,8 @@ __all__ = [
     "cap_limits",
     "failure",
     "filter_read_tools",
+    "proposal_from_call",
+    "proposal_parameters",
     "read_instant",
     "refusal",
     "resolve_clock",

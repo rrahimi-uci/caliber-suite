@@ -37,7 +37,6 @@ from tests.conformance.test_agent_adapter_openai_agents import agents_subject
 from tests.conformance.test_agent_adapter_openai_chat import chat_subject
 from tests.conformance.test_agent_adapter_openai_responses import responses_subject
 from tests.test_governed_agent_step import (
-    CONNECTOR,
     LIMITS,
     PROTECTED,
     RESOURCE,
@@ -57,14 +56,11 @@ INPUT = "please ask for the pay statement"
 
 
 def _proposal(**changes: Any) -> dict[str, Any]:
-    """What a model sends the governed plan's protected tool: the proposal envelope the adapters offer."""
-    envelope = {
-        "connector": CONNECTOR,
-        "connector_version": "1",
-        "effect_class": "irreversible_write",
-        "resource": RESOURCE,
-        "args": {"document_type": "pay_statement"},
-    }
+    """What a model sends the governed plan's protected tool: the tool's arguments and the destination it names (B04.6).
+
+    No connector, version or class: the platform binds those from the called function's trusted identity.
+    """
+    envelope = {"resource": RESOURCE, "args": {"document_type": "pay_statement"}}
     envelope.update(changes)
     return envelope
 
@@ -142,7 +138,8 @@ def test_a_model_that_lies_about_the_effect_class_records_nothing(
         ),
     )
     result, probe, canaries = _run(world, subject, script)
-    assert result.status == "error" and "claim_mismatch" in (result.error or ""), result.error
+    # The model volunteered a class the tool's envelope has no field for: the call is unreadable and nothing is recorded.
+    assert result.status == "error" and "malformed_result" in (result.error or ""), result.error
     assert canaries.mutations == [] and _proposals(world) == []
     assert probe.provider_calls == 1
 

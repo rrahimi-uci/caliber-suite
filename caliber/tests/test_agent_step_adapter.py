@@ -126,10 +126,10 @@ class FakeDriver:
                 read_tool_calls=((READ_TOOL, ctx.staged_read_args),),
             ),
             Scenario.PROPOSES_PROTECTED_TOOL: ScriptedStep(
-                "proposed_action", (ctx.protected_action(),), usage, "provider"
+                "proposed_action", (ctx.named_action(),), usage, "provider"
             ),
             Scenario.MODEL_LIES_ABOUT_EFFECT_CLASS: ScriptedStep(
-                "proposed_action", (ctx.protected_action("read"),), usage, "provider"
+                "error", usage=usage, usage_source="provider", error_code="malformed_result"
             ),
             Scenario.BUDGET_EXHAUSTED: ScriptedStep(
                 "max_tokens", usage=usage, usage_source="provider"

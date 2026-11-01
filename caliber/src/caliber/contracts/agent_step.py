@@ -57,7 +57,7 @@ from types import MappingProxyType
 from typing import Any, Final
 
 from caliber.contracts.registry import ContractValidationError, validate_record
-from caliber.effects.records import Intent, ProposalError, intent_digest
+from caliber.effects.records import BAD_FIELD, Intent, ProposalError, intent_digest
 
 REQUEST_KIND: Final = "agent_step_request"
 RESULT_KIND: Final = "agent_step_result"
@@ -78,6 +78,13 @@ USAGE_SOURCES: Final = ("provider", "estimated", "unknown")
 #: Most proposals one step may return in v1 (see the module docstring); the schema says the same.
 MAX_PROPOSED_ACTIONS: Final = 1
 CLAIM_MISMATCH: Final = "claim_mismatch"
+#: What an adapter puts in the claim fields of a proposal that names the tool the model called (:attr:`ProposedAction.tool`). The
+#: model claims nothing about the connector, its version or the class: the platform derives them from the tool's trusted identity,
+#: so these are placeholders the platform ignores (a value that is not one must equal the platform's, else ``claim_mismatch``).
+UNCLAIMED: Final = "unclaimed"
+#: The class placeholder is ``read``: never a valid class for a protected action, so it cannot be mistaken for a claim.
+UNCLAIMED_EFFECT_CLASS: Final = "read"
+_TOOL_NAME_MAX: Final = 128
 #: The fields of a step's tuple: with ``step_request_id`` they say which step a request or a result is about.
 _STEP_TUPLE: Final = ("workflow_run_id", "node_id", "occurrence_id", "attempt")
 _DEADLINE: Final = re.compile(
@@ -135,11 +142,24 @@ class ProposedAction:
     resource: str
     args: Mapping[str, Any] = field(repr=False)
     expected_resource_version: str | None = None
+    tool: str | None = None
+    """The local name of the tool the model called (B04.6, #768), or ``None`` for a proposal that claims its own target.
+
+    With a tool name the platform binds the proposal from that tool's **trusted identity** (the registry row, or the MCP server
+    record and the administrator's policy): the model supplies the arguments, never the connector, version or class. It is not part
+    of the intent (the canonical bytes, the digest and the stored proposal are unchanged) and it is a selector, not an authority."""
     platform_bound: bool = field(default=False, init=False)
     """True only for an action :meth:`bound_to` returned: its class is the platform's, not the model's."""
     _canonical: bytes = field(init=False, repr=False)
 
     def __post_init__(self) -> None:
+        if self.tool is not None and (
+            type(self.tool) is not str
+            or not 0 < len(self.tool) <= _TOOL_NAME_MAX
+            or not self.tool.isprintable()
+            or self.tool != self.tool.strip()
+        ):
+            raise ProposalError(BAD_FIELD, "tool must be a printable name of 1 to 128 characters")
         intent = Intent(
             connector=self.connector,
             connector_version=self.connector_version,
@@ -152,7 +172,11 @@ class ProposedAction:
         object.__setattr__(self, "_canonical", intent.canonical)
 
     def __eq__(self, other: object) -> bool:
-        return isinstance(other, ProposedAction) and self._canonical == other._canonical
+        return (
+            isinstance(other, ProposedAction)
+            and self._canonical == other._canonical
+            and self.tool == other.tool
+        )
 
     def __hash__(self) -> int:
         return hash(self._canonical)
@@ -168,6 +192,7 @@ class ProposedAction:
             resource=target["resource"],
             args=record["args"],
             expected_resource_version=record["expected_resource_version"],
+            tool=record.get("tool"),
         )
 
     @property
@@ -207,19 +232,23 @@ class ProposedAction:
             resource=self.resource,
             args=_thaw(self.args),
             expected_resource_version=self.expected_resource_version,
+            tool=self.tool,
         )
         object.__setattr__(bound, "platform_bound", True)
         return bound
 
     def record(self) -> dict[str, Any]:
         """The ``proposed_actions`` element: fresh plain JSON, ``args`` as the canonical intent holds them."""
-        return {
+        record: dict[str, Any] = {
             "effect_class": self.effect_class,
             "target": {"connector": self.connector, "resource": self.resource},
             "connector_version": self.connector_version,
             "args": _thaw(self.args),
             "expected_resource_version": self.expected_resource_version,
         }
+        if self.tool is not None:
+            record["tool"] = self.tool
+        return record
 
 
 def parse_deadline(value: str) -> datetime:

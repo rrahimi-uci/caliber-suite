@@ -69,7 +69,6 @@ from caliber.contracts.registry import ContractValidationError
 from caliber.effects.records import MAX_ARGS_DEPTH, MAX_INTENT_BYTES
 from caliber.testing import agent_step_conformance as harness
 from caliber.testing.agent_step_conformance import (
-    PROTECTED_CLASS,
     PROTECTED_TOOL,
     READ_TOOL,
     SECRET_MARKER,
@@ -77,7 +76,6 @@ from caliber.testing.agent_step_conformance import (
     Scenario,
     StepContext,
     ValueEnum,
-    assert_claim_mismatch,
     limits_changes,
     make_context,
     make_request,
@@ -608,11 +606,11 @@ for _scenario, _title in (
     ),
     (
         Scenario.PROPOSES_PROTECTED_TOOL,
-        "a protected tool call is one unbound proposal built from the model's call, never executed",
+        "a protected tool call is one unbound proposal that names the called function, never executed",
     ),
     (
         Scenario.MODEL_LIES_ABOUT_EFFECT_CLASS,
-        "a claimed effect class is passed through unchanged, so binding it to the platform's class is refused",
+        "an effect class the model volunteers is refused (malformed_result), never proposed",
     ),
     (
         Scenario.BUDGET_EXHAUSTED,
@@ -769,21 +767,54 @@ def _unknown_tool(subject: AdapterUnderTest) -> None:
 
 @_rule(
     "connector_version_claim",
-    "a claimed connector version is passed through, so the platform can refuse it",
+    "a connector, version or class the model volunteers is refused (malformed_result), never carried into a proposal",
 )
 def _connector_version_claim(subject: AdapterUnderTest) -> None:
+    """The model supplies a protected tool's arguments only; a claim about the connector, its version or the class is unreadable."""
     ctx = make_context()
-    obs = observe(subject, (_reply_with_protected_call(ctx, connector_version="9.9.9"),))
+    for claim, value in (
+        ("connector_version", "9.9.9"),
+        ("connector", "http"),
+        ("effect_class", "read"),
+    ):
+        obs = observe(subject, (_reply_with_protected_call(ctx, **{claim: value}),))
+        for label, result in (("through the platform", obs.result), ("alone", obs.direct)):
+            _require(
+                result.stop_reason == "error"
+                and result.error_code == MALFORMED_RESULT
+                and result.proposed_actions == (),
+                f"a volunteered {claim} ({label}): the adapter carried the model's claim "
+                f"(stop {result.stop_reason}, code {result.error_code})",
+            )
+        _require(obs.ctx.protected_calls == [], f"a volunteered {claim} ran the protected tool")
+
+
+@_rule(
+    "proposal_names_the_called_tool",
+    "a protected tool's call (its arguments only) is a proposal that carries the called function's name and no claim",
+)
+def _proposal_names_the_called_tool(subject: AdapterUnderTest) -> None:
+    """The platform binds a proposal from the **name** of the function the model called; the model is asked for nothing else.
+
+    A call with the tool's arguments only must yield a proposal (an adapter that requires the model to invent a connector, a
+    version, a class or a resource would fail here), whose :attr:`~caliber.contracts.agent_step.ProposedAction.tool` is the
+    function called, whose claim fields are the placeholders and whose arguments are the model's.
+    """
+    ctx = make_context()
+    obs = observe(subject, (_reply_with_protected_call(ctx),))
     for label, result in (("through the platform", obs.result), ("alone", obs.direct)):
-        action = _only_action(result, f"a claimed connector version ({label})")
+        action = _only_action(result, f"a protected call with arguments only ({label})")
         _require(
-            action.connector_version == "9.9.9" and action.platform_bound is False,
-            f"a claimed connector version ({label}): the adapter replaced or trusted the model's claim",
+            action.tool == PROTECTED_TOOL,
+            f"a protected call ({label}): the proposal names {action.tool!r}, not the function the model called",
         )
-        mismatch = assert_claim_mismatch(
-            action, PROTECTED_CLASS, connector_version=ctx.protected_action().connector_version
+        _require(
+            action == ctx.named_action(),
+            f"a protected call ({label}): the proposal carries a claim the model did not make",
         )
-        _require(mismatch.name == "connector_version", "the claim was refused for the wrong field")
+        _require(
+            action.platform_bound is False, f"a protected call ({label}): the proposal is bound"
+        )
 
 
 def _sneaky_input(ctx: StepContext) -> AgentStepInput:

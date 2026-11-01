@@ -99,15 +99,10 @@ def tool_response(
 
 
 def proposal_input(ctx: StepContext, claimed_effect_class: str | None = None) -> dict[str, Any]:
-    """The input a staged model gives a protected tool: the proposal of ``ctx.protected_action`` as the schema offers it."""
-    action = ctx.protected_action(claimed_effect_class)
-    return {
-        "connector": action.connector,
-        "connector_version": action.connector_version,
-        "effect_class": action.effect_class,
-        "resource": action.resource,
-        "args": dict(action.args),
-    }
+    """The input a staged model gives a protected tool: its arguments only (B04.6), plus a class when the model volunteers one."""
+    return ctx.proposal_envelope(
+        **({} if claimed_effect_class is None else {"effect_class": claimed_effect_class})
+    )
 
 
 class APITimeoutError(Exception):

@@ -24,7 +24,6 @@ from typing import Any
 from caliber.contracts.agent_step import (
     AgentStepRequest,
     AgentStepResult,
-    ProposedAction,
     StepUsage,
 )
 from caliber.contracts.registry import ContractValidationError
@@ -50,14 +49,13 @@ from caliber.workflows.agent_step import (
     StepToolBudgetExceeded,
     answer,
     failure,
+    proposal_from_call,
 )
 
 logger = logging.getLogger("acme_adapter")
 # --8<-- end imports
 
 # --8<-- adapter
-_ENVELOPE = {"connector", "connector_version", "effect_class", "resource", "args"}
-_OPTIONAL = {"expected_resource_version"}
 
 
 class _Unreadable(Exception):  # noqa: N818 - what the provider sent cannot be read; never carries its text
@@ -216,20 +214,10 @@ class ToyAdapter:
         tally: _Tally,
         step_input: AgentStepInput,
     ) -> AgentStepResult:
-        """The model's protected call as one unbound proposal: its claims are kept exactly as it made them."""
+        """The model's protected call as one unbound proposal that names the function it called, and claims nothing."""
         del step_input
-        envelope = call["arguments"]
-        if not _ENVELOPE <= set(envelope) <= _ENVELOPE | _OPTIONAL:
-            raise _Unreadable
         try:
-            action = ProposedAction(
-                connector=envelope["connector"],
-                connector_version=envelope["connector_version"],
-                effect_class=envelope["effect_class"],
-                resource=envelope["resource"],
-                args=envelope["args"],
-                expected_resource_version=envelope.get("expected_resource_version"),
-            )
+            action = proposal_from_call(call["name"], call["arguments"])
         except (ProposalError, ContractValidationError, TypeError, ValueError):
             raise _Unreadable from None
         return answer(
