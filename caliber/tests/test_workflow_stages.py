@@ -494,6 +494,7 @@ def test_run_workflow_eval_forwards_manifest_aware_executor_factories(
         seen["candidate_executor"] = kwargs["candidate_executor_factory"](candidate_manifest)
         seen["scorer"] = kwargs.get("scorer")
         seen["identity_reader"] = kwargs.get("registered_tool_identity")
+        seen["governance_of"] = kwargs.get("agents_requiring_governance")
         return WorkflowEvalResult(
             passed=True,
             baseline_scores={"quality": 0.7},
@@ -523,6 +524,11 @@ def test_run_workflow_eval_forwards_manifest_aware_executor_factories(
     reader = seen["identity_reader"]
     assert callable(reader)
     assert reader("not-registered", "1.0") is None
+    # #1051: the replay is not a preview, so it is also told which agents of the manifest it must refuse (none here: the
+    # object() config is not the reference profile)
+    governance_of = seen["governance_of"]
+    assert callable(governance_of)
+    assert governance_of(SimpleNamespace(nodes={})) == frozenset()
 
 
 def test_run_workflow_eval_validates_candidate_payload(db_session: Session) -> None:
@@ -731,6 +737,7 @@ def test_run_workflow_calibration_candidate_respects_judge_flag(
         )
         seen["scorer"] = kwargs.get("scorer")
         seen["identity_reader"] = kwargs.get("registered_tool_identity")
+        seen["governance_of"] = kwargs.get("agents_requiring_governance")
         winner = WorkflowCalibrationCandidateResult(
             candidate_id="cal-1",
             summary="winner",
@@ -772,6 +779,11 @@ def test_run_workflow_calibration_candidate_respects_judge_flag(
     reader = seen["identity_reader"]
     assert callable(reader)
     assert reader("not-registered", "1.0") is None
+    # #1051: the replay is not a preview, so it is also told which agents of the manifest it must refuse (none here: the
+    # object() config is not the reference profile)
+    governance_of = seen["governance_of"]
+    assert callable(governance_of)
+    assert governance_of(SimpleNamespace(nodes={})) == frozenset()
 
 
 def test_run_workflow_calibration_candidate_rejects_when_no_candidate_passes(

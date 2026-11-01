@@ -2475,6 +2475,11 @@ class GovernedEffectContext:
     dispatchable_backends: frozenset[str] | None = None
 
 
+#: ``ir -> the agent nodes that can reach an operator-mapped tool`` (:func:`caliber.effects.governed_context.mapped_agent_nodes`, with the
+#: caller's configuration bound). A replay that builds its own plan passes one so its agents are refused like any other plan's (#1051).
+AgentsRequiringGovernance = Callable[[IRWorkflow], frozenset[str]]
+
+
 @dataclass
 class RuntimePlan:
     """Everything the interpreter needs to execute a workflow version."""
@@ -2565,9 +2570,10 @@ class RuntimePlan:
     #: effect plus an approval request, and the node parks (``waiting_approval``) instead of executing it. A governed step has
     #: no output text channel in the v1 result contract, so one that completes without proposing is refused.
     governed_agent_steps: _step_proposal.GovernedStepContext | None = None
-    #: The agent nodes of this plan that can reach a tool the operator mapped to a governed backend (``build_plan`` fills it in the
-    #: reference profile). A plan whose ``governed_agent_steps`` does not govern one of them (a sub-workflow, a synchronous run, any
-    #: plan built outside the worker's own run) refuses to run it outside a preview, rather than as a legacy agent (#1051).
+    #: The agent nodes of this plan that are bound to a tool the operator mapped to a governed backend (``build_plan`` and the replay
+    #: builders fill it in the reference profile). A plan whose ``governed_agent_steps`` does not govern one of them (a sub-workflow,
+    #: a synchronous run, a replay) refuses to run it, **and any agent whose handoffs can reach it, directly or through others**,
+    #: outside a preview, rather than as a legacy agent (#1051).
     agents_requiring_governance: frozenset[str] = frozenset()
     #: Reads a registry tool's own row by ``(name, version)`` (B04.3, #741). The registry row, not the manifest binding, says
     #: whether a tool is CALIBER's own and how risky it is; ``build_plan`` binds this to the database. A plan with neither this
@@ -5027,6 +5033,24 @@ def _governed_read_tools(
     return _agent_step.filter_read_tools(
         callables, lambda name: name in trust and trust[name].effect_class == "read"
     )
+
+
+def _handoff_closure(ir: IRWorkflow, agent_id: str) -> tuple[str, ...]:
+    """``agent_id`` and every agent its handoffs can reach, directly or through others (cycle-safe, in discovery order).
+
+    The executor follows handoffs recursively, so an agent that hands off to one that hands off to a mapped tool can reach it.
+    """
+    seen: dict[str, None] = {agent_id: None}
+    pending = [agent_id]
+    while pending:
+        node = ir.nodes.get(pending.pop())
+        if not isinstance(node, IRAgent):
+            continue
+        for handoff in node.handoffs:
+            if handoff.target_node_id not in seen:
+                seen[handoff.target_node_id] = None
+                pending.append(handoff.target_node_id)
+    return tuple(seen)
 
 
 def _governs_agent(plan: RuntimePlan, node: IRNode) -> bool:
@@ -8411,7 +8435,7 @@ def _run_node(  # noqa: PLR0911, PLR0912, PLR0915 - per-node-type dispatch
     if isinstance(node, IRAgent):
         ungoverned = [
             agent_id
-            for agent_id in (nid, *(handoff.target_node_id for handoff in node.handoffs))
+            for agent_id in _handoff_closure(ir, nid)
             if agent_id in plan.agents_requiring_governance
             and not (
                 plan.governed_agent_steps is not None

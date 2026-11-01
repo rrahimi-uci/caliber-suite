@@ -85,6 +85,7 @@ from tests.test_governed_agent_step import (  # noqa: F401 - the module's fixtur
     _rows,
     _run,
 )
+from tests.test_governed_agent_step import _resolver as _governed_resolver
 from tests.test_workflow_api_request_node import _manifest as api_manifest
 from tests.test_workflow_api_request_node import _url_node
 from tests.test_workflow_http_dispatch import _http_manifest
@@ -1014,14 +1015,16 @@ def test_a_plan_with_no_governed_step_refuses_an_agent_that_can_reach_a_mapped_t
 
 
 def test_the_refusal_does_not_touch_a_preview_or_an_agent_the_plan_governs(world: Any) -> None:
+    canaries = Canaries()
     previewed = execute(
         _requiring(world),
         "hello",
         executor=FakeWorkflowExecutor(),
         preview=True,
-        extra_tools=Canaries().tools(),
+        extra_tools=canaries.tools(),
     )
     assert previewed.status == "completed", previewed.error
+    assert canaries.mutations == [], "a preview calls no protected tool"
     governed = _plan(world)
     governed.agents_requiring_governance = frozenset({"agent"})
     parked = execute(
@@ -1033,27 +1036,56 @@ def test_the_refusal_does_not_touch_a_preview_or_an_agent_the_plan_governs(world
     assert parked.status == "blocked" and parked.error == "waiting_approval:agent"
 
 
-def test_a_plan_with_no_governed_step_refuses_an_agent_that_hands_off_to_a_mapped_one(
-    world: Any,
-) -> None:
-    manifest = _manifest()
-    manifest["nodes"]["agent"]["tools"] = []
-    manifest["nodes"]["agent"]["handoffs"] = [{"target": "billing"}]
-    manifest["nodes"]["billing"] = {
-        "id": "billing",
+def _agent(node_id: str, tools: list[str], handoffs: list[str]) -> dict[str, Any]:
+    return {
+        "id": node_id,
         "type": "agent",
-        "name": "billing-agent",
+        "name": f"{node_id}-agent",
         "model": "inherit",
-        "instructions": {"type": "inline", "text": "b"},
-        "tools": [PROTECTED],
+        "instructions": {"type": "inline", "text": node_id},
+        "tools": tools,
+        "handoffs": [{"target": target} for target in handoffs],
         "inputs": {"input": {"type": "string"}},
         "outputs": {"final_output": {"type": "string"}},
     }
+
+
+@pytest.mark.parametrize(
+    ("chain", "mapped"),
+    [
+        ({"agent": ["billing"], "billing": []}, "billing"),  # one hop
+        ({"agent": ["mid"], "mid": ["billing"], "billing": []}, "billing"),  # two hops
+        ({"agent": ["mid"], "mid": ["deep"], "deep": ["billing"], "billing": []}, "billing"),
+        ({"agent": ["billing"], "billing": ["agent"]}, "billing"),  # a cycle
+        ({"agent": ["mid"], "mid": ["agent", "billing"], "billing": ["mid"]}, "billing"),
+    ],
+    ids=["one_hop", "two_hops", "three_hops", "cycle", "cycle_through_mid"],
+)
+def test_a_plan_with_no_governed_step_refuses_an_agent_whose_handoffs_can_reach_a_mapped_one(
+    world: Any, chain: dict[str, list[str]], mapped: str
+) -> None:
+    manifest = _manifest()
+    for node_id, targets in chain.items():
+        manifest["nodes"][node_id] = _agent(
+            node_id, [PROTECTED] if node_id == mapped else [], targets
+        )
     plan = _plan(world, governed=False, manifest=manifest)
-    plan.agents_requiring_governance = frozenset({"billing"})
-    result = execute(plan, "hello", executor=FakeWorkflowExecutor(), extra_tools=Canaries().tools())
+    plan.agents_requiring_governance = frozenset({mapped})
+    canaries = Canaries()
+    result = execute(plan, "hello", executor=FakeWorkflowExecutor(), extra_tools=canaries.tools())
     assert result.status == "error"
-    assert "agent 'billing' can reach a tool the operator mapped" in (result.error or "")
+    assert f"agent '{mapped}' can reach a tool the operator mapped" in (result.error or "")
+    assert canaries.mutations == []
+
+
+def test_the_handoff_closure_is_cycle_safe_and_stays_inside_the_agents(world: Any) -> None:
+    manifest = _manifest()
+    manifest["nodes"]["agent"]["handoffs"] = [{"target": "mid"}]
+    manifest["nodes"]["mid"] = _agent("mid", [], ["agent", "mid"])
+    ir = _plan(world, manifest=manifest).ir
+    assert runtime_module._handoff_closure(ir, "agent") == ("agent", "mid")
+    assert runtime_module._handoff_closure(ir, "final") == ("final",), "not an agent: no handoffs"
+    assert runtime_module._handoff_closure(ir, "ghost") == ("ghost",)
 
 
 def test_a_governed_agent_as_the_target_of_a_fan_out_is_refused_only_when_it_is_governed(
@@ -1427,3 +1459,125 @@ def test_the_module_exports_what_the_worker_binds() -> None:
     assert {"effect_context", "step_context", "run_authority", "governed_agent_nodes"} <= set(
         governed_context.__all__
     )
+
+
+# ----------------------------------------------------------------------- the production wiring of the refusal
+
+
+def _reference_config(client: Any, **changes: Any) -> CaliberConfig:
+    fields: dict[str, Any] = {
+        "profile": "reference",
+        "agent_step_tool_backends": json.dumps(
+            [{"tool": "escalate", "version": "1.0", "backend": "document_request"}]
+        ),
+        **changes,
+    }
+    return client.app.state.config.model_copy(update=fields)
+
+
+def _built_plan(client: Any, config: CaliberConfig, version_id: str | None = None) -> RuntimePlan:
+    from caliber.db.models import CaliberWorkflowVersion
+    from caliber.workflows.promoter import build_plan
+    from tests.workflow_helpers import create_and_publish
+
+    if version_id is None:
+        _workflow_id, version_id = create_and_publish(client)
+    factory = client.app.state.session_factory
+    with factory() as session:
+        version = session.get(CaliberWorkflowVersion, version_id)
+        assert version is not None
+        plan = build_plan(session, version, config=config, session_factory=factory)
+    plan.workflow_version_id = version_id
+    return plan
+
+
+def test_build_plan_records_the_agents_bound_to_a_mapped_tool_in_the_reference_profile_only(
+    client: Any,
+) -> None:
+    from tests.workflow_helpers import create_and_publish
+
+    _workflow_id, version_id = create_and_publish(client)
+    mapped = _built_plan(client, _reference_config(client), version_id)
+    assert mapped.agents_requiring_governance == {"support_agent"}
+    # the map names another tool, no map, or the development profile: nothing is recorded
+    other = json.dumps(
+        [{"tool": "get_order_other", "version": "1.0", "backend": "document_request"}]
+    )
+    for config in (
+        _reference_config(client, agent_step_tool_backends=other),
+        _reference_config(client, agent_step_tool_backends="[]"),
+        _reference_config(client, profile="development"),
+    ):
+        assert _built_plan(client, config, version_id).agents_requiring_governance == frozenset()
+
+
+def test_a_plan_built_for_a_synchronous_run_or_a_sub_workflow_refuses_a_mapped_agent(
+    client: Any,
+) -> None:
+    """The same ``build_plan`` every non-worker caller uses: the production field is what refuses, not a hand-set one."""
+    plan = _built_plan(client, _reference_config(client))
+    assert plan.governed_agent_steps is None
+    result = execute(plan, "hello", executor=FakeWorkflowExecutor())
+    assert result.status == "error"
+    assert "agent 'support_agent' can reach a tool the operator mapped" in (result.error or "")
+
+
+@pytest.mark.parametrize("replay", ["refinement", "calibration"])
+def test_a_replay_builds_its_plan_with_the_agents_it_must_refuse(world: Any, replay: str) -> None:
+    from caliber.workflows.calibration import (
+        WorkflowCalibrationExample,
+        WorkflowCalibrationSpec,
+        _replay_calibration_manifest,
+    )
+    from caliber.workflows.refinement import _replay
+
+    def governance(ir: Any) -> frozenset[str]:
+        return mapped_agent_nodes(ir.nodes.values(), _mapped(), world)
+
+    def run(governed: bool) -> str:
+        """The status of the one replayed run."""
+        statuses: list[tuple[str, str]] = []
+        kwargs: dict[str, Any] = {"agents_requiring_governance": governance} if governed else {}
+        if replay == "refinement":
+
+            def scorer(result: Any) -> dict[str, float]:
+                statuses.append((result.status, result.error or ""))
+                return {"quality": 1.0}
+
+            _replay(
+                _manifest(),
+                ["hello"],
+                resolver=_governed_resolver(),
+                executor=FakeWorkflowExecutor(),
+                scorer=scorer,
+                **kwargs,
+            )
+        else:
+            example = WorkflowCalibrationExample(
+                input_text="go", expected={}, weight=1.0, tags=[], example_id="e1"
+            )
+            _scores, details = _replay_calibration_manifest(
+                _manifest(),
+                [example],
+                WorkflowCalibrationSpec.from_raw(None),
+                resolver=_governed_resolver(),
+                executor=FakeWorkflowExecutor(),
+                **kwargs,
+            )
+            statuses.append((details[0]["status"], ""))
+        return statuses[0][0]
+
+    assert run(governed=True) == "error", "the replay is not a preview: a mapped agent is refused"
+    assert run(governed=False) == "completed", (
+        "a replay whose caller names no governance is unchanged"
+    )
+
+
+def test_a_stage_tells_its_replay_which_agents_it_must_refuse(world: Any) -> None:
+    from caliber.orchestrator.workflow_stages import _governance_of
+
+    ir = _plan(world).ir
+    with world() as session:
+        assert _governance_of(session, _mapped())(ir) == {"agent"}
+        assert _governance_of(session, CaliberConfig())(ir) == frozenset(), "development: none"
+        assert _governance_of(session, None)(ir) == frozenset(), "no configuration: none"
