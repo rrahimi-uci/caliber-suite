@@ -679,6 +679,30 @@ LookalikeTimeoutError.__name__ = "APITimeoutError"
 LookalikeTimeoutError.__module__ = "somebody_elses"
 
 
+def _timeout_raised_by_asyncio() -> BaseException:
+    """What ``asyncio.wait_for`` really raises: ``asyncio.TimeoutError``, a class of its own before Python 3.11."""
+
+    async def slow() -> None:
+        await asyncio.sleep(60)
+
+    with pytest.raises(asyncio.TimeoutError) as caught:
+        asyncio.run(asyncio.wait_for(slow(), timeout=0.001))
+    return caught.value
+
+
+def test_a_timeout_raised_by_asyncio_is_adapter_timeout_on_every_python() -> None:
+    """Regression: only the builtin ``TimeoutError`` was recognised, which on Python 3.10 is not asyncio's."""
+    executor, _ = executor_with([_timeout_raised_by_asyncio()])
+    ctx = ctx_with()
+    result = run_agent_step(executor, ctx.request, ctx.step_input)
+    assert (result.stop_reason, result.error_code) == ("error", "adapter_timeout")
+    direct = executor.run_step(ctx.request, ctx.step_input)
+    assert direct.error_code in (
+        "adapter_timeout",
+        "provider_error",
+    )  # the script is spent: only the first call counts
+
+
 @pytest.mark.parametrize(
     ("raised", "code"),
     [

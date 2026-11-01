@@ -26,6 +26,17 @@ import httpx
 import pytest
 
 from caliber.contracts.agent_step import AgentStepRequest, AgentStepResult, parse_step_result
+from caliber.testing.adapter_conformance import (
+    MALFORMED_USAGE,
+    AdapterUnderTest,
+    Fault,
+    Garbage,
+    ProviderProbe,
+    ProviderUsage,
+    Script,
+    ScriptItem,
+    fault_exception,
+)
 from caliber.workflows.agent_step import (
     AgentStepInput,
     run_agent_step,
@@ -108,7 +119,10 @@ class StubClient:
 
     def _create(self, **kwargs: Any) -> Any:
         if self.ctx is not None:
-            self.ctx.provider_called()
+            self.ctx.provider_called(
+                tools=[t["function"]["name"] for t in kwargs.get("tools") or []],
+                sent=json.dumps(kwargs.get("messages"), default=str),
+            )
         self.requests.append(copy.deepcopy(kwargs))
         entry = self.script.pop(0)
         if isinstance(entry, BaseException):
@@ -224,6 +238,38 @@ class OpenAIChatDriver:
             ],
         }
         return executor_for(StubClient(staged[scenario], ctx))
+
+
+def _chat_entry(item: ScriptItem) -> Any:
+    """What the stubbed chat-completions transport does for one step of a conformance script."""
+    if isinstance(item, Fault):
+        return httpx.ReadTimeout(item.text) if item.kind == "timeout" else fault_exception(item)
+    if isinstance(item, Garbage):
+        return {"note": item.text}
+    if item.usage is None:
+        usage: Any = None
+    elif item.usage is MALFORMED_USAGE:
+        usage = ("many", "some", "lots")
+    else:
+        assert isinstance(item.usage, ProviderUsage)
+        usage = (item.usage.prompt, item.usage.completion, item.usage.total_tokens)
+    calls = [tool_call(c.name, c.arguments, f"call_{n}") for n, c in enumerate(item.calls, 1)]
+    return completion(
+        content=item.text,
+        tool_calls=calls or None,
+        usage=usage,
+        finish_reason="length" if item.cut_off else ("tool_calls" if calls else "stop"),
+    )
+
+
+def chat_subject() -> AdapterUnderTest:
+    """The conformance suite's subject for ``OpenAIChatWorkflowExecutor``: the real executor over a canned transport."""
+
+    def build(script: Script, probe: ProviderProbe) -> object:
+        client = StubClient([_chat_entry(item) for item in script], probe)  # type: ignore[arg-type]
+        return executor_for(client, probe.clock.now)
+
+    return AdapterUnderTest(name="openai_chat", build=build)
 
 
 @pytest.mark.parametrize("scenario", SCENARIOS)

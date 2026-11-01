@@ -79,6 +79,8 @@ class _State:
     protected_raw: str | None = None
     tool_error: bool = False
     tool_limit: bool = False
+    deadline: bool = False
+    tokens: bool = False
 
 
 @dataclass
@@ -261,6 +263,53 @@ def _has_refusal(item_helpers: Any, raw_responses: list[Any]) -> bool:
     return False
 
 
+@dataclass
+class _Verdict:
+    """Stands in for the SDK's ``ToolsToFinalOutputResult`` where the SDK is not importable (a stubbed one in tests)."""
+
+    is_final_output: bool
+    final_output: Any = None
+
+
+def _verdict_class() -> Any:
+    """The SDK's own ``ToolsToFinalOutputResult``: newer SDKs refuse a ``tool_use_behavior`` function that returns anything else."""
+    try:
+        from agents import ToolsToFinalOutputResult  # noqa: PLC0415
+    except ImportError:
+        return _Verdict
+    return ToolsToFinalOutputResult
+
+
+def _stop_between_model_calls(
+    state: _State, request: AgentStepRequest, clock: Callable[[], datetime]
+) -> Callable[[Any, list[Any]], Any]:
+    """The SDK's hook between model calls (``tool_use_behavior`` as a function; the declared minimum SDK has it).
+
+    After the tools of a turn have run it decides whether the run goes on, so a proposal, the tool-call limit, the token budget
+    and the deadline end the run *before the model is asked again* instead of after another provider call. ``max_turns`` is the
+    only other limit the SDK takes. A proposal ends the step first (the platform drops it when the usage passed a limit); the
+    others are recorded for :func:`_run` to name.
+    """
+    limits = request.limits
+
+    verdict = _verdict_class()
+
+    def decide(context_wrapper: Any, tool_results: list[Any]) -> Any:
+        del tool_results
+        if state.protected_raw is not None:
+            return verdict(is_final_output=True, final_output="proposal recorded")
+        spent = getattr(getattr(context_wrapper, "usage", None), "total_tokens", 0)
+        if type(spent) is int and spent >= limits.max_tokens:
+            state.tokens = True
+        if state.deadline or clock() >= limits.deadline_at:
+            state.deadline = True
+        if state.tool_limit or state.tokens or state.deadline:
+            return verdict(is_final_output=True, final_output="limit reached")
+        return verdict(is_final_output=False, final_output=None)
+
+    return decide
+
+
 def _build_tools(
     *,
     function_tool_cls: Any,
@@ -285,6 +334,11 @@ def _build_tools(
                 return '{"_caliber":"tool-call limit reached"}'
             state.read_calls += 1
             return str(call_tool(tool, arguments))
+        except _step.StepDeadlineReached:
+            # The platform refused a tool called at or after the deadline: the step's stop, not a tool failure (which
+            # would end it ``error``). ``_stop_between_model_calls`` ends the run before the model is asked again.
+            state.deadline = True
+            return '{"_caliber":"deadline reached"}'
         except Exception as exc:
             state.tool_error = True
             return json.dumps({"_error": type(exc).__name__})
@@ -402,7 +456,7 @@ def _run(  # noqa: PLR0911, PLR0912 - bounded provider/limit state machine
         tools=tools,
         handoffs=[],
         model_settings=model_settings_cls(**settings_kwargs),
-        tool_use_behavior="run_llm_again",
+        tool_use_behavior=_stop_between_model_calls(state, request, config.clock or _utc_now),
     )
     provider = provider_cls(api_key=config.api_key, base_url=config.base_url, use_responses=True)
     run_config = run_config_cls(
@@ -449,7 +503,7 @@ def _run(  # noqa: PLR0911, PLR0912 - bounded provider/limit state machine
         if raw_responses
         else _estimated_usage(step_input, tool_calls=state.read_calls)
     )
-    if usage.total > request.limits.max_tokens:
+    if usage.total > request.limits.max_tokens or state.tokens:
         return answer(
             request,
             "max_tokens",
@@ -460,6 +514,13 @@ def _run(  # noqa: PLR0911, PLR0912 - bounded provider/limit state machine
         return answer(
             request,
             "max_tool_calls",
+            usage=usage.result(),
+            usage_source="provider" if raw_responses else "estimated",
+        )
+    if state.deadline:
+        return answer(
+            request,
+            "deadline",
             usage=usage.result(),
             usage_source="provider" if raw_responses else "estimated",
         )
