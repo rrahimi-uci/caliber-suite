@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from sqlalchemy.orm import Session
 
 from caliber.acceptance import (
     CRITERIA_VERSION,
@@ -27,6 +28,9 @@ from caliber.acceptance import (
     evaluate_all,
 )
 from caliber.acceptance import predicates as predicates_module
+from caliber.acceptance.decision import read_decision
+from tests.dialect_helpers import DIALECTS
+from tests.test_acceptance_decisions import acceptance_db, record, rows
 
 FIXTURES = json.loads(
     (Path(__file__).parent / "fixtures" / "acceptance_observations.json").read_text("utf-8")
@@ -390,6 +394,17 @@ def test_a_record_of_another_or_an_unnamed_case_fails_both(edit: dict[str, Any])
     }
 
 
+@pytest.mark.parametrize("case_id", [7, 7.5, True, ["MORT"], {"id": "MORT"}])
+def test_a_case_id_that_is_not_a_string_is_not_a_case_even_when_both_sides_agree(
+    case_id: object,
+) -> None:
+    equal_on_both_sides = _observations(proposal__case_id=case_id, case_record__case_id=case_id)
+    assert _verdicts(equal_on_both_sides) == {
+        EXISTS: (False, "/case_record/case_id"),
+        ATTACHED: (False, "/case_record/case_id"),
+    }
+
+
 def test_the_same_case_id_on_both_sides_is_judged() -> None:
     other = _observations(proposal__case_id="OTHER", case_record__case_id="OTHER")
     assert all(passed for passed, _ in _verdicts(other).values())
@@ -573,6 +588,24 @@ def test_a_str_or_int_subclass_cannot_spoof_a_comparison() -> None:
         Observations(data)
 
 
+def test_a_float_subclass_is_refused_as_not_json_shaped() -> None:
+    class Always(float):
+        def __eq__(self, other: object) -> bool:
+            return True
+
+        __hash__ = float.__hash__
+
+    for value in (Always(1.5), Always("nan")):
+        with pytest.raises(
+            PredicateError, match=r"/a/0 is a Always, which is not JSON-shaped"
+        ) as caught:
+            Observations({"a": [value]})
+        assert caught.value.code == "invalid_observations"
+    assert Observations({"a": [1.5]}).as_dict() == {
+        "a": [1.5]
+    }  # the exact built-in type stays accepted
+
+
 def test_a_hostile_container_becomes_a_predicate_error() -> None:
     class Boom(dict):  # type: ignore[type-arg]
         def items(self) -> Any:
@@ -583,12 +616,14 @@ def test_a_hostile_container_becomes_a_predicate_error() -> None:
             raise RuntimeError("secret detail 0xBEEF")
 
     for hostile in (Boom(a=1), BoomList([1])):
-        with pytest.raises(PredicateError, match="could not be read") as caught:
+        with pytest.raises(
+            PredicateError, match=r"/a could not be read \(RuntimeError\)"
+        ) as caught:
             Observations({"a": hostile})
         assert caught.value.code == "invalid_observations"
         assert "0xBEEF" not in str(caught.value)
         assert isinstance(caught.value.__cause__, RuntimeError)
-    with pytest.raises(PredicateError, match="could not be read"):
+    with pytest.raises(PredicateError, match=r"/ could not be read \(RuntimeError\)"):
         Observations(Boom(a=1))
 
 
@@ -858,12 +893,32 @@ def _imports(path: Path) -> set[str]:
     return found
 
 
-@pytest.mark.parametrize("module", sorted(p.name for p in SOURCE_DIR.glob("*.py")))
-def test_the_acceptance_package_imports_no_io_library(module: str) -> None:
+#: The pure half of the package: the predicates and the package root that re-exports only them. ``decision.py`` (B09.2a, #784)
+#: stores decisions and is held to its own, narrower rule below.
+PURE_MODULES = ("__init__.py", "predicates.py")
+
+
+def test_the_acceptance_package_is_the_pure_modules_and_the_decision_store() -> None:
+    assert {p.name for p in SOURCE_DIR.glob("*.py")} == {*PURE_MODULES, "decision.py"}
+
+
+@pytest.mark.parametrize("module", PURE_MODULES)
+def test_the_pure_acceptance_modules_import_no_io_library(module: str) -> None:
     imports = _imports(SOURCE_DIR / module)
     assert imports, module
     assert not {name.split(".")[0] for name in imports} & FORBIDDEN_TOP_LEVEL, imports
     assert imports <= ALLOWED_IMPORTS, sorted(imports - ALLOWED_IMPORTS)
+
+
+def test_the_decision_store_reaches_no_network_clock_or_randomness_source_of_its_own() -> None:
+    """``decision.py`` may use the database layer (it stores decisions) but no HTTP client, socket or random source."""
+    imports = _imports(SOURCE_DIR / "decision.py")
+    top_level = {name.split(".")[0] for name in imports}
+    assert (
+        top_level & {"httpx", "requests", "socket", "urllib", "http", "random", "os", "time"}
+        == set()
+    )
+    assert "sqlalchemy" in top_level and "caliber.db.models" in imports
 
 
 def test_importing_the_package_does_not_load_an_http_or_database_client() -> None:
@@ -894,3 +949,46 @@ def test_importing_the_package_does_not_load_an_http_or_database_client() -> Non
     )
     assert done.returncode == 0, done.stderr
     assert done.stdout.strip() == "[]"
+
+
+def test_importing_the_package_root_does_not_load_the_decision_store() -> None:
+    import subprocess
+
+    done = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            "import sys, caliber.acceptance; print('caliber.acceptance.decision' in sys.modules)",
+        ],
+        capture_output=True,
+        text=True,
+        timeout=120,
+        check=False,
+    )
+    assert done.returncode == 0, done.stderr
+    assert done.stdout.strip() == "False"
+
+
+# --- B09.2a (#784): the verdict of these predicates, persisted -------------------------------------------------------------
+
+
+@pytest.mark.slow
+@pytest.mark.parametrize("dialect", DIALECTS)
+def test_decision_persisted(dialect: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The predicates' verdicts are stored per run and candidate with their evidence; the full matrix is in test_acceptance_decisions."""
+    with acceptance_db(dialect, tmp_path, monkeypatch) as engine:
+        accepted = record(engine, _fixture("happy_path"))
+        rejected = record(engine, _fixture("stale_case_version"), candidate="prop-candidate-2")
+        assert (accepted.created, rejected.created) == (True, True)
+        assert record(engine, _fixture("happy_path")).created is False  # idempotent
+        stored = {row.decision_id: row for row in rows(engine)}
+        assert set(stored) == {accepted.decision.decision_id, rejected.decision.decision_id}
+        assert stored[accepted.decision.decision_id].outcome == "accepted"
+        failed = stored[rejected.decision.decision_id]
+        assert failed.outcome == "rejected" and failed.criteria_failed == 1
+        assert [c["evidence_ref"] for c in failed.criteria] == [
+            "/case_record/document_requests/0",
+            "/case_record/document_requests/0/case_version",
+        ]
+        with Session(engine) as session:
+            assert read_decision(session, failed.decision_id).failed_criteria == (ATTACHED,)

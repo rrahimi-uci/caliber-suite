@@ -252,19 +252,14 @@ class Predicate:
         return result
 
 
-def evaluate_all(
-    predicates: Sequence[Predicate], observations: Observations
-) -> list[CriterionResult]:
-    """Every predicate's result over ``observations``, in the order given (no predicate is skipped after a failure).
+def check_predicate_set(predicates: Sequence[Predicate]) -> tuple[Predicate, ...]:
+    """``predicates`` as a tuple, once it is a usable set: the checks :func:`evaluate_all` makes before it judges anything.
 
-    Refused with :class:`PredicateError`: observations that are not an :class:`Observations`, no predicate at all (a decision
-    over nothing would accept everything), anything that is not a :class:`Predicate`, a repeated predicate id, and predicates of
-    more than one criteria version (one decision is made under one version).
+    Refused with :class:`PredicateError`: no predicate at all (a decision over nothing would accept everything), anything that
+    is not a :class:`Predicate`, a repeated predicate id, and predicates of more than one criteria version (one decision is
+    made under one version). A caller that has to know the criteria version without judging (a decision recorded as rejected
+    because its observations were unreadable, B09.2a) uses this, so it refuses exactly what :func:`evaluate_all` refuses.
     """
-    if not isinstance(observations, Observations):
-        raise PredicateError(
-            INVALID_OBSERVATIONS, "observations must be an Observations (freeze them first)"
-        )
     try:
         items = tuple(predicates)
     except TypeError as exc:
@@ -281,7 +276,22 @@ def evaluate_all(
         raise PredicateError(
             MIXED_CRITERIA_VERSIONS, "predicates belong to more than one criteria version"
         )
-    return [item.check(observations) for item in items]
+    return items
+
+
+def evaluate_all(
+    predicates: Sequence[Predicate], observations: Observations
+) -> list[CriterionResult]:
+    """Every predicate's result over ``observations``, in the order given (no predicate is skipped after a failure).
+
+    Refused with :class:`PredicateError`: observations that are not an :class:`Observations`, and any predicate set
+    :func:`check_predicate_set` refuses.
+    """
+    if not isinstance(observations, Observations):
+        raise PredicateError(
+            INVALID_OBSERVATIONS, "observations must be an Observations (freeze them first)"
+        )
+    return [item.check(observations) for item in check_predicate_set(predicates)]
 
 
 _REQUESTS_REF: Final = "/case_record/document_requests"
@@ -395,5 +405,6 @@ __all__ = [
     "Observations",
     "Predicate",
     "PredicateError",
+    "check_predicate_set",
     "evaluate_all",
 ]
