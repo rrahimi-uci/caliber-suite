@@ -871,14 +871,14 @@ def test_the_development_profile_classifies_the_same_but_refuses_nothing_by_inve
     monkeypatch.setenv("CALIBER_PROFILE", "reference")
     reference = route_mcp_tool(server, "insert_rows")
 
-    assert (development.route, development.reference_profile, development.first_party) == (
+    assert (development.route, development.legacy_inline_allowed, development.first_party) == (
         DISPATCH,
-        False,
+        True,
         True,
     )
-    assert (reference.route, reference.reference_profile, reference.code) == (
+    assert (reference.route, reference.legacy_inline_allowed, reference.code) == (
         REFUSE,
-        True,
+        False,
         "unsupported_effect_path",
     )
 
@@ -913,3 +913,29 @@ def test_a_server_on_an_attested_managed_sidecar_host_is_treated_as_the_first_pa
     decided = route_mcp_tool(_sidecar("mcp-db-relational"), "insert_rows")
     assert (decided.route, decided.code) == (REFUSE, INVENTORY_REFUSAL)
     assert route_mcp_tool(_sidecar("other"), "insert_rows").route == DISPATCH
+
+
+def test_a_profile_that_is_not_development_is_fail_closed_whatever_its_name(
+    mcp_world: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The legacy side is an allow-list (``== "development"``): a profile added later refuses like the reference one."""
+    import sys
+
+    from caliber.config import CaliberConfig
+    from caliber.effects.dispatcher import UnsupportedEffectPath
+    from caliber.effects.mcp_tools import route_mcp_tool
+    from caliber.mcp_gateway import _require_inline
+
+    monkeypatch.setenv("CALIBER_MCP_STDIO_COMMAND_ALLOWLIST", sys.executable)
+    base = CaliberConfig.load()
+    # The setting accepts only two names today, so a third is built without validation, as a future one would be.
+    staging = CaliberConfig.model_construct(**{**base.model_dump(), "profile": "staging"})
+    monkeypatch.setattr(CaliberConfig, "load", classmethod(lambda cls, environ=None: staging))
+    plain = _mcp_server()
+    first_party = _first_party(**_policies("insert_rows", level="write"))
+
+    assert route_mcp_tool(plain, "t", config=staging).legacy_inline_allowed is False
+    with pytest.raises(EffectRefused):
+        _require_inline(plain, "t")
+    with pytest.raises(UnsupportedEffectPath):
+        _require_inline(first_party, "insert_rows")

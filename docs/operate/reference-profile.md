@@ -361,7 +361,7 @@ kind `mcp`, settings `call` and `receipt_verifier`, accepted risks `write_not_ex
 `invoke_tool_by_server_id_sync` (what the runtime's MCP-bound callables, MCP nodes and exported workflows call) run only a tool
 whose trusted classification is `read`, and raise `EffectRefused` (`mcp_effect_requires_proposal`; `unsupported_effect_path` for a
 first-party database write tool) for every other, with nothing sent. **Under the development profile (the default) they let a
-protected call through, as before the dispatcher** (#1068): that inline call has no proposal, exact-intent approval, lease or
+protected call through, as before the dispatcher** (#1068; development is an allow-list, so any other profile refuses): that inline call has no proposal, exact-intent approval, lease or
 receipt and is **not** the governed path (see "Profiles and a missing governed context" below). The one caller of the ungated transport (`invoke_tool_raw_sync`) is the dispatcher's `mcp` backend;
 `tests/test_effect_path_matrix.py` pins every module that names the gateway, so a new caller fails until it is routed or pinned
 with a reason. The operator's discover, test and playground routes use the async transport directly (EP-038 to EP-040, exempt: they

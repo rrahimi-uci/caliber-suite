@@ -10,8 +10,8 @@ the results it returns) is data, never a classification. The trust root of a cal
   ``side_effect_level``, ``requires_approval``), which :func:`caliber.mcp_policy.validate_tool_access` requires to be explicit
   and complete: a tool the server lists but nobody classified is refused, not guessed at; and
 * the **protected-effect inventory** (EP-114), which applies to the first-party PostgreSQL MCP server only, identified by the
-  record (:func:`caliber.mcp_policy.is_first_party_db_server`): the write tools it names are refused **under the reference
-  profile** (the refusal switch for every inventory row is #774; the development profile keeps the alpha behaviour).
+  record (:func:`caliber.mcp_policy.is_first_party_db_server`): the write tools it names are refused in every profile but
+  ``development`` (the refusal switch for every inventory row is #774; the development profile keeps the alpha behaviour).
 
 The decision, from those alone:
 
@@ -72,10 +72,11 @@ class McpToolRoute:
     policy_refused: bool = False
     digest: str | None = None
     first_party: bool = False
-    #: Whether the decision was made under the reference profile, the only profile in which a protected call that reaches the
-    #: gateway without a proposal, and a first-party database write tool, are refused (the development profile behaves as
-    #: before the dispatcher: see :func:`route_mcp_tool`).
-    reference_profile: bool = False
+    #: Whether the decision was made under the ``development`` profile, the only profile that keeps the pre-dispatcher
+    #: behaviour for a protected call that reaches the gateway without a proposal and for a first-party database write tool.
+    #: It is an allow-list: any other profile (the reference one, or one added later) is fail-closed (see
+    #: :func:`route_mcp_tool`).
+    legacy_inline_allowed: bool = False
 
 
 def server_digest(server: Any, tool_name: str, policy: dict[str, Any]) -> str:
@@ -113,33 +114,32 @@ def route_mcp_tool(server: Any, tool_name: str, *, config: Any = None) -> McpToo
 
     The **classification** (``read`` / ``dispatch``) is the same in every profile, so a governed run (one with an authority
     bound) always proposes a protected call. What differs is what the *gateway* does with a protected call that reaches it
-    with no proposal, and the inventory refusal of EP-114: both are enforced only under ``CALIBER_PROFILE=reference``
-    (:attr:`McpToolRoute.reference_profile`). The development profile keeps the alpha behaviour for them (#1068), which is
-    **not** the governed path: no exact-intent approval, lease, proposal or receipt.
+    with no proposal, and the inventory refusal of EP-114: both keep the alpha behaviour only under
+    ``CALIBER_PROFILE=development`` (:attr:`McpToolRoute.legacy_inline_allowed`, an allow-list: the reference profile and any
+    profile added later refuse). That alpha behaviour (#1068) is **not** the governed path: no exact-intent approval, lease,
+    proposal or receipt.
     """
     resolved = config if config is not None else CaliberConfig.load()
-    reference = getattr(resolved, "profile", "") == "reference"
+    legacy = getattr(resolved, "profile", "") == "development"
     try:
         policy = validate_tool_access(server, tool_name, consume_rate=False, config=resolved)
     except McpPolicyError as exc:
         return McpToolRoute(
-            REFUSE, FAIL_CLOSED, exc.code, policy_refused=True, reference_profile=reference
+            REFUSE, FAIL_CLOSED, exc.code, policy_refused=True, legacy_inline_allowed=legacy
         )
     first_party = is_first_party_db_server(server, config=resolved)
     if (
-        reference
+        not legacy
         and tool_disposition_for_mcp_tool(tool_name, first_party_db_server=first_party) == "refuse"
     ):
-        return McpToolRoute(
-            REFUSE, FAIL_CLOSED, INVENTORY_REFUSAL, first_party=first_party, reference_profile=True
-        )
+        return McpToolRoute(REFUSE, FAIL_CLOSED, INVENTORY_REFUSAL, first_party=first_party)
     effect = _DECLARED_CLASS.get(str(policy.get("side_effect_level")), FAIL_CLOSED)
     return McpToolRoute(
         INLINE if effect == "read" else DISPATCH,
         effect,
         digest=server_digest(server, tool_name, policy),
         first_party=first_party,
-        reference_profile=reference,
+        legacy_inline_allowed=legacy,
     )
 
 

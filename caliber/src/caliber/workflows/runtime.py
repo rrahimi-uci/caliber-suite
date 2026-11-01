@@ -5828,6 +5828,15 @@ def _perform_openapi_tool_effect(
     )
 
 
+def _legacy_effects_allowed(plan: RuntimePlan) -> bool:
+    """Whether ``plan`` keeps the pre-dispatcher path when no governed context is bound (the development profile, #1068).
+
+    ``build_plan`` sets ``legacy_guarded_effects`` from an allow-list (``profile == "development"``), so any other profile
+    stays fail-closed. This is **not** the governed path: no proposal, exact-intent approval, lease or receipt.
+    """
+    return plan.legacy_guarded_effects
+
+
 @dataclass(frozen=True)
 class _GovernedMcp:
     """A protected MCP call's route and its trusted operation (the server record and the administrator's tool policy)."""
@@ -5882,7 +5891,7 @@ def _governed_mcp_route(
     if route.route == INLINE:
         return None
     if plan.governed_effects is None:
-        if plan.legacy_guarded_effects:
+        if _legacy_effects_allowed(plan):
             # Development profile, no authority bound (#1068): the pre-dispatcher behavior. The call runs inline through the
             # gateway entry point (which lets it through outside the reference profile), behind the node's own approval gate;
             # there is no proposal, exact-intent approval, lease or receipt.

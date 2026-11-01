@@ -1356,8 +1356,9 @@ def build_plan(  # noqa: PLR0915 - central workflow plan assembler
         # A fresh read of the tool's own registry row for each governed call (B04.3, #741), never a build-time snapshot.
         registered_tool_identity=registry_identity_reader(runtime_session_factory),
         # The development profile keeps the pre-dispatcher guarded path while no governed context is bound (#1068, #1051);
-        # the reference profile never does, so a protected node without a context is refused there.
-        legacy_guarded_effects=resolved_config.profile != "reference",
+        # every other profile (the reference one, and any added later) never does: a protected node without a context
+        # is refused there. The allow-list form keeps a future third profile fail-closed.
+        legacy_guarded_effects=resolved_config.profile == "development",
         workflow_version_id=version.version_id,
         workflow_alias=alias,
         compiler_version=result.report["compiler_version"],
