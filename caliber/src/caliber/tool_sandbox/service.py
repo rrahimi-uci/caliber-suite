@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Any, Protocol, cast
 
 from caliber.config import CaliberConfig
+from caliber.effects.refusals import reference_profile_active, refusal, shipped_tool
 from caliber.tool_sandbox.models import (
     ToolSandboxInspectRequest,
     ToolSandboxInspectResult,
@@ -153,7 +154,13 @@ class LocalSubprocessToolSandbox:
         max_file_bytes: int = 1_048_576,
         max_open_files: int = 32,
         startup_grace_seconds: float = _DEFAULT_STARTUP_GRACE_SECONDS,
+        reference_profile: bool = False,
     ) -> None:
+        #: Set by :meth:`from_config` under ``CALIBER_PROFILE=reference``. This backend is a process boundary only (the child
+        #: keeps the host's ambient filesystem and network), so the reference profile runs only CALIBER's own shipped
+        #: read-class tools in it and refuses authored source, an administrator's module and every test suite (B04.7, #774;
+        #: EP-020 to EP-023).
+        self.reference_profile = reference_profile
         self.default_timeout_seconds = default_timeout_seconds
         self.startup_grace_seconds = max(0.0, float(startup_grace_seconds))
         self.max_output_bytes = max_output_bytes
@@ -188,9 +195,27 @@ class LocalSubprocessToolSandbox:
             startup_grace_seconds=getattr(
                 config, "tool_sandbox_startup_grace_seconds", defaults.startup_grace_seconds
             ),
+            reference_profile=reference_profile_active(config),
         )
 
+    def _refuse_in_reference_profile(
+        self, row_id: str, *, authored: bool, module_path: str = "", callable_name: str = ""
+    ) -> None:
+        """Refuse a run that is not one of CALIBER's own shipped tools, when this sandbox was built for the reference profile.
+
+        ``authored`` is true when the run executes authored source (a ``python_code`` node, a tool draft, a test suite), which
+        is never one of CALIBER's own tools; otherwise it is an installed module, allowed only as a shipped built-in.
+        """
+        if self.reference_profile and (authored or not shipped_tool(module_path, callable_name)):
+            raise refusal(row_id)
+
     def run_tool(self, request: ToolSandboxRunRequest) -> ToolSandboxRunResult:
+        self._refuse_in_reference_profile(
+            "EP-020",
+            authored=bool(request.source_code),
+            module_path=request.module_path,
+            callable_name=request.callable_name,
+        )
         started = time.monotonic()
         raw = self._run_payload(
             {
@@ -223,6 +248,12 @@ class LocalSubprocessToolSandbox:
         the control plane's credentials. Inspection belongs behind the same boundary as
         invocation because import is execution.
         """
+        self._refuse_in_reference_profile(
+            "EP-021",
+            authored=False,
+            module_path=request.module_path,
+            callable_name=request.callable_name,
+        )
         started = time.monotonic()
         raw = self._run_payload(
             {
@@ -236,6 +267,8 @@ class LocalSubprocessToolSandbox:
         return ToolSandboxInspectResult.model_validate(raw)
 
     def run_tests(self, request: ToolSandboxTestSuiteRequest) -> ToolSandboxTestSuiteResult:
+        # A test suite always executes authored source, which the reference profile never runs here.
+        self._refuse_in_reference_profile("EP-022", authored=True)
         started = time.monotonic()
         raw = self._run_payload(
             {
@@ -255,6 +288,14 @@ class LocalSubprocessToolSandbox:
         *,
         timeout_seconds: float | None,
     ) -> dict[str, object]:
+        # The single spawn point (EP-023): a payload that reached it without its own check, or a path added later, is judged
+        # by what the payload itself says it would run.
+        self._refuse_in_reference_profile(
+            "EP-023",
+            authored=bool(payload.get("source_code")) or payload.get("mode") == "tests",
+            module_path=str(payload.get("module_path") or ""),
+            callable_name=str(payload.get("callable_name") or ""),
+        )
         timeout = timeout_seconds or self.default_timeout_seconds
         # The caller's timeout is a budget for *their code*, so interpreter startup is not
         # charged to it. A manifest saying ``timeout_seconds: 5`` means "my node may take

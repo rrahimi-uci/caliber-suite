@@ -62,7 +62,8 @@ trusted. See [Who is trusted to write tools](../use/tools.md#who-is-trusted-to-w
 
 In the **reference profile** (`CALIBER_PROFILE=reference`) a `python_code` or `external_app` node is refused outright, at
 validation, compile, promotion and run time, with the code `unsupported_in_reference_profile`, and so is a registered Python
-tool while `CALIBER_REGISTERED_TOOL_SANDBOX_ENABLED` is off. See
+tool that is not one of CALIBER's own shipped built-ins (an administrator's module), or any registered Python tool while
+`CALIBER_REGISTERED_TOOL_SANDBOX_ENABLED` is off. See
 [Executable code is refused](../operate/reference-profile.md#executable-code-is-refused-b124a-754).
 
 ## How a workflow calibration is scored

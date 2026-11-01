@@ -209,8 +209,8 @@ them there (read-class tools are unaffected; outside the reference profile see [
 
 The two evaluation replays used to call a candidate manifest's write tools for real (found in review of B04.3); they now refuse
 them, so a workflow whose protected tool must be exercised by an evaluation or calibration needs that tool replaced by a
-read-class stand-in until the replay can run under a governed context (#1051). The module-import paths stay inventory rows
-EP-015, EP-016 and EP-019, refused by #774.
+read-class stand-in until the replay can run under a governed context (#1051). The module-import paths are inventory rows
+EP-015, EP-016 and EP-019, refused in the reference profile by B04.7 (#774): [Refused paths in the reference profile](#refused-paths-in-the-reference-profile-b047-774).
 
 Two limits. An administrator-registered tool declared `read` is trusted as read-class: its declared level is part of the
 definition the deployment bundle pins and re-verifies before a run (`deployment_bundle.tool_snapshot`), but the platform
@@ -521,7 +521,7 @@ from three things CALIBER itself holds, for exactly the tool being called:
    the policy gate already requires to be explicit and complete: a tool the server lists but nobody classified is refused,
    not guessed at; and
 3. the **protected-effect inventory** (EP-114), which applies to the first-party PostgreSQL MCP server only, and only under
-   the reference profile (#774 owns the switch for every inventory row). That server is recognised from the **record and the
+   the reference profile (B04.7, #774, switched every inventory row; see [Refused paths in the reference profile](#refused-paths-in-the-reference-profile-b047-774)). That server is recognised from the **record and the
    deployment settings**, never from the tool names a server reports: a `stdio` server that runs the CALIBER interpreter with
    `-m caliber.mcp_servers.db`, or a remote server whose host the operator listed in `CALIBER_MCP_MANAGED_SIDECAR_HOSTS` (the
    shipped compose stack runs the three first-party database servers as such sidecars). That setting attests an isolation
@@ -630,8 +630,7 @@ does not):
 
 An operator can still call any tool from the playground (EP-039/040, exempt).
 
-**Not covered by this change:** a governed path for the development profile (it keeps the alpha inline call until #1051), the refusal switch for every inventory row marked `refuse`
-(B04.7, #774), a key channel to MCP servers
+**Not covered by this change:** a governed path for the development profile (it keeps the alpha inline call until #1051), a key channel to MCP servers
 that could use one, pinning the resolved address to the connection, and a governed context for deployed workflows (#1051).
 
 **Configuration, migration and rollback.** No new setting, no route and no migration. The names `mcp` and `mcp-tool` become reserved
@@ -1955,12 +1954,11 @@ Each has no record in the table, so a proposal or dispatch that goes through the
 registration) or `connector_not_admitted` (registered, not pinned), and the host-file and database-write tools are also
 `unsupported_effect_path` through the protected-effect inventory (EP-055, EP-114).
 
-**What is not gated yet.** Only the dispatcher is gated. The paths that would reach host files or a database write do not go
-through it today, so **these tools still execute outside the dispatcher until the later B04 and B12 work**: the raising of `unsupported_in_reference_profile` for every inventory row marked `refuse`, which is what
-stops the host-file tools (EP-055) and the first-party database MCP write tools (EP-114) at run time, in B04.7 (#774); and
-(landed in B12.3b, #746) the startup refusal of any MCP stdio command or remote host on the two allowlists
-([MCP allowlists](#mcp-allowlists-b123b-746)), which leaves no MCP server reachable in a reference deployment. Until the other two
-land, a reference deployment must not wire the host-file tools into a workflow (see "Refused until explicitly supported" below).
+**What the dispatcher gate does not cover.** The dispatcher is gated. The paths that would reach host files or a database write do not go
+through it, so they are refused where they run instead: the reference profile raises `unsupported_in_reference_profile` for every
+inventory row marked `refuse` (B04.7, #774, [Refused paths in the reference profile](#refused-paths-in-the-reference-profile-b047-774)), which stops the host-file tools (EP-055) and the first-party
+database MCP write tools (EP-114) at run time, and the startup refusal of any MCP stdio command or remote host on the two allowlists
+([MCP allowlists](#mcp-allowlists-b123b-746), B12.3b, #746) leaves no MCP server reachable in a reference deployment.
 
 Where it is enforced:
 
@@ -3850,7 +3848,7 @@ MCP tool (`mcp_tool.prepare`). Never the binding's names or level, the model's c
 | a protected registered tool | **refused before the tool is entered**: `_refused` marker, `protected_tool_requires_governed_step` | refused, never authorized | runs inline, as before the dispatcher (**not governed**) | runs inline (not governed) |
 | a protected OpenAPI call (a `POST`, or a row declared `write`) | refused, same code | refused | refused by the public executor entry (`unsupported_effect_path`, since B04.4b): it cannot send a write | refused by the public entry |
 | a protected MCP call | refused, same code | refused | runs inline through the gateway entry point, as before B04.5 (**not governed**) | the gateway entry point refuses it under the reference profile |
-| a host-file built-in (EP-055) | refused: `unsupported_effect_path` | refused | runs (the refusal switch is #774) | runs |
+| a host-file built-in (EP-055) | refused: `unsupported_effect_path` | refused | runs | a process with the reference profile refuses it when it is bound ([Refused paths](#refused-paths-in-the-reference-profile-b047-774)); otherwise runs |
 | an unclassified, blocked or undiscovered MCP tool | refused with the gate's code (`mcp_tool_unclassified`, ...) | refused | the gateway refuses it | the gateway refuses it |
 | a binding that is not its registry row, an unreadable registry | refused: `registry_row_mismatch`, `registry_row_unreadable` | refused | runs inline (the development path classifies nothing) | runs inline |
 
@@ -4809,8 +4807,8 @@ carry no owner on purpose: the IR is written into generated exports field by fie
 export author controls. A test fails when production code passes a constant or a `**kwargs` expansion to these
 lookups.
 
-**Refused until explicitly supported.** The inventory now marks two paths `refuse` for the reference profile, so
-the dispatcher (B04.7, #774) will refuse them with `unsupported_in_reference_profile`:
+**Refused until explicitly supported (#641).** The inventory marked two paths `refuse` for the reference profile in #641; B04.7
+(#774) refuses them, and every other `refuse` row, with `unsupported_in_reference_profile` ([Refused paths in the reference profile](#refused-paths-in-the-reference-profile-b047-774)):
 
 | inventory row | path | why |
 | --- | --- | --- |
@@ -4824,20 +4822,120 @@ identity, which the MCP route now establishes from the server record (`tool_disp
 [Governed MCP tools](#governed-mcp-tools-b045)): a workflow tool node or MCP node reaching one of these tools on the first-party
 server is refused with `unsupported_effect_path` **under the reference profile** (the development profile classifies it by the
 administrator's policy; the first-party server is recognised from its stdio launch or an operator-attested managed sidecar host).
-**The switch that raises `unsupported_in_reference_profile` for every refused row is #774**; the code-execution rows (`python_code`, `external_app` and an unsandboxed registered tool) raise it now ([Executable code is refused](#executable-code-is-refused-b124a-754)). The four host-file tools are already refused by a workflow `tool` node in a manifest-backed
-plan (see "Governed registered tools"); until #774 lands, a model-chosen call of a host-file tool is refused only in a plan wired to the registry
-(`build_plan`, the loop gate of [Model-selected tool calls](#model-selected-tool-calls-b046-768): `unsupported_effect_path`) and still
-runs in the development profile and in a caller-built plan or export, so do not wire the four host-file tools into a reference workflow. The first-party database server's write tools are
-refused through a workflow under the reference profile (B04.5), but a deployment that does not need the server should still not
-register it.
+**The switch that raises `unsupported_in_reference_profile` for every refused row is B04.7 (#774)** ([Refused paths in the reference profile](#refused-paths-in-the-reference-profile-b047-774)). The four
+host-file tools were already refused by a workflow `tool` node in a manifest-backed plan (see "Governed registered tools") and, in a
+plan wired to the registry (`build_plan`), by the loop gate of [Model-selected tool calls](#model-selected-tool-calls-b046-768)
+(`unsupported_effect_path`); the switch adds the refusal where the tool would run: a process on the reference profile no longer binds
+them in any plan, whoever built it. The first-party database server's write tools are refused through a workflow under the reference
+profile (B04.5) and by the server itself when its own environment says `CALIBER_PROFILE=reference`.
 
 **Configuration, migration and rollback.** No new setting, no migration and no stored data change. Rolling back is
 reverting the change; rows already refused were never written.
 
+## Refused paths in the reference profile (B04.7, #774)
+
+The protected-effect inventory (`docs/architecture/protected-effect-paths.md`) marks a path `refuse` when it runs arbitrary source,
+imports an arbitrary module, exports runnable code, serves an unauthenticated service, or writes to the host or a database with no
+dispatcher, proposal or approval in front of it. Under `CALIBER_PROFILE=reference` every such path fails with
+`UnsupportedEffectPath` (the subclass `UnsupportedInReferenceProfile`) and the stable code `unsupported_in_reference_profile`, **before
+anything runs**: no process is started, no module imported, no file or directory created, no database connection opened. The message
+names the inventory row and entry point and the setting that allows the path elsewhere, and never a request, a draft, a path or an
+argument:
+
+```text
+unsupported_in_reference_profile: EP-011 (caliber/src/caliber/workflows/runtime.py::_run_node) is not supported in the reference profile; set CALIBER_PROFILE=development to use it outside the reference profile
+```
+
+The refusal is a **reference-profile control**. The default `development` profile is unchanged: the same entry point does what it
+did, and a test per row (`caliber/tests/test_effect_path_matrix.py::test_refused_paths_are_unchanged_in_the_development_profile`)
+holds that. A caller that is handed no configuration is not in the reference profile either; every production caller passes the
+configuration it has (the plan's operator configuration, the request's application configuration, or, for the two separate
+processes, the loaded configuration or the process environment).
+
+| inventory row | entry point | what the reference profile does |
+| --- | --- | --- |
+| EP-011 | the `python_code` node | the node fails the run before a sandbox is built, whatever sandbox backend is configured |
+| EP-012 | the `external_app` node | refused before the allowlist is read or anything is imported (an allowlisted entrypoint is refused too) |
+| EP-014 | the `output_folder` node | refused before the path is confined or any directory is created |
+| EP-015, EP-016, EP-019 | binding a registered Python tool (the runtime, a generated export, `bind_registered_tool`) | an administrator's module is refused when the tool is bound, before a proposal is recorded or an approval spent, **and at author time**: validation, compile and promotion refuse it with the same code ([Executable code is refused](#executable-code-is-refused-b124a-754)); CALIBER's own shipped tools still bind |
+| EP-020 to EP-023, EP-025, EP-026 | the local subprocess sandbox | a sandbox built for the profile runs only CALIBER's own shipped tools; authored source, an administrator's module and every test suite are refused, and so is any other payload at the single spawn point |
+| EP-027, EP-028, EP-029 | the standalone tool-sandbox service | the CLI refuses before it binds a port, `create_app` refuses to build the app, and a handler of an app whose configuration says reference answers `409` |
+| EP-041, EP-042 | `execute_exported_workflow`, the export's knowledge-build runner | refused before anything is read, bound or run, whatever runners or resolvers the caller supplies |
+| EP-044, EP-045 | `GET .../export/python`, `GET .../export/deployment-bundle` | `409` with `reason_code` `unsupported_in_reference_profile`, before the version is looked up |
+| EP-047, EP-048 | `file_tools.write_workdir_file`, `file_tools.create_artifact` | refused when handed the configuration; nothing binds them to a run, so there is no dispatcher path to send them down |
+| EP-054, EP-055 | the built-ins `sandbox_python` and the four host-file tools | refused where they would run (the sandbox and the binder treat a built-in the inventory refuses as not shipped), besides the refusals of a tool node and of a model-chosen call |
+| EP-078, EP-079, EP-080 | Aria's tool-draft tests, `run_tool_sandbox`, `evaluate_tool_draft` | the draft test gate reports a failed report whose error is the refusal; the two tools answer their error before they read the draft or build a sandbox |
+| EP-114 | the first-party PostgreSQL MCP server | its one writable door (`connection.connect`) refuses when the server's own environment says `CALIBER_PROFILE=reference`; the read tools are unaffected |
+
+**CALIBER's own shipped tools are the one exemption**, and only for the tool-execution rows. The seeded write-class built-ins (`create_artifact`, `write_workdir_file`, `memory_add`) are shipped too: what they run is CALIBER's own code, and the dispatcher governs them by their class. A tool is shipped when its **module and
+callable are the pair the registry seed writes** (`workflows.builtin_tools.BUILTIN_TOOL_MODULE_BY_NAME`) and the inventory does not
+refuse its name: `grok_parse` and the other shipped built-ins that are bound to a module run in the reference sandbox as before. A name, an owner or
+what a registry row or a manifest says decides nothing: a tool called `grok_parse` in an administrator's module, or a callable of
+CALIBER's module that the seed does not list, is not shipped.
+
+**What refusing the export routes does not stop.** EP-044 and EP-045 refuse the two routes that serve the runnable export. The generated Python text (EP-043, exempt) is still sealed into the compiled bundle, so it can leave through `POST /workflow-versions/{id}/compile`, `GET /workflow-versions/{id}` and `POST /workflow-versions/{id}/publish` in the reference profile. Closing that is tracked in #1088; until then, do not treat the two `409`s as a guarantee that no generated Python reaches a client.
+
+**What an operator sees.** Each of these is the refusal for the row named:
+
+```text
+# a workflow run with a python_code node (the run's error)
+UnsupportedInReferenceProfile: unsupported_in_reference_profile: EP-011 (caliber/src/caliber/workflows/runtime.py::_run_node) is not supported in the reference profile; set CALIBER_PROFILE=development to use it outside the reference profile
+
+# GET /workflow-versions/{id}/export/python  ->  409
+{"detail": "unsupported_in_reference_profile: EP-044 (caliber/src/caliber/routes/workflow_versions.py::export_python_route) is not supported in the reference profile; set CALIBER_PROFILE=development to use it outside the reference profile", "status_code": 409, "reason_code": "unsupported_in_reference_profile"}
+
+# python -m caliber.tool_sandbox   (exit status 1, nothing listening)
+caliber.effects.dispatcher.UnsupportedInReferenceProfile: unsupported_in_reference_profile: EP-029 (caliber/src/caliber/tool_sandbox/__main__.py::main) is not supported in the reference profile; set CALIBER_PROFILE=development to use it outside the reference profile
+
+# Aria's run_tool_sandbox tool (the tool's error)
+{"error": "unsupported_in_reference_profile: EP-079 (caliber/src/caliber/assistant/agent_tools.py::AssistantAgentToolset._t_run_tool_sandbox) is not supported in the reference profile; set CALIBER_PROFILE=development to use it outside the reference profile"}
+```
+
+A tool node, or an agent, that binds an administrator's Python module is refused when it is bound. An agent is **not** failed by it: the
+tool stays listed, every call of it is the refusal (reported to the model as the tool's error, with no argument in it, and never
+retried), and a preview mocks it. Inside a `for_each` or an `error_boundary` the refusal fails the node; it is not absorbed as one item's
+error.
+
+**Recovery.** Nothing was run, written or recorded, so there is nothing to undo. Pick the supported path:
+
+- an **administrator's Python tool**: publish it as an OpenAPI tool (a read `GET` runs inline, any other method is proposed, approved and
+  dispatched, [Governed OpenAPI tools](#governed-openapi-tools-b044)) or run it behind an MCP server whose call is classified by an
+  administrator ([Governed MCP tools](#governed-mcp-tools-b045)); a workflow that only needs CALIBER's own built-ins is unaffected;
+- a **`python_code`, `external_app` or `output_folder` node**: replace it with a supported node, or run that workflow in a
+  `CALIBER_PROFILE=development` deployment;
+- a **runnable export**: run the version through the platform's own run routes instead of exporting it;
+- the **standalone sandbox service**: do not run it in a reference deployment;
+- a **host-file read** or a **database write through MCP**: keep them out of reference workflows (they are refused here until reads
+  are confined to a configured root and writes are routed through the dispatcher with an exact-intent approval).
+
+**The final dispositions this change made in the inventory.** EP-043 (`compiler.generate_python`) is now `exempt`: it only emits text
+at compile time, and that text is sealed into every deployment bundle, so refusing it would refuse publishing every workflow in the
+reference profile. What the profile refuses is serving the text (EP-044, EP-045) and running an export (EP-041, EP-016, EP-019, EP-042).
+EP-047 and EP-048 are now `refuse` (they were `dispatch`) and no longer list the tool names `write_workdir_file` and `create_artifact`:
+the registry name resolves to a demo stub, not to the module function, and routing the name stays with EP-049.
+
+**The effect-path matrix.** `caliber/tests/fixtures/effect_path_matrix.json` holds one case per inventory row, and
+`tests/test_effect_path_matrix.py::test_inventory_rows_have_matrix_cases` fails on a row without a case, a case for no row, an outcome
+that is not the row's disposition, and a claim with nothing behind it (a `routed` or `refused` case must name a test that exists).
+`test_refused_paths_raise_in_reference_profile` runs one probe per `refuse` row through its real entry point. **Not every `dispatch`
+row is routed through the dispatcher yet**: 15 of them (EP-009, EP-010, EP-013, EP-017, EP-034, EP-051, EP-059, EP-070 to EP-072,
+EP-075 to EP-077, EP-081 and EP-090) have no connector, no B04 child routes them, and the matrix records them as `unrouted` (pinned in
+`UNROUTED_DISPATCH_ROWS`, with an owner note) instead of claiming `dispatched`. Routing them is follow-up work; this change does not
+make them refuse, because they are release, knowledge-build, object-store and GitHub paths whose reference-profile behaviour has not
+been decided.
+
+**Configuration, migration and rollback.** No new setting, no route and no migration, and the packaged inventory is the same file as
+`docs/architecture/protected-effect-paths.md`. A reference deployment that ran any of the paths above stops being able to: that is the
+change. Reverting the change restores the paths; nothing is stored. The development profile is unaffected.
+
+**Oracle.** `caliber/tests/test_effect_path_matrix.py` (the matrix, one probe per row, the call-site scan), `caliber/tests/test_effect_refusals.py`
+(the switch, the shipped-tool boundary, how an agent, a preview, a route and a node surface a refusal) and the public-path scenario
+`caliber/tests/egi_scenarios/test_b04_refusals.py` (the export routes and the real sandbox service process).
+
 ## Executable code is refused (B12.4a, #754)
 
-A workflow can run code in two ways, and the reference profile refuses both unless the platform itself puts the code behind
-the sandbox it trusts. The kinds are read from the compiler's own IR kind registry (`caliber.workflows.ir.NodeType`), not from
+A workflow can run code in two ways, and the reference profile refuses both, except for CALIBER's own shipped tools
+(B04.7, #774; see [Refused paths in the reference profile](#refused-paths-in-the-reference-profile-b047-774)). The kinds are read from the compiler's own IR kind registry (`caliber.workflows.ir.NodeType`), not from
 a list kept by hand: each kind is classified once in `caliber.workflows.code_policy` (code, tool carrier or inert), and
 `tests/test_profile_code_refusal.py` fails when a kind is added to the registry without being classified. Until it is, the kind is **refused**: the profile admits a kind only when it is classified as inert or as a tool carrier (fail closed).
 
@@ -4845,7 +4943,8 @@ a list kept by hand: each kind is classified once in `caliber.workflows.code_pol
 | --- | --- | --- |
 | `python_code` node | refused | runs the author's Python source. The tool sandbox it runs in is a process boundary (separate interpreter, empty environment, rlimits) with ambient filesystem and network authority, not a container, VM or seccomp boundary. **A sandbox label does not establish isolation.** |
 | `external_app` node | refused | imports and calls installed Python inside the control-plane process (EP-012) |
-| registered `python_callable` tool, sandbox on (the default) | admitted | administrator-registered code run in the sandbox child: trusted-code admission, not containment of hostile code (the module allowlist is #763) |
+| registered `python_callable` tool that is one of CALIBER's own shipped built-ins (the exact module and callable the registry seed writes, not refused by the inventory), sandbox on (the default) | admitted | CALIBER's own code, run in the sandbox child |
+| registered `python_callable` tool that is anything else (an administrator's module) | refused | administrator-registered Python is a refused path in the reference profile (EP-015, EP-016, EP-019, B04.7, #774): it is refused at validation, compile and promotion with this code, and again when it is bound, so an author never gets a clean publish followed by a refused run |
 | registered `python_callable` tool, `CALIBER_REGISTERED_TOOL_SANDBOX_ENABLED=false` | refused | the tool would be imported into the control plane (EP-015, EP-016, EP-019) |
 | tool with any other execution backend | refused | the profile cannot establish that it runs no code (fail closed) |
 | `openapi_http` tool, MCP tool binding | not code | an HTTP call the effect dispatcher governs, and an MCP call (no MCP server is allowlisted in the profile, #746) |
@@ -4879,14 +4978,19 @@ POST /ajax-api/2.0/mlflow/caliber/workflows/WF-adb7d7f0/deployments/staging/prom
 ```
 
 A run that was admitted before the code was refused ends `failed` with `error_code: unsupported_in_reference_profile` and the
-node never executed. A registered Python tool with the sandbox switched off is refused at `nodes.<id>.tools.<tool>` with the
-message `tool 'lookup_policy' runs registered Python (execution backend python_callable) and
+node never executed. A registered Python tool that is not one of CALIBER's shipped built-ins is refused at
+`nodes.<id>.tools.<tool>` with the message `tool 'lookup_policy' runs a registered Python module (execution backend
+python_callable) that is not one of CALIBER's own shipped tools, which the reference profile does not support; publish it as an
+openapi_http tool or run this workflow outside the reference profile`. With the sandbox switched off, any registered Python tool
+is refused with the message `tool 'lookup_policy' runs registered Python (execution backend python_callable) and
 CALIBER_REGISTERED_TOOL_SANDBOX_ENABLED is false, so it would run unsandboxed inside the control plane, ...`.
 
 **Recovery.**
 
-- A `python_code` or `external_app` node: remove it. Use a registered tool behind the sandbox, an OpenAPI tool or a built-in
-  data-transform or template node for the same job, or author the workflow in a development deployment.
+- A `python_code` or `external_app` node: remove it. Use an OpenAPI tool or a built-in data-transform or template node for the
+  same job, or author the workflow in a development deployment.
+- A registered Python tool that is not a shipped built-in: publish the same operation as an OpenAPI tool
+  ([Governed OpenAPI tools](#governed-openapi-tools-b044)), or author the workflow in a development deployment.
 - An unsandboxed tool: set `CALIBER_REGISTERED_TOOL_SANDBOX_ENABLED=true` (the default) and restart the process.
 - A version that was published before the profile was switched on and now holds code: it cannot be promoted or run. Author a
   new draft without the node and publish that; existing aliases keep pointing where they pointed, and are not rewritten.
@@ -4896,9 +5000,9 @@ unchanged: all of these forms keep working there, and a version authored there i
 compiles, promotes or runs it. The policy is process-wide state bound at startup (like the registered-tool module allowlist), so
 a change of profile or sandbox setting needs a restart. Rolling back is reverting the change; nothing refused was written.
 
-**What this does not do.** It does not decide which modules a registered tool may import (the module allowlist, #763), does not
-contain hostile tool code (the sandbox is trusted-code admission, see "Who is trusted to write tools" in the tools guide), and
-does not raise `unsupported_in_reference_profile` for the other `refuse` inventory rows (#774). A subworkflow node is not
+**What this does not do.** It does not decide which modules a registered tool may import (the module allowlist, #763) and does not
+contain hostile tool code (the sandbox is trusted-code admission, see "Who is trusted to write tools" in the tools guide); the
+other `refuse` inventory rows are refused at run time by B04.7 (#774, [Refused paths in the reference profile](#refused-paths-in-the-reference-profile-b047-774)). A subworkflow node is not
 expanded at the parent: the parent validates, compiles and promotes, and the child is checked at its own validation, compile,
 promotion and runtime entry. A parent run over a child that holds code fails with the same code
 (`error_code: unsupported_in_reference_profile`, `error` naming the child and the node) and the child's node never runs. The refinement, calibration and deploy-gate replays that build a plan without a configuration are covered by the
@@ -4910,7 +5014,7 @@ ADR 0001 describes the whole reference shape; this table is what the *process* c
 
 - **The shape itself:** one tenant and region, MLflow addressed by `MLFLOW_TRACKING_URI`, an S3-compatible object store, at least two projects, and one real model provider next to the scripted adapter. Readiness reporting for MLflow and the object store is #535. The PostgreSQL version and the `pgvector` extension are checked by the migrations (migration `0060`) and the migration-parity CI job, not by the profile.
 - **Origin rules** (#533). ADR 0001 names them, but #533 has no allowed-origins task yet; that rule is not scheduled.
-- **Run-time refusal of the other `refuse` inventory rows**, including the host-file tools and the DB MCP write tools (#774; see "Reserved tool names and refused paths"; code execution is refused since B12.4a, #754), **the trusted-connector set** (#534), **the full attack pack** (#535), **a single execution owner** (#536) and **the Apply separation-of-duties flag** (#589).
+- **The trusted-connector set** (#534), **the full attack pack** (#535), **a single execution owner** (#536) and **the Apply separation-of-duties flag** (#589).
 - **A governed effect context outside the worker's own graph** (#1051, #1068): the worker binds one for an admitted reference-profile run, but synchronous version runs, evaluation, gate and Aria previews, and the sub-workflows of a worker run have no owner lease and bind none, so the reference profile refuses their protected nodes (and an agent in them that can reach a mapped tool) and the development profile runs them on the legacy guarded path; see "Profiles and a missing governed context".
 - **A verifier for the other workflow connectors** (#1055, #1051): a registered-tool, OpenAPI or MCP node, and a webhook or API-request node whose URL the operator did not list in `CALIBER_EFFECT_HTTP_VERIFIERS`, is refused `no_authoritative_verifier` in the reference profile because the connector has no lookup by key the platform can call; a governed agent step reaches `document_request` and a listed webhook reaches `http` end to end. A *permanent* unknown (a lookup that never shows the request) has no operator exit yet: the attested resolution is #1054. A workflow node whose effect ended unknown fails its run and a settlement does not resume it. Model-chosen calls of an agent that is not governed (B04.6, #768) are not routed.
 - **Cookie flags:** `auth_session_cookie_secure` is not checked.

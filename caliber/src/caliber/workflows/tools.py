@@ -29,6 +29,8 @@ from typing import Any, Protocol
 from packaging.specifiers import SpecifierSet
 from packaging.version import InvalidVersion, Version
 
+from caliber.effects.refusals import refuse_unshipped_tool_in_reference_profile
+
 _FAMILY_RE = re.compile(r"^(?P<name>.+?)(?:\.v\d+)?$")
 
 
@@ -245,6 +247,7 @@ def bind_registered_tool(
     *,
     callable_override: Callable[..., Any] | None = None,
     module_allowlist: str | object | None = _BOUND_MODULE_ALLOWLIST,
+    config: object | None = None,
 ) -> Callable[..., Any]:
     """Resolve a registry entry to a concrete callable.
 
@@ -258,6 +261,10 @@ def bind_registered_tool(
     path imports and invokes installed Python **in the control-plane process**, so
     when an operator has declared which modules are legitimate, a registry row naming
     anything else is refused before the import rather than after.
+
+    ``config`` names the deployment profile: in the reference profile an administrator's module is never imported here
+    (``UnsupportedEffectPath``, inventory EP-019, B04.7, #774); CALIBER's own shipped tools still are. No
+    ``config`` is the development default.
     """
     if callable_override is not None:
         return callable_override
@@ -265,6 +272,9 @@ def bind_registered_tool(
         raise ToolBindingError(
             f"tool {entry.registry_ref!r} has no importable module and no override callable"
         )
+    refuse_unshipped_tool_in_reference_profile(
+        "EP-019", config, module_path=entry.module_path, callable_name=entry.callable_name
+    )
     allowed = (
         registered_tool_module_allowed(entry.module_path)
         if module_allowlist is _BOUND_MODULE_ALLOWLIST

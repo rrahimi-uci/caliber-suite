@@ -69,6 +69,7 @@ from caliber.routes._deps import (
     parse_json_object,
     scoped_child_or_404,
 )
+from caliber.routes._errors import refuse_route_in_reference_profile
 from caliber.schemas import (
     CopilotEditRequest,
     PlanBuildRequest,
@@ -1944,6 +1945,8 @@ async def export_manifest_route(request: Request) -> PlainTextResponse:
 
 async def export_python_route(request: Request) -> PlainTextResponse:
     require_user(request)
+    # Runnable code leaves the platform: not supported in the reference profile (EP-044, B04.7, #774).
+    refuse_route_in_reference_profile("EP-044", request.app.state.config)
     version_id = request.path_params["version_id"]
     factory = get_session_factory(request)
     with factory() as session:
@@ -2002,8 +2005,12 @@ def deployment_bundle_status_route(request: Request) -> JSONResponse:
 
 
 def export_deployment_bundle_route(request: Request) -> PlainTextResponse:
-    """Download the exact, integrity-sealed deployment bundle as JSON."""
+    """Download the exact, integrity-sealed deployment bundle as JSON.
+
+    Not supported in the reference profile (EP-045, B04.7, #774): the bundle embeds the generated runnable Python.
+    """
     require_user(request)
+    refuse_route_in_reference_profile("EP-045", request.app.state.config)
     version_id = request.path_params["version_id"]
     factory = get_session_factory(request)
     with factory() as session:

@@ -93,6 +93,8 @@ from caliber.db.models import (
     CaliberVerificationItem,
     CaliberWorkflow,
 )
+from caliber.effects.dispatcher import UnsupportedEffectPath
+from caliber.effects.refusals import refuse_in_reference_profile
 from caliber.eval.gate import DEFAULT_MAX_REGRESSION_DELTA, DEFAULT_MIN_AGGREGATE_SCORE
 from caliber.ids import (
     new_approval_id,
@@ -2742,6 +2744,18 @@ class AssistantService:
 
     def _run_tool_sandbox_tests(self, artifact: dict[str, Any]) -> TestReport:
         tests = self._coerce_tool_tests(artifact.get("tests"))
+        # Executes the draft's authored source: not supported in the reference profile (EP-078, B04.7, #774). The draft's
+        # test gate reports the refusal as a failed report (a stable code, no source or test input), so a publish that
+        # depends on it is held rather than the whole turn failing.
+        try:
+            refuse_in_reference_profile("EP-078", self._runtime_config)
+        except UnsupportedEffectPath as exc:
+            return TestReport(
+                passed=False,
+                total=len(tests),
+                failures=len(tests),
+                error=str(exc),
+            )
         source = artifact.get("source")
         callable_name = artifact.get("callable_name") or artifact.get("name")
         if not isinstance(source, str) or not source.strip():

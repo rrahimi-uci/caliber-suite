@@ -16,6 +16,16 @@ if TYPE_CHECKING:
 
 TTL_SECONDS = 600.0
 
+#: The module and callable of one of CALIBER's own shipped tools (a seeded write-class built-in).
+#:
+#: The reference profile runs no administrator-registered Python module (B04.7, #774; EP-015, EP-016, EP-019), so a
+#: scenario that drives the governed dispatch of a registered tool in that profile registers the tool under *this* pair, the
+#: only Python a registry row may point at there. What a test's fake does when it is called is injected as before; the row's
+#: name stays the test's own (a name is not an identity, so the row is still an administrator-registered tool to the
+#: classifier).
+SHIPPED_TOOL_MODULE = "caliber.workflows.demo_tools"
+SHIPPED_TOOL_CALLABLE = "write_workdir_file"
+
 
 def leased(session: Session, owner_id: str) -> Lease:
     """The lease ``owner_id`` holds now: the one already held, or a fresh acquisition (a new token) after taking it over.
