@@ -55,15 +55,17 @@ from caliber.contracts.agent_step import (
     StepUsage,
 )
 from caliber.contracts.registry import ContractValidationError
-from caliber.effects.inventory import EFFECT_CLASSES
 from caliber.effects.records import ProposalError
 from caliber.workflows.agent_step import (
     ADAPTER_TIMEOUT,
     MALFORMED_RESULT,
+    PROPOSAL_DESCRIPTION,
     PROVIDER_ERROR,
     AgentStepInput,
     answer,
     failure,
+    proposal_from_call,
+    proposal_parameters,
 )
 from caliber.workflows.ir import IRAgent, IRToolBinding
 
@@ -74,9 +76,6 @@ MODEL_REFUSED: Final = "model_refused"
 CONTENT_FILTERED: Final = "content_filtered"
 #: The most any usage figure may be: the contract's own maximum (a larger one is unreadable, never clamped).
 _MAX_COUNT: Final = 2147483647
-_REQUIRED_ENVELOPE: Final = ("connector", "connector_version", "effect_class", "resource", "args")
-_OPTIONAL_ENVELOPE: Final = ("expected_resource_version",)
-_ENVELOPE: Final = frozenset(_REQUIRED_ENVELOPE + _OPTIONAL_ENVELOPE)
 _TIMEOUT_TYPES: Final = (("openai", "APITimeoutError"), ("httpx", "TimeoutException"))
 
 
@@ -215,27 +214,8 @@ def _proposal_spec(binding: IRToolBinding, parameters: dict[str, Any]) -> dict[s
         "type": "function",
         "function": {
             "name": binding.local_name,
-            "description": (
-                f"{binding.registry_ref or binding.local_name}. Calling this does not run the tool: it proposes the "
-                "action for approval."
-            ),
-            "parameters": {
-                "type": "object",
-                "additionalProperties": False,
-                "required": list(_REQUIRED_ENVELOPE),
-                "properties": {
-                    "connector": {"type": "string", "minLength": 1, "maxLength": 128},
-                    "connector_version": {"type": "string", "minLength": 1, "maxLength": 64},
-                    "effect_class": {"type": "string", "enum": list(EFFECT_CLASSES)},
-                    "resource": {"type": "string", "minLength": 1, "maxLength": 512},
-                    "args": parameters,
-                    "expected_resource_version": {
-                        "type": ["string", "null"],
-                        "minLength": 1,
-                        "maxLength": 256,
-                    },
-                },
-            },
+            "description": f"{binding.registry_ref or binding.local_name}. {PROPOSAL_DESCRIPTION}",
+            "parameters": proposal_parameters(parameters),
         },
     }
 
@@ -253,26 +233,16 @@ def _tool_specs(
     ]
 
 
-def _proposal(arguments: str) -> ProposedAction:
-    """The model's protected tool call, read strictly; whatever is wrong with it, it is ``malformed_result``."""
+def _proposal(tool: str, arguments: str) -> ProposedAction:
+    """The model's call of the protected tool ``tool``, read strictly; whatever is wrong with it, it is ``malformed_result``.
+
+    The proposal carries the called function's name, so the platform binds it from the tool's trusted identity; a model that
+    volunteers a connector, version or class (or ``state``, ``receipt_id``) is unreadable.
+    """
     try:
-        envelope = json.loads(arguments)
-    except (ValueError, RecursionError) as exc:
+        return proposal_from_call(tool, json.loads(arguments))
+    except (ValueError, RecursionError, ProposalError, ContractValidationError, TypeError) as exc:
         raise _Unreadable from exc
-    if (
-        type(envelope) is not dict
-        or not _ENVELOPE.issuperset(envelope)
-        or not set(_REQUIRED_ENVELOPE).issubset(envelope)
-    ):
-        raise _Unreadable
-    return ProposedAction(
-        connector=envelope["connector"],
-        connector_version=envelope["connector_version"],
-        effect_class=envelope["effect_class"],
-        resource=envelope["resource"],
-        args=envelope["args"],
-        expected_resource_version=envelope.get("expected_resource_version"),
-    )
 
 
 # -------------------------------------------------------------------------------------- the provider
@@ -489,7 +459,7 @@ def _after_response(
             request,
             "proposed_action",
             usage=tally.usage(),
-            proposed_actions=(_proposal(protected.arguments),),
+            proposed_actions=(_proposal(protected.name, protected.arguments),),
             usage_source=tally.source,
         )
     return _read_calls(rt, loop, turn, messages, bindings)

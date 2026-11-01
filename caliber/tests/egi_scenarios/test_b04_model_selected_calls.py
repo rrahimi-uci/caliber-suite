@@ -31,9 +31,9 @@ from tests.test_model_selected_calls import (
     mcp_binding,
     registered,
 )
+from tests.test_model_selected_named_calls import model_call
 from tests.test_model_selected_proposals import (
-    _mcp_action,
-    _openapi_action,
+    TICKET,
     _registered_action,
     governed,
 )
@@ -93,10 +93,11 @@ def test_a_model_chosen_registered_write_is_a_proposal_and_the_tool_never_runs(
     world = _registered_world(reference_app, run_id)
     tool = Tool()
 
+    # a model-style call through the real OpenAI chat adapter: the function name and its arguments, no claim
     result = execute(
         world.plan,
         "go",
-        executor=_scripted(_registered_action()),
+        executor=model_call("open_ticket", TICKET),
         extra_tools={"open_ticket": tool},
     )
 
@@ -121,7 +122,7 @@ def test_a_model_chosen_openapi_write_is_a_proposal_and_nothing_is_sent(
         )
         world.plan.egress_policy = LOOPBACK
         result = execute(
-            world.plan, "go", executor=_scripted(_openapi_action(server.url, args={"body": {}}))
+            world.plan, "go", executor=model_call("file_ticket", {"body": {"summary": "disk full"}})
         )
         proposal = _assert_parked_with_one_proposal(reference_app, result)
         assert server.requests == [], "no request left the platform"
@@ -148,7 +149,7 @@ def test_a_model_chosen_mcp_write_is_a_proposal_and_the_server_is_never_reached(
         mcp_tools=frozenset({(SERVER_ID, "issue_write")}),
     )
 
-    result = execute(world.plan, "go", executor=_scripted(_mcp_action()))
+    result = execute(world.plan, "go", executor=model_call("write_issue", TICKET))
 
     proposal = _assert_parked_with_one_proposal(reference_app, result)
     assert proposal.connector == "mcp-tool"
@@ -164,7 +165,7 @@ def test_a_restarted_run_finds_its_model_chosen_proposal_and_does_not_ask_again(
     first = execute(
         world.plan,
         "go",
-        executor=_scripted(_registered_action()),
+        executor=model_call("open_ticket", TICKET),
         extra_tools={"open_ticket": tool},
     )
     proposal = _assert_parked_with_one_proposal(reference_app, first)

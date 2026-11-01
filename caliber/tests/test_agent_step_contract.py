@@ -815,14 +815,17 @@ def test_a_proposed_action_has_the_shape_of_the_proposal_it_becomes() -> None:
             if k not in {"maxLength", "pattern", "description"}
         }
 
+    # ``tool`` (B04.6) is the one addition: the name of the function the model called, a selector that is not part of the intent.
     assert set(properties) == {
         "effect_class",
         "target",
         "connector_version",
         "args",
         "expected_resource_version",
+        "tool",
     }
-    for name in properties:
+    assert "tool" not in proposal, "the stored proposal has no tool: it is not part of the intent"
+    for name in properties.keys() - {"tool"}:
         assert comparable(properties[name]) == comparable(proposal[name]), name
     assert set(properties["effect_class"]["enum"]) == set(EFFECT_CLASSES)
     required_in_proposal = set(load_schema("proposal", "v1")["required"])

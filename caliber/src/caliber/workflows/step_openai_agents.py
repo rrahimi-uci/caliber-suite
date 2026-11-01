@@ -24,11 +24,18 @@ from caliber.contracts.agent_step import (
     StepUsage,
 )
 from caliber.contracts.registry import ContractValidationError
-from caliber.effects.inventory import EFFECT_CLASSES
 from caliber.effects.records import ProposalError
 from caliber.llm.models import reasoning_effort_for_model
 from caliber.workflows import agent_step as _step
-from caliber.workflows.agent_step import AgentStepInput, answer, failure, refusal
+from caliber.workflows.agent_step import (
+    PROPOSAL_DESCRIPTION,
+    AgentStepInput,
+    answer,
+    failure,
+    proposal_from_call,
+    proposal_parameters,
+    refusal,
+)
 from caliber.workflows.ir import IRToolBinding
 
 logger = logging.getLogger("caliber.workflows.step_openai_agents")
@@ -36,15 +43,6 @@ logger = logging.getLogger("caliber.workflows.step_openai_agents")
 MODEL_REFUSED: Final = "model_refused"
 PROVIDER_UNAVAILABLE: Final = "provider_unavailable"
 _MAX_COUNT: Final = 2_147_483_647
-_REQUIRED_ENVELOPE: Final = (
-    "connector",
-    "connector_version",
-    "effect_class",
-    "resource",
-    "args",
-)
-_OPTIONAL_ENVELOPE: Final = ("expected_resource_version",)
-_ENVELOPE = frozenset(_REQUIRED_ENVELOPE + _OPTIONAL_ENVELOPE)
 _TIMEOUT_CLASSES: Final = frozenset({"APITimeoutError", "TimeoutException"})
 _TIMEOUT_MODULES: Final = frozenset({"openai", "httpx", "httpcore"})
 _DEFAULT_SYSTEM_PROMPT: Final = "You are a helpful workflow agent."
@@ -77,6 +75,7 @@ class _Unreadable(Exception):  # noqa: N818 - fixed internal decoding marker
 class _State:
     read_calls: int = 0
     protected_raw: str | None = None
+    protected_name: str | None = None
     tool_error: bool = False
     tool_limit: bool = False
     deadline: bool = False
@@ -138,50 +137,14 @@ def _tool_parameters(binding: IRToolBinding) -> dict[str, Any]:
 
 
 def _proposal_schema(binding: IRToolBinding) -> dict[str, Any]:
-    text = {"type": "string", "minLength": 1}
-    return {
-        "type": "object",
-        "additionalProperties": False,
-        "required": list(_REQUIRED_ENVELOPE),
-        "properties": {
-            "connector": {**text, "description": "The connector that performs the effect."},
-            "connector_version": {**text, "description": "Your claimed connector version."},
-            "effect_class": {
-                "type": "string",
-                "enum": list(EFFECT_CLASSES),
-                "description": "Your claimed effect class; the platform decides the real one.",
-            },
-            "resource": {**text, "description": "The resource the effect changes."},
-            "args": _tool_parameters(binding),
-            "expected_resource_version": {
-                "type": ["string", "null"],
-                "description": "The version expected by the proposal, or null.",
-            },
-        },
-    }
+    return proposal_parameters(_tool_parameters(binding))
 
 
-def _proposal(raw: str) -> ProposedAction:
+def _proposal(tool: str, raw: str) -> ProposedAction:
+    """The model's call of the protected tool ``tool`` as a proposal that names it (no claims); unreadable otherwise."""
     try:
-        envelope = json.loads(raw)
-    except (ValueError, RecursionError) as exc:
-        raise _Unreadable from exc
-    if (
-        type(envelope) is not dict
-        or not _ENVELOPE.issuperset(envelope)
-        or not set(_REQUIRED_ENVELOPE).issubset(envelope)
-    ):
-        raise _Unreadable
-    try:
-        return ProposedAction(
-            connector=envelope["connector"],
-            connector_version=envelope["connector_version"],
-            effect_class=envelope["effect_class"],
-            resource=envelope["resource"],
-            args=envelope["args"],
-            expected_resource_version=envelope.get("expected_resource_version"),
-        )
-    except (ProposalError, ContractValidationError, TypeError, ValueError) as exc:
+        return proposal_from_call(tool, json.loads(raw))
+    except (ProposalError, ContractValidationError, TypeError, ValueError, RecursionError) as exc:
         raise _Unreadable from exc
 
 
@@ -343,9 +306,10 @@ def _build_tools(
             state.tool_error = True
             return json.dumps({"_error": type(exc).__name__})
 
-    async def protected_callback(raw: str) -> str:
+    async def protected_callback(name: str, raw: str) -> str:
         if state.protected_raw is None:
             state.protected_raw = raw if isinstance(raw, str) else ""
+            state.protected_name = name
         return '{"_caliber":"proposal recorded; no effect was executed"}'
 
     def make_read_callback(name: str) -> Callable[[Any, str], Any]:
@@ -354,16 +318,20 @@ def _build_tools(
 
         return invoke
 
-    def make_protected_callback() -> Callable[[Any, str], Any]:
+    def make_protected_callback(name: str) -> Callable[[Any, str], Any]:
         async def invoke(_ctx: Any, raw: str) -> str:
-            return await protected_callback(raw)
+            return await protected_callback(name, raw)
 
         return invoke
 
     tools: list[Any] = []
     for binding in agent.tools:
         is_read = binding.local_name in step_input.read_tools and not binding.requires_approval
-        callback = make_read_callback(binding.local_name) if is_read else make_protected_callback()
+        callback = (
+            make_read_callback(binding.local_name)
+            if is_read
+            else make_protected_callback(binding.local_name)
+        )
 
         tools.append(
             function_tool_cls(
@@ -371,10 +339,7 @@ def _build_tools(
                 description=(
                     (binding.registry_ref or binding.local_name)
                     if is_read
-                    else (
-                        f"{binding.registry_ref or binding.local_name}. Calling this only proposes "
-                        "an action; it never runs the effect."
-                    )
+                    else (f"{binding.registry_ref or binding.local_name}. {PROPOSAL_DESCRIPTION}")
                 ),
                 params_json_schema=(
                     _tool_parameters(binding) if is_read else _proposal_schema(binding)
@@ -527,7 +492,7 @@ def _run(  # noqa: PLR0911, PLR0912 - bounded provider/limit state machine
     if state.tool_error:
         raise _Unreadable
     if state.protected_raw is not None:
-        action = _proposal(state.protected_raw)
+        action = _proposal(state.protected_name or "", state.protected_raw)
         return answer(
             request,
             "proposed_action",

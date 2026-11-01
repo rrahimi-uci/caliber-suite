@@ -330,6 +330,31 @@ def test_a_second_hop_handoff_targets_protected_tool_is_gated_too(
     assert tools["open_ticket"].calls == [] and tools["escalate"].calls == []
 
 
+def test_a_handoff_target_resolved_outside_the_handoff_map_is_gated_too(
+    factory: sessionmaker[Session], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The interpreter resolves a target's callables itself when the executor's handoff map lacks it: that site is gated too.
+
+    A map built by ``_collect_agent_handoff_specs`` holds every declared target, so this branch is defensive; the test forces it
+    (the map is withheld) rather than leave a gate that only a structural test guards.
+    """
+    levels = {"lookup_ticket": "read", "escalate": "external_action"}
+    entries = [tool_entry(name, level) for name, level in levels.items()]
+    for entry in entries:
+        seed_row(factory, entry)
+    manifest = agent_manifest({name: registered(name) for name in levels}, handoff_to_billing=True)
+    world = World(factory, manifest, entries)
+    monkeypatch.setattr(rt, "_collect_agent_handoff_specs", lambda *_a, **_k: None)
+    tools = {name: Tool() for name in levels}
+    result = execute(world.plan, "go", executor=FakeWorkflowExecutor(), extra_tools=tools)
+
+    assert world.tool_results(result, "agent") == {
+        "lookup_ticket": {"ticket": "T-1"},
+        "escalate": refused("escalate"),
+    }
+    assert tools["escalate"].calls == []
+
+
 def test_a_shape_selecting_tool_given_no_arguments_is_still_gated(
     factory: sessionmaker[Session],
 ) -> None:

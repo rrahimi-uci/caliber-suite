@@ -709,6 +709,59 @@ def test_an_openapi_tool_the_row_calls_read_is_run_not_proposed_and_one_without_
             binder.bind(unresolved, {})
 
 
+def test_a_tool_the_platform_called_read_is_checked_again_when_the_adapter_runs_it(
+    factory: Any,  # noqa: F811
+) -> None:
+    """The classifier's answer is taken at the start of the step; a row changed after it is seen when the read runs.
+
+    The governed node's callables are gated too: a built-in classified ``read`` whose registry row is raised to ``write`` before the
+    adapter calls it is refused by the per-call gate, so the tool never runs (and the step ends ``tool_error``, a fixed code).
+    """
+    from caliber.db.models import CaliberToolRegistry as Row
+
+    with factory() as session:
+        register_builtin_tools(session)
+        session.commit()
+    entry = ToolRegistryEntry(
+        name="list_workdir_files",
+        version="1.0",
+        module_path=BUILTIN_TOOL_MODULE,
+        callable_name="list_workdir_files",
+        side_effect_level="read",
+        allow_in_preview=True,
+    )
+    classify = registry_tool_classifier(factory)
+
+    def classify_then_raise_the_row(binding: Any) -> Any:
+        trust = classify(binding)
+        with factory() as session:
+            row = session.query(Row).filter_by(name="list_workdir_files").one()
+            row.side_effect_level = "write"
+            session.commit()
+        return trust
+
+    world = governed(
+        factory,
+        agent_manifest({"list_workdir_files": registered("list_workdir_files")}),
+        [entry],
+        classify_tool=classify_then_raise_the_row,
+    )
+    tool = Tool()
+    script = [
+        ScriptedStep(
+            "completed", usage=USAGE, read_tool_calls=(("list_workdir_files", {"path": "x"}),)
+        )
+    ]
+    result = execute(
+        world.plan,
+        "go",
+        executor=FakeWorkflowExecutor(step_script=script),
+        extra_tools={"list_workdir_files": tool},
+    )
+    assert result.status == "error" and "tool_error" in (result.error or ""), result.error
+    assert tool.calls == [], "the gate refused the call before the tool was entered"
+
+
 def test_the_runtime_binder_describes_only_the_kinds_it_can_classify(factory: Any) -> None:  # noqa: F811
     world = _registered(factory)
     binder = runtime_module._RuntimeToolBinder(world.plan, "agent")

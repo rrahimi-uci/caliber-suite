@@ -36,20 +36,26 @@ import re
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Final
+from typing import Any, Final
 
 from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from caliber.config import AGENT_RUN_MAX_TOKENS_BOUNDS, AGENT_RUN_MAX_TOKENS_DEFAULT
-from caliber.contracts.agent_step import ProposedAction, StepLimits
+from caliber.contracts.agent_step import (
+    UNCLAIMED,
+    UNCLAIMED_EFFECT_CLASS,
+    ProposedAction,
+    StepLimits,
+)
 from caliber.db.models import (
     CaliberEffectProposal,
     CaliberRuntimeApprovalRequest,
     CaliberToolRegistry,
     CaliberWorkflowRun,
 )
+from caliber.effects.admission import AdmittedConnector
 from caliber.effects.dispatcher import (
     BACKENDS,
     EffectRefused,
@@ -67,6 +73,7 @@ from caliber.effects.inventory import (
 )
 from caliber.effects.model_tool_calls import (
     REGISTRY_ROW_MISMATCH,
+    TOOL_NOT_PROTECTED,
     ToolProposal,
     ToolProposalBinder,
 )
@@ -100,6 +107,8 @@ AGENT_STEP_BACKENDS: Final = frozenset({"document_request"})
 RESOURCE_NOT_ADMITTED: Final = "resource_not_admitted"
 STEP_MISMATCH: Final = "step_mismatch"
 INTENT_MISMATCH: Final = "intent_mismatch"
+#: A proposal named a function the agent does not have (the adapter refuses that itself; this is the platform's own check).
+UNKNOWN_TOOL: Final = "unknown_tool"
 APPROVAL_EVIDENCE_UNAVAILABLE: Final = "approval_evidence_unavailable"
 APPROVAL_REJECTED: Final = "approval_rejected"
 CONTEXT_MANIFEST_MISSING: Final = "context_manifest_missing"
@@ -464,16 +473,211 @@ def _bind_tool_proposal(
     first_binding, first = matches[0]
     if any(proposal != first for _, proposal in matches[1:]):
         raise EffectRefused(CONNECTOR_AMBIGUOUS)
-    trust = tools[first_binding.local_name]
-    if first.registry is not None:
-        if trust.registry != first.registry:
-            raise EffectRefused(REGISTRY_ROW_MISMATCH)
-        allowed = context.tool_backends.get(first.registry) == first.backend_kind
-    else:
-        allowed = first.mcp is not None and first.mcp in context.mcp_tools
-    if first.backend_kind not in TOOL_PROPOSAL_BACKENDS or not allowed:
-        raise EffectRefused(CONNECTOR_NOT_MAPPED)
+    _check_tool_allowed(context, tools[first_binding.local_name], first)
     return first
+
+
+def _check_tool_allowed(
+    context: GovernedStepContext, trust: ToolTrust, proposal: ToolProposal
+) -> None:
+    """The producer's allow-list for a tool proposal: the registry row read must be the classified one, and the tool mapped."""
+    if proposal.registry is not None:
+        if trust.registry != proposal.registry:
+            raise EffectRefused(REGISTRY_ROW_MISMATCH)
+        allowed = context.tool_backends.get(proposal.registry) == proposal.backend_kind
+    else:
+        allowed = proposal.mcp is not None and proposal.mcp in context.mcp_tools
+    if proposal.backend_kind not in TOOL_PROPOSAL_BACKENDS or not allowed:
+        raise EffectRefused(CONNECTOR_NOT_MAPPED)
+
+
+@dataclass(frozen=True)
+class _Resolved:
+    """A proposal as the platform will record it: the bound action, its admission and what ``submit_proposal`` classifies by."""
+
+    bound: ProposedAction
+    admitted: AdmittedConnector
+    tool_name: str
+    caliber_defined: bool
+    floor: str | None
+
+
+def _claims_hold(
+    action: ProposedAction,
+    *,
+    connector: str,
+    version: str,
+    effect_class: str,
+    expected_resource_version: str | None = None,
+) -> None:
+    """A proposal that names its tool claims nothing: each claim field is the placeholder or exactly the platform's value."""
+    if (
+        action.connector not in (UNCLAIMED, connector)
+        or action.connector_version not in (UNCLAIMED, version)
+        or action.effect_class not in (UNCLAIMED_EFFECT_CLASS, effect_class)
+        or action.expected_resource_version not in (None, expected_resource_version)
+    ):
+        raise EffectRefused(CLAIM_MISMATCH)
+
+
+def _rebuilt(action: ProposedAction, **fields: Any) -> ProposedAction:
+    """The action the platform records: its own connector, version, class and (for a tool) resource, the model's arguments."""
+    values: dict[str, Any] = {
+        "args": action.intent.plain_args,
+        "expected_resource_version": action.expected_resource_version,
+        "tool": action.tool,
+    }
+    values.update(fields)
+    try:
+        return ProposedAction(**values).bound_to(
+            values["effect_class"], connector_version=values["connector_version"]
+        )
+    except ProposalError as exc:
+        raise EffectRefused(exc.code) from None
+
+
+def _bind_named_tool(
+    context: GovernedStepContext,
+    tools: Mapping[str, ToolTrust],
+    bindings: Sequence[IRToolBinding],
+    binder: ToolProposalBinder | None,
+    action: ProposedAction,
+) -> _Resolved:
+    """A proposal that names the function the model called (:attr:`ProposedAction.tool`), bound from that tool's trusted identity.
+
+    The tool is found by the **name the model called** among the agent's bindings, not by any connector or resource the model
+    claimed; the model supplied arguments only. A name that is not an agent tool is ``unknown_tool`` and a tool the platform
+    classifies ``read`` is ``tool_not_protected`` (a read runs inline, it is never proposed). A registered, OpenAPI or MCP tool is
+    described by the runtime's binder (connector, resource and intent arguments from the registry row or the server record, the
+    arguments checked against the trusted schema) and held to the producer's allow-list. Any other tool must be mapped by
+    ``tool_backends`` to a backend an agent step may reach, whose destination the model names within the connector's pattern.
+    Every claim field is the placeholder or the platform's own value (:func:`_claims_hold`).
+    """
+    binding = next((item for item in bindings if item.local_name == action.tool), None)
+    trust = tools.get(action.tool or "")
+    if binding is None or trust is None:
+        raise EffectRefused(UNKNOWN_TOOL)
+    if trust.effect_class == "read":
+        raise EffectRefused(TOOL_NOT_PROTECTED)
+    mapped = None if trust.registry is None else context.tool_backends.get(trust.registry)
+    if (
+        mapped not in AGENT_STEP_BACKENDS
+        and binder is not None
+        and binder.connector(binding) is not None
+    ):
+        proposal = binder.bind(binding, action.intent.plain_args)
+        _check_tool_allowed(context, trust, proposal)
+        admitted = admit_backend(proposal.backend_kind)
+        platform_class = proposal_effect_class(
+            proposal.tool_name,
+            caliber_defined=proposal.caliber_defined,
+            floor=proposal.effect_floor,
+        )
+        _claims_hold(
+            action,
+            connector=proposal.connector,
+            version=admitted.connector_version,
+            effect_class=platform_class,
+            expected_resource_version=proposal.expected_resource_version,
+        )
+        if action.resource not in (UNCLAIMED, proposal.resource):
+            raise EffectRefused(RESOURCE_NOT_ADMITTED)
+        bound = _rebuilt(
+            action,
+            connector=proposal.connector,
+            connector_version=admitted.connector_version,
+            effect_class=platform_class,
+            resource=proposal.resource,
+            args=proposal.args,
+            expected_resource_version=proposal.expected_resource_version,
+        )
+        return _Resolved(
+            bound, admitted, proposal.tool_name, proposal.caliber_defined, proposal.effect_floor
+        )
+    kind = mapped
+    if kind is None or kind not in BACKENDS:
+        raise EffectRefused(CONNECTOR_NOT_MAPPED)
+    if kind not in AGENT_STEP_BACKENDS:
+        raise EffectRefused(BACKEND_NOT_FOR_AGENT_STEPS)
+    if trust.disposition == "refuse":
+        raise UnsupportedEffectPath(UNSUPPORTED_EFFECT_PATH)
+    admitted = admit_backend(kind)
+    connector = BACKENDS[kind].connector
+    _claims_hold(
+        action,
+        connector=connector,
+        version=admitted.connector_version,
+        effect_class=trust.effect_class,
+    )
+    # The destination is the model's to name within the admitted connector's pattern; the placeholder never fits it.
+    pattern = (BACKENDS[kind].configuration or {}).get("resource")
+    if not isinstance(pattern, str) or re.fullmatch(pattern, action.resource) is None:
+        raise EffectRefused(RESOURCE_NOT_ADMITTED)
+    bound = _rebuilt(
+        action,
+        connector=connector,
+        connector_version=admitted.connector_version,
+        effect_class=trust.effect_class,
+        resource=action.resource,
+    )
+    return _Resolved(bound, admitted, trust.name, trust.caliber_defined, None)
+
+
+def _resolve_action(
+    context: GovernedStepContext,
+    tools: Mapping[str, ToolTrust],
+    bindings: Sequence[IRToolBinding],
+    binder: ToolProposalBinder | None,
+    action: ProposedAction,
+) -> _Resolved:
+    """What the platform records for ``action``: bound from the tool the model called, or from the claim it made."""
+    if action.tool is not None:
+        return _bind_named_tool(context, tools, bindings, binder, action)
+    if binder is not None and action.connector in _tool_backend_connectors():
+        tool_proposal = _bind_tool_proposal(context, tools, bindings, binder, action)
+        admitted = admit_backend(tool_proposal.backend_kind)
+        # What ``submit_proposal`` will record for this tool: the inventory's class, or the stricter floor of the route.
+        platform_class = proposal_effect_class(
+            tool_proposal.tool_name,
+            caliber_defined=tool_proposal.caliber_defined,
+            floor=tool_proposal.effect_floor,
+        )
+        if action.expected_resource_version not in (None, tool_proposal.expected_resource_version):
+            raise EffectRefused(CLAIM_MISMATCH)
+        try:
+            # The model's claims (class, version) are checked, then the action the platform records is rebuilt from the
+            # trusted identity: nothing of the model's survives but the arguments that passed the trusted schema.
+            action.bound_to(platform_class, connector_version=admitted.connector_version)
+        except ProposalError as exc:
+            raise EffectRefused(exc.code) from None
+        bound = _rebuilt(
+            action,
+            connector=tool_proposal.connector,
+            connector_version=admitted.connector_version,
+            effect_class=platform_class,
+            resource=tool_proposal.resource,
+            args=tool_proposal.args,
+            expected_resource_version=tool_proposal.expected_resource_version,
+        )
+        return _Resolved(
+            bound,
+            admitted,
+            tool_proposal.tool_name,
+            tool_proposal.caliber_defined,
+            tool_proposal.effect_floor,
+        )
+    kind, tool = _backend_of_record(context, dict(tools), action.connector)
+    admitted = admit_backend(kind)
+    # The admitted configuration's ``resource`` is a regular expression the destination must fully match; an agent step may
+    # only reach a backend that declares one (a literal template, or none, is refused rather than waved through).
+    pattern = (BACKENDS[kind].configuration or {}).get("resource")
+    if not isinstance(pattern, str) or re.fullmatch(pattern, action.resource) is None:
+        raise EffectRefused(RESOURCE_NOT_ADMITTED)
+    try:
+        bound = action.bound_to(tool.effect_class, connector_version=admitted.connector_version)
+    except ProposalError as exc:
+        raise EffectRefused(exc.code) from None
+    return _Resolved(bound, admitted, tool.name, tool.caliber_defined, None)
 
 
 def record_step_proposal(
@@ -518,45 +722,9 @@ def record_step_proposal(
     ):
         raise EffectRefused(STEP_MISMATCH)
     action = result.proposed_actions[0]
-    floor: str | None = None
-    if binder is not None and action.connector in _tool_backend_connectors():
-        tool_proposal = _bind_tool_proposal(context, tools, bindings, binder, action)
-        tool_name, caliber_defined = tool_proposal.tool_name, tool_proposal.caliber_defined
-        floor = tool_proposal.effect_floor
-        admitted = admit_backend(tool_proposal.backend_kind)
-        # What ``submit_proposal`` will record for this tool: the inventory's class, or the stricter floor of the route.
-        platform_class = proposal_effect_class(
-            tool_name, caliber_defined=caliber_defined, floor=floor
-        )
-        if action.expected_resource_version not in (None, tool_proposal.expected_resource_version):
-            raise EffectRefused(CLAIM_MISMATCH)
-        try:
-            # The model's claims (class, version) are checked, then the action the platform records is rebuilt from the
-            # trusted identity: nothing of the model's survives but the arguments that passed the trusted schema.
-            action.bound_to(platform_class, connector_version=admitted.connector_version)
-            bound = ProposedAction(
-                connector=tool_proposal.connector,
-                connector_version=admitted.connector_version,
-                effect_class=platform_class,
-                resource=tool_proposal.resource,
-                args=tool_proposal.args,
-                expected_resource_version=tool_proposal.expected_resource_version,
-            ).bound_to(platform_class, connector_version=admitted.connector_version)
-        except ProposalError as exc:
-            raise EffectRefused(exc.code) from None
-    else:
-        kind, tool = _backend_of_record(context, tools, action.connector)
-        tool_name, caliber_defined = tool.name, tool.caliber_defined
-        admitted = admit_backend(kind)
-        # The admitted configuration's ``resource`` is a regular expression the destination must fully match; an agent step may
-        # only reach a backend that declares one (a literal template, or none, is refused rather than waved through).
-        pattern = (BACKENDS[kind].configuration or {}).get("resource")
-        if not isinstance(pattern, str) or re.fullmatch(pattern, action.resource) is None:
-            raise EffectRefused(RESOURCE_NOT_ADMITTED)
-        try:
-            bound = action.bound_to(tool.effect_class, connector_version=admitted.connector_version)
-        except ProposalError as exc:
-            raise EffectRefused(exc.code) from None
+    resolved = _resolve_action(context, tools, bindings, binder, action)
+    bound, admitted = resolved.bound, resolved.admitted
+    tool_name, caliber_defined, floor = resolved.tool_name, resolved.caliber_defined, resolved.floor
     with context.session_factory() as session:
         # The run row first, the order every writer of a run's effects and approval requests uses (run, proposal, request):
         # inserting the proposal already takes a share lock on it (the foreign key), and two proposers that each hold that
@@ -715,6 +883,7 @@ __all__ = [
     "RESOURCE_NOT_ADMITTED",
     "STEP_MISMATCH",
     "TOOL_PROPOSAL_BACKENDS",
+    "UNKNOWN_TOOL",
     "UNSUPPORTED_EFFECT_PATH",
     "GovernedStepContext",
     "PriorProposal",

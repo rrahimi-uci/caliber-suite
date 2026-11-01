@@ -62,10 +62,14 @@ from caliber.contracts.agent_step import (
     parse_step_result,
 )
 from caliber.contracts.registry import ContractValidationError
-from caliber.effects.inventory import EFFECT_CLASSES
 from caliber.effects.records import ProposalError
 from caliber.workflows import agent_step as _step
-from caliber.workflows.agent_step import AgentStepInput
+from caliber.workflows.agent_step import (
+    PROPOSAL_DESCRIPTION,
+    AgentStepInput,
+    proposal_from_call,
+    proposal_parameters,
+)
 from caliber.workflows.ir import IRToolBinding
 from caliber.workflows.runtime import (
     _agent_instruction_text,
@@ -86,18 +90,6 @@ PROVIDER_UNAVAILABLE: Final = "provider_unavailable"
 #: none is offered, so it is not a readable answer.
 _STOP_REASONS: Final = frozenset({"end_turn", "stop_sequence", "max_tokens", "tool_use", "refusal"})
 _FINAL_STOPS: Final = frozenset({"end_turn", "stop_sequence"})
-#: The fields of a proposal, exactly the contract's (``proposed_actions/N``): anything else is a model reporting state.
-_PROPOSAL_FIELDS: Final = frozenset(
-    {
-        "connector",
-        "connector_version",
-        "effect_class",
-        "resource",
-        "args",
-        "expected_resource_version",
-    }
-)
-_PROPOSAL_REQUIRED: Final = ("connector", "connector_version", "effect_class", "resource", "args")
 #: Provider timeouts are recognised by class (module root and name) so the SDKs need not be imported.
 _TIMEOUT_MODULES: Final = frozenset({"anthropic", "httpx", "httpcore"})
 _TIMEOUT_CLASSES: Final = frozenset({"APITimeoutError", "TimeoutException"})
@@ -229,44 +221,14 @@ def _read_reply(response: object) -> _Reply:
 
 
 def _proposal_schema(binding: IRToolBinding) -> dict[str, Any]:
-    """The input schema a protected tool is offered with: the proposal itself, the tool's own arguments under ``args``."""
-    text: dict[str, Any] = {"type": "string", "minLength": 1}
-    return {
-        "type": "object",
-        "additionalProperties": False,
-        "required": list(_PROPOSAL_REQUIRED),
-        "properties": {
-            "connector": {**text, "description": "The connector that performs the effect."},
-            "connector_version": {**text, "description": "Your claim of the connector version."},
-            "effect_class": {
-                "type": "string",
-                "enum": list(EFFECT_CLASSES),
-                "description": "Your claim of the effect class; the platform decides the real one.",
-            },
-            "resource": {**text, "description": "The resource the effect changes."},
-            "args": _tool_parameters(binding),
-            "expected_resource_version": {
-                "type": ["string", "null"],
-                "description": "The version of the resource you expect, or null.",
-            },
-        },
-    }
+    """The input schema a protected tool is offered with: its own arguments under ``args``, and nothing the model could claim."""
+    return proposal_parameters(_tool_parameters(binding))
 
 
 def _proposal_action(use: _ToolUse) -> ProposedAction:
-    """The model's call of a protected tool as a (claimed, unbound) action; :class:`_Unreadable` if it is not one."""
-    body = use.input
-    if not set(body) <= _PROPOSAL_FIELDS or any(key not in body for key in _PROPOSAL_REQUIRED):
-        raise _Unreadable("proposal")
+    """The model's call of a protected tool as a proposal that names the function it called; :class:`_Unreadable` if it is not one."""
     try:
-        return ProposedAction(
-            connector=body["connector"],
-            connector_version=body["connector_version"],
-            effect_class=body["effect_class"],
-            resource=body["resource"],
-            args=body["args"],
-            expected_resource_version=body.get("expected_resource_version"),
-        )
+        return proposal_from_call(use.name, use.input)
     except (ProposalError, ContractValidationError, TypeError, ValueError) as exc:
         raise _Unreadable("proposal") from exc
 
@@ -401,8 +363,7 @@ class _Step:
                     {
                         "name": binding.local_name,
                         "description": (
-                            f"{label}. This tool is never run: calling it proposes the effect "
-                            "for approval, and nothing has happened until it is approved and performed."
+                            f"{label}. {PROPOSAL_DESCRIPTION} Nothing has happened until it is approved and performed."
                         ),
                         "input_schema": _proposal_schema(binding),
                     }

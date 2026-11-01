@@ -103,16 +103,81 @@ def test_every_module_that_executes_a_model_chosen_tool_call_is_pinned_with_its_
     assert all(why for _n, _s, why in MODEL_TOOL_CALL_SITES.values())
 
 
-def test_the_assistants_tool_loops_are_the_only_other_executors_and_are_pinned() -> None:
+#: The modules that name ``read_tools``: the one map of callables an adapter may run (the platform's read-class tools). A module that
+#: calls ``step_input.read_tools[...]`` / ``.get(...)`` or builds the map is here with its reason; a new one fails until pinned.
+READ_TOOLS_USERS: dict[str, str] = {
+    "workflows/runtime.py": "builds the map from the platform's classification (_governed_read_tools) and gates each callable",
+    "workflows/agent_step.py": "defines AgentStepInput.read_tools, wraps each callable with the tool-call and deadline meter",
+    "workflows/step_openai_chat.py": "governed-step adapter: runs a call only from read_tools",
+    "workflows/step_openai_responses.py": "governed-step adapter: runs a call only from read_tools",
+    "workflows/step_openai_agents.py": "governed-step adapter: runs a call only from read_tools",
+    "workflows/step_adapters/anthropic_chat.py": "governed-step adapter: runs a call only from read_tools",
+    "testing/agent_step_conformance.py": "the conformance harness' canary read tool",
+    "testing/adapter_conformance.py": "the conformance suite's rules about read_tools",
+}
+
+
+def _names_read_tools(tree: ast.AST) -> bool:
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Attribute) and node.attr == "read_tools":
+            return True
+        if isinstance(node, ast.Name) and node.id == "read_tools":
+            return True
+        if isinstance(node, ast.keyword) and node.arg == "read_tools":
+            return True
+        if isinstance(node, ast.arg) and node.arg == "read_tools":
+            return True
+    return False
+
+
+def test_only_pinned_modules_reach_the_read_tool_map_so_no_adapter_runs_a_tool_another_way() -> (
+    None
+):
     found = {
         path.relative_to(ROOT).as_posix()
-        for path in sorted((ROOT / "assistant").glob("*_engine.py"))
-        if any(
-            isinstance(node, ast.Attribute) and node.attr == "dispatch"
-            for node in ast.walk(ast.parse(path.read_text(encoding="utf-8")))
-        )
+        for path in sorted(ROOT.rglob("*.py"))
+        if _names_read_tools(ast.parse(path.read_text(encoding="utf-8")))
     }
-    assert found == set(ASSISTANT_TOOL_CALL_SITES)
+    assert found == set(READ_TOOLS_USERS)
+
+
+_EXECUTORS = frozenset(
+    {
+        "_execute_model_tool_call",
+        "_invoke_agent_tools",
+        "_call_tool",
+        "_resolve_bound_tool_callable",
+    }
+)
+
+
+def test_the_assistants_tool_loops_are_the_only_other_executors_and_are_pinned() -> None:
+    """Aria runs its own tools (EP-034, #1063): out of scope here, but named, and kept apart from the workflow executors."""
+    dispatching: set[str] = set()
+    defined: set[str] = set()
+    for path in sorted((ROOT / "assistant").glob("*.py")):
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        relative = path.relative_to(ROOT).as_posix()
+        if any(isinstance(n, ast.Attribute) and n.attr == "dispatch" for n in ast.walk(tree)):
+            dispatching.add(relative)
+        if any(
+            isinstance(n, ast.FunctionDef) and n.name in {"dispatch", "_dispatch_capability"}
+            for n in ast.walk(tree)
+        ):
+            defined.add(relative)
+        # Aria shares no executor with a workflow loop: if it ever calls one, it is governed or refused there, so pin it.
+        imported = {
+            alias.name
+            for n in ast.walk(tree)
+            if isinstance(n, ast.ImportFrom) and n.module == "caliber.workflows.runtime"
+            for alias in n.names
+        }
+        assert not imported & _EXECUTORS, f"{relative} reaches a workflow tool executor"
+        assert not _names_in(tree), f"{relative} names a workflow tool executor"
+    assert dispatching == set(ASSISTANT_TOOL_CALL_SITES)
+    # the toolsets themselves, the only places Aria turns a model's call into a tool run: the agent toolset (EP-034, #1063) and the
+    # registry lookups of ``tools.py``, which are read-only by construction
+    assert defined == {"assistant/agent_tools.py", "assistant/tools.py"}
 
 
 def test_every_function_that_resolves_an_agents_callables_also_gates_them() -> None:
