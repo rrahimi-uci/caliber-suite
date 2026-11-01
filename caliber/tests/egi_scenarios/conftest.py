@@ -189,6 +189,9 @@ def reference_environment(database_url: str, profile: str, workdir: Path) -> dic
         "CALIBER_AUTH_BOOTSTRAP_ALLOW_INSECURE_DEFAULT": "false",
         "CALIBER_EGRESS_POLICY_ENABLED": "true",
         "CALIBER_MCP_ALLOW_INSECURE_HTTP": "false",
+        # The reference profile lists no MCP command or host (B12.3b, #746): empty, not the interpreter/loopback defaults.
+        "CALIBER_MCP_STDIO_COMMAND_ALLOWLIST": "",
+        "CALIBER_MCP_REMOTE_HOST_ALLOWLIST": "",
         "CALIBER_APPROVAL_ALLOW_SELF_APPROVAL": "false",
         "CALIBER_APPLY_REQUIRE_DISTINCT_APPROVER": "true",
         "CALIBER_OPERATOR_USERS": f"{EDITOR_A},{EDITOR_B}",
