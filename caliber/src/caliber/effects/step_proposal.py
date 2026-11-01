@@ -32,7 +32,7 @@ import re
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Final
+from typing import Final, Protocol
 
 from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
@@ -48,6 +48,7 @@ from caliber.db.models import (
 )
 from caliber.effects.dispatcher import (
     BACKENDS,
+    EffectOutcome,
     EffectRefused,
     UnsupportedEffectPath,
     admit_backend,
@@ -61,6 +62,7 @@ from caliber.effects.inventory import (
     tool_disposition,
 )
 from caliber.effects.records import PROPOSED, ProposalError, logical_key
+from caliber.effects.tool_backends import AGENT_STEP_BACKENDS
 from caliber.run_manifest import canonical_bytes
 from caliber.workflows.agent_step import (
     AgentStepRequest,
@@ -80,12 +82,12 @@ NO_PROTECTED_TOOL: Final = "no_protected_tool"
 CONNECTOR_NOT_MAPPED: Final = "connector_not_mapped"
 CONNECTOR_AMBIGUOUS: Final = "connector_ambiguous"
 BACKEND_NOT_FOR_AGENT_STEPS: Final = "backend_not_for_agent_steps"
-#: The backend kinds a *model's* proposal may reach. Each must have a destination the platform checks at proposal time: the
-#: admitted ``document_request`` connector declares a resource pattern (``BACKENDS[kind].configuration["resource"]``, a regular
-#: expression the destination must fully match). ``http`` is not here (its destination is an arbitrary URL and the egress check
-#: runs at dispatch, after an approval would be spent) and neither is a backend whose configuration holds a literal resource
-#: template rather than a pattern. A producer that maps a tool to one of those gets ``backend_not_for_agent_steps``.
-AGENT_STEP_BACKENDS: Final = frozenset({"document_request"})
+# ``AGENT_STEP_BACKENDS`` (imported above) are the backend kinds a *model's* proposal may reach. Each must have a destination the
+# platform checks at proposal time: the admitted ``document_request`` connector declares a resource pattern
+# (``BACKENDS[kind].configuration["resource"]``, a regular expression the destination must fully match). ``http`` is not there (its
+# destination is an arbitrary URL and the egress check runs at dispatch, after an approval would be spent) and neither is a backend
+# whose configuration holds a literal resource template rather than a pattern. A producer that maps a tool to one of those gets
+# ``backend_not_for_agent_steps``.
 RESOURCE_NOT_ADMITTED: Final = "resource_not_admitted"
 STEP_MISMATCH: Final = "step_mismatch"
 INTENT_MISMATCH: Final = "intent_mismatch"
@@ -236,11 +238,25 @@ class GovernedStepContext:
     #: ``max_tokens`` ceiling is reserved against it before the adapter is called. The default is the setting's own, so a context
     #: that names none is bounded, not unbounded.
     run_token_budget: int = AGENT_RUN_MAX_TOKENS_DEFAULT
+    #: The agent nodes (by node id) this context governs. ``None`` (the default, and every context built before the worker's) governs
+    #: **every** agent node of the plan. A producer that governs only the agents that can reach a mapped protected tool names them
+    #: here, so an agent that answers in text keeps running as before: a governed step has no text channel in the v1 result contract.
+    governed_nodes: frozenset[str] | None = None
+    #: Sends an approved proposal of this run (#1051). Called with the proposal a resumed step finds still ``proposed``: it returns
+    #: ``None`` while the exact approval is pending (the node parks again behind its live request), the :class:`EffectOutcome` of
+    #: the dispatch once it was approved and claimed, and raises :class:`~caliber.effects.dispatcher.EffectRefused` with a fixed
+    #: code when the dispatcher refuses (no lease, the approver's authority gone, the connector not bound). ``None`` here (the
+    #: default): nothing dispatches, an approved proposal stays ``proposed`` and the run keeps parking, as before the producer.
+    dispatch_approved: Callable[[PriorProposal], EffectOutcome | None] | None = None
 
     def __post_init__(self) -> None:
         low, high = AGENT_RUN_MAX_TOKENS_BOUNDS
         if type(self.run_token_budget) is not int or not low <= self.run_token_budget <= high:
             raise ValueError(f"run_token_budget must be an integer from {low} to {high}")
+
+    def governs(self, node_id: str) -> bool:
+        """Whether the agent node ``node_id`` runs as a governed step under this context."""
+        return self.governed_nodes is None or node_id in self.governed_nodes
 
 
 def stored_context_manifest_digest(
@@ -281,6 +297,22 @@ class StepParked(Exception):  # noqa: N818 - control flow, not an error: the ste
         self.proposal = proposal
         self.step_request_id = step_request_id
         self.usage = usage
+
+
+class EffectApprovalPending(Exception):  # noqa: N818 - control flow, not an error: the node is waiting for a person
+    """A governed workflow effect (a node's own proposal, not an agent step's) is waiting for its exact approval: the node must park.
+
+    Raised by the producer's ``authorize`` while the approval request bound to the recorded proposal has no decision, and turned
+    by the interpreter into a ``waiting_approval`` park behind that request. Carries identifiers only, never the effect's arguments.
+    """
+
+    def __init__(self, *, proposal_id: str, approval_request_id: str, intent_hash: str) -> None:
+        super().__init__("a governed effect is waiting for its approval")
+        self.proposal_id = proposal_id
+        self.approval_request_id = approval_request_id
+        self.intent_hash = intent_hash
+        self.blocked_node_id: str | None = None
+        self.blocked_inputs: dict[str, object] | None = None
 
 
 @dataclass(frozen=True)
@@ -473,9 +505,26 @@ def _lock_run(session: Session, workflow_run_id: str) -> None:
         raise EffectRefused("run_not_found")
 
 
+class ApprovalAsk(Protocol):
+    """What :func:`ensure_approval_request` needs to ask for an approval: the policy, who asks and for how long.
+
+    A :class:`GovernedStepContext` has all three; the producer's effect authority (:mod:`caliber.effects.governed_context`) has
+    them too, so a workflow node's proposal and an agent step's are asked about the same way.
+    """
+
+    @property
+    def approval_policy(self) -> ApprovalPolicy: ...
+
+    @property
+    def requested_by(self) -> str: ...
+
+    @property
+    def approval_ttl_seconds(self) -> int: ...
+
+
 def ensure_approval_request(
     session: Session,
-    context: GovernedStepContext,
+    context: ApprovalAsk,
     proposal_id: str,
     *,
     evidence_hash: str | None,
@@ -585,6 +634,8 @@ __all__ = [
     "RESOURCE_NOT_ADMITTED",
     "STEP_MISMATCH",
     "UNSUPPORTED_EFFECT_PATH",
+    "ApprovalAsk",
+    "EffectApprovalPending",
     "GovernedStepContext",
     "PriorProposal",
     "StepParked",

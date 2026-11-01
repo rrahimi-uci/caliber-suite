@@ -413,6 +413,9 @@ def _build_lifespan(  # noqa: PLR0915 - one lifespan: every owner loop's start a
     if effect_reconciler is not None and leased:
         # It reconciles only under the exact lease this process holds, and does nothing without one.
         effect_reconciler.bind_lease_provider(lambda: role.lease)
+    if workflow_run_worker is not None and leased:
+        # A run's protected effects are dispatched only under the exact lease this process holds, read when each one is sent (#1051).
+        workflow_run_worker.bind_lease_provider(lambda: role.lease)
 
     @asynccontextmanager
     async def lifespan(_app: Starlette) -> AsyncIterator[None]:

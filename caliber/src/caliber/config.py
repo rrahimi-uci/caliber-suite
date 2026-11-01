@@ -24,6 +24,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_valida
 
 from caliber.db_url import normalize_database_url
 from caliber.effects.callbacks import parse_bindings
+from caliber.effects.tool_backends import parse_tool_backends
 from caliber.model_defaults import (
     DEFAULT_OPENAI_MODEL,
     DEFAULT_OPENAI_REASONING_EFFORT,
@@ -1930,6 +1931,26 @@ class CaliberConfig(BaseModel):
         parse_bindings(value)
         return value
 
+    agent_step_tool_backends: str = Field(
+        default="[]",
+        description=(
+            "JSON array of the registered tools whose protected action a governed agent step may propose (#1051): each row is "
+            '``{"tool": <registry name>, "version": <registry version>, "backend": "document_request"}``. This is the trusted '
+            "map from a tool's registry identity to the backend its effect is sent through; a manifest, a tool call and a model "
+            "cannot write it. An agent node that is bound to a mapped tool runs as a governed step in the reference profile (its "
+            "protected action becomes an approvable proposal, dispatched once after the exact approval); every other agent node "
+            "runs as before. Empty (the default) governs no agent node. Only ``document_request`` is accepted: the one backend "
+            "with an authoritative lookup by key. The downstream is the ``base_url`` of the connector's binding in "
+            "``effect_callback_connectors`` for the run's project; a mapped tool with no binding is refused."
+        ),
+    )
+
+    @field_validator("agent_step_tool_backends")
+    @classmethod
+    def _agent_step_tool_backends_are_valid(cls, value: str) -> str:
+        parse_tool_backends(value)
+        return value
+
     effect_reconciler_enabled: bool = Field(
         default=True,
         description=(
@@ -2708,6 +2729,7 @@ _ENV_VAR_TABLE: list[tuple[str, str, Any]] = [
     ("CALIBER_AGENT_RUN_MAX_TOKENS", "agent_run_max_tokens", int),
     ("CALIBER_AGENT_RESERVATION_GRACE_SECONDS", "agent_reservation_grace_seconds", float),
     ("CALIBER_EFFECT_CALLBACK_CONNECTORS", "effect_callback_connectors", str),
+    ("CALIBER_AGENT_STEP_TOOL_BACKENDS", "agent_step_tool_backends", str),
     ("CALIBER_EFFECT_RECONCILER_ENABLED", "effect_reconciler_enabled", _flag),
     ("CALIBER_EFFECT_RECONCILER_INTERVAL_SECONDS", "effect_reconciler_interval_seconds", float),
     ("CALIBER_EFFECT_RECONCILER_BUDGET_SECONDS", "effect_reconciler_budget_seconds", float),
