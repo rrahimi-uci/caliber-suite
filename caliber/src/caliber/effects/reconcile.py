@@ -39,7 +39,12 @@ what it can prove:
   same-run ``waiting_effect`` checkpoint and the reconciler wakes it only after every dependency is terminal.
 
 Where the connector lives is the callback binding's ``base_url`` (``CALIBER_EFFECT_CALLBACK_CONNECTORS``): the same
-``(connector, project)`` that may report a receipt is the one the reconciler asks. Scheduling a pass is the owner loop's
+``(connector, project)`` that may report a receipt is the one the reconciler asks. The generic ``http`` connector (governed
+webhook and API-request nodes) has no such binding: its downstream is the lookup endpoint an operator listed for the
+proposal's own resource in ``CALIBER_EFFECT_HTTP_VERIFIERS`` (:mod:`caliber.effects.connectors.http_lookup`, #1055), so an
+``http`` effect that ended ``unknown`` (a timeout after the send, a 2xx nobody could confirm, a failed settle, an abandoned
+dispatch) is settled by the same lookup by key that would have confirmed it, and one whose resource is not listed stays
+``not_bound``. A lookup that finds nothing is never a failure for this connector. Scheduling a pass is the owner loop's
 (:class:`caliber.orchestrator.effect_reconciler.EffectReconcilerTask`, B05.5d, #997: it holds the lease the controller holds,
 calls :func:`reconcile_pass_from` with a budget and a lease check before each proposal, and stops when the lease is gone); the
 dispatch itself is the dispatcher's (:mod:`caliber.effects.dispatcher`).
@@ -64,9 +69,11 @@ from caliber.db.models import (
     CaliberWorkflowRun,
     CaliberWorkflowRunCheckpoint,
 )
-from caliber.effects.callbacks import CallbackBinding
+from caliber.effects.callbacks import CallbackBinding, parse_bindings
 from caliber.effects.connectors import ConnectorCapability, interpret_lookup
 from caliber.effects.connectors import document_request as _document_request
+from caliber.effects.connectors import http_lookup as _http_lookup
+from caliber.effects.http_verifiers import parse_endpoints, target_key, targets_from_endpoints
 from caliber.effects.receipts import RECEIPT_STATE, ReceiptFacts, record_receipt
 from caliber.effects.records import (
     COMMITTED,
@@ -152,24 +159,42 @@ class EffectDependency:
     intent_hash: str
 
 
+def _by_connector(view: ProposalView) -> str:
+    return view.connector
+
+
 @dataclass(frozen=True)
 class ConnectorLookup:
-    """What the reconciler needs to ask one connector and read its answer."""
+    """What the reconciler needs to ask one connector and read its answer.
+
+    ``target_key`` names where, in :data:`Targets`, the downstream of one proposal is: the connector's name for a connector with
+    one downstream per project (the callback binding's ``base_url``), or a name that carries the proposal's own resource for the
+    generic ``http`` connector, whose lookups are listed endpoint by endpoint (:mod:`caliber.effects.connectors.http_lookup`).
+    """
 
     capability: ConnectorCapability
     config: Callable[[str], dict[str, Any]]
     arguments: Callable[[str], dict[str, Any]]
     facts: Callable[..., ReceiptFacts | None]
+    target_key: Callable[[ProposalView], str] = _by_connector
 
 
-#: The connectors the platform can reconcile (one today).
+#: The connectors the platform can reconcile: the document-request connector (one downstream per project) and the generic
+#: ``http`` connector (the endpoints an operator listed, #1055).
 CONNECTORS: Final[Mapping[str, ConnectorLookup]] = {
     _document_request.CONNECTOR: ConnectorLookup(
         capability=_document_request.CAPABILITY,
         config=_document_request.lookup_config,
         arguments=_document_request.lookup_input,
         facts=_document_request.facts_from_lookup,
-    )
+    ),
+    _http_lookup.CONNECTOR: ConnectorLookup(
+        capability=_http_lookup.CAPABILITY,
+        config=_http_lookup.lookup_config,
+        arguments=_http_lookup.lookup_input,
+        facts=_http_lookup.facts_from_lookup,
+        target_key=lambda view: target_key(view.resource),
+    ),
 }
 
 
@@ -200,6 +225,22 @@ class Reconciliation:
 def targets_from_bindings(bindings: Sequence[CallbackBinding]) -> Targets:
     """``(connector, project)`` to the base URL the downstream is asked at."""
     return {(b.connector, b.project_id): b.base_url for b in bindings}
+
+
+def targets_from_config(config: object) -> Targets:
+    """Every downstream the reconciler may ask, from the operator's settings and nothing else: the callback bindings
+    (``CALIBER_EFFECT_CALLBACK_CONNECTORS``) and the generic ``http`` endpoints (``CALIBER_EFFECT_HTTP_VERIFIERS``).
+
+    A setting that does not parse is ``ValueError`` (the configuration validates both at startup). A missing attribute is the
+    empty list, so a configuration that predates a setting still works.
+    """
+    targets = dict(
+        targets_from_bindings(parse_bindings(getattr(config, "effect_callback_connectors", "[]")))
+    )
+    targets.update(
+        targets_from_endpoints(parse_endpoints(getattr(config, "effect_http_verifiers", "[]")))
+    )
+    return targets
 
 
 def ask_downstream(connector: ConnectorLookup, base_url: str, key: str) -> Answer:
@@ -396,7 +437,9 @@ def reconcile_one(
     if seen.state not in (UNKNOWN, RECONCILED):
         return Reconciliation(proposal_id, MOVED, seen.state)
     connector = CONNECTORS.get(view.connector)
-    base_url = targets.get((view.connector, project_id or ""))
+    base_url = (
+        None if connector is None else targets.get((connector.target_key(view), project_id or ""))
+    )
     if connector is None or base_url is None:
         return Reconciliation(proposal_id, NOT_BOUND, seen.state, view.connector)
     try:
@@ -854,6 +897,7 @@ __all__ = [
     "reconcile_pass",
     "reconcile_pass_from",
     "targets_from_bindings",
+    "targets_from_config",
     "unresolved_effect_details",
     "unresolved_effects",
     "wake_parked_runs",

@@ -24,6 +24,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_valida
 
 from caliber.db_url import normalize_database_url
 from caliber.effects.callbacks import parse_bindings
+from caliber.effects.http_verifiers import parse_endpoints
 from caliber.effects.tool_backends import parse_tool_backends
 from caliber.model_defaults import (
     DEFAULT_OPENAI_MODEL,
@@ -1931,6 +1932,25 @@ class CaliberConfig(BaseModel):
         parse_bindings(value)
         return value
 
+    effect_http_verifiers: str = Field(
+        default="[]",
+        description=(
+            "JSON array of the endpoints of the generic ``http`` connector (governed webhook and API-request nodes) whose "
+            'downstream has a read-by-key lookup the platform can call (#1055): each row is ``{"project_id": ..., '
+            '"resource": <the exact URL a node sends to>, "lookup_url": <where the downstream is asked>}``. The platform '
+            "asks ``GET <lookup_url>?idempotency_key=<key>`` to confirm an effect after its send and to settle one that ended "
+            "unknown; it believes only a stored request whose key, method, URL and body are the proposal's. It is the only "
+            "way a workflow node's http effect is dispatched in the reference profile: a URL that is not listed is refused "
+            "before it is recorded. A manifest, a tool call and a model cannot write it. Empty (the default) dispatches none."
+        ),
+    )
+
+    @field_validator("effect_http_verifiers")
+    @classmethod
+    def _effect_http_verifiers_are_valid(cls, value: str) -> str:
+        parse_endpoints(value)
+        return value
+
     agent_step_tool_backends: str = Field(
         default="[]",
         description=(
@@ -2729,6 +2749,7 @@ _ENV_VAR_TABLE: list[tuple[str, str, Any]] = [
     ("CALIBER_AGENT_RUN_MAX_TOKENS", "agent_run_max_tokens", int),
     ("CALIBER_AGENT_RESERVATION_GRACE_SECONDS", "agent_reservation_grace_seconds", float),
     ("CALIBER_EFFECT_CALLBACK_CONNECTORS", "effect_callback_connectors", str),
+    ("CALIBER_EFFECT_HTTP_VERIFIERS", "effect_http_verifiers", str),
     ("CALIBER_AGENT_STEP_TOOL_BACKENDS", "agent_step_tool_backends", str),
     ("CALIBER_EFFECT_RECONCILER_ENABLED", "effect_reconciler_enabled", _flag),
     ("CALIBER_EFFECT_RECONCILER_INTERVAL_SECONDS", "effect_reconciler_interval_seconds", float),

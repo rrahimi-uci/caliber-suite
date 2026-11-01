@@ -2276,8 +2276,10 @@ class WorkflowRunWorker:
         a run with no admitted identity binds nothing either, and is refused if an agent in it can reach a mapped tool.
 
         * The **effect context** (workflow HTTP, registered-tool and OpenAPI nodes) is bound whenever the trusted inputs exist. It
-          dispatches through no backend today (no generic connector has an authoritative verifier, #1055), so those nodes are
-          refused before a proposal is recorded; without the lease binding it is simply not bound and they are refused as before.
+          dispatches only an ``http`` node whose exact URL the operator listed with a read-by-key lookup for the run's project
+          (``CALIBER_EFFECT_HTTP_VERIFIERS``, #1055), and through no other backend (none has an authoritative verifier), so every
+          other node is refused before a proposal is recorded; without the lease binding it is simply not bound and they are
+          refused as before.
         * The **step context** governs the agent nodes bound to a tool the operator mapped
           (``CALIBER_AGENT_STEP_TOOL_BACKENDS``) and no other. If there are such nodes and any trusted input is missing (no lease
           binding, no initiator, no usable manifest digest, a configuration that does not parse), the run **fails closed**: the
