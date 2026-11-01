@@ -39,6 +39,15 @@ An unlisted plugin appears in `GET /capabilities` as installed and inert — whi
 is what lets an operator enable it, rather than being left to wonder why the
 wheel they installed had no effect.
 
+In the **reference profile** an unlisted plugin is refused instead of skipped. A plugin
+is code that runs inside the control plane, so the profile admits one only when its
+distribution is named in `CALIBER_PLUGIN_ALLOWLIST` (trusted-code admission, not
+containment of hostile code). With any other plugin installed the process refuses to
+start (`plugin_not_allowlisted`), and the registry raises `PluginRefused` with the code
+`unsupported_in_reference_profile` before it imports any plugin. Allowlist the
+distribution or uninstall it; see
+[Reference profile](m-64-reference-profile.md#plugins-and-host-paths-b124b-763).
+
 ## What a plugin is
 
 Three things.

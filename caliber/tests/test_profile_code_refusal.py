@@ -10,13 +10,14 @@ from __future__ import annotations
 
 import copy
 from collections.abc import Callable, Iterator
+from pathlib import Path
 from typing import Any
 
 import pytest
 from starlette.testclient import TestClient
 
 from caliber import server as caliber_server
-from caliber.config import CaliberConfig
+from caliber.config import CaliberConfig, ConfigError
 from caliber.workflows import compiler as compiler_module
 from caliber.workflows import runtime as runtime_module
 from caliber.workflows.code_policy import (
@@ -1279,3 +1280,669 @@ def test_the_manifest_is_not_mutated_by_the_checks() -> None:
     manifest = parse_manifest(data)
     manifest_refusals(manifest, fake_resolver(), REFERENCE)
     assert data == before
+
+
+# --------------------------------------------------------------------------------------------------------------------
+# B12.4b (#763): an installed plugin is refused unless its distribution is allowlisted, with the same code
+# --------------------------------------------------------------------------------------------------------------------
+
+ACME = "acme-caliber-optimizers"
+
+
+class _Entry:
+    """A scripted entry point that records every import (``load``) so a refusal can prove nothing was imported."""
+
+    def __init__(self, name: str, loaded: Any, distribution: str | None) -> None:
+        self.name = name
+        self.value = f"fake:{name}"
+        self._loaded = loaded
+        self.loads = 0
+        self.dist = None
+        if distribution is not None:
+            self.dist = type("_Dist", (), {"name": distribution})()
+
+    def load(self) -> Any:
+        self.loads += 1
+        return self._loaded
+
+
+def _spec(name: str = "AcmeOptimizer", **overrides: Any) -> Any:
+    from caliber.extensibility.registry import OptimizerSpec
+
+    fields: dict[str, Any] = {
+        "name": name,
+        "summary": "third-party",
+        "artifact_types": frozenset({"prompt"}),
+        "source": "plugin",
+        "distribution": ACME,
+    }
+    fields.update(overrides)
+    return OptimizerSpec(**fields)
+
+
+@pytest.fixture
+def clean_registry() -> Iterator[Any]:
+    from caliber.extensibility import optimizer_registry
+
+    instance = optimizer_registry()
+    instance.reset_for_tests()
+    yield instance
+    instance.reset_for_tests()
+
+
+@pytest.fixture
+def installed(monkeypatch: pytest.MonkeyPatch) -> Callable[..., list[_Entry]]:
+    """Install scripted entry points (replacing any), with the allowlist unset."""
+    from caliber.extensibility import entrypoints
+
+    monkeypatch.delenv(entrypoints.ALLOWLIST_ENV_VAR, raising=False)
+    entries: list[_Entry] = []
+    monkeypatch.setattr(entrypoints, "_entry_points", lambda: list(entries))
+
+    def install(*new: _Entry) -> list[_Entry]:
+        entries[:] = list(new)
+        return entries
+
+    return install
+
+
+def _allow(monkeypatch: pytest.MonkeyPatch, value: str) -> None:
+    from caliber.extensibility import entrypoints
+
+    monkeypatch.setenv(entrypoints.ALLOWLIST_ENV_VAR, value)
+
+
+def test_plugin_outside_allowlist_refused(
+    clean_registry: Any,
+    installed: Callable[..., list[_Entry]],
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """The acceptance oracle: a fake entry point outside the allowlist raises at load, with the one profile code."""
+    from caliber.extensibility import PluginError, PluginRefused
+
+    (entry,) = installed(_Entry("acme", _spec(), ACME))
+    bind_code_policy(REFERENCE)
+
+    with (
+        caplog.at_level("WARNING", logger="caliber.extensibility.entrypoints"),
+        pytest.raises(PluginRefused) as raised,
+    ):
+        clean_registry.load_plugins()
+    # Logged as well as raised: an operator reading the log sees the refusal, with its code and the distribution.
+    logged = [
+        r.getMessage() for r in caplog.records if r.name == "caliber.extensibility.entrypoints"
+    ]
+    assert len(logged) == 1 and logged[0].startswith(REFUSAL_CODE) and ACME in logged[0]
+
+    refused = raised.value
+    assert refused.code == REFUSAL_CODE == "unsupported_in_reference_profile"
+    assert refused.distribution == ACME and refused.distributions == (ACME,)
+    assert isinstance(refused, PluginError)
+    message = str(refused)
+    assert message.startswith(f"{REFUSAL_CODE}: ") and ACME in message
+    assert "CALIBER_PLUGIN_ALLOWLIST" in message
+    assert entry.loads == 0, "a refused plugin's code must not be imported"
+    assert clean_registry.load_errors == {ACME: message}
+
+
+def test_a_refused_deployment_stays_refused_and_imports_nothing_from_any_plugin(
+    clean_registry: Any,
+    installed: Callable[..., list[_Entry]],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """One unlisted plugin refuses the whole load, the allowlisted one included, and every later use refuses again."""
+    from caliber.extensibility import PluginRefused
+
+    listed = _Entry("listed", _spec("Listed", distribution="listed-plugin"), "listed-plugin")
+    unlisted = _Entry("acme", _spec(), ACME)
+    installed(listed, unlisted)
+    _allow(monkeypatch, "listed-plugin")
+    bind_code_policy(REFERENCE)
+
+    uses: list[Callable[[], Any]] = [
+        clean_registry.load_plugins,
+        lambda: clean_registry.get("MetaPrompt"),
+        lambda: clean_registry.has("MetaPrompt"),
+        clean_registry.names,
+        lambda: clean_registry.selectable("prompt"),
+        lambda: list(clean_registry),
+        lambda: len(clean_registry),
+    ]
+    for use in uses:
+        with pytest.raises(PluginRefused) as raised:
+            use()
+        assert raised.value.distributions == (ACME,)
+    assert (listed.loads, unlisted.loads) == (0, 0)
+    # The first refusal is the one that is kept, not rebuilt: one record.
+    assert list(clean_registry.load_errors) == [ACME]
+
+
+def test_every_refused_distribution_is_named_and_recorded(
+    clean_registry: Any, installed: Callable[..., list[_Entry]]
+) -> None:
+    from caliber.extensibility import PluginRefused, entrypoints
+
+    installed(
+        _Entry("z", _spec("Z", distribution="zeta-plugin"), "zeta-plugin"),
+        _Entry("a", _spec("A", distribution="alpha-plugin"), "alpha-plugin"),
+        # Two entry points of one distribution are one refusal; a name with no distribution is labelled by the entry point.
+        _Entry("a2", _spec("A2", distribution="alpha-plugin"), "alpha-plugin"),
+        _Entry("orphan", _spec("O"), None),
+    )
+    assert entrypoints.unallowlisted_plugin_labels() == ["alpha-plugin", "orphan", "zeta-plugin"]
+    bind_code_policy(REFERENCE)
+
+    with pytest.raises(PluginRefused) as raised:
+        clean_registry.load_plugins()
+    assert raised.value.distributions == ("alpha-plugin", "orphan", "zeta-plugin")
+    assert raised.value.distribution == "alpha-plugin"
+    assert set(clean_registry.load_errors) == {"alpha-plugin", "orphan", "zeta-plugin"}
+    for label in ("alpha-plugin", "orphan", "zeta-plugin"):
+        assert label in str(raised.value)
+
+
+def test_a_plugin_whose_distribution_is_unknown_is_refused_even_with_an_allowlist(
+    clean_registry: Any,
+    installed: Callable[..., list[_Entry]],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """No distribution means nothing the allowlist could name: it cannot match, and a blank list entry matches nothing."""
+    from caliber.extensibility import PluginRefused
+
+    (entry,) = installed(_Entry("orphan", _spec(), None))
+    _allow(monkeypatch, f"{ACME}, ,")
+    bind_code_policy(REFERENCE)
+    with pytest.raises(PluginRefused) as raised:
+        clean_registry.load_plugins()
+    assert raised.value.distribution == "orphan" and entry.loads == 0
+
+
+def test_an_allowlisted_plugin_still_loads_in_the_reference_profile(
+    clean_registry: Any,
+    installed: Callable[..., list[_Entry]],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Trusted-code admission: naming the distribution is what admits it, in the reference profile as before."""
+    (entry,) = installed(_Entry("acme", _spec(), ACME))
+    # Normalised the way packaging does, so a correct-looking entry cannot match nothing.
+    _allow(monkeypatch, "Acme_Caliber.Optimizers")
+    bind_code_policy(REFERENCE)
+
+    spec = clean_registry.get("AcmeOptimizer")
+    assert spec.source == "plugin" and spec.distribution == ACME and spec.experimental
+    assert entry.loads == 1
+    assert clean_registry.load_errors == {}
+    assert "MetaPrompt" in clean_registry.names()
+
+
+def test_no_plugin_installed_is_a_working_reference_deployment(
+    clean_registry: Any, installed: Callable[..., list[_Entry]]
+) -> None:
+    installed()
+    bind_code_policy(REFERENCE)
+    clean_registry.load_plugins()
+    assert clean_registry.names() == [
+        "DSPyBootstrapFewShot",
+        "DSPyMIPRO",
+        "GEPA",
+        "MetaPrompt",
+        "SkillMetaPrompt",
+    ]
+    assert clean_registry.load_errors == {}
+
+
+def test_the_development_profile_skips_an_unlisted_plugin_as_before(
+    clean_registry: Any,
+    installed: Callable[..., list[_Entry]],
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    (unlisted,) = installed(_Entry("acme", _spec(), ACME))
+    with caplog.at_level("INFO", logger="caliber.extensibility.entrypoints"):
+        assert "AcmeOptimizer" not in clean_registry.names()
+    assert unlisted.loads == 0 and clean_registry.load_errors == {}
+    assert any("not allowlisted" in record.getMessage() for record in caplog.records)
+
+    # An explicitly development policy is the same as none.
+    clean_registry.reset_for_tests()
+    bind_code_policy(DEVELOPMENT)
+    assert "AcmeOptimizer" not in clean_registry.names()
+
+    clean_registry.reset_for_tests()
+    _allow(monkeypatch, ACME)
+    assert clean_registry.get("AcmeOptimizer").distribution == ACME
+
+
+def test_discovery_refuses_before_its_first_yield_and_allows_a_fully_allowlisted_set(
+    installed: Callable[..., list[_Entry]], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from caliber.extensibility import PluginRefused
+    from caliber.extensibility.entrypoints import discover_optimizer_plugins
+
+    listed = _Entry("listed", _spec("Listed", distribution="listed-plugin"), "listed-plugin")
+    unlisted = _Entry("acme", _spec(), ACME)
+    installed(listed, unlisted)
+    _allow(monkeypatch, "listed-plugin")
+    bind_code_policy(REFERENCE)
+
+    discovery = discover_optimizer_plugins()
+    with pytest.raises(PluginRefused):
+        next(discovery)
+    assert (listed.loads, unlisted.loads) == (0, 0)
+
+    installed(listed)
+    assert [spec.name for spec, error in discover_optimizer_plugins() if error is None] == [
+        "Listed"
+    ]
+
+
+def test_a_plugin_handed_to_the_registry_directly_is_admitted_on_the_same_terms(
+    clean_registry: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from caliber.extensibility import PluginRefused, entrypoints
+    from caliber.extensibility.registry import BUILTIN_OPTIMIZERS
+
+    bind_code_policy(REFERENCE)
+    monkeypatch.delenv(entrypoints.ALLOWLIST_ENV_VAR, raising=False)
+    with pytest.raises(PluginRefused) as raised:
+        clean_registry.register(_spec())
+    assert raised.value.distribution == ACME and raised.value.code == REFUSAL_CODE
+    with pytest.raises(PluginRefused) as unknown:
+        clean_registry.register(_spec("NoDist", distribution=None))
+    assert unknown.value.distribution == "<unknown>"
+    assert "AcmeOptimizer" not in clean_registry._specs
+
+    # A built-in is CALIBER's own code, not a plugin: re-registering one is untouched by the rule.
+    clean_registry.register(BUILTIN_OPTIMIZERS[0])
+
+    _allow(monkeypatch, ACME)
+    clean_registry.register(_spec())
+    assert clean_registry.get("AcmeOptimizer").distribution == ACME
+
+
+def test_require_admitted_plugin_does_nothing_outside_the_reference_profile(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from caliber.extensibility import PluginRefused, entrypoints
+
+    monkeypatch.delenv(entrypoints.ALLOWLIST_ENV_VAR, raising=False)
+    entrypoints.require_admitted_plugin(ACME)
+    entrypoints.require_admitted_plugin(None)
+    bind_code_policy(REFERENCE)
+    with pytest.raises(PluginRefused):
+        entrypoints.require_admitted_plugin(ACME)
+    _allow(monkeypatch, ACME)
+    entrypoints.require_admitted_plugin(ACME)
+    with pytest.raises(PluginRefused):
+        entrypoints.require_admitted_plugin(None)
+
+
+def test_listing_imports_nothing_and_is_unchanged_in_the_reference_profile(
+    installed: Callable[..., list[_Entry]],
+) -> None:
+    from caliber.extensibility import entrypoints
+
+    (entry,) = installed(_Entry("acme", _spec(), ACME))
+    bind_code_policy(REFERENCE)
+    assert entrypoints.unallowlisted_plugin_labels() == [ACME]
+    listed = entrypoints.available_optimizer_plugins()
+    assert [(p["name"], p["distribution"], p["allowlisted"]) for p in listed] == [
+        ("acme", ACME, False)
+    ]
+    assert entry.loads == 0
+
+
+def test_a_refused_plugin_carries_the_one_profile_code_not_a_second_one() -> None:
+    from caliber.extensibility import PluginRefused
+
+    refused = PluginRefused(["b", "a"], "message")
+    assert (refused.code, refused.distribution, refused.distributions) == (
+        REFUSAL_CODE,
+        "a",
+        ("a", "b"),
+    )
+    assert CodeRefusalError.code == refused.code
+
+
+def test_the_registry_forgets_a_refusal_when_reset_for_tests(
+    clean_registry: Any, installed: Callable[..., list[_Entry]]
+) -> None:
+    from caliber.extensibility import PluginRefused
+
+    installed(_Entry("acme", _spec(), ACME))
+    bind_code_policy(REFERENCE)
+    with pytest.raises(PluginRefused):
+        clean_registry.load_plugins()
+    bind_code_policy(None)
+    clean_registry.reset_for_tests()
+    assert clean_registry.load_errors == {} and "MetaPrompt" in clean_registry.names()
+
+
+def test_a_plugin_whose_spec_the_registry_rejects_is_recorded_not_raised(
+    clean_registry: Any,
+    installed: Callable[..., list[_Entry]],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The other failure a load has stays a recorded one: only a refusal by the profile stops the load."""
+    installed(_Entry("acme", _spec("GEPA"), ACME))
+    _allow(monkeypatch, ACME)
+    bind_code_policy(REFERENCE)
+    assert "GEPA" in clean_registry.names()
+    assert "never redefine" in clean_registry.load_errors[ACME]
+
+
+# -- where a refused plugin is seen: the capabilities page, the optimize route and the refinement provider -------------
+
+
+def test_capabilities_still_answers_for_a_refused_deployment_and_says_why(
+    client: TestClient, clean_registry: Any, installed: Callable[..., list[_Entry]]
+) -> None:
+    installed(_Entry("acme", _spec(), ACME))
+    bind_code_policy(REFERENCE)
+
+    response = client.get(f"{PREFIX}/capabilities")
+    assert response.status_code == 200, response.text
+    extensibility = response.json()["data"]["extensibility"]
+    assert extensibility["optimizers"] == [], (
+        "no optimizer is dispatchable while the refusal stands"
+    )
+    (plugin,) = extensibility["plugins"]
+    assert plugin["distribution"] == ACME and plugin["allowlisted"] is False
+    assert plugin["error"].startswith(f"{REFUSAL_CODE}: ")
+
+
+def test_capabilities_lists_everything_for_a_development_deployment_with_the_same_plugin(
+    client: TestClient, clean_registry: Any, installed: Callable[..., list[_Entry]]
+) -> None:
+    installed(_Entry("acme", _spec(), ACME))
+    extensibility = client.get(f"{PREFIX}/capabilities").json()["data"]["extensibility"]
+    assert "MetaPrompt" in [o["name"] for o in extensibility["optimizers"]]
+    assert extensibility["plugins"][0]["error"] is None
+
+
+def _optimization_run_body() -> dict[str, Any]:
+    return {
+        "agent_id": "support-agent",
+        "eval_dataset_id": "EDS-PROMPT-1",
+        "optimizer_type": "GEPA",
+        "scorers": [{"name": "Correctness", "weight": 1.0, "config": {}}],
+    }
+
+
+def test_the_optimization_route_answers_503_with_the_code_for_a_refused_deployment(
+    client: TestClient, clean_registry: Any, installed: Callable[..., list[_Entry]]
+) -> None:
+    (entry,) = installed(_Entry("acme", _spec(), ACME))
+    bind_code_policy(REFERENCE)
+
+    response = client.post(f"{PREFIX}/prompts/optimization/runs", json=_optimization_run_body())
+    assert response.status_code == 503, response.text
+    assert response.json()["detail"].startswith(f"{REFUSAL_CODE}: ")
+    assert ACME in response.json()["detail"] and entry.loads == 0
+
+
+def test_the_optimization_route_is_untouched_by_an_unlisted_plugin_outside_the_profile(
+    client: TestClient, clean_registry: Any, installed: Callable[..., list[_Entry]]
+) -> None:
+    installed(_Entry("acme", _spec(), ACME))
+    response = client.post(f"{PREFIX}/prompts/optimization/runs", json=_optimization_run_body())
+    # The optimizer is known; the request then fails on the agent it names, which does not exist here.
+    assert response.status_code != 503, response.text
+
+
+def test_a_refinement_job_in_a_refused_deployment_fails_with_the_code(
+    clean_registry: Any, installed: Callable[..., list[_Entry]]
+) -> None:
+    from types import SimpleNamespace
+
+    from caliber.llm.openai_agents import OpenAIAgentsLLMProvider
+    from caliber.llm.provider import LLMProviderError
+
+    installed(_Entry("acme", _spec(), ACME))
+    bind_code_policy(REFERENCE)
+    provider = OpenAIAgentsLLMProvider.__new__(OpenAIAgentsLLMProvider)
+    context = SimpleNamespace(optimizer_type="GEPA", artifact_type="prompt")
+    with pytest.raises(LLMProviderError, match=REFUSAL_CODE):
+        provider._resolve_optimizer(context)  # type: ignore[arg-type]
+
+
+# -- the way a plugin is admitted: one place, a real distribution on the path ---------------------------------------------
+
+
+def test_the_entry_point_group_is_the_only_way_a_plugin_is_admitted() -> None:
+    """A ratchet: no other source module reads entry points, so there is no second admission route to forget."""
+    import ast
+
+    source_root = Path(caliber_server.__file__).resolve().parent
+    callers = sorted(
+        str(path.relative_to(source_root))
+        for path in source_root.rglob("*.py")
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8")))
+        if isinstance(node, ast.Call)
+        and (
+            (isinstance(node.func, ast.Attribute) and node.func.attr == "entry_points")
+            or (isinstance(node.func, ast.Name) and node.func.id == "entry_points")
+        )
+    )
+    assert callers == ["extensibility/entrypoints.py"]
+
+
+def test_a_real_installed_distribution_is_refused_and_then_admitted_by_its_name(
+    tmp_path: Path,
+    clean_registry: Any,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The packaging contract end to end: a dist-info on ``sys.path``, found through ``importlib.metadata``."""
+    import importlib
+    import sys
+
+    from caliber.extensibility import PluginRefused, entrypoints
+
+    (tmp_path / "acme_b763.py").write_text(
+        "class _D:\n"
+        "    name = 'AcmeB763'\n"
+        "    summary = 'scripted'\n"
+        "    artifact_types = frozenset({'prompt'})\n"
+        "declaration = _D()\n",
+        encoding="utf-8",
+    )
+    dist_info = tmp_path / "acme_b763_optimizers-1.0.0.dist-info"
+    dist_info.mkdir()
+    (dist_info / "METADATA").write_text(
+        "Metadata-Version: 2.1\nName: acme-b763-optimizers\nVersion: 1.0.0\n", encoding="utf-8"
+    )
+    (dist_info / "entry_points.txt").write_text(
+        "[caliber.optimizers]\nacme = acme_b763:declaration\n", encoding="utf-8"
+    )
+    monkeypatch.syspath_prepend(str(tmp_path))
+    importlib.invalidate_caches()
+    monkeypatch.delenv(entrypoints.ALLOWLIST_ENV_VAR, raising=False)
+    try:
+        bind_code_policy(REFERENCE)
+        with pytest.raises(PluginRefused) as raised:
+            clean_registry.load_plugins()
+        assert raised.value.distribution == "acme-b763-optimizers"
+        assert "acme_b763" not in sys.modules, "the refused plugin's module must not be imported"
+
+        clean_registry.reset_for_tests()
+        _allow(monkeypatch, "acme-b763-optimizers")
+        assert clean_registry.get("AcmeB763").distribution == "acme-b763-optimizers"
+        assert "acme_b763" in sys.modules
+    finally:
+        sys.modules.pop("acme_b763", None)
+
+
+# -- the startup rule ------------------------------------------------------------------------------------------------------
+
+
+def test_a_reference_process_refuses_to_start_while_an_unlisted_plugin_is_installed(
+    tmp_path: Path,
+    installed: Callable[..., list[_Entry]],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The refusal is listed with the other reference violations, by its stable code, before anything is imported."""
+    (entry,) = installed(_Entry("acme", _spec(), ACME))
+    config = CaliberConfig(database_url=f"sqlite:///{tmp_path / 'app.db'}", profile="reference")
+
+    with pytest.raises(ConfigError) as raised:
+        caliber_server._require_reference_profile(config)
+    assert "[plugin_not_allowlisted]" in str(raised.value) and ACME in str(raised.value)
+    assert entry.loads == 0
+
+    _allow(monkeypatch, ACME)
+    with pytest.raises(ConfigError) as other:
+        caliber_server._require_reference_profile(config)
+    assert "[plugin_not_allowlisted]" not in str(other.value)  # only the SQLite violation is left
+
+
+# -- host paths: the file root --------------------------------------------------------------------------------------------
+
+
+def _file_input_manifest() -> dict[str, Any]:
+    data = make_manifest()
+    data["nodes"]["file_input"] = {
+        "id": "file_input",
+        "type": "file_input",
+        "inputs": {"path": {"type": "string"}},
+        "outputs": {
+            "text": {"type": "string"},
+            "path": {"type": "string"},
+            "metadata": {"type": "structured"},
+        },
+    }
+    data["edges"] = [
+        {"id": "e1", "from": "start", "to": "file_input", "map": {"msg": "path"}},
+        {"id": "e2", "from": "file_input", "to": "agent", "map": {"text": "input"}},
+        {"id": "e3", "from": "agent", "to": "final", "map": {"final_output": "response"}},
+    ]
+    return data
+
+
+def test_file_tool_root_enforced(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The acceptance oracle: ``../../outside.txt`` is refused, whatever the working directory is."""
+    from caliber.workflows.runtime import PathOutsideRoot, _path_from_inputs, confine_to_file_root
+
+    root = tmp_path / "root"
+    (root / "inner").mkdir(parents=True)
+    (tmp_path / "outside.txt").write_text("secret", encoding="utf-8")
+    monkeypatch.setenv("CALIBER_WORKFLOW_FILE_ROOT", str(root))
+    monkeypatch.chdir(root / "inner")
+
+    with pytest.raises(PathOutsideRoot) as raised:
+        confine_to_file_root(Path("../../outside.txt"), what="file/folder input")
+    assert isinstance(raised.value, ValueError)
+    assert raised.value.path == (tmp_path / "outside.txt").resolve()
+    assert raised.value.root == root.resolve()
+    assert "outside the configured workflow file root" in str(raised.value)
+
+    with pytest.raises(PathOutsideRoot):
+        _path_from_inputs({"path": "../../outside.txt"}, configured_path="", run_input="")
+    # A traversal that stays inside the root is allowed.
+    inside = confine_to_file_root(Path("../x/../data.txt"), what="file/folder input")
+    assert inside == (root / "data.txt").resolve()
+
+
+def test_a_file_input_node_given_a_traversal_fails_the_run_and_reads_nothing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = tmp_path / "root"
+    root.mkdir()
+    (tmp_path / "outside.txt").write_text("secret", encoding="utf-8")
+    (root / "ok.txt").write_text("fine", encoding="utf-8")
+    monkeypatch.setenv("CALIBER_WORKFLOW_FILE_ROOT", str(root))
+    monkeypatch.chdir(root)
+
+    refused = execute(
+        _plan(_file_input_manifest()), "../outside.txt", executor=FakeWorkflowExecutor()
+    )
+    assert refused.status != "completed"
+    assert "outside the configured workflow file root" in str(refused.error)
+    assert "secret" not in str(refused.output) + str(refused.error)
+
+    allowed = execute(_plan(_file_input_manifest()), "ok.txt", executor=FakeWorkflowExecutor())
+    assert allowed.status == "completed", allowed.error
+    assert "fine" in allowed.output
+
+
+def test_the_reference_profile_has_no_unconfined_file_root(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from caliber.workflows.runtime import PathOutsideRoot, confine_to_file_root
+
+    monkeypatch.setenv("CALIBER_WORKFLOW_FILE_ROOT", "unconfined")
+    target = tmp_path / "anything.txt"
+    # Development keeps the opt-out (and so does an explicitly development policy).
+    assert confine_to_file_root(target, what="file/folder input") == target
+    bind_code_policy(DEVELOPMENT)
+    assert confine_to_file_root(target, what="file/folder input") == target
+
+    bind_code_policy(REFERENCE)
+    with pytest.raises(ValueError) as raised:
+        confine_to_file_root(target, what="file/folder input")
+    assert str(raised.value).startswith(f"{REFUSAL_CODE}: ")
+    assert "unconfined" in str(raised.value) and "CALIBER_WORKFLOW_FILE_ROOT" in str(raised.value)
+    assert not isinstance(raised.value, PathOutsideRoot)
+
+    # A configured root, and an unset one, behave as they always did in the reference profile.
+    monkeypatch.setenv("CALIBER_WORKFLOW_FILE_ROOT", str(tmp_path))
+    assert confine_to_file_root(target, what="file/folder input") == target.resolve()
+    monkeypatch.delenv("CALIBER_WORKFLOW_FILE_ROOT")
+    with pytest.raises(ValueError, match="unmanaged host-filesystem nodes are disabled"):
+        confine_to_file_root(target, what="file/folder input")
+
+
+def test_the_managed_file_tools_take_a_ref_and_refuse_a_traversal(tmp_path: Path) -> None:
+    """The run-scoped file tools never take a host path: a ``..`` in the ref or the path is refused before storage."""
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import sessionmaker
+
+    import caliber.db.models  # noqa: F401
+    from caliber.config import WorkflowStorageConfig
+    from caliber.db.base import Base
+    from caliber.storage import LocalStorageBackend, StorageError, WorkingDirectoryService
+    from caliber.workflows import file_tools
+
+    engine = create_engine("sqlite://")
+    Base.metadata.create_all(engine)
+    cfg = WorkflowStorageConfig(base_uri=f"file://{tmp_path}/ws")
+    service = WorkingDirectoryService(LocalStorageBackend(cfg.base_uri), cfg)
+    try:
+        with sessionmaker(engine)() as session:
+            ctx = service.create_run_workspace(workflow_id="WF-1", workflow_run_id="WR-1")
+            with pytest.raises(StorageError):
+                file_tools.write_workdir_file(
+                    service, session, ctx, path="../../outside.txt", content="x"
+                )
+            with pytest.raises(StorageError):
+                file_tools.read_workdir_file(
+                    service,
+                    session,
+                    ctx,
+                    file_ref="caliber://workflow-runs/WR-1/work/../../outside.txt",
+                )
+    finally:
+        engine.dispose()
+    assert not (tmp_path / "outside.txt").exists()
+    assert not (tmp_path / "ws" / "outside.txt").exists()
+
+
+# -- the documented contract ------------------------------------------------------------------------------------------------
+
+
+def test_the_operator_page_documents_the_plugin_and_file_root_refusals() -> None:
+    page = (
+        Path(__file__).resolve().parents[2] / "docs" / "operate" / "reference-profile.md"
+    ).read_text(encoding="utf-8")
+    section = page.split("## Plugins and host paths (B12.4b, #763)", 1)[1].split("\n## ", 1)[0]
+    for needle in (
+        REFUSAL_CODE,
+        "PluginRefused",
+        "PathOutsideRoot",
+        "plugin_not_allowlisted",
+        "workflow_file_root_unconfined",
+        "CALIBER_PLUGIN_ALLOWLIST",
+        "CALIBER_WORKFLOW_FILE_ROOT",
+        "trusted-code admission",
+    ):
+        assert needle in section, needle
+    assert "code_execution_not_supported_in_reference_profile" not in page

@@ -98,6 +98,7 @@
 <pre class="language-bash"><code class="language-bash">export CALIBER_PLUGIN_ALLOWLIST=acme-caliber-optimizers,another-plugin</code></pre>
 <p>The allowlist matches distributions rather than optimizer names, because allowlisting is a statement about who you trust, not about what they happened to call their entry point.</p>
 <p>An unlisted plugin appears in <code>GET /capabilities</code> as installed and inert — which is what lets an operator enable it, rather than being left to wonder why the wheel they installed had no effect.</p>
+<p>In the <strong>reference profile</strong> an unlisted plugin is refused instead of skipped. A plugin is code that runs inside the control plane, so the profile admits one only when its distribution is named in <code>CALIBER_PLUGIN_ALLOWLIST</code> (trusted-code admission, not containment of hostile code). With any other plugin installed the process refuses to start (<code>plugin_not_allowlisted</code>), and the registry raises <code>PluginRefused</code> with the code <code>unsupported_in_reference_profile</code> before it imports any plugin. Allowlist the distribution or uninstall it; see <a href="m-64-reference-profile.html#plugins-and-host-paths-b124b-763">Reference profile</a>.</p>
 <h2 id="what-a-plugin-is">What a plugin is<a class="anchor" href="#what-a-plugin-is" aria-hidden="true" tabindex="-1">#</a></h2>
 <p>Three things.</p>
 <p><strong>One.</strong> A class with an <code>optimize</code> method:</p>

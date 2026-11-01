@@ -19,6 +19,14 @@ allowlisting is a statement about who you trust rather than about what they
 happened to call their entry point. An unlisted plugin is reported as available
 but not loaded, which is what lets the UI offer "enable this" instead of leaving
 an operator to guess that the wheel they installed did nothing.
+
+**The reference profile refuses instead of skipping** (B12.4b, #763). A plugin is code that runs in the control-plane
+process; allowlisting its distribution is trusted-code admission (a decision about who is trusted, not containment of
+hostile code). In the reference profile an installed plugin that is not allowlisted is not "available but inert": loading
+raises :class:`~caliber.extensibility.registry.PluginRefused` with the profile's one refusal code
+(``unsupported_in_reference_profile``) before anything is imported from any plugin, and a plugin handed to the registry
+directly is held to the same admission. The reference profile is the process-wide
+:func:`caliber.workflows.code_policy.resolve_code_policy`, bound when the app starts, so every path reads the one answer.
 """
 
 from __future__ import annotations
@@ -28,7 +36,7 @@ import os
 from collections.abc import Iterator
 from importlib import metadata
 
-from caliber.extensibility.registry import OptimizerSpec, PluginError
+from caliber.extensibility.registry import OptimizerSpec, PluginError, PluginRefused
 
 logger = logging.getLogger("caliber.extensibility.entrypoints")
 
@@ -53,6 +61,55 @@ def allowlisted_distributions() -> frozenset[str]:
 
 def _normalize(name: str) -> str:
     return name.strip().lower().replace("_", "-").replace(".", "-")
+
+
+def _reference_profile_active() -> bool:
+    """Whether this process runs the reference profile (the process-wide code policy, ``resolve_code_policy``)."""
+    from caliber.workflows.code_policy import resolve_code_policy  # noqa: PLC0415 - keeps this module's import graph light
+
+    return resolve_code_policy().reference
+
+
+def unallowlisted_plugin_labels() -> list[str]:
+    """The installed optimizer plugins whose distribution is not allowlisted, by distribution (entry-point name if none).
+
+    Reads metadata only and imports nothing, so it is safe to call before deciding to trust anything: it is what the
+    reference profile's startup rule and its refusal both name.
+    """
+    allowed = allowlisted_distributions()
+    labels: set[str] = set()
+    for entry in _entry_points():
+        distribution = _distribution_of(entry)
+        if _normalize(distribution or "") not in allowed:
+            labels.add(distribution or entry.name)
+    return sorted(labels)
+
+
+def _refusal(labels: list[str]) -> PluginRefused:
+    """Log and build the refusal for ``labels`` (never empty). The message names what to change, not what a plugin does."""
+    from caliber.workflows.code_policy import REFUSAL_CODE  # noqa: PLC0415 - keeps this module's import graph light
+
+    names = ", ".join(labels)
+    message = (
+        f"{REFUSAL_CODE}: optimizer plugin {names} is installed but not allowlisted; the reference profile loads "
+        f"a plugin only when its distribution is named in {ALLOWLIST_ENV_VAR} (a deliberate decision to trust that code "
+        f"inside the control plane) and imports nothing from any other; add it to {ALLOWLIST_ENV_VAR}, or uninstall it"
+    )
+    logger.warning("%s", message)
+    return PluginRefused(labels, message)
+
+
+def require_admitted_plugin(distribution: str | None) -> None:
+    """Raise :class:`PluginRefused` when the reference profile is active and ``distribution`` is not allowlisted.
+
+    The check :meth:`OptimizerRegistry.register` applies to a plugin entry, so a plugin handed to the registry directly is
+    admitted on the same terms as one discovered. Outside the reference profile it does nothing.
+    """
+    if (
+        _reference_profile_active()
+        and _normalize(distribution or "") not in allowlisted_distributions()
+    ):
+        raise _refusal([distribution or "<unknown>"])
 
 
 def _entry_points() -> list[metadata.EntryPoint]:
@@ -103,11 +160,15 @@ def _distribution_of(entry: metadata.EntryPoint) -> str | None:
 def discover_optimizer_plugins() -> Iterator[tuple[OptimizerSpec | None, tuple[str, str] | None]]:
     """Yield ``(spec, error)`` for each allowlisted plugin.
 
-    Exactly one of the two is set. Errors are yielded rather than raised so one
+    Under the reference profile this raises :class:`PluginRefused` instead, before importing anything, when any installed
+    plugin is not allowlisted. Exactly one of the two is set. Errors are yielded rather than raised so one
     broken plugin cannot take down a deployment that has three working ones —
     but they are yielded rather than swallowed, because a plugin the operator
     explicitly allowlisted and that then failed to load is a fact they need.
     """
+    if _reference_profile_active() and (refused := unallowlisted_plugin_labels()):
+        # Before the first plugin is imported, so a refused deployment runs none of them (raised on first iteration).
+        raise _refusal(refused)
     allowed = allowlisted_distributions()
     for entry in _entry_points():
         distribution = _distribution_of(entry)
@@ -236,4 +297,6 @@ __all__ = [
     "allowlisted_distributions",
     "available_optimizer_plugins",
     "discover_optimizer_plugins",
+    "require_admitted_plugin",
+    "unallowlisted_plugin_labels",
 ]

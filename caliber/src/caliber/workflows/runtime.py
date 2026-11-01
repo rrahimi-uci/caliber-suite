@@ -120,6 +120,7 @@ from caliber.workflows.code_policy import (
     CodePolicy,
     ir_refusals,
     require_sandboxed_tool_binding,
+    resolve_code_policy,
     summarize,
 )
 from caliber.workflows.guardrails import (
@@ -9600,6 +9601,19 @@ def _select_input(inputs: dict[str, Any], run_input: str) -> str:
     return run_input if port is None else str(inputs[port])
 
 
+class PathOutsideRoot(ValueError):  # noqa: N818 - the name the reference-profile contract fixes (#763)
+    """A host path resolved outside ``CALIBER_WORKFLOW_FILE_ROOT`` (B12.4b, #763).
+
+    A ``ValueError`` so every caller that already handles the refusal keeps working; ``path`` is the resolved path and
+    ``root`` the configured root.
+    """
+
+    def __init__(self, message: str, *, path: Path, root: Path) -> None:
+        super().__init__(message)
+        self.path = path
+        self.root = root
+
+
 def confine_to_file_root(path: Path, *, what: str) -> Path:
     """Resolve ``path`` and refuse it if it escapes ``CALIBER_WORKFLOW_FILE_ROOT``.
 
@@ -9621,6 +9635,10 @@ def confine_to_file_root(path: Path, *, what: str) -> Path:
     a policy boundary is the pattern this control exists to remove. Operators
     who need the old behaviour set ``CALIBER_WORKFLOW_FILE_ROOT=unconfined``,
     which is one line and, unlike the previous default, appears in the config.
+
+    **The reference profile has no ``unconfined``** (B12.4b, #763): a process running it treats the opt-out like an
+    unset root and refuses the node with the profile's code (``unsupported_in_reference_profile``), whatever the variable
+    says, so a path is allowed only inside a configured root. A path outside the root raises :class:`PathOutsideRoot`.
     """
     from caliber.config import (  # noqa: PLC0415
         workflow_file_root,
@@ -9637,16 +9655,24 @@ def confine_to_file_root(path: Path, *, what: str) -> Path:
         )
     root = workflow_file_root()
     if root is None:
+        if resolve_code_policy().reference:
+            raise ValueError(
+                f"{REFUSAL_CODE}: {what} path is refused: CALIBER_WORKFLOW_FILE_ROOT is 'unconfined', which the "
+                "reference profile does not support. Set CALIBER_WORKFLOW_FILE_ROOT to a directory these nodes may "
+                "use, or bind a managed project file"
+            )
         return path
     try:
         resolved = path.resolve()
     except OSError as exc:  # pragma: no cover - platform-specific resolution failure
         raise ValueError(f"{what} path cannot be resolved: {exc}") from exc
     if resolved != root and root not in resolved.parents:
-        raise ValueError(
+        raise PathOutsideRoot(
             f"{what} path {str(resolved)!r} is outside the configured workflow file "
             f"root {str(root)!r}. Bind a managed project file, or widen "
-            f"CALIBER_WORKFLOW_FILE_ROOT."
+            f"CALIBER_WORKFLOW_FILE_ROOT.",
+            path=resolved,
+            root=root,
         )
     return resolved
 
@@ -10242,6 +10268,7 @@ __all__ = [
     "FakeWorkflowExecutor",
     "NodeStep",
     "OpenAIChatWorkflowExecutor",
+    "PathOutsideRoot",
     "RuntimePlan",
     "RuntimeResumeCheckpoint",
     "ToolExecutionError",
