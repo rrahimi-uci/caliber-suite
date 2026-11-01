@@ -1,0 +1,48 @@
+{
+  "_comment": "SCRIPTED TEST FIXTURE. Observations of the document-request downstream (the Harborlight anchor case) as a caller would hand them to caliber.acceptance: the proposal that was dispatched, the receipt that named the committed request, and the case record read back afterwards. The case starts at version 1; a committed request is stamped with the version after its mutation (2). Invented for caliber/tests/test_acceptance_predicates.py; not domain content.",
+  "happy_path": {
+    "proposal": {
+      "case_id": "MORT-2026-000184",
+      "document_type": "pay_statement",
+      "expected_version": 1
+    },
+    "receipt": {"downstream_request_id": "DR-0001"},
+    "case_record": {
+      "case_id": "MORT-2026-000184",
+      "version": 2,
+      "missing_documents": ["pay_statement"],
+      "document_requests": [
+        {"request_id": "DR-0001", "document_type": "pay_statement", "case_version": 2}
+      ]
+    }
+  },
+  "stale_case_version": {
+    "proposal": {
+      "case_id": "MORT-2026-000184",
+      "document_type": "pay_statement",
+      "expected_version": 1
+    },
+    "receipt": {"downstream_request_id": "DR-0001"},
+    "case_record": {
+      "case_id": "MORT-2026-000184",
+      "version": 1,
+      "missing_documents": ["pay_statement"],
+      "document_requests": [
+        {"request_id": "DR-0001", "document_type": "pay_statement", "case_version": 1}
+      ]
+    }
+  },
+  "no_request": {
+    "proposal": {
+      "case_id": "MORT-2026-000184",
+      "document_type": "pay_statement",
+      "expected_version": 1
+    },
+    "case_record": {
+      "case_id": "MORT-2026-000184",
+      "version": 1,
+      "missing_documents": ["pay_statement"],
+      "document_requests": []
+    }
+  }
+}
