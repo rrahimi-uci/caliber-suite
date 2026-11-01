@@ -934,19 +934,20 @@ def test_a_decision_that_cannot_get_its_lock_is_a_retryable_503_and_decides_noth
     assert retried.status_code == 200, retried.text
 
 
+@pytest.mark.parametrize("action", ["approve", "reject"])
 def test_a_caller_without_the_approve_role_is_refused_before_the_run_lock(
-    approver: ReferenceApp, monkeypatch: pytest.MonkeyPatch
+    approver: ReferenceApp, monkeypatch: pytest.MonkeyPatch, action: str
 ) -> None:
     """A project editor who may not approve gets a ``403`` at once; they never queue behind (or hold up) a dispatcher."""
     _need_postgresql(approver)
     monkeypatch.setattr("caliber.routes.workflow_runs.LOCK_TIMEOUT_MS", 300)
     run_id, approval_id, _proposal_id, _lease = _prepare(
-        approver, monkeypatch, occurrence="no-role", decide=False
+        approver, monkeypatch, occurrence=f"no-role-{action}", decide=False
     )
     with _holding_run_lock(approver, run_id):
-        refused = Worker(lambda: _decide(approver, run_id, approval_id, user=EDITOR_A)).finished(
-            timeout=20
-        )
+        refused = Worker(
+            lambda: _decide(approver, run_id, approval_id, action=action, user=EDITOR_A)
+        ).finished(timeout=20)
     assert refused.status_code == 403, refused.text
 
 

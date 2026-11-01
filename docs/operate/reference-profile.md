@@ -1459,7 +1459,10 @@ with session_factory() as session:
   quorum must still hold the project `approve` action and not be the run's initiator or the requester, and the quorum
   (`approval_count`) must be met by approvers who remain authorized (`role_revoked` / `self_approval` otherwise,
   `not_approved` when the recorded approvers are fewer than the quorum). The platform scopes are one set the producer
-  attests for the approving principals; membership and role are read per approver. It sets `consumed_at` in the same commit as
+  attests for the approving principals; membership and role are read per approver. **Known limitation:** the platform scopes of
+  *earlier* approvers of a quorum are not re-derived at the claim. They were checked when each approved (the decision route),
+  and at the claim only the last approver's attested scopes are applied (the one set the producer passes); a scope an earlier
+  approver lost after deciding is not seen, while a lost project role or membership is. It sets `consumed_at` in the same commit as
   `proposed -> approved -> dispatched` and the outbox row, so concurrent dispatchers consume once. If the process dies after
   that commit and before the remote call, the durable dispatched row and outbox entry remain recoverable; a retry reads the
   proposal state (`already_dispatched`) and does not send again.
