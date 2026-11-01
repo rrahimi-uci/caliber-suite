@@ -246,6 +246,7 @@ job_migration_parity_postgres() {
         tests/test_effect_operator_reconcile.py \
         tests/test_registered_tool_dispatch.py \
         tests/test_openapi_governed_dispatch.py \
+        tests/test_mcp_governed_dispatch.py \
         tests/test_context_sources.py \
         tests/test_context_manifest.py \
         tests/test_workspace_release_evaluator.py \

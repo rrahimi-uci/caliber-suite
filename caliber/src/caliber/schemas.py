@@ -2134,6 +2134,149 @@ class WorkflowRuntimeApprovalSchema(BaseModel):
     decided_by: str | None
     decision_reason: str | None
     policy_snapshot: dict[str, object] | None
+    #: Set on a request bound to one effect proposal (B06.1, #706) and ``None`` on a legacy node-level request. The console
+    #: opens the exact-intent approval panel (``GET .../approvals/{id}``) for a bound request instead of a blind Approve button
+    #: (B06.5, #743). Additive and optional, so an older client ignores them.
+    proposal_id: str | None = None
+    expires_at: datetime | None = None
+    superseded_by: str | None = None
+    consumed_at: datetime | None = None
+
+
+class ApprovalRecordViewSchema(BaseModel):
+    """The request and its decision, without the policy snapshot (the view carries the policy and quorum separately)."""
+
+    model_config = ConfigDict(from_attributes=True, extra="forbid")
+
+    runtime_approval_id: str
+    workflow_run_id: str
+    project_id: str | None
+    node_id: str
+    status: str
+    requested_at: datetime
+    decided_at: datetime | None
+    decided_by: str | None
+    decision_reason: str | None
+
+
+class ApprovalBindingViewSchema(BaseModel):
+    """The exact-intent pins of a bound approval request: identifiers, digests and times only (B06.5, #743)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    proposal_id: str
+    intent_hash: str
+    evidence_hash: str
+    policy_digest: str
+    expected_resource_version: str | None = None
+    expires_at: datetime
+    #: Who asked. ``None`` for a caller who does not hold the project ``approve`` action: a person's name is shown to those who decide.
+    requested_by: str | None = None
+    superseded_by: str | None = None
+    consumed_at: datetime | None = None
+
+
+class ApprovalArgFieldViewSchema(BaseModel):
+    """One top-level argument of the effect: its name (when it is a plain identifier) and the kind of its value, never the value."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    name: str | None = None
+    kind: Literal["string", "number", "boolean", "null", "object", "array"]
+
+
+class ApprovalProposalViewSchema(BaseModel):
+    """What the approver is deciding: the effect's target, class and the shape (not the values) of its arguments."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    proposal_id: str
+    connector: str
+    connector_version: str
+    effect_class: str
+    resource: str
+    state: str
+    args_fields: list[ApprovalArgFieldViewSchema] = Field(default_factory=list)
+    args_field_count: int = 0
+    args_truncated: bool = False
+
+
+class ApprovalPolicyViewSchema(BaseModel):
+    """The node's approval policy as snapshotted on the request."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    required_role: str
+    approval_count: int
+    timeout_behavior: str
+    allow_self_approval: bool
+
+
+class ApprovalQuorumViewSchema(BaseModel):
+    """Progress toward the quorum: who approved so far (distinct), how many are required and how many remain."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    approvers: list[str] = Field(default_factory=list)
+    required: int
+    remaining: int
+
+
+class ApprovalStateViewSchema(BaseModel):
+    """Whether the request can be decided now; ``code`` is ``open`` or the stable reason it cannot."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    code: Literal[
+        "open",
+        "already_decided",
+        "rejected",
+        "already_consumed",
+        "superseded",
+        "expired",
+        "approval_not_current",
+        "run_not_waiting",
+    ]
+    superseded_by: str | None = None
+
+
+class ApprovalAbilityViewSchema(BaseModel):
+    """Whether the authenticated caller may make this decision now, computed by the server from the decision route's own rules."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    allowed: bool
+    reason_code: str | None = None
+
+
+class ApprovalCallerViewSchema(BaseModel):
+    """The authenticated principal and what it may do: the console renders these signals and decides nothing itself."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    principal: str
+    approve: ApprovalAbilityViewSchema
+    reject: ApprovalAbilityViewSchema
+
+
+class WorkflowApprovalViewSchema(BaseModel):
+    """The approver's view of one approval request (B06.5, #743; ``docs/architecture/approval-ux-contract.md``).
+
+    Read-only. ``binding`` and ``proposal`` are ``None`` for a legacy node-level request, and ``proposal`` is also ``None``
+    for a caller who does not hold the project ``approve`` action (the pins are shown, what they pin is not). Argument
+    *values* never appear: ``intent_hash`` is what binds them.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    approval: ApprovalRecordViewSchema
+    binding: ApprovalBindingViewSchema | None = None
+    proposal: ApprovalProposalViewSchema | None = None
+    policy: ApprovalPolicyViewSchema
+    quorum: ApprovalQuorumViewSchema
+    state: ApprovalStateViewSchema
+    allowed_responses: list[Literal["approve", "reject", "request_changes"]]
+    caller: ApprovalCallerViewSchema
 
 
 class WorkflowRunCapabilitySchema(BaseModel):

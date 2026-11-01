@@ -10,6 +10,14 @@
    }
   },
   {
+   "file": "caliber/src/caliber/effects/dispatcher.py",
+   "symbol": "_McpToolBackend.perform",
+   "row": "EP-135",
+   "primitives": {
+    "invoke_tool": 1
+   }
+  },
+  {
    "file": "caliber/src/caliber/eval/dataset_sync.py",
    "symbol": "MLflowDatasetSyncClient._get_or_create",
    "row": "EP-117",
@@ -119,7 +127,7 @@
    "row": "EP-035",
    "via": "an import or a name in the module, not a call",
    "primitives": {
-    "invoke_tool": 3
+    "invoke_tool": 4
    }
   },
   {
@@ -145,6 +153,15 @@
    "row": "EP-037",
    "primitives": {
     "invoke_tool": 2
+   }
+  },
+  {
+   "file": "caliber/src/caliber/mcp_gateway.py",
+   "symbol": "invoke_tool_raw_sync",
+   "row": "EP-036",
+   "via": "the ungated body invoke_tool_sync runs after its classification, and the dispatcher's mcp backend calls",
+   "primitives": {
+    "invoke_tool": 3
    }
   },
   {

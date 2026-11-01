@@ -34,6 +34,7 @@ from typing import Any, Protocol
 
 from sqlalchemy.orm import Session
 
+from caliber import mcp_gateway as _raw_mcp_transport
 from caliber import profile as _profile
 from caliber.db.models import CaliberRuntimeApprovalRequest, CaliberWorkflowRun
 from caliber.effects.admission import (
@@ -50,6 +51,7 @@ from caliber.effects.connectors import (
     classify_result,
 )
 from caliber.effects.connectors import document_request as _document_request
+from caliber.effects.connectors import mcp_tool as _mcp_tool
 from caliber.effects.connectors import openapi_http as _openapi_http
 from caliber.effects.inventory import EFFECT_CLASSES, effect_class, tool_disposition
 from caliber.effects.receipts import ReceiptFacts, Settled, settle_dispatch
@@ -422,6 +424,71 @@ class _OpenApiBackend:
         return TransportResult(classified, verify, response=response)
 
 
+class _McpToolBackend:
+    """Private adapter that sends a protected MCP tool call (B04.5, #759).
+
+    ``config`` carries two runtime-owned values: ``call`` (:class:`~caliber.effects.connectors.mcp_tool.McpToolCall`: which
+    server record and tool, and how to read the record again) and ``receipt_verifier`` (the same authoritative check the HTTP
+    backend requires). Before anything is sent the server record is **read again** and the call is classified again, from
+    the record, the administrator's tool policy and the inventory (never from what the server reports): the recorded server,
+    tool, resource and digest must be the trusted call's, and the call must still be protected. The recorded arguments are
+    what is sent, so what runs is what the approver saw. This is the one caller of the gateway's ungated transport for a
+    governed MCP call, so it can never reach the dispatcher again.
+
+    There is no idempotency key, no precondition and no lookup by key (the capability record promises none): the call is sent
+    **once**. A failure after the request may have left (a timeout, a dropped session, an error the server reports about a call
+    it ran) is ``ambiguous`` and leaves the proposal ``unknown``; only a failure the gateway proves came before the request
+    (policy, egress, allowlist, a session that never opened) is ``proven_not_sent``. A returned result is untrusted data: it is
+    bounded and must be plain JSON, and it is only a claim until the run's receipt verifier confirms the effect.
+    """
+
+    def perform(self, request: EffectRequest, config: Mapping[str, Any] | None) -> TransportResult:
+        if (
+            request.view.connector != _mcp_tool.CONNECTOR
+            or request.view.connector_version != _mcp_tool.VERSION
+        ):
+            raise _TransportRefusedError("connector_binding_mismatch")
+        settings = dict(config or {})
+        call = settings.get("call")
+        verifier = settings.get("receipt_verifier")
+        if not isinstance(call, _mcp_tool.McpToolCall) or not callable(verifier):
+            raise _TransportRefusedError("backend_config_missing")
+        args = request.intent.get("args")
+        if not isinstance(args, Mapping):
+            raise _TransportRefusedError("connector_intent_unsupported")
+        try:
+            server, arguments = _mcp_tool.check_recorded(
+                call, resource=request.view.resource, args=args
+            )
+        except _mcp_tool.McpCallRefused as exc:
+            raise _TransportRefusedError(exc.code) from exc
+        try:
+            result = _raw_mcp_transport.invoke_tool_raw_sync(
+                server,
+                tool_name=call.tool_name,
+                arguments=arguments,
+                timeout_seconds=call.timeout_seconds,
+            )
+        except Exception as exc:
+            return TransportResult(classify_error(exc))
+        bounded = _mcp_tool.bounded_result(result)
+        if bounded is None:
+            # The server ran the call and answered with something that cannot be read as a bounded plain-JSON result.
+            return TransportResult(
+                Classified(TransportOutcome.AMBIGUOUS, "result_out_of_bounds", None, 1)
+            )
+        response = {"result": bounded[0]}
+        classified = Classified(TransportOutcome.COMMITTED_RECEIPT, "tool_returned", None, 1)
+
+        def verify() -> ReceiptFacts | None:
+            facts = verifier(request, response)
+            if facts is not None and not isinstance(facts, ReceiptFacts):
+                raise _TransportRefusedError("receipt_verifier_invalid")
+            return facts
+
+        return TransportResult(classified, verify, response=response)
+
+
 class _TransportRefusedError(RuntimeError):
     """A backend refused before sending anything; it is not a downstream result."""
 
@@ -477,6 +544,10 @@ REGISTERED_TOOL_CONFIGURATION: Mapping[str, Any] = {
 OPENAPI_HTTP_CAPABILITY = _openapi_http.CAPABILITY
 OPENAPI_HTTP_CONFIGURATION = _openapi_http.CONFIGURATION
 
+#: What the MCP transport sends with (B04.5): the connector contract's own configuration, pinned by digest.
+MCP_CAPABILITY = _mcp_tool.CAPABILITY
+MCP_CONFIGURATION = _mcp_tool.CONFIGURATION
+
 # Backend names are intentionally explicit.  Future B04 children add their
 # private adapters here; an arbitrary caller-supplied kind never gets a callable.
 # Being listed is not being admitted: :func:`admit_backend` is the gate (B12.3a, #738).
@@ -508,6 +579,13 @@ BACKENDS: dict[str, BackendRegistration] = {
         connector_version=_openapi_http.VERSION,
         capability=OPENAPI_HTTP_CAPABILITY,
         configuration=OPENAPI_HTTP_CONFIGURATION,
+    ),
+    _mcp_tool.BACKEND_KIND: BackendRegistration(
+        backend=_McpToolBackend(),
+        connector=_mcp_tool.CONNECTOR,
+        connector_version=_mcp_tool.VERSION,
+        capability=MCP_CAPABILITY,
+        configuration=MCP_CONFIGURATION,
     ),
 }
 
@@ -1083,6 +1161,8 @@ __all__ = [
     "HTTP_CONFIGURATION",
     "HTTP_CONNECTOR",
     "HTTP_VERSION",
+    "MCP_CAPABILITY",
+    "MCP_CONFIGURATION",
     "OPENAPI_HTTP_CAPABILITY",
     "OPENAPI_HTTP_CONFIGURATION",
     "BackendRegistration",

@@ -645,7 +645,8 @@ def test_the_reference_connector_is_admitted_and_nothing_else_is_listed() -> Non
     admitted = dispatcher_module.admit_backend("document_request")
     assert (admitted.connector, admitted.connector_version) == ("document-request", "1")
     assert admitted.accepted_risks == ("key_retention_unconfirmed",)
-    # MCP stdio and remote hosts, host-file exports and PostgreSQL MCP writes have no record, so they are refused.
+    # Host-file exports and PostgreSQL MCP writes have no record, so they are refused. The ``mcp`` record admits the MCP
+    # transport for a classified call (B04.5), not a server: the stdio and remote-host allowlists still decide that.
     listed = {name for t in REFERENCE_CONNECTORS for name in (t.backend_kind, t.connector)}
     assert listed == {
         "document_request",
@@ -654,6 +655,8 @@ def test_the_reference_connector_is_admitted_and_nothing_else_is_listed() -> Non
         "registered_tool",
         "openapi_http",
         "openapi-http",
+        "mcp",
+        "mcp-tool",
     }
     assert profile_module.reserved_connector_names() == listed
 
