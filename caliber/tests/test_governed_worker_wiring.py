@@ -162,7 +162,7 @@ def test_the_configuration_reads_the_tool_backend_map_from_its_environment_varia
 def test_a_development_process_that_maps_tools_says_it_ignores_them(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    from caliber.server import _require_reference_profile  # noqa: PLC0415
+    from caliber.server import _require_reference_profile
 
     mapped = json.dumps([{"tool": "t", "version": "1", "backend": "document_request"}])
     with caplog.at_level("WARNING"):
