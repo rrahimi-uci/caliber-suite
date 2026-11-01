@@ -169,6 +169,7 @@ def test_the_lookup_is_one_read_at_the_listed_url_with_the_key_as_the_only_query
         "server_url": "https://hooks.example.test:8443",
         "auth_binding": None,
         "max_attempts": 1,
+        "timeout_seconds": 5.0,
     }
     assert http.lookup_config("http://hooks.example.test")["path"] == "/"
     assert http.lookup_input(KEY) == {"query_params": {"idempotency_key": KEY}}
@@ -214,7 +215,8 @@ def test_a_stored_request_that_is_this_effect_becomes_the_proposals_receipt() ->
     assert facts.intent_hash == view.intent_hash, (
         "the receipt carries the proposal's own hash, not the downstream's"
     )
-    assert facts.downstream_request_id == "REQ-7" and facts.resource_version is None
+    assert facts.downstream_request_id == http.receipt_request_id(URL, "REQ-7")
+    assert facts.resource_version is None
     assert facts.response_digest.startswith("sha256:") and len(facts.response_digest) == 71
     # a different stored body is a different digest; the same document in another key order is the same one
     assert _facts(view, request_id="REQ-8").response_digest != facts.response_digest  # type: ignore[union-attr]
@@ -316,3 +318,71 @@ def test_a_proposal_this_connector_cannot_verify_is_never_verified(changes: dict
 def test_a_proposal_view_that_was_built_without_args_cannot_be_verified() -> None:
     bare = replace(_view(), args=None)
     assert _facts(bare) is None
+
+
+# ------------------------------------------------------------------ request ids, numbers, timeouts (review of #1092)
+
+
+def test_a_receipts_request_id_is_namespaced_by_the_effects_url() -> None:
+    """The database keeps one receipt per (connector, request id) and every http endpoint shares the connector: two endpoints
+    that both issue ``1`` must not collide."""
+    other = "https://hooks.example.test/other"
+    mine = _facts(_view(), request_id="1")
+    theirs = _facts(
+        _view(resource=other, args={"url": other, "method": "POST", "body": BODY}),
+        request_id="1",
+        url=other,
+    )
+    assert mine is not None and theirs is not None
+    assert mine.downstream_request_id != theirs.downstream_request_id
+    assert mine.downstream_request_id == http.receipt_request_id(URL, "1")
+    assert mine.downstream_request_id == http.receipt_request_id(URL, "1"), (
+        "stable: a pure function of the URL and the id"
+    )
+    assert (
+        http.receipt_request_id(URL, "1").endswith(":1")
+        and len(http.receipt_request_id(URL, "1")) == 18
+    )
+
+
+def test_the_longest_request_id_fits_the_receipt_and_one_more_character_does_not() -> None:
+    longest = "x" * http.MAX_REQUEST_ID_CHARS
+    facts = _facts(request_id=longest)
+    assert facts is not None and len(facts.downstream_request_id) == 256
+    assert _facts(request_id=longest + "x") is None
+
+
+@pytest.mark.parametrize(
+    ("stored", "recorded", "same"),
+    [
+        (12.0, 12, True),
+        (12, 12.0, True),
+        ({"a": [1.0, {"b": 2.0}]}, {"a": [1, {"b": 2}]}, True),
+        (12.5, 12, False),
+        (12.5, 12.5, True),
+        (True, 1, False),
+        (1, True, False),
+        (False, 0.0, False),
+        ("12", 12, False),
+        (float("inf"), float("inf"), False),
+        (1e300, int(1e300), True),
+    ],
+)
+def test_numbers_are_compared_as_json_numbers_and_nothing_else_is_normalised(
+    stored: Any, recorded: Any, same: bool
+) -> None:
+    view = _view(args={"url": URL, "method": "POST", "body": recorded})
+    assert (_facts(view, body=stored) is not None) is same
+
+
+def test_a_body_nested_too_deeply_to_compare_is_not_a_receipt() -> None:
+    deep: Any = "x"
+    for _ in range(5000):
+        deep = [deep]
+    view = _view(args={"url": URL, "method": "POST", "body": "x"})
+    assert _facts(view, body=deep) is None
+
+
+def test_the_lookup_has_a_short_explicit_timeout() -> None:
+    assert http.LOOKUP_TIMEOUT_SECONDS == 5.0
+    assert http.lookup_config(LOOKUP)["timeout_seconds"] == 5.0

@@ -25,6 +25,7 @@ from caliber.db.models import (
     CaliberEffectReceipt,
     CaliberWorkflowRun,
 )
+from caliber.effects.connectors import http_lookup
 from caliber.effects.operator_action import reconcile_as_operator
 from caliber.effects.reconcile import (
     CONNECTORS,
@@ -241,7 +242,7 @@ def test_an_unknown_http_effect_is_committed_by_the_stored_request_and_nothing_i
         assert (receipt.connector, receipt.logical_key, receipt.downstream_request_id) == (
             "http",
             key,
-            "REQ-1",
+            http_lookup.receipt_request_id(URL, "REQ-1"),
         )
         assert receipt.intent_hash == proposal_view(session, proposal_id).intent_hash
         audit = session.execute(
@@ -631,3 +632,75 @@ def test_the_operator_route_reads_the_listing_from_the_configuration_and_settles
         select(CaliberAuditLog).where(CaliberAuditLog.action == "effect_reconcile_requested")
     ).scalar_one()
     assert audit.details["state"] == COMMITTED
+
+
+# ------------------------------------------------------------ request ids are per endpoint (review of #1092)
+
+
+def _endpoint_proposal(
+    factory: sessionmaker[Session], occurrence: str, resource: str
+) -> tuple[str, str]:
+    return _setup(factory, occurrence, resource=resource, args={**ARGS, "url": resource})
+
+
+def test_two_endpoints_that_issue_the_same_request_id_both_settle(database: Any) -> None:
+    _, factory = database
+    other = "https://hooks.example.test/other"
+    first, first_key = _endpoint_proposal(factory, "occ-a", URL)
+    second, second_key = _endpoint_proposal(factory, "occ-b", other)
+    targets = targets_from_config(
+        _config(
+            _listed(), _listed(resource=other, lookup="https://hooks.example.test/other-lookups")
+        )
+    )
+    downstream = Downstream()
+
+    def answer(key: str) -> Answer:
+        resource = URL if key == first_key else other
+        return Answer(200, _stored(key, request_id="1", url=resource))
+
+    downstream.answer = answer
+    lease = _owner(factory)
+
+    for proposal_id in (first, second):
+        result = _reconcile(factory, proposal_id, downstream, targets=targets, lease=lease)
+        assert (result.outcome, result.state) == (RECONCILED_COMMITTED, COMMITTED)
+    with factory() as session:
+        ids = sorted(
+            r.downstream_request_id for r in session.execute(select(CaliberEffectReceipt)).scalars()
+        )
+    assert ids == sorted(
+        [http_lookup.receipt_request_id(URL, "1"), http_lookup.receipt_request_id(other, "1")]
+    )
+
+
+def test_an_endpoint_that_reuses_an_id_for_a_second_effect_cannot_commit_it_and_starves_no_one_else(
+    database: Any,
+) -> None:
+    _, factory = database
+    other = "https://hooks.example.test/other"
+    first, first_key = _endpoint_proposal(factory, "occ-a", URL)
+    squatted, squatted_key = _endpoint_proposal(factory, "occ-b", URL)
+    bystander, bystander_key = _endpoint_proposal(factory, "occ-c", other)
+    targets = targets_from_config(
+        _config(
+            _listed(), _listed(resource=other, lookup="https://hooks.example.test/other-lookups")
+        )
+    )
+    downstream = Downstream()
+    downstream.answer = lambda key: Answer(
+        200, _stored(key, request_id="1", url=other if key == bystander_key else URL)
+    )
+    lease = _owner(factory)
+
+    assert _reconcile(factory, first, downstream, targets=targets, lease=lease).state == COMMITTED
+    with pytest.raises(ProposalError) as refused:
+        _reconcile(factory, squatted, downstream, targets=targets, lease=lease)
+    assert refused.value.code == "receipt_conflict"
+    assert _state(factory, squatted).state == UNKNOWN, (
+        "the id is the first effect's: the second stays unknown"
+    )
+    # a different endpoint issuing the same id is unaffected
+    assert (
+        _reconcile(factory, bystander, downstream, targets=targets, lease=lease).state == COMMITTED
+    )

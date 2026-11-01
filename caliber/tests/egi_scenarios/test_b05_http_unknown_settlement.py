@@ -33,6 +33,7 @@ from starlette.responses import JSONResponse
 from starlette.routing import Route
 
 from caliber.db.models import CaliberEffectReceipt, CaliberWorkflowRun
+from caliber.effects.connectors.http_lookup import receipt_request_id
 from caliber.effects.reconcile import (
     RECONCILED_COMMITTED,
     STILL_UNKNOWN,
@@ -305,12 +306,12 @@ def test_a_listed_webhook_is_sent_once_and_its_2xx_is_confirmed_by_the_lookup(
     with app.session_factory() as session:
         receipt = session.execute(select(CaliberEffectReceipt)).scalar_one()
         assert (receipt.proposal_id, receipt.verified_by) == (done.proposal_id, "query")
-        assert receipt.downstream_request_id == "HOOK-1"
+        assert receipt.downstream_request_id == receipt_request_id(hook.url, "HOOK-1")
     worker._tick()
     assert hook.commits == 1, "another pass sends nothing"
 
 
-def test_a_timeout_after_the_send_parks_the_run_and_the_reconciler_settles_it_without_a_second_send(
+def test_a_timeout_after_the_send_fails_the_run_and_the_reconciler_settles_it_without_a_second_send(
     world: tuple[ReferenceApp, Downstream], hook: Hook, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """The acceptance scenario of #1055: the downstream committed, the answer never came; one commit, one receipt, no resend."""
@@ -345,7 +346,7 @@ def test_a_timeout_after_the_send_parks_the_run_and_the_reconciler_settles_it_wi
     with app.session_factory() as session:
         receipt = session.execute(select(CaliberEffectReceipt)).scalar_one()
         assert (receipt.proposal_id, receipt.verified_by) == (proposal.proposal_id, "query")
-        assert receipt.downstream_request_id == "HOOK-1"
+        assert receipt.downstream_request_id == receipt_request_id(hook.url, "HOOK-1")
     worker._tick()
     assert hook.commits == 1, "a later pass sends nothing, and an ended run is not resumed"
     assert run_row(app, run_id).status == "failed"

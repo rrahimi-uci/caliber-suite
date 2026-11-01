@@ -15,6 +15,7 @@ from dataclasses import dataclass
 from typing import Final
 
 from caliber.config import CaliberConfig
+from caliber.effects.http_verifiers import parse_endpoints
 from caliber.testing.fault_barriers import ENV_VAR as FAULT_BARRIERS_ENV
 from caliber.testing.fault_barriers import armed_barriers
 
@@ -312,6 +313,13 @@ REFERENCE_REQUIREMENTS: tuple[Requirement, ...] = (
         "LLM-inferred memory writes create durable, free-form facts nobody owns; the owned memory lifecycle does not exist yet.",
     ),
     Requirement(
+        "http_lookup_cleartext",
+        "effect_http_verifiers",
+        "CALIBER_EFFECT_HTTP_VERIFIERS",
+        "every `lookup_url` is `https`",
+        "The read-back by key carries no credentials and its answer is what commits an effect: over cleartext anyone who can see or alter it can forge a receipt for an effect that never happened.",
+    ),
+    Requirement(
         "fault_barriers_enabled",
         "fault_barriers",
         "CALIBER_FAULT_BARRIERS",
@@ -350,6 +358,27 @@ def _unlisted_mcp_allowlists(config: CaliberConfig) -> list[tuple[str, str]]:
     ):
         offending.append(("mcp_remote_host_allowlist", "CALIBER_MCP_REMOTE_HOST_ALLOWLIST"))
     return offending
+
+
+def _http_lookup_violations(config: CaliberConfig) -> list[ProfileViolation]:
+    """``http_lookup_cleartext`` when any listed ``lookup_url`` of ``CALIBER_EFFECT_HTTP_VERIFIERS`` is not ``https`` (#1055)."""
+    if not any(
+        endpoint.lookup_url.lower().startswith("http://")
+        for endpoint in parse_endpoints(config.effect_http_verifiers)
+    ):
+        return []
+    return [
+        ProfileViolation(
+            code="http_lookup_cleartext",
+            setting="effect_http_verifiers",
+            env_var="CALIBER_EFFECT_HTTP_VERIFIERS",
+            message=(
+                "effect_http_verifiers lists a lookup_url that is not https, so the answer that commits an "
+                "effect travels in the clear; set every lookup_url in CALIBER_EFFECT_HTTP_VERIFIERS to https "
+                "for the reference profile"
+            ),
+        )
+    ]
 
 
 def reference_profile_violations(config: CaliberConfig) -> list[ProfileViolation]:
@@ -472,6 +501,7 @@ def reference_profile_violations(config: CaliberConfig) -> list[ProfileViolation
                 "false",
             )
         )
+    found.extend(_http_lookup_violations(config))
     armed = sorted(armed_barriers())
     if armed:
         found.append(

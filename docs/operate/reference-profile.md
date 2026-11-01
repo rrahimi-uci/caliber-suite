@@ -56,6 +56,7 @@ An unknown profile name is a configuration error. `GET /ajax-api/2.0/mlflow/cali
 | `self_approval_allowed` | `approval_allow_self_approval` | `CALIBER_APPROVAL_ALLOW_SELF_APPROVAL` | false | The account that started a run could approve its own protected action. |
 | `apply_distinct_approver_disabled` | `apply_require_distinct_approver` | `CALIBER_APPLY_REQUIRE_DISTINCT_APPROVER` | true | The account that requested a refinement job could apply its own candidate to production, and a job with no recorded requester could be applied unreviewed. |
 | `memory_inference_enabled` | `memory_infer` | `CALIBER_MEMORY_INFER` | false while CALIBER_MEMORY_ENABLED is true | LLM-inferred memory writes create durable, free-form facts nobody owns; the owned memory lifecycle does not exist yet. |
+| `http_lookup_cleartext` | `effect_http_verifiers` | `CALIBER_EFFECT_HTTP_VERIFIERS` | every `lookup_url` is `https` | The read-back by key carries no credentials and its answer is what commits an effect: over cleartext anyone who can see or alter it can forge a receipt for an effect that never happened. |
 | `fault_barriers_enabled` | `fault_barriers` | `CALIBER_FAULT_BARRIERS` | unset | An armed fault barrier makes the process exit on purpose; it exists only for scenario tests. |
 
 The messages in the refusal name the setting and the variable to change. The table is checked by
@@ -459,12 +460,21 @@ compared **exactly**: scheme, host, port, path and query as the workflow writes 
 effect is for, by naming its URL; it cannot add one or point a lookup somewhere else, and an unlisted URL is refused before it is recorded.
 
 The contract the downstream implements: `GET <lookup_url>?idempotency_key=<key>` answers `200` with a JSON object holding the request it stored
-under that key: `idempotency_key` (the proposal's logical key), `request_id` (its own id, 1 to 256 printable characters, one id per proposal),
-`method`, `url` and `body` (the JSON value it stored, `null` when there was none). Anything else is not a receipt: a `404`, a `5xx`, a redirect,
+under that key: `idempotency_key` (the proposal's logical key), `request_id` (its own id, 1 to 239 printable characters; **unique per endpoint**, see below),
+`method`, `url` and `body` (the JSON value it stored, `null` when there was none; numbers are compared as JSON numbers, so `12` and `12.0` are the same and `12.5` is not). Anything else is not a receipt: a `404`, a `5xx`, a redirect,
 another status, an unreadable body, or a stored request whose key, method, URL or body is not the proposal's (compared as canonical JSON). A
 proposal that expects a resource version is never verified (this connector cannot read one back). The lookup is a plain read through the same
 read-only executor the reconciler uses, so the egress policy applies (an internal address needs the operator's allowance) and **no credentials
-are sent**: expose it on a network the platform may reach. It must read its own writes: a `2xx` the sender saw is visible to the very next lookup.
+are sent**: expose it on a network the platform may reach. **The reference profile refuses a `lookup_url` that is not `https`**
+(`http_lookup_cleartext`; the development profile accepts `http`): the key is a public digest and the answer is what commits an effect, so a
+cleartext path would let anyone who can see or alter it forge a receipt. Each lookup has a **5 s timeout** (it runs after every 2xx, on the worker
+thread, under the dispatch lease; a slow downstream leaves the effect `unknown` for the reconciler). The executor does not cap the size of an
+answer (a limit that predates this change): list only endpoints you operate.
+
+**Request ids are per endpoint.** The database keeps one receipt per `(connector, downstream_request_id)` and every `http` endpoint shares the
+connector, so the receipt records `<first 16 hex of sha256(resource)>:<request_id>`: stable across restarts and config order, and two endpoints (or
+projects) that both issue `1` cannot starve each other. Within one endpoint an id still belongs to one proposal: a downstream that reuses an id
+for a second effect gets a `receipt_conflict` and that proposal stays `unknown` (it cannot take another endpoint's ids). It must read its own writes: a `2xx` the sender saw is visible to the very next lookup.
 
 What the platform does with it, and nothing else:
 

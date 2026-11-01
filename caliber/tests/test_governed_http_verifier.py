@@ -22,6 +22,7 @@ from sqlalchemy import select
 import caliber.effects.dispatcher as dispatcher_module
 from caliber.db.models import CaliberEffectReceipt
 from caliber.effects.connectors import TransportOutcome
+from caliber.effects.connectors.http_lookup import receipt_request_id
 from caliber.effects.dispatcher import EffectRefused, EffectRequest
 from caliber.effects.governed_context import (
     HTTP_BACKEND_KIND,
@@ -287,7 +288,10 @@ def test_a_listed_node_is_sent_once_and_its_2xx_is_confirmed_by_a_lookup_by_key(
     assert hook.sends[0]["headers"]["Idempotency-Key"] == proposal.logical_key
     with world() as session:
         receipt = session.execute(select(CaliberEffectReceipt)).scalar_one()
-        assert (receipt.verified_by, receipt.downstream_request_id) == ("query", "REQ-1")
+        assert (receipt.verified_by, receipt.downstream_request_id) == (
+            "query",
+            receipt_request_id(URL, "REQ-1"),
+        )
 
 
 @pytest.mark.usefixtures("real_validator_stub")
