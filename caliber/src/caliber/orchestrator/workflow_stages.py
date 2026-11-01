@@ -43,6 +43,7 @@ from caliber.db.models import (
     CaliberWorkflowVersion,
 )
 from caliber.db.scoping import apply_visibility_filter
+from caliber.effects.governed_context import mapped_agent_nodes
 from caliber.effects.registered_tools import RegisteredToolIdentity, registry_identity_reader
 from caliber.ids import new_workflow_patch_id
 from caliber.workflows.calibration import (
@@ -66,7 +67,7 @@ from caliber.workflows.refinement import (
     generate_workflow_patch,
     localize_failure,
 )
-from caliber.workflows.runtime import WorkflowExecutor
+from caliber.workflows.runtime import AgentsRequiringGovernance, WorkflowExecutor
 
 logger = logging.getLogger("caliber.orchestrator.workflow_stages")
 
@@ -80,6 +81,16 @@ def _registry_reader(session: Session) -> Callable[[str, str], RegisteredToolIde
     return registry_identity_reader(
         sessionmaker(bind=session.get_bind(), class_=Session, expire_on_commit=False)
     )
+
+
+def _governance_of(session: Session, config: CaliberConfig | None) -> AgentsRequiringGovernance:
+    """Which agents of a replayed manifest can reach an operator-mapped tool (reference profile only; #1051).
+
+    A replay has no governed step context and no lease, so an agent that can reach such a tool is refused rather than run as
+    a legacy agent (a replay is not a preview: it calls the tools its read-class registry rows allow).
+    """
+    factory = sessionmaker(bind=session.get_bind(), class_=Session, expire_on_commit=False)
+    return lambda ir: mapped_agent_nodes(ir.nodes.values(), config, factory)
 
 
 class WorkflowStageError(Exception):
@@ -467,6 +478,7 @@ def _run_workflow_calibration_candidate(
             knowledge_query_runner=knowledge_query_runner,
             knowledge_build_runner=knowledge_build_runner,
             registered_tool_identity=_registry_reader(session),
+            agents_requiring_governance=_governance_of(session, config),
         )
     except WorkflowCalibrationError as exc:
         job.status = "rejected"
@@ -663,6 +675,7 @@ def run_workflow_eval(
         knowledge_query_runner=knowledge_query_runner,
         knowledge_build_runner=knowledge_build_runner,
         registered_tool_identity=_registry_reader(session),
+        agents_requiring_governance=_governance_of(session, config),
     )
     job.eval_results = {
         "candidate": {
