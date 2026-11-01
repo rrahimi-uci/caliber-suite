@@ -43,6 +43,7 @@ from caliber.workflows import runtime as runtime_module
 from caliber.workflows.agent_step import ScriptedStep, StepUsage
 from caliber.workflows.builtin_tools import register_builtin_tools
 from caliber.workflows.runtime import FakeWorkflowExecutor
+from tests.effect_helpers import SHIPPED_TOOL_CALLABLE, SHIPPED_TOOL_MODULE
 from tests.egi_scenarios.conftest import (
     EDITOR_A,
     PROJECT_A,
@@ -161,8 +162,8 @@ def _seed_tools(app: ReferenceApp) -> None:
                 tool_id=new_tool_id(),
                 name=PROTECTED_TOOL,
                 version="1.0",
-                module_path="downstream_tools",
-                callable_name=PROTECTED_TOOL,
+                module_path=SHIPPED_TOOL_MODULE,
+                callable_name=SHIPPED_TOOL_CALLABLE,
                 side_effect_level="external_action",
                 requires_approval=True,
                 allow_in_preview=False,

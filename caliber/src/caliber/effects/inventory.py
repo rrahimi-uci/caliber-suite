@@ -199,7 +199,8 @@ def tool_disposition_for_registry_tool(
     The same rule and the same caution as :func:`effect_class_for_registry_tool`. It answers ``dispatch`` for the
     first-party DB MCP server's tools (EP-114): they are not registry rows, so no row can be trusted as one of
     them. Refusing them rests on the MCP server's identity, which the MCP route establishes from the server record
-    (:func:`tool_disposition_for_mcp_tool`, B04.5, #759); the reference-profile switch is #774.
+    (:func:`tool_disposition_for_mcp_tool`, B04.5, #759); the reference-profile switch is
+    :mod:`caliber.effects.refusals` (B04.7, #774).
     """
     from caliber.workflows.builtin_tools import is_builtin_tool  # noqa: PLC0415
 
@@ -229,7 +230,7 @@ def tool_disposition(tool_name: str, *, caliber_defined: bool = False) -> str:
     """What D3 does with ``tool_name``: ``refuse`` or :data:`DEFAULT_DISPOSITION`.
 
     ``refuse`` when a row that lists the tool says so, which the reference profile turns into a refusal
-    (the dispatcher raises it, ADR 0001; it does not exist yet, #774). The same trust rule as :func:`effect_class` applies: a tool that
+    (:mod:`caliber.effects.refusals`, ADR 0001, B04.7, #774). The same trust rule as :func:`effect_class` applies: a tool that
     is not CALIBER's own is never matched by name, so a registered tool called ``read_text_file`` is routed
     through the dispatcher at the fail-closed class instead of inheriting, or escaping, a built-in's row.
     An unlisted tool is routed too, never waved through. Only rows that list tool names can answer here: a
@@ -238,5 +239,15 @@ def tool_disposition(tool_name: str, *, caliber_defined: bool = False) -> str:
     """
     if not caliber_defined:
         return DEFAULT_DISPOSITION
-    dispositions = {row.disposition for row in load_inventory() if tool_name in row.tool_names}
-    return "refuse" if "refuse" in dispositions else DEFAULT_DISPOSITION
+    return "refuse" if inventory_refuses_tool_name(tool_name) else DEFAULT_DISPOSITION
+
+
+def inventory_refuses_tool_name(tool_name: str) -> bool:
+    """Whether a row that lists ``tool_name`` says ``refuse``, **by name alone**.
+
+    A name is not an identity: use this only where the caller has established the tool is CALIBER's own another way (the
+    refusals' shipped-tool check pins the seeded (module, callable) pair, B04.7, #774), never for a registry row's name.
+    """
+    return any(
+        row.disposition == "refuse" and tool_name in row.tool_names for row in load_inventory()
+    )

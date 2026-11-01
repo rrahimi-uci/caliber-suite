@@ -11,6 +11,8 @@ from sqlalchemy.orm import Session, sessionmaker
 from caliber.config import CaliberConfig
 from caliber.context.authorize import GOVERNED_RUN_REQUIRED, ContextDenied
 from caliber.db.models import CaliberWorkflow, CaliberWorkflowDeployment, CaliberWorkflowVersion
+from caliber.effects.dispatcher import UnsupportedEffectPath
+from caliber.effects.refusals import UNSUPPORTED_IN_REFERENCE_PROFILE
 from caliber.tool_sandbox.models import ToolSandboxRunResult
 from caliber.workflows import export_runtime
 from caliber.workflows.compiler import build_ir
@@ -720,49 +722,38 @@ def test_execute_exported_workflow_autowires_default_knowledge_query_runner(
     assert payload["resolved_knowledge_base_id"] == "KB-1"
 
 
-def test_reference_profile_exported_query_refuses_before_retrieval(
+def test_reference_profile_exported_query_is_refused_before_anything_is_built_or_run(
     session_factory: sessionmaker[Session],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """B04.7 (#774, EP-041): the whole export is refused in the reference profile, before retrieval or any plan exists."""
     calls: list[str] = []
 
     class _FakeKnowledgeService:
         def __init__(self, *args, **kwargs) -> None:
-            del args, kwargs
-
-        def query(self, *args, **kwargs):
-            del args, kwargs
-            calls.append("query")
-            raise AssertionError("reference-profile export must refuse before retrieval")
+            calls.append("service")
 
     monkeypatch.setattr(export_runtime, "KnowledgeBaseService", _FakeKnowledgeService)
-    config = CaliberConfig(profile="reference")
-    plan_holder: dict[str, RuntimePlan] = {}
-
-    def _fake_execute(plan: RuntimePlan, *args, **kwargs) -> WorkflowRunResult:
-        del args, kwargs
-        plan_holder["plan"] = plan
-        return WorkflowRunResult(status="completed", output="refused-at-node")
-
-    monkeypatch.setattr(export_runtime, "execute", _fake_execute)
-    result = export_runtime.execute_exported_workflow(
-        _ir(_knowledge_query_manifest()),
-        "secret?",
-        config=config,
-        session_factory=session_factory,
+    monkeypatch.setattr(
+        export_runtime,
+        "execute",
+        lambda *args, **kwargs: calls.append("execute"),  # type: ignore[arg-type,return-value]
     )
 
-    assert result.output == "refused-at-node"
-    assert plan_holder["plan"].knowledge_query_runner is not None
-    with pytest.raises(ContextDenied) as error:
-        plan_holder["plan"].knowledge_query_runner(  # type: ignore[misc]
-            {"version_ids": ["KBV-unapproved"], "question": "secret?"}
+    with pytest.raises(UnsupportedEffectPath) as error:
+        export_runtime.execute_exported_workflow(
+            _ir(_knowledge_query_manifest()),
+            "secret?",
+            config=CaliberConfig(profile="reference"),
+            session_factory=session_factory,
         )
-    assert error.value.code == GOVERNED_RUN_REQUIRED
+
+    assert error.value.code == UNSUPPORTED_IN_REFERENCE_PROFILE
+    assert "EP-041" in str(error.value)
     assert calls == []
 
 
-def test_reference_profile_exported_build_refuses_before_version_creation(
+def test_reference_profile_exported_build_is_refused_before_anything_is_built_or_run(
     session_factory: sessionmaker[Session],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -770,57 +761,92 @@ def test_reference_profile_exported_build_refuses_before_version_creation(
 
     class _FakeKnowledgeService:
         def __init__(self, *args, **kwargs) -> None:
-            del args, kwargs
-
-        def create_version(self, *args, **kwargs):
-            del args, kwargs
-            calls.append("create_version")
-            raise AssertionError("reference-profile export must refuse before build")
+            calls.append("service")
 
     monkeypatch.setattr(export_runtime, "KnowledgeBaseService", _FakeKnowledgeService)
-    config = CaliberConfig(profile="reference")
-    plan_holder: dict[str, RuntimePlan] = {}
 
-    def _fake_execute(plan: RuntimePlan, *args, **kwargs) -> WorkflowRunResult:
-        del args, kwargs
-        plan_holder["plan"] = plan
-        return WorkflowRunResult(status="completed", output="refused-at-node")
+    with pytest.raises(UnsupportedEffectPath) as error:
+        export_runtime.execute_exported_workflow(
+            _ir(_knowledge_build_manifest()),
+            "source",
+            config=CaliberConfig(profile="reference"),
+            session_factory=session_factory,
+        )
 
-    monkeypatch.setattr(export_runtime, "execute", _fake_execute)
-    result = export_runtime.execute_exported_workflow(
-        _ir(_knowledge_build_manifest()),
-        "source",
-        config=config,
+    assert error.value.code == UNSUPPORTED_IN_REFERENCE_PROFILE
+    assert calls == []
+
+
+def test_reference_profile_export_refuses_whatever_runners_the_caller_supplies(
+    session_factory: sessionmaker[Session],
+) -> None:
+    """A caller-supplied runner is not a way round the refusal (it used to be refused only when unwrapped)."""
+    ran: list[str] = []
+
+    def _runner(_payload: dict[str, object]) -> dict[str, object]:
+        ran.append("runner")
+        return {"answer": "bypassed"}
+
+    with pytest.raises(UnsupportedEffectPath) as error:
+        export_runtime.execute_exported_workflow(
+            _ir(_knowledge_query_manifest()),
+            "secret?",
+            config=CaliberConfig(profile="reference"),
+            session_factory=session_factory,
+            knowledge_query_runner=_runner,
+        )
+
+    assert error.value.code == UNSUPPORTED_IN_REFERENCE_PROFILE
+    assert ran == []
+
+
+def test_the_guarded_knowledge_runners_still_refuse_without_an_admitted_run(
+    session_factory: sessionmaker[Session],
+) -> None:
+    """The runners keep their own governed-run guard for the callers that build them with it (the promoter's replays)."""
+    identity = export_runtime._default_identity(active_project_id=None)
+    config = CaliberConfig(profile="development")
+
+    query_runner = export_runtime._default_knowledge_query_runner(
         session_factory=session_factory,
+        config=config,
+        identity=identity,
+        require_source_guard=True,
+    )
+    build_runner = export_runtime._default_knowledge_build_runner(
+        session_factory=session_factory,
+        config=config,
+        identity=identity,
+        require_source_guard=True,
     )
 
-    assert result.output == "refused-at-node"
-    assert plan_holder["plan"].knowledge_build_runner is not None
-    with pytest.raises(ContextDenied) as error:
-        plan_holder["plan"].knowledge_build_runner(  # type: ignore[misc]
+    with pytest.raises(ContextDenied) as query_error:
+        query_runner({"version_ids": ["KBV-unapproved"], "question": "secret?"})
+    with pytest.raises(ContextDenied) as build_error:
+        build_runner(
             {
                 "knowledge_base_id": "KB-1",
                 "chunking_strategy": "recursive",
                 "embedding_model": "BAAI/bge-m3",
             }
         )
-    assert error.value.code == GOVERNED_RUN_REQUIRED
-    assert calls == []
+    assert query_error.value.code == GOVERNED_RUN_REQUIRED
+    assert build_error.value.code == GOVERNED_RUN_REQUIRED
 
 
-def test_reference_profile_export_rejects_unwrapped_custom_knowledge_runner(
+def test_reference_profile_refuses_to_build_the_standalone_knowledge_build_runner(
     session_factory: sessionmaker[Session],
 ) -> None:
-    with pytest.raises(ContextDenied) as error:
-        export_runtime.execute_exported_workflow(
-            _ir(_knowledge_query_manifest()),
-            "secret?",
-            config=CaliberConfig(profile="reference"),
+    """EP-042: the runner that creates and activates versions with a default identity is refused when it is built."""
+    with pytest.raises(UnsupportedEffectPath) as error:
+        export_runtime._default_knowledge_build_runner(
             session_factory=session_factory,
-            knowledge_query_runner=lambda _payload: {"answer": "bypassed"},
+            config=CaliberConfig(profile="reference"),
+            identity=export_runtime._default_identity(active_project_id=None),
         )
 
-    assert error.value.code == GOVERNED_RUN_REQUIRED
+    assert error.value.code == UNSUPPORTED_IN_REFERENCE_PROFILE
+    assert "EP-042" in str(error.value)
 
 
 def test_default_knowledge_query_runner_requires_active_version_or_version_ids(

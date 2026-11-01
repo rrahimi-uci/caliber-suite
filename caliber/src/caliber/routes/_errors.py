@@ -15,6 +15,8 @@ from starlette.exceptions import HTTPException
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
+from caliber.effects.refusals import reference_profile_active, refusal, refused_row
+
 
 class CaliberHTTPException(HTTPException):
     """An :class:`HTTPException` that also carries a machine-readable ``reason_code``.
@@ -48,6 +50,18 @@ class CaliberHTTPException(HTTPException):
         #: parsing ``detail`` (e.g. ``"resource_type_adapter_unavailable"``).
         #: ``None`` when the raising route has not been migrated yet.
         self.reason_code = reason_code
+
+
+def refuse_route_in_reference_profile(row_id: str, config: object | None) -> None:
+    """Answer ``409`` with ``reason_code: unsupported_in_reference_profile`` when ``config`` is the reference profile.
+
+    For a route that is an entry point of a protected-effect inventory row marked ``refuse`` (B04.7, #774). The detail names
+    the row and the setting that allows the path elsewhere, never a request value. The development profile is unchanged.
+    """
+    refused_row(row_id)  # a wrong row id fails in every profile, not only the reference one
+    if reference_profile_active(config):
+        exc = refusal(row_id)
+        raise CaliberHTTPException(status_code=409, detail=str(exc), reason_code=exc.code)
 
 
 async def http_exception_handler(_request: Request, exc: Exception) -> JSONResponse:

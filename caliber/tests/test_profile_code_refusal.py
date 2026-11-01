@@ -18,6 +18,7 @@ from starlette.testclient import TestClient
 
 from caliber import server as caliber_server
 from caliber.config import CaliberConfig, ConfigError
+from caliber.effects.dispatcher import UnsupportedEffectPath
 from caliber.workflows import compiler as compiler_module
 from caliber.workflows import runtime as runtime_module
 from caliber.workflows.code_policy import (
@@ -157,14 +158,19 @@ def _tool_manifest(*, via: str = "agent") -> dict[str, Any]:
     return data
 
 
-def _resolver(backend: str) -> InMemoryToolResolver:
+#: The exact (module, callable) pair the registry seed writes for the shipped ``grok_parse`` built-in (B04.7, #774).
+SHIPPED_MODULE, SHIPPED_CALLABLE = "caliber.workflows.demo_tools", "grok_parse"
+
+
+def _resolver(backend: str, *, shipped: bool = False) -> InMemoryToolResolver:
+    """A registry with one tool named ``lookup``: an administrator's module, or (``shipped``) one of CALIBER's own."""
     return InMemoryToolResolver(
         [
             ToolRegistryEntry(
                 name="lookup",
                 version="1.0",
-                module_path="mycompany.tools",
-                callable_name="lookup",
+                module_path=SHIPPED_MODULE if shipped else "mycompany.tools",
+                callable_name=SHIPPED_CALLABLE if shipped else "lookup",
                 execution_backend=backend,
             )
         ]
@@ -410,8 +416,8 @@ def test_a_sandbox_label_on_the_tool_does_not_establish_isolation(via: str) -> N
             ToolRegistryEntry(
                 name="lookup",
                 version="1.0",
-                module_path="mycompany.tools",
-                callable_name="lookup",
+                module_path=SHIPPED_MODULE,
+                callable_name=SHIPPED_CALLABLE,
                 backend_config={"sandbox": True, "isolated": True},
             )
         ]
@@ -429,18 +435,56 @@ def test_a_sandbox_label_on_the_tool_does_not_establish_isolation(via: str) -> N
     ir = build_ir(manifest, labelled)
     assert ir.nodes[via if via == "tool" else "agent"] is not None
     assert [r.code for r in ir_refusals(ir, REFERENCE_UNSANDBOXED)] == [REFUSAL_CODE]
-    # And with the platform's sandbox on, the same row is admitted: the label never entered into it.
+    # And with the platform's sandbox on, the same row (a shipped tool) is admitted: the label never entered into it.
     assert ir_refusals(ir, REFERENCE) == []
+    # The label does not make an administrator's module admitted either: the platform's seed decides what is shipped.
+    admin = InMemoryToolResolver(
+        [
+            ToolRegistryEntry(
+                name="lookup",
+                version="1.0",
+                module_path="mycompany.tools",
+                callable_name="lookup",
+                backend_config={"sandbox": True, "isolated": True},
+            )
+        ]
+    )
+    refused_admin = ir_refusals(build_ir(manifest, admin), REFERENCE)
+    assert [r.code for r in refused_admin] == [REFUSAL_CODE]
+    assert "not one of CALIBER's own shipped tools" in refused_admin[0].message
 
 
 @pytest.mark.parametrize("via", ["agent", "tool"])
-def test_a_sandboxed_registered_tool_is_admitted(via: str) -> None:
-    """Administrator-registered code run in the sandbox child is trusted-code admission, which the profile supports."""
-    resolver = _resolver("python_callable")
+def test_a_shipped_registered_tool_is_admitted_in_the_sandbox(via: str) -> None:
+    """CALIBER's own shipped tool, run in the sandbox child, is admitted at every author-time boundary."""
+    resolver = _resolver("python_callable", shipped=True)
     manifest = parse_manifest(_tool_manifest(via=via))
     assert validate_manifest(manifest, resolver=resolver, code_policy=REFERENCE).valid
     assert compile_workflow(manifest, resolver=resolver, code_policy=REFERENCE).ir
     assert ir_refusals(build_ir(manifest, resolver), REFERENCE) == []
+
+
+@pytest.mark.parametrize("via", ["agent", "tool"])
+def test_an_administrators_python_tool_is_refused_at_author_time_with_the_sandbox_on(
+    via: str,
+) -> None:
+    """B04.7 (#774): administrator Python is a refused path in the reference profile (EP-015, EP-016, EP-019).
+
+    An author gets the refusal at validation, compile and promotion, not a clean publish followed by a refused run.
+    """
+    resolver = _resolver("python_callable")
+    manifest = parse_manifest(_tool_manifest(via=via))
+
+    report = validate_manifest(manifest, resolver=resolver, code_policy=REFERENCE)
+    refused = [e for e in report.errors if e.code == REFUSAL_CODE]
+    assert len(refused) == 1 and not report.valid
+    assert "not one of CALIBER's own shipped tools" in refused[0].message
+    assert "openapi_http" in refused[0].message  # the recovery
+    with pytest.raises(CompileError):
+        compile_workflow(manifest, resolver=resolver, code_policy=REFERENCE)
+    assert [r.code for r in ir_refusals(build_ir(manifest, resolver), REFERENCE)] == [REFUSAL_CODE]
+    # The development profile is unchanged.
+    assert validate_manifest(manifest, resolver=resolver, code_policy=DEVELOPMENT).valid
 
 
 def test_the_policy_reads_the_sandbox_setting_and_the_profile() -> None:
@@ -474,7 +518,7 @@ def test_an_unknown_execution_backend_is_refused_fail_closed() -> None:
 
 def test_an_empty_backend_on_a_resolved_entry_is_the_python_callable_default() -> None:
     """A registry row with no backend recorded is a Python tool (the schema default), not an unknown form."""
-    resolver = _resolver("")
+    resolver = _resolver("", shipped=True)
     manifest = parse_manifest(_tool_manifest())
     assert manifest_refusals(manifest, resolver, REFERENCE) == []
     refused = manifest_refusals(manifest, resolver, REFERENCE_UNSANDBOXED)
@@ -536,18 +580,22 @@ def test_ir_refusals_cover_the_tool_node_binding() -> None:
 
 
 @pytest.mark.parametrize(
-    ("backend", "binding_type", "policy", "refused"),
+    ("backend", "binding_type", "policy", "shipped", "refused"),
     [
-        ("python_callable", "registered_function", REFERENCE, False),
-        ("python_callable", "registered_function", REFERENCE_UNSANDBOXED, True),
-        ("python_callable", "mcp_tool", REFERENCE_UNSANDBOXED, False),
-        ("openapi_http", "registered_function", REFERENCE_UNSANDBOXED, False),
-        ("anything_else", "registered_function", REFERENCE, True),
-        ("anything_else", "mcp_tool", REFERENCE, False),
+        # A shipped tool in the sandbox is admitted; an administrator's module is refused (B04.7, #774); either is refused
+        # with the sandbox off.
+        ("python_callable", "registered_function", REFERENCE, True, False),
+        ("python_callable", "registered_function", REFERENCE, False, True),
+        ("python_callable", "registered_function", REFERENCE_UNSANDBOXED, True, True),
+        ("python_callable", "registered_function", REFERENCE_UNSANDBOXED, False, True),
+        ("python_callable", "mcp_tool", REFERENCE_UNSANDBOXED, False, False),
+        ("openapi_http", "registered_function", REFERENCE_UNSANDBOXED, False, False),
+        ("anything_else", "registered_function", REFERENCE, True, True),
+        ("anything_else", "mcp_tool", REFERENCE, False, False),
     ],
 )
 def test_tool_form_decision_table(
-    backend: str, binding_type: str, policy: CodePolicy, refused: bool
+    backend: str, binding_type: str, policy: CodePolicy, shipped: bool, refused: bool
 ) -> None:
     result = tool_form_refusal(
         "lookup",
@@ -556,6 +604,8 @@ def test_tool_form_decision_table(
         execution_backend=backend,
         binding_type=binding_type,
         policy=policy,
+        module_path=SHIPPED_MODULE if shipped else "mycompany.tools",
+        callable_name=SHIPPED_CALLABLE if shipped else "lookup",
     )
     assert (result is not None) is refused
     if result is not None:
@@ -575,6 +625,16 @@ def sandbox_config_restored() -> Iterator[None]:
 
 
 def _entry() -> ToolRegistryEntry:
+    """A shipped tool (the seed's own module and callable): the one kind the reference profile binds."""
+    return ToolRegistryEntry(
+        name="grok_parse",
+        version="1.0",
+        module_path=SHIPPED_MODULE,
+        callable_name=SHIPPED_CALLABLE,
+    )
+
+
+def _administrator_entry() -> ToolRegistryEntry:
     return ToolRegistryEntry(
         name="lookup_policy",
         version="1.0",
@@ -619,6 +679,25 @@ def test_a_generated_export_never_imports_a_tool_in_process_under_the_reference_
     assert callable(runtime_module.bind_exported_tool(_entry(), config=sandboxed))
     unsandboxed_dev = CaliberConfig(registered_tool_sandbox_enabled=False)
     assert callable(runtime_module.bind_exported_tool(_entry(), config=unsandboxed_dev))
+
+
+def test_a_generated_export_never_binds_an_administrators_module_under_the_reference_profile() -> (
+    None
+):
+    """B04.7 (#774, EP-016): an administrator's module is refused by the export binder, whatever the sandbox says."""
+    from caliber.effects.dispatcher import UnsupportedInReferenceProfile
+
+    for sandbox_enabled in (True, False):
+        reference = CaliberConfig(
+            profile="reference", registered_tool_sandbox_enabled=sandbox_enabled
+        )
+        with pytest.raises(UnsupportedInReferenceProfile) as raised:
+            runtime_module.bind_exported_tool(_administrator_entry(), config=reference)
+        assert raised.value.code == REFUSAL_CODE
+    # Outside the profile it still binds, as before.
+    assert callable(
+        runtime_module.bind_exported_tool(_administrator_entry(), config=CaliberConfig())
+    )
 
 
 def test_the_binder_guard_uses_the_process_wide_policy_when_the_export_config_is_a_development_one() -> (
@@ -1048,6 +1127,16 @@ def test_the_refusal_code_is_found_on_the_exception_or_what_it_was_raised_from()
             raise ToolExecutionError("outer") from inner
     except ToolExecutionError as outer:
         assert _refusal_code_of(outer) == REFUSAL_CODE
+    # A refusal reachable only through ``__context__`` (raised inside an ``except``, no ``from``) is found too.
+    try:
+        try:
+            raise ChildRefusedError("inner")
+        except ChildRefusedError:
+            raise ToolExecutionError("outer, implicit context")
+    except ToolExecutionError as implicit_only:
+        assert implicit_only.__cause__ is None
+        assert isinstance(implicit_only.__context__, ChildRefusedError)
+        assert _refusal_code_of(implicit_only) == REFUSAL_CODE
     # A cycle in the chain ends the walk.
     first, second = ValueError("a"), ValueError("b")
     first.__cause__, second.__cause__ = second, first
@@ -1133,7 +1222,20 @@ def test_promotion_checks_a_registered_python_tool_against_the_registry_row(
     assert REFUSAL_CODE in promoted.json()["detail"]
     assert "CALIBER_REGISTERED_TOOL_SANDBOX_ENABLED" in promoted.json()["detail"]
 
+    # With the sandbox on, the same administrator-registered tools are still refused at promotion (B04.7, #774).
     bind_code_policy(REFERENCE)
+    refused = client.post(
+        f"{PREFIX}/workflows/{workflow_id}/deployments/staging/promote",
+        json={"version_id": version_id},
+    )
+    assert refused.status_code == 400
+    assert REFUSAL_CODE in refused.json()["detail"]
+    assert "not one of CALIBER's own shipped tools" in refused.json()["detail"]
+    with client.app.state.session_factory() as session, pytest.raises(AliasPreflightError):
+        require_alias_target_ready(session, "staging", version_id)
+
+    # Outside the reference profile the same version promotes.
+    bind_code_policy(None)
     with client.app.state.session_factory() as session:
         require_alias_target_ready(session, "staging", version_id)
 
@@ -1246,10 +1348,12 @@ def test_the_exporter_plan_refuses_code_in_the_reference_profile() -> None:
     from caliber.workflows.export_runtime import execute_exported_workflow
 
     ir = build_ir(parse_manifest(_python_code_manifest()), fake_resolver())
-    refused = execute_exported_workflow(
-        ir, "hello", config=CaliberConfig(profile="reference"), resolver=fake_resolver()
-    )
-    assert refused.status == "error" and refused.error_code == REFUSAL_CODE
+    # B04.7 (#774, EP-041): the whole export is refused before a plan is built, with the same code.
+    with pytest.raises(UnsupportedEffectPath) as refused:
+        execute_exported_workflow(
+            ir, "hello", config=CaliberConfig(profile="reference"), resolver=fake_resolver()
+        )
+    assert refused.value.code == REFUSAL_CODE
     allowed = execute_exported_workflow(
         ir, "hello", config=CaliberConfig(), resolver=fake_resolver()
     )

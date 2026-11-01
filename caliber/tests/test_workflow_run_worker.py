@@ -56,6 +56,7 @@ from tests.workflow_helpers import (
     deploy_prod,
     make_manifest,
     make_support_manifest,
+    make_tool_payload,
     register_demo_tools,
 )
 
@@ -285,7 +286,9 @@ def _openai_structured_retry_approval_manifest(workflow_id: str) -> dict[str, ob
     return manifest
 
 
-def _tool_approval_manifest(workflow_id: str) -> dict[str, object]:
+def _tool_approval_manifest(
+    workflow_id: str, *, registry_name: str = "escalate"
+) -> dict[str, object]:
     manifest = make_manifest(workflow_id)
     manifest["nodes"] = {
         "start": {
@@ -319,7 +322,7 @@ def _tool_approval_manifest(workflow_id: str) -> dict[str, object]:
     ]
     manifest["tools"] = {
         "escalate": {
-            "registry_ref": "tool.escalate.v1",
+            "registry_ref": f"tool.{registry_name}.v1",
             "version_constraint": ">=1.0",
             "requires_approval": True,
         }
@@ -5894,8 +5897,24 @@ def _tool_approval_resume_outcome(
 ) -> tuple[str, str, list[tuple[dict[str, object], str]]]:
     """Block at a protected tool's legacy approval gate, approve, resume; return (status, error, tool calls)."""
     _enable_runtime_approvals(client)
+    registry_name = "escalate"
+    if profile == "reference":
+        # The reference profile binds no administrator-registered Python module (B04.7, #774): the protected tool is a
+        # registry row that points at one of CALIBER's own shipped tools (under its own name, because the demo
+        # ``escalate`` row may already exist as an administrator's), so the gate and the governed-context refusal this
+        # test is about are what decide the run.
+        registry_name = "escalate_shipped"
+        client.post(
+            f"{PREFIX}/tools",
+            json=make_tool_payload(
+                registry_name,
+                side_effect_level="external_action",
+                module_path="caliber.workflows.demo_tools",
+                callable_name="write_workdir_file",
+            ),
+        )
     workflow_id = "tool-approval-worker-wf"
-    manifest = _tool_approval_manifest(workflow_id)
+    manifest = _tool_approval_manifest(workflow_id, registry_name=registry_name)
     _wid, vid = create_and_publish(
         client,
         workflow_name="Tool Approval Worker",
@@ -5926,7 +5945,7 @@ def _tool_approval_resume_outcome(
     with client.app.state.session_factory() as session:
         run = session.get(CaliberWorkflowRun, run_id)
         assert run is not None
-        assert run.status == "waiting_approval"
+        assert run.status == "waiting_approval", (run.status, run.error_code, run.error_summary)
         assert run.current_node_id == "tool_gate"
         checkpoint_id = dict(run.summary or {}).get("resume_checkpoint_id")
         assert isinstance(checkpoint_id, str) and checkpoint_id

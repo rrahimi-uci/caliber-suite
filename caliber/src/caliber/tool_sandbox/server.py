@@ -13,6 +13,8 @@ from starlette.responses import JSONResponse
 from starlette.routing import Route
 
 from caliber.config import CaliberConfig
+from caliber.effects.dispatcher import UnsupportedEffectPath
+from caliber.effects.refusals import refuse_in_reference_profile
 from caliber.tool_sandbox.models import ToolSandboxRunRequest, ToolSandboxTestSuiteRequest
 from caliber.tool_sandbox.service import ToolSandbox, sandbox_from_optional_config
 
@@ -25,7 +27,23 @@ async def health(_request: Request) -> JSONResponse:
     return JSONResponse({"status": "ok", "service": "caliber-tool-sandbox"})
 
 
+def _refused_in_reference_profile(request: Request, row_id: str) -> JSONResponse | None:
+    """The ``409`` answer for ``row_id`` when this service was started for the reference profile, else ``None``.
+
+    The service has no authentication or scope check, and the code cannot establish that whatever fronts it authenticates
+    callers, so the reference profile does not rely on a proxy: it answers nothing but the health check (B04.7, #774).
+    :func:`create_app` already refuses to build the app there; this is the same refusal for an app whose state says so.
+    """
+    try:
+        refuse_in_reference_profile(row_id, request.app.state.config)
+    except UnsupportedEffectPath as exc:
+        return JSONResponse({"detail": str(exc), "reason_code": exc.code}, status_code=409)
+    return None
+
+
 async def run_tool(request: Request) -> JSONResponse:
+    if (refused := _refused_in_reference_profile(request, "EP-027")) is not None:
+        return refused
     sandbox: ToolSandbox = request.app.state.sandbox
     body = await _parse_json_object(request)
     try:
@@ -40,6 +58,8 @@ async def run_tool(request: Request) -> JSONResponse:
 
 
 async def run_tests(request: Request) -> JSONResponse:
+    if (refused := _refused_in_reference_profile(request, "EP-028")) is not None:
+        return refused
     sandbox: ToolSandbox = request.app.state.sandbox
     body = await _parse_json_object(request)
     try:
@@ -54,8 +74,13 @@ def create_app(
     config: CaliberConfig | None = None,
     sandbox: ToolSandbox | None = None,
 ) -> Starlette:
-    """Create the standalone sandbox ASGI app."""
+    """Create the standalone sandbox ASGI app.
+
+    Refused in the reference profile (``UnsupportedEffectPath``, B04.7, #774): the service is unauthenticated (see
+    :func:`_refused_in_reference_profile`), so there is no app to build, however it was started.
+    """
     resolved = config if config is not None else CaliberConfig.load()
+    refuse_in_reference_profile("EP-029", resolved)
     app = Starlette(
         routes=[
             Route(HEALTH_PATH, health, methods=["GET"]),

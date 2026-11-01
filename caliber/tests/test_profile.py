@@ -793,7 +793,14 @@ def _admit(**overrides: Any) -> admission.AdmittedConnector:
 
 
 def test_the_trusted_table_pins_exactly_the_registered_backends() -> None:
-    assert [t.backend_kind for t in REFERENCE_CONNECTORS] == list(dispatcher_module.BACKENDS)
+    assert [t.backend_kind for t in REFERENCE_CONNECTORS] == [
+        kind
+        for kind in dispatcher_module.BACKENDS
+        if kind not in dispatcher_module.REFUSAL_ONLY_BACKENDS
+    ]
+    assert (
+        not {t.backend_kind for t in REFERENCE_CONNECTORS} & dispatcher_module.REFUSAL_ONLY_BACKENDS
+    )
     for record in REFERENCE_CONNECTORS:
         registration = dispatcher_module.BACKENDS[record.backend_kind]
         assert registration.capability is not None and registration.configuration is not None

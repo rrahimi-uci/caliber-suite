@@ -20,6 +20,7 @@ from caliber.effects.step_proposal import record_step_proposal
 from caliber.workflows import runtime as rt
 from caliber.workflows.agent_step import AgentStepRequest, ScriptedStep, answer
 from caliber.workflows.runtime import FakeWorkflowExecutor, execute
+from tests.effect_helpers import SHIPPED_TOOL_CALLABLE, SHIPPED_TOOL_MODULE
 from tests.egi_scenarios.conftest import ReferenceApp, Workspaces
 from tests.egi_scenarios.test_v04_stale_approval import NODE, _waiting_run
 from tests.mcp_fakes import SERVER_ID, FakeMcp, seed_server, use_database
@@ -65,7 +66,12 @@ def _scripted(action: Any) -> FakeWorkflowExecutor:
 
 
 def _registered_world(app: ReferenceApp, run_id: str) -> Any:
-    entry = tool_entry("open_ticket", "write")
+    entry = tool_entry(
+        "open_ticket",
+        "write",
+        module_path=SHIPPED_TOOL_MODULE,
+        callable_name=SHIPPED_TOOL_CALLABLE,
+    )
     seed_row(app.session_factory, entry)
     return governed(
         app.session_factory,
