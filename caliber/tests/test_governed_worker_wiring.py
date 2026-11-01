@@ -1581,3 +1581,82 @@ def test_a_stage_tells_its_replay_which_agents_it_must_refuse(world: Any) -> Non
         assert _governance_of(session, _mapped())(ir) == {"agent"}
         assert _governance_of(session, CaliberConfig())(ir) == frozenset(), "development: none"
         assert _governance_of(session, None)(ir) == frozenset(), "no configuration: none"
+
+
+def test_evaluate_candidate_refuses_a_mapped_agent_in_the_baseline_and_in_the_candidate_replay(
+    world: Any,
+) -> None:
+    """Both replays of the evaluation wrapper are told which agents to refuse (each forwarding site is pinned)."""
+    from caliber.workflows.refinement import evaluate_candidate
+
+    seen: list[tuple[str, str]] = []
+
+    def scorer(result: Any) -> dict[str, float]:
+        seen.append((result.status, result.error or ""))
+        return {"quality": 1.0}
+
+    manifest = _manifest()
+    evaluate_candidate(
+        manifest,
+        manifest,
+        ["hello"],
+        resolver=_governed_resolver(),
+        baseline_executor=FakeWorkflowExecutor(),
+        candidate_executor=FakeWorkflowExecutor(),
+        scorer=scorer,
+        agents_requiring_governance=lambda ir: mapped_agent_nodes(
+            ir.nodes.values(), _mapped(), world
+        ),
+    )
+
+    assert [status for status, _ in seen] == ["error", "error"], (
+        "the baseline and the candidate replay"
+    )
+    assert all("can reach a tool the operator mapped" in error for _, error in seen)
+
+
+def test_the_calibration_wrapper_refuses_a_mapped_agent_in_the_baseline_and_in_each_candidate_replay(
+    world: Any,
+) -> None:
+    from caliber.workflows.calibration import (
+        WorkflowCalibrationCandidate,
+        WorkflowCalibrationExample,
+        evaluate_workflow_calibration_candidates,
+    )
+
+    seen: list[tuple[str, str]] = []
+
+    def scorer(result: Any) -> dict[str, float]:
+        seen.append((result.status, result.error or ""))
+        return {"quality": 1.0}
+
+    manifest = _manifest()
+    candidate = WorkflowCalibrationCandidate(
+        candidate_id="c1",
+        patch_kind="workflow_manifest",
+        semantic_ops=[],
+        candidate_manifest=manifest,
+        summary="same",
+        graph_diff={},
+    )
+    example = WorkflowCalibrationExample(
+        input_text="go", expected={}, weight=1.0, tags=[], example_id="e1"
+    )
+    evaluate_workflow_calibration_candidates(
+        manifest,
+        [candidate],
+        [example],
+        None,
+        resolver=_governed_resolver(),
+        baseline_executor=FakeWorkflowExecutor(),
+        candidate_executor=FakeWorkflowExecutor(),
+        scorer=scorer,
+        agents_requiring_governance=lambda ir: mapped_agent_nodes(
+            ir.nodes.values(), _mapped(), world
+        ),
+    )
+
+    assert [status for status, _ in seen] == ["error", "error"], (
+        "the baseline and the candidate replay"
+    )
+    assert all("can reach a tool the operator mapped" in error for _, error in seen)

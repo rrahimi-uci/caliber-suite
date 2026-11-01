@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
+from typing import Any
 
 import pytest
 from sqlalchemy.orm import Session
@@ -508,6 +509,7 @@ def test_run_workflow_eval_forwards_manifest_aware_executor_factories(
     monkeypatch.setattr(stages, "build_executor", _fake_build_executor)
     monkeypatch.setattr(stages, "build_llm_judge_scorer", lambda cfg: sentinel_scorer)
     monkeypatch.setattr(stages, "evaluate_candidate", _fake_evaluate)
+    monkeypatch.setattr(stages, "mapped_agent_nodes", _recording_mapped(seen))
 
     my_config = object()
     stages.run_workflow_eval(db_session, job, actor="@tester", config=my_config)
@@ -524,11 +526,22 @@ def test_run_workflow_eval_forwards_manifest_aware_executor_factories(
     reader = seen["identity_reader"]
     assert callable(reader)
     assert reader("not-registered", "1.0") is None
-    # #1051: the replay is not a preview, so it is also told which agents of the manifest it must refuse (none here: the
-    # object() config is not the reference profile)
+    # #1051: the replay is not a preview, so it is also told which agents of the manifest it must refuse, decided from the
+    # stage's own configuration (never none)
     governance_of = seen["governance_of"]
     assert callable(governance_of)
-    assert governance_of(SimpleNamespace(nodes={})) == frozenset()
+    assert governance_of(SimpleNamespace(nodes={})) == frozenset({"agent"})
+    assert seen["governance_config"] is my_config
+
+
+def _recording_mapped(seen: dict[str, object]) -> Any:
+    """``mapped_agent_nodes`` that records the configuration the stage decided governance from."""
+
+    def mapped(_nodes: object, config: object, _factory: object) -> frozenset[str]:
+        seen["governance_config"] = config
+        return frozenset({"agent"})
+
+    return mapped
 
 
 def test_run_workflow_eval_validates_candidate_payload(db_session: Session) -> None:
@@ -764,12 +777,14 @@ def test_run_workflow_calibration_candidate_respects_judge_flag(
 
     monkeypatch.setattr(stages, "build_llm_judge_scorer", _fake_build_scorer)
     monkeypatch.setattr(stages, "evaluate_workflow_calibration_candidates", _fake_evaluate)
+    monkeypatch.setattr(stages, "mapped_agent_nodes", _recording_mapped(seen))
+    cal_config = SimpleNamespace()
 
     stages.run_workflow_candidate(
         db_session,
         job,
         actor="@tester",
-        config=SimpleNamespace(),
+        config=cal_config,
     )
 
     assert seen["baseline_executor"] is baseline_executor
@@ -779,11 +794,12 @@ def test_run_workflow_calibration_candidate_respects_judge_flag(
     reader = seen["identity_reader"]
     assert callable(reader)
     assert reader("not-registered", "1.0") is None
-    # #1051: the replay is not a preview, so it is also told which agents of the manifest it must refuse (none here: the
-    # object() config is not the reference profile)
+    # #1051: the replay is not a preview, so it is also told which agents of the manifest it must refuse, decided from the
+    # stage's own configuration (never none)
     governance_of = seen["governance_of"]
     assert callable(governance_of)
-    assert governance_of(SimpleNamespace(nodes={})) == frozenset()
+    assert governance_of(SimpleNamespace(nodes={})) == frozenset({"agent"})
+    assert seen["governance_config"] is cal_config
 
 
 def test_run_workflow_calibration_candidate_rejects_when_no_candidate_passes(
