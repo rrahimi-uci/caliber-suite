@@ -16,8 +16,11 @@ adapter whatever its provider:
   name-to-callable map a legacy executor resolves tools from) and nowhere in ``step_input.read_tools``. An adapter that
   ignores ``read_tools`` and runs what the model named trips it;
 * a model that proposes a protected tool yields exactly one proposed action built from **that** tool call (the staged,
-  per-scenario arguments), which stays an unbound claim (``platform_bound`` false); a model that lies about its
-  ``effect_class`` for the protected tool is a ``ClaimMismatch`` at ``bound_to``;
+  per-scenario arguments) that **names the function the model called** (``ProposedAction.tool``) and claims nothing (the
+  connector, version, class and resource are the placeholders: the model supplies arguments only, and the platform binds the rest
+  from the tool's trusted identity, B04.6 #768); it stays unbound (``platform_bound`` false). A model that volunteers an
+  ``effect_class`` the tool's envelope has no field for is refused by the adapter (``malformed_result``), or its claim is
+  carried and cannot bind;
 * a model that calls a read tool has it run through ``read_tools`` (``ctx.read_calls``), and a ``max_*`` stop keeps the
   provider's usage;
 * ``completes`` reports exactly the usage the stubbed provider gave, with ``usage_source`` ``provider``;
@@ -52,6 +55,8 @@ from functools import cached_property
 from typing import Any, Protocol
 
 from caliber.contracts.agent_step import (
+    UNCLAIMED,
+    UNCLAIMED_EFFECT_CLASS,
     AgentStepRequest,
     AgentStepResult,
     ClaimMismatch,
@@ -298,21 +303,30 @@ class StepContext:
         return "data"
 
     def proposal_envelope(self, **changes: Any) -> dict[str, Any]:
-        """The arguments of a model's call to the protected tool: the action it proposes, as the tool's envelope states it.
+        """The arguments of a model's call to the protected tool: **only the tool's own arguments**, under ``args`` (B04.6, #768).
 
-        ``changes`` replace fields (a claimed ``effect_class``, another ``connector_version``) or add the ones a hostile model
-        invents (``state``, ``receipt_id``).
+        The model claims no connector, connector version or effect class: the platform binds them from the called tool's trusted
+        identity. ``changes`` replace ``args`` or add the fields a hostile model invents (a claimed ``effect_class``, another
+        ``connector_version``, ``state``, ``receipt_id``): an adapter must refuse every one of them, never carry it.
         """
-        action = self.protected_action()
-        envelope: dict[str, Any] = {
-            "connector": action.connector,
-            "connector_version": action.connector_version,
-            "effect_class": action.effect_class,
-            "resource": action.resource,
-            "args": dict(action.args),
-        }
+        envelope: dict[str, Any] = {"args": dict(self.staged_args)}
         envelope.update(changes)
         return envelope
+
+    def named_action(self) -> ProposedAction:
+        """The proposal an adapter returns for a call of :data:`PROTECTED_TOOL` with :attr:`staged_args`: it names the tool.
+
+        The claim fields are the placeholders (:data:`~caliber.contracts.agent_step.UNCLAIMED`): the model claimed nothing, and
+        the platform derives the connector, version, class and resource from the called tool's trusted identity.
+        """
+        return ProposedAction(
+            connector=UNCLAIMED,
+            connector_version=UNCLAIMED,
+            effect_class=UNCLAIMED_EFFECT_CLASS,
+            resource=UNCLAIMED,
+            args=self.staged_args,
+            tool=PROTECTED_TOOL,
+        )
 
     def protected_action(self, claimed_effect_class: str | None = None) -> ProposedAction:
         """The action a staged model proposes for :data:`PROTECTED_TOOL`, from :attr:`staged_args`.
@@ -550,25 +564,30 @@ def _proposes(result: AgentStepResult, ctx: StepContext) -> None:
     (action,) = result.proposed_actions
     # The action is built from the staged tool call, not from a template: the per-scenario arguments are in it.
     assert dict(action.args) == ctx.staged_args
-    assert action == ctx.protected_action()
-    # What the model says is a claim until the platform binds it: nothing the adapter returned is already trusted.
+    # It carries the name of the function the model called, and claims nothing: the model supplied arguments only, so the
+    # connector, version, class and resource are placeholders the platform replaces from the tool's trusted identity.
+    assert action.tool == PROTECTED_TOOL, (
+        "the adapter dropped the name of the function the model called"
+    )
+    assert action == ctx.named_action(), (
+        "the adapter put a claim of its own or of the model's in the proposal"
+    )
+    # Nothing the adapter returned is already trusted.
     assert action.platform_bound is False
-    assert action.bound_to(PROTECTED_CLASS).platform_bound is True
-    other = "read" if PROTECTED_CLASS != "read" else "irreversible_write"
-    assert_claim_mismatch(action, other)
     assert not {"state", "receipt", "receipt_id", "approval"} & result.record().keys()
     assert result.usage == ctx.staged_usage
 
 
 def _lies(result: AgentStepResult, ctx: StepContext) -> None:
-    assert result.stop_reason == "proposed_action"
-    (action,) = result.proposed_actions
-    assert dict(action.args) == ctx.staged_args
-    # The model called a protected tool a read. The platform's class governs: the claim cannot be bound, and it was not run.
-    assert action.platform_bound is False
+    # The model volunteered an ``effect_class`` of ``read`` for a protected tool. The tool's envelope has no such field (the platform
+    # derives the class from the tool's trusted identity), so the call is unreadable: no proposal, and nothing ran. An adapter that
+    # drops the claim and proposes anyway, or carries it, is not conformant.
     assert PROTECTED_CLASS != "read"
-    assert action.effect_class != PROTECTED_CLASS
-    assert_claim_mismatch(action, PROTECTED_CLASS)
+    assert result.stop_reason == "error", (
+        f"the adapter went on with a claimed class ({result.stop_reason})"
+    )
+    assert result.proposed_actions == () and result.error_code == MALFORMED_RESULT
+    assert ctx.protected_calls == []
 
 
 def _budget_exhausted(result: AgentStepResult, ctx: StepContext) -> None:

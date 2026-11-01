@@ -815,14 +815,17 @@ def test_a_proposed_action_has_the_shape_of_the_proposal_it_becomes() -> None:
             if k not in {"maxLength", "pattern", "description"}
         }
 
+    # ``tool`` (B04.6) is the one addition: the name of the function the model called, a selector that is not part of the intent.
     assert set(properties) == {
         "effect_class",
         "target",
         "connector_version",
         "args",
         "expected_resource_version",
+        "tool",
     }
-    for name in properties:
+    assert "tool" not in proposal, "the stored proposal has no tool: it is not part of the intent"
+    for name in properties.keys() - {"tool"}:
         assert comparable(properties[name]) == comparable(proposal[name]), name
     assert set(properties["effect_class"]["enum"]) == set(EFFECT_CLASSES)
     required_in_proposal = set(load_schema("proposal", "v1")["required"])
@@ -1355,3 +1358,34 @@ def test_every_executor_implements_run_step(monkeypatch: pytest.MonkeyPatch) -> 
             assert (result.stop_reason, result.error_code) == ("error", "provider_error"), name
         else:
             assert result.error_code != ADAPTER_NOT_INTEGRATED, name
+
+
+def _named(**changes: Any) -> ProposedAction:
+    fields: dict[str, Any] = {
+        "connector": "unclaimed",
+        "connector_version": "unclaimed",
+        "effect_class": "read",
+        "resource": "unclaimed",
+        "args": {"a": 1},
+        "tool": "open_ticket",
+    }
+    fields.update(changes)
+    return ProposedAction(**fields)
+
+
+def test_the_tool_a_proposal_names_is_not_part_of_its_intent_and_survives_the_record() -> None:
+    named, anonymous = _named(), _named(tool=None)
+    assert named.intent_hash == anonymous.intent_hash, (
+        "the called function's name is a selector, not part of the intent"
+    )
+    assert named != anonymous, "but two proposals are equal only if they name the same tool"
+    assert named.record()["tool"] == "open_ticket" and "tool" not in anonymous.record()
+    assert ProposedAction.from_record(named.record()) == named
+    assert ProposedAction.from_record(anonymous.record()).tool is None
+    assert named.bound_to("read").tool == "open_ticket", "binding keeps the name"
+
+
+@pytest.mark.parametrize("tool", ["", " padded ", "new\nline", "x" * 129, 7])
+def test_a_tool_name_that_is_not_a_printable_name_is_refused(tool: Any) -> None:
+    with pytest.raises(ProposalError):
+        _named(tool=tool)

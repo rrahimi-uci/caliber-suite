@@ -37,6 +37,7 @@ from caliber.workflows.agent_step import (
     StepDeadlineReached,
     StepToolBudgetExceeded,
     failure,
+    proposal_from_call,
 )
 from tests.conformance.toy_adapter import ToyAdapter, _Tally, _Unreadable, toy_provider
 
@@ -70,32 +71,6 @@ class ForgetsUsageOnStop(_Rewrites):
         if result.stop_reason == "max_tokens":
             return dataclasses.replace(result, usage=StepUsage(0, 0, 0, 0, 0))
         return result
-
-
-class LaundersEffectClass(_Rewrites):
-    """model_lies_about_effect_class: the adapter swaps the model's claim for the right class, hiding the lie."""
-
-    def rewrite(self, result: AgentStepResult) -> AgentStepResult:
-        from caliber.testing.agent_step_conformance import PROTECTED_CLASS
-
-        fixed = tuple(
-            ProposedAction(
-                a.connector, a.connector_version, PROTECTED_CLASS, a.resource, dict(a.args)
-            )
-            for a in result.proposed_actions
-        )
-        return dataclasses.replace(result, proposed_actions=fixed)
-
-
-class RewritesConnectorVersion(_Rewrites):
-    """connector_version_claim: the adapter replaces the claimed version with the one it believes is right."""
-
-    def rewrite(self, result: AgentStepResult) -> AgentStepResult:
-        fixed = tuple(
-            ProposedAction(a.connector, "1.0.0", a.effect_class, a.resource, dict(a.args))
-            for a in result.proposed_actions
-        )
-        return dataclasses.replace(result, proposed_actions=fixed)
 
 
 class TimeoutIsAGenericError(_Rewrites):
@@ -211,6 +186,22 @@ class StripsClaimedState(_stripping(_STATE_FIELDS)):  # type: ignore[misc]
 
 class StripsOtherClaimedFields(_stripping(_OTHER_CLAIMS)):  # type: ignore[misc]
     """extra_fields_rejected: approval and status claims are dropped and the rest is proposed."""
+
+
+class StripsAVolunteeredClass(_stripping(("effect_class",))):  # type: ignore[misc]
+    """model_lies_about_effect_class: a class the model volunteers is silently dropped and the call is proposed anyway."""
+
+
+class StripsVolunteeredClaims(_stripping(("connector", "connector_version", "effect_class"))):  # type: ignore[misc]
+    """connector_version_claim: a connector, version or class the model volunteers is dropped and the call is proposed."""
+
+
+class DropsTheCalledToolName(_Rewrites):
+    """proposal_names_the_called_tool: the proposal no longer carries the name of the function the model called."""
+
+    def rewrite(self, result: AgentStepResult) -> AgentStepResult:
+        fixed = tuple(dataclasses.replace(a, tool=None) for a in result.proposed_actions)
+        return dataclasses.replace(result, proposed_actions=fixed)
 
 
 class LogsModelText(ToyAdapter):
@@ -339,19 +330,13 @@ class ProposesEveryCall(ToyAdapter):
         self._seen: list[dict[str, Any]] = []
         result = super().run_step(request, step_input)
         if result.stop_reason == "proposed_action" and len(self._seen) > 1:
-            extra = tuple(self._action(call["arguments"]) for call in self._seen[1:])
+            extra = tuple(self._action(call) for call in self._seen[1:])
             return dataclasses.replace(result, proposed_actions=(*result.proposed_actions, *extra))
         return result
 
     @staticmethod
-    def _action(envelope: dict[str, Any]) -> ProposedAction:
-        return ProposedAction(
-            envelope["connector"],
-            envelope["connector_version"],
-            envelope["effect_class"],
-            envelope["resource"],
-            envelope["args"],
-        )
+    def _action(call: dict[str, Any]) -> ProposedAction:
+        return proposal_from_call(call["name"], call["arguments"])
 
     def _read_reply(
         self, reply: Any, tally: _Tally, step_input: AgentStepInput
@@ -576,7 +561,7 @@ MUTANTS: tuple[Mutant, ...] = (
     Mutant("completes", ReportsZeroUsage),
     Mutant("read_tool_call", SkipsReadTools),
     Mutant("proposes_protected_tool", ExecutesProtectedTool),
-    Mutant("model_lies_about_effect_class", LaundersEffectClass),
+    Mutant("model_lies_about_effect_class", StripsAVolunteeredClass),
     Mutant("budget_exhausted", ForgetsUsageOnStop),
     Mutant("provider_error", RaisesOnProviderError),
     Mutant("provider_timeout", TimeoutIsAGenericError),
@@ -589,7 +574,8 @@ MUTANTS: tuple[Mutant, ...] = (
     Mutant("lone_surrogate_refused", CrashesOnLoneSurrogates),
     Mutant("invalid_argument_text", CrashesOnBadArgumentText),
     Mutant("unknown_tool_not_run", IgnoresUnknownToolCalls),
-    Mutant("connector_version_claim", RewritesConnectorVersion),
+    Mutant("connector_version_claim", StripsVolunteeredClaims),
+    Mutant("proposal_names_the_called_tool", DropsTheCalledToolName),
     Mutant("read_tools_authoritative", TrustsBindingLevel),
     Mutant("one_proposed_action", ProposesEveryCall),
     Mutant("proposal_ends_step", KeepsGoingAfterAProposal),

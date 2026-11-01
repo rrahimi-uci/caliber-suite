@@ -26,19 +26,22 @@ from caliber.contracts.agent_step import (
     StepUsage,
 )
 from caliber.contracts.registry import ContractValidationError
-from caliber.effects.inventory import EFFECT_CLASSES
 from caliber.effects.records import ProposalError
 from caliber.workflows import agent_step as _step
-from caliber.workflows.agent_step import AgentStepInput, answer, failure
+from caliber.workflows.agent_step import (
+    PROPOSAL_DESCRIPTION,
+    AgentStepInput,
+    answer,
+    failure,
+    proposal_from_call,
+    proposal_parameters,
+)
 from caliber.workflows.ir import IRToolBinding
 
 logger = logging.getLogger("caliber.workflows.step_openai_responses")
 
 MODEL_REFUSED: Final = "model_refused"
 _MAX_COUNT: Final = 2_147_483_647
-_REQUIRED_ENVELOPE: Final = ("connector", "connector_version", "effect_class", "resource", "args")
-_OPTIONAL_ENVELOPE: Final = ("expected_resource_version",)
-_ENVELOPE: Final = frozenset(_REQUIRED_ENVELOPE + _OPTIONAL_ENVELOPE)
 _TIMEOUT_TYPES: Final = (("openai", "APITimeoutError"), ("httpx", "TimeoutException"))
 
 
@@ -152,24 +155,8 @@ def _proposal_spec(binding: IRToolBinding, parameters: dict[str, Any]) -> dict[s
     return {
         "type": "function",
         "name": binding.local_name,
-        "description": f"{binding.registry_ref or binding.local_name}. Calling this does not run the tool: it proposes the action for approval.",
-        "parameters": {
-            "type": "object",
-            "additionalProperties": False,
-            "required": list(_REQUIRED_ENVELOPE),
-            "properties": {
-                "connector": {"type": "string", "minLength": 1, "maxLength": 128},
-                "connector_version": {"type": "string", "minLength": 1, "maxLength": 64},
-                "effect_class": {"type": "string", "enum": list(EFFECT_CLASSES)},
-                "resource": {"type": "string", "minLength": 1, "maxLength": 512},
-                "args": parameters,
-                "expected_resource_version": {
-                    "type": ["string", "null"],
-                    "minLength": 1,
-                    "maxLength": 256,
-                },
-            },
-        },
+        "description": f"{binding.registry_ref or binding.local_name}. {PROPOSAL_DESCRIPTION}",
+        "parameters": proposal_parameters(parameters),
     }
 
 
@@ -185,25 +172,12 @@ def _tool_specs(
     ]
 
 
-def _proposal(arguments: str) -> ProposedAction:
+def _proposal(tool: str, arguments: str) -> ProposedAction:
+    """The model's call of the protected tool ``tool`` as a proposal that names it (no claims); unreadable otherwise."""
     try:
-        envelope = json.loads(arguments)
-    except (ValueError, RecursionError) as exc:
+        return proposal_from_call(tool, json.loads(arguments))
+    except (ValueError, RecursionError, TypeError) as exc:
         raise _Unreadable from exc
-    if (
-        type(envelope) is not dict
-        or not _ENVELOPE.issuperset(envelope)
-        or not set(_REQUIRED_ENVELOPE).issubset(envelope)
-    ):
-        raise _Unreadable
-    return ProposedAction(
-        connector=envelope["connector"],
-        connector_version=envelope["connector_version"],
-        effect_class=envelope["effect_class"],
-        resource=envelope["resource"],
-        args=envelope["args"],
-        expected_resource_version=envelope.get("expected_resource_version"),
-    )
 
 
 def _count(value: object) -> int:
@@ -442,7 +416,7 @@ def _run(loop: _Loop) -> AgentStepResult:  # noqa: PLR0911 - bounded step state 
                 request,
                 "proposed_action",
                 usage=tally.usage(),
-                proposed_actions=(_proposal(protected.arguments),),
+                proposed_actions=(_proposal(protected.name, protected.arguments),),
                 usage_source=tally.source,
             )
         next_inputs = _read_calls(rt, loop, turn, bindings)

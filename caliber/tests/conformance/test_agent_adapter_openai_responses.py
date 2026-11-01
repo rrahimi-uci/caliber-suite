@@ -28,7 +28,6 @@ from caliber.workflows.agent_step import run_agent_step
 from caliber.workflows.runtime import OpenAIResponsesWorkflowExecutor
 from caliber.workflows.step_openai_responses import ResponsesStepConfig, run_openai_responses_step
 from tests.agent_step_conformance import (
-    PROTECTED_CLASS,
     PROTECTED_TOOL,
     READ_TOOL,
     SCENARIOS,
@@ -109,15 +108,8 @@ class StubClient:
 
 
 def envelope(ctx: StepContext, **changes: Any) -> dict[str, Any]:
-    value: dict[str, Any] = {
-        "connector": "document-request",
-        "connector_version": "1.0.0",
-        "effect_class": PROTECTED_CLASS,
-        "resource": "cases/CASE-1/document-requests",
-        "args": ctx.staged_args,
-    }
-    value.update(changes)
-    return value
+    """The arguments of a model's call to the protected tool: its own arguments only, no claim (B04.6)."""
+    return ctx.proposal_envelope(**changes)
 
 
 def limits(**changes: Any) -> dict[str, Any]:
@@ -273,13 +265,7 @@ def test_responses_request_uses_function_specs_and_previous_response_id() -> Non
 
 
 def test_protected_call_is_proposed_before_any_read_call_in_same_response() -> None:
-    staged = {
-        "connector": "document-request",
-        "connector_version": "1.0.0",
-        "effect_class": PROTECTED_CLASS,
-        "resource": "cases/CASE-1/document-requests",
-        "args": {"document_type": "pay_statement-completes"},
-    }
+    staged = {"args": {"document_type": "pay_statement-completes"}}
     result, ctx, _ = step(
         [
             response(

@@ -30,6 +30,7 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from typing import Any, Final
 
+import jsonschema
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -124,6 +125,11 @@ def registry_identity_reader(
     return read
 
 
+def declared_effect_class(side_effect_level: str) -> str:
+    """The effect class a registry row's declared ``side_effect_level`` implies (an unrecognised level is fail-closed)."""
+    return _DECLARED_CLASS.get(side_effect_level, FAIL_CLOSED)
+
+
 def route_registered_tool(identity: RegisteredToolIdentity | None) -> ToolRoute:
     """Decide how a tool runs from its registry identity; an unverifiable tool is dispatched fail-closed."""
     if identity is None:
@@ -181,6 +187,23 @@ def route_openapi_tool(identity: RegisteredToolIdentity | None, *, method: str) 
     return ToolRoute(INLINE if effect == "read" else DISPATCH, effect, trusted=False)
 
 
+def check_tool_arguments(identity: RegisteredToolIdentity, arguments: Mapping[str, Any]) -> bool:
+    """Whether ``arguments`` (a model's, untrusted) satisfy the tool's **registry row's** input schema (B04.6, #768).
+
+    The schema is the row's own, never the binding's: a manifest author wrote the binding. A row that declares none accepts
+    any object (the arguments are still bounded plain JSON by the time they reach here). A schema that is itself invalid, or a
+    validator that fails for any reason, is not an acceptance: this answers ``False`` and never raises.
+    """
+    schema = identity.input_schema
+    if not schema:
+        return True
+    try:
+        jsonschema.validate(instance=dict(arguments), schema=dict(schema))
+    except Exception:
+        return False
+    return True
+
+
 def tool_resource(name: str, version: str) -> str:
     """The proposal's ``resource`` for a registry tool: the target a reviewer approves."""
     return f"registered-tool/{name}/{version}"
@@ -202,6 +225,8 @@ __all__ = [
     "REGISTERED_TOOL_VERSION",
     "RegisteredToolIdentity",
     "ToolRoute",
+    "check_tool_arguments",
+    "declared_effect_class",
     "load_registered_tool_identity",
     "registry_identity_reader",
     "route_openapi_tool",

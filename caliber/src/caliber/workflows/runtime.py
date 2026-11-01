@@ -57,11 +57,27 @@ from caliber.effects.dispatcher import (
     HTTP_VERSION,
     EffectRefused,
     EffectRequest,
+    UnsupportedEffectPath,
     admit_backend,
     dispatch,
     submit_proposal,
 )
 from caliber.effects.mcp_tools import McpToolRoute
+from caliber.effects.model_tool_calls import (
+    GOVERNED_CONTEXT_REQUIRED,
+    MODEL_TOOL_ROUTE_REFUSED,
+    PROTECTED_TOOL_REFUSED,
+    REGISTRY_ROW_MISMATCH,
+    REGISTRY_ROW_UNREADABLE,
+    TOOL_INPUT_INVALID,
+    TOOL_NOT_PROTECTED,
+    TOOL_REPLACED,
+    UNSUPPORTED_EFFECT_PATH,
+    ModelToolCallRefused,
+    ToolProposal,
+    ToolProposalBinder,
+    refusal_marker,
+)
 from caliber.effects.reconcile import UnknownEffectError
 from caliber.effects.records import RecordedProposal
 from caliber.effects.registered_tools import (
@@ -72,6 +88,7 @@ from caliber.effects.registered_tools import (
     REGISTERED_TOOL_VERSION,
     RegisteredToolIdentity,
     ToolRoute,
+    check_tool_arguments,
     route_openapi_tool,
     route_registered_tool,
     tool_intent_args,
@@ -1798,25 +1815,36 @@ def _invoke_agent_tools(
         # covers registry tools and agent-bound MCP tools, which resolve into the
         # same ``tool_callables`` map (golden-path roadmap, Wave 1). No-op when
         # tracing is inert; tool errors propagate unchanged.
-        with tracer.span(
-            f"tool.{binding.local_name}",
-            span_type="TOOL",
-            attributes={
-                "caliber.tool": binding.local_name,
-                "caliber.tool.input": input_text,
-            },
-        ) as span:
-            started = time.perf_counter()
-            try:
-                result = fn(input_text)
-            except TypeError:
-                result = fn()
-            finally:
-                span.set_attribute(
-                    "caliber.tool.latency_ms",
-                    round((time.perf_counter() - started) * 1000, 3),
-                )
-            span.set_attribute("caliber.tool.output", result)
+        try:
+            with tracer.span(
+                f"tool.{binding.local_name}",
+                span_type="TOOL",
+                attributes={
+                    "caliber.tool": binding.local_name,
+                    "caliber.tool.input": input_text,
+                },
+            ) as span:
+                started = time.perf_counter()
+                try:
+                    result = fn(input_text)
+                except TypeError:
+                    result = fn()
+                finally:
+                    span.set_attribute(
+                        "caliber.tool.latency_ms",
+                        round((time.perf_counter() - started) * 1000, 3),
+                    )
+                span.set_attribute("caliber.tool.output", result)
+        except ModelToolCallRefused as refusal:
+            # A protected tool in a governed plan's loop is refused before it is entered (B04.6): the call is recorded as
+            # refused, with a fixed code and nothing else, exactly as the provider loops record it.
+            tool_calls.append(
+                {
+                    "tool": binding.local_name,
+                    "result": refusal_marker(binding.local_name, refusal.code),
+                }
+            )
+            continue
         tool_calls.append({"tool": binding.local_name, "result": result})
     return tool_calls
 
@@ -2310,6 +2338,11 @@ def _execute_model_tool_call(
     ``_resolve_tool_callables`` (callables are preview-wrapped). ``requires_approval``
     tools are NOT executed in the autonomous loop — a gated marker is returned so
     the model can adapt rather than triggering an unapproved side effect.
+
+    A call the platform refuses before the tool is entered (B04.6, #768: a protected tool in a governed plan's loop, see
+    :func:`_model_call_check`) is reported as a ``_refused`` marker holding the tool's name and a fixed code, and **nothing
+    else**: no exception text and no argument. This is the one choke point of every provider's loop, the Agents SDK's tool
+    callback and the fake executor's helper (:func:`_invoke_agent_tools`), so none of them can answer differently.
     """
     binding = bindings.get(name)
     fn = tool_callables.get(name)
@@ -2339,6 +2372,9 @@ def _execute_model_tool_call(
                 )
             span.set_attribute("caliber.tool.output", result)
         return result, _tool_result_text(result)
+    except ModelToolCallRefused as refusal:
+        marker = refusal_marker(name, refusal.code)
+        return marker, _tool_result_text(marker)
     except Exception as exc:  # fail soft: a failing tool must not crash the whole run
         # The span already recorded failed status (the exception propagated through
         # it). Feed an error marker back so the model can adapt instead of aborting.
@@ -2740,6 +2776,19 @@ class ToolExecutionError(Exception):
     """Raised when a registered tool fails after its retry budget (plan §18.1)."""
 
 
+class ToolRouteRefused(ToolExecutionError):  # noqa: N818 - a refusal, named for what it says
+    """A tool route refused a call before anything was proposed or run (B04.6, #768).
+
+    ``code`` is a fixed token (one of :data:`caliber.effects.model_tool_calls.REFUSAL_CODES`, an OpenAPI preflight code or an
+    MCP gate code); the message keeps the wording a workflow run's error has always had. A model-chosen call is refused with
+    the code alone.
+    """
+
+    def __init__(self, code: str, message: str) -> None:
+        super().__init__(message)
+        self.code = code
+
+
 def _resilient_callable(
     binding: IRToolBinding,
     fn: Callable[..., Any],
@@ -2811,6 +2860,128 @@ def _resilient_callable(
     # skip this wrapper's timeout and retries, so only the one attribute is set.)
     _wrapped.__wrapped__ = fn  # type: ignore[attr-defined]
     return _wrapped
+
+
+def _model_call_arguments(args: tuple[Any, ...], kwargs: dict[str, Any]) -> dict[str, Any]:
+    """The arguments a model's call carries, in whichever shape :func:`_call_tool` chose; ``{}`` for a bare string or nothing."""
+    if kwargs and not args:
+        return dict(kwargs)
+    if len(args) == 1 and not kwargs and isinstance(args[0], dict):
+        return dict(args[0])
+    return {}
+
+
+def _model_call_check(
+    plan: RuntimePlan, node_id: str, binding: IRToolBinding
+) -> Callable[[dict[str, Any]], None] | None:
+    """The per-call gate of one tool bound to an agent in an ungoverned loop, or ``None`` when the plan is not governed (B04.6, #768).
+
+    A model chooses the tool and its arguments, so a call is classified **when it is made**, from the same routes a workflow
+    tool node uses (:func:`_governed_tool_route`, :func:`_governed_openapi_route`, :func:`_governed_mcp_route`; the trusted
+    registry row or MCP server record and the administrator's tool policy, never the binding, the model or the server's own
+    claims). A ``read``-class call passes and runs inline. Any other outcome is refused with a typed code
+    (:class:`~caliber.effects.model_tool_calls.ModelToolCallRefused`) **before the tool is touched**: a loop cannot propose,
+    and it must not run what only an exact-intent approval may. A route that raises for any reason is a refusal too.
+
+    ``None`` (no gate) for a plan that is not governed (no registry reader and no governed context: a standalone export or a
+    caller-built plan) and for the development profile with no governed context (:func:`_legacy_effects_allowed`), whose
+    model-chosen calls keep the behaviour they had before the dispatcher. Both are named, not hidden, in
+    ``tests/test_effect_path_matrix.py::MODEL_TOOL_CALL_SITES``.
+    """
+    if plan.registered_tool_identity is None and plan.governed_effects is None:
+        return None
+
+    def check(arguments: dict[str, Any]) -> None:
+        if _legacy_effects_allowed(plan):
+            return
+        try:
+            routed: object
+            if binding.binding_type == "mcp_tool":
+                routed = _governed_mcp_route(
+                    plan,
+                    node_id=node_id,
+                    server_id=binding.mcp_server_id or "",
+                    tool_name=binding.mcp_tool_name or "",
+                    timeout_seconds=binding.timeout_seconds or _mcp_tool.DEFAULT_TIMEOUT_SECONDS,
+                    arguments=_mcp_arguments_from_input(arguments),
+                    preview=False,
+                )
+            elif (
+                binding.binding_type == "registered_function"
+                and binding.execution_backend == OPENAPI_BACKEND
+            ):
+                routed = _governed_openapi_route(
+                    plan,
+                    binding,
+                    node_id=node_id,
+                    preview=False,
+                    arguments=arguments,
+                    overridden=False,
+                )
+            else:
+                routed = _governed_tool_route(plan, binding, node_id=node_id, preview=False)
+        except ToolRouteRefused as exc:
+            code = PROTECTED_TOOL_REFUSED if exc.code == GOVERNED_CONTEXT_REQUIRED else exc.code
+            raise ModelToolCallRefused(code) from None
+        except Exception:
+            raise ModelToolCallRefused(MODEL_TOOL_ROUTE_REFUSED) from None
+        if routed is not None:
+            # Protected, and a governed context is bound: only a proposal may carry it, and a loop cannot propose.
+            raise ModelToolCallRefused(PROTECTED_TOOL_REFUSED)
+
+    return check
+
+
+def _gated_model_tool(
+    fn: Callable[..., Any], check: Callable[[dict[str, Any]], None]
+) -> Callable[..., Any]:
+    """``fn`` behind ``check``: the call is classified, and refused or let through, before ``fn`` is entered."""
+
+    def gated(*args: Any, **kwargs: Any) -> Any:
+        check(_model_call_arguments(args, kwargs))
+        return fn(*args, **kwargs)
+
+    # ``inspect.signature`` (which :func:`_call_tool` uses to pick the call shape) must see the real tool.
+    gated.__wrapped__ = fn  # type: ignore[attr-defined]
+    selector = getattr(fn, "caliber_shape_selector", None)
+    if callable(selector):
+
+        def gated_selector(shapes: list[tuple[tuple[Any, ...], dict[str, Any]]]) -> Any:
+            for shape_args, shape_kwargs in shapes:
+                arguments = _model_call_arguments(shape_args, shape_kwargs)
+                if arguments:
+                    break
+            else:
+                arguments = {}
+            check(arguments)
+            return selector(shapes)
+
+        gated.caliber_shape_selector = gated_selector  # type: ignore[attr-defined]
+    return gated
+
+
+def _gate_model_callables(
+    plan: RuntimePlan,
+    agent: IRAgent,
+    callables: dict[str, Callable[..., Any]],
+    *,
+    preview: bool,
+) -> dict[str, Callable[..., Any]]:
+    """Put :func:`_model_call_check` in front of every callable an agent's loop can reach, injected tools included (B04.6, #768).
+
+    Applied to the final map (after ``extra_tools`` replaced a bound tool), because the model's call reaches whichever
+    callable the map holds under the tool's name, and the classification is the **binding's**, not the callable's. A preview
+    never reaches a real effect (its callables are preview-wrapped), so it is left alone.
+    """
+    if preview:
+        return callables
+    bindings = {binding.local_name: binding for binding in agent.tools}
+    gated: dict[str, Callable[..., Any]] = {}
+    for name, fn in callables.items():
+        binding = bindings.get(name)
+        check = None if binding is None else _model_call_check(plan, agent.node_id, binding)
+        gated[name] = fn if check is None else _gated_model_tool(fn, check)
+    return gated
 
 
 def _resolve_tool_callables(
@@ -5198,6 +5369,7 @@ def _run_governed_step(
     step_request_id: str,
     history: list[HistoryMessage],
     tool_callables: dict[str, Callable[..., Any]],
+    binder: ToolProposalBinder | None = None,
 ) -> NoReturn:
     """One agent turn as a governed step: the platform, not the adapter, decides what runs and what is recorded (B08.2).
 
@@ -5232,7 +5404,9 @@ def _run_governed_step(
         _settle_step_tokens(context, reservation, result)
     if result.stop_reason == "proposed_action":
         try:
-            proposal = _step_proposal.record_step_proposal(context, request, result, trust)
+            proposal = _step_proposal.record_step_proposal(
+                context, request, result, trust, binder=binder, bindings=agent.tools
+            )
         except EffectRefused as exc:
             raise ToolExecutionError(f"governed agent step proposal refused: {exc.code}") from None
         except Exception:
@@ -5439,6 +5613,7 @@ def _run_governed_agent_node(
     )
     if extra_tools:
         callables = {**callables, **extra_tools}
+    callables = _gate_model_callables(plan, node, callables, preview=preview)
     try:
         _run_agent_with_history(
             plan,
@@ -5461,6 +5636,7 @@ def _run_governed_agent_node(
                 step_request_id=step_request_id,
                 history=history,
                 tool_callables=callables,
+                binder=_RuntimeToolBinder(plan, nid),
             ),
         )
     except _step_proposal.StepParked as parked:
@@ -5496,7 +5672,7 @@ def _collect_agent_handoff_specs(
         )
         if extra_tools:
             callables = {**callables, **extra_tools}
-        return callables
+        return _gate_model_callables(plan, agent_def, callables, preview=preview)
 
     def _visit(agent_def: IRAgent) -> None:
         if agent_def.node_id in specs:
@@ -5836,6 +6012,27 @@ def _submit_authorize_dispatch(
     return dict(outcome.response)
 
 
+def _read_registry_identity(
+    plan: RuntimePlan, binding: IRToolBinding
+) -> RegisteredToolIdentity | None:
+    """The registry row of the tool a binding names, read by ``(resolved_name, resolved_version)``, or ``None`` when it names none.
+
+    The one reader of a tool's trusted identity for the node routes (registered, OpenAPI) and for a model's proposal: the row,
+    never the manifest binding, says what a tool is. A reader that fails is a typed refusal that names only the exception's class.
+    """
+    lookup = plan.registered_tool_identity
+    if lookup is None or not binding.resolved_name or not binding.resolved_version:
+        return None
+    try:
+        return lookup(binding.resolved_name, binding.resolved_version)
+    except Exception as exc:
+        raise ToolRouteRefused(
+            REGISTRY_ROW_UNREADABLE,
+            f"registered tool {binding.local_name!r} identity could not be read: "
+            f"{type(exc).__name__}",
+        ) from exc
+
+
 def _governed_tool_route(
     plan: RuntimePlan, binding: IRToolBinding, *, node_id: str, preview: bool
 ) -> ToolRoute | None:
@@ -5857,29 +6054,18 @@ def _governed_tool_route(
         or (plan.registered_tool_identity is None and plan.governed_effects is None)
     ):
         return None
-    identity: RegisteredToolIdentity | None = None
-    lookup = plan.registered_tool_identity
-    if lookup is not None and binding.resolved_name and binding.resolved_version:
-        try:
-            identity = lookup(binding.resolved_name, binding.resolved_version)
-        except Exception as exc:
-            raise ToolExecutionError(
-                f"registered tool {binding.local_name!r} identity could not be read: "
-                f"{type(exc).__name__}"
-            ) from exc
-    if identity is not None and (
-        identity.module_path != binding.module_path
-        or identity.callable_name != binding.callable_name
-        or identity.execution_backend != binding.execution_backend
-    ):
+    identity = _read_registry_identity(plan, binding)
+    if identity is not None and not _registered_row_matches(binding, identity):
         # The code the binding would run is not the code the registry row describes.
-        raise ToolExecutionError(
-            f"registered tool {binding.local_name!r} does not match its registry row"
+        raise ToolRouteRefused(
+            REGISTRY_ROW_MISMATCH,
+            f"registered tool {binding.local_name!r} does not match its registry row",
         )
     route = route_registered_tool(identity)
     if route.route == REFUSE:
-        raise ToolExecutionError(
-            f"registered tool {binding.local_name!r} refused: unsupported_effect_path"
+        raise ToolRouteRefused(
+            UNSUPPORTED_EFFECT_PATH,
+            f"registered tool {binding.local_name!r} refused: unsupported_effect_path",
         )
     if route.route == INLINE:
         return None
@@ -5888,9 +6074,10 @@ def _governed_tool_route(
             # Development profile, no authority bound (#1068): the pre-dispatcher behavior. The tool runs inline behind the
             # node's own approval gate; there is no proposal, exact-intent approval or lease.
             return None
-        raise ToolExecutionError(
+        raise ToolRouteRefused(
+            GOVERNED_CONTEXT_REQUIRED,
             f"{node_id!r} requires a governed effect context to run protected registered tool "
-            f"{binding.local_name!r}"
+            f"{binding.local_name!r}",
         )
     return route
 
@@ -5951,6 +6138,55 @@ class _GovernedOpenApi:
     operation: _openapi_http.OpenApiOperation
 
 
+@dataclass(frozen=True)
+class _OpenApiDecision:
+    """An OpenAPI call's trusted row and its route, before the question of who may carry a protected one."""
+
+    identity: RegisteredToolIdentity
+    route: ToolRoute
+
+
+def _openapi_decision(
+    plan: RuntimePlan, binding: IRToolBinding, *, arguments: dict[str, Any]
+) -> _OpenApiDecision:
+    """Classify one OpenAPI tool call from its registry row (B04.4, #750); the one place both a node and a model's call do it.
+
+    The call is classified from the tool's **registry row** (``plan.registered_tool_identity``): its declared level and the
+    method its own configuration selects, never the binding's level, names or configuration. The binding must carry exactly
+    the row's execution configuration and input schema: a binding that differs would run something the registry does not
+    describe, so it is refused, inline reads included. A tool whose row cannot be read cannot be proposed (there is no
+    trusted operation to send) and is refused. Whether a *protected* call may then be carried is the caller's decision
+    (:func:`_governed_openapi_route` for a node, the loop gate and the proposal binder for a model's call).
+    """
+    name = binding.local_name
+    identity = _read_registry_identity(plan, binding)
+    if identity is None:
+        raise ToolRouteRefused(
+            UNSUPPORTED_EFFECT_PATH, f"OpenAPI tool {name!r} refused: unsupported_effect_path"
+        )
+    if (
+        identity.execution_backend != binding.execution_backend
+        or identity.backend_config != binding.backend_config
+        or identity.input_schema != binding.input_schema
+    ):
+        # The configuration the binding would send is not the one the registry row describes.
+        raise ToolRouteRefused(
+            REGISTRY_ROW_MISMATCH, f"registered tool {name!r} does not match its registry row"
+        )
+    try:
+        method = openapi_operation_method(
+            dict(identity.backend_config or {}), _json_compatible(arguments)
+        )
+    except OpenApiPreflightError as exc:
+        raise ToolRouteRefused(exc.code, f"OpenAPI tool {name!r} refused: {exc.code}") from exc
+    route = route_openapi_tool(identity, method=method)
+    if route.route == REFUSE:
+        raise ToolRouteRefused(
+            UNSUPPORTED_EFFECT_PATH, f"OpenAPI tool {name!r} refused: unsupported_effect_path"
+        )
+    return _OpenApiDecision(identity, route)
+
+
 def _governed_openapi_route(
     plan: RuntimePlan,
     binding: IRToolBinding,
@@ -5963,65 +6199,42 @@ def _governed_openapi_route(
     """The dispatcher route of an OpenAPI tool node, or ``None`` when it runs inline as before (B04.4, #750).
 
     As for a registered Python tool, only a plan wired to the registry (an identity reader) or to an authority (a governed
-    context) is governed, and a preview never reaches a real effect. The call is classified from the tool's **registry
-    row** (``plan.registered_tool_identity``): its declared level and the method its own configuration selects, never the
-    binding's level, names or configuration. The binding must carry exactly the row's execution configuration and input
-    schema: a binding that differs would run something the registry does not describe, so it is refused, inline reads
-    included. A tool whose row cannot be read cannot be proposed (there is no trusted operation to send) and is refused;
-    so is a protected call that an injected callable replaces, which no proposal could describe.
+    context) is governed, and a preview never reaches a real effect. The classification is :func:`_openapi_decision`'s; a
+    protected call that an injected callable replaces is refused, which no proposal could describe.
     """
     if preview or (plan.registered_tool_identity is None and plan.governed_effects is None):
         return None
     name = binding.local_name
-    identity: RegisteredToolIdentity | None = None
-    lookup = plan.registered_tool_identity
-    if lookup is not None and binding.resolved_name and binding.resolved_version:
-        try:
-            identity = lookup(binding.resolved_name, binding.resolved_version)
-        except Exception as exc:
-            raise ToolExecutionError(
-                f"registered tool {name!r} identity could not be read: {type(exc).__name__}"
-            ) from exc
-    if identity is None:
-        raise ToolExecutionError(f"OpenAPI tool {name!r} refused: unsupported_effect_path")
-    if (
-        identity.execution_backend != binding.execution_backend
-        or identity.backend_config != binding.backend_config
-        or identity.input_schema != binding.input_schema
-    ):
-        # The configuration the binding would send is not the one the registry row describes.
-        raise ToolExecutionError(f"registered tool {name!r} does not match its registry row")
-    try:
-        method = openapi_operation_method(
-            dict(identity.backend_config or {}), _json_compatible(arguments)
-        )
-    except OpenApiPreflightError as exc:
-        raise ToolExecutionError(f"OpenAPI tool {name!r} refused: {exc.code}") from exc
-    route = route_openapi_tool(identity, method=method)
-    if route.route == REFUSE:
-        raise ToolExecutionError(f"OpenAPI tool {name!r} refused: unsupported_effect_path")
+    decision = _openapi_decision(plan, binding, arguments=arguments)
+    identity, route = decision.identity, decision.route
     if route.route == INLINE:
         return None
     if plan.governed_effects is None:
         if _legacy_effects_allowed(plan):
             # Development profile, no authority bound (#1068): the pre-dispatcher behavior, the call runs inline.
             return None
-        raise ToolExecutionError(
-            f"{node_id!r} requires a governed effect context to run protected OpenAPI tool {name!r}"
+        raise ToolRouteRefused(
+            GOVERNED_CONTEXT_REQUIRED,
+            f"{node_id!r} requires a governed effect context to run protected OpenAPI tool {name!r}",
         )
     if overridden:
-        raise ToolExecutionError(
-            f"OpenAPI tool {name!r} is replaced by an injected callable and cannot be governed"
+        raise ToolRouteRefused(
+            TOOL_REPLACED,
+            f"OpenAPI tool {name!r} is replaced by an injected callable and cannot be governed",
         )
-    return _GovernedOpenApi(
-        route,
-        _openapi_http.OpenApiOperation(
-            tool=identity.name,
-            version=identity.version,
-            execution_config=identity.backend_config or {},
-            input_schema=identity.input_schema,
-            egress_policy=plan.egress_policy,
-        ),
+    return _GovernedOpenApi(route, _openapi_operation(plan, identity))
+
+
+def _openapi_operation(
+    plan: RuntimePlan, identity: RegisteredToolIdentity
+) -> _openapi_http.OpenApiOperation:
+    """The trusted operation a registry row describes: its own configuration and schema, the plan's egress policy."""
+    return _openapi_http.OpenApiOperation(
+        tool=identity.name,
+        version=identity.version,
+        execution_config=identity.backend_config or {},
+        input_schema=identity.input_schema,
+        egress_policy=plan.egress_policy,
     )
 
 
@@ -6109,6 +6322,51 @@ def _governed_mcp_route(
     if preview or (plan.registered_tool_identity is None and plan.governed_effects is None):
         return None
     label = f"MCP tool {tool_name!r}"
+    call, prepared = _mcp_decision(
+        plan,
+        server_id=server_id,
+        tool_name=tool_name,
+        timeout_seconds=timeout_seconds,
+        arguments=arguments,
+    )
+    route = prepared.route
+    if route.route == INLINE:
+        return None
+    if plan.governed_effects is None:
+        if _legacy_effects_allowed(plan):
+            # Development profile, no authority bound (#1068): the pre-dispatcher behavior. The call runs inline through the
+            # gateway entry point (which lets it through outside the reference profile), behind the node's own approval gate;
+            # there is no proposal, exact-intent approval, lease or receipt.
+            return None
+        raise ToolRouteRefused(
+            GOVERNED_CONTEXT_REQUIRED,
+            f"{node_id!r} requires a governed effect context to run protected {label}",
+        )
+    if overridden:
+        raise ToolRouteRefused(
+            TOOL_REPLACED, f"{label} is replaced by an injected callable and cannot be governed"
+        )
+    assert prepared.args is not None  # only a refused route has no proposal material
+    return _GovernedMcp(route, call, prepared, dict(prepared.args["arguments"]))
+
+
+def _mcp_decision(
+    plan: RuntimePlan,
+    *,
+    server_id: str,
+    tool_name: str,
+    timeout_seconds: float,
+    arguments: dict[str, Any],
+) -> tuple[_mcp_tool.McpToolCall, _mcp_tool.PreparedMcpCall]:
+    """Classify one MCP tool call and build its proposal material; the one place both a node and a model's call do it (B04.5, #759).
+
+    The call is classified from the **MCP server record** (read from the database, scoped to the run's identity), the
+    administrator's explicit tool policy for exactly that tool and the protected-effect inventory: never from the binding's
+    ``side_effect_level``, a description or annotation the server reported, or the model. A tool nobody classified, a blocked
+    tool, a server that is not ready and a first-party database write tool (reference profile only) are refused here, before any
+    proposal or approval exists, with the gate's own code.
+    """
+    label = f"MCP tool {tool_name!r}"
     identity = plan.mcp_identity
 
     def load_server() -> Any:
@@ -6120,27 +6378,12 @@ def _governed_mcp_route(
     try:
         prepared = _mcp_tool.prepare(call, _json_compatible(arguments))
     except _mcp_tool.McpCallRefused as exc:
-        raise ToolExecutionError(f"{label} refused: {exc.code}") from exc
+        raise ToolRouteRefused(exc.code, f"{label} refused: {exc.code}") from exc
     route = prepared.route
     if route.route == REFUSE:
-        raise ToolExecutionError(f"{label} refused: {route.code}")
-    if route.route == INLINE:
-        return None
-    if plan.governed_effects is None:
-        if _legacy_effects_allowed(plan):
-            # Development profile, no authority bound (#1068): the pre-dispatcher behavior. The call runs inline through the
-            # gateway entry point (which lets it through outside the reference profile), behind the node's own approval gate;
-            # there is no proposal, exact-intent approval, lease or receipt.
-            return None
-        raise ToolExecutionError(
-            f"{node_id!r} requires a governed effect context to run protected {label}"
-        )
-    if overridden:
-        raise ToolExecutionError(
-            f"{label} is replaced by an injected callable and cannot be governed"
-        )
-    assert prepared.args is not None  # only a refused route has no proposal material
-    return _GovernedMcp(route, call, prepared, dict(prepared.args["arguments"]))
+        code = route.code or UNSUPPORTED_EFFECT_PATH
+        raise ToolRouteRefused(code, f"{label} refused: {route.code}")
+    return call, prepared
 
 
 def _perform_mcp_tool_effect(
@@ -6179,6 +6422,141 @@ def _perform_mcp_tool_effect(
         backend_config={"call": mcp.call, "receipt_verifier": context.receipt_verifier},
     )
     return response["result"]
+
+
+class _RuntimeToolBinder:
+    """What a model's proposal of a bound tool is, from the tool's **trusted identity** and the routes a tool node uses (B04.6, #768).
+
+    :func:`caliber.effects.step_proposal.record_step_proposal` asks it, for each protected tool of the agent, what the proposal
+    for the model's arguments would be. The answer is built with the same helpers the node routes use
+    (:func:`_read_registry_identity`, :func:`route_registered_tool`, :func:`_openapi_decision`, :func:`_mcp_decision`; the trusted
+    registry row or the MCP server record and the administrator's tool policy; never the binding's names or level, the model's
+    claims or the server's own annotations), so a model-chosen call is classified exactly as a node-bound one and has no weaker
+    path. The proposal it describes is **the node's own**: the same connector, resource and intent arguments a tool node records
+    for the same call, so the connector's backend can dispatch it once it is approved. The model's arguments are embedded only
+    after the trusted input schema accepted them (the registry row's for a registered or OpenAPI tool; an MCP tool has no trusted
+    schema, its arguments are only the bounded plain JSON every intent is). Every refusal is an ``EffectRefused`` with a fixed code.
+    """
+
+    def __init__(self, plan: RuntimePlan, node_id: str) -> None:
+        self._plan = plan
+        self._node_id = node_id
+
+    def connector(self, binding: IRToolBinding) -> str | None:
+        if binding.binding_type == "mcp_tool":
+            return _mcp_tool.CONNECTOR
+        if binding.binding_type == "registered_function":
+            if binding.execution_backend == OPENAPI_BACKEND:
+                return _openapi_http.CONNECTOR
+            if binding.execution_backend == "python_callable":
+                return REGISTERED_TOOL_CONNECTOR
+        return None
+
+    def static_resource(self, binding: IRToolBinding) -> str | None:
+        if binding.binding_type == "mcp_tool":
+            return _mcp_tool.mcp_resource(binding.mcp_server_id or "", binding.mcp_tool_name or "")
+        if (
+            binding.binding_type == "registered_function"
+            and binding.execution_backend == "python_callable"
+            and binding.resolved_name
+            and binding.resolved_version
+        ):
+            return tool_resource(binding.resolved_name, binding.resolved_version)
+        return None
+
+    def bind(self, binding: IRToolBinding, arguments: Mapping[str, Any]) -> ToolProposal:
+        plain = _json_compatible(dict(arguments))
+        try:
+            if binding.binding_type == "mcp_tool":
+                return self._mcp(binding, plain)
+            if binding.binding_type == "registered_function":
+                if binding.execution_backend == OPENAPI_BACKEND:
+                    return self._openapi(binding, plain)
+                if binding.execution_backend == "python_callable":
+                    return self._registered(binding, plain)
+        except ToolRouteRefused as exc:
+            if exc.code == UNSUPPORTED_EFFECT_PATH:
+                raise UnsupportedEffectPath(exc.code) from None
+            raise EffectRefused(exc.code) from None
+        except OpenApiPreflightError as exc:
+            raise EffectRefused(exc.code) from None
+        raise UnsupportedEffectPath(UNSUPPORTED_EFFECT_PATH)
+
+    def _registered(self, binding: IRToolBinding, arguments: dict[str, Any]) -> ToolProposal:
+        identity = _read_registry_identity(self._plan, binding)
+        if identity is None:
+            raise ToolRouteRefused(REGISTRY_ROW_UNREADABLE, "registry row unreadable")
+        if not _registered_row_matches(binding, identity):
+            raise ToolRouteRefused(REGISTRY_ROW_MISMATCH, "registry row mismatch")
+        route = route_registered_tool(identity)
+        if route.route == REFUSE:
+            raise UnsupportedEffectPath(UNSUPPORTED_EFFECT_PATH)
+        if route.route == INLINE:
+            raise EffectRefused(TOOL_NOT_PROTECTED)
+        if not check_tool_arguments(identity, arguments):
+            raise EffectRefused(TOOL_INPUT_INVALID)
+        return ToolProposal(
+            backend_kind="registered_tool",
+            connector=REGISTERED_TOOL_CONNECTOR,
+            resource=tool_resource(identity.name, identity.version),
+            args=tool_intent_args(
+                name=identity.name, version=identity.version, arguments=arguments, input_text=""
+            ),
+            tool_name=identity.name,
+            caliber_defined=route.trusted,
+            effect_floor=route.effect_class,
+            registry=(identity.name, identity.version),
+        )
+
+    def _openapi(self, binding: IRToolBinding, arguments: dict[str, Any]) -> ToolProposal:
+        decision = _openapi_decision(self._plan, binding, arguments=arguments)
+        if decision.route.route == INLINE:
+            raise EffectRefused(TOOL_NOT_PROTECTED)
+        operation = _openapi_operation(self._plan, decision.identity)
+        checked = _openapi_http.preflight(operation, arguments)
+        return ToolProposal(
+            backend_kind=_openapi_http.BACKEND_KIND,
+            connector=_openapi_http.CONNECTOR,
+            resource=_openapi_http.operation_resource(checked),
+            args=_openapi_http.intent_args(operation, checked),
+            tool_name=operation.tool,
+            caliber_defined=decision.route.trusted,
+            effect_floor=decision.route.effect_class,
+            expected_resource_version=checked.expected_resource_version,
+            registry=(decision.identity.name, decision.identity.version),
+        )
+
+    def _mcp(self, binding: IRToolBinding, arguments: dict[str, Any]) -> ToolProposal:
+        server_id, tool_name = binding.mcp_server_id or "", binding.mcp_tool_name or ""
+        call, prepared = _mcp_decision(
+            self._plan,
+            server_id=server_id,
+            tool_name=tool_name,
+            timeout_seconds=binding.timeout_seconds or _mcp_tool.DEFAULT_TIMEOUT_SECONDS,
+            arguments=arguments,
+        )
+        if prepared.route.route == INLINE:
+            raise EffectRefused(TOOL_NOT_PROTECTED)
+        assert prepared.args is not None  # only a refused route has no proposal material
+        return ToolProposal(
+            backend_kind=_mcp_tool.BACKEND_KIND,
+            connector=_mcp_tool.CONNECTOR,
+            resource=prepared.resource,
+            args=prepared.args,
+            tool_name=call.tool_name,
+            caliber_defined=False,
+            effect_floor=prepared.route.effect_class,
+            mcp=(server_id, tool_name),
+        )
+
+
+def _registered_row_matches(binding: IRToolBinding, identity: RegisteredToolIdentity) -> bool:
+    """Whether the code a registered binding would run is the code its registry row describes (module, callable, backend)."""
+    return (
+        identity.module_path == binding.module_path
+        and identity.callable_name == binding.callable_name
+        and identity.execution_backend == binding.execution_backend
+    )
 
 
 #: Failures that prove the effect did **not** reach the remote system, so the
@@ -8471,6 +8849,7 @@ def _run_node(  # noqa: PLR0911, PLR0912, PLR0915 - per-node-type dispatch
         )
         if extra_tools:
             callables = {**callables, **extra_tools}
+        callables = _gate_model_callables(plan, node, callables, preview=preview)
         handoff_agents = _collect_agent_handoff_specs(
             node,
             ir,
@@ -8555,6 +8934,7 @@ def _run_node(  # noqa: PLR0911, PLR0912, PLR0915 - per-node-type dispatch
                 )
                 if extra_tools:
                     t_callables = {**t_callables, **extra_tools}
+                t_callables = _gate_model_callables(plan, target, t_callables, preview=preview)
             t_handoff_agents = _collect_agent_handoff_specs(
                 target,
                 ir,
