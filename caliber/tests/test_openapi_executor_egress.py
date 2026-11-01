@@ -23,6 +23,7 @@ from caliber.integrations.openapi.executor import (
     OpenApiExecutionError,
     OpenApiPreflight,
     OpenApiPreflightError,
+    _send_raw,
     active_egress_policy,
     bind_egress_policy,
     execute_openapi_http_tool,
@@ -241,7 +242,7 @@ def test_non_idempotent_method_is_not_retried_without_an_idempotency_key(local_s
     host, port = server.server_address[0], server.server_address[1]
     handler.statuses = [503, 200]
 
-    result = execute_openapi_http_tool(
+    result = _send_raw(
         execution_config=_config(
             method="POST",
             path="/tickets",
@@ -264,7 +265,7 @@ def test_non_idempotent_method_retries_once_an_idempotency_key_is_bound(local_se
     host, port = server.server_address[0], server.server_address[1]
     handler.statuses = [503, 200]
 
-    result = execute_openapi_http_tool(
+    result = _send_raw(
         execution_config=_config(
             method="POST",
             path="/tickets",

@@ -1181,6 +1181,24 @@ def test_build_plan_allows_the_legacy_guarded_path_only_outside_the_reference_pr
     assert plan.governed_effects is None
 
 
+def test_build_plan_fails_closed_for_a_profile_it_does_not_list(db_session: Session) -> None:
+    """The flag is an allow-list (``profile == "development"``): a profile added later refuses until it is listed."""
+    _seed_workflow(db_session)
+    db_session.add(_version())
+    db_session.commit()
+    version = db_session.get(CaliberWorkflowVersion, "wfv-1")
+    assert version is not None
+
+    plan = promoter.build_plan(
+        db_session,
+        version,
+        resolver=fake_resolver(),
+        config=CaliberConfig.model_construct(profile="staging"),
+    )
+
+    assert plan.legacy_guarded_effects is False
+
+
 def test_build_plan_without_a_config_is_the_development_profile(db_session: Session) -> None:
     _seed_workflow(db_session)
     db_session.add(_version())
