@@ -9,8 +9,9 @@ after the check cannot be reached.
 There are two entries. :func:`execute_openapi_http_tool` is the public one and sends only a **read** operation
 (``GET``, ``HEAD``, ``OPTIONS``); any other method is refused with ``unsupported_effect_path``
 (:class:`OpenApiUnsupportedEffectPathError`). :func:`_send_raw` is the private raw transport that sends any method: only the
-dispatcher's private backends (document request and ``openapi_http``, B04.4, #750) and the operator's draft preview route
-(EP-033, exempt) may call it, and ``tests/test_effect_path_matrix.py`` fails when any other production module names it. A
+dispatcher's private backends (document request and ``openapi_http``, B04.4, #750) and the two named development-profile
+entries below (:func:`bind_legacy_openapi_http_tool` and :func:`execute_legacy_openapi_draft_preview`, which a reference
+profile never reaches) may call it, and ``tests/test_effect_path_matrix.py`` fails when any other production module names it. A
 protected call of a workflow tool node is proposed, approved and sent by the ``openapi_http`` backend, which calls
 :func:`preflight_governed_openapi_request` first so that everything that can be refused without sending is refused before
 an approval is requested. The callers that still reach the public entry are pinned in the same test.
@@ -205,6 +206,29 @@ def bind_legacy_openapi_http_tool(
     profile never binds it, so there a protected call without a context is refused.
     """
     return _bind_tool(binding, egress_policy, lambda **kw: _send_raw(**kw))  # noqa: PLW0108 - looked up at call time
+
+
+def execute_legacy_openapi_draft_preview(
+    *,
+    execution_config: dict[str, Any] | None,
+    input_schema: dict[str, Any] | None,
+    input_data: dict[str, Any],
+    egress_policy: EgressPolicy | None = None,
+) -> dict[str, Any]:
+    """**Development-profile only**: fire one draft-preview call of any method through the private raw transport.
+
+    This is the operator's draft preview (inventory EP-033, exempt) outside the reference profile: one real upstream call
+    fired by a human and gated by the draft's ``allow_in_preview``, with no proposal, approval, lease or receipt. The reference
+    profile never reaches it (preview there sends only a read through :func:`execute_openapi_http_tool`, #1072), because
+    ``allow_in_preview`` is set by the same operator and a write fired this way would be self-approvable. The preview route is
+    the only module that may name it (pinned by ``tests/test_effect_path_matrix.py``).
+    """
+    return _send_raw(
+        execution_config=execution_config,
+        input_schema=input_schema,
+        input_data=input_data,
+        egress_policy=egress_policy,
+    )
 
 
 def _bind_tool(

@@ -37,7 +37,7 @@ On the wire the classes map to statuses like this:
 | 404 | the object does not exist, or the caller is not a member of its project |
 | 409 | a state conflict (for example a primary owner that cannot be changed, or a duplicate member) |
 | 429 | rate limited; the response carries `Retry-After` |
-| 503 | a dependency is down: the database, or MLflow (the message names `MLFLOW_TRACKING_URI`); `GET /readiness` says which |
+| 503 | a dependency is down: the database, or MLflow (the message names `MLFLOW_TRACKING_URI`); `GET /readiness` says which. Lock contention is also a `503`, with `reason_code` `apply_busy` (Apply) or `approval_busy` (an approval decision): a lock timeout, a deadlock the request lost, or a busy SQLite file; nothing was decided, so retry |
 
 Some routes also return a `reason_code` string beside `detail`; it is optional,
 so fall back to `detail` and the status when it is absent.
@@ -46,13 +46,16 @@ so fall back to `detail` and the status when it is absent.
 (`apply_self_approval`, `apply_creator_unknown`, `apply_permission_revoked`), `409`
 (`apply_candidate_changed`, `apply_candidate_unverified`) and `503` (`apply_busy`). Each
 one changed nothing, so it is safe to call again after the cause is fixed, but only
-`apply_busy` is worth retrying as it is: it means that, on PostgreSQL, a database lock was
-not granted within 5 seconds and nothing was decided. The SDK does not retry a `POST` on its own, so
+`apply_busy` is worth retrying as it is: it means another transaction held a lock the
+claim needed and nothing was decided. On PostgreSQL that is a row lock that was not
+granted within 5 seconds, or a lock-order deadlock in which this claim was the victim;
+on SQLite it is the write lock held past the 30 second busy timeout. The SDK does not retry a `POST` on its own, so
 `caliber.jobs.apply(...)` raises `CaliberServerError` with `reason_code == "apply_busy"`
 and the caller waits and calls again. The other codes need a person to act (a different
-account, a restored grant, another evaluation pass). A `500` from Apply (a PostgreSQL
-deadlock victim or, on SQLite, a busy timeout) carries no code: read the job's status
-before calling again. The table of codes, the recovery for each and an SDK example are in
+account, a restored grant, another evaluation pass). A `500` from Apply carries no code
+and is not one of these lock cases (a serialization failure, `40001`, is deliberately not mapped
+and also answers `500`): read the job's status before calling again. The `503` carries
+`Retry-After: 1`. The table of codes, the recovery for each and an SDK example are in
 [Apply: refusal catalogue, audit and recovery](m-64-reference-profile.md#apply-refusal-catalogue-audit-and-recovery-b065-762).
 
 ## 2. Use waiters for long-running operations
