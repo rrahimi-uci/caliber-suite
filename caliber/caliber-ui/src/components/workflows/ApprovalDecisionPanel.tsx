@@ -92,15 +92,17 @@ function Row({ term, children }: { term: string; children: ReactNode }): JSX.Ele
 }
 
 function Digest({ label, value }: { label: string; value: string }): JSX.Element {
+  // A group, not a bare `code`: the `code` role cannot carry a name, and the full digest has to be in the accessible name.
   return (
-    <code
+    <span
+      role="group"
       tabIndex={0}
       title={value}
       aria-label={`${label} ${value}`}
       className="rounded bg-slate-100 px-1.5 py-0.5 font-mono text-[11px] text-slate-700 focus:outline focus:outline-2 focus:outline-sky-500 dark:bg-slate-800 dark:text-slate-200"
     >
-      {shortDigest(value)}
-    </code>
+      <code>{shortDigest(value)}</code>
+    </span>
   );
 }
 
