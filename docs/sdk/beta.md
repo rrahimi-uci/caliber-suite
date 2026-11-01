@@ -302,7 +302,9 @@ Curation is explicit: select operations (or filter by `tags`/`methods`), call
 creates a `Tool` your workflows and Aria can invoke, and `preview_tool_draft()`
 performs a real upstream call — it is refused unless the draft has
 `allow_in_preview` set, the same gate that keeps an approval-required write from
-firing before anyone approved it.
+firing before anyone approved it. In the reference profile preview is also read-only:
+a draft whose operation is not a `GET`, `HEAD` or `OPTIONS` is refused with
+`409` `unsupported_effect_path` and nothing is sent.
 
 The complete read-only flow is executable in the SDK test suite:
 

@@ -7907,7 +7907,11 @@ Run one real upstream call for an unpublished draft.
 
 This is a live effect, not a simulation — refused unless the draft has
 ``allow_in_preview`` set, so an approval-gated write cannot be fired
-through preview before anyone approves it.
+through preview before anyone approves it. On a server running the
+reference profile, preview is also read-only: a draft whose operation
+is not a ``GET``, ``HEAD`` or ``OPTIONS`` is refused with ``409`` and
+``reason_code`` ``unsupported_effect_path`` and nothing is sent
+(the development profile still previews any method).
 
 | Parameter | Kind | Type | Default |
 | --- | --- | --- | --- |

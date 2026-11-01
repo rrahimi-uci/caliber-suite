@@ -11,6 +11,7 @@ promoter and the audit log; ``tests/egi_scenarios/test_b06_apply_claim_recheck.p
 from __future__ import annotations
 
 import math
+import sqlite3
 from typing import Any
 
 import pytest
@@ -39,7 +40,7 @@ from caliber.db.models import (
     CaliberRefinementJob,
 )
 from caliber.resource_access import ROLE_EDITOR, ROLE_VIEWER
-from caliber.routes._job_access import is_lock_timeout, lock_job_and_authority
+from caliber.routes._job_access import is_lock_contention, lock_job_and_authority
 from tests.test_apply_distinct_approver import (
     JOB_ID,
     OTHER,
@@ -757,40 +758,129 @@ def _lock_timeout_error(sqlstate: str) -> OperationalError:
     return OperationalError("SELECT ... FOR UPDATE", {}, orig)
 
 
+def _sqlite_error(message: str, code: int | None) -> OperationalError:
+    """What the driver raises: ``code`` is ``sqlite_errorcode`` (Python 3.11+); ``None`` is a driver that does not carry one."""
+    orig = sqlite3.OperationalError(message)
+    if code is not None:
+        orig.sqlite_errorcode = code  # type: ignore[attr-defined]
+    return OperationalError("UPDATE caliber_refinement_jobs", {}, orig)
+
+
 @pytest.mark.parametrize(
     ("error", "expected"),
     [
         (_lock_timeout_error("55P03"), True),
+        (_lock_timeout_error("40P01"), True),
         (_lock_timeout_error("40001"), False),
         (_lock_timeout_error(""), False),
         (RuntimeError("55P03"), False),
+        (_sqlite_error("database is locked", 5), True),
+        (
+            _sqlite_error("database is locked", 517),
+            True,
+        ),  # SQLITE_BUSY_SNAPSHOT: the primary code is BUSY
+        (_sqlite_error("database table is locked", 6), True),
+        (_sqlite_error("database is locked", None), True),
+        (_sqlite_error("database table is locked", None), True),
+        (_sqlite_error("UNIQUE constraint failed", 19), False),
+        (_sqlite_error("no such table: x", 1), False),
+        (_sqlite_error("no such table: x", None), False),
+        # a code-carrying error is judged by its code, never by words in its message
+        (_sqlite_error("database is locked", 1), False),
     ],
-    ids=["lock-not-available", "serialization-failure", "blank", "not-a-database-error"],
+    ids=[
+        "lock-not-available",
+        "deadlock-detected",
+        "serialization-failure",
+        "blank",
+        "not-a-database-error",
+        "sqlite-busy",
+        "sqlite-busy-snapshot",
+        "sqlite-locked",
+        "sqlite-busy-message-only",
+        "sqlite-locked-message-only",
+        "sqlite-constraint",
+        "sqlite-other-code",
+        "sqlite-other-message-only",
+        "sqlite-message-ignored-when-the-code-says-otherwise",
+    ],
 )
-def test_only_a_postgresql_lock_timeout_is_recognised(error: BaseException, expected: bool) -> None:
-    assert is_lock_timeout(error) is expected
+def test_only_lock_contention_is_recognised(error: BaseException, expected: bool) -> None:
+    assert is_lock_contention(error) is expected
 
 
 def test_pgcode_is_also_recognised() -> None:
     class _LegacyError(Exception):
         pgcode = "55P03"
 
-    assert is_lock_timeout(OperationalError("x", {}, _LegacyError()))
+    assert is_lock_contention(OperationalError("x", {}, _LegacyError()))
+
+    class _LegacyDeadlockError(Exception):
+        pgcode = "40P01"
+
+    assert is_lock_contention(OperationalError("x", {}, _LegacyDeadlockError()))
 
 
-def test_a_lock_timeout_in_the_claim_is_a_payload_free_503_with_nothing_written(
-    job: TestClient, db_session: Session, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def _contention_at(stage: str, monkeypatch: pytest.MonkeyPatch, error: OperationalError) -> None:
+    """Make the database report ``error`` at one stage of the claim transaction (once, so the retry succeeds)."""
     import caliber.routes.jobs as jobs_route
 
-    def timed_out(*args: Any, **kwargs: Any) -> None:
-        raise _lock_timeout_error("55P03")
+    raised: list[int] = []
 
-    monkeypatch.setattr(jobs_route, "lock_job_and_authority", timed_out)
+    def once() -> None:
+        if not raised:
+            raised.append(1)
+            raise error
+
+    if stage == "lock":
+
+        def locking(*args: Any, **kwargs: Any) -> None:
+            raise error
+
+        monkeypatch.setattr(jobs_route, "lock_job_and_authority", locking)
+    elif stage == "snapshot":
+        real = jobs_route._verified_claim_snapshot
+
+        def snapshot(*args: Any, **kwargs: Any) -> Any:
+            once()
+            return real(*args, **kwargs)
+
+        monkeypatch.setattr(jobs_route, "_verified_claim_snapshot", snapshot)
+    else:
+        assert stage == "commit"
+        real_commit = Session.commit
+
+        def commit(self: Session) -> None:
+            once()
+            real_commit(self)
+
+        monkeypatch.setattr(Session, "commit", commit)
+
+
+@pytest.mark.parametrize("stage", ["lock", "snapshot", "commit"])
+@pytest.mark.parametrize(
+    "error",
+    [
+        _lock_timeout_error("55P03"),
+        _lock_timeout_error("40P01"),
+        _sqlite_error("database is locked", 5),
+    ],
+    ids=["lock-timeout", "deadlock-victim", "sqlite-busy"],
+)
+def test_lock_contention_in_the_claim_is_a_payload_free_503_with_nothing_written(
+    job: TestClient,
+    db_session: Session,
+    monkeypatch: pytest.MonkeyPatch,
+    stage: str,
+    error: OperationalError,
+) -> None:
+    """A lock timeout, a deadlock victim or a SQLite busy timeout, at the locks, after the claim UPDATE or at the commit."""
+    _contention_at(stage, monkeypatch, error)
     response = _apply(job, OTHER)
     assert response.status_code == 503
     assert response.json()["reason_code"] == APPLY_BUSY
     assert response.json()["detail"] == APPLY_RECHECK_DETAIL[APPLY_BUSY]
+    assert response.headers["Retry-After"] == "1"
     _assert_payload_free(response)
     assert _job_status(db_session) == "candidate_ready"
     assert job.app.state.promoter.calls == []  # type: ignore[attr-defined]
@@ -812,6 +902,21 @@ def test_any_other_database_error_in_the_claim_is_not_swallowed(
     with pytest.raises(OperationalError):
         _apply(job, OTHER)
     assert _job_status(db_session) == "candidate_ready"
+
+
+def test_a_database_error_after_the_claim_is_not_mapped_to_busy(
+    job: TestClient, db_session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The busy mapping covers the claim only: a lock error raised by the promoter side is the compensation's business."""
+    import caliber.routes.jobs as jobs_route
+
+    def promoting(*args: Any, **kwargs: Any) -> None:
+        raise _lock_timeout_error("40P01")
+
+    monkeypatch.setattr(jobs_route, "apply_candidate", promoting)
+    with pytest.raises(OperationalError):
+        _apply(job, OTHER)
+    assert _job_status(db_session) == "candidate_ready"  # the unstarted apply was reverted
 
 
 def test_a_claim_that_matches_nothing_yet_rechecks_clean_is_still_refused(
