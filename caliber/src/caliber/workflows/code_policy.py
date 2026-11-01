@@ -122,8 +122,8 @@ class CodePolicy:
     def from_config(cls, config: object) -> CodePolicy:
         """The policy a configuration implies (the reference profile refuses; any other profile does not)."""
         return cls(
-            # An allow-list for the development profile: any other (or missing) profile gets the stricter answer.
-            reference=getattr(config, "profile", "") != "development",
+            # The profile setting is validated to development|reference; a stub without one (an export config) is not it.
+            reference=getattr(config, "profile", "") == "reference",
             sandbox_enabled=bool(getattr(config, "registered_tool_sandbox_enabled", True)),
         )
 

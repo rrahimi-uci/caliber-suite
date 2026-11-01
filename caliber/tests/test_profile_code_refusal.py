@@ -681,13 +681,14 @@ def test_policy_from_config(overrides: dict[str, Any], expected: CodePolicy) -> 
     assert CodePolicy.from_config(CaliberConfig(**overrides)) == expected
 
 
-def test_only_the_development_profile_is_exempt_a_missing_or_other_profile_is_cautious() -> None:
+def test_only_a_reference_profile_setting_refuses_a_stub_without_one_does_not() -> None:
+    """Pins the comparison on config stubs (a generated export hands the binder one) so it cannot silently invert."""
     from types import SimpleNamespace
 
-    assert CodePolicy.from_config(SimpleNamespace(profile="development")).reference is False
-    assert CodePolicy.from_config(SimpleNamespace(profile="staging")).reference is True
-    assert CodePolicy.from_config(SimpleNamespace()).reference is True
     assert CodePolicy.from_config(SimpleNamespace(profile="reference")).reference is True
+    assert CodePolicy.from_config(SimpleNamespace(profile="development")).reference is False
+    assert CodePolicy.from_config(SimpleNamespace(profile="staging")).reference is False
+    assert CodePolicy.from_config(SimpleNamespace()).reference is False
 
 
 def _without_classification(monkeypatch: pytest.MonkeyPatch, kind: NodeType) -> None:
