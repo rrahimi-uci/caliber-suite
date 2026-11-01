@@ -15,31 +15,55 @@ a clean alpha turns it off rather than on. These tests pin:
 * ``/capabilities`` reports every flag, and MCP workflow nodes report themselves
   unavailable while integrations are off.
 
+The Beta section at the end pins per-adapter support (``adapters`` in ``/capabilities``): only the
+trusted reference connector and the release evaluation path can be ``supported``, only in a valid
+reference deployment whose code still matches the pinned scenario evidence; MCP servers and OpenAPI
+integrations never are; a disabled adapter reports the cause, code and text of its 404; and the
+flag block older readers parse is unchanged.
+
 The shared ``app_config`` fixture turns every flag on (the rest of the suite exercises
 those routes); the tests that care about the shipped default build their own config.
 """
 
 from __future__ import annotations
 
+import ast
+import itertools
 from collections.abc import Iterator
+from dataclasses import replace
+from pathlib import Path
+from typing import Any
 
 import pytest
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, sessionmaker
 from starlette.testclient import TestClient
 
+import caliber.eval.evidence as evidence_module
+import caliber.features as features_module
+import caliber.profile as profile_module
 from caliber.config import CaliberConfig
 from caliber.features import (
+    ADAPTERS,
     FEATURES,
     PREFIX,
+    PREVIEW,
     REASON_CODE,
+    SUPPORT_EVIDENCE,
+    SUPPORT_STATUSES,
+    SUPPORTED,
+    UNAVAILABLE,
+    adapter_capabilities,
+    capabilities_block,
     disabled_message,
     feature_enabled,
     feature_for_path,
 )
+from caliber.schemas import AdapterCapabilitySchema, FeatureFlagSchema, PlatformCapabilitiesSchema
 from caliber.server import create_app
 from caliber.workflows.component_catalog import evaluate_requirements
 from tests.conftest import DEFAULT_TEST_USER
+from tests.test_profile import SAFE
 
 ALL = {flag.id for flag in FEATURES}
 FLAG_ENV = {flag.id: flag.env_var for flag in FEATURES}
@@ -354,3 +378,387 @@ def test_mcp_nodes_are_unavailable_while_integrations_are_off(
     assert evaluate_requirements(off)["mcp_server"] is False
     # With integrations on, a server is registered data, which the config cannot judge.
     assert evaluate_requirements(on)["mcp_server"] is None
+
+
+# ---------------------------------------------------------------------------
+# Per-adapter support (Beta, B15-Support.1, #755)
+# ---------------------------------------------------------------------------
+#
+# ``adapters`` answers a different question than ``features``: not "is the area on" but "is this
+# adapter *supported*". Only the trusted reference connector and the release evaluation path can be,
+# and only in a valid reference deployment whose live code still matches their scenario evidence.
+
+CALIBER_DIR = Path(__file__).resolve().parents[1]
+ADAPTER_IDS = [spec.id for spec in ADAPTERS]
+BLOCK_KEYS = {"status", "kind", "label", "reason_code", "disabled_by", "message", "evidence"}
+
+
+def _reference(**updates: Any) -> CaliberConfig:
+    """A configuration that passes the reference profile, with the supported release path switched on."""
+    base = {
+        **SAFE,
+        "feature_release_candidates_enabled": True,
+        "workspace_release_evaluator_enabled": True,
+        "eval_provider": "mlflow",
+        "feature_integrations_enabled": True,
+    }
+    return CaliberConfig().model_copy(update={**base, **updates})
+
+
+def _development(**updates: Any) -> CaliberConfig:
+    base = {
+        "feature_release_candidates_enabled": True,
+        "workspace_release_evaluator_enabled": True,
+        "eval_provider": "mlflow",
+        "feature_integrations_enabled": True,
+    }
+    return CaliberConfig().model_copy(update={**base, **updates})
+
+
+def _status(config: CaliberConfig) -> dict[str, tuple[str, str | None]]:
+    return {
+        adapter_id: (block["status"], block["reason_code"])
+        for adapter_id, block in adapter_capabilities(config).items()
+    }
+
+
+def test_supported_reference_visible() -> None:
+    """The reference connector and the release evaluation path report supported, with their scenarios."""
+    adapters = adapter_capabilities(_reference())
+
+    assert _status(_reference()) == {
+        "document_request_connector": (SUPPORTED, None),
+        "release_evaluation": (SUPPORTED, None),
+        "mcp_servers": (UNAVAILABLE, "mcp_not_in_reference_profile"),
+        "openapi_integrations": (PREVIEW, "no_support_evidence"),
+    }
+    for adapter_id in ("document_request_connector", "release_evaluation"):
+        block = adapters[adapter_id]
+        assert block["disabled_by"] is None
+        assert block["evidence"] == list(SUPPORT_EVIDENCE[adapter_id].scenarios)
+        assert block["message"].startswith(block["label"])
+    assert adapters["document_request_connector"]["kind"] == "connector"
+    assert adapters["release_evaluation"]["kind"] == "release_evaluation"
+
+
+def test_every_block_has_the_same_keys_and_evidence_only_when_supported() -> None:
+    for config in (_reference(), _development(), CaliberConfig()):
+        for block in adapter_capabilities(config).values():
+            assert set(block) == BLOCK_KEYS
+            assert block["status"] in SUPPORT_STATUSES
+            assert (block["evidence"] != []) is (block["status"] == SUPPORTED)
+            assert (block["reason_code"] is None) is (block["status"] == SUPPORTED)
+
+
+def test_unsupported_mcp_not_promoted() -> None:
+    """MCP servers and OpenAPI integrations are never supported, whatever the flags and profile say."""
+    for profile_updates in ({}, SAFE):
+        for release, evaluator, integrations, cookbooks in itertools.product(
+            [False, True], repeat=4
+        ):
+            config = CaliberConfig().model_copy(
+                update={
+                    **profile_updates,
+                    "feature_release_candidates_enabled": release,
+                    "workspace_release_evaluator_enabled": evaluator,
+                    "feature_integrations_enabled": integrations,
+                    "feature_cookbooks_enabled": cookbooks,
+                    "eval_provider": "mlflow",
+                }
+            )
+            adapters = adapter_capabilities(config)
+            for adapter_id in ("mcp_servers", "openapi_integrations"):
+                assert adapters[adapter_id]["status"] != SUPPORTED, (profile_updates, adapter_id)
+                assert adapters[adapter_id]["evidence"] == []
+                # The area flag alone decides unavailable vs not for the OpenAPI adapter.
+                if adapter_id == "openapi_integrations":
+                    expected = PREVIEW if integrations else UNAVAILABLE
+                    assert adapters[adapter_id]["status"] == expected
+
+
+@pytest.mark.parametrize("adapter_id", ["mcp_servers", "openapi_integrations"])
+def test_integrations_on_is_preview_outside_the_reference_profile(adapter_id: str) -> None:
+    block = adapter_capabilities(_development())[adapter_id]
+
+    assert block["status"] == PREVIEW
+    assert block["reason_code"] == "no_support_evidence"
+    assert block["disabled_by"] == "profile"
+    assert "no scenario evidence" in block["message"]
+
+
+def test_mcp_servers_are_unavailable_in_the_reference_profile_while_it_lists_none() -> None:
+    block = adapter_capabilities(_reference())["mcp_servers"]
+
+    assert block["status"] == UNAVAILABLE
+    assert block["reason_code"] == "mcp_not_in_reference_profile"
+    assert block["disabled_by"] == "profile"
+    assert "no MCP command or host" in block["message"]
+
+
+def test_a_profile_that_listed_an_mcp_host_would_still_leave_servers_at_preview(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Listing a host is an ADR change; it does not create scenario evidence, so it promotes nothing."""
+    monkeypatch.setattr(features_module, "REFERENCE_MCP_ALLOWLIST", ("mcp.example.invalid",))
+
+    block = adapter_capabilities(_reference())["mcp_servers"]
+
+    assert (block["status"], block["reason_code"]) == (PREVIEW, "no_support_evidence")
+
+
+def test_unavailable_evaluator_disabled() -> None:
+    """The release flag on but the evaluator off: unavailable, naming the variable to set."""
+    config = _reference(workspace_release_evaluator_enabled=False)
+
+    block = adapter_capabilities(config)["release_evaluation"]
+
+    assert block["status"] == UNAVAILABLE
+    assert block["reason_code"] == "evaluator_disabled"
+    assert block["disabled_by"] == "CALIBER_WORKSPACE_RELEASE_EVALUATOR_ENABLED"
+    assert block["message"] == (
+        "Workspace release evaluation is unavailable in this deployment. "
+        "Set CALIBER_WORKSPACE_RELEASE_EVALUATOR_ENABLED=true to enable it."
+    )
+    assert block["evidence"] == []
+
+
+def test_a_closed_area_flag_wins_and_keeps_the_404s_code_and_text() -> None:
+    flag = next(flag for flag in FEATURES if flag.id == "release_candidates")
+
+    block = adapter_capabilities(_reference(feature_release_candidates_enabled=False))[
+        "release_evaluation"
+    ]
+
+    assert block["status"] == UNAVAILABLE
+    assert block["reason_code"] == REASON_CODE == "feature_disabled"
+    assert block["disabled_by"] == flag.env_var
+    assert block["message"] == disabled_message(flag)
+    # The flag wins even when the evaluator is also off.
+    both = _reference(
+        feature_release_candidates_enabled=False, workspace_release_evaluator_enabled=False
+    )
+    assert adapter_capabilities(both)["release_evaluation"]["reason_code"] == "feature_disabled"
+
+
+@pytest.mark.parametrize("adapter_id", ["mcp_servers", "openapi_integrations"])
+def test_integrations_off_makes_both_integration_adapters_unavailable(adapter_id: str) -> None:
+    flag = next(flag for flag in FEATURES if flag.id == "integrations")
+    for config in (_development(feature_integrations_enabled=False), CaliberConfig()):
+        block = adapter_capabilities(config)[adapter_id]
+
+        assert block["status"] == UNAVAILABLE
+        assert block["reason_code"] == "feature_disabled"
+        assert block["disabled_by"] == "CALIBER_FEATURE_INTEGRATIONS"
+        assert block["message"] == disabled_message(flag)
+
+
+def test_the_connector_needs_no_area_flag_but_does_need_the_reference_profile() -> None:
+    development = adapter_capabilities(CaliberConfig())["document_request_connector"]
+
+    assert development["status"] == PREVIEW
+    assert development["reason_code"] == "not_reference_profile"
+    assert development["disabled_by"] == "CALIBER_PROFILE"
+    assert "CALIBER_PROFILE=reference" in development["message"]
+    no_flags = _reference(
+        feature_integrations_enabled=False, feature_release_candidates_enabled=False
+    )
+    assert adapter_capabilities(no_flags)["document_request_connector"]["status"] == SUPPORTED
+
+
+def test_release_evaluation_is_preview_outside_the_reference_profile() -> None:
+    block = adapter_capabilities(_development())["release_evaluation"]
+
+    assert (block["status"], block["reason_code"]) == (PREVIEW, "not_reference_profile")
+    assert block["disabled_by"] == "CALIBER_PROFILE"
+
+
+@pytest.mark.parametrize("provider", ["fake", "FAKE", "  fake ", ""])
+def test_release_evaluation_with_simulated_scores_is_preview(provider: str) -> None:
+    block = adapter_capabilities(_reference(eval_provider=provider))["release_evaluation"]
+
+    assert (block["status"], block["reason_code"]) == (PREVIEW, "simulated_provider")
+    assert block["disabled_by"] == "CALIBER_EVAL_PROVIDER"
+    assert "CALIBER_EVAL_PROVIDER=mlflow" in block["message"]
+
+
+@pytest.mark.parametrize("adapter_id", ["document_request_connector", "release_evaluation"])
+def test_a_reference_configuration_that_breaks_the_profile_is_unavailable(adapter_id: str) -> None:
+    config = _reference(csrf_enabled=False, mcp_allow_insecure_http=True)
+
+    block = adapter_capabilities(config)[adapter_id]
+
+    assert (block["status"], block["reason_code"]) == (UNAVAILABLE, "reference_profile_violations")
+    assert block["disabled_by"] == "profile"
+    assert "csrf_disabled, mcp_insecure_http" in block["message"]
+    # The codes are named; no configured value is.
+    assert "db.example.invalid" not in block["message"]
+    assert "secret" not in block["message"]
+
+
+def test_a_changed_admission_record_withdraws_the_connector_claim(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    changed = tuple(
+        replace(record, capability_digest="sha256:" + "0" * 64)
+        if record.backend_kind == "document_request"
+        else record
+        for record in profile_module.REFERENCE_CONNECTORS
+    )
+    monkeypatch.setattr(profile_module, "REFERENCE_CONNECTORS", changed)
+
+    adapters = adapter_capabilities(_reference())
+
+    block = adapters["document_request_connector"]
+    assert (block["status"], block["reason_code"]) == (UNAVAILABLE, "connector_capability_mismatch")
+    assert block["disabled_by"] == "profile"
+    assert block["evidence"] == []
+    # The other adapter is not affected by it.
+    assert adapters["release_evaluation"]["status"] == SUPPORTED
+
+
+def test_an_unlisted_connector_is_not_supported(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(profile_module, "REFERENCE_CONNECTORS", ())
+
+    block = adapter_capabilities(_reference())["document_request_connector"]
+
+    assert (block["status"], block["reason_code"]) == (UNAVAILABLE, "connector_not_admitted")
+
+
+def test_a_replaced_evaluator_implementation_withdraws_the_claim(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    pinned = SUPPORT_EVIDENCE["release_evaluation"]
+    monkeypatch.setitem(
+        SUPPORT_EVIDENCE,
+        "release_evaluation",
+        replace(pinned, implementation="caliber.somewhere.else:Evaluator"),
+    )
+
+    block = adapter_capabilities(_reference())["release_evaluation"]
+
+    assert (block["status"], block["reason_code"]) == (UNAVAILABLE, "evaluator_evidence_mismatch")
+    assert block["disabled_by"] == "profile"
+    assert block["evidence"] == []
+
+
+def test_a_changed_evidence_shape_withdraws_the_claim(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        evidence_module, "EVIDENCE_SCHEMA_VERSION", evidence_module.EVIDENCE_SCHEMA_VERSION + 1
+    )
+
+    block = adapter_capabilities(_reference())["release_evaluation"]
+
+    assert (block["status"], block["reason_code"]) == (UNAVAILABLE, "evaluator_evidence_mismatch")
+
+
+def test_support_is_derived_never_asserted() -> None:
+    """No setting marks an adapter supported, and only the two evidenced adapters can be."""
+    assert [name for name in CaliberConfig.model_fields if "support" in name] == []
+    assert set(SUPPORT_EVIDENCE) == {"document_request_connector", "release_evaluation"}
+    assert set(SUPPORT_EVIDENCE) <= set(ADAPTER_IDS)
+    assert len(set(ADAPTER_IDS)) == len(ADAPTER_IDS) == 4
+    for spec in ADAPTERS:
+        assert spec.feature_id is None or spec.feature_id in ALL
+    for adapter_id, evidence in SUPPORT_EVIDENCE.items():
+        assert evidence.adapter_id == adapter_id
+
+
+def test_every_support_scenario_names_a_real_test_function() -> None:
+    """A claim cannot cite a scenario that does not exist (the evidence is real, not decorative)."""
+    for evidence in SUPPORT_EVIDENCE.values():
+        assert evidence.scenarios
+        assert len(set(evidence.scenarios)) == len(evidence.scenarios)
+        for node_id in evidence.scenarios:
+            relative, _, name = node_id.partition("::")
+            assert relative.startswith("tests/egi_scenarios/test_"), node_id
+            source = CALIBER_DIR / relative
+            assert source.is_file(), f"{node_id}: {relative} does not exist"
+            defined = {
+                node.name
+                for node in ast.walk(ast.parse(source.read_text()))
+                if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+            }
+            assert name.startswith("test_"), node_id
+            assert name in defined, f"{node_id}: no test function {name!r}"
+
+
+def test_compatibility_values() -> None:
+    """The flag block a pre-Beta reader parses is unchanged; ``adapters`` is purely additive."""
+    assert {flag.stability for flag in FEATURES} == {"preview", "record_only"}
+    assert set(FeatureFlagSchema.model_fields) == {"enabled", "env_var", "label", "stability"}
+    for block in capabilities_block(CaliberConfig()).values():
+        assert set(block) == {"enabled", "env_var", "label", "stability"}
+        assert block["stability"] in {"preview", "record_only"}
+    assert SUPPORT_STATUSES == ("unavailable", "preview", "supported")
+    assert set(AdapterCapabilitySchema.model_fields) == BLOCK_KEYS
+    # A payload with no ``adapters`` (an older server) still validates, as an empty map.
+    assert PlatformCapabilitiesSchema.model_fields["adapters"].default_factory is dict
+
+
+def test_the_alpha_default_promotes_nothing() -> None:
+    """The shipped defaults keep every adapter below supported: preview or unavailable."""
+    statuses = {
+        adapter_id: block["status"]
+        for adapter_id, block in adapter_capabilities(CaliberConfig.load(environ={})).items()
+    }
+
+    assert statuses == {
+        "document_request_connector": PREVIEW,
+        "release_evaluation": UNAVAILABLE,
+        "mcp_servers": UNAVAILABLE,
+        "openapi_integrations": UNAVAILABLE,
+    }
+
+
+def test_the_capabilities_route_serves_adapters_beside_unchanged_features(
+    make_client, app_config: CaliberConfig
+) -> None:
+    client = make_client(_off(app_config, keep=frozenset({"integrations"})))
+
+    data = client.get(PREFIX + "/capabilities").json()["data"]
+
+    assert set(data["adapters"]) == set(ADAPTER_IDS)
+    for block in data["adapters"].values():
+        assert set(block) == BLOCK_KEYS
+    assert data["adapters"]["mcp_servers"]["status"] == PREVIEW
+    assert data["adapters"]["release_evaluation"]["reason_code"] == "feature_disabled"
+    assert data["adapters"]["document_request_connector"]["status"] == PREVIEW
+    assert set(data["features"]) == ALL
+    assert data["features"]["integrations"]["stability"] == "preview"
+    assert data["openapi_integrations"]["stability"] == "beta"
+
+
+def test_the_capabilities_route_reads_the_live_config(
+    make_client, app_config: CaliberConfig
+) -> None:
+    client = make_client(_off(app_config))
+    before = client.get(PREFIX + "/capabilities").json()["data"]["adapters"]
+    assert before["mcp_servers"]["status"] == UNAVAILABLE
+
+    client.app.state.config = _off(app_config, keep=frozenset({"integrations"}))
+
+    after = client.get(PREFIX + "/capabilities").json()["data"]["adapters"]
+    assert after["mcp_servers"]["status"] == PREVIEW
+
+
+@pytest.mark.parametrize(
+    ("adapter_id", "flag_id", "path"),
+    [
+        ("release_evaluation", "release_candidates", "/releases/candidates"),
+        ("mcp_servers", "integrations", "/mcp-servers"),
+        ("openapi_integrations", "integrations", "/openapi-integrations"),
+    ],
+)
+def test_an_unavailable_adapter_and_its_404_say_the_same_thing(
+    make_client, app_config: CaliberConfig, adapter_id: str, flag_id: str, path: str
+) -> None:
+    """Disabled paths keep one error: the adapter's message is the refusal's detail, under the same code."""
+    client = make_client(_off(app_config))
+
+    block = client.get(PREFIX + "/capabilities").json()["data"]["adapters"][adapter_id]
+    refused = client.get(PREFIX + path)
+
+    assert refused.status_code == 404
+    assert refused.json()["detail"] == block["message"]
+    assert refused.json()["reason_code"] == block["reason_code"] == REASON_CODE
+    assert block["disabled_by"] == FLAG_ENV[flag_id]

@@ -22,15 +22,36 @@ document, the route inventories and the SDK coverage gate describe the same surf
 every deployment. A disabled call answers ``404`` with ``reason_code: feature_disabled``
 and the variable to set, so a client can tell "this build does not have it on" from "no
 such record".
+
+Beta adds a second, separate answer: **per-adapter support** (:func:`adapter_capabilities`, the
+``adapters`` object of ``GET /capabilities``). A flag says whether an area is *on*; it never says an
+area is *supported*, and turning one on promotes nothing. Each adapter is exactly one of
+
+* ``supported`` -- only the trusted reference connector and the release evaluation path, and only
+  while the deployment is configured for the reference profile, its settings pass the profile, and
+  the live code still matches what its scenario tests exercised (:data:`SUPPORT_EVIDENCE`);
+* ``preview`` -- it can run, but nothing in the supported shape covers it (MCP servers and OpenAPI
+  integrations are never above this while on, and every adapter is here outside the reference
+  profile);
+* ``unavailable`` -- it cannot run in this deployment, with the setting that says so.
+
+Support is **derived, never asserted**: there is no setting that marks an adapter supported, and an
+adapter with no :data:`SUPPORT_EVIDENCE` entry cannot be. The existing flag ``stability`` values
+(``preview``, ``record_only``) are unchanged, so a reader that predates ``adapters`` keeps working.
 """
 
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any, Final
 
 from caliber.config import CaliberConfig
+from caliber.effects.dispatcher import EffectRefused, admit_backend
+from caliber.eval import evidence as eval_evidence
+from caliber.orchestrator.workspace_release_evaluator import WorkspaceReleaseEvaluator
+from caliber.profile import REFERENCE_MCP_ALLOWLIST, reference_profile_violations
 
 PREFIX: Final[str] = "/ajax-api/2.0/mlflow/caliber"
 
@@ -133,6 +154,317 @@ def disabled_message(flag: FeatureFlag) -> str:
     return f"{flag.label} is disabled in this deployment. Set {flag.env_var}=true to enable it."
 
 
+# ---------------------------------------------------------------------------
+# Per-adapter support (Beta, B15-Support.1, #755)
+# ---------------------------------------------------------------------------
+
+SUPPORTED: Final[str] = "supported"
+PREVIEW: Final[str] = "preview"
+UNAVAILABLE: Final[str] = "unavailable"
+#: Every ``status`` an adapter can report.
+SUPPORT_STATUSES: Final[tuple[str, ...]] = (UNAVAILABLE, PREVIEW, SUPPORTED)
+
+#: ``reason_code`` values of a non-supported adapter. ``feature_disabled`` is :data:`REASON_CODE`, the code of
+#: the 404 a disabled area answers, so a client sees one cause under one code.
+REASON_NOT_REFERENCE_PROFILE: Final[str] = "not_reference_profile"
+REASON_PROFILE_VIOLATIONS: Final[str] = "reference_profile_violations"
+REASON_NO_SUPPORT_EVIDENCE: Final[str] = "no_support_evidence"
+REASON_EVALUATOR_DISABLED: Final[str] = "evaluator_disabled"
+REASON_SIMULATED_PROVIDER: Final[str] = "simulated_provider"
+REASON_EVALUATOR_MISMATCH: Final[str] = "evaluator_evidence_mismatch"
+REASON_MCP_NOT_IN_PROFILE: Final[str] = "mcp_not_in_reference_profile"
+
+#: ``disabled_by`` when no setting changes the answer: the reference profile does not cover the adapter.
+DISABLED_BY_PROFILE: Final[str] = "profile"
+PROFILE_ENV_VAR: Final[str] = "CALIBER_PROFILE"
+EVALUATOR_ENV_VAR: Final[str] = "CALIBER_WORKSPACE_RELEASE_EVALUATOR_ENABLED"
+EVAL_PROVIDER_ENV_VAR: Final[str] = "CALIBER_EVAL_PROVIDER"
+
+#: Adapter ids, in the order ``/capabilities`` lists them.
+DOCUMENT_REQUEST_CONNECTOR: Final[str] = "document_request_connector"
+RELEASE_EVALUATION: Final[str] = "release_evaluation"
+MCP_SERVERS: Final[str] = "mcp_servers"
+OPENAPI_INTEGRATIONS: Final[str] = "openapi_integrations"
+
+
+@dataclass(frozen=True)
+class AdapterSpec:
+    """One adapter a deployment reports on, and the area flag that gates its routes (if any)."""
+
+    id: str
+    #: ``connector``, ``release_evaluation``, ``mcp_server`` or ``openapi_integration``.
+    kind: str
+    label: str
+    #: The :class:`FeatureFlag` id that turns the adapter's routes on, or ``None`` when no flag does.
+    feature_id: str | None = None
+
+
+ADAPTERS: Final[tuple[AdapterSpec, ...]] = (
+    AdapterSpec(
+        id=DOCUMENT_REQUEST_CONNECTOR,
+        kind="connector",
+        label="OpenAPI document-request connector",
+    ),
+    AdapterSpec(
+        id=RELEASE_EVALUATION,
+        kind="release_evaluation",
+        label="Workspace release evaluation",
+        feature_id="release_candidates",
+    ),
+    AdapterSpec(
+        id=MCP_SERVERS,
+        kind="mcp_server",
+        label="MCP servers",
+        feature_id="integrations",
+    ),
+    AdapterSpec(
+        id=OPENAPI_INTEGRATIONS,
+        kind="openapi_integration",
+        label="OpenAPI integrations",
+        feature_id="integrations",
+    ),
+)
+
+
+@dataclass(frozen=True)
+class SupportEvidence:
+    """What lets an adapter be ``supported``: the scenario tests that demonstrate it, and the code they ran against.
+
+    ``scenarios`` are pytest node ids relative to ``caliber/`` (``tests/...py::test_name``);
+    ``tests/test_feature_flags.py`` fails when one does not resolve to a test function, so a claim cannot cite a
+    test that does not exist. ``implementation`` is the ``module:qualname`` of the live code those scenarios
+    exercised and ``evidence_schema_version`` (release evaluation only) the evidence shape they read; both are
+    pinned here, not computed, so changing either withdraws the claim until a reviewer re-confirms the scenarios.
+    """
+
+    adapter_id: str
+    scenarios: tuple[str, ...]
+    implementation: str | None = None
+    evidence_schema_version: int | None = None
+
+
+#: The only adapters that may ever report ``supported``. An adapter not listed here (MCP servers, OpenAPI
+#: integrations, every other transport) is capped at ``preview`` whatever the configuration says. The document-request
+#: connector is additionally pinned by its admission record (``caliber.profile.REFERENCE_CONNECTORS``), checked live.
+SUPPORT_EVIDENCE: Final[dict[str, SupportEvidence]] = {
+    DOCUMENT_REQUEST_CONNECTOR: SupportEvidence(
+        adapter_id=DOCUMENT_REQUEST_CONNECTOR,
+        scenarios=(
+            "tests/egi_scenarios/test_connector_capabilities.py::test_stable_key_mutates_once",
+            "tests/egi_scenarios/test_connector_capabilities.py::test_stale_precondition_returns_412_and_no_mutation",
+            "tests/egi_scenarios/test_connector_capabilities.py::test_query_by_key_after_lost_response",
+            "tests/egi_scenarios/test_b04_dispatcher.py::test_dispatcher_uses_canonical_approval_and_registered_connector",
+            "tests/egi_scenarios/test_v07_restart_exactly_once.py::test_kill_after_downstream_commit",
+        ),
+    ),
+    RELEASE_EVALUATION: SupportEvidence(
+        adapter_id=RELEASE_EVALUATION,
+        scenarios=(
+            "tests/egi_scenarios/test_v13_release_evaluation.py::test_evaluator_crash_recovers",
+            "tests/egi_scenarios/test_v13_release_evaluation.py::test_worker_records_provider_run_before_completion_crash",
+            "tests/egi_scenarios/test_v13_release_evaluation.py::test_recovery_before_provider_result_keeps_attempt_history",
+        ),
+        implementation="caliber.orchestrator.workspace_release_evaluator:WorkspaceReleaseEvaluator",
+        evidence_schema_version=1,
+    ),
+}
+
+
+def _verify_connector_admission() -> str | None:
+    """``None`` when the live document-request transport is the one its pinned admission record admits, else the code."""
+    try:
+        admit_backend("document_request")
+    except EffectRefused as exc:
+        return exc.code
+    return None
+
+
+def _verify_evaluator_evidence(evidence: SupportEvidence) -> str | None:
+    """``None`` when the live evaluator and its evidence shape match the pinned scenario evidence, else the code."""
+    live = f"{WorkspaceReleaseEvaluator.__module__}:{WorkspaceReleaseEvaluator.__qualname__}"
+    if (
+        live != evidence.implementation
+        or evidence.evidence_schema_version != eval_evidence.EVIDENCE_SCHEMA_VERSION
+    ):
+        return REASON_EVALUATOR_MISMATCH
+    return None
+
+
+def _entry(
+    spec: AdapterSpec,
+    status: str,
+    message: str,
+    *,
+    reason_code: str | None = None,
+    disabled_by: str | None = None,
+) -> dict[str, Any]:
+    """One adapter's block. ``evidence`` lists scenarios only for ``supported``: a claim, never a decoration."""
+    evidence = SUPPORT_EVIDENCE[spec.id].scenarios if status == SUPPORTED else ()
+    return {
+        "status": status,
+        "kind": spec.kind,
+        "label": spec.label,
+        "reason_code": reason_code,
+        "disabled_by": disabled_by,
+        "message": message,
+        "evidence": list(evidence),
+    }
+
+
+def _gate_off(spec: AdapterSpec, config: CaliberConfig) -> dict[str, Any] | None:
+    """``unavailable`` while the flag that gates ``spec``'s routes is off: the same cause, code and text as the 404."""
+    if spec.feature_id is None or feature_enabled(config, spec.feature_id):
+        return None
+    flag = _BY_ID[spec.feature_id]
+    return _entry(
+        spec,
+        UNAVAILABLE,
+        disabled_message(flag),
+        reason_code=REASON_CODE,
+        disabled_by=flag.env_var,
+    )
+
+
+def _outside_reference(spec: AdapterSpec, config: CaliberConfig) -> dict[str, Any] | None:
+    """The block for a deployment that is not a valid reference deployment, or ``None`` when it is one."""
+    if config.profile != "reference":
+        return _entry(
+            spec,
+            PREVIEW,
+            f"{spec.label} is preview in this deployment: it is supported only under "
+            f"{PROFILE_ENV_VAR}=reference. Set {PROFILE_ENV_VAR}=reference and start from a configuration "
+            "that passes the profile to use it as a supported path.",
+            reason_code=REASON_NOT_REFERENCE_PROFILE,
+            disabled_by=PROFILE_ENV_VAR,
+        )
+    violations = reference_profile_violations(config)
+    if violations:
+        codes = ", ".join(v.code for v in violations)
+        return _entry(
+            spec,
+            UNAVAILABLE,
+            f"{spec.label} is unavailable: this configuration breaks the reference profile ({codes}). "
+            "Change the settings named in the startup refusal.",
+            reason_code=REASON_PROFILE_VIOLATIONS,
+            disabled_by=DISABLED_BY_PROFILE,
+        )
+    return None
+
+
+def _preview_only(spec: AdapterSpec) -> dict[str, Any]:
+    """``preview`` for an adapter with no :data:`SUPPORT_EVIDENCE` entry: nothing can promote it."""
+    return {
+        "status": PREVIEW,
+        "kind": spec.kind,
+        "label": spec.label,
+        "reason_code": REASON_NO_SUPPORT_EVIDENCE,
+        "disabled_by": DISABLED_BY_PROFILE,
+        "message": (
+            f"{spec.label} are preview: no scenario evidence supports them in the reference profile, "
+            "and no setting changes that."
+        ),
+        "evidence": [],
+    }
+
+
+def _document_request_connector(spec: AdapterSpec, config: CaliberConfig) -> dict[str, Any]:
+    refused = _outside_reference(spec, config)
+    if refused is not None:
+        return refused
+    code = _verify_connector_admission()
+    if code is not None:
+        return _entry(
+            spec,
+            UNAVAILABLE,
+            f"{spec.label} is unavailable: the registered transport is not the one the reference profile admits "
+            f"({code}).",
+            reason_code=code,
+            disabled_by=DISABLED_BY_PROFILE,
+        )
+    return _entry(
+        spec,
+        SUPPORTED,
+        f"{spec.label} is supported: the reference profile admits this transport by its pinned implementation, "
+        "capability record and configuration.",
+    )
+
+
+def _release_evaluation(spec: AdapterSpec, config: CaliberConfig) -> dict[str, Any]:
+    if not config.workspace_release_evaluator_enabled:
+        return _entry(
+            spec,
+            UNAVAILABLE,
+            f"{spec.label} is unavailable in this deployment. Set {EVALUATOR_ENV_VAR}=true to enable it.",
+            reason_code=REASON_EVALUATOR_DISABLED,
+            disabled_by=EVALUATOR_ENV_VAR,
+        )
+    refused = _outside_reference(spec, config)
+    if refused is not None:
+        return refused
+    if str(config.eval_provider).strip().lower() in {"", "fake"}:
+        return _entry(
+            spec,
+            PREVIEW,
+            f"{spec.label} is preview while its scores are simulated. Set {EVAL_PROVIDER_ENV_VAR}=mlflow so "
+            "the evaluation is a real one.",
+            reason_code=REASON_SIMULATED_PROVIDER,
+            disabled_by=EVAL_PROVIDER_ENV_VAR,
+        )
+    code = _verify_evaluator_evidence(SUPPORT_EVIDENCE[spec.id])
+    if code is not None:
+        return _entry(
+            spec,
+            UNAVAILABLE,
+            f"{spec.label} is unavailable: the evaluator or its evidence shape is not the one its scenario "
+            f"evidence covers ({code}).",
+            reason_code=code,
+            disabled_by=DISABLED_BY_PROFILE,
+        )
+    return _entry(
+        spec,
+        SUPPORTED,
+        f"{spec.label} is supported: the evaluator and its evidence shape match the scenario evidence.",
+    )
+
+
+def _mcp_servers(spec: AdapterSpec, config: CaliberConfig) -> dict[str, Any]:
+    if config.profile == "reference" and not REFERENCE_MCP_ALLOWLIST:
+        return {
+            **_preview_only(spec),
+            "status": UNAVAILABLE,
+            "reason_code": REASON_MCP_NOT_IN_PROFILE,
+            "message": (
+                f"{spec.label} are unavailable under the reference profile: it lists no MCP command or "
+                "host, so no server is reachable."
+            ),
+        }
+    return _preview_only(spec)
+
+
+def _openapi_integrations(spec: AdapterSpec, _config: CaliberConfig) -> dict[str, Any]:
+    return _preview_only(spec)
+
+
+_RESOLVERS: Final[dict[str, Callable[[AdapterSpec, CaliberConfig], dict[str, Any]]]] = {
+    DOCUMENT_REQUEST_CONNECTOR: _document_request_connector,
+    RELEASE_EVALUATION: _release_evaluation,
+    MCP_SERVERS: _mcp_servers,
+    OPENAPI_INTEGRATIONS: _openapi_integrations,
+}
+
+
+def adapter_capabilities(config: CaliberConfig) -> dict[str, dict[str, Any]]:
+    """The ``adapters`` object of ``GET /capabilities``: every adapter, each ``supported``, ``preview`` or ``unavailable``.
+
+    Derived from the live configuration and the pinned :data:`SUPPORT_EVIDENCE`, never from a setting that says
+    "supported". A closed area flag wins over everything else (the adapter is unavailable, with the 404's own code and
+    text); an adapter with no evidence entry is never above ``preview``.
+    """
+    return {
+        spec.id: _gate_off(spec, config) or _RESOLVERS[spec.id](spec, config) for spec in ADAPTERS
+    }
+
+
 def capabilities_block(config: CaliberConfig) -> dict[str, dict[str, Any]]:
     """The ``features`` object of ``GET /capabilities``: every flag, on or off."""
     return {
@@ -195,11 +527,20 @@ async def _refuse(flag: FeatureFlag, send: Any) -> None:
 
 
 __all__ = [
+    "ADAPTERS",
     "FEATURES",
     "PREFIX",
+    "PREVIEW",
     "REASON_CODE",
+    "SUPPORTED",
+    "SUPPORT_EVIDENCE",
+    "SUPPORT_STATUSES",
+    "UNAVAILABLE",
+    "AdapterSpec",
     "FeatureFlag",
     "FeatureGateMiddleware",
+    "SupportEvidence",
+    "adapter_capabilities",
     "capabilities_block",
     "disabled_message",
     "feature_enabled",

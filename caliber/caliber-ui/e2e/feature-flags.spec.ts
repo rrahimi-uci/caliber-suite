@@ -22,6 +22,11 @@ import { createPromptViaApi, signIn, uniqueSlug } from "./helpers";
  *     names the variable, and links home.
  *  5. The pages the alpha does support call Aria routes (it's on) but never a route gated by one
  *     of the three off-by-default flags, and hide only those three areas' controls.
+ *  6. Beta capability exposure (#755): `GET /capabilities` reports per-adapter support under
+ *     `adapters`, and on a default install nothing is `supported` — the reference connector is
+ *     `preview` (it is supported only under `CALIBER_PROFILE=reference`), release evaluation and
+ *     the integration adapters are `unavailable` with the same text and code as the 404 their
+ *     routes answer. The flag `stability` values the app already reads are unchanged.
  */
 const API = "/ajax-api/2.0/mlflow/caliber";
 
@@ -112,6 +117,77 @@ test.describe("Feature flags (alpha defaults)", () => {
     // Aria ships on, so its routes answer normally instead of 404.
     const ariaPlans = await page.request.get(`${API}/aria/plans`);
     expect(ariaPlans.ok(), await ariaPlans.text()).toBeTruthy();
+  });
+
+  test("the API reports no adapter as supported on a default install and keeps one error for a disabled one", async ({
+    page,
+  }) => {
+    await signIn(page);
+
+    const capabilities = await page.request.get(`${API}/capabilities`);
+    expect(capabilities.ok(), await capabilities.text()).toBeTruthy();
+    const data = (await capabilities.json()).data as {
+      features: Record<string, { stability: string }>;
+      adapters: Record<
+        string,
+        {
+          status: string;
+          kind: string;
+          label: string;
+          reason_code: string | null;
+          disabled_by: string | null;
+          message: string;
+          evidence: string[];
+        }
+      >;
+    };
+
+    // The flag block the app already reads keeps its values; `adapters` is additive.
+    for (const feature of Object.values(data.features)) {
+      expect(["preview", "record_only"]).toContain(feature.stability);
+    }
+    expect(Object.keys(data.adapters).sort()).toEqual([
+      "document_request_connector",
+      "mcp_servers",
+      "openapi_integrations",
+      "release_evaluation",
+    ]);
+    // Nothing is promoted by the shipped defaults, and nothing claims evidence it does not have.
+    for (const [id, adapter] of Object.entries(data.adapters)) {
+      expect(adapter.status, `${id} must not be supported`).not.toBe(
+        "supported",
+      );
+      expect(adapter.evidence, `${id} cites no evidence`).toEqual([]);
+      expect(adapter.reason_code, `${id} says why`).not.toBeNull();
+    }
+    expect(data.adapters["document_request_connector"]).toMatchObject({
+      status: "preview",
+      reason_code: "not_reference_profile",
+      disabled_by: "CALIBER_PROFILE",
+    });
+
+    // A disabled adapter and the 404 its routes answer say the same thing.
+    for (const [id, path] of [
+      ["release_evaluation", "releases/candidates"],
+      ["mcp_servers", "mcp-servers"],
+      ["openapi_integrations", "openapi-integrations"],
+    ] as const) {
+      const adapter = data.adapters[id];
+      expect(adapter?.status).toBe("unavailable");
+      expect(adapter?.reason_code).toBe("feature_disabled");
+      const refused = await page.request.get(`${API}/${path}`);
+      expect(refused.status()).toBe(404);
+      expect(await refused.json()).toMatchObject({
+        reason_code: adapter?.reason_code,
+        detail: adapter?.message,
+      });
+    }
+    expect(data.adapters["mcp_servers"]?.disabled_by).toBe(
+      "CALIBER_FEATURE_INTEGRATIONS",
+    );
+    expect(data.adapters["release_evaluation"]?.disabled_by).toBe(
+      "CALIBER_FEATURE_RELEASE_CANDIDATES",
+    );
   });
 
   test("the navigation and top bar show Plans but none of the other gated areas", async ({

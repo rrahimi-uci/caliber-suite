@@ -4851,6 +4851,97 @@ promotion and runtime entry. A parent run over a child that holds code fails wit
 (`error_code: unsupported_in_reference_profile`, `error` naming the child and the node) and the child's node never runs. The refinement, calibration and deploy-gate replays that build a plan without a configuration are covered by the
 process-wide policy; in a reference deployment the app binds it at startup.
 
+## Capability exposure: what is supported (B15-Support.1, #755)
+
+A feature flag says an area is **on**; it never says an area is **supported**. `GET /ajax-api/2.0/mlflow/caliber/capabilities` therefore
+carries a second object, `adapters`, next to the unchanged `features`: one entry per adapter, each exactly one of `supported`,
+`preview` or `unavailable`.
+
+| adapter id | kind | gated by |
+| --- | --- | --- |
+| `document_request_connector` | `connector` | no flag (the dispatcher's trusted `document_request` transport) |
+| `release_evaluation` | `release_evaluation` | `CALIBER_FEATURE_RELEASE_CANDIDATES` |
+| `mcp_servers` | `mcp_server` | `CALIBER_FEATURE_INTEGRATIONS` |
+| `openapi_integrations` | `openapi_integration` | `CALIBER_FEATURE_INTEGRATIONS` |
+
+**Support is derived, never asserted.** No setting marks an adapter supported. Only the trusted reference connector and the release
+evaluation path can be, because only they have an entry in `caliber.features.SUPPORT_EVIDENCE`: the scenario tests that demonstrate
+them and, for the evaluator, the pinned implementation and evidence shape those scenarios ran against. MCP servers and OpenAPI
+integrations have no entry, so no configuration promotes them. The other transports the dispatcher admits (`http`, `registered_tool`,
+`openapi_http` and the `mcp-tool` call connector) are not exposed here and claim nothing (see "Not enforced yet": none of them has a
+verifier by key).
+
+Each adapter is resolved in this order; the first rule that matches decides:
+
+| adapter | rule | status | `reason_code` | `disabled_by` |
+| --- | --- | --- | --- | --- |
+| any with a flag | the flag is off | `unavailable` | `feature_disabled` (the 404's own code) | the flag's variable |
+| `release_evaluation` | `CALIBER_WORKSPACE_RELEASE_EVALUATOR_ENABLED` is off | `unavailable` | `evaluator_disabled` | that variable |
+| `mcp_servers` | `CALIBER_PROFILE=reference` (the profile lists no MCP command or host) | `unavailable` | `mcp_not_in_reference_profile` | `profile` |
+| `mcp_servers`, `openapi_integrations` | otherwise (flag on) | `preview` | `no_support_evidence` | `profile` |
+| `document_request_connector`, `release_evaluation` | the profile is not `reference` | `preview` | `not_reference_profile` | `CALIBER_PROFILE` |
+| `document_request_connector`, `release_evaluation` | the configuration breaks the reference profile | `unavailable` | `reference_profile_violations` | `profile` |
+| `release_evaluation` | `CALIBER_EVAL_PROVIDER` is `fake` (simulated scores) | `preview` | `simulated_provider` | `CALIBER_EVAL_PROVIDER` |
+| `document_request_connector` | the live transport is not the one `REFERENCE_CONNECTORS` pins | `unavailable` | the admission code (for example `connector_capability_mismatch`) | `profile` |
+| `release_evaluation` | the evaluator class or the evidence schema version differs from the pin | `unavailable` | `evaluator_evidence_mismatch` | `profile` |
+| the two supported adapters | none of the above | `supported` | `null` | `null` |
+
+`disabled_by` is the environment variable that changes the answer, or `profile` when no setting does. `evidence` lists the scenario
+test ids only for a `supported` adapter and is empty otherwise. `message` is the exact text for an operator.
+
+A deployment that supports the release path (a PostgreSQL reference process with a real evaluation provider):
+
+```text
+GET /ajax-api/2.0/mlflow/caliber/capabilities   ->   data.adapters.release_evaluation
+{
+  "status": "supported",
+  "kind": "release_evaluation",
+  "label": "Workspace release evaluation",
+  "reason_code": null,
+  "disabled_by": null,
+  "message": "Workspace release evaluation is supported: the evaluator and its evidence shape match the scenario evidence.",
+  "evidence": ["tests/egi_scenarios/test_v13_release_evaluation.py::test_evaluator_crash_recovers", "..."]
+}
+```
+
+**Refusals and recovery.** A disabled path keeps its one error: the `404` with `reason_code: feature_disabled` that
+`caliber.features` already returned, and the adapter's `message` is that response's `detail`, word for word.
+
+```text
+GET /ajax-api/2.0/mlflow/caliber/releases/candidates                      # CALIBER_FEATURE_RELEASE_CANDIDATES unset
+404 {"detail": "Release-candidate signoff and workspace releases is disabled in this deployment. Set CALIBER_FEATURE_RELEASE_CANDIDATES=true to enable it.", "status_code": 404, "reason_code": "feature_disabled"}
+
+release_evaluation.message  (release flag on, evaluator off)
+Workspace release evaluation is unavailable in this deployment. Set CALIBER_WORKSPACE_RELEASE_EVALUATOR_ENABLED=true to enable it.
+
+release_evaluation.message  (reference profile, CALIBER_EVAL_PROVIDER=fake)
+Workspace release evaluation is preview while its scores are simulated. Set CALIBER_EVAL_PROVIDER=mlflow so the evaluation is a real one.
+
+document_request_connector.message  (CALIBER_PROFILE unset)
+OpenAPI document-request connector is preview in this deployment: it is supported only under CALIBER_PROFILE=reference. Set CALIBER_PROFILE=reference and start from a configuration that passes the profile to use it as a supported path.
+
+mcp_servers.message  (CALIBER_PROFILE=reference, CALIBER_FEATURE_INTEGRATIONS=true)
+MCP servers are unavailable under the reference profile: it lists no MCP command or host, so no server is reachable.
+```
+
+Recovery is the variable named in `disabled_by`; for `profile` there is nothing to set: the reference profile does not cover the
+adapter (MCP servers and OpenAPI integrations), or a pin no longer matches the code and a reviewer must re-confirm the scenarios
+(`SUPPORT_EVIDENCE`, `REFERENCE_CONNECTORS`). A `reference_profile_violations` message names the violation codes (see the table above
+for each one's variable), never a configured value.
+
+- **Compatibility.** The `features` block, its keys and its `stability` values (`preview`, `record_only`) are unchanged, as is the
+  top-level `openapi_integrations` block (`stability: "beta"` is the SDK tier, not a support claim). `adapters` is additive: a client
+  that predates it ignores it, and `caliber-ui` types it as optional so a server without it reads as "nothing is supported". No
+  setting, default, route, error body or migration changes, and the alpha documents stay historical.
+- **What it does not do.** It does not grant authority: a visible or `supported` adapter is still subject to the authorization, approval
+  and admission checks of its own route. It does not turn anything on, and it is not the D5 acceptance report (#613); it supplies the
+  evidence list that gate reads. The Beta navigation that renders these values is #771.
+- **Scenario evidence is cited, not run here.** `tests/test_feature_flags.py` fails when an `evidence` entry does not name an existing
+  test function, so a claim cannot cite a test that is not there; whether those tests pass is the "EGI scenarios (PostgreSQL)" job.
+- **Oracle.** `caliber/tests/test_feature_flags.py` (`supported_reference_visible`, `unsupported_mcp_not_promoted`,
+  `unavailable_evaluator_disabled`, `compatibility_values` and the pins), the scenario `caliber/tests/egi_scenarios/test_b15_capability_exposure.py`
+  on a real reference app, and the alpha-defaults browser spec `caliber/caliber-ui/e2e/feature-flags.spec.ts`.
+
 ## Not enforced yet
 
 ADR 0001 describes the whole reference shape; this table is what the *process* checks today. Not checked:
