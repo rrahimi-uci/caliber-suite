@@ -17,9 +17,12 @@ at once:
 
 ```text
 reference profile refused (2 violations):
-- database_url is a SQLite file; set CALIBER_DATABASE_URL=<a PostgreSQL URL> for the reference profile
-- csrf_enabled is false; set CALIBER_CSRF_ENABLED=true for the reference profile
+- database_url is a SQLite file; set CALIBER_DATABASE_URL=<a PostgreSQL URL> for the reference profile [sqlite_database]
+- csrf_enabled is false; set CALIBER_CSRF_ENABLED=true for the reference profile [csrf_disabled]
 ```
+
+Each line ends with the violation's stable code in brackets. A line names the setting and the variable to change, never the
+value that was configured.
 
 An unknown profile name is a configuration error. `GET /ajax-api/2.0/mlflow/caliber/readiness` carries a
 `profile` field, so an operator can see which rules the running process was started under.
@@ -35,6 +38,7 @@ An unknown profile name is a configuration error. `GET /ajax-api/2.0/mlflow/cali
 | `trusted_header_without_proxy_secret` | `auth_mode` | `CALIBER_AUTH_TRUSTED_PROXY_SECRET_ENV` | `session`, or `trusted_header` with the name of the variable that holds the proxy secret | Trusting an identity header without a proxy secret lets any client claim any identity. |
 | `egress_policy_disabled` | `egress_policy_enabled` | `CALIBER_EGRESS_POLICY_ENABLED` | true | The egress policy is what stops a tool or webhook from reaching internal addresses. |
 | `mcp_insecure_http` | `mcp_allow_insecure_http` | `CALIBER_MCP_ALLOW_INSECURE_HTTP` | false | Plain-HTTP MCP servers send tool calls and results in the clear. |
+| `mcp_allowlist_not_in_profile` | `mcp_stdio_command_allowlist, mcp_remote_host_allowlist` | `CALIBER_MCP_STDIO_COMMAND_ALLOWLIST, CALIBER_MCP_REMOTE_HOST_ALLOWLIST` | empty (the profile lists no MCP command or host) | An allowlisted stdio command is arbitrary code on the CALIBER host and an allowlisted remote host is an endpoint nobody reviewed; the dispatcher admits an MCP call, never a server. |
 | `self_approval_allowed` | `approval_allow_self_approval` | `CALIBER_APPROVAL_ALLOW_SELF_APPROVAL` | false | The account that started a run could approve its own protected action. |
 | `apply_distinct_approver_disabled` | `apply_require_distinct_approver` | `CALIBER_APPLY_REQUIRE_DISTINCT_APPROVER` | true | The account that requested a refinement job could apply its own candidate to production, and a job with no recorded requester could be applied unreviewed. |
 | `memory_inference_enabled` | `memory_infer` | `CALIBER_MEMORY_INFER` | false while CALIBER_MEMORY_ENABLED is true | LLM-inferred memory writes create durable, free-form facts nobody owns; the owned memory lifecycle does not exist yet. |
@@ -42,6 +46,42 @@ An unknown profile name is a configuration error. `GET /ajax-api/2.0/mlflow/cali
 
 The messages in the refusal name the setting and the variable to change. The table is checked by
 `caliber/tests/test_profile.py`: a rule that is not listed here, or a row without a rule, fails the build.
+
+## MCP allowlists (B12.3b, #746)
+
+`CALIBER_MCP_STDIO_COMMAND_ALLOWLIST` (default `${PYTHON}`, the interpreter running CALIBER) and
+`CALIBER_MCP_REMOTE_HOST_ALLOWLIST` (default `localhost,127.0.0.1,::1`) decide which MCP servers the gateway will start or
+reach. An allowlisted stdio command is arbitrary code on the CALIBER host and an allowlisted remote host is an endpoint nobody
+reviewed, and the dispatcher admits an MCP *call* (connector `mcp-tool`, [Governed MCP tools](#governed-mcp-tools-b045)), never a
+server. So the Beta profile lists **no** MCP command or host: `caliber.profile.REFERENCE_MCP_ALLOWLIST` is an empty tuple (ADR 0001,
+amendment of 2026-10-31), and under `CALIBER_PROFILE=reference` a process whose either allowlist holds **any** entry refuses to
+start with the code `mcp_allowlist_not_in_profile`. The shipped defaults are entries the profile does not list, so a reference
+deployment sets **both variables to the empty string** explicitly:
+
+```text
+reference profile refused (1 violation):
+- mcp_remote_host_allowlist lists an MCP command or host the reference profile does not allow (it allows none); set CALIBER_MCP_REMOTE_HOST_ALLOWLIST to empty for the reference profile [mcp_allowlist_not_in_profile]
+```
+
+Recovery: set the variable named in the line to the empty string (`CALIBER_MCP_REMOTE_HOST_ALLOWLIST=`). Leaving it unset does not
+help: the unset value is the non-empty default, which is refused too. When both allowlists offend, one line names both variables. The message
+never quotes an entry. Blank items (`,`, spaces) are not entries.
+
+- **What an empty allowlist means at run time.** The gateway already refuses a server whose command or host is not allowlisted
+  (`mcp_server_not_ready`), so with both lists empty no MCP server is reachable in a reference deployment, including the
+  first-party PostgreSQL database servers (EP-114). That is the intent for the Beta: the exact dispatcher contract of a server
+  must be supported before an entry is added to the tuple, which is an ADR change, not a setting.
+- **The development profile is unchanged.** It never runs this check; the defaults and any entries keep working there.
+- **Oracle.** `caliber/tests/test_profile.py` (each code, ordering, messages, the requirements table) and the scenario
+  `caliber/tests/egi_scenarios/test_b12_mcp_startup_rule.py`, which starts real reference processes: each unlisted entry exits the
+  process before it serves, and the same environment with both lists empty answers its health route.
+- **Not covered here.** The rule reads the two settings only. It does not inspect the registered server records, the administrator's
+  `tool_policies` (an unclassified tool is already refused by the policy gate in both profiles), the other allowlists
+  (`CALIBER_MCP_STDIO_PYTHON_MODULE_ALLOWLIST`, `CALIBER_MCP_MANAGED_SIDECAR_HOSTS`: they only narrow a command or host that
+  the two lists already admit), or OpenAPI integration settings.
+- **The shipped compose stack is a development deployment.** It does not set `CALIBER_PROFILE` and it passes the two variables
+  through `${VAR:-default}`, which treats an empty value as unset, so it cannot express "empty" for a reference run. Start a
+  reference deployment from its own environment, as in [A configuration that passes](#a-configuration-that-passes).
 
 ## What it also does at runtime
 
@@ -431,7 +471,7 @@ does not):
 
 | the call | reference profile | development profile (the default) |
 | --- | --- | --- |
-| MCP node or tool node, an authority is bound (`governed_effects`) | proposed, approved, dispatched | proposed, approved, dispatched |
+| MCP node or tool node, an authority is bound (`governed_effects`) | proposed, approved, dispatched, **but only for a server the gateway can reach: the reference profile requires both MCP allowlists empty, so no server is reachable yet** ([MCP allowlists](#mcp-allowlists-b123b-746)) | proposed, approved, dispatched |
 | MCP node or tool node in a `build_plan` plan, no authority bound (#1051) | refused: `requires a governed effect context to run protected MCP tool` | runs inline, as before B04.5, behind the node's own approval gate: **not governed** (`legacy_guarded_effects`) |
 | a model-chosen call inside an agent step, a caller-built plan, a generated export | refused by the gateway entry point (`EffectRefused`; a model sees an error marker) until B04.6 (#768) proposes it | runs inline, as before: not governed |
 | a first-party database write tool (EP-114) | refused: `unsupported_effect_path` | classified by the administrator's policy like any tool |
@@ -440,7 +480,7 @@ does not):
 An operator can still call any tool from the playground (EP-039/040, exempt).
 
 **Not covered by this change:** a governed path for the development profile (it keeps the alpha inline call until #1051), model-selected calls (B04.6, #768), the refusal switch for every inventory row marked `refuse`
-(B04.7, #774), the startup refusal of an MCP allowlist entry the profile does not list (B12.3b, #746), a key channel to MCP servers
+(B04.7, #774), a key channel to MCP servers
 that could use one, pinning the resolved address to the connection, and a governed context for deployed workflows (#1051).
 
 **Configuration, migration and rollback.** No new setting, no route and no migration. The names `mcp` and `mcp-tool` become reserved
@@ -764,6 +804,8 @@ CALIBER_CSRF_ENABLED=true
 CALIBER_CSRF_SIGNING_SECRET_ENV=CALIBER_CSRF_SIGNING_SECRET
 CALIBER_EGRESS_POLICY_ENABLED=true
 CALIBER_MCP_ALLOW_INSECURE_HTTP=false
+CALIBER_MCP_STDIO_COMMAND_ALLOWLIST=
+CALIBER_MCP_REMOTE_HOST_ALLOWLIST=
 CALIBER_APPROVAL_ALLOW_SELF_APPROVAL=false
 CALIBER_APPLY_REQUIRE_DISTINCT_APPROVER=true
 ```
@@ -1762,10 +1804,10 @@ registration) or `connector_not_admitted` (registered, not pinned), and the host
 **What is not gated yet.** Only the dispatcher is gated. The paths that would reach host files or a database write do not go
 through it today, so **these tools still execute outside the dispatcher until the later B04 and B12 work**: model-selected
 calls in B04.6 (#768), where a protected MCP tool a model chooses is meanwhile refused by the gateway entry point (B04.5); the raising of `unsupported_in_reference_profile` for every inventory row marked `refuse`, which is what
-stops the host-file tools (EP-055) and the first-party database MCP write tools (EP-114) at run time, in B04.7 (#774); and the
-startup refusal of an MCP stdio or remote-host allowlist entry that the profile does not list in B12.3b (#746). Until those land, a
-reference deployment must not register the first-party database MCP server and must not wire the host-file tools into a workflow
-(see "Refused until explicitly supported" below).
+stops the host-file tools (EP-055) and the first-party database MCP write tools (EP-114) at run time, in B04.7 (#774); and
+(landed in B12.3b, #746) the startup refusal of any MCP stdio command or remote host on the two allowlists
+([MCP allowlists](#mcp-allowlists-b123b-746)), which leaves no MCP server reachable in a reference deployment. Until the other two
+land, a reference deployment must not wire the host-file tools into a workflow (see "Refused until explicitly supported" below).
 
 Where it is enforced:
 
@@ -2682,7 +2724,7 @@ The startup refusal is multi-line, one line per violation. With this the only vi
 
 ```text
 reference profile refused (1 violation):
-- apply_require_distinct_approver is false; set CALIBER_APPLY_REQUIRE_DISTINCT_APPROVER=true for the reference profile
+- apply_require_distinct_approver is false; set CALIBER_APPLY_REQUIRE_DISTINCT_APPROVER=true for the reference profile [apply_distinct_approver_disabled]
 ```
 
 The rule is server configuration, not something a request can switch. A single-operator install that turns it

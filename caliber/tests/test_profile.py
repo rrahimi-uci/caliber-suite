@@ -70,6 +70,10 @@ SAFE: dict[str, Any] = {
     "auth_trusted_proxy_secret_env": "",
     "egress_policy_enabled": True,
     "mcp_allow_insecure_http": False,
+    # The reference profile lists no MCP command or host (B12.3b, #746); the defaults (the interpreter and loopback)
+    # are entries it does not list, so a safe configuration sets both empty.
+    "mcp_stdio_command_allowlist": "",
+    "mcp_remote_host_allowlist": "",
     "approval_allow_self_approval": False,
     "apply_require_distinct_approver": True,
 }
@@ -95,6 +99,10 @@ UNSAFE: dict[str, tuple[dict[str, Any], str]] = {
         "CALIBER_EGRESS_POLICY_ENABLED",
     ),
     "mcp_insecure_http": ({"mcp_allow_insecure_http": True}, "CALIBER_MCP_ALLOW_INSECURE_HTTP"),
+    "mcp_allowlist_not_in_profile": (
+        {"mcp_stdio_command_allowlist": "npx", "mcp_remote_host_allowlist": "example.com"},
+        "CALIBER_MCP_STDIO_COMMAND_ALLOWLIST, CALIBER_MCP_REMOTE_HOST_ALLOWLIST",
+    ),
     "self_approval_allowed": (
         {"approval_allow_self_approval": True},
         "CALIBER_APPROVAL_ALLOW_SELF_APPROVAL",
@@ -258,6 +266,134 @@ def test_a_violation_never_quotes_the_database_url(app_config: CaliberConfig) ->
     assert "hunter2" not in violation.message
 
 
+# ---------------------------------------------------------------- MCP allowlists (B12.3b, #746)
+
+STDIO = ("mcp_stdio_command_allowlist", "CALIBER_MCP_STDIO_COMMAND_ALLOWLIST")
+REMOTE = ("mcp_remote_host_allowlist", "CALIBER_MCP_REMOTE_HOST_ALLOWLIST")
+
+
+def test_the_profile_lists_no_mcp_command_or_host_for_the_beta() -> None:
+    """ADR 0001 fixes the tuple, empty: an entry is added by changing the ADR, not a setting."""
+    assert profile_module.REFERENCE_MCP_ALLOWLIST == ()
+
+
+@pytest.mark.parametrize(
+    ("setting", "value"),
+    [
+        ("mcp_remote_host_allowlist", "example.com"),
+        ("mcp_remote_host_allowlist", "localhost"),
+        ("mcp_remote_host_allowlist", "localhost,127.0.0.1,::1"),
+        ("mcp_remote_host_allowlist", "mcp-db-relational"),
+        ("mcp_remote_host_allowlist", " ,example.com, "),
+        ("mcp_stdio_command_allowlist", "npx"),
+        ("mcp_stdio_command_allowlist", "${PYTHON}"),
+        ("mcp_stdio_command_allowlist", "${PYTHON},npx"),
+        ("mcp_stdio_command_allowlist", "/usr/bin/docker"),
+    ],
+)
+def test_an_unlisted_mcp_entry_is_refused_and_names_only_its_setting(
+    app_config: CaliberConfig, setting: str, value: str
+) -> None:
+    (violation,) = reference_profile_violations(_config(app_config, **{setting: value}))
+    expected_setting, expected_env = STDIO if setting == STDIO[0] else REMOTE
+    assert violation.code == "mcp_allowlist_not_in_profile"
+    assert violation.setting == expected_setting
+    assert violation.env_var == expected_env
+    assert expected_env in violation.message
+    assert violation.message.endswith("to empty for the reference profile")
+    other = REMOTE[1] if setting == STDIO[0] else STDIO[1]
+    assert other not in violation.message
+
+
+def test_both_unlisted_allowlists_are_one_violation_naming_both(app_config: CaliberConfig) -> None:
+    settings, env_vars = UNSAFE["mcp_allowlist_not_in_profile"]
+    (violation,) = reference_profile_violations(_config(app_config, **settings))
+    assert violation.env_var == env_vars
+    assert STDIO[0] in violation.setting and REMOTE[0] in violation.setting
+    assert STDIO[1] in violation.message and REMOTE[1] in violation.message
+
+
+def test_the_shipped_defaults_are_not_a_reference_configuration(app_config: CaliberConfig) -> None:
+    """Without an explicit empty value the interpreter and loopback defaults are entries the profile does not list."""
+    defaults = CaliberConfig.load(environ={})
+    unset = _config(
+        app_config,
+        mcp_stdio_command_allowlist=defaults.mcp_stdio_command_allowlist,
+        mcp_remote_host_allowlist=defaults.mcp_remote_host_allowlist,
+    )
+    (violation,) = reference_profile_violations(unset)
+    assert violation.code == "mcp_allowlist_not_in_profile"
+    assert violation.env_var == f"{STDIO[1]}, {REMOTE[1]}"
+
+
+@pytest.mark.parametrize("blank", ["", "   ", ",", " , ,, "])
+@pytest.mark.parametrize("setting", [STDIO[0], REMOTE[0]])
+def test_an_empty_or_blank_allowlist_is_allowed(
+    app_config: CaliberConfig, setting: str, blank: str
+) -> None:
+    assert reference_profile_violations(_config(app_config, **{setting: blank})) == []
+
+
+def test_an_unlisted_entry_among_blanks_is_still_refused(app_config: CaliberConfig) -> None:
+    config = _config(app_config, mcp_remote_host_allowlist=",, example.com ,")
+    assert _codes(reference_profile_violations(config)) == ["mcp_allowlist_not_in_profile"]
+
+
+def test_an_entry_the_profile_lists_is_allowed_and_a_command_is_compared_as_written(
+    app_config: CaliberConfig, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The tuple is the whole rule: list an entry and it passes; a host ignores case, a command does not."""
+    monkeypatch.setattr(profile_module, "REFERENCE_MCP_ALLOWLIST", ("npx", "MCP.Example.com"))
+    listed = _config(
+        app_config,
+        mcp_stdio_command_allowlist=" npx , MCP.Example.com ",
+        mcp_remote_host_allowlist="mcp.example.com,MCP.EXAMPLE.COM",
+    )
+    assert reference_profile_violations(listed) == []
+    wrong_case = _config(app_config, mcp_stdio_command_allowlist="NPX")
+    assert _codes(reference_profile_violations(wrong_case)) == ["mcp_allowlist_not_in_profile"]
+    assert reference_profile_violations(_config(app_config, mcp_stdio_command_allowlist="")) == []
+    other = _config(app_config, mcp_remote_host_allowlist="mcp.example.com,example.org")
+    assert _codes(reference_profile_violations(other)) == ["mcp_allowlist_not_in_profile"]
+
+
+@pytest.mark.parametrize(
+    "secret", ["hunter2-host.example.invalid", "user:hunter2@host", "/opt/hunter2/bin"]
+)
+def test_the_violation_never_quotes_an_allowlist_entry(
+    app_config: CaliberConfig, secret: str
+) -> None:
+    config = _config(
+        app_config, mcp_stdio_command_allowlist=secret, mcp_remote_host_allowlist=secret
+    )
+    (violation,) = reference_profile_violations(config)
+    assert "hunter2" not in violation.message
+    assert "hunter2" not in violation.setting
+    assert "hunter2" not in violation.env_var
+
+
+def test_the_oracle_remote_host_from_the_environment_refuses_startup() -> None:
+    """``CALIBER_MCP_REMOTE_HOST_ALLOWLIST=example.com`` under the reference profile refuses startup with the code."""
+    environ = {
+        "CALIBER_PROFILE": "reference",
+        "CALIBER_DATABASE_URL": SAFE["database_url"],
+        "CALIBER_AUTH_MODE": "session",
+        "CALIBER_CSRF_ENABLED": "true",
+        "CALIBER_APPLY_REQUIRE_DISTINCT_APPROVER": "true",
+        "CALIBER_MCP_STDIO_COMMAND_ALLOWLIST": "",
+        "CALIBER_MCP_REMOTE_HOST_ALLOWLIST": "example.com",
+    }
+    config = CaliberConfig.load(environ=environ)
+    assert _codes(reference_profile_violations(config)) == ["mcp_allowlist_not_in_profile"]
+    with pytest.raises(ConfigError) as refused:
+        create_app(config)
+    assert "CALIBER_MCP_REMOTE_HOST_ALLOWLIST" in str(refused.value)
+    assert str(refused.value).endswith("[mcp_allowlist_not_in_profile]")
+    assert "example.com" not in str(refused.value)
+    empty = CaliberConfig.load(environ={**environ, "CALIBER_MCP_REMOTE_HOST_ALLOWLIST": ""})
+    assert reference_profile_violations(empty) == []
+
+
 # ---------------------------------------------------------------- startup
 
 
@@ -355,6 +491,12 @@ MESSAGES: dict[str, tuple[str, str]] = {
         "mcp_allow_insecure_http",
         "mcp_allow_insecure_http is true; set CALIBER_MCP_ALLOW_INSECURE_HTTP=false for the reference profile",
     ),
+    "mcp_allowlist_not_in_profile": (
+        "mcp_stdio_command_allowlist, mcp_remote_host_allowlist",
+        "mcp_stdio_command_allowlist, mcp_remote_host_allowlist lists an MCP command or host the reference "
+        "profile does not allow (it allows none); set CALIBER_MCP_STDIO_COMMAND_ALLOWLIST, "
+        "CALIBER_MCP_REMOTE_HOST_ALLOWLIST to empty for the reference profile",
+    ),
     "self_approval_allowed": (
         "approval_allow_self_approval",
         "approval_allow_self_approval is true; "
@@ -394,9 +536,11 @@ def test_the_refusal_counts_and_bullets_every_violation(app_config: CaliberConfi
     with pytest.raises(ConfigError) as refused:
         create_app(_config(app_config, **every_unsafe))
     lines = str(refused.value).splitlines()
-    assert lines[0] == "reference profile refused (10 violations):"
+    assert lines[0] == "reference profile refused (11 violations):"
     assert len(lines) == 1 + len(UNSAFE)
     assert all(line.startswith("- ") for line in lines[1:])
+    # Each line ends with its violation's stable code, in the fixed order.
+    assert [line.rsplit(" [", 1)[1].rstrip("]") for line in lines[1:]] == list(UNSAFE)
 
 
 def test_a_single_violation_is_not_pluralised(app_config: CaliberConfig) -> None:
