@@ -1178,7 +1178,7 @@ def _by_attempt(world: Any) -> list[tuple[int, str, int | None, str | None]]:
 
 
 def _crash_after_reservation(world: Any) -> None:
-    """A first execution that dies inside the adapter call: the reservation is persisted, open, and no result exists."""
+    """A first execution killed inside the adapter call (simulated: KeyboardInterrupt in run_step): the reservation is persisted and open."""
 
     class Dies(FakeWorkflowExecutor):
         def run_step(self, request: Any, step_input: Any) -> Any:
@@ -1486,3 +1486,85 @@ def test_the_development_profile_never_derives_an_attempt(
     assert result.status == "completed", result.error
     assert recorder.assemblies and {a.attempt for a in recorder.assemblies} == {1}
     assert _all(world) == []
+
+
+def test_a_worker_that_starts_while_the_first_is_still_in_flight_calls_the_provider_under_its_own_reservation(
+    world: Any,
+) -> None:
+    """Pinned decision (#1073): a resume cannot tell a live earlier worker from a dead one.
+
+    Worker A has reserved attempt 1 and its provider call is in flight (the reservation is still open) when worker B starts the same
+    step. B derives attempt 2 and makes its own, concurrent provider call (before this change B was refused as a replay). Both calls
+    are charged in full against the run budget, and the occurrence still has one proposal and one approval request.
+    """
+    second = FakeWorkflowExecutor(step_script=[_proposing()])
+    seen_by_second: list[Any] = []
+
+    class FirstInFlight(FakeWorkflowExecutor):
+        def run_step(self, request: Any, step_input: Any) -> Any:
+            # A's reservation is open in the database; B starts now and runs the whole step to its end
+            seen_by_second.append(_by_attempt(world))
+            seen_by_second.append(_go(_plan(world), second))
+            return super().run_step(request, step_input)
+
+    first = FirstInFlight(step_script=[_proposing()])
+    result = _go(_plan(world), first)
+
+    assert seen_by_second[0] == [(1, RESERVED, None, None)]
+    assert seen_by_second[1].status == "blocked", seen_by_second[1].error
+    assert result.status == "blocked", result.error
+    assert [r.attempt for r in first.step_requests] == [1]
+    assert [r.attempt for r in second.step_requests] == [2], "B made its own provider call"
+    assert _by_attempt(world) == [
+        (1, SETTLED, 15, BASIS_REPORTED),
+        (2, SETTLED, 15, BASIS_REPORTED),
+    ]
+    assert run_token_usage(world, RUN).counted_tokens == 30, "both concurrent calls are charged"
+    proposals, requests = _rows(world)
+    assert len(proposals) == 1 and len(requests) == 1, (
+        "one proposal per occurrence, whoever got there first"
+    )
+
+
+def test_each_crash_leaves_a_full_reservation_counted_until_the_run_budget_is_exhausted(
+    world: Any,
+) -> None:
+    """Crash-loop budget burn (#1073): every crash keeps its whole ceiling, none is released, so repeated crashes run the run dry."""
+
+    class Dies(FakeWorkflowExecutor):
+        def run_step(self, request: Any, step_input: Any) -> Any:
+            raise KeyboardInterrupt
+
+    budget = 3 * CEILING
+    for expected in (1, 2, 3):
+        with pytest.raises(KeyboardInterrupt):
+            _go(_plan(world, run_token_budget=budget), Dies())
+        assert [r[0] for r in _by_attempt(world)] == list(range(1, expected + 1))
+        assert run_token_usage(world, RUN).counted_tokens == expected * CEILING
+    survivor = _Watcher(world, step_script=[_proposing()])
+    result = _go(_plan(world, run_token_budget=budget), survivor)
+    assert result.error == (
+        "ToolExecutionError: governed agent step token reservation refused: "
+        f"token_budget_exhausted (budget={budget} committed={budget} requested={CEILING})"
+    )
+    assert survivor.seen == [] and len(_all(world)) == 3
+
+
+def test_the_attempt_is_derived_for_the_runtimes_own_occurrence_not_the_node_id(
+    world: Any,
+) -> None:
+    """A node run in another occurrence (a loop pass, a fan-out branch) resumes from that occurrence's reservations only."""
+    from caliber.workflows import runtime
+
+    context = _plan(world).governed_agent_steps
+    assert context is not None
+    _reserve(world, _step(occurrence_id="agent", attempt=5, step_request_id="own"))
+    _reserve(world, _step(occurrence_id="pass-2", attempt=1, step_request_id="loop"))
+    adapter = FakeWorkflowExecutor(step_script=[])
+
+    assert runtime._governed_attempt(context, adapter, "agent") == 6
+    token = runtime._STEP_OCCURRENCE.set("pass-2")
+    try:
+        assert runtime._governed_attempt(context, adapter, "agent") == 2
+    finally:
+        runtime._STEP_OCCURRENCE.reset(token)

@@ -365,6 +365,11 @@ reservation. This is the guarantee, not a fault: a call whose outcome nobody kno
    earlier reservation stays charged in full, so the run's budget adds up both calls, and a resume that does not fit the remaining
    budget is refused with `token_budget_exhausted` (step 1). A proposal already recorded for the occurrence short-circuits the step,
    so resuming it asks the model nothing and reserves nothing.
+   A resume cannot tell a live earlier worker from a dead one: a worker that starts the same step while another's call is still in flight
+   derives the next attempt and makes a second, concurrent provider call under its own reservation. Both are charged in full, the budget
+   bounds the spend, and the occurrence still gets one proposal. Every crash also leaves its whole ceiling counted (nothing is released),
+   so a step that keeps crashing uses up the run's budget one ceiling at a time until it is refused with `token_budget_exhausted`
+   (step 1): fix what crashes, then raise `CALIBER_AGENT_RUN_MAX_TOKENS` or start a new run.
 3. A reservation still `reserved`: its worker died or was cancelled. It is already counted in full. The execution owner's reconciler
    loop moves it to `abandoned` (still at its whole reservation) once its step's deadline plus the grace has passed; if it does not
    (`caliber_worker_heartbeats` shows no live `effect_reconciler`, or the loop is turned off), the row stays open and keeps counting,

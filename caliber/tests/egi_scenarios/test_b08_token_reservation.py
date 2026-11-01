@@ -378,7 +378,10 @@ def test_two_workers_running_the_same_step_call_the_provider_once(
 
 
 class _Dies(FakeWorkflowExecutor):
-    """An adapter whose process dies in the call: a ``BaseException`` is not a result, so the reservation stays open."""
+    """An adapter whose process dies in the call (a simulated kill): a ``BaseException`` is not a result, so the reservation stays open.
+
+    The kill is simulated (``KeyboardInterrupt`` in ``run_step`` or in ``record_step_proposal``); the persisted database state is real.
+    """
 
     def run_step(self, request: Any, step_input: Any) -> Any:
         raise KeyboardInterrupt
@@ -415,10 +418,10 @@ def _execute(app: ReferenceApp, run_id: str, executor: Any) -> Any:
     )
 
 
-def test_a_worker_killed_between_reserve_and_settle_is_resumed_without_double_spend(
+def test_a_simulated_kill_between_reserve_and_settle_is_resumed_without_double_spend(
     reference_app: ReferenceApp, two_workspaces: Workspaces
 ) -> None:
-    """The dead worker's reservation stays open and charged in full; the resume takes its own and the run's total adds up both."""
+    """The simulated-kill worker's reservation stays open and charged in full; the resume takes its own and the run's total adds up both."""
     _postgres_only(reference_app)
     run_id = _waiting_run(reference_app)
     with pytest.raises(KeyboardInterrupt):
@@ -445,7 +448,7 @@ def test_a_worker_killed_between_reserve_and_settle_is_resumed_without_double_sp
     assert _counted(reference_app, run_id) == usage.counted_tokens
 
 
-def test_a_worker_killed_after_settling_is_resumed_and_the_budget_sums_both_calls(
+def test_a_simulated_kill_after_settling_is_resumed_and_the_budget_sums_both_calls(
     reference_app: ReferenceApp, two_workspaces: Workspaces, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """The first call settled and the process died before its proposal was recorded: the resume is a second, charged call."""

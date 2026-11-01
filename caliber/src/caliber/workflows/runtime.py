@@ -5404,7 +5404,8 @@ def _governed_attempt(
     ``_STEP_ATTEMPT`` restarts at 1 whenever a process re-executes the run, so a node resumed after a crash would meet its own
     earlier token reservation. The stored reservations decide instead (:func:`~caliber.budget.step_reservation.next_attempt`): the
     resume is the next attempt, takes its own reservation, and the earlier one stays charged in full. It is derived before the context
-    manifest and the request are built, so the ``step_request_id``, the manifest and the reservation all carry the same attempt. An
+    manifest and the request are built, so the ``step_request_id``, the manifest and the reservation all carry the same attempt. It cannot tell a live earlier worker from a
+    dead one (a worker starting while another's call is in flight makes its own, charged call). An
     executor that is not an adapter reserves nothing and keeps its own counter. A store that fails is a fixed-code run error.
     """
     attempt = _STEP_ATTEMPT.get()

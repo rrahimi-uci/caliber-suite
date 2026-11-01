@@ -20,7 +20,8 @@ conservatively, and only ever *lowers* a charge on evidence it believes:
   attempt's reservation is untouched (open, settled or abandoned, it keeps counting in full), the resumed call takes its own,
   and the run's budget adds up both. Two resumers that derive the same attempt meet at the unique key: one reserves, the other
   is handed that row (``created`` false) and is refused as a replay, so a resume never calls the provider twice under one
-  reservation.
+  reservation. The derivation cannot tell a live earlier worker from a dead one: a worker that starts the step while another's call
+  is still in flight makes its own, second call under its own reservation (both charged, the budget bounds the spend).
 * **Open counts in full.** A reservation is ``reserved`` from the moment it is taken until it is settled. An open one counts at its
   whole ceiling. It is never released: a worker that crashed, was cancelled, or lost its store mid-call leaves the ceiling
   counted, because the provider may have been called. There is no operator action that lowers a charge (no say-so: nothing the

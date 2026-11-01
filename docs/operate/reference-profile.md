@@ -4069,7 +4069,14 @@ a second provider call: the first call's outcome is unknown, and the platform ch
 A proposal already recorded for the occurrence still short-circuits the step before any attempt is derived, so a step resumed after its
 proposal was recorded asks nothing and reserves nothing, and the effect is one per occurrence however many attempts ran. Two resumers
 of one step that derive the same attempt meet at the unique key: one reserves and calls the provider, the other is handed that row and is refused
-with `reservation_replayed` before it reaches the provider. Nothing is persisted for this (no migration): the attempt is read from the
+with `reservation_replayed` before it reaches the provider. **A resume cannot tell a live earlier worker from a dead one.** A worker B that starts the same step after worker A has reserved
+attempt 1 but before A has settled it derives attempt 2 and makes a second, concurrent provider call under its own reservation (before this
+change B was refused with `reservation_replayed`). Both calls are charged in full and the run budget bounds the spend; the occurrence still
+has one proposal and one approval request, and dispatching the approved effect still needs the execution-owner lease. `reserve_step_tokens`
+and `next_attempt` do not check the lease themselves, so what keeps two workers off one run is the worker's own run claim, not the
+reservation. **Crash loops burn budget.** Each crash leaves its whole ceiling counted and nothing releases it, so repeated crashes of one step
+accumulate full ceilings against the run until a resume is refused with `token_budget_exhausted`; the remedy is a larger
+`CALIBER_AGENT_RUN_MAX_TOKENS` or a new run. Nothing is persisted for this (no migration): the attempt is read from the
 reservations, and a store that cannot be read refuses the step with `store_failed`. Only a governed step with an adapter executor derives
 an attempt; the development profile and every ungoverned node keep the plain counter.
 
