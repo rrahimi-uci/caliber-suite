@@ -415,6 +415,14 @@ RAW_TRANSPORT_CALLERS = {
 }
 
 
+#: Every production module that names the DEVELOPMENT-PROFILE legacy entry (``bind_legacy_openapi_http_tool``): it sends any method with no proposal, approval, lease or receipt, for a plan outside the reference
+#: profile with no governed context (#1068). Not the governed path; the runtime binds it only for such a plan.
+LEGACY_OPENAPI_CALLERS = {
+    "integrations/openapi/executor.py": "defines it, over the private raw transport",
+    "workflows/runtime.py": "binds it only for a plan with legacy_guarded_effects and no governed context (development profile)",
+}
+
+
 def _names_the_raw_executor(node: Any, raw: set[str]) -> bool:
     import ast
 
@@ -453,6 +461,10 @@ def _modules_naming(raw: set[str]) -> set[str]:
 def test_the_raw_openapi_executor_is_named_only_by_pinned_callers() -> None:
     found = _modules_naming({"execute_openapi_http_tool", "bind_openapi_http_tool"})
     assert found == set(RAW_OPENAPI_CALLERS)
+
+
+def test_the_development_profile_legacy_entry_is_named_only_by_the_runtime() -> None:
+    assert _modules_naming({"bind_legacy_openapi_http_tool"}) == set(LEGACY_OPENAPI_CALLERS)
 
 
 def test_the_private_raw_transport_is_named_only_by_pinned_modules() -> None:

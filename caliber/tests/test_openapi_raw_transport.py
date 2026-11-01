@@ -589,3 +589,104 @@ def test_a_write_still_carries_its_body() -> None:
         query_params={},
     )
     assert kwargs["json"] == {"a": 1}
+
+
+# ------------------------------------------------------------ the development-profile legacy entry (#1068)
+
+
+def test_the_development_profile_sends_a_protected_call_inline_through_the_named_legacy_entry_only(
+    factory: sessionmaker[Session], server: Server, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """No context, development profile: the pre-dispatcher call runs, through the named legacy entry, not the public one."""
+    calls = {"public": 0, "legacy": 0}
+    real_legacy = runtime_module.bind_legacy_openapi_http_tool
+
+    def refuse_public(**_kwargs: Any) -> Any:
+        calls["public"] += 1
+        raise AssertionError("the public entry was used for a protected call")
+
+    def counting_legacy(*args: Any, **kwargs: Any) -> Any:
+        calls["legacy"] += 1
+        return real_legacy(*args, **kwargs)
+
+    monkeypatch.setattr(executor_module, "execute_openapi_http_tool", refuse_public)
+    monkeypatch.setattr(runtime_module, "bind_legacy_openapi_http_tool", counting_legacy)
+    run = OpenApiRun(
+        factory,
+        entry_for("open_ticket", "write", config(server.url)),
+        context=False,
+        legacy=True,
+    )
+
+    result = run.execute()
+
+    assert result.status == "completed", result.error
+    assert calls == {"public": 0, "legacy": 1}
+    assert [r["method"] for r in server.requests] == ["POST"]
+    assert run.authorized == [] and proposals(factory) == []  # not the governed path
+
+
+def test_the_reference_profile_never_binds_the_legacy_entry(
+    factory: sessionmaker[Session], server: Server, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``legacy_guarded_effects`` is False there: a protected call with no context is refused, and nothing is sent."""
+    monkeypatch.setattr(
+        runtime_module,
+        "bind_legacy_openapi_http_tool",
+        lambda *_a, **_k: pytest.fail("the legacy entry was bound outside the development profile"),
+    )
+    run = OpenApiRun(
+        factory, entry_for("open_ticket", "write", config(server.url)), context=False, legacy=False
+    )
+
+    result = run.execute()
+
+    assert "requires a governed effect context" in (result.error or "")
+    assert server.requests == []
+
+
+def test_a_bound_context_routes_through_the_dispatcher_and_never_binds_the_legacy_entry(
+    factory: sessionmaker[Session], server: Server, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        runtime_module,
+        "bind_legacy_openapi_http_tool",
+        lambda *_a, **_k: pytest.fail("the legacy entry was bound next to a governed context"),
+    )
+    run = OpenApiRun(factory, entry_for("open_ticket", "write", config(server.url)), legacy=True)
+
+    assert run.execute().status == "completed"
+    assert len(run.authorized) == 1 and proposals(factory)[0].state == "committed"
+
+
+def test_a_model_chosen_write_stays_refused_in_the_development_profile(server: Server) -> None:
+    """The legacy entry is bound only for a tool node's inline call: the agent loops bind the public entry."""
+    from caliber.workflows.runtime import _bind
+
+    binding = SimpleNamespace(
+        binding_type="registered_function",
+        execution_backend="openapi_http",
+        backend_config=config(server.url),
+        input_schema=None,
+        local_name="open_ticket",
+    )
+
+    with pytest.raises(OpenApiUnsupportedEffectPathError):
+        _bind(binding, None, egress_policy=LOOPBACK)({"body": {"title": "x"}})  # type: ignore[arg-type]
+
+    assert server.requests == []
+
+
+@pytest.mark.parametrize(
+    ("flag", "context", "allowed"),
+    [(True, False, True), (True, True, False), (False, False, False), (False, True, False)],
+)
+def test_the_legacy_path_is_allowed_only_for_the_flag_with_no_bound_context(
+    flag: bool, context: bool, allowed: bool
+) -> None:
+    """One helper decides it for the HTTP, tool and OpenAPI routes and the legacy binding: never next to a context."""
+    plan = SimpleNamespace(
+        legacy_guarded_effects=flag, governed_effects=object() if context else None
+    )
+
+    assert runtime_module._legacy_effects_allowed(plan) is allowed  # type: ignore[arg-type]

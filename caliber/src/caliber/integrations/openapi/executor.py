@@ -187,8 +187,31 @@ def bind_openapi_http_tool(
     *,
     egress_policy: EgressPolicy | None = None,
 ) -> Callable[..., Any]:
-    """Bind an OpenAPI-backed tool to an executable callable."""
+    """Bind an OpenAPI-backed tool to an executable callable: the public entry, so it sends only a read."""
+    return _bind_tool(binding, egress_policy, lambda **kw: execute_openapi_http_tool(**kw))  # noqa: PLW0108 - looked up at call time
 
+
+def bind_legacy_openapi_http_tool(
+    binding: Any,
+    *,
+    egress_policy: EgressPolicy | None = None,
+) -> Callable[..., Any]:
+    """**Development-profile compatibility only**: bind a tool that sends any method through the private raw transport.
+
+    This is not the governed path: no proposal, no exact-intent approval, no execution-owner lease and no receipt. It exists so
+    a manifest-backed plan outside the reference profile that has no governed context bound (``RuntimePlan.legacy_guarded_effects``,
+    #1068) keeps running a protected OpenAPI tool node the way it did before the dispatcher routing. The workflow runtime is the
+    only module that may name it (pinned by ``tests/test_effect_path_matrix.py``), and only for such a plan; the reference
+    profile never binds it, so there a protected call without a context is refused.
+    """
+    return _bind_tool(binding, egress_policy, lambda **kw: _send_raw(**kw))  # noqa: PLW0108 - looked up at call time
+
+
+def _bind_tool(
+    binding: Any,
+    egress_policy: EgressPolicy | None,
+    send: Callable[..., dict[str, Any]],
+) -> Callable[..., Any]:
     def _invoke(*args: Any, **kwargs: Any) -> dict[str, Any]:
         if args and kwargs:
             raise OpenApiExecutionError(
@@ -203,7 +226,7 @@ def bind_openapi_http_tool(
             payload = dict(args[0])
         else:
             payload = dict(kwargs)
-        return execute_openapi_http_tool(
+        return send(
             execution_config=getattr(binding, "backend_config", None),
             input_schema=getattr(binding, "input_schema", None),
             input_data=payload,
