@@ -1,7 +1,7 @@
 """Can CALIBER's OpenAPI tool path do what exactly-once dispatch needs? (D1 experiment, #567)
 
 Three capabilities decide the Beta connector, each measured against the real downstream process through the
-real executor (``execute_openapi_http_tool``, no mocked transport):
+real executor (``_send_raw``, no mocked transport):
 
 1. a **stable key**: the same ``Idempotency-Key`` twice commits once;
 2. a **precondition**: an ``If-Match`` that is not the case's current version is refused and commits nothing;
@@ -9,7 +9,7 @@ real executor (``execute_openapi_http_tool``, no mocked transport):
 
 The tool is built the way an imported integration builds it: the downstream's ``/openapi.json`` is normalized,
 the input schema and execution config come from ``integrations/openapi/tool_drafts.py``, and the callable
-from ``bind_openapi_http_tool``. The findings are in ``docs/reports/egi/D1-connector-capability.md``.
+from the executor's configuration. The findings are in ``docs/reports/egi/D1-connector-capability.md``.
 """
 
 from __future__ import annotations
@@ -27,9 +27,8 @@ import pytest
 from caliber.egress import EgressPolicy
 from caliber.integrations.openapi.executor import (
     OpenApiExecutionError,
+    _send_raw,
     bind_egress_policy,
-    bind_openapi_http_tool,
-    execute_openapi_http_tool,
 )
 from caliber.integrations.openapi.normalize import normalize_openapi_document
 from caliber.integrations.openapi.tool_drafts import build_execution_config, build_tool_input_schema
@@ -84,7 +83,16 @@ def build_tool(
         input_schema=build_tool_input_schema(operation),  # type: ignore[arg-type]
         local_name="request_missing_document",
     )
-    return bind_openapi_http_tool(binding), config
+
+    def raw_tool(**payload: Any) -> dict[str, Any]:
+        # the private raw transport: the public entry refuses the POSTs these D1 experiments measure
+        return _send_raw(
+            execution_config=binding.backend_config,
+            input_schema=binding.input_schema,
+            input_data=payload,
+        )
+
+    return raw_tool, config
 
 
 def post_input(key: str, *, version: int | None = None) -> dict[str, Any]:
@@ -198,7 +206,7 @@ def test_an_unbound_handwritten_config_does_not_enable_retries_from_a_header_par
     _request, _ = build_tool(downstream, POST_KEY, max_attempts=3)
     downstream.set_fault("drop_response_after_commit")
     with pytest.raises(OpenApiExecutionError, match="request failed after 1 attempt"):
-        execute_openapi_http_tool(
+        _send_raw(
             execution_config={
                 "kind": "openapi_http",
                 "method": "POST",
@@ -235,7 +243,7 @@ def test_the_configured_idempotency_key_header_works_without_a_derived_schema(
 ) -> None:
     """The documented path does work when no input schema is applied (a hand-written tool config)."""
     _, config = build_tool(downstream, POST_KEY, idempotency_key_header=KEY_HEADER)
-    result = execute_openapi_http_tool(
+    result = _send_raw(
         execution_config=config,
         input_schema=None,
         input_data={"path_params": {"case_id": CASE}, "body": BODY, "idempotency_key": "key-y"},
@@ -249,7 +257,7 @@ def test_conflicting_canonical_and_header_values_are_refused_before_dispatch(
 ) -> None:
     _, config = build_tool(downstream, POST_KEY)
     with pytest.raises(OpenApiExecutionError, match="different|conflicting"):
-        execute_openapi_http_tool(
+        _send_raw(
             execution_config=config,
             input_schema=None,
             input_data={
@@ -290,7 +298,7 @@ def _post_to_flaky(input_data: dict[str, Any], **config: Any) -> dict[str, Any]:
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     try:
-        return execute_openapi_http_tool(
+        return _send_raw(
             execution_config={
                 "kind": "openapi_http",
                 "method": "POST",
@@ -393,9 +401,7 @@ def test_a_refused_connection_and_an_egress_block_keep_their_own_cause(
     request, config = build_tool(downstream, POST_KEY)
     dead = {**config, "server_url": "http://127.0.0.1:9"}  # nothing listens on the discard port
     with pytest.raises(OpenApiExecutionError) as refused:
-        execute_openapi_http_tool(
-            execution_config=dead, input_schema=None, input_data=post_input("key-dead")
-        )
+        _send_raw(execution_config=dead, input_schema=None, input_data=post_input("key-dead"))
     assert isinstance(refused.value.__cause__, httpx.ConnectError)
 
     bind_egress_policy(EgressPolicy())  # closed: blocks loopback

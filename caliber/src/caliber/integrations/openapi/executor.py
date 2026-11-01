@@ -6,12 +6,14 @@ a pre-check refuses the obvious destinations, and the client that actually opens
 the connection carries the policy in its transport so a name that re-resolves
 after the check cannot be reached.
 
-This is the **raw transport**: it sends whatever it is given. A protected call of a
-workflow tool node never reaches it from the runtime directly; it is proposed, approved
-and sent by the dispatcher's private ``openapi_http`` backend (B04.4, #750), which
-calls :func:`preflight_governed_openapi_request` first so that everything that can be
-refused without sending is refused before an approval is requested. The callers that
-still reach it directly are pinned in ``tests/test_effect_path_matrix.py``.
+There are two entries. :func:`execute_openapi_http_tool` is the public one and sends only a **read** operation
+(``GET``, ``HEAD``, ``OPTIONS``); any other method is refused with ``unsupported_effect_path``
+(:class:`OpenApiUnsupportedEffectPathError`). :func:`_send_raw` is the private raw transport that sends any method: only the
+dispatcher's private backends (document request and ``openapi_http``, B04.4, #750) and the operator's draft preview route
+(EP-033, exempt) may call it, and ``tests/test_effect_path_matrix.py`` fails when any other production module names it. A
+protected call of a workflow tool node is proposed, approved and sent by the ``openapi_http`` backend, which calls
+:func:`preflight_governed_openapi_request` first so that everything that can be refused without sending is refused before
+an approval is requested. The callers that still reach the public entry are pinned in the same test.
 """
 
 from __future__ import annotations
@@ -20,6 +22,7 @@ from __future__ import annotations
 # fail-closed and kept visible for security review.
 # ruff: noqa: PLR0912, PLR0915, PLR2004
 import base64
+import copy
 import json
 import math
 import re
@@ -37,6 +40,12 @@ from caliber.egress import EgressBlockedError, EgressPolicy, build_client, check
 from caliber.secrets import resolve_secret
 
 _PATH_PARAM = re.compile(r"\{([^{}]+)\}")
+
+#: Methods that read: the only ones the public entry sends. Any other method is a protected effect.
+READ_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
+
+#: The stable, payload-free code a protected call refused at the public entry carries (the dispatcher's refusal code too).
+UNSUPPORTED_EFFECT_PATH = "unsupported_effect_path"
 
 #: Response headers never copied into a tool result. A tool output is persisted on
 #: run rows, shown in the UI, and fed back to an agent, so upstream credential
@@ -137,6 +146,23 @@ class OpenApiExecutionError(RuntimeError):
         self.attempt_log = list(attempt_log or [])
 
 
+class OpenApiUnsupportedEffectPathError(OpenApiExecutionError):
+    """The public entry was asked to send a protected (non-read) operation outside the dispatcher.
+
+    ``code`` is :data:`UNSUPPORTED_EFFECT_PATH` and the message is fixed: it names no method, URL, tool or input value.
+    Nothing was prepared or sent (``never_sent`` is ``True``, ``attempts`` is 0), so a caller may treat it as a refusal.
+    """
+
+    code = UNSUPPORTED_EFFECT_PATH
+
+    def __init__(self) -> None:
+        super().__init__(
+            "unsupported_effect_path: a protected OpenAPI call is sent only by the effect dispatcher",
+            never_sent=True,
+            attempts=0,
+        )
+
+
 def bind_egress_policy(policy: EgressPolicy | None) -> None:
     """Install the process-wide egress policy for OpenAPI-derived tools."""
 
@@ -161,8 +187,31 @@ def bind_openapi_http_tool(
     *,
     egress_policy: EgressPolicy | None = None,
 ) -> Callable[..., Any]:
-    """Bind an OpenAPI-backed tool to an executable callable."""
+    """Bind an OpenAPI-backed tool to an executable callable: the public entry, so it sends only a read."""
+    return _bind_tool(binding, egress_policy, lambda **kw: execute_openapi_http_tool(**kw))  # noqa: PLW0108 - looked up at call time
 
+
+def bind_legacy_openapi_http_tool(
+    binding: Any,
+    *,
+    egress_policy: EgressPolicy | None = None,
+) -> Callable[..., Any]:
+    """**Development-profile compatibility only**: bind a tool that sends any method through the private raw transport.
+
+    This is not the governed path: no proposal, no exact-intent approval, no execution-owner lease and no receipt. It exists so
+    a manifest-backed plan outside the reference profile that has no governed context bound (``RuntimePlan.legacy_guarded_effects``,
+    #1068) keeps running a protected OpenAPI tool node the way it did before the dispatcher routing. The workflow runtime is the
+    only module that may name it (pinned by ``tests/test_effect_path_matrix.py``), and only for such a plan; the reference
+    profile never binds it, so there a protected call without a context is refused.
+    """
+    return _bind_tool(binding, egress_policy, lambda **kw: _send_raw(**kw))  # noqa: PLW0108 - looked up at call time
+
+
+def _bind_tool(
+    binding: Any,
+    egress_policy: EgressPolicy | None,
+    send: Callable[..., dict[str, Any]],
+) -> Callable[..., Any]:
     def _invoke(*args: Any, **kwargs: Any) -> dict[str, Any]:
         if args and kwargs:
             raise OpenApiExecutionError(
@@ -177,7 +226,7 @@ def bind_openapi_http_tool(
             payload = dict(args[0])
         else:
             payload = dict(kwargs)
-        return execute_openapi_http_tool(
+        return send(
             execution_config=getattr(binding, "backend_config", None),
             input_schema=getattr(binding, "input_schema", None),
             input_data=payload,
@@ -339,11 +388,59 @@ def execute_openapi_http_tool(
     input_data: dict[str, Any],
     egress_policy: EgressPolicy | None = None,
 ) -> dict[str, Any]:
-    """Validate input, inject auth, and perform one guarded HTTP request.
+    """Validate input, inject auth, and perform one guarded **read** request (the public entry).
+
+    This entry sends only an operation whose method reads (``GET``, ``HEAD``, ``OPTIONS``). Any other method is a protected
+    effect, which only the dispatcher's private ``openapi_http`` backend (and the document-request backend) may send, through
+    :func:`_send_raw`: here it is refused with :class:`OpenApiUnsupportedEffectPathError` (``unsupported_effect_path``) before
+    anything is prepared, resolved or sent, so no caller of this function can perform a write without a recorded, approved
+    proposal. The method is read from the **configuration** (a pack's operation is selected by the input), never from a
+    claim; a configuration that resolves to no operation falls through to the transport's own configuration refusal.
+    Whether a read-method operation is *declared* a write (``side_effect_level``) is the caller's to check (the workflow
+    runtime classifies from the registry row; Aria refuses a tool whose level is not ``read``).
 
     ``egress_policy`` lets a call site with a better policy (a workflow plan, a
     request-scoped config) override the process-wide one. Omitting it does not
     mean "unrestricted" — see :func:`active_egress_policy`.
+    """
+
+    try:
+        # One snapshot is both classified and sent, so a caller (or another thread) that changes the configuration or the
+        # input after the check cannot turn the call into a different operation than the one that was checked.
+        config = copy.deepcopy(execution_config)
+        data = copy.deepcopy(input_data)
+        try:
+            method: str | None = openapi_operation_method(config, data)
+        except OpenApiPreflightError:
+            method = None  # no operation to classify: the transport refuses the configuration, sending nothing
+    except Exception as exc:
+        # A configuration that is not even a mapping, or an input that cannot be copied: refused, nothing was sent.
+        exc.never_sent = True  # type: ignore[attr-defined]
+        exc.attempts = 0  # type: ignore[attr-defined]
+        raise
+    if method is not None and method not in READ_METHODS:
+        raise OpenApiUnsupportedEffectPathError
+    return _send_raw(
+        execution_config=config,
+        input_schema=input_schema,
+        input_data=data,
+        egress_policy=egress_policy,
+    )
+
+
+def _send_raw(
+    *,
+    execution_config: dict[str, Any] | None,
+    input_schema: dict[str, Any] | None,
+    input_data: dict[str, Any],
+    egress_policy: EgressPolicy | None = None,
+) -> dict[str, Any]:
+    """The **private raw transport**: validate, inject auth and send one request of any method, with no governance of its own.
+
+    Only the dispatcher's private backends (document request, ``openapi_http``) and the operator's draft preview route may
+    call it, and ``tests/test_effect_path_matrix.py`` fails when any other production module names it. It never calls
+    :func:`execute_openapi_http_tool`, so a dispatched effect cannot re-enter the dispatcher or the public entry. Retries are
+    bounded by :func:`_max_attempts`: a non-idempotent method is retried only when the request really carries a key.
     """
 
     try:
@@ -1045,7 +1142,8 @@ def _request_kwargs(
     kwargs: dict[str, Any] = {"headers": headers}
     if query_params:
         kwargs["params"] = query_params
-    if method == "GET":
+    # A read carries no body: a body on HEAD or OPTIONS is a request-smuggling surface.
+    if method in READ_METHODS:
         return kwargs
     if isinstance(body, (dict, list)):
         if _prefers_json(request_content_types):

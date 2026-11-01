@@ -783,7 +783,7 @@ from caliber.effects.records import (
     proposal_view,
 )
 from caliber.effects.records import FAILED as PROPOSAL_FAILED
-from caliber.integrations.openapi.executor import execute_openapi_http_tool
+from caliber.integrations.openapi.executor import _send_raw
 from caliber.routes.system_effects import RECEIPT_CALLBACK_PATH
 from caliber.server import create_app
 
@@ -872,7 +872,7 @@ def _unknown_proposal(
         _move(session, proposal_id, UNKNOWN, owner_id=OWNER, attempt=ATTEMPT, reason="timeout")
         session.commit()
     if dispatched:
-        execute_openapi_http_tool(
+        _send_raw(
             execution_config=submit_config(downstream.base_url),
             input_schema=None,
             input_data=submit_input(
@@ -1034,7 +1034,7 @@ def test_callback_without_downstream_record_stays_unknown(
         _count(session_factory, CaliberEffectReceipt) == 0
         and _count(session_factory, CaliberInboxEvent) == 0
     )
-    execute_openapi_http_tool(
+    _send_raw(
         execution_config=submit_config(downstream.base_url),
         input_schema=None,
         input_data=submit_input(
@@ -1291,7 +1291,7 @@ def test_a_downstream_record_that_is_not_this_proposals_effect_stays_unknown(
 ) -> None:
     _seed_run(session_factory)
     proposal_id, key = _unknown_proposal(session_factory, downstream, dispatched=False)
-    execute_openapi_http_tool(  # the downstream holds a different document type under the key
+    _send_raw(  # the downstream holds a different document type under the key
         execution_config=submit_config(downstream.base_url),
         input_schema=None,
         input_data=submit_input(

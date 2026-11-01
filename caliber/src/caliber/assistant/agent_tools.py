@@ -552,6 +552,11 @@ class AssistantAgentToolset:
             for row in rows:
                 tool = ToolSchema.model_validate(row)
                 tier = self._published_openapi_tier(tool)
+                if tier == TIER_MUTATE:
+                    # A write or external-action tool is not offered to the model: Aria has no workflow run to propose
+                    # into, and the public executor refuses a protected method (``unsupported_effect_path``), so the
+                    # call could only fail. Its governed route is #1063 (B04.4b, #750).
+                    continue
                 if not self._tier_allowed(tier):
                     continue
                 name = self._published_openapi_tool_name(tool)

@@ -1678,9 +1678,9 @@ def downstream(_downstream_process: Any) -> Any:
 
 def _connector_call(downstream: Any, key: str, version: int | None) -> dict[str, Any]:
     from caliber.effects.connectors.document_request import submit_config, submit_input
-    from caliber.integrations.openapi.executor import execute_openapi_http_tool
+    from caliber.integrations.openapi.executor import _send_raw
 
-    return execute_openapi_http_tool(
+    return _send_raw(
         execution_config=submit_config(downstream.base_url),
         input_schema=None,
         input_data=submit_input(

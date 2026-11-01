@@ -811,7 +811,7 @@ def test_a_settle_failure_under_the_current_lease_is_recovered_by_the_owner_loop
         session.commit()
 
     transport = dispatcher_module._raw_connector_transport
-    real = transport.execute_openapi_http_tool
+    real = transport._send_raw
 
     def verification_fails(**kwargs: Any) -> Any:
         if (
@@ -820,10 +820,12 @@ def test_a_settle_failure_under_the_current_lease_is_recovered_by_the_owner_loop
             raise ConnectionError("the verifier lost its connection")
         return real(**kwargs)
 
-    monkeypatch.setattr(transport, "execute_openapi_http_tool", verification_fails)
     bind_egress_policy(EgressPolicy(allowed_hosts=frozenset({"127.0.0.1"})))
     try:
-        with pytest.raises(ConnectionError):
+        # only the dispatcher's own verification fails: the reconciler's later lookup (the public read entry, which
+        # delegates to the same function) must reach the downstream
+        with monkeypatch.context() as failing, pytest.raises(ConnectionError):
+            failing.setattr(transport, "_send_raw", verification_fails)
             dispatch(
                 reference_app.session_factory,
                 proposal_id,

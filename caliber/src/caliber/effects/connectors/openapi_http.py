@@ -2,7 +2,8 @@
 
 A workflow ``tool`` node bound to an OpenAPI integration (``execution_backend: openapi_http``) used to call the executor
 directly. When the call is protected it is a proposal instead, carried by the private ``openapi_http`` backend, which is the
-only caller of the raw transport (:func:`caliber.integrations.openapi.executor.execute_openapi_http_tool`) for it.
+only caller of the private raw transport (``caliber.integrations.openapi.executor._send_raw``) for it; the public
+:func:`~caliber.integrations.openapi.executor.execute_openapi_http_tool` refuses any non-read operation.
 
 What the proposal records, and where each part comes from:
 
@@ -37,6 +38,7 @@ from typing import Any, Final
 from caliber.effects.connectors import ConnectorCapability
 from caliber.egress import EgressPolicy
 from caliber.integrations.openapi.executor import (
+    READ_METHODS,
     OpenApiPreflight,
     OpenApiPreflightError,
     preflight_governed_openapi_request,
@@ -45,9 +47,6 @@ from caliber.integrations.openapi.executor import (
 CONNECTOR: Final = "openapi-http"
 VERSION: Final = "1"
 BACKEND_KIND: Final = "openapi_http"
-
-#: Methods that read: a call to a row declared ``read`` is inline only when its method is one of these.
-READ_METHODS: Final = frozenset({"GET", "HEAD", "OPTIONS"})
 
 #: The refusal a recorded proposal that does not match its trusted operation gets (the transport sends nothing).
 INTENT_MISMATCH: Final = "connector_intent_unsupported"
