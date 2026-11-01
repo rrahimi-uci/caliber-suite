@@ -14,6 +14,13 @@ conservatively, and only ever *lowers* a charge on evidence it believes:
   reservation it did not create must not call the provider again for it (the earlier call may have spent): the runtime
   refuses the step (:data:`RESERVATION_REPLAYED`). A retry of a node is a new attempt and takes its own reservation, so the
   attempts of one occurrence add up against the run.
+* **Resume is a new attempt (#1073).** The runtime's attempt counter restarts at 1 on every process-level re-execution of a run,
+  so a node that is resumed after a crash would meet its own earlier reservation. :func:`next_attempt` derives the attempt from
+  what is stored: the highest attempt the occurrence has reserved plus one (never below the caller's own counter). The earlier
+  attempt's reservation is untouched (open, settled or abandoned, it keeps counting in full), the resumed call takes its own,
+  and the run's budget adds up both. Two resumers that derive the same attempt meet at the unique key: one reserves, the other
+  is handed that row (``created`` false) and is refused as a replay, so a resume never calls the provider twice under one
+  reservation.
 * **Open counts in full.** A reservation is ``reserved`` from the moment it is taken until it is settled. An open one counts at its
   whole ceiling. It is never released: a worker that crashed, was cancelled, or lost its store mid-call leaves the ceiling
   counted, because the provider may have been called. There is no operator action that lowers a charge (no say-so: nothing the
@@ -92,6 +99,8 @@ _MAX_REPORTED: Final = 2_147_483_647
 #: Stops of a step whose adapter ran to an answer: only their provider-sourced usage may lower a charge. ``refused`` and ``error``
 #: say the call's outcome is unknown, so they never do.
 _RAN_STOPS: Final = frozenset(STOP_REASONS) - {"refused", "error"}
+#: The largest attempt the step request contract allows (a 32-bit count).
+_MAX_ATTEMPT: Final = 2_147_483_647
 _SAFE_CODE: Final = re.compile(r"[a-z][a-z0-9_]{0,63}")
 #: The most open reservations one janitor pass finalizes.
 DEFAULT_SWEEP_LIMIT: Final = 500
@@ -275,6 +284,40 @@ def _counted(session: Session, workflow_run_id: str) -> int:
         ).where(CaliberStepTokenReservation.workflow_run_id == workflow_run_id)
     ).scalar_one()
     return int(total)
+
+
+def next_attempt(
+    session_factory: SessionFactory,
+    workflow_run_id: str,
+    node_id: str,
+    occurrence_id: str,
+    *,
+    floor: int,
+) -> int:
+    """The attempt a governed step takes now: ``floor``, or one past the highest attempt this occurrence has reserved, if larger.
+
+    ``floor`` is the caller's own attempt counter (1 on a first execution, higher on an in-process retry). It restarts at 1 when a
+    process re-executes the run, so the stored reservations decide: an occurrence that has reserved attempts up to ``n`` resumes as
+    ``n + 1`` and takes its own reservation, leaving every earlier one as it is (still counted in full). With none stored the result
+    is ``floor``. This only reads: it neither takes the run's lock nor writes, because the unique key on the reservation settles a
+    race (two callers deriving the same attempt reserve once between them, see :func:`reserve_step_tokens`). Raises
+    :class:`ReservationRefused` (:data:`REQUEST_INVALID`) for a ``floor`` that is not an integer within the request contract's
+    attempt bounds, or when the next attempt would pass them.
+    """
+    if type(floor) is not int or not 1 <= floor <= _MAX_ATTEMPT:
+        raise ReservationRefused(REQUEST_INVALID)
+    with session_factory() as session:
+        highest = session.execute(
+            select(func.max(CaliberStepTokenReservation.attempt)).where(
+                CaliberStepTokenReservation.workflow_run_id == workflow_run_id,
+                CaliberStepTokenReservation.node_id == node_id,
+                CaliberStepTokenReservation.occurrence_id == occurrence_id,
+            )
+        ).scalar_one()
+    attempt = floor if highest is None else max(floor, int(highest) + 1)
+    if attempt > _MAX_ATTEMPT:
+        raise ReservationRefused(REQUEST_INVALID)
+    return attempt
 
 
 def _checked_budget(run_budget_tokens: object) -> int:
@@ -503,6 +546,7 @@ __all__ = [
     "StepReservation",
     "abandon_stale",
     "charge_for",
+    "next_attempt",
     "reserve_step_tokens",
     "run_token_usage",
     "settle_step_tokens",

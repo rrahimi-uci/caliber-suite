@@ -336,7 +336,7 @@ mutation is created. A run that is genuinely `failed` remains terminal: no trans
 ## A governed step refused for its token budget, or left a reservation open
 
 **What it looks like.** A run `failed` with `governed agent step token reservation refused: token_budget_exhausted (budget=B
-committed=C requested=R)`, or `... reservation_replayed`, or `... store_failed`; or a row of `caliber_step_token_reservations`
+committed=C requested=R)`, or `... reservation_replayed` (two resumers racing), or `... store_failed`; or a row of `caliber_step_token_reservations`
 that stays `reserved` after its step should have ended.
 
 ```sql
@@ -358,11 +358,13 @@ reservation. This is the guarantee, not a fault: a call whose outcome nobody kno
 1. `token_budget_exhausted`: the run has spent or reserved its budget. Nothing was reserved by the refused step and its adapter was not
    called. Raise `CALIBER_AGENT_RUN_MAX_TOKENS` (a restart applies it) and start a new run; do not edit or delete a reservation row
    (the database refuses both, and no operator action lowers a charge).
-2. `reservation_replayed`: this step (run, node, occurrence, attempt) already holds a reservation, so a provider call for it may already
-   have spent. The platform does not call again on that strength. The node's own in-process retry is the next attempt and reserves
-   afresh; if the run has no retry left, start a new run. **After a crash or a process-level re-execution the attempt counter restarts at
-   1, so the resumed governed node is refused with this code and the run fails: a governed step cannot be resumed after a crash, only a
-   new run proceeds (known limit, follow-up #1073).** It fails closed: no second provider spend happens under one reservation.
+2. `reservation_replayed`: this step (run, node, occurrence, attempt) already holds a reservation that this process did not create, so a
+   provider call for it may already have spent. The platform does not call again on that strength. Only two resumers of one step racing
+   for the same attempt meet it now: one reserves and calls the provider, the other is refused, and nothing needs fixing. A node's own
+   retry and **a resume after a crash are the next attempt** (one past the highest the occurrence has reserved) and reserve afresh: the
+   earlier reservation stays charged in full, so the run's budget adds up both calls, and a resume that does not fit the remaining
+   budget is refused with `token_budget_exhausted` (step 1). A proposal already recorded for the occurrence short-circuits the step,
+   so resuming it asks the model nothing and reserves nothing.
 3. A reservation still `reserved`: its worker died or was cancelled. It is already counted in full. The execution owner's reconciler
    loop moves it to `abandoned` (still at its whole reservation) once its step's deadline plus the grace has passed; if it does not
    (`caliber_worker_heartbeats` shows no live `effect_reconciler`, or the loop is turned off), the row stays open and keeps counting,
