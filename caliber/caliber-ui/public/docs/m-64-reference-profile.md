@@ -80,9 +80,10 @@ facts matching the proposal's connector, resource, intent hash and attempt. A mi
 missing lease is refused before transport; a response that cannot be verified does not become `committed` and remains
 recoverable as an unknown effect. The platform makes no universal exactly-once claim for arbitrary HTTP services.
 
-A manifest-backed plan without this governed context is refused rather than falling back to the raw sender. Legacy plans
-without a workflow manifest retain the existing `_perform_guarded_effect` ledger behavior and do not create an effect
-proposal. The runtime integration that owns a run must bind the context with the run id, exact approval provider, live
+In the reference profile a manifest-backed plan without this governed context is refused rather than falling back to the raw
+sender. Outside the reference profile it is not refused: see [Profiles and a missing governed context](#profiles-and-a-missing-governed-context-1068).
+Legacy plans without a workflow manifest retain the existing `_perform_guarded_effect` ledger behavior and do not create an
+effect proposal. The runtime integration that owns a run must bind the context with the run id, exact approval provider, live
 execution-owner lease and endpoint-specific verifier; no new environment variable, SDK route or migration is required.
 
 ## Governed registered tools (B04.3)
@@ -133,12 +134,12 @@ registered tool 'open_ticket' identity could not be read: ConnectionError
 Recovery: a `proposed` effect needs an exact approval, after which the run can be resumed or resubmitted (the proposal
 is reused for the same node occurrence, so the tool still runs once); an `unknown` effect is settled by the reconciler
 (B05) or an operator, never by re-running the node; a manifest-backed deployment whose run owner has not bound a
-governed context must keep protected registered tools out of its workflows, because it refuses them (read-class tools
-are unaffected). Every construction site of a runtime plan (`RuntimePlan(`) in the code, and what it does with a protected registry tool:
+governed context must keep protected registered tools out of its workflows **in the reference profile**, because it refuses
+them there (read-class tools are unaffected; outside the reference profile see [Profiles and a missing governed context](#profiles-and-a-missing-governed-context-1068)). Every construction site of a runtime plan (`RuntimePlan(`) in the code, and what it does with a protected registry tool:
 
 | plan built by | used for | registry reader | protected registry tool |
 | --- | --- | --- | --- |
-| `promoter.build_plan` | worker runs, synchronous version runs, sub-workflows, Aria previews | bound | refused until a governed context is bound (#1051); a preview stubs it |
+| `promoter.build_plan` | worker runs, synchronous version runs, sub-workflows, Aria previews | bound | reference profile: refused until a governed context is bound (#1051); development profile: runs on the legacy guarded path (#1068); a preview stubs it |
 | `refinement._replay` (via `orchestrator/workflow_stages.py::run_workflow_eval`) | candidate evaluation | bound by the stage | refused (typed, nothing recorded); read-class tools run |
 | `calibration._replay_calibration_manifest` (via `evaluate_workflow_calibration_candidates` in the stage) | calibration replay | bound by the stage | refused; read-class tools run |
 | `promoter` deploy-gate replay | release gate evaluation | none, but `preview=True` | stubbed, never run for real |
@@ -260,8 +261,10 @@ approval is already consumed**: ask for a new proposal (run the node again after
 
 **Not covered by this change, and still outside the dispatcher:** model-chosen tool calls inside an agent step (B04.6,
 #768), the Aria assistant's published-tool call (inventory EP-034: there is no workflow run to propose into; owned by #1063), standalone
-exports and plans a caller builds itself (#1051: `build_plan` binds the registry reader but no governed context, so a
-deployed workflow's **protected** OpenAPI nodes are refused until #1051 binds one; read-class `GET` nodes still run),
+exports and plans a caller builds itself (#1051: `build_plan` binds the registry reader but no governed context, so in the
+reference profile a deployed workflow's **protected** OpenAPI nodes are refused until #1051 binds one, and outside it they run
+inline on the legacy path, see [Profiles and a missing governed context](#profiles-and-a-missing-governed-context-1068);
+read-class `GET` nodes always run),
 and the operator's draft preview route (EP-033, exempt). The raw executor's remaining callers are pinned by
 `tests/test_effect_path_matrix.py::test_the_raw_openapi_executor_is_named_only_by_pinned_callers`, so a new one fails
 until it is routed or pinned with a reason.
@@ -270,6 +273,59 @@ until it is routed or pinned with a reason.
 `openapi-http` become reserved tool names like the other connectors (`409 reserved_tool_name`); a tool already registered
 under one is untrusted and unaffected. Reverting the change restores the direct call (a proposal already recorded remains
 readable).
+
+## Profiles and a missing governed context (#1068)
+
+No production code binds a `GovernedEffectContext` yet: `build_plan` (worker runs, synchronous version runs, sub-workflows)
+binds the registry reader but no execution-owner lease and no exact-intent approval provider (#1051, which also needs the bound
+approval decision route of #735). The dispatcher routing of B04.2, B04.3 and B04.4 made every **protected** node of a
+manifest-backed plan fail for that reason in **every** profile, which broke the shipped cookbook labs (03, 04, 05, 07, 08, 09, 16
+and 19) on `main`. The decision, from ADR 0001 ("Features outside the shape keep working in `development`", "The profile never
+silently falls back to a weaker control"), the B04.2 scope ("keep `_perform_guarded_effect` for runs without a manifest
+(legacy)") and #774 (the refusals are `config.profile == "reference"`): **the refusal is a reference-profile control, not a
+development-profile one.** `build_plan` therefore sets `RuntimePlan.legacy_guarded_effects` from the profile, and a protected
+node with no governed context behaves like this:
+
+| node | reference profile (`CALIBER_PROFILE=reference`) | development profile (the default) |
+| --- | --- | --- |
+| webhook or API-request node, no context | refused: `'<node>' requires a governed effect context for manifest HTTP execution` | `_perform_guarded_effect`: egress policy, then the legacy effect ledger (at most one send per run, node and input across a restart; a definitive failure is retryable, an ambiguous one is reported indeterminate) |
+| protected registered tool, no context | refused: `'<node>' requires a governed effect context to run protected registered tool '<name>'` | runs inline, as before B04.3, behind the node's own approval gate (`requires_approval`); no ledger, as before |
+| protected OpenAPI tool, no context | refused: `'<node>' requires a governed effect context to run protected OpenAPI tool '<name>'` | runs inline, as before B04.4, behind the node's own approval gate |
+| read-class tool or `GET` OpenAPI node | runs inline | runs inline (unchanged) |
+| any node, a context **is** bound | governed path | governed path: a bound context is never bypassed and a refusal from it is final |
+
+**What the development path does not guarantee.** It is **not** the governed path and gives none of its guarantees: no persisted
+proposal, no exact-intent approval (the node's own approval is a legacy gate that approves "this node may run", not "this
+exact request"), no distinct-approver check at the effect, no execution-owner lease recheck, no receipt, no
+`registered_tool`/`http`/`openapi_http` connector admission, no reconciler. The HTTP path keeps the legacy ledger's at-most-once
+claim; the tool paths have only what they had before the dispatcher. Nothing about it is a Beta or reference claim (ADR 0001:
+features outside the shape stay out of Beta claims), and the operator effects view labels such rows `legacy_ledger`, not
+proposals.
+
+**What stays refused in every profile.** Only the "no governed context" refusal is profile-dependent. Everything else in the
+route still applies in both: the built-ins the inventory refuses (EP-055 host-file tools, `sandbox_python`:
+`unsupported_effect_path`), a binding that is not its registry row, an unreadable registry, a tool with no readable OpenAPI row,
+an OpenAPI call replaced by an injected callable once governed, egress policy, and the preflight checks. The evaluation, calibration
+and deploy-gate replays never take the development path: they do not set `legacy_guarded_effects`, so a candidate manifest's
+protected tools are still refused there (a replay must not cause real effects; see the plan table above).
+
+**How the switch is made.** `RuntimePlan.legacy_guarded_effects` defaults to `False` (fail-closed), so a plan built by any
+caller other than `build_plan` and every reference-profile plan refuses. `build_plan` sets it to
+`config.profile != "reference"`; a missing config is the development profile, as everywhere else in `build_plan`. There is no
+setting, environment variable, route or migration, and no approval hook: nothing returns `True` for an authorization.
+
+**Cookbook labs.** The labs run the development profile and create manifest-backed plans, so they depend on this path until
+#1051 binds a context. Their UI specs depended on a second profile-blind rule: the console's Run control (#968) required an
+approved workspace release and environment for every project workflow, which the development server does not require, so its
+Run button stayed disabled. The console now offers and requires the pair only when `GET /capabilities` reports
+`workflow_runs.lineage_required` (true exactly where the server refuses a run without lineage: the reference profile). The `Cookbook labs` workflow now also runs on pull requests that touch the workflow runtime, the effect
+dispatcher, integrations, policy, the run worker and routes, `profile.py` and `config.py`, and on every push to `main` that
+touches them (it takes about fifty minutes, so it is not a required check).
+
+**Moving off it.** #1051 wires the context (an authorization provider, the execution-owner lease, an authoritative receipt
+verifier, park and resume while an approval is pending). When it lands, `legacy_guarded_effects` is removed and the development
+profile uses the governed path like the reference one; until then a deployment that needs the exact-intent guarantees must run
+`CALIBER_PROFILE=reference`.
 
 ## Memory is owned, derived and read-mostly
 
@@ -830,7 +886,8 @@ synchronous real run (`POST /workflow-versions/{id}/run`) is never queued, so wi
    keeps the lineage of the run it retries (a fresh lineage record for the new run, refused with `409` if the release is
    no longer eligible) and a run that never had one cannot be retried in the reference profile (`422`). Development
    leaves lineage optional. **Not covered, tracked:** the assistant's run tool (a chat has no release to name) is
-   refused with the same code. The console's Run and Trigger actions load the project's active environments and approved
+   refused with the same code. In the reference profile (`GET /capabilities` reports `workflow_runs.lineage_required: true`; development
+   reports `false` and the console then offers no picker and sends no lineage, #1068) the console's Run and Trigger actions load the project's active environments and approved
    workspace releases, offer only exact current-release/environment pairs, and submit both IDs. If no eligible pair is
    available, the controls show the same `lineage_required` refusal and do not issue a run or trigger request; the server
    still revalidates project scope, approval and freshness (#968).
@@ -3657,6 +3714,7 @@ ADR 0001 describes the whole reference shape; this table is what the *process* c
 - **The shape itself:** one tenant and region, MLflow addressed by `MLFLOW_TRACKING_URI`, an S3-compatible object store, at least two projects, and one real model provider next to the scripted adapter. Readiness reporting for MLflow and the object store is #535. The PostgreSQL version and the `pgvector` extension are checked by the migrations (migration `0060`) and the migration-parity CI job, not by the profile.
 - **Origin rules** (#533). ADR 0001 names them, but #533 has no allowed-origins task yet; that rule is not scheduled.
 - **Run-time refusal of the `refuse` inventory rows**, including the host-file tools and the DB MCP write tools (#774; see "Reserved tool names and refused paths"), **the trusted-connector set** (#534), **the full attack pack** (#535), **a single execution owner** (#536) and **the Apply separation-of-duties flag** (#589).
+- **A governed effect context in `build_plan` plans** (#1051, #1068): the worker and synchronous runs bind none, so the reference profile refuses protected nodes and the development profile runs them on the legacy guarded path; see "Profiles and a missing governed context".
 - **Cookie flags:** `auth_session_cookie_secure` is not checked.
 - **The database role:** whether the application connects as a role without `UPDATE`, `DELETE` or `TRUNCATE` on `caliber_run_manifests` (see "Run manifests are written once").
 

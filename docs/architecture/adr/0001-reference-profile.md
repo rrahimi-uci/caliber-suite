@@ -63,6 +63,20 @@ and the message names the path and the setting that allows it elsewhere. The dis
 `exempt` in the inventory: the sandbox backend factory (EP-024) and optimizer plugins behind an allowlist (EP-121).
 The profile never silently falls back to a weaker control.
 
+### Amendment, 2026-10-31 (#1068): the governed-context refusal is a reference-profile control
+
+B04.2, B04.3 and B04.4 made a protected node of a manifest-backed plan refuse with "requires a governed effect context" in
+every profile, while no production code binds a governed context yet (#1051). That contradicted the paragraphs above:
+"unsupported paths are refused, not degraded" is a statement about the reference profile (the refusal code is
+`unsupported_in_reference_profile`, raised when `config.profile == "reference"`, #774), and "features outside the shape keep
+working in `development`" is the Consequences below. The refusal for a missing context is therefore enforced **in the
+reference profile only**. Outside it, a protected webhook, API-request, registered-tool or OpenAPI-tool node of a plan with no
+bound context uses the legacy guarded path (the `_perform_guarded_effect` ledger for HTTP nodes, the inline call behind the
+node's own approval gate for tools). That path is not the exact-intent governed path and makes none of its claims. A bound
+context is used in every profile. The reference profile still never falls back to a weaker control. The mechanics, and what
+the development path does and does not guarantee, are in `docs/operate/reference-profile.md` ("Profiles and a missing
+governed context").
+
 ## Consequences
 
 - Scenario tests (V01–V35) run on this shape: the "EGI scenarios (PostgreSQL)" job is the one that proves the

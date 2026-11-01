@@ -222,6 +222,19 @@ test.describe("Workflow Studio", () => {
         body: JSON.stringify(payload),
       });
     });
+    // The picker is offered only where the server requires lineage (the reference profile, #1068); this
+    // deployment is the development profile, so the capability is switched on for the scenario.
+    await page.route(`**${API_BASE}/capabilities`, async (route) => {
+      const response = await route.fetch();
+      const payload = (await response.json()) as {
+        data: { workflow_runs: Record<string, unknown> };
+      };
+      payload.data.workflow_runs.lineage_required = true;
+      await route.fulfill({
+        response,
+        body: JSON.stringify(payload),
+      });
+    });
     await page.route(
       `**${API_BASE}/projects/project-playwright/environments`,
       async (route) =>

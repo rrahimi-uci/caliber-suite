@@ -992,8 +992,13 @@ export function WorkflowDetail(): JSX.Element {
 
   const wfQuery = useApiQuery(["workflow", workflowId], (s) => caliberApi.getWorkflow(workflowId!, s));
   const capabilitiesQuery = useApiQuery(["capabilities"], (s) => caliberApi.getCapabilities(s));
+  // The lineage picker and its selection are required only where the server requires lineage (the reference profile);
+  // elsewhere a project workflow runs without one, as the API allows (#1068).
+  const lineageProjectId = capabilitiesQuery.data?.workflow_runs?.lineage_required
+    ? wfQuery.data?.project_id
+    : null;
   const workflowRunLineage = useWorkflowRunLineage(
-    wfQuery.data?.project_id,
+    lineageProjectId,
     tab === "runs" || tab === "deployments",
   );
   const workflowComponentsQuery = useApiQuery(
@@ -1512,7 +1517,7 @@ export function WorkflowDetail(): JSX.Element {
     capabilitiesQuery.data?.workflow_runs ?? null;
   const workflowRunCapabilitiesUnavailableMessage =
     "Workflow run capabilities could not be loaded. Refresh the page or verify deployment settings/API health.";
-  const lineageSelectionDisabledReason = wfQuery.data?.project_id
+  const lineageSelectionDisabledReason = lineageProjectId
     ? workflowRunLineage.error
       ? `Unable to load approved workspace releases and environments: ${workflowRunLineage.error.message}`
       : workflowRunLineage.isLoading
@@ -1615,7 +1620,7 @@ export function WorkflowDetail(): JSX.Element {
         }
         throw new Error(`No deployment found for alias ${runAlias}.`);
       }
-      if (wfQuery.data?.project_id && !workflowRunLineage.selectedOption) {
+      if (lineageProjectId && !workflowRunLineage.selectedOption) {
         throw new Error(lineageSelectionDisabledReason ?? WORKFLOW_LINEAGE_SELECTION_MESSAGE);
       }
       if (queueRunsEnabled) {
@@ -1709,7 +1714,7 @@ export function WorkflowDetail(): JSX.Element {
   const [triggerMessage, setTriggerMessage] = useState<string | null>(null);
   const triggerMut = useApiMutation<WorkflowRun, string>(
     (alias) => {
-      if (wfQuery.data?.project_id && !workflowRunLineage.selectedOption) {
+      if (lineageProjectId && !workflowRunLineage.selectedOption) {
         throw new Error(lineageSelectionDisabledReason ?? WORKFLOW_LINEAGE_SELECTION_MESSAGE);
       }
       return caliberApi.triggerWorkflowEvent(workflowId!, {
@@ -3527,7 +3532,7 @@ export function WorkflowDetail(): JSX.Element {
                 {deployMut.isPending ? "Deploying..." : "Deploy Alias"}
               </button>
             </div>
-            {wfQuery.data?.project_id && (
+            {lineageProjectId && (
               <div className="mt-4 rounded-xl border border-slate-100 bg-slate-50/60 p-3">
                 <WorkflowRunLineagePicker
                   options={workflowRunLineage.options}
@@ -3691,7 +3696,7 @@ export function WorkflowDetail(): JSX.Element {
                     : "Run Pipeline"}
               </button>
             </div>
-            {wfQuery.data?.project_id && (
+            {lineageProjectId && (
               <div className="mt-4 rounded-xl border border-slate-100 bg-slate-50/60 p-3">
                 <WorkflowRunLineagePicker
                   options={workflowRunLineage.options}

@@ -3419,6 +3419,7 @@ describe("WorkflowDetail calibration", () => {
           supports_resume: false,
           runtime_approvals_enabled: false,
           checkpointing_enabled: false,
+          lineage_required: true,
           event_backend: "in_process",
         },
         environments: [
@@ -3468,7 +3469,20 @@ describe("WorkflowDetail calibration", () => {
   it("does not submit a run when a project has no approved current lineage pair", async () => {
     let runCalls = 0;
     server.use(
-      ...detailHandlers({ workflow: { project_id: "project-1" } }),
+      ...detailHandlers({
+        workflow: { project_id: "project-1" },
+        capabilities: {
+          queue_enabled: true,
+          supports_async_submit: true,
+          supports_cancel: false,
+          supports_retry: false,
+          supports_resume: false,
+          runtime_approvals_enabled: false,
+          checkpointing_enabled: false,
+          lineage_required: true,
+          event_backend: "in_process",
+        },
+      }),
       http.post(`${API_BASE}/workflow-runs`, () => {
         runCalls += 1;
         return HttpResponse.json(envelope(makeRun()), { status: 202 });
@@ -3480,6 +3494,49 @@ describe("WorkflowDetail calibration", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent("lineage_required");
     expect(screen.getByTestId("workflow-run-start")).toBeDisabled();
     expect(runCalls).toBe(0);
+  });
+
+  it("runs a project workflow without a lineage pair where the server does not require one", async () => {
+    let runBody: Record<string, unknown> | null = null;
+    let lineageRequests = 0;
+    server.use(
+      ...detailHandlers({
+        workflow: { project_id: "project-1" },
+        capabilities: {
+          queue_enabled: true,
+          supports_async_submit: true,
+          supports_cancel: false,
+          supports_retry: false,
+          supports_resume: false,
+          runtime_approvals_enabled: false,
+          checkpointing_enabled: false,
+          lineage_required: false,
+          event_backend: "in_process",
+        },
+      }),
+      http.get(`${API_BASE}/projects/project-1/environments`, () => {
+        lineageRequests += 1;
+        return HttpResponse.json(envelope({ environments: [] }));
+      }),
+      http.post(`${API_BASE}/workflow-runs`, async ({ request }) => {
+        runBody = (await request.json()) as Record<string, unknown>;
+        return HttpResponse.json(
+          envelope(makeRun({ workflow_run_id: "WR-NO-LINEAGE", status: "queued" })),
+          { status: 202 },
+        );
+      }),
+    );
+
+    renderAt(<WorkflowDetail />, "/workflows/WF-1", "/workflows/:workflowId");
+    await userEvent.click(await screen.findByTestId("workflow-run-open"));
+    await waitFor(() => expect(screen.getByTestId("workflow-run-start")).toBeEnabled());
+    expect(screen.queryByTestId("workflow-run-lineage-picker")).not.toBeInTheDocument();
+
+    await userEvent.click(screen.getByTestId("workflow-run-start"));
+    await waitFor(() => expect(runBody).not.toBeNull());
+    expect(runBody).not.toHaveProperty("workspace_release_id");
+    expect(runBody).not.toHaveProperty("environment_id");
+    expect(lineageRequests).toBe(0);
   });
 
   it("sends the selected lineage pair when triggering an event deployment", async () => {
@@ -3527,6 +3584,7 @@ describe("WorkflowDetail calibration", () => {
           supports_resume: false,
           runtime_approvals_enabled: false,
           checkpointing_enabled: false,
+          lineage_required: true,
           event_backend: "in_process",
         },
         environments: [

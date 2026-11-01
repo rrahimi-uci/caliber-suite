@@ -5868,10 +5868,13 @@ def test_worker_human_approval_resume_rejects_missing_input_snapshot_before_work
         assert event_types[-1] == "workflow.run.waiting_approval"
 
 
-def test_worker_runtime_tool_approval_blocks_then_refuses_protected_tool_without_governed_context(
+def _tool_approval_resume_outcome(
     client,
     monkeypatch: pytest.MonkeyPatch,
-) -> None:
+    *,
+    profile: str,
+) -> tuple[str, str, list[tuple[dict[str, object], str]]]:
+    """Block at a protected tool's legacy approval gate, approve, resume; return (status, error, tool calls)."""
     _enable_runtime_approvals(client)
     workflow_id = "tool-approval-worker-wf"
     manifest = _tool_approval_manifest(workflow_id)
@@ -5895,7 +5898,11 @@ def test_worker_runtime_tool_approval_blocks_then_refuses_protected_tool_without
 
     monkeypatch.setattr("caliber.workflows.runtime._call_tool", _fake_call_tool)
 
-    worker = _build_worker(client)
+    worker = WorkflowRunWorker(
+        session_factory=client.app.state.session_factory,
+        config=client.app.state.config.model_copy(update={"profile": profile}),
+        event_bus=getattr(client.app.state, "event_bus", None),
+    )
     worker._tick()
 
     with client.app.state.session_factory() as session:
@@ -5926,18 +5933,36 @@ def test_worker_runtime_tool_approval_blocks_then_refuses_protected_tool_without
 
     worker._tick()
 
-    # B04.3 (#741): the node's legacy approval gate is not an exact-intent approval, and the worker binds no
-    # governed effect context yet, so the protected ``escalate`` tool (declared ``external_action``) is refused
-    # instead of being called. Before B04.3 this resumed run completed and called the tool.
     final = client.get(f"{PREFIX}/workflow-runs/{run_id}")
     assert final.status_code == 200
-    assert final.json()["data"]["status"] == "failed"
     with client.app.state.session_factory() as session:
         run = session.get(CaliberWorkflowRun, run_id)
         assert run is not None
-        assert "requires a governed effect context to run protected registered tool" in str(
-            run.error_summary
-        )
+        return final.json()["data"]["status"], str(run.error_summary), calls
+
+
+def test_worker_runtime_tool_approval_resumes_and_runs_the_protected_tool_in_the_development_profile(
+    client,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """#1068: the development profile keeps the legacy guarded path: the node's own approval gate, then the tool."""
+    status, error, calls = _tool_approval_resume_outcome(client, monkeypatch, profile="development")
+
+    assert status == "completed", error
+    assert len(calls) == 1
+
+
+def test_worker_runtime_tool_approval_blocks_then_refuses_protected_tool_without_governed_context(
+    client,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """B04.3 (#741): in the reference profile the legacy approval gate is not an exact-intent approval, and the worker
+    binds no governed effect context yet (#1051), so the resumed protected ``escalate`` tool (``external_action``) is
+    refused instead of being called."""
+    status, error, calls = _tool_approval_resume_outcome(client, monkeypatch, profile="reference")
+
+    assert status == "failed"
+    assert "requires a governed effect context to run protected registered tool" in error
     assert calls == []
 
 

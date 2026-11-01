@@ -218,6 +218,100 @@ def test_legacy_http_plan_keeps_the_existing_guarded_effect_path() -> None:
     assert captured["url"] == request["url"]
 
 
+def _legacy_manifest_plan(sender: Any, *, legacy: bool, ledger: Any = None) -> RuntimePlan:
+    """A manifest-backed plan (it has a workflow version) with no governed context: the shape ``build_plan`` returns."""
+    resolver = InMemoryToolResolver({})
+    manifest = parse_manifest(_http_manifest("webhook", "https://example.test/legacy-http"))
+    return RuntimePlan(
+        ir=build_ir(manifest, resolver, version="1"),
+        resolver=resolver,
+        workflow_version_id="manifest-version-1",
+        legacy_guarded_effects=legacy,
+        effect_ledger=ledger,
+        webhook_sender=sender,
+        egress_policy=_ALLOW_UNRESOLVABLE,
+    )
+
+
+def test_development_profile_sends_a_manifest_http_node_on_the_legacy_guarded_path() -> None:
+    """``legacy_guarded_effects`` is what ``build_plan`` sets outside the reference profile (#1068)."""
+    sent: list[dict[str, Any]] = []
+
+    def sender(request: dict[str, Any]) -> dict[str, Any]:
+        sent.append(request)
+        return {"status_code": 202}
+
+    result = execute(
+        _legacy_manifest_plan(sender, legacy=True), "hello", executor=FakeWorkflowExecutor()
+    )
+
+    assert result.status == "completed", result.error
+    assert len(sent) == 1
+    assert sent[0]["url"] == "https://example.test/legacy-http"
+
+
+def test_the_reference_profile_still_refuses_the_same_manifest_http_node() -> None:
+    sent: list[dict[str, Any]] = []
+    plan = _legacy_manifest_plan(lambda request: sent.append(request) or {}, legacy=False)
+
+    result = execute(plan, "hello", executor=FakeWorkflowExecutor())
+
+    assert result.status == "error"
+    assert "requires a governed effect context for manifest HTTP execution" in (result.error or "")
+    assert sent == []
+
+
+def test_the_legacy_guarded_path_is_at_most_once_across_a_restart(
+    tmp_path: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The guarantee the development profile keeps: the effect ledger replays a finished node instead of resending."""
+    from caliber.workflows.effect_ledger import SqlEffectLedger
+
+    with _database("sqlite", tmp_path, monkeypatch) as (_, factory):
+        _seed_run(factory)
+        sent: list[dict[str, Any]] = []
+
+        def sender(request: dict[str, Any]) -> dict[str, Any]:
+            sent.append(request)
+            return {"status_code": 202, "request_id": "legacy-1"}
+
+        def attempt() -> Any:
+            ledger = SqlEffectLedger(factory, workflow_run_id="RUN-ep")
+            plan = _legacy_manifest_plan(sender, legacy=True, ledger=ledger)
+            return execute(plan, "hello", executor=FakeWorkflowExecutor())
+
+        first = attempt()
+        restarted = attempt()
+
+        assert first.status == "completed", first.error
+        assert restarted.status == "completed", restarted.error
+        assert len(sent) == 1
+        with factory() as session:
+            # Legacy ledger only: no effect proposal exists, so no exact-intent approval or receipt backs it.
+            assert list(session.execute(select(CaliberEffectProposal)).scalars()) == []
+
+
+def test_a_bound_governed_context_wins_over_the_legacy_flag(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The flag only fills a missing context: with one bound, a refused authorization is final, not bypassed."""
+    monkeypatch.setattr(runtime_module, "submit_proposal", _fake_recorded_proposal)
+    sent: list[dict[str, Any]] = []
+
+    def authorize(_proposal: Any) -> None:
+        raise ValueError("approval provider unavailable")
+
+    plan = _direct_http_plan(
+        authorize=authorize, sender=lambda request: sent.append(request) or {"status_code": 201}
+    )
+    plan.legacy_guarded_effects = True
+
+    with pytest.raises(ToolExecutionError, match="authorization failed: ValueError"):
+        _run_direct_http_effect(plan)
+
+    assert sent == []
+
+
 def test_governed_http_plan_rejects_incomplete_context() -> None:
     plan = _direct_http_plan(authorize="not-callable")
     with pytest.raises(ToolExecutionError, match="context is incomplete"):
