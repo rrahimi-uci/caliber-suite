@@ -2565,6 +2565,10 @@ class RuntimePlan:
     #: effect plus an approval request, and the node parks (``waiting_approval``) instead of executing it. A governed step has
     #: no output text channel in the v1 result contract, so one that completes without proposing is refused.
     governed_agent_steps: _step_proposal.GovernedStepContext | None = None
+    #: The agent nodes of this plan that can reach a tool the operator mapped to a governed backend (``build_plan`` fills it in the
+    #: reference profile). A plan whose ``governed_agent_steps`` does not govern one of them (a sub-workflow, a synchronous run, any
+    #: plan built outside the worker's own run) refuses to run it outside a preview, rather than as a legacy agent (#1051).
+    agents_requiring_governance: frozenset[str] = frozenset()
     #: Reads a registry tool's own row by ``(name, version)`` (B04.3, #741). The registry row, not the manifest binding, says
     #: whether a tool is CALIBER's own and how risky it is; ``build_plan`` binds this to the database. A plan with neither this
     #: reader nor a governed context is not governed: registered tools keep running as before.
@@ -5311,14 +5315,16 @@ def _dispatch_approved_step(
     if dispatcher is None:
         return None
     nid = node.node_id
-    try:
-        outcome = dispatcher(prior)
-    except EffectRefused as exc:
-        raise ToolExecutionError(f"governed agent step dispatch refused: {exc.code}") from None
-    except Exception:
-        # The send may have happened and the outcome was not recorded (a verifier that raised, a store that went away): the
-        # dispatcher moved the proposal to ``unknown`` under its lease where it could. None of the exception's text, which can
-        # carry the statement's parameters, reaches the run error.
+
+    def settled_after_failure(failure: ToolExecutionError) -> tuple[int, NodeStep]:
+        """What a dispatch that raised left behind: the proposal is read again before the run is failed.
+
+        A refusal or an exception can come *after* the downstream was called (a settlement the lease no longer allows, a
+        verifier that raised, a store that went away): the dispatcher then leaves the proposal ``dispatched`` or ``unknown``, and
+        failing the run would hide an effect that was sent. So an open proposal parks the run for the reconciler, a committed one
+        completes the node, and only a proposal that never moved (``proposed``: nothing was claimed) is the failure. None of the
+        exception's text, which can carry the statement's parameters, reaches the run error.
+        """
         try:
             current = _step_proposal.prior_proposal(
                 context.session_factory, context.workflow_run_id, nid, _STEP_OCCURRENCE.get() or nid
@@ -5327,7 +5333,20 @@ def _dispatch_approved_step(
             current = None
         if current is not None and current.state in _OPEN_EFFECT_STATES:
             raise UnknownEffectError([(current.proposal_id, nid, current.state)]) from None
-        raise ToolExecutionError("governed agent step dispatch failed: store_failed") from None
+        if current is not None and current.state == "committed":
+            return _completed_governed_step(node, port_values, current.proposal_id)
+        raise failure from None
+
+    try:
+        outcome = dispatcher(prior)
+    except EffectRefused as exc:
+        return settled_after_failure(
+            ToolExecutionError(f"governed agent step dispatch refused: {exc.code}")
+        )
+    except Exception:
+        return settled_after_failure(
+            ToolExecutionError("governed agent step dispatch failed: store_failed")
+        )
     if outcome is None:
         return None
     if outcome.state == "committed":
@@ -8390,6 +8409,21 @@ def _run_node(  # noqa: PLR0911, PLR0912, PLR0915 - per-node-type dispatch
         )
 
     if isinstance(node, IRAgent):
+        ungoverned = [
+            agent_id
+            for agent_id in (nid, *(handoff.target_node_id for handoff in node.handoffs))
+            if agent_id in plan.agents_requiring_governance
+            and not (
+                plan.governed_agent_steps is not None
+                and plan.governed_agent_steps.governs(agent_id)
+            )
+        ]
+        if ungoverned and not preview:
+            raise ToolExecutionError(
+                f"agent {ungoverned[0]!r} can reach a tool the operator mapped to a governed backend, and this plan has no "
+                "governed step for it (a sub-workflow, a synchronous run, or a plan built outside the worker's own run): "
+                "it does not run as a legacy agent"
+            )
         if _governs_agent(plan, node):
             return _run_governed_agent_node(
                 node,

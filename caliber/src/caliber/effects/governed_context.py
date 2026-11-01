@@ -394,6 +394,38 @@ def governed_agent_nodes(
     return frozenset(governed)
 
 
+def mapped_agent_nodes(
+    ir_nodes: Iterable[object],
+    config: object,
+    session_factory: Callable[[], Session],
+) -> frozenset[str]:
+    """The agent nodes of a plan that can reach an operator-mapped tool, **in the reference profile only** (else empty).
+
+    ``build_plan`` records them on every plan it returns (``RuntimePlan.agents_requiring_governance``). The worker governs them
+    for its own run (:func:`step_context`); every other plan built from the same function (a synchronous version run, a
+    sub-workflow, a plan built outside the worker) has no execution-owner lease and no step context, so the interpreter refuses to
+    run such an agent there rather than run it as a legacy agent whose model-chosen protected call goes straight to the tool. A
+    configuration whose map cannot be read raises :class:`GovernedContextUnavailable`.
+    """
+    if getattr(config, "profile", "") != "reference":
+        return frozenset()
+    tool_backends = parse_tool_backends_of(config)
+    if not tool_backends:
+        return frozenset()
+    agents = [node for node in ir_nodes if isinstance(node, IRAgent)]
+    return governed_agent_nodes(
+        agents, classify=registry_tool_classifier(session_factory), tool_backends=tool_backends
+    )
+
+
+def parse_tool_backends_of(config: object) -> Mapping[tuple[str, str], str]:
+    """The operator's map from any config-like object (a missing attribute is the empty map)."""
+    try:
+        return parse_tool_backends(getattr(config, "agent_step_tool_backends", "[]"))
+    except ValueError:
+        raise GovernedContextUnavailable(CONFIGURATION_INVALID) from None
+
+
 def _deadline(ceilings: StepCeilings) -> str:
     moment = datetime.now(timezone.utc) + timedelta(seconds=ceilings.max_seconds)
     return moment.strftime("%Y-%m-%dT%H:%M:%S.%fZ")
@@ -446,10 +478,7 @@ def step_context(
 
 def configured_tool_backends(config: CaliberConfig) -> Mapping[tuple[str, str], str]:
     """The operator's ``(registry name, version) -> backend`` map, or ``GovernedContextUnavailable`` when it cannot be read."""
-    try:
-        return parse_tool_backends(getattr(config, "agent_step_tool_backends", "[]"))
-    except ValueError:
-        raise GovernedContextUnavailable(CONFIGURATION_INVALID) from None
+    return parse_tool_backends_of(config)
 
 
 __all__ = [
@@ -470,6 +499,7 @@ __all__ = [
     "effect_context",
     "effect_evidence_hash",
     "governed_agent_nodes",
+    "mapped_agent_nodes",
     "run_authority",
     "step_context",
 ]

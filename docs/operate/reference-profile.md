@@ -350,7 +350,7 @@ fixed code and sends nothing.
 | the same, with an agent bound to a mapped tool but no lease binding, no initiator, no usable manifest digest or a configuration that does not parse | the **run fails** (`governed_context_unavailable`) before the model is asked: never a legacy agent |
 | the same, but the run was not admitted | the **run fails** (`run_not_admitted`) if an agent in it can reach a mapped tool; otherwise nothing is bound and a protected node is refused for want of a context |
 | a worker run in the development profile | nothing bound: the legacy path of [Profiles and a missing governed context](#profiles-and-a-missing-governed-context-1068) |
-| a synchronous version run, an evaluation, a gate or an Aria preview (`build_plan` outside the worker), and the sub-workflows of a worker run | no owner lease in the process that builds the plan, so **no context**: a protected node is refused in the reference profile and takes the legacy path in development, exactly as before. Agents in a sub-workflow run as before |
+| a synchronous version run, an evaluation, a gate or an Aria preview (`build_plan` outside the worker), and the sub-workflows of a worker run | no owner lease in the process that builds the plan, so **no context**: a protected node is refused in the reference profile and takes the legacy path in development, exactly as before. An agent in such a plan that can reach a mapped tool is **refused** when it runs (`agent '<id>' can reach a tool the operator mapped to a governed backend, and this plan has no governed step for it`): `build_plan` records those agents (`RuntimePlan.agents_requiring_governance`, reference profile only) and the interpreter does not run them as legacy agents outside a preview |
 | refinement and calibration replays, the deploy-gate replay | unchanged: protected tools refused or stubbed |
 | standalone exports and plans a caller builds itself | unchanged: not governed |
 
@@ -380,9 +380,13 @@ through the same context and is refused the same way.
 - A proposal that names a resource version is sent only through a connector whose downstream enforces the precondition atomically with
   the write (`document_request` does: a stale version is the downstream's 412, a definitive rejection). The platform has no read of its
   own for another connector's target, so a versioned proposal for any other connector is `version_unverifiable`.
-- A revoked approver, an expired lease or a downstream that rejects ends the run `failed` with the proposal still `proposed` (or
-  `failed`): settling the proposal of an ended run and withdrawing an approved, unconsumed decision are #1074.
-- Model-chosen tool calls of an agent that is **not** governed are not routed (#768); an agent that can reach a mapped tool is.
+- A revoked approver, a lease that is gone *before* the claim, or a connector with no binding ends the run `failed` with the proposal
+  still `proposed`; a downstream that rejects ends it with the proposal `failed`. Settling the proposal of an ended run and withdrawing
+  an approved, unconsumed decision are #1074. A refusal or an error that arrives *after* the downstream was called (settling refused
+  because the lease moved on, a verifier that raised) is not a failure of the run: the proposal is read again, an open one
+  (`dispatched`, `unknown`) parks the run `waiting_effect` for the reconciler and a committed one completes the node.
+- Model-chosen tool calls of an agent that is **not** governed are not routed (#768). An agent that can reach a mapped tool is either governed (the worker's own graph) or refused (any other plan, see the table above): never a legacy agent.
+- `CALIBER_AGENT_STEP_TOOL_BACKENDS` outside the reference profile is ignored and logged at startup (there is no lease to dispatch under).
 
 No migration. The new setting is `CALIBER_AGENT_STEP_TOOL_BACKENDS` (default `[]`: no agent is governed, and a reference profile with
 the default behaves as before). Rolling back is reverting the change; a recorded proposal stays readable and reconcilable.
@@ -738,36 +742,48 @@ not one per effect.
 | --- | --- | --- |
 | `context_manifest` | the latest context manifest of this node occurrence (highest attempt, then highest revision), by id, revision, attempt and digest | `unrecorded` / `no_context_manifest_for_node_step` (a step that is not an agent step has none, and the proposal does not say which kind of step it came from, so its absence is neither followable nor proven broken) |
 | `approval` | an exact-intent approval request the proposal records, bound to this proposal in this run: ids, digests, request status, `superseded_by`, requested, decided, expires and consumed timestamps | `not_required` / `approved_by_policy_decision`; `pending` / `approval_not_consumed` (a request exists but the dispatcher has not consumed it; its id and status are shown), `approval_not_requested`; `not_required` / `failed_before_approval` (settled `failed` with no approval ever recorded); `missing` / `approval_row_missing` (the stored approval id names no row bound to this proposal in this run) |
-| `decision` | the policy decision a *policy-approved read* records: id, action, result, reason codes, policy version, input hash, evaluated-at | `unrecorded` / `decision_recorded_per_run_only` (exact-intent approvals, below); `pending` / `not_approved_yet`; `not_required` / `failed_before_approval`; `missing` / `decision_row_missing` |
+| `decision` | the policy decision that authorised the effect, by id and run: the one a *policy-approved read* names, or, for an exact-intent effect consumed since migration 0134, the commit-time decision stored on its approval request. Id, action, result, reason codes, policy version, input hash, evaluated-at | `unrecorded` / `decision_recorded_per_run_only` (an exact-intent effect consumed before 0134, below); `pending` / `not_approved_yet`; `not_required` / `failed_before_approval`; `missing` / `decision_row_missing` (the stored decision id names no decision of this run) |
 | `effect` | the verified receipt: `effect_id` (the receipt id, **the id `caliber.effect_id` carries**), attempt, receipt and response digests, verified-at, and `committed` (true when the proposal records that receipt as the one that settled it) | `pending` with `not_dispatched`, `outcome_pending`, `outcome_unknown` or `reconciled_without_receipt`, by the proposal's state (the effect is not settled); `not_required` / `failed_without_receipt` (settled `failed`: nothing was verified and nothing will be); `missing` / `receipt_row_missing` (settled `committed`, which requires a receipt, but no receipt row is there) |
 
 `missing_links` lists only the `missing` links (a broken chain) and `unrecorded_links` the `unrecorded` ones, so a
-complete chain (`missing_links == []`) is distinguishable from a broken one, and a healthy exact-intent effect has
-`missing_links == []` with `unrecorded_links` naming `decision` (and `context_manifest` for a non-agent step). **An absent
+complete chain (`missing_links == []`) is distinguishable from a broken one, and a healthy exact-intent effect consumed since
+migration 0134 has `missing_links == []` and a `linked` `decision` (`unrecorded_links` names only `context_manifest` for a
+non-agent step; one consumed earlier also names `decision`). **An absent
 `effect_id` is the marker for an effect that has no verified receipt**, in the API as on the span; it is never filled in
 from a neighbouring row, a timestamp or the proposal's state.
 
 `span_attributes` is the `caliber.*` attribute map that the effect's resolved rows support, built by the same allow-list
 function (`causal_attributes`). It is a **derived union, not what any one span carries**: each span binds only the ids it
-had read when it closed (the receipt span binds the proposal's recorded approval ref even if that row is gone, and the
-dispatch span carries the commit-time `decision_id`, which is not persisted against the effect and so is not listed
-here). An id is listed only when its row resolved for this run. Nothing is read from the tracing backend, so it cannot
+had read when it closed (the receipt span binds the proposal's recorded approval ref even if that row is gone). The
+commit-time `decision_id` of an exact-intent effect is listed when its approval request stored it and the decision row
+resolved for this run; for an effect consumed before 0134 it is not listed (the dispatch span still carries it). An id is
+listed only when its row resolved for this run. Nothing is read from the tracing backend, so it cannot
 confirm that a trace was exported.
 
 **Digests.** `manifest_digest` (run and context manifests), `receipt_digest` and a policy decision's `input_hash` are bare
 lowercase SHA-256 hex (64 characters). `intent_hash`, `evidence_hash`, `policy_digest` and `response_digest` are
 `sha256:`-prefixed (71 characters). They are stored in those forms and returned unchanged; compare like with like.
 
-**The decision of an exact-intent approval is not stored against the effect.** The commit-time check records a run
-decision (`resource.execute` on `workflow:<id>`, the run authority) and the dispatch span names it, but the proposal row stores only the
-approval id, so for an exact-intent effect `decision` is `unrecorded` and its `caliber.decision_id` is not in
-`span_attributes`. That decision *is* persisted, per run: `section=policy_decisions` lists the run's decisions
-(`decision_id`, `grant_id`, `action`, `resource`, `result`, `reason_codes`, `policy_version`, `input_hash`,
-`evaluated_at`), so the `caliber.decision_id` on a span can be checked against a row, but nothing says which effect asked.
-Persisting the pairing needs its own migration and must not touch the proposal's frozen columns (follow-up #1061); this
-endpoint does not guess it. **Until #1061 lands, a consumer such as the evidence package (B14.1, #818) should treat
-`decision: unrecorded` on an exact-intent effect as "run authority asserted per run only": include the run's
-`policy_decisions` section in the package and do not fail the chain or invent a pairing.**
+**The decision of an exact-intent approval (B11.3c, #1061).** The commit-time check (`approval_valid_at_commit`) records a
+run decision (`resource.execute` on `workflow:<id>`, the run authority) and the dispatch span names it. Since migration
+`0134` the dispatcher also stores that decision's id on the approval request it consumes
+(`caliber_runtime_approval_requests.commit_decision_id`), in the same claim transaction and the same `UPDATE` that sets
+`consumed_at`, from the `ApprovalCommit` the validator returned; a refused or rolled-back dispatch leaves neither. The
+proposal's frozen columns are not touched. The API resolves the id by run (and the request by proposal, as for `approval`),
+so for an exact-intent effect consumed after `0134` `decision` is `linked` with the decision's fields, `caliber.decision_id`
+is in `span_attributes`, and the id equals the `PolicyDecision` row in `section=policy_decisions` and the span's
+`caliber.decision_id`. A stored id that names no decision of this run is `missing` / `decision_row_missing`.
+
+The database enforces the write (PostgreSQL and SQLite triggers): an `INSERT` cannot carry the column; an `UPDATE` may set it
+only from `NULL`, to a non-empty value, on a bound request whose `consumed_at` moves from `NULL` to a value in that same
+`UPDATE`; once set, neither it nor `consumed_at` can change. **There is no backfill.** A request consumed before `0134` keeps
+`NULL`, its effect's `decision` stays `unrecorded` / `decision_recorded_per_run_only` and its `caliber.decision_id` is not in
+`span_attributes`; the run's decisions are still listed per run (`section=policy_decisions`), and the API does not pair
+them by time. **A consumer such as the evidence package (B14.1, #818) should treat `decision: unrecorded` on an exact-intent
+effect as "run authority asserted per run only" for those older effects: include the run's `policy_decisions` section and
+do not fail the chain or invent a pairing.** The approval request's `approval_request` v1 contract is unchanged (the column
+is lifecycle state, like `consumed_at`, not part of what the approver is asked), and the causal-links response schema gains
+no field: the decision link already carries the decision's fields.
 
 **Whole-run markers.** `run_manifest` is `linked` (id, schema version, digest, creation time; the manifest body stays at
 `/admission-manifest`), `legacy` (`legacy_run_has_no_manifest`: a run admitted before manifests has none and never will)
@@ -802,8 +818,10 @@ linked. A link that appears is always a row that exists; none is ever inferred.
 **SDK, configuration and rollback.** `client.workflows.runs.causal_links(run_id, section=, limit=, cursor=)` (sync) and
 `client.workflows.causal_links(...)` (async) return a typed `CausalLinks` page (`CausalEffect`, `CausalContextManifest`,
 `CausalPolicyDecision` and the link models are in `caliber_sdk.models`); an unknown field is kept in `extra` and a missing
-`status` decodes as `None`, never as `linked`. No new setting, no migration, no stored data change; the endpoint is a
-read, so rolling back is reverting the change.
+`status` decodes as `None`, never as `linked`. No new setting. The endpoint is a read, but the exact-intent `decision` link needs migration `0134` (above), which adds one
+nullable column and two triggers and changes no stored data; migrations run before the new code serves. Rolling the code back
+leaves the column in place and unused (the old code ignores it); `alembic downgrade 0133` drops it with its triggers, and the
+decision ids it held (the decisions themselves are immutable rows and stay).
 
 ## A configuration that passes
 
@@ -1703,7 +1721,9 @@ with session_factory() as session:
   approver lost after deciding is not seen, while a lost project role or membership is. It sets `consumed_at` in the same commit as
   `proposed -> approved -> dispatched` and the outbox row, so concurrent dispatchers consume once. If the process dies after
   that commit and before the remote call, the durable dispatched row and outbox entry remain recoverable; a retry reads the
-  proposal state (`already_dispatched`) and does not send again.
+  proposal state (`already_dispatched`) and does not send again. The same `UPDATE` stores the commit-time policy decision's id
+  on the request (`commit_decision_id`, migration `0134`; see the causal-links section), so a refused or rolled-back claim
+  leaves neither the consumption nor the id.
   **A decision does not wake the run.** It stays `waiting_approval` until `POST .../resume` (operator scope) requeues it.
   **Limits.** An approved decision that dispatch has not consumed cannot be withdrawn, other than by revoking the approver's
   project role (the claim rechecks it) or by superseding the request; rejecting a bound request fails the run but leaves its
@@ -3035,7 +3055,10 @@ A request has a lifetime and is replaced by a newer one for the same step (see "
   the schema); no backfill. Downgrade drops the trigger and function, the checks, the index and the columns; a legacy request is untouched and a
   bound one is lost. It needs `0126` (B05.5b) to be applied first. **B06.2 adds no migration:** `expires_at`, `superseded_by` and `consumed_at` are
   already in `0127` (the trigger lets `status` and `superseded_by` move), so there is no schema change, rollback or deployment step beyond the
-  new optional setting `CALIBER_APPROVAL_TTL_SECONDS`.
+  new optional setting `CALIBER_APPROVAL_TTL_SECONDS`. **`0134` (B11.3c, #1061)** adds one nullable column, `commit_decision_id`
+  (the policy decision the dispatcher's commit check recorded in the claim that consumed the request), and two triggers that make it
+  write-once and settable only by consumption (see the causal-links section); it adds the column in place, so the `0127` trigger is kept,
+  and it does not backfill. Downgrade drops the triggers, their functions and the column.
 - **Distinct actors.** The separation-of-duties rule of `record_approval` is now `assert_distinct_actor(actor, initiated_by, *, allow_self)`
   (`approval_policy.py`): it raises `ApprovalPolicyError` ("the account that triggered this run cannot approve it; a second person must decide
   ...") when the actor is the initiator, unless `allow_self` (`CALIBER_APPROVAL_ALLOW_SELF_APPROVAL`) is set; an unknown initiator is not
@@ -4578,7 +4601,7 @@ ADR 0001 describes the whole reference shape; this table is what the *process* c
 - **The shape itself:** one tenant and region, MLflow addressed by `MLFLOW_TRACKING_URI`, an S3-compatible object store, at least two projects, and one real model provider next to the scripted adapter. Readiness reporting for MLflow and the object store is #535. The PostgreSQL version and the `pgvector` extension are checked by the migrations (migration `0060`) and the migration-parity CI job, not by the profile.
 - **Origin rules** (#533). ADR 0001 names them, but #533 has no allowed-origins task yet; that rule is not scheduled.
 - **Run-time refusal of the `refuse` inventory rows**, including the host-file tools and the DB MCP write tools (#774; see "Reserved tool names and refused paths"), **the trusted-connector set** (#534), **the full attack pack** (#535), **a single execution owner** (#536) and **the Apply separation-of-duties flag** (#589).
-- **A governed effect context outside the worker's own graph** (#1051, #1068): the worker binds one for an admitted reference-profile run, but synchronous version runs, evaluation, gate and Aria previews, and the sub-workflows of a worker run have no owner lease and bind none, so the reference profile refuses their protected nodes and the development profile runs them on the legacy guarded path; see "Profiles and a missing governed context".
+- **A governed effect context outside the worker's own graph** (#1051, #1068): the worker binds one for an admitted reference-profile run, but synchronous version runs, evaluation, gate and Aria previews, and the sub-workflows of a worker run have no owner lease and bind none, so the reference profile refuses their protected nodes (and an agent in them that can reach a mapped tool) and the development profile runs them on the legacy guarded path; see "Profiles and a missing governed context".
 - **A verifier for the generic workflow connectors** (#1055, #1051): a webhook, API-request, registered-tool, OpenAPI or MCP node is refused `no_authoritative_verifier` in the reference profile because no connector other than `document_request` has a lookup by key; only a governed agent step reaches a backend end to end. Model-chosen calls of an agent that is not governed (B04.6, #768) are not routed.
 - **Cookie flags:** `auth_session_cookie_secure` is not checked.
 - **The database role:** whether the application connects as a role without `UPDATE`, `DELETE` or `TRUNCATE` on `caliber_run_manifests` (see "Run manifests are written once").

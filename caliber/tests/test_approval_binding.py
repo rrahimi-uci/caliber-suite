@@ -1109,6 +1109,184 @@ def test_the_lifecycle_columns_still_move_and_a_no_op_write_of_the_binding_is_al
             assert stored.policy_digest == policy_digest(ApprovalPolicy())
 
 
+_CONSUME = (
+    "UPDATE caliber_runtime_approval_requests SET consumed_at = :at, commit_decision_id = :d "
+    "WHERE runtime_approval_id = :i"
+)
+_COMMIT_DECISION = "commit decision"
+
+
+def _execute(factory: sessionmaker[Session], statement: str, **params: Any) -> None:
+    with factory() as session:
+        session.execute(text(statement), params)
+        session.commit()
+
+
+def _refused(factory: sessionmaker[Session], statement: str, **params: Any) -> None:
+    with factory() as session, pytest.raises(DBAPIError, match=_COMMIT_DECISION):
+        session.execute(text(statement), params)
+
+
+def _stored(factory: sessionmaker[Session], request_id: str) -> tuple[Any, Any]:
+    model = CaliberRuntimeApprovalRequest
+    with factory() as session:
+        row = session.execute(
+            select(model.consumed_at, model.commit_decision_id).where(
+                model.runtime_approval_id == request_id
+            )
+        ).one()
+        return row[0], row[1]
+
+
+@pytest.mark.parametrize("dialect", DIALECTS)
+def test_the_commit_decision_is_written_once_and_only_by_consumption(
+    dialect: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """B11.3c (#1061): the database refuses every write of the column except NULL to a value in the consuming UPDATE."""
+    with _database(dialect, tmp_path, monkeypatch) as (_, factory):
+        _seed_run(factory)
+        with factory() as session:
+            proposal = _proposal(session)
+            request_id = _create(session, proposal).runtime_approval_id
+            other_id = _create(session, proposal, now=AT + timedelta(minutes=1)).runtime_approval_id
+            _insert(session, runtime_approval_id="RAP-legacy")  # commits all
+        consumed = NAIVE_AT + timedelta(minutes=2)
+
+        # not outside consumption: not on an unconsumed request, not on an insert, not as an empty value
+        _refused(
+            factory,
+            "UPDATE caliber_runtime_approval_requests SET commit_decision_id = 'pd-1' WHERE runtime_approval_id = :i",
+            i=request_id,
+        )
+        _refused(factory, _CONSUME, at=consumed, d="", i=request_id)
+        with factory() as session, pytest.raises(DBAPIError, match=_COMMIT_DECISION):
+            _insert(session, runtime_approval_id="RAP-insert", commit_decision_id="pd-1")
+        # not on a node-level approval that guards no proposal, even when it is consumed in the same UPDATE
+        _refused(factory, _CONSUME, at=consumed, d="pd-1", i="RAP-legacy")
+        assert _stored(factory, request_id) == (None, None)
+        assert _stored(factory, "RAP-legacy") == (None, None)
+
+        # a request consumed without a decision (before this column existed) can never be given one afterwards
+        _execute(
+            factory,
+            "UPDATE caliber_runtime_approval_requests SET consumed_at = :at WHERE runtime_approval_id = :i",
+            at=consumed,
+            i=other_id,
+        )
+        _refused(
+            factory,
+            "UPDATE caliber_runtime_approval_requests SET commit_decision_id = 'pd-late' WHERE runtime_approval_id = :i",
+            i=other_id,
+        )
+        assert _stored(factory, other_id) == (consumed, None)
+
+        # the one legal write: the consuming UPDATE sets both
+        _execute(factory, _CONSUME, at=consumed, d="pd-1", i=request_id)
+        assert _stored(factory, request_id) == (consumed, "pd-1")
+
+        # then it is final, and so is the consumption it belongs to
+        _refused(
+            factory,
+            "UPDATE caliber_runtime_approval_requests SET commit_decision_id = 'pd-2' WHERE runtime_approval_id = :i",
+            i=request_id,
+        )
+        _refused(
+            factory,
+            "UPDATE caliber_runtime_approval_requests SET commit_decision_id = NULL WHERE runtime_approval_id = :i",
+            i=request_id,
+        )
+        _refused(
+            factory,
+            "UPDATE caliber_runtime_approval_requests SET consumed_at = :at WHERE runtime_approval_id = :i",
+            at=consumed + timedelta(hours=1),
+            i=request_id,
+        )
+        _refused(
+            factory,
+            "UPDATE caliber_runtime_approval_requests SET consumed_at = NULL WHERE runtime_approval_id = :i",
+            i=request_id,
+        )
+        assert _stored(factory, request_id) == (consumed, "pd-1")
+        # a write that leaves both columns as they are is not a change; the other lifecycle columns still move
+        _execute(
+            factory,
+            "UPDATE caliber_runtime_approval_requests SET commit_decision_id = commit_decision_id, "
+            "consumed_at = consumed_at, superseded_by = 'RAP-next' WHERE runtime_approval_id = :i",
+            i=request_id,
+        )
+        assert _stored(factory, request_id) == (consumed, "pd-1")
+
+
+def test_two_consumptions_of_one_request_store_one_decision_on_postgresql(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Under contention the second consuming UPDATE waits for the first, then meets the trigger on the committed row."""
+    _need_postgresql()
+    with _database("postgresql", tmp_path, monkeypatch) as (_, factory):
+        _seed_run(factory)
+        with factory() as session:
+            request_id = _create(session, _proposal(session)).runtime_approval_id
+            session.commit()
+        consumed = NAIVE_AT + timedelta(minutes=2)
+        errors: list[BaseException] = []
+
+        def second_consumer() -> None:
+            try:
+                with factory() as session:
+                    session.execute(
+                        text(_CONSUME), {"at": consumed, "d": "pd-second", "i": request_id}
+                    )
+                    session.commit()
+            except BaseException as exc:
+                errors.append(exc)
+
+        with factory() as first:
+            first.execute(text(_CONSUME), {"at": consumed, "d": "pd-first", "i": request_id})
+            thread = threading.Thread(target=second_consumer, daemon=True)
+            thread.start()
+            deadline = time.monotonic() + 20
+            while time.monotonic() < deadline:
+                with factory() as observer:
+                    waiting = observer.execute(
+                        text(
+                            "SELECT count(*) FROM pg_stat_activity WHERE datname = current_database() "
+                            "AND wait_event_type = 'Lock'"
+                        )
+                    ).scalar_one()
+                if waiting:
+                    break
+                time.sleep(
+                    0.02
+                )  # polling for the lock wait to be observed, not waiting for a race to happen
+            assert waiting, "the second consumer never queued on the row lock"
+            first.commit()
+        thread.join(30)
+        assert not thread.is_alive()
+        assert len(errors) == 1 and _COMMIT_DECISION in str(errors[0]), errors
+        assert _stored(factory, request_id) == (consumed, "pd-first")
+
+
+@pytest.mark.parametrize("dialect", DIALECTS)
+def test_a_rolled_back_consumption_leaves_no_commit_decision(
+    dialect: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    with _database(dialect, tmp_path, monkeypatch) as (_, factory):
+        _seed_run(factory)
+        with factory() as session:
+            request_id = _create(session, _proposal(session)).runtime_approval_id
+            session.commit()
+        with factory() as session:
+            session.execute(
+                text(_CONSUME), {"at": NAIVE_AT, "d": "pd-rolled-back", "i": request_id}
+            )
+            session.rollback()
+        assert _stored(factory, request_id) == (None, None)
+        _execute(
+            factory, _CONSUME, at=NAIVE_AT, d="pd-kept", i=request_id
+        )  # the row is still consumable
+        assert _stored(factory, request_id) == (NAIVE_AT, "pd-kept")
+
+
 def _columns(factory: sessionmaker[Session]) -> set[str]:
     with factory() as session:
         return {
@@ -1135,6 +1313,12 @@ def test_migration_0127_keeps_legacy_rows_and_downgrades_cleanly(
 ) -> None:
     binding = {*_BINDING, "superseded_by", "consumed_at"}
     trigger = "trg_caliber_runtime_approval_requests_frozen"
+    # migration 0134 adds the commit-decision triggers beside the binding trigger (a plain ADD COLUMN: no table rebuild)
+    head_triggers = {
+        trigger,
+        "trg_caliber_runtime_approval_requests_commit_decision_insert",
+        "trg_caliber_runtime_approval_requests_commit_decision_once",
+    }
     with dialect_database_url(dialect, tmp_path, "approval_binding") as url:
         monkeypatch.setenv("CALIBER_DATABASE_URL", url)
         monkeypatch.chdir(PROJECT_ROOT)
@@ -1150,7 +1334,7 @@ def test_migration_0127_keeps_legacy_rows_and_downgrades_cleanly(
                 _insert(session, runtime_approval_id="RAP-old")
             command.upgrade(config, "head")
             assert binding <= _columns(factory)
-            assert _triggers(factory, dialect) == {trigger}
+            assert _triggers(factory, dialect) == head_triggers
             with factory() as session:
                 old = session.get(CaliberRuntimeApprovalRequest, "RAP-old")
                 assert old is not None and old.status == "pending"
@@ -1188,6 +1372,102 @@ def test_migration_0127_keeps_legacy_rows_and_downgrades_cleanly(
                 )
             command.upgrade(config, "head")
             assert binding <= _columns(factory)
-            assert _triggers(factory, dialect) == {trigger}
+            assert _triggers(factory, dialect) == head_triggers
+        finally:
+            engine.dispose()
+
+
+def _stored_consumed(factory: sessionmaker[Session], request_id: str) -> Any:
+    model = CaliberRuntimeApprovalRequest
+    with factory() as session:
+        return session.execute(
+            select(model.consumed_at).where(model.runtime_approval_id == request_id)
+        ).scalar_one()
+
+
+@pytest.mark.parametrize("dialect", DIALECTS)
+def test_migration_0134_adds_the_commit_decision_without_backfill_and_reverses(
+    dialect: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """B11.3c (#1061): a populated 0133 database upgrades with every old row ``NULL``, keeps the 0127 trigger, and downgrades."""
+    binding_trigger = "trg_caliber_runtime_approval_requests_frozen"
+    commit_triggers = {
+        "trg_caliber_runtime_approval_requests_commit_decision_insert",
+        "trg_caliber_runtime_approval_requests_commit_decision_once",
+    }
+    functions = (
+        "caliber_runtime_approvals_commit_decision_insert",
+        "caliber_runtime_approvals_commit_decision_once",
+    )
+    with dialect_database_url(dialect, tmp_path, "approval_commit_decision") as url:
+        monkeypatch.setenv("CALIBER_DATABASE_URL", url)
+        monkeypatch.chdir(PROJECT_ROOT)
+        config = Config(str(ALEMBIC_INI))
+        command.upgrade(config, "0133")
+        engine = create_engine(url)
+        factory = sessionmaker(engine, expire_on_commit=False)
+        try:
+            assert "commit_decision_id" not in _columns(factory)
+            assert _triggers(factory, dialect) == {binding_trigger}
+            _seed_run(factory)
+            with factory() as session:
+                proposal_id = _proposal(session).proposal_id
+                session.commit()
+            # raw rows: the ORM model already names the column this database does not have yet
+            consumed_id, live_id = "RAP-consumed", "RAP-live"
+            with factory() as session:
+                _insert(
+                    session,
+                    runtime_approval_id=consumed_id,
+                    consumed_at=NAIVE_AT,
+                    **_bound_columns(proposal_id),
+                )
+                _insert(session, runtime_approval_id=live_id, **_bound_columns(proposal_id))
+            with factory() as session:
+                _insert(session, runtime_approval_id="RAP-old")
+
+            command.upgrade(config, "0134")
+            assert "commit_decision_id" in _columns(factory)
+            assert _triggers(factory, dialect) == {binding_trigger, *commit_triggers}
+            with factory() as session:
+                column = {
+                    c["name"]: c
+                    for c in inspect(session.get_bind()).get_columns(
+                        "caliber_runtime_approval_requests"
+                    )
+                }["commit_decision_id"]
+                assert column["nullable"] is True and column["type"].length == 64
+            # no backfill: the request consumed before the column existed, and the legacy one, stay NULL (and stay unrecorded)
+            assert _stored(factory, consumed_id) == (NAIVE_AT, None)
+            assert _stored(factory, "RAP-old") == (None, None)
+            # the 0127 binding trigger survived (the column was added in place, the table was not rebuilt)
+            with factory() as session, pytest.raises(DBAPIError, match="frozen"):
+                session.execute(
+                    text(
+                        "UPDATE caliber_runtime_approval_requests SET requested_by = 'someone_else' "
+                        "WHERE runtime_approval_id = :i"
+                    ),
+                    {"i": live_id},
+                )
+            _refused(factory, _CONSUME, at=NAIVE_AT, d="pd-late", i=consumed_id)
+            _refused(factory, _CONSUME, at=NAIVE_AT, d="pd-legacy", i="RAP-old")
+
+            command.downgrade(config, "0133")
+            assert "commit_decision_id" not in _columns(factory)
+            assert _triggers(factory, dialect) == {binding_trigger}
+            if dialect == "postgresql":
+                with factory() as session:
+                    assert not session.execute(
+                        text("SELECT 1 FROM pg_proc WHERE proname = ANY(:names)"),
+                        {"names": list(functions)},
+                    ).all(), "the trigger functions are dropped with the triggers"
+            assert _stored_consumed(factory, consumed_id) == NAIVE_AT, (
+                "the downgrade loses only the decision ids"
+            )
+
+            command.upgrade(config, "head")
+            assert _triggers(factory, dialect) == {binding_trigger, *commit_triggers}
+            _execute(factory, _CONSUME, at=NAIVE_AT, d="pd-new", i=live_id)
+            assert _stored(factory, live_id) == (NAIVE_AT, "pd-new")
         finally:
             engine.dispose()

@@ -33,7 +33,8 @@ from caliber.db.models import (
     CaliberWorkflowRun,
 )
 from caliber.effects import governed_context
-from caliber.effects.dispatcher import EffectOutcome, EffectRefused
+from caliber.effects.connectors import Classified, TransportOutcome
+from caliber.effects.dispatcher import EffectOutcome, EffectRefused, TransportResult
 from caliber.effects.governed_context import (
     GovernedContextUnavailable,
     RunAuthority,
@@ -41,12 +42,13 @@ from caliber.effects.governed_context import (
     effect_context,
     effect_evidence_hash,
     governed_agent_nodes,
+    mapped_agent_nodes,
     run_authority,
     step_context,
 )
 from caliber.effects.receipts import ReceiptFacts
 from caliber.effects.reconcile import UnknownEffectError
-from caliber.effects.records import Intent, record_proposal, transition
+from caliber.effects.records import LEASE_LOST, Intent, ProposalError, record_proposal, transition
 from caliber.effects.step_proposal import (
     EffectApprovalPending,
     PriorProposal,
@@ -155,6 +157,24 @@ def test_the_configuration_reads_the_tool_backend_map_from_its_environment_varia
     config = CaliberConfig.load(environ={"CALIBER_AGENT_STEP_TOOL_BACKENDS": raw})
     assert dict(configured_tool_backends(config)) == {("t", "2"): "document_request"}
     assert dict(configured_tool_backends(CaliberConfig())) == {}
+
+
+def test_a_development_process_that_maps_tools_says_it_ignores_them(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    from caliber.server import _require_reference_profile  # noqa: PLC0415
+
+    mapped = json.dumps([{"tool": "t", "version": "1", "backend": "document_request"}])
+    with caplog.at_level("WARNING"):
+        _require_reference_profile(CaliberConfig(agent_step_tool_backends=mapped))
+    assert any(
+        "CALIBER_AGENT_STEP_TOOL_BACKENDS maps tools" in record.getMessage()
+        for record in caplog.records
+    )
+    caplog.clear()
+    with caplog.at_level("WARNING"):
+        _require_reference_profile(CaliberConfig())
+    assert not any("CALIBER_AGENT_STEP_TOOL_BACKENDS" in r.getMessage() for r in caplog.records)
 
 
 def test_a_configuration_whose_map_cannot_be_read_is_unavailable_not_empty() -> None:
@@ -538,12 +558,12 @@ def test_an_unapproved_step_proposal_is_not_dispatched(world: Any) -> None:
     assert len(_requests(world)) == 1, "and a resume asks nothing new"
 
 
-def _binding(connector: str = "document-request") -> str:
+def _binding(connector: str = "document-request", project: str = "PRJ-ep") -> str:
     return json.dumps(
         [
             {
                 "connector": connector,
-                "project_id": "PRJ-ep",
+                "project_id": project,
                 "secret_source": "env://SECRET",
                 "base_url": "http://127.0.0.1:9",
             }
@@ -560,6 +580,17 @@ def test_a_step_proposal_whose_connector_is_not_bound_for_the_project_is_refused
         authority.dispatch_approved(_prior(recorded))
     assert refused.value.code == "connector_unbound"
     assert _requests(world) == [], "not even asked about: it could never be sent"
+
+
+def test_a_binding_for_another_project_is_not_a_binding_for_this_one(world: Any) -> None:
+    authority = _authority(
+        world, config=_config(effect_callback_connectors=_binding(project="PRJ-other"))
+    )
+    recorded = _record(world)
+    with pytest.raises(EffectRefused) as refused:
+        authority.dispatch_approved(_prior(recorded))
+    assert refused.value.code == "connector_unbound"
+    assert authority.project_id == "PRJ-ep"
 
 
 def test_a_step_proposal_is_dispatched_only_through_a_backend_an_agent_step_may_reach(
@@ -946,6 +977,85 @@ def test_an_agent_that_is_not_governed_may_not_hand_off_to_one_that_is(world: An
     assert runtime_module._governed_plan_refusal(ir, lambda node_id: False) is None
 
 
+def test_mapped_agents_are_found_in_the_reference_profile_only(world: Any) -> None:
+    ir = _plan(world).ir
+    reference = _mapped()
+    assert mapped_agent_nodes(ir.nodes.values(), reference, world) == {"agent"}
+    development = reference.model_copy(update={"profile": "development"})
+    assert mapped_agent_nodes(ir.nodes.values(), development, world) == frozenset()
+    unmapped = reference.model_copy(update={"agent_step_tool_backends": "[]"})
+    assert mapped_agent_nodes(ir.nodes.values(), unmapped, world) == frozenset()
+    with pytest.raises(GovernedContextUnavailable):
+        mapped_agent_nodes(
+            ir.nodes.values(), reference.model_copy(update={"agent_step_tool_backends": "x"}), world
+        )
+
+
+def _requiring(world: Any, **changes: Any) -> RuntimePlan:
+    plan = _plan(world, governed=False)
+    plan.agents_requiring_governance = frozenset({"agent"})
+    for name, value in changes.items():
+        setattr(plan, name, value)
+    return plan
+
+
+def test_a_plan_with_no_governed_step_refuses_an_agent_that_can_reach_a_mapped_tool(
+    world: Any,
+) -> None:
+    """A sub-workflow or a synchronous run has no step context: the agent is refused, not run as a legacy agent."""
+    executor = FakeWorkflowExecutor()
+    canaries = Canaries()
+    result = execute(_requiring(world), "hello", executor=executor, extra_tools=canaries.tools())
+    assert result.status == "error"
+    assert "agent 'agent' can reach a tool the operator mapped to a governed backend" in (
+        result.error or ""
+    )
+    assert canaries.mutations == [] and canaries.reads == [] and _rows(world) == ([], [])
+
+
+def test_the_refusal_does_not_touch_a_preview_or_an_agent_the_plan_governs(world: Any) -> None:
+    previewed = execute(
+        _requiring(world),
+        "hello",
+        executor=FakeWorkflowExecutor(),
+        preview=True,
+        extra_tools=Canaries().tools(),
+    )
+    assert previewed.status == "completed", previewed.error
+    governed = _plan(world)
+    governed.agents_requiring_governance = frozenset({"agent"})
+    parked = execute(
+        governed,
+        "hello",
+        executor=FakeWorkflowExecutor(step_script=[_proposing()]),
+        extra_tools=Canaries().tools(),
+    )
+    assert parked.status == "blocked" and parked.error == "waiting_approval:agent"
+
+
+def test_a_plan_with_no_governed_step_refuses_an_agent_that_hands_off_to_a_mapped_one(
+    world: Any,
+) -> None:
+    manifest = _manifest()
+    manifest["nodes"]["agent"]["tools"] = []
+    manifest["nodes"]["agent"]["handoffs"] = [{"target": "billing"}]
+    manifest["nodes"]["billing"] = {
+        "id": "billing",
+        "type": "agent",
+        "name": "billing-agent",
+        "model": "inherit",
+        "instructions": {"type": "inline", "text": "b"},
+        "tools": [PROTECTED],
+        "inputs": {"input": {"type": "string"}},
+        "outputs": {"final_output": {"type": "string"}},
+    }
+    plan = _plan(world, governed=False, manifest=manifest)
+    plan.agents_requiring_governance = frozenset({"billing"})
+    result = execute(plan, "hello", executor=FakeWorkflowExecutor(), extra_tools=Canaries().tools())
+    assert result.status == "error"
+    assert "agent 'billing' can reach a tool the operator mapped" in (result.error or "")
+
+
 def test_a_governed_agent_as_the_target_of_a_fan_out_is_refused_only_when_it_is_governed(
     world: Any,
 ) -> None:
@@ -1049,6 +1159,68 @@ def test_a_dispatch_that_raised_after_it_may_have_sent_parks_when_the_effect_is_
     monkeypatch.setattr(runtime_module._step_proposal, "prior_proposal", prior)
     result, _, _ = again(dispatch_approved=boom)
     assert result.status == "blocked" and result.error == "waiting_effect:agent"
+
+
+def test_a_refusal_after_the_send_parks_the_run_instead_of_failing_it(
+    world: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Through the REAL dispatcher: the downstream was called, then settling was refused (the lease moved on).
+
+    ``dispatch`` raises ``EffectRefused(lease_lost)`` with the proposal left ``dispatched``; failing the run there would hide an
+    effect that was sent, so the node parks for the reconciler and nothing is sent a second time.
+    """
+    sent: list[str] = []
+
+    def transport(request: Any, _config: Any) -> TransportResult:
+        sent.append(request.view.logical_key)
+        return TransportResult(Classified(TransportOutcome.COMMITTED_RECEIPT, "http_201", 201, 1))
+
+    def settle(*_args: Any, **_kwargs: Any) -> Any:
+        raise ProposalError(LEASE_LOST, "the lease moved on")
+
+    for module in (dispatcher_module, governed_context):
+        monkeypatch.setattr(module, "approval_valid_at_commit", _row_validator)
+    monkeypatch.setattr(
+        dispatcher_module, "_backend_call", lambda _b, request, config: transport(request, config)
+    )
+    monkeypatch.setattr(dispatcher_module, "settle_dispatch", settle)
+    authority = _authority(world, config=_config(effect_callback_connectors=_binding()))
+    first, _, _ = _run(
+        world, [_proposing()], plan=_plan(world, dispatch_approved=authority.dispatch_approved)
+    )
+    assert first.status == "blocked"
+    _decide(world, _requests(world)[0].runtime_approval_id)
+
+    result, executor, _ = _run(
+        world, [], plan=_plan(world, dispatch_approved=authority.dispatch_approved)
+    )
+
+    assert result.status == "blocked" and result.error == "waiting_effect:agent", result.error
+    assert len(sent) == 1, "the downstream was called exactly once"
+    assert _rows(world)[0][0].state == "dispatched", (
+        "the claim stands; the reconciler asks the downstream by key"
+    )
+    assert executor.step_requests == []
+
+
+def test_a_refusal_whose_proposal_turns_out_committed_completes_the_node(
+    world: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def refuse(_prior: PriorProposal) -> EffectOutcome:
+        raise EffectRefused("lease_lost")
+
+    again = _parked(world)
+    real = runtime_module._step_proposal.prior_proposal
+    calls: list[int] = []
+
+    def prior(*args: Any, **kwargs: Any) -> Any:
+        calls.append(1)
+        found = real(*args, **kwargs)
+        return found if len(calls) == 1 else replace(found, state="committed")
+
+    monkeypatch.setattr(runtime_module._step_proposal, "prior_proposal", prior)
+    result, _, _ = again(dispatch_approved=refuse)
+    assert result.status == "completed", result.error
 
 
 def test_a_dispatch_that_raised_before_anything_moved_is_a_store_failure_without_its_text(
