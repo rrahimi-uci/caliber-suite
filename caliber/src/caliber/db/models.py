@@ -2707,7 +2707,7 @@ class CaliberRuntimeApprovalRequest(Base):
     fact: a CHECK allows only all-``NULL`` or fully bound, hash and digest columns are exactly 71 characters, and a BEFORE
     UPDATE trigger (SQLite and PostgreSQL) refuses any change to the binding columns, so an UPDATE or raw SQL cannot
     re-bind a request to another intent. ``status``, ``consumed_at`` and ``superseded_by`` and the decision columns may
-    still move. The decision route records the explicit decision for a bound row and leaves ``consumed_at`` untouched. The
+    still move (``commit_decision_id``, migration 0134, only once and only together with ``consumed_at``). The decision route records the explicit decision for a bound row and leaves ``consumed_at`` untouched. The
     dispatcher rechecks the exact proposal, authority and policy pins, then consumes the decision in its claim transaction.
     """
 
@@ -2765,6 +2765,11 @@ class CaliberRuntimeApprovalRequest(Base):
     superseded_by: Mapped[str | None] = mapped_column(String(64), nullable=True)
     #: When the dispatcher consumed the decision (B06.4); ``NULL`` until then. This task only adds the column.
     consumed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    #: The id of the run policy decision the commit check recorded in the claim that consumed this request (B11.3c, #1061;
+    #: ``ApprovalCommit.decision_id``); ``NULL`` until consumption and for every request consumed before migration 0134.
+    #: Set exactly once, in the UPDATE that sets ``consumed_at`` (database triggers refuse any other write), so the causal
+    #: links of an exact-intent effect can name the decision that authorised it without touching the proposal's frozen columns.
+    commit_decision_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
     #: The principal that requested it (``approval_request.requested_by``).
     requested_by: Mapped[str | None] = mapped_column(String(256), nullable=True)
 

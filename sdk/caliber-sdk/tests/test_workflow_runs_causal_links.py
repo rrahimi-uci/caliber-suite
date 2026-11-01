@@ -88,7 +88,15 @@ def _effects_page(**overrides: Any) -> dict[str, Any]:
                     "intent_hash": "sha256:" + "a" * 64,
                     "consumed_at": "2026-10-31T01:02:07",
                 },
-                "decision": {"status": "unrecorded", "code": "decision_recorded_per_run_only"},
+                "decision": {
+                    "status": "linked",
+                    "decision_id": "pd-commit-1",
+                    "action": "resource.execute",
+                    "result": "allow",
+                    "reason_codes": ["grant_active"],
+                    "policy_version": "policy-v1",
+                    "input_hash": DIGEST,
+                },
                 "effect": {
                     "status": "linked",
                     "effect_id": "rcpt-1",
@@ -99,11 +107,12 @@ def _effects_page(**overrides: Any) -> dict[str, Any]:
                 },
                 "span_attributes": {
                     "caliber.proposal_id": "prop-1",
+                    "caliber.decision_id": "pd-commit-1",
                     "caliber.approval_id": "rap-1",
                     "caliber.effect_id": "rcpt-1",
                 },
                 "missing_links": [],
-                "unrecorded_links": ["decision"],
+                "unrecorded_links": [],
             },
             {
                 "proposal_id": "prop-2",
@@ -169,14 +178,14 @@ def test_causal_links_decodes_every_record_into_its_typed_model_and_hits_its_own
         and complete.approval.approval_id == "rap-1"
     )
     assert isinstance(complete.decision, CausalDecisionLink)
-    assert (complete.decision.status, complete.decision.code) == (
-        "unrecorded",
-        "decision_recorded_per_run_only",
-    )
+    # an exact-intent effect consumed since the commit-time decision id was stored (B11.3c, #1061)
+    assert (complete.decision.status, complete.decision.decision_id) == ("linked", "pd-commit-1")
+    assert (complete.decision.action, complete.decision.result) == ("resource.execute", "allow")
     assert isinstance(complete.effect, CausalEffectOutcomeLink)
     assert complete.effect.effect_id == "rcpt-1" and complete.effect.committed is True
     assert complete.span_attributes["caliber.effect_id"] == "rcpt-1"
-    assert complete.missing_links == [] and complete.unrecorded_links == ["decision"]
+    assert complete.span_attributes["caliber.decision_id"] == "pd-commit-1"
+    assert complete.missing_links == [] and complete.unrecorded_links == []
     assert (waiting.effect.status, waiting.effect.code, waiting.effect.effect_id) == (
         "pending",
         "outcome_pending",
@@ -185,6 +194,32 @@ def test_causal_links_decodes_every_record_into_its_typed_model_and_hits_its_own
     assert waiting.effect.committed is False and "caliber.effect_id" not in waiting.span_attributes
     assert waiting.context_manifest.status == "unrecorded"
     assert page.has_more is True and page.limit == 50 and page.next_cursor == "cHJvcC0y"
+
+
+def test_an_exact_intent_effect_consumed_before_the_decision_id_was_stored_is_unrecorded() -> None:
+    """Old rows keep an honest ``unrecorded`` decision, never a guessed id (B11.3c, #1061)."""
+    legacy = _effects_page()["effects"][0]
+    legacy = {
+        **legacy,
+        "decision": {"status": "unrecorded", "code": "decision_recorded_per_run_only"},
+        "span_attributes": {
+            key: value
+            for key, value in legacy["span_attributes"].items()
+            if key != "caliber.decision_id"
+        },
+        "unrecorded_links": ["decision"],
+    }
+
+    with sync_client(lambda _request: envelope(_effects_page(effects=[legacy]))) as caliber:
+        (effect,) = caliber.workflows.runs.causal_links("WFR-1").effects
+
+    assert (effect.decision.status, effect.decision.code, effect.decision.decision_id) == (
+        "unrecorded",
+        "decision_recorded_per_run_only",
+        None,
+    )
+    assert effect.missing_links == [] and effect.unrecorded_links == ["decision"]
+    assert "caliber.decision_id" not in effect.span_attributes
 
 
 def test_section_limit_and_cursor_are_sent_only_when_given() -> None:
