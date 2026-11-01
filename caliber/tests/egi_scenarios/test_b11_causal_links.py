@@ -18,7 +18,11 @@ from typing import Any
 import pytest
 from sqlalchemy import select
 
-from caliber.db.models import CaliberProjectMember, CaliberRuntimeApprovalRequest
+from caliber.db.models import (
+    CaliberPolicyDecision,
+    CaliberProjectMember,
+    CaliberRuntimeApprovalRequest,
+)
 from caliber.effects.dispatcher import dispatch
 from caliber.egress import EgressPolicy
 from caliber.integrations.openapi.executor import bind_egress_policy
@@ -161,11 +165,13 @@ def test_a_dispatched_effect_names_the_rows_its_spans_carried(
     assert approval["status"] == "linked" and approval["approval_id"] == armed.approval_id
     assert approval["consumed_at"] is not None, "the dispatcher consumed it"
     assert effect["effect"]["status"] == "linked" and effect["effect"]["committed"] is True
-    assert effect["decision"]["status"] == "unrecorded", (
-        "the commit-time decision is stored per run"
+    assert effect["decision"]["status"] == "linked", (
+        "B11.3c: the dispatcher's claim stored the commit-time decision against the consumed approval"
     )
     assert effect["missing_links"] == [], "a committed, receipted, approved effect is not broken"
-    assert effect["unrecorded_links"] == ["context_manifest", "decision"]
+    assert effect["unrecorded_links"] == ["context_manifest"], (
+        "the whole chain but the step's context"
+    )
 
     # the same ids the spans of that dispatch carried (B11.3a)
     recorded = [s for s in spans.spans if s.name.startswith("effect.")]
@@ -180,19 +186,33 @@ def test_a_dispatched_effect_names_the_rows_its_spans_carried(
             if key in span.attributes:
                 on_spans[key].add(span.attributes[key])
     api = effect["span_attributes"]
-    assert set(api) == {"caliber.proposal_id", "caliber.approval_id", "caliber.effect_id"}
+    assert set(api) == set(CAUSAL_KEYS)
     for key in api:
         assert on_spans[key] == {api[key]}, key
     assert api["caliber.effect_id"] == effect["effect"]["effect_id"]
 
-    # the decision the spans name is a persisted row of this run, listed by the decision section
+    # the decision the spans name is the persisted row of this run the effect links, listed by the decision section and
+    # stored on the consumed approval request (B11.3c, #1061)
     (span_decision,) = on_spans["caliber.decision_id"]
+    assert effect["decision"]["decision_id"] == api["caliber.decision_id"] == span_decision
     decisions = _links(
         armed.app, EDITOR_A, PROJECT_A, armed.run_id, "?section=policy_decisions&limit=200"
     )
     assert decisions.status_code == 200, decisions.text
     listed = {d["decision_id"]: d for d in decisions.json()["data"]["policy_decisions"]}
     assert span_decision in listed and listed[span_decision]["result"] == "allow"
+    link = effect["decision"]
+    assert (link["action"], link["result"]) == (listed[span_decision]["action"], "allow")
+    assert (link["policy_version"], link["input_hash"]) == (
+        listed[span_decision]["policy_version"],
+        listed[span_decision]["input_hash"],
+    )
+    with armed.app.session_factory() as session:
+        stored = session.get(CaliberRuntimeApprovalRequest, armed.approval_id)
+        assert stored is not None and stored.commit_decision_id == span_decision
+        row = session.get(CaliberPolicyDecision, span_decision)
+        assert row is not None and row.workflow_run_id == armed.run_id
+        assert (row.action, row.result) == (link["action"], "allow")
 
     # the run manifest is the one the admission endpoint serves, by id and digest
     admission = _call(
