@@ -94,8 +94,10 @@ class TrustedConnector:
 
 #: The only connectors the reference profile admits. Admission binds a transport's implementation, capability record and
 #: configuration, never a tool or connector *name* a caller, a manifest or a model supplies: a custom tool called
-#: ``document_request`` is not this connector. MCP stdio and remote hosts, host-file exports and PostgreSQL MCP writes are
-#: not listed, so they are refused until their dispatcher contracts exist (ADR 0001, #534).
+#: ``document_request`` is not this connector. Host-file exports and PostgreSQL MCP writes (EP-114) are not listed, so
+#: they are refused until their dispatcher contracts exist (ADR 0001, #534). The ``mcp`` entry admits the MCP transport only
+#: for a call whose server record and administrator tool policy classify it as protected (B04.5, #759); it does not admit a
+#: server, which stays subject to the stdio and remote-host allowlists.
 REFERENCE_CONNECTORS: Final[tuple[TrustedConnector, ...]] = (
     TrustedConnector(
         backend_kind="document_request",
@@ -140,6 +142,17 @@ REFERENCE_CONNECTORS: Final[tuple[TrustedConnector, ...]] = (
         accepted_risks=("write_not_exactly_once", "key_retention_unconfirmed"),
         config_keys=("operation", "receipt_verifier"),
         required_config_keys=("operation", "receipt_verifier"),
+    ),
+    TrustedConnector(
+        backend_kind="mcp",
+        connector="mcp-tool",
+        connector_version="1",
+        implementation="caliber.effects.dispatcher:_McpToolBackend",
+        capability_digest="sha256:7065fbd3a0086fb61b23eb33fb2a987c8134b95a8bc3aed4bce5a57143491af2",
+        configuration_digest="sha256:4ae543f596dc155a567231b83ad61bf6ffd5c96f37844e19663ba0f476c0da83",
+        accepted_risks=("write_not_exactly_once", "key_retention_unconfirmed"),
+        config_keys=("call", "receipt_verifier"),
+        required_config_keys=("call", "receipt_verifier"),
     ),
 )
 

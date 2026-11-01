@@ -50,6 +50,7 @@ from caliber.budget import step_reservation as _step_reservation
 from caliber.config import provider_request_timeout
 from caliber.context.authorize import ContextDenied
 from caliber.effects import step_proposal as _step_proposal
+from caliber.effects.connectors import mcp_tool as _mcp_tool
 from caliber.effects.connectors import openapi_http as _openapi_http
 from caliber.effects.dispatcher import (
     HTTP_CONNECTOR,
@@ -60,6 +61,7 @@ from caliber.effects.dispatcher import (
     dispatch,
     submit_proposal,
 )
+from caliber.effects.mcp_tools import McpToolRoute
 from caliber.effects.reconcile import UnknownEffectError
 from caliber.effects.records import RecordedProposal
 from caliber.effects.registered_tools import (
@@ -86,7 +88,7 @@ from caliber.llm.models import (
     is_reasoning_model,
     reasoning_effort_for_model,
 )
-from caliber.mcp_gateway import McpGatewayError, invoke_tool_by_server_id_sync
+from caliber.mcp_gateway import McpGatewayError, invoke_tool_by_server_id_sync, load_server_config
 from caliber.observability.mlflow_tracing import Tracer, get_tracer, model_cost_usd
 from caliber.observability.span_attributes import causal_attributes, without_reserved_keys
 from caliber.ownership import Lease
@@ -3165,6 +3167,11 @@ def _bind_mcp_tool(
             raise ToolExecutionError(
                 f"MCP tool {tool_name!r} invocation failed on server {server_id!r}: {exc}"
             ) from exc
+        except EffectRefused as exc:
+            # A protected MCP call reaches a server only through the dispatcher (B04.5); this inline callable never does.
+            raise ToolExecutionError(
+                f"MCP tool {tool_name!r} refused on server {server_id!r}: {exc.code}"
+            ) from exc
         return {
             "server_id": server_id,
             "tool_name": tool_name,
@@ -5850,6 +5857,114 @@ def _perform_openapi_tool_effect(
     )
 
 
+@dataclass(frozen=True)
+class _GovernedMcp:
+    """A protected MCP call's route and its trusted operation (the server record and the administrator's tool policy)."""
+
+    route: McpToolRoute
+    call: _mcp_tool.McpToolCall
+    prepared: _mcp_tool.PreparedMcpCall = field(repr=False)
+    arguments: dict[str, Any] = field(repr=False)
+
+
+def _governed_mcp_route(
+    plan: RuntimePlan,
+    *,
+    node_id: str,
+    server_id: str,
+    tool_name: str,
+    timeout_seconds: float,
+    arguments: dict[str, Any],
+    preview: bool,
+    overridden: bool = False,
+) -> _GovernedMcp | None:
+    """The dispatcher route of an MCP tool call, or ``None`` when it runs inline as before (B04.5, #759).
+
+    As for the other governed tools, only a plan wired to the registry (an identity reader) or to an authority (a governed
+    context) is governed, and a preview never reaches a real effect. The call is classified from the **MCP server record**
+    (read from the database, scoped to the run's identity), the administrator's explicit tool policy for exactly that tool
+    and the protected-effect inventory: never from the binding's ``side_effect_level``, a description or annotation the
+    server reported, or the model. A tool nobody classified, a blocked tool, a server that is not ready and a first-party
+    database write tool (reference profile only) are refused here, before any proposal or approval exists. Only a ``read``-class
+    tool runs inline; every other call needs the governed effect context, except in a plan whose ``legacy_guarded_effects`` is
+    set (the development profile, #1068), where it runs inline as before the dispatcher; a protected call that an injected
+    callable replaces is refused once governed (no proposal could describe it).
+    """
+    if preview or (plan.registered_tool_identity is None and plan.governed_effects is None):
+        return None
+    label = f"MCP tool {tool_name!r}"
+    identity = plan.mcp_identity
+
+    def load_server() -> Any:
+        if identity is None:
+            return load_server_config(server_id)
+        return load_server_config(server_id, identity=identity)
+
+    call = _mcp_tool.McpToolCall(server_id, tool_name, load_server, timeout_seconds)
+    try:
+        prepared = _mcp_tool.prepare(call, _json_compatible(arguments))
+    except _mcp_tool.McpCallRefused as exc:
+        raise ToolExecutionError(f"{label} refused: {exc.code}") from exc
+    route = prepared.route
+    if route.route == REFUSE:
+        raise ToolExecutionError(f"{label} refused: {route.code}")
+    if route.route == INLINE:
+        return None
+    if plan.governed_effects is None:
+        if _legacy_effects_allowed(plan):
+            # Development profile, no authority bound (#1068): the pre-dispatcher behavior. The call runs inline through the
+            # gateway entry point (which lets it through outside the reference profile), behind the node's own approval gate;
+            # there is no proposal, exact-intent approval, lease or receipt.
+            return None
+        raise ToolExecutionError(
+            f"{node_id!r} requires a governed effect context to run protected {label}"
+        )
+    if overridden:
+        raise ToolExecutionError(
+            f"{label} is replaced by an injected callable and cannot be governed"
+        )
+    assert prepared.args is not None  # only a refused route has no proposal material
+    return _GovernedMcp(route, call, prepared, dict(prepared.args["arguments"]))
+
+
+def _perform_mcp_tool_effect(
+    plan: RuntimePlan,
+    *,
+    node_id: str,
+    mcp: _GovernedMcp,
+) -> Any:
+    """Run a protected MCP tool call through proposal, approval and dispatch (B04.5, #759); the result is the server's, bounded.
+
+    The proposal records the server record's id, the tool, a digest of the record and classification the decision was made
+    from, and the arguments (``mcp/<server_id>/<tool>``). The ``mcp`` backend reads the record again and refuses a server or
+    classification that changed, then sends **once**, only after the exact approval and the execution-owner lease are
+    rechecked. A result the server returns is untrusted data and is only a claim: the run's receipt verifier decides
+    whether the call is ``committed``; without a confirmation it is ``unknown`` and this raises.
+    """
+    context = plan.governed_effects
+    assert context is not None  # _governed_mcp_route guarantees it
+    if not callable(context.authorize) or not callable(context.receipt_verifier):
+        raise ToolExecutionError("governed MCP effect context is incomplete")
+    response = _submit_authorize_dispatch(
+        context,
+        label="MCP effect",
+        proposal={
+            "node_id": node_id,
+            "occurrence_id": _STEP_OCCURRENCE.get() or node_id,
+            "connector": _mcp_tool.CONNECTOR,
+            "connector_version": _mcp_tool.VERSION,
+            "min_effect_class": mcp.route.effect_class,
+            "resource": mcp.prepared.resource,
+            "args": mcp.prepared.args,
+            "tool_name": mcp.call.tool_name,
+            "caliber_defined": False,
+        },
+        backend_kind=_mcp_tool.BACKEND_KIND,
+        backend_config={"call": mcp.call, "receipt_verifier": context.receipt_verifier},
+    )
+    return response["result"]
+
+
 #: Failures that prove the effect did **not** reach the remote system, so the
 #: ledger row can be released for retry. Anything else (notably a timeout, where
 #: the request may already have been processed) keeps the claim, which makes the
@@ -7348,7 +7463,24 @@ def _run_node(  # noqa: PLR0911, PLR0912, PLR0915 - per-node-type dispatch
             )
         override = (extra_tools or {}).get(binding.local_name)
         openapi_effect: _GovernedOpenApi | None = None
-        if (
+        mcp_effect: _GovernedMcp | None = None
+        if binding.binding_type == "mcp_tool":
+            mcp_effect = _governed_mcp_route(
+                plan,
+                node_id=nid,
+                server_id=binding.mcp_server_id or "",
+                tool_name=binding.mcp_tool_name or "",
+                timeout_seconds=binding.timeout_seconds or _mcp_tool.DEFAULT_TIMEOUT_SECONDS,
+                arguments=_mcp_arguments_from_input(arguments or fallback_input),
+                preview=preview,
+                overridden=override is not None,
+            )
+            route = (
+                None
+                if mcp_effect is None
+                else ToolRoute(mcp_effect.route.route, mcp_effect.route.effect_class, trusted=False)
+            )
+        elif (
             binding.binding_type == "registered_function"
             and binding.execution_backend == OPENAPI_BACKEND
         ):
@@ -7403,6 +7535,13 @@ def _run_node(  # noqa: PLR0911, PLR0912, PLR0915 - per-node-type dispatch
                     result = _perform_openapi_tool_effect(
                         plan, node_id=nid, openapi=openapi_effect, arguments=arguments
                     )
+                elif mcp_effect is not None:
+                    result = {
+                        "server_id": mcp_effect.call.server_id,
+                        "tool_name": mcp_effect.call.tool_name,
+                        "arguments": mcp_effect.arguments,
+                        "result": _perform_mcp_tool_effect(plan, node_id=nid, mcp=mcp_effect),
+                    }
                 else:
                     result = _perform_registered_tool_effect(
                         plan,
@@ -7476,19 +7615,35 @@ def _run_node(  # noqa: PLR0911, PLR0912, PLR0915 - per-node-type dispatch
         if node_input is None:
             node_input = run_input
         arguments = _mcp_arguments_from_input(node_input)
+        node_mcp = _governed_mcp_route(
+            plan,
+            node_id=nid,
+            server_id=node.server_id,
+            tool_name=node.tool_name,
+            timeout_seconds=node.timeout_seconds,
+            arguments=arguments,
+            preview=preview,
+        )
         try:
-            invoke_kwargs: dict[str, Any] = {
-                "server_id": node.server_id,
-                "tool_name": node.tool_name,
-                "arguments": arguments,
-                "timeout_seconds": node.timeout_seconds,
-            }
-            if plan.mcp_identity is not None:
-                invoke_kwargs["identity"] = plan.mcp_identity
-            result = invoke_tool_by_server_id_sync(**invoke_kwargs)
+            if node_mcp is not None:
+                result = _perform_mcp_tool_effect(plan, node_id=nid, mcp=node_mcp)
+            else:
+                invoke_kwargs: dict[str, Any] = {
+                    "server_id": node.server_id,
+                    "tool_name": node.tool_name,
+                    "arguments": arguments,
+                    "timeout_seconds": node.timeout_seconds,
+                }
+                if plan.mcp_identity is not None:
+                    invoke_kwargs["identity"] = plan.mcp_identity
+                result = invoke_tool_by_server_id_sync(**invoke_kwargs)
         except McpGatewayError as exc:
             raise ToolExecutionError(
                 f"MCP node {nid!r} failed for {node.server_id!r}/{node.tool_name!r}: {exc}"
+            ) from exc
+        except EffectRefused as exc:
+            raise ToolExecutionError(
+                f"MCP node {nid!r} refused for {node.server_id!r}/{node.tool_name!r}: {exc.code}"
             ) from exc
         text = _mcp_result_text(result)
         tool_call = {
