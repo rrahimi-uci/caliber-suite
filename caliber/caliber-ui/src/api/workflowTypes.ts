@@ -692,6 +692,109 @@ export interface WorkflowRuntimeApproval {
   decided_by: string | null;
   decision_reason: string | null;
   policy_snapshot: Record<string, unknown> | null;
+  /**
+   * Set on a request bound to one effect proposal (B06.1). `null` or absent on a legacy node-level request, which keeps
+   * the plain Approve and Reject buttons; a bound request is decided in the approval panel (B06.5, #743). Optional so a
+   * server that does not return them yet still type-checks.
+   */
+  proposal_id?: string | null;
+  expires_at?: string | null;
+  superseded_by?: string | null;
+  consumed_at?: string | null;
+}
+
+/** The decisions an approver can make; the server lists which ones it accepts (`allowed_responses`). */
+export type ApprovalDecision = "approve" | "reject" | "request_changes";
+
+/**
+ * What the approver is deciding (`GET /workflow-runs/{id}/approvals/{approval_id}`, `proposal`). The *shape* of the
+ * arguments only: names (when they are plain identifiers) and the kind of each value. No value is ever returned: the
+ * intent digest binds them.
+ */
+export interface EffectProposal {
+  proposal_id: string;
+  connector: string;
+  connector_version: string;
+  effect_class: string;
+  resource: string;
+  state: string;
+  args_fields: Array<{
+    name: string | null;
+    kind: "string" | "number" | "boolean" | "null" | "object" | "array";
+  }>;
+  args_field_count: number;
+  args_truncated: boolean;
+}
+
+export interface WorkflowApprovalBinding {
+  proposal_id: string;
+  intent_hash: string;
+  evidence_hash: string;
+  policy_digest: string;
+  expected_resource_version: string | null;
+  expires_at: string;
+  /** `null` for a caller who does not hold the project approve action: the requester's name is shown to those who decide. */
+  requested_by: string | null;
+  superseded_by: string | null;
+  consumed_at: string | null;
+}
+
+/** `open`, or the stable reason the request cannot be decided now (the decision routes' own vocabulary). */
+export type WorkflowApprovalStateCode =
+  | "open"
+  | "already_decided"
+  | "rejected"
+  | "already_consumed"
+  | "superseded"
+  | "expired"
+  | "approval_not_current"
+  | "run_not_waiting";
+
+export interface WorkflowApprovalAbility {
+  allowed: boolean;
+  /** A state code, or `project_role_required`, `insufficient_scope`, `self_approval` or `duplicate_approver`. */
+  reason_code: string | null;
+}
+
+/** The server's answer for one approval request: everything the approval panel shows and every signal it obeys. */
+export interface WorkflowApprovalView {
+  approval: {
+    runtime_approval_id: string;
+    workflow_run_id: string;
+    project_id: string | null;
+    node_id: string;
+    status: string;
+    requested_at: string;
+    decided_at: string | null;
+    decided_by: string | null;
+    decision_reason: string | null;
+  };
+  binding: WorkflowApprovalBinding | null;
+  proposal: EffectProposal | null;
+  policy: {
+    required_role: string;
+    approval_count: number;
+    timeout_behavior: string;
+    allow_self_approval: boolean;
+  };
+  quorum: { approvers: string[]; required: number; remaining: number };
+  state: { code: WorkflowApprovalStateCode; superseded_by: string | null };
+  allowed_responses: ApprovalDecision[];
+  caller: {
+    principal: string;
+    approve: WorkflowApprovalAbility;
+    reject: WorkflowApprovalAbility;
+  };
+}
+
+/** The `200` of a decision that did not complete the quorum: the run is unchanged and more approvals are needed. */
+export interface WorkflowApprovalPartialAck {
+  workflow_run_id: string;
+  runtime_approval_id: string;
+  status: string;
+  approvals: number;
+  required_approvals: number;
+  remaining_approvals: number;
 }
 
 export interface WorkflowRunCapabilities {

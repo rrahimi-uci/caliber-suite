@@ -1,6 +1,7 @@
-import { useMemo } from "react";
+import { useMemo, useRef } from "react";
 
 import type {
+  ApprovalDecision,
   WorkflowRun,
   WorkflowRunCheckpoint,
   WorkflowRunEvent,
@@ -24,6 +25,8 @@ import {
   workflowRunStatusRingClass,
 } from "@/lib/workflowRunLabels";
 import { workflowRunArtifactPersistence } from "@/lib/workflowRunSummary";
+import { isLiveBoundApproval } from "@/lib/approvalPanel";
+import { BoundApprovalReview, type ApprovalDecisionResult } from "./BoundApprovalReview";
 
 const TERMINAL_STATUSES = new Set(["completed", "failed", "cancelled", "rejected", "expired"]);
 const RECOVERY_EVENT_TYPES = new Set([
@@ -51,6 +54,8 @@ interface WorkflowRunRecoveryPanelProps {
   loading?: boolean;
   approvalsLoadError?: string | null;
   eventsLoadError?: string | null;
+  /** Called after the approval panel's decision was accepted, so the page can refresh the run (B06.5, #743). */
+  onApprovalDecided?: (result: ApprovalDecisionResult, decision: ApprovalDecision) => void;
 }
 
 export function formatTimestamp(value: string | null | undefined): string {
@@ -508,6 +513,7 @@ export function WorkflowRunRecoveryPanel({
   loading = false,
   approvalsLoadError = null,
   eventsLoadError = null,
+  onApprovalDecided,
 }: WorkflowRunRecoveryPanelProps): JSX.Element {
   const artifactPersistence = useMemo(() => workflowRunArtifactPersistence(run), [run]);
   const relevantApprovals = useMemo(() => {
@@ -533,6 +539,19 @@ export function WorkflowRunRecoveryPanel({
     Boolean(run.current_node_id)
     && relevantApprovals.length === 0
     && approvals.length > 0;
+  // A request that was shown as the full approval panel stays one for as long as this run is open, even after the server
+  // says it was superseded or consumed: the panel then reads the new state and keeps the refusal message and its focus,
+  // instead of being swapped for a compact card in the middle of an announcement (B06.5, #743).
+  const panelRunRef = useRef<{ runId: string; ids: Set<string> }>({
+    runId: run.workflow_run_id,
+    ids: new Set(),
+  });
+  if (panelRunRef.current.runId !== run.workflow_run_id) {
+    panelRunRef.current = { runId: run.workflow_run_id, ids: new Set() };
+  }
+  for (const approval of approvals) {
+    if (isLiveBoundApproval(approval)) panelRunRef.current.ids.add(approval.runtime_approval_id);
+  }
   const approvalCards = relevantApprovals.length > 0 || !run.current_node_id
     ? relevantApprovals
     : [];
@@ -974,7 +993,18 @@ export function WorkflowRunRecoveryPanel({
                 })}
               </div>
             ) : (
-              approvalCards.map((approval) => (
+              approvalCards.map((approval) => panelRunRef.current.ids.has(approval.runtime_approval_id) ? (
+                <div
+                  key={approval.runtime_approval_id}
+                  data-testid={`workflow-run-recovery-approval-${approval.runtime_approval_id}`}
+                >
+                  <BoundApprovalReview
+                    approval={approval}
+                    knownApprovalIds={approvals.map((item) => item.runtime_approval_id)}
+                    onDecided={onApprovalDecided}
+                  />
+                </div>
+              ) : (
                 <div
                   key={approval.runtime_approval_id}
                   data-testid={`workflow-run-recovery-approval-${approval.runtime_approval_id}`}

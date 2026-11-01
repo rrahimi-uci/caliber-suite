@@ -2231,6 +2231,12 @@
 <p><strong>Returns:</strong> <code>Any</code></p>
 <p><strong>Raises:</strong></p>
 <ul><li><a href="#caliberapierror"><code>CaliberAPIError</code></a></li><li><a href="#calibertransporterror"><code>CaliberTransportError</code></a></li></ul>
+<h6 id="approvalrun_id-str-approval_id-str-any"><code>approval(run_id: str, approval_id: str) -&gt; Any</code><a class="anchor" href="#approvalrun_id-str-approval_id-str-any" aria-hidden="true" tabindex="-1">#</a></h6>
+<p>The approver's view of one approval request: what is being decided and what the caller may do (B06.5). Read-only. For a request bound to an effect proposal it carries the pins (`<code>intent_hash</code><code>, evidence and policy digests, expiry, requester), the effect's connector, class and resource and the *names and kinds* of its arguments (never a value), the quorum, the request's </code><code>state</code><code> and </code><code>caller</code><code>: whether the authenticated principal may </code><code>approve</code><code> or </code><code>reject</code><code> now and why not. A run you cannot read, an approval of another run and an unknown id are the same :class:</code>~caliber_sdk.CaliberNotFoundError`.</p>
+<div class="table-wrap"><table><thead><tr><th>Parameter</th><th>Kind</th><th>Type</th><th>Default</th></tr></thead><tbody><tr><td><code>run_id</code></td><td>positional-or-keyword</td><td><code>str</code></td><td><code>—</code></td></tr><tr><td><code>approval_id</code></td><td>positional-or-keyword</td><td><code>str</code></td><td><code>—</code></td></tr></tbody></table></div>
+<p><strong>Returns:</strong> <code>Any</code></p>
+<p><strong>Raises:</strong></p>
+<ul><li><a href="#caliberapierror"><code>CaliberAPIError</code></a></li><li><a href="#calibertransporterror"><code>CaliberTransportError</code></a></li></ul>
 <h6 id="approverun_id-str-payload-any"><code>approve(run_id: str, **payload) -&gt; Any</code><a class="anchor" href="#approverun_id-str-payload-any" aria-hidden="true" tabindex="-1">#</a></h6>
 <p>Approve a pending Human Approval checkpoint. The run does not resume automatically -- call :meth:<code>resume</code> after.</p>
 <div class="table-wrap"><table><thead><tr><th>Parameter</th><th>Kind</th><th>Type</th><th>Default</th></tr></thead><tbody><tr><td><code>run_id</code></td><td>positional-or-keyword</td><td><code>str</code></td><td><code>—</code></td></tr><tr><td><code>payload</code></td><td>var-keyword</td><td><code>Any</code></td><td><code>—</code></td></tr></tbody></table></div>
