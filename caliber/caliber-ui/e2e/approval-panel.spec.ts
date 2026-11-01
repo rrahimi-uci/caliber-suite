@@ -166,6 +166,10 @@ test.describe("approval panel", () => {
     await expect(panel.getByTestId("approval-status")).toHaveText("Rejected. The run was failed.");
     await expect(panel.getByTestId("approval-status")).toBeFocused();
     await expect(panel.getByRole("button", { name: "Reject" })).toHaveCount(0);
+    // The view agrees with what just happened. The reject cleared the run's current node, and the server must still say
+    // the request was rejected, not that it belongs to another step.
+    await expect(panel.getByText("rejected by admin")).toBeVisible();
+    await expect(panel).not.toContainText("not for the step the run is waiting at");
   });
 
   test("an expired request is read-only with the exact message announced as an alert", async ({

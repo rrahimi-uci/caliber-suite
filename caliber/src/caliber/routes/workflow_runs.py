@@ -2067,7 +2067,9 @@ def _select_pending_runtime_approval(
 
     For a bound request the caller's authority is checked **first** (the node's ``required_role`` scope, and for an
     approval the requester rule), so a project member who may not decide it learns nothing about its state from the
-    refusal codes below. The caller is the authenticated principal and ``scopes`` are the scopes of the presented token.
+    refusal codes below. (That holds for these *decision routes*. The read-only view, ``GET .../approvals/{id}``, is a separate
+    surface of the project ``read`` tier and deliberately shows any reader a request's state, as the list always showed its status;
+    the effect and the requester stay with those who may decide.) The caller is the authenticated principal and ``scopes`` are the scopes of the presented token.
 
     A bound request that cannot be decided is a ``409`` with a stable ``reason_code`` and a static, payload-free message,
     and nothing is written. Checked in this order, because each earlier state is final and hides the later ones:
@@ -2130,11 +2132,27 @@ def _select_pending_runtime_approval(
 
 
 async def list_workflow_run_approvals(request: Request) -> JSONResponse:
+    """The run's approval requests. Visible to whoever can see the run, as it always was.
+
+    The exact-intent fields added for the approval panel (``proposal_id``, ``expires_at``, ``superseded_by``,
+    ``consumed_at``, B06.5, #743) follow the view route's rule instead: they are filled only for a caller who also holds
+    the project ``read`` role (a run with no project has none to hold), and are ``None`` for anyone else, so a list reader
+    learns nothing about a bound request that ``GET .../approvals/{id}`` would refuse them.
+    """
+    from caliber.auth import resolve_identity  # noqa: PLC0415 - avoids an import cycle
+
     require_user(request)
     run_id = request.path_params["run_id"]
     factory = get_session_factory(request)
     with factory() as session:
-        _get_run_or_404(session, run_id, request=request)
+        run = _get_run_or_404(session, run_id, request=request)
+        try:
+            require_project_access_if_scoped(
+                session, resolve_identity(request), run.project_id, "read"
+            )
+            may_read_binding = True
+        except HTTPException:
+            may_read_binding = False
         rows = (
             session.execute(
                 select(CaliberRuntimeApprovalRequest)
@@ -2145,6 +2163,12 @@ async def list_workflow_run_approvals(request: Request) -> JSONResponse:
             .all()
         )
         data = [WorkflowRuntimeApprovalSchema.model_validate(row) for row in rows]
+        if not may_read_binding:
+            for item in data:
+                item.proposal_id = None
+                item.expires_at = None
+                item.superseded_by = None
+                item.consumed_at = None
     return envelope_response(data)
 
 
@@ -3099,6 +3123,7 @@ async def get_workflow_run_approval_view(request: Request) -> JSONResponse:
     actor = require_user(request)
     run_id = request.path_params["run_id"]
     approval_id = request.path_params["approval_id"]
+    config = request.app.state.config
     factory = get_session_factory(request)
     with factory() as session:
         run = _get_run_or_404(session, run_id, request=request)
@@ -3134,6 +3159,9 @@ async def get_workflow_run_approval_view(request: Request) -> JSONResponse:
                 scopes=current_scopes(request),
                 project_allows_approve=project_allows_approve,
                 now=_utc_now(),
+                queue_enabled=bool(config.workflow_run_queue_enabled),
+                approvals_enabled=bool(config.workflow_run_runtime_approvals_enabled),
+                checkpointing_enabled=bool(config.workflow_run_checkpointing_enabled),
             )
         )
     return envelope_response(data)

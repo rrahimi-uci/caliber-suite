@@ -11,12 +11,13 @@ decision routes already use, so it shows the same facts the routes enforce:
   arguments are the one place a secret or personal datum can sit, the platform's other operator views never load them
   (``caliber.effects.operator_view``), and the ``intent_hash`` already binds every value. Showing values needs a
   connector-owned preview that redacts, which does not exist yet; this module does not guess at one.
-* **The state.** :func:`approval_state` applies, in the order of the decision route, the rules that make a request final or
-  not for this run's step, so the panel can say *why* it is read-only before anyone presses a button. The decision route
+* **The state.** :func:`approval_state` applies the rules that make a request final or not for this run's step (consumed,
+  superseded, expired, rejected, run not waiting, another node's request, already decided; see its docstring for why that
+  order), so the panel can say *why* it is read-only before anyone presses a button. The decision route
   stays the authority: the view is advice that the route re-derives under its locks.
 * **What the caller may do.** :func:`caller_abilities` repeats the decision route's authority checks for the authenticated
-  principal (project ``approve`` action, the node's ``required_role`` scope, the requester and run-initiator rule, one
-  approval per person) and names the first one that fails, so the console disables a button and says why without
+  principal (the deployment switches the routes check first, the project ``approve`` action, the node's ``required_role``
+  scope, the requester and run-initiator rule, one approval per person) and names the first one that fails, so the console disables a button and says why without
   re-implementing any rule. It reads, never writes.
 
 Nothing here locks, decides or consumes. The functions take the rows the route authorized.
@@ -61,6 +62,11 @@ ABILITY_PROJECT_ROLE: Final = "project_role_required"
 ABILITY_SCOPE: Final = "insufficient_scope"
 ABILITY_SELF_APPROVAL: Final = "self_approval"
 ABILITY_DUPLICATE: Final = "duplicate_approver"
+#: The deployment switches the decision routes check before anything else (``_ensure_queue_enabled``,
+#: ``_ensure_runtime_approvals_enabled``, and for an approval ``_ensure_checkpointing_enabled``): a ``409`` with no code.
+ABILITY_QUEUE_DISABLED: Final = "queue_disabled"
+ABILITY_APPROVALS_DISABLED: Final = "approvals_disabled"
+ABILITY_CHECKPOINTING_DISABLED: Final = "checkpointing_disabled"
 
 #: Most top-level arguments listed, and the shape a listed name must have. A name that is not a plain identifier (or is too
 #: long) is listed without its name: a key can be attacker-supplied text, and a name is shown only when it is a field name.
@@ -177,12 +183,16 @@ def approvers_of(approval: CaliberRuntimeApprovalRequest) -> list[str]:
 def approval_state(
     approval: CaliberRuntimeApprovalRequest, *, run: CaliberWorkflowRun, now: datetime
 ) -> dict[str, Any]:
-    """Whether the request can be decided now, in the order the decision route judges it.
+    """Whether the request can be decided now.
 
-    ``already_consumed``, then ``superseded`` and ``expired`` (``approval_refusal``), then, for a bound request, a node other
-    than the one the run waits at (``approval_not_current``), then a request that already holds a decision
-    (``already_decided`` for an approval waiting for dispatch, ``rejected``), then a run that is no longer waiting for approval.
-    A consumed request stays ``already_consumed`` after its expiry passes, as in the route.
+    The order follows what is *true* of the request and run, most final first: ``already_consumed``; ``superseded`` and
+    ``expired`` (``approval_refusal``); ``rejected`` (a rejection fails the run and clears its current node, so it has to be
+    named before the run's state is judged); a run that is no longer waiting for approval (``run_not_waiting``: cancelled,
+    failed, finished or resumed, which also clears its current node); then, for a bound request, a node other than the one the
+    run waits at (``approval_not_current``); then a request that already holds a decision and waits for dispatch
+    (``already_decided``). The decision route judges the run's status before it reads the request, so a run that is not
+    waiting is never reported as a request for another node. A consumed request stays ``already_consumed`` after its expiry
+    passes, as in the route.
     """
     code = STATE_OPEN
     if approval.consumed_at is not None:
@@ -196,14 +206,14 @@ def approval_state(
         )
         if refusal is not None:
             code = refusal
+        elif approval.status not in ("pending", "approved"):
+            code = STATE_REJECTED
+        elif run.status != RUN_STATUS_WAITING_APPROVAL:
+            code = STATE_RUN_NOT_WAITING
         elif approval.proposal_id is not None and approval.node_id != run.current_node_id:
             code = STATE_NOT_CURRENT
         elif approval.status == "approved":
             code = STATE_ALREADY_DECIDED
-        elif approval.status != "pending":
-            code = STATE_REJECTED
-        elif run.status != RUN_STATUS_WAITING_APPROVAL:
-            code = STATE_RUN_NOT_WAITING
     return {
         "code": code,
         "superseded_by": approval.superseded_by if code == "superseded" else None,
@@ -218,24 +228,35 @@ def caller_abilities(
     actor: str,
     scopes: frozenset[str] | set[str],
     project_allows_approve: bool,
+    queue_enabled: bool = True,
+    approvals_enabled: bool = True,
+    checkpointing_enabled: bool = True,
 ) -> dict[str, dict[str, Any]]:
     """Whether ``actor`` may approve and may reject now, with the first reason when not.
 
     The rules are the decision routes': the project ``approve`` action, then the node's ``required_role`` scope (both
     decisions), then for an approval only the requester and run-initiator rule (:func:`assert_distinct_actor`) and one
-    approval per person. A request that is not open is not decidable by anyone: the reason is its state.
+    approval per person. A request that is not open is not decidable by anyone: the reason is its state. Before the caller's
+    own rights, the routes check three deployment switches, so the view names a disabled one first (an approval needs all
+    three, a rejection the first two).
     """
     if state_code != STATE_OPEN:
         closed: dict[str, Any] = {"allowed": False, "reason_code": state_code}
         return {"approve": dict(closed), "reject": dict(closed)}
     policy = ApprovalPolicy.from_snapshot(approval.policy_snapshot)
     base: str | None = None
-    if not project_allows_approve:
+    if not queue_enabled:
+        base = ABILITY_QUEUE_DISABLED
+    elif not approvals_enabled:
+        base = ABILITY_APPROVALS_DISABLED
+    elif not project_allows_approve:
         base = ABILITY_PROJECT_ROLE
     elif policy.required_role not in scopes:
         base = ABILITY_SCOPE
     reject = {"allowed": base is None, "reason_code": base}
     approve_reason = base
+    if approve_reason is None and not checkpointing_enabled:
+        approve_reason = ABILITY_CHECKPOINTING_DISABLED
     if approve_reason is None:
         for initiator in (approval.requested_by, run.created_by):
             try:
@@ -260,6 +281,9 @@ def build_approval_view(
     scopes: frozenset[str] | set[str],
     project_allows_approve: bool,
     now: datetime,
+    queue_enabled: bool = True,
+    approvals_enabled: bool = True,
+    checkpointing_enabled: bool = True,
 ) -> dict[str, Any]:
     """The view record for ``approval`` of ``run`` as seen by ``actor`` (see the module docstring).
 
@@ -296,6 +320,9 @@ def build_approval_view(
                 actor=actor,
                 scopes=scopes,
                 project_allows_approve=project_allows_approve,
+                queue_enabled=queue_enabled,
+                approvals_enabled=approvals_enabled,
+                checkpointing_enabled=checkpointing_enabled,
             ),
         },
     }

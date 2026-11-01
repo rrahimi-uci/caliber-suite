@@ -306,6 +306,18 @@ describe("ApprovalDecisionPanel: authority is the server's signal", () => {
       "project_role_required",
       "Deciding an approval needs an approving role in this project (reviewer or owner) and you do not hold one. Ask a project owner.",
     ],
+    [
+      "queue_disabled",
+      "Deciding approvals is switched off for this deployment: the workflow run queue is disabled. Ask an administrator to enable it, then reload.",
+    ],
+    [
+      "approvals_disabled",
+      "Runtime approvals are switched off for this deployment, so nothing can be decided here. Ask an administrator to enable them, then reload.",
+    ],
+    [
+      "checkpointing_disabled",
+      "Approving needs run checkpointing, which is switched off for this deployment. Rejecting is still possible. Ask an administrator to enable checkpointing to approve.",
+    ],
   ])("disables Approve for %s, keeps it focusable and names the reason", async (code, message) => {
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
     const { onDecide } = renderPanel({

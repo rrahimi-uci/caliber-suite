@@ -3071,10 +3071,11 @@ a bound one those header buttons are not shown, because they would approve it un
 **Who may read it.** The access of reading the run (a run you cannot see is `404`) **plus** the project `read` role, evaluated now. A caller who
 fails either, an approval of another run and an unknown id all get the same `404`. A caller who also holds the project `approve` action (owner or
 reviewer) sees the effect and who requested it; anyone else with read access sees the pins, the state and the quorum, `proposal` is `null` and
-`binding.requested_by` is `null` (the state of a request is not hidden from a reader: the list route already shows its status and who decided).
+`binding.requested_by` is `null` (deliberate: the view is a project-`read` surface and shows any reader a request's state, as the list route already showed its status and who decided; the *decision routes* still tell a caller who may not decide nothing about the state, because they check authority before state).
 The SDK reads it as `client.workflows.runs.approval(run_id, approval_id)`, untyped like `approvals()`. The list route
 (`GET .../approvals`) gains optional `proposal_id`, `expires_at`, `superseded_by` and `consumed_at`, so the console can tell a bound request from a
-legacy one; an older client ignores them.
+legacy one; an older client ignores them. They follow the view's rule: filled only for a caller with the project `read` role, `null` for anyone else
+(the rest of the list is unchanged).
 
 **What it returns.**
 
@@ -3083,9 +3084,9 @@ legacy one; an older client ignores them.
 | `binding` | `proposal_id`, `intent_hash`, `evidence_hash`, `policy_digest`, `expected_resource_version`, `expires_at`, `requested_by`, `superseded_by`, `consumed_at`; `null` for a legacy request |
 | `proposal` | `connector`, `connector_version`, `effect_class` (the risk class: read only, reversible write, irreversible write or data export), `resource`, `state`, and the **shape** of the arguments: each top-level name (only when it is a plain identifier, otherwise unnamed) and the kind of its value, at most 50 |
 | `policy`, `quorum` | the node's `required_role`, `approval_count`, `timeout_behavior`, `allow_self_approval`; who approved so far, how many are required and how many remain |
-| `state` | `open`, or why the request cannot be decided now, in the order the decision route judges it: `already_consumed`, `superseded` (with `superseded_by`), `expired`, `approval_not_current`, `already_decided`, `rejected`, `run_not_waiting` |
+| `state` | `open`, or why the request cannot be decided now, most final first: `already_consumed`, `superseded` (with `superseded_by`), `expired`, `rejected`, `run_not_waiting` (a rejection and a cancellation both clear the run's current node, so they are named before the node is compared), `approval_not_current` (another node's request of a waiting run), `already_decided` |
 | `allowed_responses` | the decisions the routes accept now: `approve` and `reject`. `request_changes` is in the contract but has no route, so it is not offered |
-| `caller` | the authenticated principal, and for `approve` and `reject` whether it is allowed now and, when not, the first reason: the request's state, `project_role_required`, `insufficient_scope`, `self_approval` or `duplicate_approver` |
+| `caller` | the authenticated principal, and for `approve` and `reject` whether it is allowed now and, when not, the first reason: the request's state, a disabled deployment switch (`queue_disabled`, `approvals_disabled`, and for an approval `checkpointing_disabled`, which the routes check first and answer with a plain `409`), `project_role_required`, `insufficient_scope`, `self_approval` or `duplicate_approver` |
 
 **No argument value ever leaves the server.** The arguments are the one place a secret or a personal datum can sit, the platform's other
 operator views never load them, and the `intent_hash` binds every value, so the panel shows names, kinds and counts and says that the values are
@@ -3113,6 +3114,7 @@ the view):
 | `approval_busy` | `503` on decide | "This request is being decided or dispatched right now. Nothing was decided. Wait a moment, then press the button again." | press again; the buttons stay live |
 | `self_approval` | view ability | "You started this run, so you cannot approve it. A second person must decide." | a second person decides; Reject stays available |
 | `duplicate_approver` | view ability | "You already approved this step. It needs 2 different approvers; 1 more is needed." | another approver decides |
+| `queue_disabled`, `approvals_disabled`, `checkpointing_disabled` | view ability | "Deciding approvals is switched off for this deployment ..." | an administrator enables the switch (`checkpointing_disabled` blocks only Approve) |
 | `insufficient_scope`, `project_role_required` | view ability | "This step needs the caliber.approver role and your account does not hold it ..." | ask for the role |
 | a network failure or any other `5xx` | decide | "We could not confirm whether your decision was recorded ... check it before deciding again." | the panel refetches; it never retries by itself, because a retry would answer `duplicate_approver` |
 
@@ -3124,6 +3126,10 @@ query operation), `requested_by_type` (the platform has no principal type yet; t
 evidence package yet) or the policy decision's reason codes. `request_changes` and a `intent_hash` in the decision body are not implemented in
 the routes. Approving the last required approval does not resume the run: the run stays `waiting_approval` until someone with the operator role
 resumes it, and the panel says so.
+
+**What the browser checks cover.** The Playwright spec asserts roles, accessible names and descriptions, keyboard order, focus and the announced text with
+role and name queries and an accessibility-tree snapshot. The repository has no axe integration, so there is no automated colour-contrast or
+rule-engine audit of the panel; contrast follows the console's existing slate, amber and red palette and has not been measured.
 
 **Configuration, migration and rollback.** No new setting, no migration and no stored data change. The view is read-only and the list fields are
 optional additions. Rolling back is reverting the change; a console without it ignores the new list fields and keeps the plain buttons.

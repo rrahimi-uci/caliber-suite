@@ -154,6 +154,22 @@ describe("BoundApprovalReview", () => {
     expect(calls.views).toBeGreaterThanOrEqual(2);
   });
 
+  it("links a superseded request only to a replacement that is on the page", async () => {
+    const superseded = view({ state: { code: "superseded", superseded_by: "RAP-2" } });
+    serve([superseded]);
+    const { unmount } = render(
+      <BoundApprovalReview approval={APPROVAL} knownApprovalIds={["RAP-1"]} />,
+    );
+    expect(await screen.findByText(/A newer request replaced this one \(RAP-2\)/)).toBeInTheDocument();
+    expect(screen.queryByRole("link")).not.toBeInTheDocument();
+    unmount();
+    render(<BoundApprovalReview approval={APPROVAL} knownApprovalIds={["RAP-1", "RAP-2"]} />);
+    expect(await screen.findByRole("link", { name: "Go to the newer request" })).toHaveAttribute(
+      "href",
+      "#approval-panel-RAP-2",
+    );
+  });
+
   it.each([
     ["expired", /expired at 2026-11-01 14:30 UTC/, "alert"],
     ["already_decided", /already holds a decision/, "status"],

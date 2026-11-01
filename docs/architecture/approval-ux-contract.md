@@ -34,7 +34,7 @@ Where this page and that one differ, that one describes what runs.
 Everything under "Accessibility" is built as written: the inline panel, focus on the heading when nothing else holds focus and on the result
 message afterwards, one polite status element and one alert element (always in the document), `aria-disabled` with `aria-describedby`, a reason that is
 required to reject and announced before any call, the inline reject confirmation, and a countdown that refreshes once a minute outside the live
-regions.
+regions. The browser checks are role, name, description and focus queries plus an accessibility-tree snapshot; there is no axe or contrast audit.
 
 ## Decisions this contract makes for #523
 

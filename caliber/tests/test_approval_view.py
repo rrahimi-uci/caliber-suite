@@ -402,6 +402,113 @@ def test_a_project_member_without_the_approve_action_sees_the_pins_but_not_the_e
         assert refused.status_code == 403, refused.text
 
 
+def test_after_the_real_reject_route_the_state_is_rejected_not_another_nodes_request(
+    client: TestClient,
+) -> None:
+    """The reject route fails the run and clears ``current_node_id``; the view must still say ``rejected``."""
+    run_id, bound_id, _proposal_id = _parked(client)
+    rejected = client.post(
+        f"{PREFIX}/workflow-runs/{run_id}/approval/reject",
+        json={"runtime_approval_id": bound_id, "reason": "wrong case"},
+    )
+    assert rejected.status_code == 200, rejected.text
+    with client.app.state.session_factory() as session:
+        run = session.get(CaliberWorkflowRun, run_id)
+        assert run is not None
+        assert (run.status, run.current_node_id) == ("failed", None)
+
+    data = _view(client, run_id, bound_id)
+
+    assert data["state"]["code"] == "rejected"
+    assert data["caller"]["approve"] == {"allowed": False, "reason_code": "rejected"}
+    assert data["caller"]["reject"] == {"allowed": False, "reason_code": "rejected"}
+
+
+@pytest.mark.parametrize("decided_first", [False, True])
+def test_after_the_real_cancel_route_the_run_is_not_waiting(
+    client: TestClient, decided_first: bool
+) -> None:
+    """Cancelling clears ``current_node_id`` too: the state is ``run_not_waiting``, never ``approval_not_current``."""
+    run_id, bound_id, _proposal_id = _parked(client)
+    if decided_first:  # approved (quorum met) and then the run is cancelled before dispatch
+        approved = client.post(
+            f"{PREFIX}/workflow-runs/{run_id}/approval/approve",
+            json={"runtime_approval_id": bound_id},
+        )
+        assert approved.status_code == 200, approved.text
+    cancelled = client.post(f"{PREFIX}/workflow-runs/{run_id}/cancel")
+    assert cancelled.status_code == 200, cancelled.text
+    with client.app.state.session_factory() as session:
+        run = session.get(CaliberWorkflowRun, run_id)
+        assert run is not None
+        assert (run.status, run.current_node_id) == ("cancelled", None)
+
+    data = _view(client, run_id, bound_id)
+
+    assert data["state"]["code"] == "run_not_waiting"
+    assert data["caller"]["approve"] == {"allowed": False, "reason_code": "run_not_waiting"}
+
+
+def test_a_request_for_another_node_of_a_waiting_run_is_still_not_current(
+    client: TestClient,
+) -> None:
+    run_id, bound_id, _proposal_id = _parked(client, node_id="another_gate")
+    assert _states(client, run_id, bound_id) == "approval_not_current"
+
+
+@pytest.mark.parametrize(
+    ("switch", "approve_reason", "reject_reason"),
+    [
+        ("workflow_run_queue_enabled", "queue_disabled", "queue_disabled"),
+        ("workflow_run_runtime_approvals_enabled", "approvals_disabled", "approvals_disabled"),
+        ("workflow_run_checkpointing_enabled", "checkpointing_disabled", None),
+    ],
+)
+def test_a_disabled_deployment_switch_is_named_and_the_routes_agree(
+    client: TestClient, switch: str, approve_reason: str, reject_reason: str | None
+) -> None:
+    """The routes check these switches before anything else and answer a plain 409; the view names which one."""
+    run_id, bound_id, _proposal_id = _parked(client)
+    client.app.state.config = client.app.state.config.model_copy(update={switch: False})
+
+    data = _view(client, run_id, bound_id)
+
+    assert data["state"]["code"] == "open"
+    assert data["caller"]["approve"] == {"allowed": False, "reason_code": approve_reason}
+    assert data["caller"]["reject"] == {
+        "allowed": reject_reason is None,
+        "reason_code": reject_reason,
+    }
+    path = f"{PREFIX}/workflow-runs/{run_id}/approval"
+    body = {"runtime_approval_id": bound_id}
+    assert client.post(f"{path}/approve", json=body).status_code == 409
+    if reject_reason is not None:
+        assert client.post(f"{path}/reject", json=body).status_code == 409
+
+
+def test_the_list_fields_of_a_bound_request_follow_the_views_project_read_rule(
+    client: TestClient,
+) -> None:
+    run_id, bound_id, proposal_id = _parked(client)
+    _project_run(client, run_id, bound_id, {"@reza": ROLE_REVIEWER})
+    url = f"{PREFIX}/workflow-runs/{run_id}/approvals"
+
+    member = {
+        row["runtime_approval_id"]: row
+        for row in client.get(url, headers={"X-CALIBER-User": "@reza"}).json()["data"]
+    }
+    assert member[bound_id]["proposal_id"] == proposal_id
+    assert member[bound_id]["expires_at"] is not None
+
+    outsider = {
+        row["runtime_approval_id"]: row
+        for row in client.get(url, headers={"X-CALIBER-User": "@a"}).json()["data"]
+    }
+    assert outsider[bound_id]["status"] == "pending", "the list still answers, as it always did"
+    for field in ("proposal_id", "expires_at", "superseded_by", "consumed_at"):
+        assert outsider[bound_id][field] is None, field
+
+
 def test_a_non_member_gets_the_same_404_as_an_unknown_approval(client: TestClient) -> None:
     run_id, bound_id, _proposal_id = _parked(client)
     _project_run(client, run_id, bound_id, {"@reza": ROLE_REVIEWER})

@@ -115,6 +115,9 @@ export type ApprovalDenialCode =
   | "intent_mismatch"
   | "insufficient_scope"
   | "project_role_required"
+  | "queue_disabled"
+  | "approvals_disabled"
+  | "checkpointing_disabled"
   | "already_decided"
   | "rejected"
   | "already_consumed"
@@ -144,6 +147,9 @@ export const KNOWN_DENIAL_CODES: ReadonlySet<string> = new Set<ApprovalDenialCod
   "intent_mismatch",
   "insufficient_scope",
   "project_role_required",
+  "queue_disabled",
+  "approvals_disabled",
+  "checkpointing_disabled",
   "already_decided",
   "rejected",
   "already_consumed",
@@ -187,6 +193,12 @@ export function denialMessage(code: string, ctx: DenialContext = {}): string | n
       return `This step needs the ${ctx.requiredRole ?? "required"} role and your account does not hold it. Ask an administrator for the role, or ask someone who holds it to decide.`;
     case "project_role_required":
       return "Deciding an approval needs an approving role in this project (reviewer or owner) and you do not hold one. Ask a project owner.";
+    case "queue_disabled":
+      return "Deciding approvals is switched off for this deployment: the workflow run queue is disabled. Ask an administrator to enable it, then reload.";
+    case "approvals_disabled":
+      return "Runtime approvals are switched off for this deployment, so nothing can be decided here. Ask an administrator to enable them, then reload.";
+    case "checkpointing_disabled":
+      return "Approving needs run checkpointing, which is switched off for this deployment. Rejecting is still possible. Ask an administrator to enable checkpointing to approve.";
     case "already_decided":
       return `This request already holds a decision${ctx.decidedBy ? ` from ${ctx.decidedBy}` : ""} and is waiting for the system to act on it. It cannot be decided again and nothing more is needed from you.`;
     case "rejected":
