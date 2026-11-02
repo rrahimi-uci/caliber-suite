@@ -104,6 +104,19 @@ def test_create_draft_invalid_manifest_400(client: TestClient) -> None:
     assert r.status_code == 400
 
 
+def test_create_draft_rejects_reserved_trace_group_tag(client: TestClient) -> None:
+    wid = create_workflow(client)
+    bad = make_manifest(
+        wid,
+        mlflow={"trace_group_tags": {"caliber.future_platform_attribute": "spoofed"}},
+    )
+
+    r = client.post(f"{PREFIX}/workflows/{wid}/versions", json={"manifest": bad})
+
+    assert r.status_code == 400
+    assert "reserved_trace_group_tag" in r.json()["detail"]
+
+
 def test_create_draft_rejects_inline_secret(client: TestClient) -> None:
     wid = create_workflow(client)
     bad = make_manifest(wid)
