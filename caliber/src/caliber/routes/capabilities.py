@@ -14,7 +14,7 @@ from starlette.routing import Route
 
 from caliber.artifact_capabilities import ARTIFACT_FAMILY_CAPABILITIES
 from caliber.auth import require_user
-from caliber.extensibility import optimizer_registry
+from caliber.extensibility import PluginRefused, optimizer_registry
 from caliber.extensibility.entrypoints import (
     ALLOWLIST_ENV_VAR,
     available_optimizer_plugins,
@@ -53,6 +53,12 @@ def _extensibility() -> ExtensibilityCapabilitySchema:
     import must not stall the event loop for every other request.
     """
     registry = optimizer_registry()
+    try:
+        specs = list(registry)
+    except PluginRefused:
+        # The reference profile refused an installed plugin (B12.4b, #763): no optimizer can be dispatched, so none is
+        # reported. The refusal itself is each plugin's ``error`` below, which is how an operator learns what to change.
+        specs = []
     optimizers = [
         RegisteredOptimizerSchema(
             name=spec.name,
@@ -64,7 +70,7 @@ def _extensibility() -> ExtensibilityCapabilitySchema:
             explicit_only=spec.explicit_only,
             experimental=spec.experimental,
         )
-        for spec in registry
+        for spec in specs
     ]
     plugins = [
         OptimizerPluginSchema(

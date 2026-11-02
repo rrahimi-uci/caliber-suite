@@ -103,6 +103,10 @@ UNSAFE: dict[str, tuple[dict[str, Any], str]] = {
         {"mcp_stdio_command_allowlist": "npx", "mcp_remote_host_allowlist": "example.com"},
         "CALIBER_MCP_STDIO_COMMAND_ALLOWLIST, CALIBER_MCP_REMOTE_HOST_ALLOWLIST",
     ),
+    "workflow_file_root_unconfined": (
+        {"workflow_file_root": "unconfined"},
+        "CALIBER_WORKFLOW_FILE_ROOT",
+    ),
     "self_approval_allowed": (
         {"approval_allow_self_approval": True},
         "CALIBER_APPROVAL_ALLOW_SELF_APPROVAL",
@@ -506,6 +510,12 @@ MESSAGES: dict[str, tuple[str, str]] = {
         "profile does not allow (it allows none); set CALIBER_MCP_STDIO_COMMAND_ALLOWLIST, "
         "CALIBER_MCP_REMOTE_HOST_ALLOWLIST to empty for the reference profile",
     ),
+    "workflow_file_root_unconfined": (
+        "workflow_file_root",
+        "workflow_file_root is 'unconfined', so a host-filesystem node can read or write any path the server "
+        "can reach; set CALIBER_WORKFLOW_FILE_ROOT to a directory (or unset it to refuse those nodes) for "
+        "the reference profile",
+    ),
     "self_approval_allowed": (
         "approval_allow_self_approval",
         "approval_allow_self_approval is true; "
@@ -545,7 +555,7 @@ def test_the_refusal_counts_and_bullets_every_violation(app_config: CaliberConfi
     with pytest.raises(ConfigError) as refused:
         create_app(_config(app_config, **every_unsafe))
     lines = str(refused.value).splitlines()
-    assert lines[0] == "reference profile refused (12 violations):"
+    assert lines[0] == "reference profile refused (13 violations):"
     assert len(lines) == 1 + len(UNSAFE)
     assert all(line.startswith("- ") for line in lines[1:])
     # Each line ends with its violation's stable code, in the fixed order.
@@ -705,6 +715,10 @@ def test_the_requirements_table_matches_the_rules(
     for settings, _ in UNSAFE.values():
         every_unsafe.update(settings)
     monkeypatch.setenv("CALIBER_FAULT_BARRIERS", "before_dispatch")
+    monkeypatch.delenv("CALIBER_PLUGIN_ALLOWLIST", raising=False)
+    _installed_plugins(
+        monkeypatch, "acme-optimizers"
+    )  # the one rule that reads the installed set, not a setting
     found = reference_profile_violations(_config(app_config, **every_unsafe))
     assert [(v.code, v.env_var) for v in found] == [
         (r.code, r.env_var) for r in REFERENCE_REQUIREMENTS
@@ -1535,6 +1549,81 @@ def test_a_proposal_for_the_real_connector_needs_the_admission_for_that_connecto
             )
         assert not_an_admission.value.code == "connector_not_admitted"
         assert _proposal_count(factory) == 0
+
+
+# ---------------------------------------------------------------- B12.4b (#763): plugins and the file root
+
+
+def _installed_plugins(monkeypatch: pytest.MonkeyPatch, *distributions: str | None) -> None:
+    """Make these distributions advertise an optimizer plugin (``None`` is an entry point with no distribution)."""
+    from caliber.extensibility import entrypoints
+
+    def entry(index: int, distribution: str | None) -> Any:
+        dist = None if distribution is None else SimpleNamespace(name=distribution)
+        return SimpleNamespace(name=f"plugin{index}", value="m:f", dist=dist)
+
+    entries = [entry(i, d) for i, d in enumerate(distributions)]
+    monkeypatch.setattr(entrypoints, "_entry_points", lambda: entries)
+
+
+def test_an_unlisted_plugin_is_a_violation_naming_it_and_the_variable(
+    app_config: CaliberConfig, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from caliber.extensibility.entrypoints import ALLOWLIST_ENV_VAR
+
+    monkeypatch.delenv(ALLOWLIST_ENV_VAR, raising=False)
+    _installed_plugins(monkeypatch, "zeta-plugin", "alpha-plugin", None)
+    (violation,) = reference_profile_violations(_config(app_config))
+    assert violation.code == "plugin_not_allowlisted"
+    assert (
+        violation.setting == "CALIBER_PLUGIN_ALLOWLIST"
+        and violation.env_var == "CALIBER_PLUGIN_ALLOWLIST"
+    )
+    assert violation.message == (
+        "optimizer plugin alpha-plugin, plugin2, zeta-plugin is installed but not allowlisted, and the "
+        "reference profile refuses a plugin it was not told to trust; set CALIBER_PLUGIN_ALLOWLIST to name "
+        "its distribution (a deliberate decision to run that code inside the control plane) or uninstall it"
+    )
+
+
+def test_the_plugin_rule_passes_when_every_installed_plugin_is_named_or_none_is_installed(
+    app_config: CaliberConfig, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from caliber.extensibility.entrypoints import ALLOWLIST_ENV_VAR
+
+    _installed_plugins(monkeypatch, "Acme_Optimizers", "other-plugin")
+    monkeypatch.setenv(ALLOWLIST_ENV_VAR, "acme-optimizers, other-plugin")
+    assert reference_profile_violations(_config(app_config)) == []
+    monkeypatch.delenv(ALLOWLIST_ENV_VAR)
+    _installed_plugins(monkeypatch)
+    assert reference_profile_violations(_config(app_config)) == []
+    # Naming one of two leaves the other refused, and only the other is named.
+    _installed_plugins(monkeypatch, "acme-optimizers", "other-plugin")
+    monkeypatch.setenv(ALLOWLIST_ENV_VAR, "acme-optimizers")
+    (violation,) = reference_profile_violations(_config(app_config))
+    assert "other-plugin" in violation.message and "acme-optimizers" not in violation.message
+
+
+def test_the_file_root_rule_flags_only_the_unconfined_opt_out(app_config: CaliberConfig) -> None:
+    for allowed in ("", "/srv/caliber/files", "Unconfined"):
+        assert reference_profile_violations(_config(app_config, workflow_file_root=allowed)) == []
+    (violation,) = reference_profile_violations(
+        _config(app_config, workflow_file_root="  unconfined  ")
+    )
+    assert violation.code == "workflow_file_root_unconfined"
+    assert "/srv" not in violation.message
+
+
+def test_the_development_profile_starts_with_a_plugin_and_an_unconfined_root(
+    app_config: CaliberConfig, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Neither rule exists outside the reference profile: the startup check returns before it reads them."""
+    from caliber import server as caliber_server
+
+    _installed_plugins(monkeypatch, "acme-optimizers")
+    caliber_server._require_reference_profile(
+        _config(app_config, profile="development", workflow_file_root="unconfined")
+    )
 
 
 def test_the_reference_profile_accepts_https_lookups_and_the_development_profile_any_scheme(
