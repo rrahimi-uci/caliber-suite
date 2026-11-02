@@ -2590,8 +2590,8 @@ async def withdraw_workflow_run_approval(request: Request) -> JSONResponse:
                 status_code=404,
                 detail=f"runtime approval {approval_id!r} not found for workflow run {run_id!r}",
             )
-        if approval.proposal_id is None:
-            raise _bound_refusal(NOT_BOUND)
+        # Authority first, for a bound and a legacy request alike (a legacy snapshot resolves to the default role), so nobody
+        # who may not decide the request learns from the code whether it is bound; ``withdraw_approval`` then judges the state.
         _require_bound_authority(
             approval, actor=actor, scopes=current_scopes(request), enforce_requester=False
         )

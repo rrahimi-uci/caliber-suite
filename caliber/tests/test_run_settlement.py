@@ -18,6 +18,7 @@ from typing import Any
 
 import pytest
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
 import caliber.effects.run_settlement as settlement_module
@@ -45,8 +46,10 @@ from caliber.effects.run_settlement import (
     REASON_FOR_RUN_STATUS,
     SETTLE_REASONS,
     RunSettlement,
+    Sweep,
     settle_ended_runs,
     settle_run_effects,
+    sweep_ended_runs,
 )
 from caliber.orchestrator.workflow_run_worker import WorkflowRunWorker
 from caliber.ownership import LeaseLost
@@ -570,6 +573,102 @@ def test_a_run_that_cannot_be_settled_is_skipped_and_the_sweep_goes_on(
     assert any("RUN-1" in m and "stale_version" in m for m in records)
 
 
+def test_a_database_error_on_one_run_is_skipped_by_class_and_the_sweep_goes_on(
+    database: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A trigger or constraint error is not a ``ProposalError``: it must not abort the sweep or leak its text."""
+    _, factory = database
+    broken = _second_run(factory, "RUN-1")
+    fine = _second_run(factory, "RUN-2")
+    broken_p, _ = _proposed_with_request(factory, "one", run=broken)
+    fine_p, _ = _proposed_with_request(factory, "two", run=fine)
+    real = settlement_module.settle_run_effects
+
+    def explode_first(session: Session, run_id: str, **kwargs: Any) -> RunSettlement:
+        if run_id == broken:
+            raise IntegrityError("DB-TEXT-MARKER", {}, Exception("raw"))
+        return real(session, run_id, **kwargs)
+
+    monkeypatch.setattr(settlement_module, "settle_run_effects", explode_first)
+    records: list[str] = []
+
+    class _Capture(logging.Handler):
+        def emit(self, record: logging.LogRecord) -> None:
+            records.append(record.getMessage())
+
+    logger = logging.getLogger("caliber.effects.run_settlement")
+    handler = _Capture()
+    logger.addHandler(handler)
+    try:
+        assert settle_ended_runs(factory, _lease(factory)) == 1
+    finally:
+        logger.removeHandler(handler)
+
+    with factory() as session:
+        assert proposal_state(session, broken_p).state == PROPOSED
+        assert proposal_state(session, fine_p).state == FAILED
+    joined = " ".join(records)
+    assert "IntegrityError" in joined and "DB-TEXT-MARKER" not in joined
+
+
+def test_a_run_that_keeps_failing_cannot_starve_the_runs_behind_it(
+    database: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Candidates are the first ``limit`` by id; the cursor moves past failing ones so a good run behind them is reached."""
+    _, factory = database
+    bad = [_second_run(factory, f"RUN-a{n}") for n in range(3)]
+    good = _second_run(factory, "RUN-z")
+    bad_p = [_proposed_with_request(factory, f"bad{n}", run=run)[0] for n, run in enumerate(bad)]
+    good_p, _ = _proposed_with_request(factory, "good", run=good)
+    real = settlement_module.settle_run_effects
+
+    def refuse_bad(session: Session, run_id: str, **kwargs: Any) -> RunSettlement:
+        if run_id in bad:
+            raise ProposalError("stale_version", "moved under us")
+        return real(session, run_id, **kwargs)
+
+    monkeypatch.setattr(settlement_module, "settle_run_effects", refuse_bad)
+    lease = _lease(factory)
+
+    first = sweep_ended_runs(factory, lease, limit=2)
+    assert (first.changed, first.examined, first.last) == (0, 2, "RUN-a1")
+    second = sweep_ended_runs(factory, lease, limit=2, after=first.last)
+    assert (second.changed, second.examined, second.last) == (1, 2, "RUN-z")
+    third = sweep_ended_runs(factory, lease, limit=2, after=second.last)
+    assert (third.changed, third.examined, third.last) == (0, 0, None), "past the end: start over"
+
+    with factory() as session:
+        assert proposal_state(session, good_p).state == FAILED
+        assert {proposal_state(session, p).state for p in bad_p} == {PROPOSED}
+
+
+def test_the_reconciler_continues_after_a_full_batch_and_starts_over_after_a_short_one(
+    database: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _, factory = database
+    seen: list[str | None] = []
+    answers = iter(
+        [
+            Sweep(0, loop_module.DEFAULT_SWEEP_LIMIT, "RUN-last"),
+            Sweep(0, 3, "RUN-end"),
+            Sweep(0, 0, None),
+        ]
+    )
+
+    def fake(_factory: Any, _lease: Any, *, after: str | None = None, **_kw: Any) -> Sweep:
+        seen.append(after)
+        return next(answers)
+
+    monkeypatch.setattr(loop_module, "sweep_ended_runs", fake)
+    lease = _lease(factory)
+    task = _task(factory, provider=lambda: lease)
+    for _ in range(3):
+        task._last_settle = float("-inf")  # the once-a-minute throttle is not under test
+        task.tick()
+
+    assert seen == [None, "RUN-last", None]
+
+
 def test_a_run_that_is_no_longer_over_when_the_sweep_reaches_it_is_skipped(
     database: Any, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -639,7 +738,7 @@ def test_a_secondary_a_stop_or_a_lost_lease_settles_nothing_and_a_failure_never_
     def broken(*_args: Any, **_kwargs: Any) -> int:
         raise RuntimeError("PAYLOAD-MARKER-SETTLE")
 
-    monkeypatch.setattr(loop_module, "settle_ended_runs", broken)
+    monkeypatch.setattr(loop_module, "sweep_ended_runs", broken)
     current = _lease(factory)
     with _logged() as records:
         report = _task(factory, provider=lambda: current).tick()

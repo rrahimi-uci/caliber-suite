@@ -464,6 +464,40 @@ def test_a_legacy_request_guards_no_effect_so_there_is_nothing_to_withdraw(
     assert _request_row(approver, legacy_id)["status"] == "approved"
 
 
+def test_a_caller_without_the_required_role_cannot_tell_a_legacy_request_from_a_bound_one(
+    approver: ReferenceApp, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Authority is checked first for both kinds: the same ``403``, never ``not_bound`` for one and ``403`` for the other."""
+    run_id, bound_id, _proposal_id, _lease = _prepare(
+        approver,
+        monkeypatch,
+        occurrence="kinds",
+        decide=False,
+        policy=ApprovalPolicy(required_role="caliber.admin"),
+    )
+    with approver.session_factory() as session:
+        legacy = session.execute(
+            select(CaliberRuntimeApprovalRequest).where(
+                CaliberRuntimeApprovalRequest.workflow_run_id == run_id,
+                CaliberRuntimeApprovalRequest.proposal_id.is_(None),
+            )
+        ).scalar_one()
+        legacy.policy_snapshot = {**(legacy.policy_snapshot or {}), "required_role": "caliber.admin"}
+        legacy_id = legacy.runtime_approval_id
+        bound = session.get(CaliberRuntimeApprovalRequest, bound_id)
+        assert bound is not None
+        bound.status, bound.decided_by = "approved", APPROVER_A
+        session.commit()
+    before = _snapshot(approver, run_id, bound_id, legacy_id)
+
+    legacy_answer = _withdraw(approver, run_id, legacy_id)
+    bound_answer = _withdraw(approver, run_id, bound_id)
+
+    assert legacy_answer.status_code == bound_answer.status_code == 403
+    assert legacy_answer.json().get("reason_code") == bound_answer.json().get("reason_code")
+    assert _snapshot(approver, run_id, bound_id, legacy_id) == before
+
+
 def test_an_unknown_request_and_another_runs_request_are_not_found(
     approver: ReferenceApp, monkeypatch: pytest.MonkeyPatch
 ) -> None:

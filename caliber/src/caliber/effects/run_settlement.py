@@ -41,6 +41,7 @@ from datetime import datetime
 from typing import Final
 
 from sqlalchemy import select
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from caliber.audit import record as audit_record
@@ -205,8 +206,10 @@ def settle_run_effects(
     return result
 
 
-def _ended_runs_with_work(session: Session, limit: int) -> list[tuple[str, str]]:
-    """``(run id, status)`` of ended runs that still hold a ``proposed`` proposal or a live bound request, at most ``limit``."""
+def _ended_runs_with_work(
+    session: Session, limit: int, after: str | None = None
+) -> list[tuple[str, str]]:
+    """``(run id, status)`` of ended runs after ``after`` that still hold a ``proposed`` proposal or a live bound request, at most ``limit``."""
     with_proposal = select(CaliberEffectProposal.workflow_run_id).where(
         CaliberEffectProposal.state == PROPOSED
     )
@@ -216,40 +219,50 @@ def _ended_runs_with_work(session: Session, limit: int) -> list[tuple[str, str]]
         CaliberRuntimeApprovalRequest.superseded_by.is_(None),
         CaliberRuntimeApprovalRequest.consumed_at.is_(None),
     )
-    rows = session.execute(
-        select(CaliberWorkflowRun.workflow_run_id, CaliberWorkflowRun.status)
-        .where(
-            CaliberWorkflowRun.status.in_(sorted(TERMINAL_RUN_STATUSES)),
-            CaliberWorkflowRun.workflow_run_id.in_(with_proposal)
-            | CaliberWorkflowRun.workflow_run_id.in_(with_request),
-        )
-        .order_by(CaliberWorkflowRun.workflow_run_id)
-        .limit(limit)
-    ).all()
+    query = select(CaliberWorkflowRun.workflow_run_id, CaliberWorkflowRun.status).where(
+        CaliberWorkflowRun.status.in_(sorted(TERMINAL_RUN_STATUSES)),
+        CaliberWorkflowRun.workflow_run_id.in_(with_proposal)
+        | CaliberWorkflowRun.workflow_run_id.in_(with_request),
+    )
+    if after is not None:
+        query = query.where(CaliberWorkflowRun.workflow_run_id > after)
+    rows = session.execute(query.order_by(CaliberWorkflowRun.workflow_run_id).limit(limit)).all()
     return [(run_id, status) for run_id, status in rows]
 
 
-def settle_ended_runs(
+@dataclass(frozen=True)
+class Sweep:
+    """One sweep: how many runs it settled, how many candidates it looked at and the last one (the next sweep's ``after``)."""
+
+    changed: int
+    examined: int
+    last: str | None
+
+
+def sweep_ended_runs(
     session_factory: SessionFactory,
     lease: Lease,
     *,
     limit: int = DEFAULT_SWEEP_LIMIT,
+    after: str | None = None,
     now: datetime | None = None,
-) -> int:
-    """Settle every ended run's leftover proposals and live requests (the owner-only backstop); returns how many runs changed.
+) -> Sweep:
+    """Settle ended runs' leftover proposals and live requests, resuming after the run id ``after`` (the owner-only backstop).
 
     For a run that ended before the end paths settled in their own transaction, or by a path that missed it. ``lease`` is the
     execution-owner lease, compared (owner, fencing token, the database's clock) in the transaction of every run it settles,
     so a process that does not hold it changes nothing (:class:`~caliber.ownership.LeaseLost` propagates). Each run is its own
-    transaction (committed on success, rolled back on failure, then the sweep goes on), at most ``limit`` runs per call, in id
-    order. A run that was settled in the meantime, or that is not over any more, is skipped. Idempotent, and restart-safe: it
-    keeps no cursor, so what it did not reach it finds next time.
+    transaction (committed on success; a refusal or a database error rolls that run back, is logged by code or class only, and
+    the sweep goes on), at most ``limit`` runs per call, in id order after ``after``. A run that was settled in the meantime, or
+    that is not over any more, is skipped. The caller keeps the cursor: when ``examined`` equals ``limit`` it passes ``last`` as
+    the next ``after``, otherwise it starts over from the beginning, so a run that keeps failing delays nothing behind it.
+    Idempotent and restart-safe (a cursor is only a place to start).
     """
     if type(limit) is not int or not 1 <= limit <= MAX_SWEEP_LIMIT:
         raise ValueError("limit is out of bounds")
     with session_factory() as session:
         assert_fenced(session, lease)
-        candidates = _ended_runs_with_work(session, limit)
+        candidates = _ended_runs_with_work(session, limit, after)
         session.rollback()
     changed = 0
     for run_id, status in candidates:
@@ -259,13 +272,21 @@ def settle_ended_runs(
                 result = settle_run_effects(
                     session, run_id, reason=REASON_FOR_RUN_STATUS[status], now=now
                 )
+                session.commit()
             except ProposalError as exc:
                 session.rollback()
                 logger.warning(
-                    "run %s was not settled (%s); the next sweep retries", run_id, exc.code
+                    "run %s was not settled (%s); a later sweep retries", run_id, exc.code
                 )
                 continue
-            session.commit()
+            except SQLAlchemyError as exc:
+                session.rollback()
+                logger.warning(
+                    "run %s was not settled (%s); a later sweep retries",
+                    run_id,
+                    type(exc).__name__,
+                )
+                continue
         if result.changed:
             changed += 1
             logger.info(
@@ -274,7 +295,18 @@ def settle_ended_runs(
                 len(result.proposals),
                 len(result.requests),
             )
-    return changed
+    return Sweep(changed, len(candidates), candidates[-1][0] if candidates else None)
+
+
+def settle_ended_runs(
+    session_factory: SessionFactory,
+    lease: Lease,
+    *,
+    limit: int = DEFAULT_SWEEP_LIMIT,
+    now: datetime | None = None,
+) -> int:
+    """One sweep from the first run (:func:`sweep_ended_runs` with no cursor); returns how many runs changed."""
+    return sweep_ended_runs(session_factory, lease, limit=limit, now=now).changed
 
 
 __all__ = [
@@ -289,6 +321,8 @@ __all__ = [
     "RUN_NOT_ENDED",
     "SETTLE_REASONS",
     "RunSettlement",
+    "Sweep",
     "settle_ended_runs",
     "settle_run_effects",
+    "sweep_ended_runs",
 ]

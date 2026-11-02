@@ -44,6 +44,8 @@ describe("which requests the panel owns", () => {
     [{ proposal_id: "EP-1", status: "pending" as const }, true],
     [{ proposal_id: "EP-1", status: "approved" as const }, true],
     [{ proposal_id: "EP-1", status: "rejected" as const }, false],
+    [{ proposal_id: "EP-1", status: "superseded" as const }, false],
+    [{ proposal_id: "EP-1", status: "withdrawn" as const }, false],
     [{ proposal_id: "EP-1", status: "pending" as const, superseded_by: "RAP-2" }, false],
     [{ proposal_id: "EP-1", status: "approved" as const, consumed_at: "2026-11-01T13:00:00" }, false],
     [{ proposal_id: null, status: "pending" as const }, false],

@@ -335,6 +335,13 @@ seven of `proposal`, and no migration changes a shipped one.** The decision, and
   is never withdrawn (`already_consumed`). The claim also refuses a proposal whose run has ended (`run_ended`).
 - The settlement and the claim take the same locks in the same order (run, proposal rows, request rows) and the claim re-reads
   the run's status under the run lock, so a settlement and a dispatch cannot both win.
+- **Accepted consequences.** The settlement runs in the transaction that ends the run, so an error in it (a database error, a
+  refused transition) fails that transaction like any other write of the end path; it is not swallowed, because a run that ended
+  with its proposal still `proposed` is exactly the state this amendment removes. The cancel route reads the run's status
+  without a lock before it writes; that is last-writer-wins and safe, because the settlement locks the run row before it moves
+  anything and a claim that arrives after the run ended is refused (`run_ended`). The owner-only sweep keeps a cursor in the
+  reconciler (a full batch of 50 continues after its last run), catches a per-run database error by class, and so a run that
+  keeps failing cannot starve the runs behind it.
 
 ## Consequences
 

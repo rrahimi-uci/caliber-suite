@@ -35,7 +35,7 @@ having to remember to. It adds no second lease protocol and no second queue:
   budget does not move, the row only stops being open. A failure there never stops the loop.
 * **Ended runs.** After each pass, at most once a minute, the same lease settles what runs that have already ended left unsent: a
   ``proposed`` proposal moves to ``failed`` (reason ``run_failed``, ``run_cancelled``, ``run_expired`` or ``run_completed``) and
-  a live bound approval request to ``withdrawn`` (:func:`caliber.effects.run_settlement.settle_ended_runs`, #1074). The run's end
+  a live bound approval request to ``withdrawn`` (:func:`caliber.effects.run_settlement.sweep_ended_runs`, #1074; a full batch of 50 continues after its last run next time). The run's end
   paths do this in the transaction that ends the run; this is the backstop for runs that ended before that or by a path that
   missed it, and it never touches a ``dispatched``, ``unknown`` or settled proposal. A failure there never stops the loop.
 * **Liveness.** It writes its own ``caliber_worker_heartbeats`` row (kind ``effect_reconciler``) on every tick, idle ones
@@ -75,7 +75,7 @@ from caliber.effects.reconcile import (
     targets_from_config,
 )
 from caliber.effects.records import LEASE_LOST, ProposalError
-from caliber.effects.run_settlement import settle_ended_runs
+from caliber.effects.run_settlement import DEFAULT_SWEEP_LIMIT, sweep_ended_runs
 from caliber.observability.trace import bind_trace_id
 from caliber.observability.worker_registry import (
     KIND_EFFECT_RECONCILER,
@@ -190,6 +190,7 @@ class EffectReconcilerTask:
         self._stop_requested = threading.Event()
         self._last_reap = float("-inf")
         self._last_settle = float("-inf")
+        self._settle_cursor: str | None = None  # the last run id the previous settlement sweep looked at
         self._last_beat = float("-inf")
         self._cursor: tuple[int, str] | None = None  # (fencing token, last proposal id looked at)
 
@@ -305,7 +306,9 @@ class EffectReconcilerTask:
             return
         self._last_settle = now
         try:
-            settle_ended_runs(self._open, lease)
+            outcome = sweep_ended_runs(self._open, lease, after=self._settle_cursor)
+            # A full batch continues after its last run, so a run that keeps failing cannot starve the runs behind it.
+            self._settle_cursor = outcome.last if outcome.examined >= DEFAULT_SWEEP_LIMIT else None
         except LeaseLost:
             logger.info("ended-run settlement skipped: the execution-owner lease is gone")
         except Exception as exc:
