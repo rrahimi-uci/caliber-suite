@@ -811,7 +811,7 @@ def test_file_input_helpers_cover_errors_and_fallback_outputs(
     assert port_values[("file_input", "details")] == {"ok": True}
 
 
-def test_folder_input_helper_error_and_limit_paths(tmp_path) -> None:
+def test_folder_input_helper_error_and_limit_paths(tmp_path, confined_workflow_file_root) -> None:
     file_path = tmp_path / "not_a_folder.txt"
     file_path.write_text("x", encoding="utf-8")
     folder = tmp_path / "folder"

@@ -54,7 +54,7 @@ from caliber.db.models import (
 from caliber.db.scoping import apply_visibility_filter, get_visible
 from caliber.eval.evidence import content_digest_of_text
 from caliber.eval.gate import DEFAULT_MAX_REGRESSION_DELTA, DEFAULT_MIN_AGGREGATE_SCORE
-from caliber.extensibility import optimizer_registry
+from caliber.extensibility import PluginRefused, optimizer_registry
 from caliber.gate_verdicts import GATE_STATES, record_gate_verdict
 from caliber.ids import new_item_id, new_job_id, new_prompt_test_run_id
 from caliber.mlflow_errors import is_mlflow_unreachable, unreachable_http_exception
@@ -358,7 +358,13 @@ def enqueue_prompt_optimization_run(  # noqa: PLR0912, PLR0915 - sequential vali
 ) -> PromptOptimizationRunResponse:
     """Create verification item + refinement job for manual prompt optimization."""
     registry = optimizer_registry()
-    if not registry.has(payload.optimizer_type):
+    try:
+        known = registry.has(payload.optimizer_type)
+    except PluginRefused as exc:
+        # The reference profile refused an installed plugin (B12.4b, #763): nothing can be run until an operator allowlists
+        # or uninstalls it, which is the deployment's state, not the request's.
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    if not known:
         # Not an optimizer at all. Named separately from "not offered here"
         # because the fixes differ: one is a typo, the other is a deployment
         # decision.
