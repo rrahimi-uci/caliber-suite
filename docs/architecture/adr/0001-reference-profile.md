@@ -123,6 +123,19 @@ the one refusal code of this ADR, `unsupported_in_reference_profile`, not a seco
 is likewise refused at startup (`workflow_file_root_unconfined`) and at the node, so a host path is allowed only inside a configured
 root. The mechanics and the recovery are in `docs/operate/reference-profile.md` ("Plugins and host paths").
 
+### Amendment, 2026-11-02 (#1048): manifest trace-group tags cannot claim the platform namespace
+
+`mlflow.trace_group_tags` is workflow-author input, while `caliber.*` is the platform-owned namespace used for
+run, job, session, node, refusal and causal-link attributes. The manifest parser therefore refuses every tag key
+beginning with `caliber.` with the stable code `reserved_trace_group_tag`; it does not strip the key and continue
+with an ambiguous manifest. Runtime tag merging also drops the entire prefix as defense in depth for plans or
+contexts constructed outside the normal parser. This prefix rule reserves future `caliber.*` attributes without
+requiring another manifest-schema change.
+
+The change is validation-only and requires no database migration or backfill. Stored manifests are not rewritten;
+an existing manifest containing one of these tags must be edited to remove it before validation, compilation,
+publication or execution succeeds on the upgraded code. Non-`caliber.*` trace-group tags retain their behavior.
+
 ## Consequences
 
 - Scenario tests (V01–V35) run on this shape: the "EGI scenarios (PostgreSQL)" job is the one that proves the
