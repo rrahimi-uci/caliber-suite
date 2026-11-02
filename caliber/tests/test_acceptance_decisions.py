@@ -347,6 +347,18 @@ def test_the_reason_detail_never_carries_a_key_or_a_value_and_is_ascii_and_bound
     assert deep_detail.split(" ")[0] == "/*" * 32
 
 
+def test_a_non_ascii_type_name_longer_than_the_bound_gives_an_ascii_reason_cut_at_512_characters() -> (
+    None
+):
+    """The type name of an unreadable value is downstream-shaped text: non-ASCII becomes ``?`` and the detail is cut at 512."""
+    hostile = type("Ü" * 600, (), {})()
+    detail = judge(HARBORLIGHT_V1, {"a": hostile}).reason_detail
+    assert detail is not None
+    assert detail.isascii() and "Ü" not in detail
+    assert len(detail) == 512 == decision_module.MAX_REASON_DETAIL
+    assert detail.startswith("/* is a ???") and detail.endswith("?")
+
+
 def test_a_contract_error_is_raised_not_judged_even_for_unreadable_observations() -> None:
     unreadable = {"a": float("nan")}
     for observations in (_observations(), unreadable):

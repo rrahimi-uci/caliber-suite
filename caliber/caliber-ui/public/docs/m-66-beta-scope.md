@@ -304,9 +304,12 @@ These are true of `main` today and are deliberate; each one that has an owner na
 - **The `http` read-back is the operator's endpoint.** A `lookup_url` that is not `https` is refused at startup
   (`http_lookup_cleartext`) because the lookup carries no credentials and its answer commits the effect; a `404` from it is
   never proof that an effect did not happen.
-- **Acceptance decisions are stored, not yet applied.** The decisions of #784 are persisted, but nothing in run completion
-  reads them yet (#791 is open), so a run that finishes is still `completed` or `failed` and no end-to-end acceptance gating
-  is claimed.
+- **Acceptance gates completion for `document-request` effects only.** In the reference profile a run is `completed` only
+  when every `document-request` effect it proposed has an `accepted` decision (#791): the platform reads the downstream's
+  own record of the case when the run finishes, and a run whose effect was committed but whose recorded state is wrong, or
+  could not be read, is `failed` (`acceptance_rejected`). An effect of another connector has no criteria set, so a run with
+  only such effects carries no acceptance information, and runs that finished before this are not relabelled. A document
+  request must carry the case version it was proposed against, or its run is rejected.
 - **Fifteen protected-effect rows are not routed.** The inventory marks them `dispatch`, but no connector routes them yet,
   and the matrix records them as `unrouted` instead of claiming otherwise. They are not refused in the reference profile
   either, because their reference-profile behaviour has not been decided:

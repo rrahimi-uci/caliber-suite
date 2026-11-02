@@ -5408,7 +5408,7 @@ everything), `duplicate_predicate_id`, `mixed_criteria_versions`, `predicate_fai
 the caller must catch it and record the acceptance as rejected for that reason, not let it crash the run.
 
 **Configuration, migration and rollback.** No setting, no endpoint and no stored data of its own: the predicates are pure. Persisting a
-decision is [Acceptance decisions (B09.2a, #784)](#acceptance-decisions-b092a-784); the runtime and status integration (#791),
+decision is [Acceptance decisions (B09.2a, #784)](#acceptance-decisions-b092a-784); the runtime and status integration is [Acceptance at run completion (B09.2b, #791)](#acceptance-at-run-completion-b092b-791),
 recording observations (#799) and replay (#805) build on them, and the consolidated acceptance report belongs to #612. The
 development profile is unchanged. Rolling back is reverting the change.
 
@@ -5473,7 +5473,7 @@ problem at the same place (keys elided) are one decision, and another problem or
 
 `read_decision`, `find_decision` and `decisions_for_run` (oldest `decided_at` first, ties by decision id) rebuild the record from the
 stored columns and verify it, so a reader never sees a decision other than the one the row states. A run holds one decision per
-key, so *which* of a run's decisions settles the run is the runtime's rule (#791), not stored here.
+key, so *which* of a run's decisions settles the run is the runtime's rule, not stored here: see [Acceptance at run completion](#acceptance-at-run-completion-b092b-791).
 
 **Migration `0135`.** Creates `caliber_acceptance_decisions`: a unique key, CHECK constraints (an `accepted` row has no failed
 criterion and no reason; a row has criteria or an `invalid_observations` reason, not both; counts are in range; the digest is 64
@@ -5490,18 +5490,94 @@ a role that does not own the tables where this evidence must resist the applicat
 (`cannot delete workflow: its runs have immutable acceptance decisions`), and retention pruning (`prune_workflow_runs`) skips such runs,
 so neither orphans a decision (SQLite) nor breaks on its foreign key (PostgreSQL).
 
-**For the runtime integration (#791) and the evidence package (#826).** `record_decision` accepts any `Predicate` set and the criteria version
-is not pinned to an approved set, so the caller must pass `HARBORLIGHT_V1` explicitly (recording a predicate-set digest is a candidate
-follow-up); `decision_conflict` and `decision_corrupt` are raised, not audited, so the caller should audit them; `decisions_for_run` orders by
-the application clock's `decided_at` and then id, not by insertion order, and which decision settles a run is #791's rule; `candidate_id` has
-no foreign key, so #826 resolves whether an id is a proposal or a counterfactual candidate; a predicate that raises is a `PredicateError`
-and nothing is recorded. The migration is purely additive and nothing reads the table before the code that writes it, so
-migrations run before the new code serves with no rolling-deploy hazard. **There is no backfill:** runs that finished before this
-revision have no decision and are never given one. Nothing in the runtime calls `record_decision` yet (#791), so no run gains or loses
-anything on upgrade, and the causal-links `acceptance` marker is still `not_available` / `acceptance_record_not_available` (#791 and
-the evidence package, #818, link it). **Rollback:** `alembic downgrade 0134` drops the table and its function and loses the stored
-decisions; reverting the code alone leaves the table in place and unused. No setting is added and the development profile is
-unchanged.
+**For the evidence package (#826) and the other consumers.** The runtime integration (#791) is
+[Acceptance at run completion (B09.2b, #791)](#acceptance-at-run-completion-b092b-791) below and settled the questions this section
+used to leave open: it passes `HARBORLIGHT_V1` explicitly, audits `decision_conflict` and `decision_corrupt`, defines which decision settles a
+run, and fixes the `candidate_id` convention. A predicate that raises is a `PredicateError` and nothing is recorded. The migration is purely
+additive and nothing reads the table before the code that writes it, so migrations run before the new code serves with no rolling-deploy
+hazard. **There is no backfill:** runs that finished before this revision have no decision and are never given one. **Rollback:**
+`alembic downgrade 0134` drops the table and its function and loses the stored decisions; reverting the code alone leaves the table in
+place and unused. No setting is added and the development profile is unchanged.
+
+## Acceptance at run completion (B09.2b, #791)
+
+A queued run that the worker would mark `completed` is first judged by the platform. In the reference profile the worker calls
+`caliber.acceptance.completion.evaluate_run` for the run it owns, and the run is `completed` **only if every effect of the run that has a criteria set (today: `document-request`; not the generic `http` webhook) has
+an `accepted` decision**. A downstream that answered 2xx and committed, but whose record of the case is wrong, does not make the run a
+success (gap-analysis V11, "false success"): the run is `failed` with `error_code` `acceptance_rejected`, and the rejection is a stored
+decision. Nothing the model wrote, the manifest, the request or the HTTP status of the dispatch is an input.
+
+**What is judged.** Every effect proposal of the run whose connector has a criteria set (`CRITERIA_BY_CONNECTOR`: `document-request`, judged by
+`HARBORLIGHT_V1`, passed explicitly so the criteria version is the registry's and never a caller's). The platform builds the observations
+itself, from its own records and one read of the downstream:
+
+| Observation | Source |
+| --- | --- |
+| `proposal.case_id`, `proposal.document_type` | the proposal's recorded `resource` (`cases/<case_id>/document-requests`, exactly that shape) and recorded arguments |
+| `proposal.expected_version` | the proposal's `expected_resource_version` text, converted **strictly** to an integer: `0` or digits with no leading zero, ASCII only, at most 18 digits. `"01"`, `" 1"`, `"+1"`, `"-1"`, `"1.0"`, `"1e3"`, a non-ASCII digit and a missing version are not converted and the criterion then **fails closed** (`/proposal/expected_version`) |
+| `receipt.downstream_request_id` | the proposal's own verified receipt, read back and recomputed (`read_receipt`). No receipt (a refused or never-sent dispatch) means the effect is not accepted |
+| `case_record` | the downstream's record of that case, read **now** by the platform (`GET /cases/{case_id}` at the `base_url` of the project's `CALIBER_EFFECT_CALLBACK_CONNECTORS` binding, the address the reconciler asks, through the guarded OpenAPI read, 5 s, one attempt), projected onto the keys the criteria read (`case_id` and each request's `request_id`, `document_type` and `case_version`) so an unrelated field changing never makes the same effect a new observation |
+
+A case that cannot be read (no binding for the project, a connection error, a status other than `200`, a body that is not a case, a list of
+more than 10 000 requests) is simply absent: both criteria fail closed and the decision is a **recorded rejection**. The run does not wait for
+a downstream that may never answer; a new run is the retry. A pass reads each distinct case once, however many of the run's effects are on it; the worker's heartbeat has
+already stopped when the pass runs, so a run whose effects are on many different cases that are all unreachable spends up to 5 s on each before
+it fails (keep that well under `CALIBER_WORKFLOW_RUN_LEASE_SECONDS`). Observations that cannot be frozen as JSON (for example a `NaN`) are the existing
+`invalid_observations` rejection, never a crash. A proposal with no `expected_resource_version` cannot satisfy `attached_to_expected_version`
+and is rejected: **propose document requests against the case version you read** (the downstream stamps the stored request with that version
+plus one).
+
+**The candidate id** of a decision about a run's own effect is **the proposal's id** (`prop-<32 hex>`, `is_proposal_candidate`). A candidate
+that is not a recorded proposal (a counterfactual candidate, B09.5 #812, resolved by the evidence package, B14.2 #826) must use another prefix,
+since `candidate_id` has no foreign key.
+
+**Which decision settles the run.** The decision the completion pass obtained for each candidate (`record_decision`'s return value, never an
+ordering by `decided_at`). The run is `accepted` if and only if every one is `accepted`; one rejection rejects the run, and every candidate is
+judged so each has a decision. The ids are kept in the run's summary. A decision is recorded in the worker's transaction and commits with the
+run's terminal status, so it cannot outlive a rolled-back completion; judging the same observations again (a restart, a replay, a concurrent
+worker) returns the same row and stores nothing new. A downstream that now shows something else is a new observation, a new decision, and the
+first stays as evidence.
+
+**Failure is closed and audited.** A different verdict under a stored key (`decision_conflict`), an inconsistent stored row
+(`decision_corrupt`), a criterion that raises (`predicate_failed`), a refused store and any unexpected error fail the run with
+`error_code` `acceptance_error`, take back the decisions of that pass, write an `acceptance_error` audit entry (severity `high`, with the
+fixed code and the exception type, never an observation value) and are logged; none is swallowed and none is a pass.
+
+**Public record.** `GET /workflow-runs/{id}` (and every response that serializes a run, the SDK's `WorkflowRun.acceptance` and the UI's
+`WorkflowRun.acceptance`) carries `acceptance`:
+
+```json
+{"status": "rejected", "criteria_version": "harborlight-v1", "error_code": null,
+ "decisions": [{"decision_id": "acc-...", "candidate_id": "prop-...", "outcome": "rejected",
+                "observation_digest": "<64 hex>", "failed_criteria": ["attached_to_expected_version"]}]}
+```
+
+`status` is `accepted`, `rejected` or `error` (`error_code` says why). **`acceptance` is `null` for a run that has no effect with a criteria
+set and for every run that completed before this existed: legacy completed runs are never relabelled.** No lifecycle status was added: a run
+that is not accepted never reaches `completed`, so every consumer that reads `completed` as success stays correct
+(`status_after_acceptance` in `caliber.workflows.run_state`). A summary whose `acceptance` is present but unreadable is served as `error`
+(`acceptance_unreadable`), never as acceptance.
+
+| Run | `status` | `error_code` | `acceptance.status` |
+| --- | --- | --- | --- |
+| every governed effect accepted | `completed` | none | `accepted` |
+| a downstream 2xx whose recorded state is stale, wrong or missing, or a case that cannot be read | `failed` | `acceptance_rejected` | `rejected` |
+| a decision could not be recorded or read, or a criterion broke | `failed` | `acceptance_error` | `error` |
+| no governed effect with criteria, or a run from before this change | `completed` | none | `null` |
+
+**Recovery.** `acceptance_rejected`: read `acceptance.decisions[].failed_criteria` and the decision row's `evidence_ref` pointers (they name the
+value that decided each criterion), look at the downstream's own record of the case, and start a **new run**; the original effect is not undone
+and is not sent again (the receipt and the proposal stay `committed`). `acceptance_error`: the audit entry names the code; `decision_corrupt` and
+`decision_conflict` mean a decision row or the predicates changed under a stored key (see the refusal table above), `predicate_failed` is a
+defect in a criterion.
+
+**Configuration, compatibility and rollback.** No setting, no migration and no endpoint were added; it uses migration `0135`. Only the
+reference profile judges a run; the development profile has no governed effect and keeps its completion unchanged. **One behavioural change:** in
+the reference profile a `document-request` effect without an `expected_resource_version` now fails its run (`acceptance_rejected`) where it
+used to complete. The causal-links `acceptance` marker stays `not_available` (`acceptance_record_not_available`): linking decisions into the
+causal chain and the evidence package is B14 (#818, #826), which resolves the candidate ids above. Existing run records and `GET` responses gain one
+nullable `acceptance` field. Rolling back is reverting the code; the
+decision rows and the `acceptance` entries already written remain (the summary is a JSON column) and are ignored by older code.
 
 ## Not enforced yet
 
@@ -5512,7 +5588,7 @@ ADR 0001 describes the whole reference shape; this table is what the *process* c
 - **The trusted-connector set** (#534), **the full attack pack** (#535), **a single execution owner** (#536) and **the Apply separation-of-duties flag** (#589).
 - **A governed effect context outside the worker's own graph** (#1051, #1068): the worker binds one for an admitted reference-profile run, but synchronous version runs, evaluation, gate and Aria previews, and the sub-workflows of a worker run have no owner lease and bind none, so the reference profile refuses their protected nodes (and an agent in them that can reach a mapped tool) and the development profile runs them on the legacy guarded path; see "Profiles and a missing governed context".
 - **A verifier for the other workflow connectors** (#1055, #1051): a registered-tool, OpenAPI or MCP node, and a webhook or API-request node whose URL the operator did not list in `CALIBER_EFFECT_HTTP_VERIFIERS`, is refused `no_authoritative_verifier` in the reference profile because the connector has no lookup by key the platform can call; a governed agent step reaches `document_request` and a listed webhook reaches `http` end to end. A *permanent* unknown (a lookup that never shows the request) has no operator exit yet: the attested resolution is #1054. A workflow node whose effect ended unknown fails its run and a settlement does not resume it. Model-chosen calls of an agent that is not governed (B04.6, #768) are not routed.
-- **Acceptance of a run** (#784, #791): the predicates exist (B09.1, #779) but no run is judged by them yet; a run that finishes is still `completed` or `failed` as before, with no accepted or rejected outcome.
+- **Acceptance covers `document-request` effects only** (#784, #791): in this profile a run is judged, and is `completed` only when every `document-request` effect it proposed has an `accepted` decision (see [Acceptance at run completion](#acceptance-at-run-completion-b092b-791)). Effects of any other connector, the operator-listed generic `http` webhook included, have no criteria set and are not judged: a run whose only effects are such completes as before with `acceptance: null`. The criteria set is the registry `caliber.acceptance.completion.CRITERIA_BY_CONNECTOR`; adding a connector means adding its criteria, not a setting.
 - **Cookie flags:** `auth_session_cookie_secure` is not checked.
 - **The database role:** whether the application connects as a role without `UPDATE`, `DELETE` or `TRUNCATE` on `caliber_run_manifests` (see "Run manifests are written once").
 

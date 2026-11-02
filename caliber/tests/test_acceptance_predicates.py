@@ -921,8 +921,28 @@ def _imports(path: Path) -> set[str]:
 PURE_MODULES = ("__init__.py", "predicates.py")
 
 
-def test_the_acceptance_package_is_the_pure_modules_and_the_decision_store() -> None:
-    assert {p.name for p in SOURCE_DIR.glob("*.py")} == {*PURE_MODULES, "decision.py"}
+def test_the_acceptance_package_is_the_pure_modules_the_decision_store_and_the_completion_layer() -> (
+    None
+):
+    assert {p.name for p in SOURCE_DIR.glob("*.py")} == {
+        *PURE_MODULES,
+        "decision.py",
+        "completion.py",
+    }
+
+
+def test_only_the_completion_layer_reads_a_downstream_and_the_package_root_does_not_import_it() -> (
+    None
+):
+    """B09.2b (#791): ``completion.py`` is the one module that reads a system of record (a guarded GET); the root stays I/O-free."""
+    reading = {
+        p.name
+        for p in SOURCE_DIR.glob("*.py")
+        if "execute_openapi_http_tool" in p.read_text(encoding="utf-8")
+    }
+    assert reading == {"completion.py"}
+    assert "completion" not in _imports(SOURCE_DIR / "__init__.py")
+    assert not any(name.endswith("completion") for name in _imports(SOURCE_DIR / "__init__.py"))
 
 
 @pytest.mark.parametrize("module", PURE_MODULES)
