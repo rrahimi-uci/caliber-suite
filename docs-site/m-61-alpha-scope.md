@@ -3,11 +3,10 @@
 
 # Alpha scope and known limitations
 
-> **Release status (2026-10-15):** `0.1.0a1` is the version prepared on `main`.
-> The `caliber-v0.1.0a1` tag and downloadable release assets have not been
-> published. The capabilities below describe the current code and its CI proof;
-> use [Alpha install](m-60-alpha-install.md) to build wheels from a checkout until
-> the prerelease is available.
+> **Historical page (reviewed 2026-11-01).** This is the scope of the `0.1.0a1` alpha and stays as written. The
+> `caliber-v0.1.0a1` tag and its wheels were published as a GitHub pre-release on 2026-10-23; the packages are not on
+> PyPI. What `main` supports under the Beta work, per adapter and with its evidence, is on
+> [Beta scope](m-66-beta-scope.md); nothing on this page promotes an area to supported.
 
 CALIBER `0.1.0a1` is an alpha. This page says what it does, what it does not do, and what to
 watch for, so you judge it against what it claims. It is the short version of the
@@ -179,11 +178,12 @@ These are real and deliberate for the alpha. Read them before you rely on the pr
 - **No HA, no performance targets, no SSO or MFA, no multi-tenant hosting.**
 - **Backups are documented, not rehearsed.** See [Backup and recovery](m-52-backup-and-recovery.md).
 - **No upgrade guarantees** from earlier tags, and the packages are not on PyPI. Build wheels from a
-  checkout until the prerelease assets are published.
+  checkout, or use the wheels of the `caliber-v0.1.0a1` pre-release.
 - **Preview areas may change** or be removed without notice. They are off by default; see [Feature flags](#feature-flags).
 
 ## Where to go next
 
+- [Beta scope: the supported profile and its evidence](m-66-beta-scope.md)
 - [Alpha install](m-60-alpha-install.md)
 - [Backup and recovery](m-52-backup-and-recovery.md)
 - [Health and readiness](m-50-health-and-readiness.md)
