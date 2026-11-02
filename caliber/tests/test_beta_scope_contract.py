@@ -257,25 +257,94 @@ def test_the_page_says_supported_is_not_a_binding_and_the_profile_does_not_requi
     assert "connector_unbound" in text
 
 
-def test_the_release_evaluation_evidence_is_described_as_the_sqlite_scenarios_they_are() -> None:
-    """The page says those scenarios do not run on PostgreSQL; if they start to, the page must change."""
-    scenarios = (
-        CALIBER_DIR / "tests" / "egi_scenarios" / "test_v13_release_evaluation.py"
-    ).read_text(encoding="utf-8")
-    factory = (CALIBER_DIR / "tests" / "test_workspace_release_evaluation_execution.py").read_text(
-        encoding="utf-8"
+SCENARIO_CONFTESTS = (
+    CALIBER_DIR / "tests" / "egi_scenarios" / "conftest.py",
+    CALIBER_DIR / "tests" / "conftest.py",
+)
+FACTORY_MODULE = CALIBER_DIR / "tests" / "test_workspace_release_evaluation_execution.py"
+
+
+def _is_dialect_fixture(node: ast.AST) -> bool:
+    """A function decorated ``@pytest.fixture(params=DIALECTS)``."""
+    if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+        return False
+    return any(
+        isinstance(decorator, ast.Call)
+        and any(
+            keyword.arg == "params"
+            and isinstance(keyword.value, ast.Name)
+            and keyword.value.id == "DIALECTS"
+            for keyword in decorator.keywords
+        )
+        for decorator in node.decorator_list
     )
 
-    assert "from tests.test_workspace_release_evaluation_execution import _factory" in scenarios
-    assert 'create_engine(f"sqlite:///' in factory and "Base.metadata.create_all(engine)" in factory
-    assert "DIALECTS" not in scenarios
-    text = " ".join(_page().split())
-    assert "run on SQLite created from the models, not on PostgreSQL" in text
-    assert "Only the connector scenarios have a PostgreSQL parameter" in text
-    connector = (
-        CALIBER_DIR / "tests" / "egi_scenarios" / "test_v07_restart_exactly_once.py"
-    ).read_text(encoding="utf-8")
-    assert "params=DIALECTS" in connector
+
+def _dialect_fixtures(*paths: Path) -> set[str]:
+    return {
+        node.name
+        for path in paths
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8")))
+        if _is_dialect_fixture(node)
+    }
+
+
+def _database_of(node_id: str) -> str:
+    """What database a cited scenario runs on, read from its source rather than from the page.
+
+    * ``dialect-parameterised``: it takes a fixture declared ``params=DIALECTS`` (a SQLite and a PostgreSQL parameter);
+    * ``SQLite from the models``: it builds its database with ``_factory``, which is ``create_engine("sqlite:///...")``
+      plus ``Base.metadata.create_all`` and no migration;
+    * ``no database``: it takes only the HTTP ``downstream`` fixture, which itself takes no database fixture.
+
+    Anything else is not classified, so a new kind of scenario cannot be cited without the page learning what it is.
+    """
+    relative, _, name = node_id.partition("::")
+    path = CALIBER_DIR / relative
+    source = path.read_text(encoding="utf-8")
+    function = next(
+        node
+        for node in ast.walk(ast.parse(source))
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == name
+    )
+    arguments = {argument.arg for argument in function.args.args}
+    if arguments & _dialect_fixtures(path, *SCENARIO_CONFTESTS):
+        return "dialect-parameterised"
+    body = ast.get_source_segment(source, function) or ""
+    if "_factory(" in body:
+        factory = FACTORY_MODULE.read_text(encoding="utf-8")
+        assert 'create_engine(f"sqlite:///' in factory, (
+            "_factory is no longer SQLite: update the page"
+        )
+        assert "Base.metadata.create_all(engine)" in factory
+        assert "test_workspace_release_evaluation_execution import" in source
+        return "SQLite from the models"
+    downstream = next(
+        node
+        for path_ in SCENARIO_CONFTESTS
+        for node in ast.walk(ast.parse(path_.read_text(encoding="utf-8")))
+        if isinstance(node, ast.FunctionDef) and node.name == "downstream"
+    )
+    assert {a.arg for a in downstream.args.args} <= {"tmp_path_factory"}
+    assert arguments <= {"downstream"}, f"{node_id}: not classified ({sorted(arguments)})"
+    return "no database"
+
+
+def test_the_database_each_scenario_runs_on_is_what_its_source_says() -> None:
+    """The evidence table's last column is derived from the test files, not pinned as prose."""
+    rows = _table(_section(_page(), "### Evidence for each supported adapter"))
+
+    derived = {_code(row[1])[0]: _database_of(_code(row[1])[0]) for row in rows}
+    assert {_code(row[1])[0]: _code(row[3])[0] for row in rows} == derived
+    # The page reads all three kinds, so the column is not vacuous.
+    assert set(derived.values()) == {
+        "dialect-parameterised",
+        "no database",
+        "SQLite from the models",
+    }
+    # The release-evaluation evidence never has a PostgreSQL parameter; the page says so in its limits.
+    release = SUPPORT_EVIDENCE["release_evaluation"].scenarios
+    assert all(derived[scenario] == "SQLite from the models" for scenario in release)
 
 
 def _functions(path: Path) -> set[str]:

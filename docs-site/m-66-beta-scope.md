@@ -86,21 +86,23 @@ resolution order, one rule per row, is in
 
 The report lists these scenario test ids in `evidence` for a supported adapter, and lists nothing for any other status.
 Each id is a test function on `main`; the contract test fails on one that does not exist. Paths are relative to `caliber/`.
-Where each runs differs by adapter: the connector scenarios are dialect-parameterised, and their PostgreSQL parameter runs
-in the CI job `egi-scenarios-postgres` ("EGI scenarios (PostgreSQL)", `pytest tests/egi_scenarios`, defined in
-[`.github/workflows/ci.yml`](https://github.com/rrahimi-uci/caliber-suite/blob/main/.github/workflows/ci.yml)); the
-release-evaluation scenarios are collected by the same job but do not use PostgreSQL (see the limits below).
+All of them are collected by the CI job `egi-scenarios-postgres` ("EGI scenarios (PostgreSQL)", `pytest tests/egi_scenarios`,
+defined in [`.github/workflows/ci.yml`](https://github.com/rrahimi-uci/caliber-suite/blob/main/.github/workflows/ci.yml)),
+but they do not all use a database. The last column says which database each one runs on, and the contract test derives it
+from the test sources: `dialect-parameterised` is a scenario with a SQLite and a PostgreSQL parameter, and only its
+PostgreSQL parameter runs on PostgreSQL; `no database` uses only the HTTP downstream fixture; `SQLite from the models` builds a
+SQLite database with `Base.metadata.create_all`, never PostgreSQL.
 
-| adapter id | scenario | what it demonstrates |
-| --- | --- | --- |
-| `document_request_connector` | `tests/egi_scenarios/test_connector_capabilities.py::test_stable_key_mutates_once` | the same idempotency key sent twice commits once at the downstream |
-| `document_request_connector` | `tests/egi_scenarios/test_connector_capabilities.py::test_stale_precondition_returns_412_and_no_mutation` | a write bound to a version that is not current is refused `412` and changes nothing |
-| `document_request_connector` | `tests/egi_scenarios/test_connector_capabilities.py::test_query_by_key_after_lost_response` | after a response is lost, the request is found by its key at the downstream |
-| `document_request_connector` | `tests/egi_scenarios/test_b04_dispatcher.py::test_dispatcher_uses_canonical_approval_and_registered_connector` | on a reference-profile app, an approval recorded over the decision route and a real execution-owner lease reach the registered connector once, with an outbox row and a receipt |
-| `document_request_connector` | `tests/egi_scenarios/test_v07_restart_exactly_once.py::test_kill_after_downstream_commit` | a dispatcher killed after the downstream committed leaves one mutation, found by key and not sent again |
-| `release_evaluation` | `tests/egi_scenarios/test_v13_release_evaluation.py::test_evaluator_crash_recovers` | after an evaluator crash, the provider runs it already observed stay on the evaluation and only the recovered claim settles it |
-| `release_evaluation` | `tests/egi_scenarios/test_v13_release_evaluation.py::test_worker_records_provider_run_before_completion_crash` | a provider run is recorded before completion, so a crash between the two loses no run identifier |
-| `release_evaluation` | `tests/egi_scenarios/test_v13_release_evaluation.py::test_recovery_before_provider_result_keeps_attempt_history` | a crash before the provider returns still burns the old claim number and keeps the attempt history |
+| adapter id | scenario | what it demonstrates | database |
+| --- | --- | --- | --- |
+| `document_request_connector` | `tests/egi_scenarios/test_connector_capabilities.py::test_stable_key_mutates_once` | the same idempotency key sent twice commits once at the downstream | `no database` |
+| `document_request_connector` | `tests/egi_scenarios/test_connector_capabilities.py::test_stale_precondition_returns_412_and_no_mutation` | a write bound to a version that is not current is refused `412` and changes nothing | `no database` |
+| `document_request_connector` | `tests/egi_scenarios/test_connector_capabilities.py::test_query_by_key_after_lost_response` | after a response is lost, the request is found by its key at the downstream | `no database` |
+| `document_request_connector` | `tests/egi_scenarios/test_b04_dispatcher.py::test_dispatcher_uses_canonical_approval_and_registered_connector` | on a reference-profile app, an approval recorded over the decision route and a real execution-owner lease reach the registered connector once, with an outbox row and a receipt | `dialect-parameterised` |
+| `document_request_connector` | `tests/egi_scenarios/test_v07_restart_exactly_once.py::test_kill_after_downstream_commit` | a dispatcher killed after the downstream committed leaves one mutation, found by key and not sent again | `dialect-parameterised` |
+| `release_evaluation` | `tests/egi_scenarios/test_v13_release_evaluation.py::test_evaluator_crash_recovers` | after an evaluator crash, the provider runs it already observed stay on the evaluation and only the recovered claim settles it | `SQLite from the models` |
+| `release_evaluation` | `tests/egi_scenarios/test_v13_release_evaluation.py::test_worker_records_provider_run_before_completion_crash` | a provider run is recorded before completion, so a crash between the two loses no run identifier | `SQLite from the models` |
+| `release_evaluation` | `tests/egi_scenarios/test_v13_release_evaluation.py::test_recovery_before_provider_result_keeps_attempt_history` | a crash before the provider returns still burns the old claim number and keeps the attempt history | `SQLite from the models` |
 
 Two pins keep the claim tied to the code it was shown on: for the connector, the admission record
 `caliber.profile.REFERENCE_CONNECTORS` (implementation, capability digest and configuration digest, checked live), and for
@@ -115,10 +117,12 @@ What the evidence does not cover, stated so the word "supported" is not read wid
 - **The release-evaluation scenarios use a scripted evaluation provider.** They prove the claim, recovery and fenced
   completion of an attempt, not the quality of a real provider's scores. With `CALIBER_EVAL_PROVIDER=mlflow` the evaluator
   calls the real provider and reports `supported`; with `fake` it reports `preview` because the scores are simulated.
-- **The release-evaluation scenarios run on SQLite created from the models, not on PostgreSQL.** They build their database
-  with `Base.metadata.create_all` (no migrations), without a reference-profile app or the capability route. They show the
-  claim, recovery and fencing logic of the evaluator, not PostgreSQL concurrency or lease behaviour, and not the migrated
-  schema. Only the connector scenarios have a PostgreSQL parameter.
+- **Only two of the five connector scenarios, and none of the release-evaluation scenarios, run on PostgreSQL.**
+  `test_b04_dispatcher.py` (a migrated reference-profile app) and `test_v07_restart_exactly_once.py` have a PostgreSQL
+  parameter. The three `test_connector_capabilities.py` scenarios use no database: they show the downstream's stable key,
+  precondition and read-back by key, not the platform's persistence. The release-evaluation scenarios build a SQLite
+  database from the models (no migrations), without a reference-profile app or the capability route, so they show the
+  evaluator's claim, recovery and fencing logic, not PostgreSQL concurrency or lease behaviour, and not the migrated schema.
 - **No scenario here proves the whole loop for one workflow end to end under the capability report.** The end-to-end
   governed run (approve, resume, one send, a receipt read back by key) is shown by
   `tests/egi_scenarios/test_b05_governed_worker_wiring.py::test_a_proposal_is_approved_over_http_resumed_and_sent_exactly_once`,
