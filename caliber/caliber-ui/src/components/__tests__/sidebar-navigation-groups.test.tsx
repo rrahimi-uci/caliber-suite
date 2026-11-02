@@ -39,6 +39,7 @@ const ALL_DESTINATIONS = [
   "/observability",
   "/review-queues",
   "/releases",
+  "/releases#release-signoff",
   "/audit-log",
   "/administration",
   "/settings",
@@ -55,6 +56,7 @@ const EXPECTED_NAV_LABELS = [
   "Test Sets",
   "Evaluations",
   "Releases",
+  "Release candidates",
   "Skills",
   "Tools",
   "Workflows",
@@ -159,7 +161,8 @@ describe("Sidebar navigation groups", () => {
     expect(
       within(screen.getByLabelText("CALIBER navigation"))
         .getAllByRole("link")
-        .map((link) => link.textContent?.trim()),
+        // The destination's own label: a support chip (B15-Support.3) is not part of its name.
+        .map((link) => link.querySelector("span.flex-1")?.textContent?.trim()),
     ).toEqual(EXPECTED_NAV_LABELS);
   });
 
@@ -201,7 +204,7 @@ describe("Sidebar navigation groups", () => {
     expect(screen.getByTestId("nav-group-toggle-core")).toHaveAttribute("aria-expanded", "true");
   });
 
-  it("shows no maturity label on any destination", async () => {
+  it("labels an adapter only with a status word the server can report, never a marketing tier", async () => {
     stubPlans();
     const user = userEvent.setup();
     await renderSidebar();
@@ -210,11 +213,17 @@ describe("Sidebar navigation groups", () => {
       if (toggle.getAttribute("aria-expanded") === "false") await user.click(toggle);
     }
 
-    // A user is not asked to know what "alpha", "beta" or "preview" mean: every destination
-    // the deployment offers is listed plainly, and nothing says otherwise.
+    // Beta (#771) brings back a label, but only the server's own three words, and only on the
+    // adapters. This default fixture reports no ``adapters`` (an older server), so each of the
+    // three flagged destinations reads "Preview" and nothing is "Supported"; no destination
+    // carries a maturity tier ("alpha", "beta", "experimental", "GA") of the UI's own.
     expect(screen.queryAllByTestId("nav-preview-pill")).toHaveLength(0);
+    const chips = screen.getAllByTestId("adapter-support-chip");
+    expect(chips).toHaveLength(3);
+    for (const chip of chips) expect(chip).toHaveTextContent(/^Preview$/);
     const nav = document.querySelector("nav") as HTMLElement;
-    expect(nav.textContent ?? "").not.toMatch(/\b(alpha|beta|preview|experimental)\b/i);
+    expect(nav.textContent ?? "").not.toMatch(/\b(alpha|beta|experimental)\b/i);
+    expect(nav.textContent ?? "").not.toMatch(/\bGA\b/);
   });
 
   it("opens the group holding the current route and leaves the rest closed", async () => {
