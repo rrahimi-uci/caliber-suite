@@ -2505,6 +2505,78 @@ class CaliberStepTokenReservation(Base):
 guard_immutable(CaliberStepTokenReservation)
 
 
+class CaliberAcceptanceDecision(Base):
+    """Whether one candidate effect of a run was accepted, and which criteria decided it (B09.2a, #784).
+
+    Acceptance is an authoritative domain predicate over what the system of record says (``caliber.acceptance.predicates``),
+    never an HTTP status and never model text. One row records one decision, identified by what it was made over:
+    ``(workflow_run_id, candidate_id, criteria_version, observation_digest)`` is unique, so recording the same decision again
+    finds the row (idempotent) while a new candidate, a new criteria version or a new observation is a new decision.
+    ``candidate_id`` names what was judged (an effect proposal id, or the id a counterfactual run gives its candidate);
+    ``observation_digest`` is the SHA-256 of the canonical JSON of the observations the predicates saw (the bytes themselves are
+    recorded by B09.3, #799, not here).
+
+    ``criteria`` is the per-criterion evidence, in predicate order: ``predicate_id``, ``passed``, ``evidence_ref`` (the JSON
+    pointer into the observations of the value that decided it) and the ``rule_ids`` the predicate enforces.
+    ``criteria_total`` and ``criteria_failed`` count them. Every predicate is critical: the outcome is ``accepted`` only if no
+    criterion failed, and nothing else (no transport status) is an input. Observations that cannot be frozen
+    (``invalid_observations``) are a ``rejected`` decision with no criteria, a ``reason_code`` and the contract error's
+    ``reason_detail`` (a JSON pointer with every mapping key elided to ``*``, and a type: never a key or a value). CHECK constraints make the table itself refuse an
+    ``accepted`` row with a failed criterion or a reason, and UPDATE, DELETE and TRUNCATE are refused by database triggers
+    (migration 0135) and by ``ImmutableRecordError``.
+    """
+
+    __tablename__ = "caliber_acceptance_decisions"
+    __table_args__ = (
+        UniqueConstraint(
+            "workflow_run_id",
+            "candidate_id",
+            "criteria_version",
+            "observation_digest",
+            name="uq_acceptance_decision_key",
+        ),
+        CheckConstraint(
+            "length(candidate_id) > 0 AND length(criteria_version) > 0",
+            name="ck_acceptance_decision_identity",
+        ),
+        CheckConstraint("length(observation_digest) = 64", name="ck_acceptance_decision_digest"),
+        CheckConstraint(
+            "criteria_total >= 0 AND criteria_failed >= 0 AND criteria_failed <= criteria_total",
+            name="ck_acceptance_decision_counts",
+        ),
+        CheckConstraint(
+            "(reason_code IS NULL AND reason_detail IS NULL AND criteria_total > 0) OR "
+            "(reason_code = 'invalid_observations' AND reason_detail IS NOT NULL "
+            "AND length(reason_detail) > 0 AND criteria_total = 0 AND outcome = 'rejected')",
+            name="ck_acceptance_decision_reason",
+        ),
+        CheckConstraint(
+            "(outcome = 'accepted' AND criteria_failed = 0 AND reason_code IS NULL) OR "
+            "(outcome = 'rejected' AND (criteria_failed > 0 OR reason_code IS NOT NULL))",
+            name="ck_acceptance_decision_critical",
+        ),
+    )
+
+    decision_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    workflow_run_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("caliber_workflow_runs.workflow_run_id")
+    )
+    candidate_id: Mapped[str] = mapped_column(String(128))
+    criteria_version: Mapped[str] = mapped_column(String(64))
+    observation_digest: Mapped[str] = mapped_column(String(64))
+    outcome: Mapped[str] = mapped_column(String(8))
+    criteria: Mapped[list[dict[str, Any]]] = mapped_column(JSON)
+    criteria_total: Mapped[int] = mapped_column(Integer)
+    criteria_failed: Mapped[int] = mapped_column(Integer)
+    reason_code: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    reason_detail: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    #: When the decision was made (UTC, naive). Not part of the identity: a repeat of a decision keeps the first one's time.
+    decided_at: Mapped[datetime] = mapped_column(DateTime)
+
+
+guard_immutable(CaliberAcceptanceDecision)
+
+
 class CaliberRunGrant(Base):
     """What one workflow run may do, for whom, in which project, until when (B03.2, #664).
 

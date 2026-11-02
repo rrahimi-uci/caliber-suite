@@ -32,6 +32,7 @@ from __future__ import annotations
 import os
 import warnings
 from pathlib import Path
+from typing import Any
 
 import pytest
 import sqlalchemy as sa
@@ -44,6 +45,7 @@ from sqlalchemy.orm import Session
 from caliber.candidate_digest import CANDIDATE_DIGEST_LENGTH, candidate_digest
 from caliber.db import Base
 from caliber.db.models import (
+    CaliberAcceptanceDecision,
     CaliberProject,
     CaliberRefinementJob,
     CaliberStepTokenReservation,
@@ -538,6 +540,172 @@ def test_0133_creates_the_reservation_table_enforces_it_and_reverses(
                 assert left == 0, "the trigger functions go with the table"
             command.upgrade(cfg, "0133")  # and the migration can run again
             assert "caliber_step_token_reservations" in inspect(engine).get_table_names()
+        finally:
+            engine.dispose()
+            os.environ.pop("CALIBER_DATABASE_URL", None)
+
+
+def _acceptance_insert(dialect: str) -> Any:
+    # SQLite stores the JSON text as it is; PostgreSQL needs the parameter typed.
+    criteria = "CAST(:criteria AS JSON)" if dialect == "postgresql" else ":criteria"
+    return text(_ACCEPTANCE_INSERT.replace(":criteria", criteria))
+
+
+_ACCEPTANCE_INSERT = (
+    "INSERT INTO caliber_acceptance_decisions (decision_id, workflow_run_id, candidate_id, criteria_version, "
+    "observation_digest, outcome, criteria, criteria_total, criteria_failed, reason_code, reason_detail, decided_at) "
+    "VALUES (:did, :run, :cand, 'harborlight-v1', :digest, :outcome, :criteria, :total, :failed, "
+    ":reason, :detail, '2026-11-01 12:00:00')"
+)
+_ACCEPTED_ROW = {
+    "outcome": "accepted",
+    "criteria": '[{"predicate_id": "p", "passed": true, "evidence_ref": "/p", "rule_ids": ["r"]}]',
+    "total": 1,
+    "failed": 0,
+    "reason": None,
+    "detail": None,
+}
+
+
+def _insert_0135(
+    engine: sa.engine.Engine, dialect: str, did: str, cand: str, digest: str, **row: object
+) -> None:
+    with engine.begin() as connection:
+        connection.execute(
+            _acceptance_insert(dialect),
+            {
+                "did": did,
+                "run": "RUN-0133",
+                "cand": cand,
+                "digest": digest,
+                **{**_ACCEPTED_ROW, **row},
+            },
+        )
+
+
+@pytest.mark.slow
+@pytest.mark.parametrize("dialect", DIALECTS)
+def test_0135_creates_the_acceptance_decisions_enforces_them_and_reverses(
+    dialect: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """B09.2a: the table appears at 0135 only, refuses what the code never writes, is write-once, and downgrades.
+
+    Run on PostgreSQL as well as SQLite: the migration-parity job must exercise the real DDL (the trigger function, the
+    REVOKE, the TRUNCATE trigger and the foreign key), not only SQLite's development path.
+    """
+    with dialect_database_url(dialect, tmp_path, "acceptance_decisions") as db_url:
+        monkeypatch.setenv("CALIBER_DATABASE_URL", db_url)
+        monkeypatch.chdir(PROJECT_ROOT)
+        cfg = Config(str(ALEMBIC_INI))
+        command.upgrade(cfg, "0134")
+        engine = create_engine(db_url)
+        try:
+            assert "caliber_acceptance_decisions" not in inspect(engine).get_table_names()
+            command.upgrade(cfg, "0135")
+
+            inspector = inspect(engine)
+            assert "caliber_acceptance_decisions" in inspector.get_table_names()
+            columns = {c["name"]: c for c in inspector.get_columns("caliber_acceptance_decisions")}
+            assert set(columns) == {c.name for c in CaliberAcceptanceDecision.__table__.columns}
+            assert columns["criteria"]["nullable"] is False
+            assert columns["reason_code"]["nullable"] is True
+            uniques = {
+                tuple(u["column_names"])
+                for u in inspector.get_unique_constraints("caliber_acceptance_decisions")
+            }
+            assert uniques == {
+                ("workflow_run_id", "candidate_id", "criteria_version", "observation_digest")
+            }
+            _seed_run_0133(engine)  # a run to decide about
+
+            def insert(did: str, cand: str, digest: str, **row: object) -> None:
+                _insert_0135(engine, dialect, did, cand, digest, **row)
+
+            insert("acc-a", "c1", "a" * 64)
+            insert("acc-b", "c1", "b" * 64)  # another observation: another decision
+            insert("acc-c", "c2", "a" * 64)  # another candidate: another decision
+            with pytest.raises(IntegrityError):  # the key is unique
+                insert("acc-d", "c1", "a" * 64)
+            with pytest.raises(
+                IntegrityError
+            ):  # a CHECK: an accepted decision has no failed criterion
+                insert("acc-e", "c3", "e" * 64, failed=1)
+            with pytest.raises(IntegrityError):  # a CHECK: a digest is 64 characters
+                insert("acc-f", "c3", "f" * 63)
+            if dialect == "postgresql":
+                with pytest.raises(IntegrityError, match="foreign key"):
+                    with engine.begin() as connection:
+                        connection.execute(
+                            _acceptance_insert(dialect),
+                            {
+                                "did": "acc-g",
+                                "run": "RUN-NONE",
+                                "cand": "c",
+                                "digest": "g" * 64,
+                                **_ACCEPTED_ROW,
+                            },
+                        )
+            for statement in (
+                "UPDATE caliber_acceptance_decisions SET outcome = 'accepted' WHERE decision_id = 'acc-a'",
+                "DELETE FROM caliber_acceptance_decisions WHERE decision_id = 'acc-a'",
+            ):
+                with pytest.raises(IntegrityError, match="is immutable"):
+                    with engine.begin() as connection:
+                        connection.execute(text(statement))
+            if dialect == "postgresql":
+                with pytest.raises(IntegrityError, match="TRUNCATE refused"):
+                    with engine.begin() as connection:
+                        connection.execute(text("TRUNCATE caliber_acceptance_decisions"))
+            with engine.connect() as connection:
+                stored = (
+                    connection.execute(
+                        text(
+                            "SELECT decision_id FROM caliber_acceptance_decisions ORDER BY decision_id"
+                        )
+                    )
+                    .scalars()
+                    .all()
+                )
+            assert stored == ["acc-a", "acc-b", "acc-c"]
+        finally:
+            engine.dispose()
+            os.environ.pop("CALIBER_DATABASE_URL", None)
+
+
+@pytest.mark.slow
+@pytest.mark.parametrize("dialect", DIALECTS)
+def test_0135_downgrade_drops_the_table_and_its_function_and_upgrade_runs_again(
+    dialect: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """B09.2a rollback: the decisions (and the trigger function on PostgreSQL) go; no other table is touched."""
+    with dialect_database_url(dialect, tmp_path, "acceptance_decisions_down") as db_url:
+        monkeypatch.setenv("CALIBER_DATABASE_URL", db_url)
+        monkeypatch.chdir(PROJECT_ROOT)
+        cfg = Config(str(ALEMBIC_INI))
+        command.upgrade(cfg, "0135")
+        engine = create_engine(db_url)
+        try:
+            _seed_run_0133(engine)
+            _insert_0135(engine, dialect, "acc-a", "c1", "a" * 64)
+            command.downgrade(cfg, "0134")
+            assert "caliber_acceptance_decisions" not in inspect(engine).get_table_names()
+            if dialect == "postgresql":
+                with engine.connect() as connection:
+                    left = connection.execute(
+                        text(
+                            "SELECT count(*) FROM pg_proc WHERE proname = 'caliber_acceptance_decisions_immutable'"
+                        )
+                    ).scalar_one()
+                assert left == 0, "the trigger function goes with the table"
+            command.upgrade(cfg, "0135")  # and the migration can run again
+            assert "caliber_acceptance_decisions" in inspect(engine).get_table_names()
+            with engine.connect() as connection:
+                assert (
+                    connection.execute(
+                        text("SELECT count(*) FROM caliber_acceptance_decisions")
+                    ).scalar_one()
+                    == 0
+                )
         finally:
             engine.dispose()
             os.environ.pop("CALIBER_DATABASE_URL", None)

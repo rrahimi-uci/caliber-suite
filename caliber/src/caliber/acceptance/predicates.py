@@ -85,51 +85,58 @@ _POINTER_ESCAPES: Final = str.maketrans({"~": "~0", "/": "~1"})
 class PredicateError(ValueError):
     """The caller broke the predicate contract. ``code`` is one of :data:`CODES`; the message names a JSON pointer, never an observation value."""
 
-    def __init__(self, code: str, message: str) -> None:
+    def __init__(self, code: str, message: str, redacted: str | None = None) -> None:
         super().__init__(f"{code}: {message}")
         self.code = code
+        #: The message with every mapping key elided from its JSON pointer (``*``; list indexes stay). A key is downstream data and
+        #: may be anything (an address, an identifier), so what is stored as evidence (B09.2a) uses this, never the message.
+        self.redacted = message if redacted is None else redacted
 
 
-def _freeze(value: object, path: str, depth: int) -> Any:
+def _refusal(path: str, shape: str, text: str) -> PredicateError:
+    """``invalid_observations`` at ``path`` (the RFC 6901 pointer) and, for the redacted form, ``shape`` (its keys elided)."""
+    return PredicateError(
+        INVALID_OBSERVATIONS, f"{path or '/'} {text}", redacted=f"{shape or '/'} {text}"
+    )
+
+
+def _freeze(value: object, path: str, depth: int, shape: str = "") -> Any:
     # Exact scalar types only: a ``str`` or ``int`` subclass can override ``__eq__`` and spoof a comparison.
     kind = type(value)
     if value is None or kind in (str, bool, int):
         return value
     if kind is float:
         if not math.isfinite(value):  # type: ignore[arg-type]
-            raise PredicateError(INVALID_OBSERVATIONS, f"{path} is not a finite number")
+            raise _refusal(path, shape, "is not a finite number")
         return value
     if isinstance(value, Mapping | list | tuple):
         if depth >= MAX_DEPTH:
-            raise PredicateError(
-                INVALID_OBSERVATIONS, f"{path or '/'} is nested deeper than {MAX_DEPTH} levels"
-            )
+            raise _refusal(path, shape, f"is nested deeper than {MAX_DEPTH} levels")
         try:
-            return _freeze_container(value, path, depth)
+            return _freeze_container(value, path, depth, shape)
         except PredicateError:
             raise
         except Exception as exc:  # a hostile Mapping or sequence whose accessors raise
-            raise PredicateError(
-                INVALID_OBSERVATIONS, f"{path or '/'} could not be read ({type(exc).__name__})"
-            ) from exc
-    raise PredicateError(
-        INVALID_OBSERVATIONS, f"{path or '/'} is a {kind.__name__}, which is not JSON-shaped"
-    )
+            raise _refusal(path, shape, f"could not be read ({type(exc).__name__})") from exc
+    raise _refusal(path, shape, f"is a {kind.__name__}, which is not JSON-shaped")
 
 
 def _freeze_container(
-    value: Mapping[Any, Any] | list[Any] | tuple[Any, ...], path: str, depth: int
+    value: Mapping[Any, Any] | list[Any] | tuple[Any, ...], path: str, depth: int, shape: str
 ) -> Any:
     if isinstance(value, Mapping):
         frozen: dict[str, Any] = {}
         for key, item in value.items():
             if type(key) is not str:
-                raise PredicateError(
-                    INVALID_OBSERVATIONS, f"{path or '/'} has a key that is not a string"
-                )
-            frozen[key] = _freeze(item, f"{path}/{key.translate(_POINTER_ESCAPES)}", depth + 1)
+                raise _refusal(path, shape, "has a key that is not a string")
+            frozen[key] = _freeze(
+                item, f"{path}/{key.translate(_POINTER_ESCAPES)}", depth + 1, f"{shape}/*"
+            )
         return MappingProxyType(frozen)
-    return tuple(_freeze(item, f"{path}/{index}", depth + 1) for index, item in enumerate(value))
+    return tuple(
+        _freeze(item, f"{path}/{index}", depth + 1, f"{shape}/{index}")
+        for index, item in enumerate(value)
+    )
 
 
 def _thaw(value: Any) -> Any:
@@ -252,19 +259,14 @@ class Predicate:
         return result
 
 
-def evaluate_all(
-    predicates: Sequence[Predicate], observations: Observations
-) -> list[CriterionResult]:
-    """Every predicate's result over ``observations``, in the order given (no predicate is skipped after a failure).
+def check_predicate_set(predicates: Sequence[Predicate]) -> tuple[Predicate, ...]:
+    """``predicates`` as a tuple, once it is a usable set: the checks :func:`evaluate_all` makes before it judges anything.
 
-    Refused with :class:`PredicateError`: observations that are not an :class:`Observations`, no predicate at all (a decision
-    over nothing would accept everything), anything that is not a :class:`Predicate`, a repeated predicate id, and predicates of
-    more than one criteria version (one decision is made under one version).
+    Refused with :class:`PredicateError`: no predicate at all (a decision over nothing would accept everything), anything that
+    is not a :class:`Predicate`, a repeated predicate id, and predicates of more than one criteria version (one decision is
+    made under one version). A caller that has to know the criteria version without judging (a decision recorded as rejected
+    because its observations were unreadable, B09.2a) uses this, so it refuses exactly what :func:`evaluate_all` refuses.
     """
-    if not isinstance(observations, Observations):
-        raise PredicateError(
-            INVALID_OBSERVATIONS, "observations must be an Observations (freeze them first)"
-        )
     try:
         items = tuple(predicates)
     except TypeError as exc:
@@ -281,7 +283,22 @@ def evaluate_all(
         raise PredicateError(
             MIXED_CRITERIA_VERSIONS, "predicates belong to more than one criteria version"
         )
-    return [item.check(observations) for item in items]
+    return items
+
+
+def evaluate_all(
+    predicates: Sequence[Predicate], observations: Observations
+) -> list[CriterionResult]:
+    """Every predicate's result over ``observations``, in the order given (no predicate is skipped after a failure).
+
+    Refused with :class:`PredicateError`: observations that are not an :class:`Observations`, and any predicate set
+    :func:`check_predicate_set` refuses.
+    """
+    if not isinstance(observations, Observations):
+        raise PredicateError(
+            INVALID_OBSERVATIONS, "observations must be an Observations (freeze them first)"
+        )
+    return [item.check(observations) for item in check_predicate_set(predicates)]
 
 
 _REQUESTS_REF: Final = "/case_record/document_requests"
@@ -395,5 +412,6 @@ __all__ = [
     "Observations",
     "Predicate",
     "PredicateError",
+    "check_predicate_set",
     "evaluate_all",
 ]

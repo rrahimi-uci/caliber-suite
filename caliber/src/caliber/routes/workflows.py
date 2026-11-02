@@ -26,6 +26,7 @@ from starlette.routing import Route
 from caliber.audit import record as audit_record
 from caliber.auth import SCOPE_ADMIN, SCOPE_OPERATOR, require_scopes, require_user, resolve_identity
 from caliber.db.models import (
+    CaliberAcceptanceDecision,
     CaliberAgentConfig,
     CaliberApprovalRequest,
     CaliberEffectProposal,
@@ -1723,6 +1724,18 @@ async def delete_workflow(request: Request) -> JSONResponse:
             raise HTTPException(
                 status_code=409,
                 detail="cannot delete workflow: its runs have step token reservations",
+            )
+        if (
+            session.execute(
+                select(CaliberAcceptanceDecision.decision_id)
+                .where(CaliberAcceptanceDecision.workflow_run_id.in_(run_ids_stmt))
+                .limit(1)
+            ).first()
+            is not None
+        ):
+            raise HTTPException(
+                status_code=409,
+                detail="cannot delete workflow: its runs have immutable acceptance decisions",
             )
         # Run-child rows reference run ids, not workflow ids, so delete them first.
         session.execute(
