@@ -7,7 +7,12 @@
 
 import { http, HttpResponse } from "msw";
 
-import type { FeatureId, FeatureInfo } from "@/api/workflowTypes";
+import type {
+  AdapterCapability,
+  AdapterId,
+  FeatureId,
+  FeatureInfo,
+} from "@/api/workflowTypes";
 import { templateManifest } from "@/lib/workflowGraph";
 
 const API_BASE = "/ajax-api/2.0/mlflow/caliber";
@@ -58,9 +63,11 @@ export function capabilityFeatures(
 /** A full ``GET /capabilities`` body with the given areas on (default: all off, the alpha default). */
 export function capabilitiesBody(
   enabled: Partial<Record<FeatureId, boolean>> = {},
+  adapters?: Partial<Record<AdapterId, AdapterCapability>>,
 ): { data: Record<string, unknown> } {
   return envelope({
     features: capabilityFeatures(enabled),
+    ...(adapters ? { adapters } : {}),
     workflow_runs: {
       queue_enabled: true,
       supports_async_submit: true,
@@ -2140,7 +2147,9 @@ export const handlers = [
 
   // The version family of a tool (the Publish stage's version history). Empty unless a test says
   // otherwise.
-  http.get(`${API_BASE}/tools/:toolId/versions`, () => HttpResponse.json({ data: [] })),
+  http.get(`${API_BASE}/tools/:toolId/versions`, () =>
+    HttpResponse.json({ data: [] }),
+  ),
 
   http.get(`${API_BASE}/tools/:toolId/source`, ({ params }) => {
     return HttpResponse.json(

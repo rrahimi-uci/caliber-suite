@@ -12,8 +12,10 @@ import { delay, http, HttpResponse } from "msw";
 import type { ReactNode } from "react";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 
+import type { AdapterCapability } from "@/api/workflowTypes";
 import {
   FEATURE_FALLBACKS,
+  useAdapterSupport,
   useFeature,
   useFeatureFlags,
 } from "@/hooks/useFeature";
@@ -184,5 +186,140 @@ describe("useFeature", () => {
       label: "Renamed area",
       stability: "record_only",
     });
+  });
+});
+
+/** An ``adapters`` entry as ``caliber/features.py`` sends it. */
+function adapter(
+  status: AdapterCapability["status"],
+  extra: Partial<AdapterCapability> = {},
+): AdapterCapability {
+  return {
+    status,
+    kind: "connector",
+    label: "OpenAPI document-request connector",
+    reason_code: status === "supported" ? null : "not_reference_profile",
+    disabled_by: status === "supported" ? null : "CALIBER_PROFILE",
+    message: `message for ${status}`,
+    evidence:
+      status === "supported" ? ["tests/egi_scenarios/x.py::test_x"] : [],
+    ...extra,
+  };
+}
+
+describe("useAdapterSupport", () => {
+  it("shows supported, preview and unavailable from the server's adapters", async () => {
+    server.use(
+      http.get(`${API_BASE}/capabilities`, () =>
+        HttpResponse.json(
+          capabilitiesBody(
+            { integrations: true },
+            {
+              document_request_connector: adapter("supported"),
+              mcp_servers: adapter("preview", {
+                kind: "mcp_server",
+                reason_code: "no_support_evidence",
+                disabled_by: "profile",
+              }),
+              release_evaluation: adapter("unavailable", {
+                kind: "release_evaluation",
+                reason_code: "feature_disabled",
+                disabled_by: "CALIBER_FEATURE_RELEASE_CANDIDATES",
+              }),
+            },
+          ),
+        ),
+      ),
+    );
+    const { result } = renderHook(
+      () => ({
+        connector: useAdapterSupport("document_request_connector"),
+        mcp: useAdapterSupport("mcp_servers"),
+        evaluation: useAdapterSupport("release_evaluation"),
+        flags: useFeature("integrations"),
+      }),
+      { wrapper: makeWrapper() },
+    );
+    await waitFor(() => expect(result.current.connector.loading).toBe(false));
+    expect(result.current.connector.status).toBe("supported");
+    expect(result.current.connector.info?.evidence).toHaveLength(1);
+    expect(result.current.mcp.status).toBe("preview");
+    expect(result.current.mcp.info?.reason_code).toBe("no_support_evidence");
+    expect(result.current.evaluation.status).toBe("unavailable");
+    expect(result.current.evaluation.info?.disabled_by).toBe(
+      "CALIBER_FEATURE_RELEASE_CANDIDATES",
+    );
+    // A flag being on is not support: the area is on, the MCP adapter is still preview.
+    expect(result.current.flags.enabled).toBe(true);
+    expect(result.current.mcp.status).not.toBe("supported");
+  });
+
+  it("never reads supported while loading, on failure, or from a server that predates adapters", async () => {
+    server.use(
+      http.get(`${API_BASE}/capabilities`, async () => {
+        await delay(50);
+        return HttpResponse.json(capabilitiesBody({}));
+      }),
+    );
+    const loading = renderHook(
+      () => useAdapterSupport("document_request_connector"),
+      { wrapper: makeWrapper() },
+    );
+    expect(loading.result.current.loading).toBe(true);
+    expect(loading.result.current.status).toBe("preview");
+    await waitFor(() => expect(loading.result.current.loading).toBe(false));
+    // The body has no ``adapters``: an older server.
+    expect(loading.result.current.status).toBe("preview");
+    expect(loading.result.current.info).toBeNull();
+
+    server.use(
+      http.get(`${API_BASE}/capabilities`, () =>
+        HttpResponse.json(
+          { detail: "boom", status_code: 500 },
+          { status: 500 },
+        ),
+      ),
+    );
+    const failed = renderHook(() => useAdapterSupport("release_evaluation"), {
+      wrapper: makeWrapper(),
+    });
+    await waitFor(() => expect(failed.result.current.loading).toBe(false));
+    expect(failed.result.current.status).toBe("preview");
+    expect(failed.result.current.info).toBeNull();
+  });
+
+  it("reads a malformed or unknown-status entry as preview, never supported", async () => {
+    server.use(
+      http.get(`${API_BASE}/capabilities`, () =>
+        HttpResponse.json({
+          data: {
+            adapters: {
+              document_request_connector: {
+                ...adapter("supported"),
+                status: "SUPPORTED",
+              },
+              release_evaluation: null,
+              mcp_servers: "supported",
+            },
+            features: {},
+            workflow_runs: {},
+            sync_workflow_version_run: true,
+          },
+        }),
+      ),
+    );
+    const { result } = renderHook(
+      () => ({
+        connector: useAdapterSupport("document_request_connector"),
+        evaluation: useAdapterSupport("release_evaluation"),
+        mcp: useAdapterSupport("mcp_servers"),
+      }),
+      { wrapper: makeWrapper() },
+    );
+    await waitFor(() => expect(result.current.connector.loading).toBe(false));
+    for (const state of Object.values(result.current)) {
+      expect(state.status).toBe("preview");
+      expect(state.info).toBeNull();
+    }
   });
 });

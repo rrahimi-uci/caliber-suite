@@ -1044,7 +1044,44 @@ export interface FeatureInfo {
   stability: FeatureStability;
 }
 
+/** How far one adapter is supported on this deployment (``caliber/features.py``, #755). */
+export type AdapterSupportStatus = "supported" | "preview" | "unavailable";
+
+export type AdapterId =
+  | "document_request_connector"
+  | "release_evaluation"
+  | "mcp_servers"
+  | "openapi_integrations";
+
+/**
+ * One adapter's support, as ``GET /capabilities`` reports it under ``adapters``. A feature flag
+ * being on never implies ``supported``: only the reference connector and release evaluation can
+ * be, and only in a valid reference deployment. UI visibility grants no backend authority.
+ */
+export interface AdapterCapability {
+  status: AdapterSupportStatus;
+  kind:
+    | "connector"
+    | "release_evaluation"
+    | "mcp_server"
+    | "openapi_integration";
+  label: string;
+  /** Why the adapter is not ``supported``; ``null`` when it is. */
+  reason_code: string | null;
+  /** The environment variable that changes the answer, or ``profile`` when no setting does. */
+  disabled_by: string | null;
+  /** The exact refusal or recovery text. */
+  message: string;
+  /** The scenario tests behind a ``supported`` adapter; empty otherwise. */
+  evidence: string[];
+}
+
 export interface PlatformCapabilities {
+  /**
+   * Per-adapter support. Optional on purpose: a server that predates it is read as "nothing is
+   * supported", never as "everything is".
+   */
+  adapters?: Partial<Record<AdapterId, AdapterCapability>>;
   /**
    * Every gated area, on or off. Optional on purpose: a server (or a test double) that does
    * not report it is read as "every area is off", never as "every area is on".

@@ -21,6 +21,9 @@ import { useMemo } from "react";
 
 import { caliberApi } from "@/api/caliberApi";
 import type {
+  AdapterCapability,
+  AdapterId,
+  AdapterSupportStatus,
   FeatureId,
   FeatureInfo,
   PlatformCapabilities,
@@ -108,5 +111,47 @@ export function useFeature(id: FeatureId): FeatureState {
     enabled: flags.isEnabled(id),
     loading: flags.loading,
     info: flags.info(id),
+  };
+}
+
+const ADAPTER_STATUSES: readonly AdapterSupportStatus[] = [
+  "supported",
+  "preview",
+  "unavailable",
+];
+
+export interface AdapterSupportState {
+  /** True until capabilities have either loaded or failed. */
+  loading: boolean;
+  /**
+   * ``supported`` only when the server reported exactly that for this adapter. Loading, a failed
+   * request, a server that predates ``adapters`` and a malformed entry all read as ``preview``
+   * (the label the alpha UI already shows), never as ``supported``.
+   */
+  status: AdapterSupportStatus;
+  /** The server's entry (reason, variable, message, evidence), or ``null`` when it sent none. */
+  info: AdapterCapability | null;
+}
+
+/**
+ * One adapter's support level, from ``GET /capabilities`` ``adapters`` (``caliber/features.py``, #755).
+ * A feature flag being on never implies ``supported``; this is what a component reads to drop a
+ * preview label. Reading it grants no backend authority.
+ */
+export function useAdapterSupport(id: AdapterId): AdapterSupportState {
+  const query = useApiQuery<PlatformCapabilities>(["capabilities"], (signal) =>
+    caliberApi.getCapabilities(signal),
+  );
+  const entry = query.data?.adapters?.[id];
+  const reported =
+    entry &&
+    typeof entry === "object" &&
+    ADAPTER_STATUSES.includes(entry.status)
+      ? entry
+      : null;
+  return {
+    loading: query.isPending,
+    status: reported?.status ?? "preview",
+    info: reported,
   };
 }
