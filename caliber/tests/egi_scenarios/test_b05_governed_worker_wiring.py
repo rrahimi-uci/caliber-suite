@@ -270,6 +270,12 @@ def proposals(app: ReferenceApp) -> list[CaliberEffectProposal]:
         return rows
 
 
+def never_sent(proposal: CaliberEffectProposal, reason: str) -> None:
+    """The run ended before this proposal was dispatched: it was settled ``failed`` with ``reason`` and no dispatch evidence (#1074)."""
+    assert (proposal.state, proposal.reason) == ("failed", reason)
+    assert proposal.dispatched_at is None and proposal.owner_id is None and proposal.attempt is None
+
+
 def bound_requests(app: ReferenceApp) -> list[CaliberRuntimeApprovalRequest]:
     with app.session_factory() as session:
         rows = list(
@@ -477,7 +483,9 @@ def test_an_approver_whose_role_was_revoked_after_deciding_sends_nothing(
     assert "dispatch refused: role_revoked" in str(run.error_summary)
     assert downstream.mutations() == 0
     (proposal,) = proposals(app)
-    assert proposal.state == "proposed", "refused before the claim: the proposal never moved"
+    # refused before the claim: it was never dispatched, and the failed run settled it (#1074)
+    assert (proposal.state, proposal.reason) == ("failed", "run_failed")
+    assert proposal.dispatched_at is None and proposal.owner_id is None
     (request,) = bound_requests(app)
     assert request.consumed_at is None, "and the approval was not spent"
 
@@ -520,7 +528,7 @@ def test_a_worker_that_lost_the_lease_sends_nothing(
     assert run.status == "failed"
     assert "dispatch refused: lease_unavailable" in str(run.error_summary)
     assert downstream.mutations() == 0
-    assert proposals(app)[0].state == "proposed"
+    never_sent(proposals(app)[0], "run_failed")
     (request,) = bound_requests(app)
     assert request.consumed_at is None
 
@@ -588,7 +596,7 @@ def test_a_mapped_tool_with_no_connector_binding_is_refused_before_the_claim(
         run.error_summary
     )
     assert downstream.mutations() == 0
-    assert proposals(app)[0].state == "proposed"
+    never_sent(proposals(app)[0], "run_failed")
 
 
 def test_the_development_profile_runs_an_agent_as_before_and_binds_nothing(
@@ -629,7 +637,7 @@ def test_a_rejected_proposal_is_final_and_sends_nothing(
     worker._tick()
 
     assert downstream.mutations() == 0
-    assert proposals(app)[0].state == "proposed"
+    never_sent(proposals(app)[0], "approval_rejected")
 
 
 # ----------------------------------------------------------------------- a worker killed mid-dispatch

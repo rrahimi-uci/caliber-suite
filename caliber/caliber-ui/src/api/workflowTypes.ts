@@ -707,7 +707,7 @@ export interface WorkflowRuntimeApproval {
   workflow_run_id: string;
   project_id: string | null;
   node_id: string;
-  status: "pending" | "approved" | "rejected";
+  status: "pending" | "approved" | "rejected" | "superseded" | "withdrawn";
   requested_at: string;
   decided_at: string | null;
   decided_by: string | null;
@@ -767,6 +767,7 @@ export type WorkflowApprovalStateCode =
   | "rejected"
   | "already_consumed"
   | "superseded"
+  | "withdrawn"
   | "expired"
   | "approval_not_current"
   | "run_not_waiting";

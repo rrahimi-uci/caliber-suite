@@ -264,6 +264,7 @@ for cancel, retry, approval, resume, and trigger:
 - `GET /workflow-runs/{run_id}/approvals`
 - `POST /workflow-runs/{run_id}/approval/approve`
 - `POST /workflow-runs/{run_id}/approval/reject`
+- `POST /workflow-runs/{run_id}/approvals/{approval_id}/withdraw`
 - `POST /workflow-runs/{run_id}/resume`
 - `POST /workflow-runs/resume-by-event`
 - `POST /workflows/{workflow_id}/trigger`

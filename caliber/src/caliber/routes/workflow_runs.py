@@ -33,6 +33,11 @@ from caliber.db.models import (
     CaliberWorkspaceRelease,
     CaliberWorkspaceRuntimeLineage,
 )
+from caliber.effects.run_settlement import (
+    APPROVAL_REJECTED_REASON,
+    RUN_CANCELLED_REASON,
+    settle_run_effects,
+)
 from caliber.ids import new_workflow_run_id
 from caliber.mcp_policy import deployment_blockers
 from caliber.observability import causal_links
@@ -54,6 +59,7 @@ from caliber.schemas import (
     RuntimeApprovalAckSchema,
     WorkflowApprovalViewSchema,
     WorkflowRunApprovalDecisionRequest,
+    WorkflowRunApprovalWithdrawRequest,
     WorkflowRunCancelRequest,
     WorkflowRunCheckpointSchema,
     WorkflowRunCreateRequest,
@@ -84,12 +90,19 @@ from caliber.workflows.admission import (
 from caliber.workflows.approval_policy import (
     REFUSAL_ALREADY_CONSUMED,
     REFUSAL_EXPIRED,
+    REFUSAL_NOT_APPROVED,
     REFUSAL_SUPERSEDED,
+    REFUSAL_WITHDRAWN,
     ApprovalPolicy,
     ApprovalPolicyError,
     approval_refusal,
     assert_distinct_actor,
     record_approval,
+)
+from caliber.workflows.approval_requests import (
+    NOT_BOUND,
+    ApprovalWithdrawRefused,
+    withdraw_approval,
 )
 from caliber.workflows.approval_view import build_approval_view
 from caliber.workflows.manifest import (
@@ -136,6 +149,7 @@ CANCEL_PATH = DETAIL_PATH + "/cancel"
 RETRY_PATH = DETAIL_PATH + "/retry"
 APPROVALS_PATH = DETAIL_PATH + "/approvals"
 APPROVAL_VIEW_PATH = APPROVALS_PATH + "/{approval_id}"
+APPROVAL_WITHDRAW_PATH = APPROVAL_VIEW_PATH + "/withdraw"
 APPROVE_PATH = DETAIL_PATH + "/approval/approve"
 REJECT_PATH = DETAIL_PATH + "/approval/reject"
 RESUME_PATH = DETAIL_PATH + "/resume"
@@ -1596,6 +1610,8 @@ async def cancel_workflow_run(request: Request) -> JSONResponse:  # noqa: PLR091
         run.last_heartbeat_at = now
         run.error_code = "cancelled"
         run.error_summary = payload.reason or "cancelled by operator"
+        # The run is over: its never-dispatched proposals and live requests are settled in this transaction (#1074).
+        settle_run_effects(session, run.workflow_run_id, reason=RUN_CANCELLED_REASON, actor=actor)
         summary = dict(run.summary or {})
         summary["status"] = RUN_STATUS_CANCELLED
         if payload.reason:
@@ -2001,6 +2017,15 @@ _BOUND_REFUSAL_DETAIL = {
         "an approval is consumed when its effect is dispatched"
     ),
     APPROVAL_NOT_CURRENT: "this approval request is not for the step the run is waiting at",
+    REFUSAL_WITHDRAWN: (
+        "this approval request was withdrawn and can no longer be decided; "
+        "ask for a new approval of the step"
+    ),
+    REFUSAL_NOT_APPROVED: (
+        "only an approved request that dispatch has not consumed can be withdrawn; "
+        "a pending request is decided (approved or rejected) instead"
+    ),
+    NOT_BOUND: "this approval request guards no effect proposal, so there is no approved effect to withdraw",
 }
 
 
@@ -2447,6 +2472,10 @@ async def reject_workflow_run_approval(request: Request) -> JSONResponse:
         run.last_heartbeat_at = now
         run.error_code = "approval_rejected"
         run.error_summary = payload.reason or "runtime approval rejected"
+        # The rejected request is final; the run's proposals and any other live request are settled in this transaction (#1074).
+        settle_run_effects(
+            session, run.workflow_run_id, reason=APPROVAL_REJECTED_REASON, actor=actor
+        )
         summary = dict(run.summary or {})
         summary["status"] = RUN_STATUS_FAILED
         summary["error"] = run.error_summary
@@ -2511,6 +2540,108 @@ async def reject_workflow_run_approval(request: Request) -> JSONResponse:
             "error": data.error_summary,
         },
     )
+    return envelope_response(data)
+
+
+async def withdraw_workflow_run_approval(request: Request) -> JSONResponse:
+    """``POST .../approvals/{approval_id}/withdraw``: take back an approved decision that dispatch has not consumed (#1074).
+
+    The caller must be allowed to decide the request, exactly as for approving or rejecting it: the project ``approve`` action
+    and the node's ``required_role`` scope (checked, like in the decision routes, before any state code is revealed). The
+    separation-of-duties rule of an approval is deliberately not applied: withdrawing only *removes* the authority to act, as a
+    rejection does, so a requester who is also an authorized approver may withdraw their own request, and nobody without the
+    approval authority can (the requester alone cannot). The body is an optional ``reason``; the request is named by the path.
+
+    Under the run lock and then the request lock (the order of the decision routes and of the dispatcher's claim) the request is
+    withdrawn only if it is bound to a proposal, approved, not consumed, not superseded and not expired
+    (:func:`~caliber.workflows.approval_requests.withdraw_approval`). A consumed request is ``409 already_consumed`` and is never
+    withdrawn; the dispatcher's claim and this route serialize on the run lock, so at most one of them wins and a withdrawn
+    request is never consumed. A repeat of a withdrawal that was recorded is ``200`` again with nothing written. The run's own
+    status is not part of the rule (a run that has ended had its live requests withdrawn when it ended). The proposal stays
+    ``proposed``: a new request for it may be made. One audit row and one run event record who withdrew it and why.
+    """
+    from caliber.auth import resolve_identity  # noqa: PLC0415 - avoids an import cycle
+
+    actor = require_user(request)
+    _ensure_queue_enabled(request)
+    _ensure_runtime_approvals_enabled(request)
+    run_id = request.path_params["run_id"]
+    approval_id = request.path_params["approval_id"]
+    body = await parse_json_object(request, allow_empty=True)
+    payload = WorkflowRunApprovalWithdrawRequest.model_validate(body)
+    factory = get_session_factory(request)
+    with _decision_session(factory) as session:
+        run = _get_run_or_404(session, run_id, request=request)
+        # The project-role axis first, before the run lock, so a refused caller never queues behind a dispatcher.
+        require_project_access_if_scoped(
+            session, resolve_identity(request), run.project_id, ACTION_APPROVE
+        )
+        run = _lock_workflow_run(session, run)
+        now = _utc_now()
+        approval = session.execute(
+            select(CaliberRuntimeApprovalRequest)
+            .where(CaliberRuntimeApprovalRequest.runtime_approval_id == approval_id)
+            .where(CaliberRuntimeApprovalRequest.workflow_run_id == run.workflow_run_id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        ).scalar_one_or_none()
+        if approval is None:
+            raise HTTPException(
+                status_code=404,
+                detail=f"runtime approval {approval_id!r} not found for workflow run {run_id!r}",
+            )
+        # Authority first, for a bound and a legacy request alike (a legacy snapshot resolves to the default role), so nobody
+        # who may not decide the request learns from the code whether it is bound; ``withdraw_approval`` then judges the state.
+        _require_bound_authority(
+            approval, actor=actor, scopes=current_scopes(request), enforce_requester=False
+        )
+        try:
+            withdrawn = withdraw_approval(approval, now=now)
+        except ApprovalWithdrawRefused as refusal:
+            raise _bound_refusal(refusal.code) from None
+        if withdrawn:
+            _append_run_event(
+                session,
+                workflow_run_id=run.workflow_run_id,
+                project_id=run.project_id,
+                event_type="workflow.run.approval.withdrawn",
+                payload={
+                    "runtime_approval_id": approval.runtime_approval_id,
+                    "node_id": approval.node_id,
+                    "withdrawn_by": actor,
+                    "reason": payload.reason,
+                },
+                node_id=approval.node_id,
+            )
+            audit_record(
+                session,
+                actor=actor,
+                action="withdraw_workflow_run_runtime_approval",
+                entity_type="runtime_approval",
+                entity_id=approval.runtime_approval_id,
+                details={"workflow_run_id": run.workflow_run_id, "reason": payload.reason},
+            )
+            session.commit()
+        data = RuntimeApprovalAckSchema(
+            workflow_run_id=run.workflow_run_id,
+            runtime_approval_id=approval.runtime_approval_id,
+            status=approval.status,
+        )
+        workflow_id = run.workflow_id
+        workflow_version_id = run.workflow_version_id
+        run_status = run.status
+    if withdrawn:
+        _emit_queue_event(
+            request,
+            {
+                "type": "workflow.run.approval.withdrawn",
+                "workflow_id": workflow_id,
+                "workflow_version_id": workflow_version_id,
+                "workflow_run_id": run_id,
+                "status": run_status,
+                "runtime_approval_id": approval_id,
+            },
+        )
     return envelope_response(data)
 
 
@@ -3195,6 +3326,9 @@ def register(app: Starlette) -> None:
     app.routes.append(Route(APPROVAL_VIEW_PATH, get_workflow_run_approval_view, methods=["GET"]))
     app.routes.append(Route(APPROVE_PATH, approve_workflow_run_approval, methods=["POST"]))
     app.routes.append(Route(REJECT_PATH, reject_workflow_run_approval, methods=["POST"]))
+    app.routes.append(
+        Route(APPROVAL_WITHDRAW_PATH, withdraw_workflow_run_approval, methods=["POST"])
+    )
     app.routes.append(Route(RESUME_PATH, resume_workflow_run, methods=["POST"]))
     app.routes.append(Route(RESUME_BY_EVENT_PATH, resume_workflow_run_by_event, methods=["POST"]))
     app.routes.append(Route(TRIGGER_PATH, trigger_workflow_event, methods=["POST"]))
