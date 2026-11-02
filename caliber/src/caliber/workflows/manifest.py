@@ -31,7 +31,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
-from typing import Annotated, Any, Literal
+from typing import Annotated, Any, Final, Literal
 
 from packaging.specifiers import InvalidSpecifier, SpecifierSet
 from pydantic import (
@@ -41,6 +41,7 @@ from pydantic import (
     field_validator,
     model_validator,
 )
+from pydantic_core import PydanticCustomError
 
 from caliber.knowledge.schemas import KnowledgeGraphConfigSchema
 
@@ -63,6 +64,8 @@ MAX_TOOLS = 200
 # on top of codegen escaping).
 _CONTROL_CHARS_RE = re.compile(r"[\x00-\x1f\x7f]")
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
+RESERVED_TRACE_GROUP_TAG_CODE: Final = "reserved_trace_group_tag"
+_RESERVED_TRACE_GROUP_TAG_PREFIX: Final = "caliber."
 
 
 class WorkflowManifestError(ValueError):
@@ -71,6 +74,32 @@ class WorkflowManifestError(ValueError):
     Subclasses :class:`ValueError` so callers that already catch validation
     errors as ``ValueError`` keep working.
     """
+
+
+class ReservedTraceGroupTagError(WorkflowManifestError):
+    """A workflow author attempted to populate CALIBER's reserved trace namespace."""
+
+    code = RESERVED_TRACE_GROUP_TAG_CODE
+    path = "mlflow.trace_group_tags"
+
+    def __init__(self, key: str) -> None:
+        self.key = key
+        super().__init__(
+            f"{self.code}: mlflow.trace_group_tags cannot contain keys beginning with "
+            f"{_RESERVED_TRACE_GROUP_TAG_PREFIX!r}"
+        )
+
+
+def _reserved_trace_group_tag_keys(value: object) -> tuple[str, ...]:
+    if not isinstance(value, dict):
+        return ()
+    return tuple(
+        sorted(
+            key
+            for key in value
+            if isinstance(key, str) and key.startswith(_RESERVED_TRACE_GROUP_TAG_PREFIX)
+        )
+    )
 
 
 class UnsupportedSchemaVersionError(WorkflowManifestError):
@@ -1143,6 +1172,16 @@ class MLflowConfig(BaseModel):
     experiment_name: str | None = None
     trace_group_tags: dict[str, str] = Field(default_factory=dict)
 
+    @field_validator("trace_group_tags")
+    @classmethod
+    def _reject_reserved_trace_group_tags(cls, value: dict[str, str]) -> dict[str, str]:
+        if _reserved_trace_group_tag_keys(value):
+            raise PydanticCustomError(
+                RESERVED_TRACE_GROUP_TAG_CODE,
+                "mlflow.trace_group_tags cannot contain keys beginning with 'caliber.'",
+            )
+        return value
+
 
 class PromptArtifact(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -1335,11 +1374,18 @@ def parse_manifest(data: dict[str, Any]) -> WorkflowManifest:
     if not isinstance(data, dict):
         raise WorkflowManifestError("manifest must be a JSON object")
     migrated = migrate(data)
+    raw_mlflow = migrated.get("mlflow")
+    raw_tags = raw_mlflow.get("trace_group_tags") if isinstance(raw_mlflow, dict) else None
+    reserved = _reserved_trace_group_tag_keys(raw_tags)
+    if reserved:
+        raise ReservedTraceGroupTagError(reserved[0])
+
     return WorkflowManifest.model_validate(migrated)
 
 
 __all__ = [
     "CURRENT_SCHEMA_VERSION",
+    "RESERVED_TRACE_GROUP_TAG_CODE",
     "AgentNode",
     "ApiRequestNode",
     "ArtifactsConfig",
@@ -1380,6 +1426,7 @@ __all__ = [
     "PromptRefInstructions",
     "PythonCodeNode",
     "RegisteredFunctionToolBinding",
+    "ReservedTraceGroupTagError",
     "ReviewQueueEnqueueNode",
     "RouterBranch",
     "RouterNode",

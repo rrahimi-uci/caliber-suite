@@ -12,8 +12,9 @@ only values allowed here are identifiers the platform has itself read from a per
   starts with a letter, at most :data:`MAX_ID_LENGTH` characters, no whitespace or ``@``).  Anything
   else is dropped, never truncated or redacted into a lookalike, and never raised: tracing must not
   change what a governed effect does.
-* **Not forgeable from a manifest.**  :func:`without_reserved_keys` removes these keys from
-  user-supplied tag maps (a manifest's ``mlflow.trace_group_tags``), so only trusted code sets them.
+* **Not forgeable from a manifest.**  The entire ``caliber.`` namespace is reserved. Manifest validation
+  refuses those keys, and :func:`without_reserved_keys` removes them from user-supplied tag maps as a
+  defense-in-depth boundary, so only trusted code sets platform attributes.
 * **No messages.**  :func:`governed_span` records a failure as a stable ``caliber.refusal_code`` and
   the exception *type* only.  An exception message can carry arguments or a driver's SQL parameters,
   so it never reaches the span (MLflow would otherwise record it on the span's exception event).
@@ -44,6 +45,8 @@ REFUSAL_CODE_KEY: Final = "caliber.refusal_code"
 RESERVED_SPAN_KEYS: Final[frozenset[str]] = frozenset(CAUSAL_ATTRIBUTE_KEYS.values()) | {
     REFUSAL_CODE_KEY
 }
+#: The complete namespace reserved for platform-owned run and span attributes.
+RESERVED_SPAN_PREFIX: Final = "caliber."
 
 MAX_ID_LENGTH: Final = 128
 # Every id the platform mints is ``<PREFIX>-<hex>`` / ``pd_<hex>``.  Starting with a letter keeps a
@@ -104,8 +107,8 @@ def _platform_refusals() -> tuple[type[BaseException], ...]:
 
 
 def without_reserved_keys(tags: Mapping[str, str]) -> dict[str, str]:
-    """``tags`` without any key only trusted code may set (a manifest cannot assert a causal link)."""
-    return {key: value for key, value in tags.items() if key not in RESERVED_SPAN_KEYS}
+    """Return user tags without any platform-owned ``caliber.*`` key."""
+    return {key: value for key, value in tags.items() if not key.startswith(RESERVED_SPAN_PREFIX)}
 
 
 class GovernedSpan:
@@ -199,6 +202,7 @@ __all__ = [
     "MAX_ID_LENGTH",
     "REFUSAL_CODE_KEY",
     "RESERVED_SPAN_KEYS",
+    "RESERVED_SPAN_PREFIX",
     "GovernedSpan",
     "causal_attributes",
     "governed_span",
