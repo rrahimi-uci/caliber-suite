@@ -29,6 +29,9 @@ are that procedure:
 ``POST /caliber/system/effects/proposals/{proposal_id}/reconcile``
     Ask the downstream about one effect *proposal* now, as the execution owner (B05.5d). It
     never records what the operator believes: see :mod:`caliber.effects.operator_action`.
+``POST /caliber/system/effects/proposals/{proposal_id}/attest-failure``
+    Record an admin's reference to downstream evidence of permanent absence. This can only
+    move ``unknown`` through ``reconciled`` to ``failed``; it cannot commit an effect.
 
 Resolution is admin-scoped and audited. It asserts something about the outside world
 that CALIBER cannot verify, so who claimed it and why is part of the record — this is
@@ -79,8 +82,11 @@ from caliber.effects.connectors.document_request import (
 )
 from caliber.effects.operator_action import (
     MAX_CONCURRENT_REQUESTS,
+    MAX_EVIDENCE_REFERENCE_CHARS,
     MAX_REASON_CHARS,
+    NotAttestable,
     NotReconcilable,
+    attest_failure_as_operator,
     reconcile_as_operator,
 )
 from caliber.effects.operator_view import (
@@ -135,6 +141,9 @@ EFFECTS_PATH = "/ajax-api/2.0/mlflow/caliber/system/effects"
 EFFECT_RESOLVE_PATH = "/ajax-api/2.0/mlflow/caliber/system/effects/{effect_key}/resolve"
 EFFECT_PROPOSAL_RECONCILE_PATH = (
     "/ajax-api/2.0/mlflow/caliber/system/effects/proposals/{proposal_id}/reconcile"
+)
+EFFECT_PROPOSAL_ATTEST_FAILURE_PATH = (
+    "/ajax-api/2.0/mlflow/caliber/system/effects/proposals/{proposal_id}/attest-failure"
 )
 DEAD_LETTERS_PATH = "/ajax-api/2.0/mlflow/caliber/system/webhook-dead-letters"
 DEAD_LETTER_REPLAY_PATH = (
@@ -379,6 +388,69 @@ async def reconcile_effect_proposal(request: Request) -> JSONResponse:
             "outcome": result.outcome,
             "state": result.state,
             "detail": result.detail,
+            "settled": result.settled,
+        }
+    )
+
+
+async def attest_failure_effect_proposal(request: Request) -> JSONResponse:
+    """Record an owner-fenced, evidence-referenced absence decision for a permanent unknown."""
+    proposal_id = request.path_params["proposal_id"]
+    actor = require_scopes(request, [SCOPE_ADMIN])
+    body = await parse_json_object(request)
+    if set(body) != {"resolution", "reason", "evidence_reference"}:
+        raise HTTPException(
+            status_code=400,
+            detail="only 'resolution', 'reason' and 'evidence_reference' are accepted",
+        )
+    if body.get("resolution") != "failed":
+        raise HTTPException(status_code=400, detail="'resolution' must be 'failed'")
+    reason = body.get("reason")
+    if not isinstance(reason, str) or not reason.strip() or len(reason.strip()) > MAX_REASON_CHARS:
+        raise HTTPException(
+            status_code=400, detail=f"'reason' must be 1 to {MAX_REASON_CHARS} characters"
+        )
+    evidence_reference = body.get("evidence_reference")
+    if (
+        not isinstance(evidence_reference, str)
+        or not evidence_reference.strip()
+        or len(evidence_reference.strip()) > MAX_EVIDENCE_REFERENCE_CHARS
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail=f"'evidence_reference' must be 1 to {MAX_EVIDENCE_REFERENCE_CHARS} printable characters",
+        )
+    role = getattr(request.app.state, "execution_role", None)
+    lease = role.lease if role is not None and role.role == OWNER else None
+    if lease is None:
+        raise HTTPException(
+            status_code=409,
+            detail="not_execution_owner: only the process holding the execution-owner lease attests a resolution",
+        )
+    try:
+        result = await run_in_threadpool(
+            attest_failure_as_operator,
+            get_session_factory(request),
+            proposal_id,
+            actor=actor,
+            reason=reason,
+            evidence_reference=evidence_reference,
+            lease=lease,
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="effect proposal not found") from exc
+    except NotAttestable as exc:
+        raise HTTPException(status_code=409, detail=f"not_attestable: {exc.state}") from exc
+    except ProposalError as exc:
+        raise HTTPException(status_code=409, detail=exc.code) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return envelope_response_dict(
+        {
+            "proposal_id": result.proposal_id,
+            "resolution": result.resolution,
+            "state_before": result.state_before,
+            "state": result.state,
             "settled": result.settled,
         }
     )
@@ -855,6 +927,9 @@ def register(app: Starlette) -> None:
     app.routes.append(Route(EFFECT_RESOLVE_PATH, resolve_system_effect, methods=["POST"]))
     app.routes.append(
         Route(EFFECT_PROPOSAL_RECONCILE_PATH, reconcile_effect_proposal, methods=["POST"])
+    )
+    app.routes.append(
+        Route(EFFECT_PROPOSAL_ATTEST_FAILURE_PATH, attest_failure_effect_proposal, methods=["POST"])
     )
     app.routes.append(Route(DEAD_LETTERS_PATH, list_webhook_dead_letters, methods=["GET"]))
     app.routes.append(
