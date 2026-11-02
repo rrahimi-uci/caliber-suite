@@ -343,6 +343,31 @@ seven of `proposal`, and no migration changes a shipped one.** The decision, and
   reconciler (a full batch of 50 continues after its last run), catches a per-run database error by class, and so a run that
   keeps failing cannot starve the runs behind it.
 
+## Amendment: attested resolution of a permanent unknown (#1054)
+
+A proposal that remains ``unknown`` after the downstream owner confirms that it cannot produce a lookup result may be resolved
+by an authorized operator, but only to ``failed`` and only with a reference to the downstream's own evidence. This is not a
+new state or a second state machine. The public action is
+``POST /ajax-api/2.0/mlflow/caliber/system/effects/proposals/{proposal_id}/attest-failure`` with the exact body
+``{"resolution": "failed", "reason": "...", "evidence_reference": "..."}``.
+
+- The action is served only by the current execution owner and checks that lease with ``fence_owner`` in the transaction that
+  writes the proposal. It accepts only ``unknown`` or ``reconciled`` and uses the existing ``unknown -> reconciled -> failed``
+  or ``reconciled -> failed`` edges. There is no edge back to ``dispatched``.
+- ``failed`` is the only attested resolution. An operator cannot attest ``committed``: that terminal state still requires a
+  verified receipt from the downstream lookup or receipt callback. The evidence reference is opaque to CALIBER (a ticket,
+  downstream request id or signed statement handle); CALIBER stores it and does not present it as independently verified.
+- The actor, operator reason, evidence reference, state before, state after, owner id and fencing token are one
+  ``effect_attested_resolution`` audit row in the same transaction as the CAS moves. After commit, the existing
+  ``wake_parked_runs`` path wakes a run waiting on the proposal. If a receipt callback or reconciler wins the version race,
+  the attestation rolls back and records no decision. Missing evidence is ``400`` and a concurrent or terminal move is ``409``.
+- The operator view advertises ``attest_failed`` only for ``unknown`` and ``reconciled`` proposals. The existing ``reconcile``
+  action remains the normal evidence-seeking action, including for an abandoned ``dispatched`` proposal.
+
+No migration is required: the seven-state proposal schema and transition guard are unchanged, and the existing append-only
+audit JSON stores the evidence reference. The SDK mirrors the public action; deployment needs no new setting, worker or
+backfill.
+
 ## Consequences
 
 - #517 (run_manifest), #518 (policy_decision), #522 and #625 (proposal, receipt), #523 and #571 (approval_request,

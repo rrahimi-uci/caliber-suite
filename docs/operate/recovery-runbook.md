@@ -278,23 +278,34 @@ commit it, with the downstream counting one mutation throughout.
   (`/readiness` shows which role a process has, and `lease` in the view names the owner). A lease taken over mid-request is
   `409 lease_lost` with nothing recorded; a settled or never-dispatched proposal is `409 not_reconcilable`; more than 4 requests
   in flight in one process get `429` (retry shortly). A failed request is audited too, by error code or exception class only.
+- **Attest a permanent absence when the downstream has its own evidence but no platform lookup can settle the proposal** (admin
+  scope, execution-owner lease, audited). Supply an opaque ticket, request-id or signed-statement reference and retain it with
+  the incident:
+
+  ```bash
+  curl -s -X POST -H "Authorization: Bearer $CALIBER_TOKEN" -H "Content-Type: application/json" \
+    -d '{"resolution":"failed","reason":"INC-4471: downstream owner attests absence","evidence_reference":"DS-INC-4471"}' \
+    "$CALIBER_BASE_URL/ajax-api/2.0/mlflow/caliber/system/effects/proposals/$PROPOSAL_ID/attest-failure"
+  ```
+
+  This exact body is the only accepted form. The only resolution is `failed`: the action moves `unknown` through `reconciled`
+  to `failed` (or `reconciled` directly to `failed`) using the existing owner-fenced CAS transitions. It cannot create
+  `committed`; a verified downstream receipt remains the only path to that state. A successful request writes actor, reason,
+  evidence reference, state before/after, owner and fencing token in one `effect_attested_resolution` audit row with the state
+  move. It then uses `wake_parked_runs`, so a run waiting on this proposal becomes eligible for the normal worker path. Missing
+  evidence is `400`; a concurrent receipt/reconcile or terminal row is `409`, and the winning state is preserved.
 - Ask the connector to **redeliver its receipt callback** (see [Callback and webhook redelivery](#callback-and-webhook-redelivery)).
   The platform asks the downstream itself before it records anything, so a callback can only confirm what the downstream
   confirms.
 - Nothing else. Do not acquire the lease yourself to call the reconciler (see
   [Reconciler](reference-profile.md#reconciler-only-the-owner-asks-about-unknown-and-abandoned-effects-b055b-742)).
 
-**An effect that stays `unknown` for good.** There is deliberately no operator action that marks a proposal `committed` or
-`failed` on your say-so. A proposal becomes `committed` only with a receipt the platform read back from the downstream by key,
-and `failed` only when the connector proves absence final; marking it failed on a belief would unblock everything that depends
-on it while the effect may in fact have happened (the legacy ledger's `resolve` does take your word, a proposal never does).
-What that means in practice: a downstream that cannot yet show the request (a 404 is delayed visibility as far as anyone can
-tell) leaves the proposal `unknown` and its dependents blocked, and every later pass and `reconcile` asks again until the
-downstream shows it, or its owner redelivers the receipt callback. A proposal with no lookup bound for the project
-(`not_bound`: a connector with no lookup by key, or an `http` effect whose URL is no longer listed in `CALIBER_EFFECT_HTTP_VERIFIERS`)
-cannot be settled by the platform at all; confirm what happened with the downstream's owner, keep that evidence with the
-incident, leave the row and its parked run as they are, and escalate: the follow-ups are a lookup for the connector, or the attested
-operator resolution (#1054, not built yet), not an override.
+**An effect that stays `unknown` for good.** A proposal becomes `committed` only with a receipt the platform read back from the
+downstream by key, and normal reconciliation fails it only when the connector proves absence final. A downstream that cannot yet
+show the request (a 404 is delayed visibility as far as anyone can tell) leaves the proposal `unknown` and its dependents
+blocked. If its owner instead provides durable evidence that the request was absent, use the attested-failure action above: it
+records that reference and moves the proposal through the existing `unknown` -> `reconciled` -> `failed` path. It never accepts
+a `committed` attestation. Do not edit or move the row with SQL, and do not resend the effect.
 
 ### An `http` effect that ended `unknown` (#1055)
 

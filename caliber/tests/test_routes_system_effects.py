@@ -14,6 +14,7 @@ recovery tool corrupt the evidence it recovers from.
 from __future__ import annotations
 
 import itertools
+import threading
 from typing import Any
 
 import pytest
@@ -27,6 +28,7 @@ from caliber.db.models import (
     CaliberWorkflowRunCheckpoint,
     CaliberWorkflowRunEvent,
 )
+from caliber.effects.operator_action import ATTEST_FAILURE_AUDIT_ACTION, attest_failure_as_operator
 from caliber.effects.records import COMMITTED, RECONCILED, UNKNOWN
 from caliber.ownership import release
 from caliber.workflows.effect_ledger import COMPLETED, FAILED, IN_PROGRESS
@@ -210,11 +212,11 @@ def test_lists_legacy_and_proposal_kinds(client: TestClient, db_session: Session
     assert by_id[ids["unknown"]]["abandoned"] is None, "only a dispatched attempt can be abandoned"
     assert by_id[ids["abandoned"]]["abandoned"] is True
     assert by_id[ids["current"]]["abandoned"] is False
-    # the one action is offered where it can do something: not for a dispatch of the lease that is still current
+    # reconcile is offered for every recoverable row; attested failure additionally applies to unknown/reconciled.
     assert {pid: row["safe_actions"] for pid, row in by_id.items()} == {
         ids["abandoned"]: ["reconcile"],
-        ids["unknown"]: ["reconcile"],
-        ids["reconciled"]: ["reconcile"],
+        ids["unknown"]: ["reconcile", "attest_failed"],
+        ids["reconciled"]: ["reconcile", "attest_failed"],
         ids["current"]: [],
     }
     assert by_id[ids["abandoned"]]["dispatch_token"] < by_id[ids["current"]]["dispatch_token"]
@@ -222,8 +224,8 @@ def test_lists_legacy_and_proposal_kinds(client: TestClient, db_session: Session
     assert data["proposal_state"] == "open"
     sources = data["sources"]
     assert sources["legacy_ledger"]["settled_by"] == "operator"
-    assert sources["effect_proposal"]["settled_by"] == "reconciler"
-    assert sources["effect_proposal"]["safe_actions"] == ["reconcile"]
+    assert sources["effect_proposal"]["settled_by"] == "reconciler_or_attested_operator"
+    assert sources["effect_proposal"]["safe_actions"] == ["reconcile", "attest_failed"]
     assert set(data["resolutions"]) == {"skip", "retry"}
 
 
@@ -1726,3 +1728,95 @@ def test_concurrent_callbacks_commit_a_proposal_once_on_postgresql(
             with factory() as session:
                 assert proposal_state(session, proposal_id).state == COMMITTED
             assert _count(factory, CaliberEffectReceipt) == 1
+
+
+def test_attestation_racing_a_receipt_callback_has_one_terminal_outcome_on_postgresql(
+    tmp_path: Any,
+    monkeypatch: pytest.MonkeyPatch,
+    app_config: CaliberConfig,
+    engine: Any,
+    downstream: Any,
+) -> None:
+    from tests.dialect_helpers import POSTGRES_TEST_URL
+    from tests.test_event_outbox import _database
+
+    if not POSTGRES_TEST_URL:
+        pytest.skip("the race needs PostgreSQL")
+    from caliber.routes import system_effects
+
+    monkeypatch.setenv(SECRET_ENV, SECRET)
+    binding = {
+        "connector": CONNECTOR,
+        "project_id": PROJECT,
+        "secret_source": f"env://{SECRET_ENV}",
+        "base_url": downstream.base_url,
+    }
+    with _database("postgresql", tmp_path, monkeypatch) as (_, factory):
+        _seed_run(factory)
+        proposal_id, key = _unknown_proposal(factory, downstream)
+        with factory() as session:
+            lease = leased(session, OWNER)
+            session.commit()
+        for callback_client in _callback_app(app_config, engine, factory, monkeypatch, [binding]):
+            original_lookup = system_effects._lookup_facts
+            lookup_entered = threading.Event()
+            release_lookup = threading.Event()
+
+            def delayed_lookup(
+                *args: Any,
+                _lookup_entered: threading.Event = lookup_entered,
+                _release_lookup: threading.Event = release_lookup,
+                _original_lookup: Any = original_lookup,
+                **kwargs: Any,
+            ) -> Any:
+                _lookup_entered.set()
+                assert _release_lookup.wait(20)
+                return _original_lookup(*args, **kwargs)
+
+            monkeypatch.setattr(system_effects, "_lookup_facts", delayed_lookup)
+            raw = json.dumps({"idempotency_key": key}).encode()
+            stamp = int(time.time())
+            delivery = "delivery-attestation-race"
+            headers = {
+                "x-caliber-connector": CONNECTOR,
+                "x-caliber-project": PROJECT,
+                "x-caliber-timestamp": str(stamp),
+                "x-caliber-delivery": delivery,
+                "x-caliber-signature": sign(SECRET, CONNECTOR, PROJECT, stamp, delivery, raw),
+            }
+            callback_result: list[Any] = []
+
+            def callback(
+                _callback_result: list[Any] = callback_result,
+                _callback_client: TestClient = callback_client,
+                _headers: dict[str, str] = headers,
+                _raw: bytes = raw,
+            ) -> None:
+                _callback_result.append(
+                    system_effects._process_receipt_callback(
+                        factory, _callback_client.app.state.config, _headers, _raw
+                    )
+                )
+
+            thread = threading.Thread(target=callback, daemon=True)
+            thread.start()
+            assert lookup_entered.wait(20)
+            attest_failure_as_operator(
+                factory,
+                proposal_id,
+                actor="@operator-on-call",
+                reason="INC-1054: absence confirmed",
+                evidence_reference="ticket://INC-1054/race-callback",
+                lease=lease,
+            )
+            release_lookup.set()
+            thread.join(60)
+            assert len(callback_result) == 1 and callback_result[0].status_code == 409
+            with factory() as session:
+                assert proposal_state(session, proposal_id).state == PROPOSAL_FAILED
+                assert session.execute(
+                    select(CaliberAuditLog).where(
+                        CaliberAuditLog.action == ATTEST_FAILURE_AUDIT_ACTION
+                    )
+                ).scalar_one()
+            assert _count(factory, CaliberEffectReceipt) == 0
