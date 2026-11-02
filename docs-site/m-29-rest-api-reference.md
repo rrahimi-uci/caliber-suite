@@ -182,7 +182,7 @@ Use the typed SDK where it exists. When a family is marked `Raw only`, the curre
 | Memory (`memory`) | `internal` | `4` | Typed SDK | `client.memory` | Add, search, list and delete agent long-term memory records. |
 | Metrics (`metrics`) | `internal` | `1` | n/a | `client.raw` | Every operation in this family is permanently outside SDK scope (see coverage_allowlist.toml's [[exclusion]] entries) -- there is nothing here a typed method would add. Use `client.raw` or the served OpenAPI document directly. |
 | Readiness (`readiness`) | `internal` | `1` | Typed SDK | `CaliberClient.readiness()` | The enveloped readiness report with its blocking checks. |
-| System (`system`) | `internal` | `12` | Typed SDK | `client.system` | Effect-ledger and webhook recovery: outward-facing work CALIBER could not complete and a person must resolve. |
+| System (`system`) | `internal` | `13` | Typed SDK | `client.system` | Effect-ledger and webhook recovery: outward-facing work CALIBER could not complete and a person must resolve. |
 | Webhooks (`webhooks`) | `internal` | `1` | n/a | `client.raw` | Every operation in this family is permanently outside SDK scope (see coverage_allowlist.toml's [[exclusion]] entries) -- there is nothing here a typed method would add. Use `client.raw` or the served OpenAPI document directly. |
 
 ## Current route inventory
@@ -194,8 +194,8 @@ The served contract is route-table grounded and body-complete: paths and methods
 
 | Field | Value |
 | --- | --- |
-| Route paths | `395` |
-| Operations | `481` |
+| Route paths | `396` |
+| Operations | `482` |
 | Path coverage | `complete` |
 | Request bodies | `complete` |
 | GA families | `23` |
@@ -281,7 +281,7 @@ Use these quick jumps when you already know the CALIBER subsystem and want the d
 | [Memory (`memory`)](#memory-memory) | `4` | `2` |
 | [Metrics (`metrics`)](#metrics-metrics) | `1` | `1` |
 | [Readiness (`readiness`)](#readiness-readiness) | `1` | `1` |
-| [System (`system`)](#system-system) | `12` | `12` |
+| [System (`system`)](#system-system) | `13` | `13` |
 | [Webhooks (`webhooks`)](#webhooks-webhooks) | `1` | `1` |
 
 ### GA routes
@@ -1144,12 +1144,13 @@ Published for route-table completeness, but not part of the supported SDK contra
 
 #### System (`system`)
 
-12 operation(s) across 12 route path(s).
+13 operation(s) across 13 route path(s).
 
 | Method | Path | Required scope | Parameters | Responses | Details |
 | --- | --- | --- | --- | --- | --- |
 | `GET` | `/ajax-api/2.0/mlflow/caliber/system/alerts` | any authenticated user | — | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_system_alerts` |
 | `GET` | `/ajax-api/2.0/mlflow/caliber/system/effects` | `caliber.operator` | — | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_system_effects` |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/system/effects/proposals/{proposal_id}/attest-failure` | `caliber.admin` | `proposal_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_system_effects_proposals_proposal_id_attest_failure`; request body documented in OpenAPI |
 | `POST` | `/ajax-api/2.0/mlflow/caliber/system/effects/proposals/{proposal_id}/reconcile` | `caliber.admin` | `proposal_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_system_effects_proposals_proposal_id_reconcile`; request body documented in OpenAPI |
 | `POST` | `/ajax-api/2.0/mlflow/caliber/system/effects/{effect_key}/resolve` | `caliber.admin` | `effect_key` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_system_effects_effect_key_resolve`; request body documented in OpenAPI |
 | `GET` | `/ajax-api/2.0/mlflow/caliber/system/incidents` | any authenticated user | — | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_system_incidents` |

@@ -281,9 +281,10 @@ These are true of `main` today and are deliberate; each one that has an owner na
   calls still run inline. A protected call the *model* chooses is proposed (in a governed agent step) or refused (in every
   other governed loop), never run directly; a plan a caller builds by hand, with no governed context, is not governed
   ([Model-selected tool calls](m-64-reference-profile.md#model-selected-tool-calls-b046-768)).
-- **A permanent unknown has no operator exit yet.** A downstream that never shows a request and cannot prove its absence
-  leaves the proposal `unknown` and its dependents blocked. The attested operator resolution is #1054 and is not
-  delivered; the [recovery runbook](m-65-recovery-runbook.md) says what to do and not to do until then.
+- **A permanent unknown has a narrow operator exit.** A downstream that never shows a request and cannot prove its
+  absence leaves the proposal `unknown` until an execution-owner admin supplies an evidence reference and attests
+  `failed` through the #1054 endpoint. The action is audited, may not attest `committed`, and wakes a parked run;
+  the [recovery runbook](m-65-recovery-runbook.md) defines the contract.
 - **An unknown webhook outcome fails the run.** A webhook or API-request node whose effect ends `unknown` (a timeout
   after the send, a 5xx, a 2xx the lookup cannot see yet) fails its run; unlike a governed agent step it does not park.
   The reconciler settles the proposal by the listed lookup without sending again, but settling does not resume the failed
@@ -340,6 +341,9 @@ These are true of `main` today and are deliberate; each one that has an owner na
   database role and cookie flags are stated in ADR 0001 and listed under
   [Not enforced yet](m-64-reference-profile.md#not-enforced-yet); a configuration that passes the profile is the
   minimum for the supported shape, not the whole of it.
+- **Replay observations are a storage/runtime primitive, not the Beta evidence package.** B09.3 records immutable,
+  project- and principal-scoped model/read observations with content digests for replay-enabled plans. It does not expose a
+  public replay route or claim that the B14 evidence package exists; see the [reference-profile replay notes](m-64-reference-profile.md#replay-observations-b093-799).
 
 ## What stays from the alpha
 
