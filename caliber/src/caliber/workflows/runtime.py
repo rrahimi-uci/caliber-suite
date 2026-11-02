@@ -132,6 +132,7 @@ from caliber.workflows.guardrails import (
     GuardrailBlockedError,
     GuardrailContext,
 )
+from caliber.workflows.host_paths import PathOutsideRoot
 from caliber.workflows.ir import (
     IRAgent,
     IRApiRequest,
@@ -9802,19 +9803,6 @@ def _selected_input_port(inputs: dict[str, Any]) -> str | None:
 def _select_input(inputs: dict[str, Any], run_input: str) -> str:
     port = _selected_input_port(inputs)
     return run_input if port is None else str(inputs[port])
-
-
-class PathOutsideRoot(ValueError):  # noqa: N818 - the name the reference-profile contract fixes (#763)
-    """A host path resolved outside ``CALIBER_WORKFLOW_FILE_ROOT`` (B12.4b, #763).
-
-    A ``ValueError`` so every caller that already handles the refusal keeps working; ``path`` is the resolved path and
-    ``root`` the configured root.
-    """
-
-    def __init__(self, message: str, *, path: Path, root: Path) -> None:
-        super().__init__(message)
-        self.path = path
-        self.root = root
 
 
 def confine_to_file_root(path: Path, *, what: str) -> Path:
