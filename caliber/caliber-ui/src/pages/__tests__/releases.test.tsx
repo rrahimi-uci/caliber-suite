@@ -23,13 +23,13 @@ function envelope<T>(data: T): { data: T } {
   return { data };
 }
 
-function renderPage(): void {
+function renderPage(initialEntry = "/"): void {
   const qc = new QueryClient({
     defaultOptions: { queries: { retry: false, gcTime: 0 } },
   });
   render(
     <QueryClientProvider client={qc}>
-      <MemoryRouter>
+      <MemoryRouter initialEntries={[initialEntry]}>
         <Releases />
       </MemoryRouter>
     </QueryClientProvider>,
@@ -846,6 +846,62 @@ describe("Releases with the release_candidates feature off (the alpha default)",
 
     expect(await screen.findByTestId("release-signoff-factory")).toBeInTheDocument();
     expect(screen.getByTestId("releases-live-board")).toBeInTheDocument();
+  });
+
+  it("scrolls to the signoff section when the navigation's Release candidates link brought the person here, and only then", async () => {
+    const scrolled: Element[] = [];
+    const original = Element.prototype.scrollIntoView;
+    Element.prototype.scrollIntoView = function scrollIntoView(this: Element): void {
+      scrolled.push(this);
+    };
+    try {
+      server.use(
+        http.get(`${API_BASE}/capabilities`, () =>
+          HttpResponse.json(capabilitiesBody({ release_candidates: true })),
+        ),
+        http.get(`${API_BASE}/releases/candidates`, () => HttpResponse.json(envelope([]))),
+      );
+      renderPage("/releases#release-signoff");
+      const factory = await screen.findByTestId("release-signoff-factory");
+      expect(factory).toHaveAttribute("id", "release-signoff");
+      await waitFor(() => expect(scrolled).toEqual([factory]));
+    } finally {
+      Element.prototype.scrollIntoView = original;
+    }
+  });
+
+  it("does not scroll, and does not need scrollIntoView, for a plain visit", async () => {
+    const original = Element.prototype.scrollIntoView;
+    let calls = 0;
+    Element.prototype.scrollIntoView = function scrollIntoView(): void {
+      calls += 1;
+    };
+    try {
+      server.use(
+        http.get(`${API_BASE}/capabilities`, () =>
+          HttpResponse.json(capabilitiesBody({ release_candidates: true })),
+        ),
+        http.get(`${API_BASE}/releases/candidates`, () => HttpResponse.json(envelope([]))),
+      );
+      renderPage("/releases");
+      await screen.findByTestId("release-signoff-factory");
+      expect(calls).toBe(0);
+    } finally {
+      Element.prototype.scrollIntoView = original;
+    }
+  });
+
+  it("scrolls without error where the browser has no scrollIntoView", async () => {
+    // jsdom has none: the optional call is the guard, and the section still renders.
+    expect(Element.prototype.scrollIntoView).toBeUndefined();
+    server.use(
+      http.get(`${API_BASE}/capabilities`, () =>
+        HttpResponse.json(capabilitiesBody({ release_candidates: true })),
+      ),
+      http.get(`${API_BASE}/releases/candidates`, () => HttpResponse.json(envelope([]))),
+    );
+    renderPage("/releases#release-signoff");
+    expect(await screen.findByTestId("release-signoff-factory")).toBeInTheDocument();
   });
 
   it("shows no signoff section when capabilities cannot be loaded", async () => {

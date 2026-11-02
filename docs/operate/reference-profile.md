@@ -5119,19 +5119,62 @@ adapter (MCP servers and OpenAPI integrations), or a pin no longer matches the c
 (`SUPPORT_EVIDENCE`, `REFERENCE_CONNECTORS`). A `reference_profile_violations` message names the violation codes in the order the profile checks them (not alphabetically; see the table above
 for each one's variable), never a configured value. The queue (`CALIBER_WORKFLOW_RUN_QUEUE_ENABLED`) is not a condition: the cited scenarios run with it at its default.
 
+**How the web app renders it (B15-Support.3, #771).** The navigation reads `adapters` from the same `GET /capabilities` request the feature
+flags use (one request, no second source) and renders three things from it. It writes no support claim of its own: the only text the app
+adds is the notice that the server did not say.
+
+| where | adapter | what a person sees |
+| --- | --- | --- |
+| **MCP Servers** (Integrations group) | `mcp_servers` | a status chip, listed only while `CALIBER_FEATURE_INTEGRATIONS` is on |
+| **OpenAPI Integrations** (Integrations group) | `openapi_integrations` | a status chip, listed only while `CALIBER_FEATURE_INTEGRATIONS` is on |
+| **Release candidates** (Prompt lifecycle group; the signoff section of the Releases page, `/releases#release-signoff`) | `release_evaluation` | a status chip, listed only while `CALIBER_FEATURE_RELEASE_CANDIDATES` is on |
+| **Support status** (a closed disclosure under the navigation) | all four, including `document_request_connector`, which has no page | each adapter's label, status chip, the `message` word for word and, for a `supported` adapter, how many scenario tests `evidence` cites |
+
+- **The flag still decides whether a destination is listed; `adapters` decides what it is called.** A flag that is off lists nothing, exactly
+  as before, so a default install's navigation is unchanged and carries no chip. The area's exact refusal is still one click away in
+  Support status, word for word the `404` text.
+- **Status is a word and an icon, never a colour alone** (`Supported`, `Preview`, `Unavailable`, the server's three words and no other
+  tier). A screen reader hears the destination's own name, then the status word and the `message` as its description. The chip colours
+  meet WCAG AA contrast (checked in the browser spec).
+- **An `unavailable` adapter that is listed is a disabled item**: visible, reachable by keyboard so its reason is heard, with
+  `aria-disabled="true"`, and not followed by a click or Enter. A `preview` adapter stays a normal link with its `Preview` chip: `preview`
+  can run, only nothing supports it.
+- **Fail closed.** Nothing reads as `supported` unless the server reported a `supported` entry that is whole: a `message`, no
+  `reason_code`, and at least one `evidence` entry. While capabilities load nothing is labelled; if the request fails, the server predates
+  `adapters`, an entry is missing or `null`, or a status is not one of the three words, the adapter reads as `Preview` with the notice
+  `The server did not report why. Nothing is shown as supported unless the server says so.` (an `unavailable` entry with no `message` keeps
+  `Unavailable`, with the same notice). A flag being on, or a visible entry, is never support.
+- **No authority.** Showing, labelling or enabling an entry grants nothing: the route behind it still checks authorization, approval and
+  admission.
+
+What a person sees on a reference deployment with the integrations area and release candidates on (the item name, its chip, and the text a
+screen reader reads after the name):
+
+```text
+Release candidates      [Supported]     Supported. Workspace release evaluation is supported: the evaluator and its evidence shape match the scenario evidence.
+MCP Servers             [Unavailable]   Unavailable. MCP servers are unavailable under the reference profile: it lists no MCP command or host, so no server is reachable.   (disabled; disabled_by is profile: there is nothing to set)
+OpenAPI Integrations    [Preview]       Preview. OpenAPI integrations are preview: no scenario evidence supports them in the reference profile, and no setting changes that.
+```
+
+and with the evaluator off (`release_evaluation`, release candidates on) the item is disabled with the recovery step in the same words as the
+report: `Unavailable. Workspace release evaluation is unavailable in this deployment. Set CALIBER_WORKSPACE_RELEASE_EVALUATOR_ENABLED=true to enable it.`
+
 - **Compatibility.** The `features` block, its keys and its `stability` values (`preview`, `record_only`) are unchanged, as is the
   top-level `openapi_integrations` block (`stability: "beta"` is the SDK tier, not a support claim). `adapters` is additive: a client
   that predates it ignores it, and `caliber-ui` types it as optional so a server without it reads as "nothing is supported". No
   setting, default, route, error body or migration changes, and the alpha documents stay historical.
 - **What it does not do.** It does not grant authority: a visible or `supported` adapter is still subject to the authorization, approval
   and admission checks of its own route. It does not turn anything on, and it is not the D5 acceptance report (#613); it supplies the
-  evidence list that gate reads. The Beta navigation that renders these values is #771.
+  evidence list that gate reads. The web app's rendering of these values is described above (#771).
 - **Scenario evidence is cited, not run here.** `tests/test_feature_flags.py` fails when an `evidence` entry does not name an existing
   test function, so a claim cannot cite a test that is not there; whether those tests pass is the "EGI scenarios (PostgreSQL)" job.
 - **Oracle.** `caliber/tests/test_feature_flags.py` (`supported_reference_visible`, `unsupported_mcp_not_promoted`,
   `unavailable_evaluator_disabled`, `compatibility_values` and the pins), `caliber/tests/test_beta_scope_contract.py` (the
   [Beta scope](../start/beta-scope.md) page cannot drift from the adapter table, the evidence or the quoted messages), the scenario `caliber/tests/egi_scenarios/test_b15_capability_exposure.py`
-  on a real reference app, and the alpha-defaults browser spec `caliber/caliber-ui/e2e/feature-flags.spec.ts`.
+  on a real reference app, and the alpha-defaults browser spec `caliber/caliber-ui/e2e/feature-flags.spec.ts`. For the web app's
+  rendering (#771): `caliber/caliber-ui/src/components/__tests__/Sidebar.test.tsx` (`supported_visible`, `preview_label_retained`,
+  `unavailable_disabled`, `alpha_navigation_regression` and the fail-closed cases) and the browser spec
+  `caliber/caliber-ui/e2e/adapter-support.spec.ts` (supported, preview and unavailable states on a rewritten `/capabilities`, keyboard and contrast).
 
 ## Plugins and host paths (B12.4b, #763)
 

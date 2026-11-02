@@ -27,6 +27,11 @@ import { createPromptViaApi, signIn, uniqueSlug } from "./helpers";
  *     `preview` (it is supported only under `CALIBER_PROFILE=reference`), release evaluation and
  *     the integration adapters are `unavailable` with the same text and code as the 404 their
  *     routes answer. The flag `stability` values the app already reads are unchanged.
+ *  7. Beta support labels (#771): the navigation lists no flagged destination and so labels
+ *     none; the "Support status" panel shows every adapter with the server's exact status and
+ *     refusal text, identical to the 404 its route answers, and nothing reads as supported.
+ *     (The supported and unavailable-but-listed states, which this default install cannot reach,
+ *     are in `adapter-support.spec.ts` on a rewritten capabilities response.)
  */
 const API = "/ajax-api/2.0/mlflow/caliber";
 
@@ -187,6 +192,45 @@ test.describe("Feature flags (alpha defaults)", () => {
     );
     expect(data.adapters["release_evaluation"]?.disabled_by).toBe(
       "CALIBER_FEATURE_RELEASE_CANDIDATES",
+    );
+  });
+
+  test("the support panel shows each adapter's status and the exact refusal text the server reports, and no gated destination gets a label (#771)", async ({
+    page,
+  }) => {
+    await signIn(page);
+    await openAllNavGroups(page);
+
+    const capabilities = await page.request.get(`${API}/capabilities`);
+    const adapters = (await capabilities.json()).data.adapters as Record<
+      string,
+      { status: string; label: string; message: string }
+    >;
+
+    // No flagged destination is listed, so nothing in the navigation carries a support label.
+    const nav = page.locator('aside[aria-label="CALIBER navigation"]');
+    await expect(nav.getByTestId("adapter-support-chip")).toHaveCount(0);
+
+    // The panel is closed until asked for, then lists every adapter with the server's own words.
+    const toggle = nav.getByTestId("nav-support-toggle");
+    await expect(toggle).toHaveAttribute("aria-expanded", "false");
+    await toggle.click();
+    await expect(toggle).toHaveAttribute("aria-expanded", "true");
+    for (const [id, adapter] of Object.entries(adapters)) {
+      const row = nav.getByTestId(`adapter-support-${id}`);
+      await expect(row, id).toContainText(adapter.label);
+      await expect(row, id).toContainText(adapter.message);
+      await expect(row.getByTestId("adapter-support-chip"), id).toHaveText(
+        adapter.status === "unavailable" ? "Unavailable" : "Preview",
+      );
+    }
+    // Nothing is supported on a default install, and the UI does not invent otherwise.
+    await expect(nav.getByTestId("adapter-support-list")).not.toContainText("Supported");
+    // The refused area's text is the one its route answers with.
+    const refused = await page.request.get(`${API}/mcp-servers`);
+    expect(refused.status()).toBe(404);
+    await expect(nav.getByTestId("adapter-support-mcp_servers")).toContainText(
+      (await refused.json()).detail,
     );
   });
 
