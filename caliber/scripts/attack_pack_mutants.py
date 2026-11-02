@@ -33,6 +33,8 @@ from pathlib import Path
 CALIBER_DIR = Path(__file__).resolve().parents[1]
 SRC = CALIBER_DIR / "src" / "caliber"
 PACK = "tests/egi_scenarios/test_v14_reference_profile.py"
+# ``test_second_owner_is_api_only`` (#673) is a 3-second-lease timing test of the execution owner, unrelated to the refusals: under load it
+# flakes on its own, so it is not part of the mutation run (it stays in the pack).
 
 
 @dataclass(frozen=True)
@@ -47,6 +49,9 @@ class Mutant:
     name: str
     why: str  # what a refusal that broke this way would let an attacker do
     edits: tuple[Edit, ...]
+    #: The mutated code runs in the tool-sandbox child, which is started with ``python -I`` and so ignores ``PYTHONPATH``: the runner
+    #: points that child at the mutated copy (in the copy only), or the mutant would never be loaded and could not be killed.
+    child_code: bool = False
 
 
 def _e(path: str, old: str, new: str) -> Edit:
@@ -326,6 +331,7 @@ MUTANTS: tuple[Mutant, ...] = (
                 "    pass",
             ),
         ),
+        child_code=True,
     ),
     Mutant(
         "sandbox_child_is_not_told_the_profile",
@@ -348,7 +354,15 @@ MUTANTS: tuple[Mutant, ...] = (
                 "    if not str(resolved).startswith(str(root)):",
             ),
         ),
+        child_code=True,
     ),
+)
+
+
+#: How the sandbox starts its child (``tool_sandbox/service.py``): the interpreter command and its environment.
+_CHILD_SPAWN_ANCHORS = (
+    '[sys.executable, "-I", "-B", str(_RUNNER_PATH)]',
+    "env=self._child_environment(),",
 )
 
 
@@ -365,6 +379,13 @@ def check_anchors() -> list[str]:
                 problems.append(f"{mutant.name}: {edit.path} anchor found {count} times (need 1)")
             if edit.old == edit.new:
                 problems.append(f"{mutant.name}: the edit changes nothing")
+    if any(m.child_code for m in MUTANTS):
+        service = (SRC / "tool_sandbox" / "service.py").read_text(encoding="utf-8")
+        for anchor in _CHILD_SPAWN_ANCHORS:
+            if service.count(anchor) != 1:
+                problems.append(
+                    f"sandbox spawn anchor {anchor!r} found {service.count(anchor)} times (need 1)"
+                )
     return problems
 
 
@@ -378,7 +399,7 @@ def _run_pack(src: Path, pytest_args: list[str], *, select: list[str]) -> tuple[
             sys.executable,
             "-m",
             "pytest",
-            *(select or [PACK, "-k", "postgresql"]),
+            *(select or [PACK, "-k", "postgresql and not second_owner"]),
             "-x",
             "-q",
             "-rfE",
@@ -405,6 +426,20 @@ def _summary_ids(output: str, kind: str) -> list[str]:
     ]
 
 
+def _point_the_sandbox_child_at(mutated_src: Path) -> None:
+    """In the throwaway copy only: start the sandbox child without ``-I`` and with the copy on its ``PYTHONPATH``."""
+    service = mutated_src / "caliber" / "tool_sandbox" / "service.py"
+    text = service.read_text(encoding="utf-8")
+    popen, environment = _CHILD_SPAWN_ANCHORS
+    assert text.count(popen) == 1 and text.count(environment) == 1, (
+        "the sandbox's spawn changed: update the runner"
+    )
+    text = text.replace(popen, '[sys.executable, "-B", str(_RUNNER_PATH)]').replace(
+        environment, f'env={{**self._child_environment(), "PYTHONPATH": {str(mutated_src)!r}}},'
+    )
+    service.write_text(text, encoding="utf-8")
+
+
 def run_mutant(mutant: Mutant, pytest_args: list[str]) -> tuple[str, str]:
     """``(verdict, detail)`` for one mutant.
 
@@ -426,6 +461,8 @@ def run_mutant(mutant: Mutant, pytest_args: list[str]) -> tuple[str, str]:
             if text.count(edit.old) != 1:
                 return "broken", f"anchor not found exactly once in {edit.path}"
             target.write_text(text.replace(edit.old, edit.new), encoding="utf-8")
+        if mutant.child_code:
+            _point_the_sandbox_child_at(mutated_src)
         output = ""
         for _attempt in range(2):
             status, output = _run_pack(mutated_src, pytest_args, select=[])

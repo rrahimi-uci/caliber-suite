@@ -637,7 +637,8 @@ def test_a_folder_input_node_cannot_walk_or_link_out_of_the_file_root(
     run, said = _run_host_node(world, _folder_input(pattern), str(file_tree.root))
 
     assert run.status == "failed", run.error_summary
-    assert "outside" in str(run.error_summary)
+    assert str(run.error_summary).startswith("PathOutsideRoot: folder input "), run.error_summary
+    assert "CALIBER_WORKFLOW_FILE_ROOT" in str(run.error_summary)
     assert OUTSIDE_SECRET not in str(run.error_summary) + said
 
 
@@ -972,7 +973,7 @@ def test_a_proxied_request_that_names_no_single_user_is_not_authenticated_as_any
     response = world.app.client.post(
         f"{PREFIX}/workflow-runs", json=body, headers={**headers, "X-CALIBER-CSRF": token}
     )
-    assert response.status_code in (401, 403), response.text
+    assert response.status_code == 401, response.text
     assert _stored(world) == before_rows and world.effects() == before
 
 
@@ -1118,13 +1119,13 @@ PRIVATE_REASON = "a private network address"
         pytest.param(
             "http://[::ffff:169.254.169.254]/latest/meta-data/",
             None,
-            (METADATA_REASON, "a link-local address", "a reserved address"),
+            ("a link-local address",),
             id="an-ipv4-mapped-ipv6-literal",
         ),
         pytest.param(
             "http://[fd00:ec2::254]/latest/meta-data/",
             None,
-            (METADATA_REASON, PRIVATE_REASON, "a reserved address"),
+            (METADATA_REASON,),
             id="the-aws-ipv6-metadata-address",
         ),
         pytest.param(
@@ -1812,7 +1813,8 @@ def test_an_upload_named_with_a_traversal_is_never_written_outside_the_storage_r
         headers={**headers, "X-CALIBER-CSRF": token},
     )
 
-    assert response.status_code in (200, 201, 400, 422), response.text
+    assert response.status_code == 400, response.text
+    assert response.json()["detail"] == f"unsafe path: {filename!r}", response.text
     escaped = [
         path
         for root in (world.tmp_path, world.tmp_path.parent, Path("/tmp"))
@@ -2057,9 +2059,9 @@ def test_a_shipped_callable_name_in_an_attackers_module_is_refused_at_author_tim
     world: World,
 ) -> None:
     """Shipped means the exact (module, callable) pair the registry seed writes. A row that names a shipped callable
-    (``grok_parse``) in the attacker's module is an administrator's module: refused at validation and publish, and a version that
+    (``grok_parse``) in the attacker's module (under a name of its own: a reserved name is refused by another layer) is an administrator's module: refused at validation and publish, and a version that
     was published before the profile fails its run by the one code, with the module never imported."""
-    ref = world.seed_tool("grok_parse", callable_name="grok_parse", owner="caliber")
+    ref = world.seed_tool(callable_name="grok_parse", owner="caliber")
     workflow_id = world.new_workflow()
     version_id = world.draft(workflow_id, tool_manifest("agent_tool", workflow_id, ref))
     hostile = world.seeded_hostile(
