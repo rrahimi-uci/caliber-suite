@@ -1673,6 +1673,18 @@ class WorkflowRunApprovalDecisionRequest(BaseModel):
     reason: str | None = None
 
 
+class WorkflowRunApprovalWithdrawRequest(BaseModel):
+    """Body of ``POST /workflow-runs/{run_id}/approvals/{approval_id}/withdraw`` (#1074): an optional ``reason`` and nothing else.
+
+    The request is named by the path, never by the body, and no other field is accepted, so a caller cannot choose a status,
+    an actor or a time: the server sets ``withdrawn`` and records the authenticated principal.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    reason: str | None = Field(default=None, max_length=1000)
+
+
 class ProposePatchRequest(BaseModel):
     """Body of ``POST /caliber/workflow-versions/{version_id}/propose-patch``."""
 
@@ -2233,6 +2245,7 @@ class ApprovalStateViewSchema(BaseModel):
         "rejected",
         "already_consumed",
         "superseded",
+        "withdrawn",
         "expired",
         "approval_not_current",
         "run_not_waiting",

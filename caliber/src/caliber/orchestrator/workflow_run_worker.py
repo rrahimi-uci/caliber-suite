@@ -40,6 +40,13 @@ from caliber.effects.governed_context import (
     step_context,
 )
 from caliber.effects.reconcile import effect_gate
+from caliber.effects.run_settlement import (
+    RUN_CANCELLED_REASON,
+    RUN_COMPLETED_REASON,
+    RUN_EXPIRED_REASON,
+    RUN_FAILED_REASON,
+    settle_run_effects,
+)
 from caliber.effects.step_proposal import registry_tool_classifier
 from caliber.events.bus import EventBus
 from caliber.ids import new_runtime_approval_id, new_workflow_run_checkpoint_id
@@ -1149,6 +1156,7 @@ class WorkflowRunWorker:
                         f"wait_for_event node {checkpoint.node_id!r} timed out after "
                         f"{timeout_seconds:g}s"
                     )
+                settle_run_effects(session, run.workflow_run_id, reason=RUN_EXPIRED_REASON)
                 summary = dict(run.summary or {})
                 summary["status"] = RUN_STATUS_EXPIRED
                 summary["error"] = run.error_summary
@@ -1356,6 +1364,7 @@ class WorkflowRunWorker:
         run.current_node_id = None
         run.error_code = error_code
         run.error_summary = error_summary
+        settle_run_effects(session, run.workflow_run_id, reason=RUN_FAILED_REASON)
         effective_checkpoint_id = (
             checkpoint.checkpoint_id if checkpoint is not None else checkpoint_id
         )
@@ -2736,6 +2745,7 @@ class WorkflowRunWorker:
         run.summary = summary
         run.error_code = None
         run.error_summary = None
+        settle_run_effects(session, run.workflow_run_id, reason=RUN_COMPLETED_REASON)
         self._append_event(
             session,
             workflow_run_id=run.workflow_run_id,
@@ -2784,6 +2794,7 @@ class WorkflowRunWorker:
         run.summary = summary
         run.error_code = "cancelled"
         run.error_summary = "cancelled by operator"
+        settle_run_effects(session, run.workflow_run_id, reason=RUN_CANCELLED_REASON)
         self._append_event(
             session,
             workflow_run_id=run.workflow_run_id,
@@ -2837,6 +2848,7 @@ class WorkflowRunWorker:
         run.summary = summary
         run.error_code = error_code
         run.error_summary = error_summary
+        settle_run_effects(session, run.workflow_run_id, reason=RUN_FAILED_REASON)
         self._append_event(
             session,
             workflow_run_id=run.workflow_run_id,

@@ -33,6 +33,11 @@ having to remember to. It adds no second lease protocol and no second queue:
   crashed or cancelled worker left open past the step's deadline plus ``CALIBER_AGENT_RESERVATION_GRACE_SECONDS`` as ``abandoned``,
   at their whole reservation (:func:`caliber.budget.step_reservation.abandon_stale`): it never gives tokens back, so a run's
   budget does not move, the row only stops being open. A failure there never stops the loop.
+* **Ended runs.** After each pass, at most once a minute, the same lease settles what runs that have already ended left unsent: a
+  ``proposed`` proposal moves to ``failed`` (reason ``run_failed``, ``run_cancelled``, ``run_expired`` or ``run_completed``) and
+  a live bound approval request to ``withdrawn`` (:func:`caliber.effects.run_settlement.settle_ended_runs`, #1074). The run's end
+  paths do this in the transaction that ends the run; this is the backstop for runs that ended before that or by a path that
+  missed it, and it never touches a ``dispatched``, ``unknown`` or settled proposal. A failure there never stops the loop.
 * **Liveness.** It writes its own ``caliber_worker_heartbeats`` row (kind ``effect_reconciler``) on every tick, idle ones
   included, and on progress inside a long pass; a clean stop removes it.
 
@@ -70,6 +75,7 @@ from caliber.effects.reconcile import (
     targets_from_config,
 )
 from caliber.effects.records import LEASE_LOST, ProposalError
+from caliber.effects.run_settlement import settle_ended_runs
 from caliber.observability.trace import bind_trace_id
 from caliber.observability.worker_registry import (
     KIND_EFFECT_RECONCILER,
@@ -94,6 +100,8 @@ _DEFAULT_EXECUTION_LEASE_SECONDS = 30.0
 _LOCK_WAIT_FRACTION = 1.0 / 3.0
 _MIN_LOCK_WAIT_MILLIS = 100
 _REAP_EVERY_SECONDS = 60.0
+#: How often the sweep for ended runs' unsent effects runs (it scans proposals by state, which no index serves).
+_SETTLE_EVERY_SECONDS = 60.0
 
 #: Who may reconcile right now: returns the exact lease the owner captured, ``None`` when this process does not hold it.
 LeaseProvider = Callable[[], Lease | None]
@@ -181,6 +189,7 @@ class EffectReconcilerTask:
         self._stopped = asyncio.Event()
         self._stop_requested = threading.Event()
         self._last_reap = float("-inf")
+        self._last_settle = float("-inf")
         self._last_beat = float("-inf")
         self._cursor: tuple[int, str] | None = None  # (fencing token, last proposal id looked at)
 
@@ -264,6 +273,7 @@ class EffectReconcilerTask:
                 return None
             report = self._pass(lease)
             self._abandon_reservations(lease)
+            self._settle_ended_runs(lease)
             return report
 
     def _abandon_reservations(self, lease: Lease) -> None:
@@ -282,6 +292,25 @@ class EffectReconcilerTask:
         except Exception as exc:
             logger.warning(
                 "step token reservation sweep failed (%s); retrying next tick", type(exc).__name__
+            )
+
+    def _settle_ended_runs(self, lease: Lease) -> None:
+        """Settle the never-dispatched proposals and live requests of runs that ended (#1074), under the same lease, once a minute.
+
+        A lease that is no longer held, a stop in progress or a store that fails ends it quietly (the next sweep tries again);
+        only a count and an exception class are logged.
+        """
+        now = time.monotonic()
+        if self._stop_requested.is_set() or now - self._last_settle < _SETTLE_EVERY_SECONDS:
+            return
+        self._last_settle = now
+        try:
+            settle_ended_runs(self._open, lease)
+        except LeaseLost:
+            logger.info("ended-run settlement skipped: the execution-owner lease is gone")
+        except Exception as exc:
+            logger.warning(
+                "ended-run settlement failed (%s); retrying next sweep", type(exc).__name__
             )
 
     def _pass(self, lease: Lease) -> PassReport:

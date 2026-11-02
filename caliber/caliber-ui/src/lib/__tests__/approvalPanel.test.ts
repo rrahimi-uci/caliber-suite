@@ -172,6 +172,13 @@ describe("the one message for each refusal", () => {
     expect(isClosedState("open")).toBe(false);
     expect(isClosedState("expired")).toBe(true);
     expect(isClosedState("already_consumed")).toBe(true);
+    expect(isClosedState("withdrawn")).toBe(true);
+  });
+
+  it("explains a withdrawn request (taken back, or its run ended) and says nothing will be done", () => {
+    const text = denialMessage("withdrawn");
+    expect(text).toMatch(/withdrawn/);
+    expect(text).toMatch(/Nothing was or will be done/);
   });
 });
 
@@ -181,6 +188,7 @@ describe("classifying a failed decision call", () => {
 
   it.each([
     ["already_consumed"],
+    ["withdrawn"],
     ["superseded"],
     ["expired"],
     ["approval_not_current"],

@@ -746,6 +746,7 @@ export type WorkflowApprovalStateCode =
   | "rejected"
   | "already_consumed"
   | "superseded"
+  | "withdrawn"
   | "expired"
   | "approval_not_current"
   | "run_not_waiting";

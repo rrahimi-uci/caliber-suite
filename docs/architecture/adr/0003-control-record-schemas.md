@@ -314,6 +314,28 @@ property name or an unbounded amount of text; at most 20 violations are listed, 
 plain token (otherwise by its type), and a record of more than 1 MiB of JSON text (1048576 characters) is refused before it is
 validated. An integer field accepts only an integer: `1.0` is not one. No other kind changes.
 
+## Amendment: never-dispatched proposals and withdrawn requests (#1074)
+
+A `proposed` proposal whose run ends without dispatching it (the approval was rejected, the run failed, was cancelled, expired
+or completed) is settled, and an approved decision that dispatch has not consumed can be withdrawn. **No state is added to the
+seven of `proposal`, and no migration changes a shipped one.** The decision, and why:
+
+- A never-dispatched proposal takes the existing edge `proposed` to `failed` (a compare-and-set on `version`, with a `reason`
+  and `settled_at`), by `caliber.effects.run_settlement.settle_run_effects`. The `reason` is one of `run_failed`,
+  `run_cancelled`, `run_expired`, `run_completed` or `approval_rejected`. It never has `dispatched_at`, `owner_id`, `attempt`
+  or a receipt, which is how it differs from a dispatch that failed. A new `cancelled`/`rejected` state would have needed a
+  migration of the transition table (0124) and its trigger and a change to every reader of `TRANSITIONS`, for the same
+  information a reason code already carries; `failed` is final and means "this proposal will never be sent". Only `proposed`
+  is settled: `dispatched` and `unknown` may have been sent and stay with the dispatcher and the reconciler, `approved`,
+  `reconciled` and the settled states are not touched.
+- An `approval_request` has a `status` of `pending`, `approved`, `rejected` or `superseded`; it gains `withdrawn`, a terminal
+  status set by the run's own lifecycle (every live bound request of an ended run) or by an authorized person through
+  `POST /workflow-runs/{run_id}/approvals/{approval_id}/withdraw`. The column has no database check on its value, so no
+  migration is needed. A withdrawn request is refused by the dispatcher's claim with the code `withdrawn`, and a consumed one
+  is never withdrawn (`already_consumed`). The claim also refuses a proposal whose run has ended (`run_ended`).
+- The settlement and the claim take the same locks in the same order (run, proposal rows, request rows) and the claim re-reads
+  the run's status under the run lock, so a settlement and a dispatch cannot both win.
+
 ## Consequences
 
 - #517 (run_manifest), #518 (policy_decision), #522 and #625 (proposal, receipt), #523 and #571 (approval_request,
