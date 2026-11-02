@@ -77,6 +77,7 @@ from caliber.workflows.run_identity import (
     RunIdentity,
     identity_for_run,
 )
+from caliber.workflows.run_state import TERMINAL_RUN_STATUSES
 
 #: The default role an approval node requires when the manifest says nothing.
 DEFAULT_REQUIRED_ROLE = "caliber.approver"
@@ -106,8 +107,17 @@ REFUSAL_NOT_APPROVED: Final = "not_approved"
 REFUSAL_ALREADY_CONSUMED: Final = "already_consumed"
 REFUSAL_NOT_FOUND: Final = "not_found"
 REFUSAL_AUTHORITY_UNAVAILABLE: Final = "authority_unavailable"
+#: A request whose decision was taken back before dispatch consumed it (#1074): by an authorized person through the withdraw
+#: route, or by the run's own lifecycle when the run ended (failed, cancelled, expired) with the request still live. It is
+#: terminal: nothing reopens it, and a claim that meets it is refused with this code.
+REFUSAL_WITHDRAWN: Final = "withdrawn"
+#: The dispatcher's claim for a proposal whose run has already ended (completed, failed, cancelled or expired) is refused: the
+#: run's lifecycle settles such a proposal, and nothing may be sent for a run that is over (#1074).
+REFUSAL_RUN_ENDED: Final = "run_ended"
 #: ``status`` of a request that a newer request for the same node replaced.
 STATUS_SUPERSEDED: Final = "superseded"
+#: ``status`` of a request that was withdrawn (see :data:`REFUSAL_WITHDRAWN`).
+STATUS_WITHDRAWN: Final = "withdrawn"
 
 
 class ApprovalPolicyError(ValueError):
@@ -298,13 +308,16 @@ def approval_refusal(
     expires_at: datetime | None,
     now: datetime,
 ) -> str | None:
-    """Why a request can no longer be decided or consumed: :data:`REFUSAL_SUPERSEDED`, :data:`REFUSAL_EXPIRED` or ``None``.
+    """Why a request can no longer be decided or consumed: :data:`REFUSAL_SUPERSEDED`, :data:`REFUSAL_WITHDRAWN`,
+    :data:`REFUSAL_EXPIRED` or ``None``.
 
     Pure: the caller reads the row and passes the clock, so every path that acts on a request (the decision route today, the
     recheck at commit in B06.3) applies one rule with one set of codes, and a test can fix the clock.
 
     * **Superseded** (checked first, because a replaced request is gone whatever its clock says): ``status`` is
       ``superseded`` or ``superseded_by`` is set.
+    * **Withdrawn** (#1074; after superseded and before expired: a withdrawal is an explicit final act that a clock does
+      not undo): ``status`` is ``withdrawn``.
     * **Expired**: ``now`` is at or after ``expires_at``. The window is half-open, ``[requested_at, expires_at)``: at the
       very instant it ends the request is already refused, so a request is never usable one tick longer than its ttl.
       ``expires_at`` is stored naive and read as UTC; an aware ``now`` is converted. A request with no ``expires_at`` (a
@@ -315,6 +328,8 @@ def approval_refusal(
     """
     if status == STATUS_SUPERSEDED or superseded_by:
         return REFUSAL_SUPERSEDED
+    if status == STATUS_WITHDRAWN:
+        return REFUSAL_WITHDRAWN
     if expires_at is not None and _utc(now) >= _utc(expires_at):
         return REFUSAL_EXPIRED
     return None
@@ -422,6 +437,10 @@ def _recheck_approval(  # noqa: PLR0912, PLR0915 - one fail-closed commit gate o
     ).scalar_one_or_none()
     if run is None:
         raise ApprovalCommitRefused(REFUSAL_NOT_FOUND)
+    # A run that is over settles its proposals and requests in the transaction that ended it (#1074); a claim that still reaches
+    # one (data from before that, or a path that missed it) must not send anything for a finished run.
+    if run.status in TERMINAL_RUN_STATUSES:
+        raise ApprovalCommitRefused(REFUSAL_RUN_ENDED)
 
     proposal = session.execute(
         select(CaliberEffectProposal)

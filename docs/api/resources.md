@@ -26,7 +26,7 @@ does this capability live?" before you drop into per-route details.
 | --- | --- |
 | `/health`, `/readiness` | Liveness (a bare `status`/`version`/`db` body; 503 when the database probe fails) and dependency readiness (503 while a required dependency, including the database schema, is not ready) |
 | `/auth`, `/csrf`, `/me` | Authentication, token/session plumbing, caller identity |
-| `/capabilities`, `/openapi.json`, `/settings` | Surface discovery, stability metadata (`/capabilities` also reports which preview areas are on, under `features`), runtime configuration |
+| `/capabilities`, `/openapi.json`, `/settings` | Surface discovery, stability metadata (`/capabilities` also reports which preview areas are on, under `features`, and which adapters are supported, under `adapters`), runtime configuration |
 | `/dashboard/summary` | Overview aggregates used by the UI |
 
 ## Authoring and runtime assets

@@ -121,6 +121,7 @@ export type ApprovalDenialCode =
   | "already_decided"
   | "rejected"
   | "already_consumed"
+  | "withdrawn"
   | "approval_not_current"
   | "run_not_waiting"
   | "approval_busy"
@@ -153,6 +154,7 @@ export const KNOWN_DENIAL_CODES: ReadonlySet<string> = new Set<ApprovalDenialCod
   "already_decided",
   "rejected",
   "already_consumed",
+  "withdrawn",
   "approval_not_current",
   "run_not_waiting",
   "approval_busy",
@@ -205,6 +207,8 @@ export function denialMessage(code: string, ctx: DenialContext = {}): string | n
       return `This request was rejected${ctx.decidedBy ? ` by ${ctx.decidedBy}` : ""}. Nothing was or will be done. Ask the requester for a new request if the action is still needed.`;
     case "already_consumed":
       return "This approval was already used to run the action. It cannot be decided again. Ask the requester for a new request if the action is needed again.";
+    case "withdrawn":
+      return "This request was withdrawn, or its run ended before the action ran. Nothing was or will be done. Ask the requester for a new request if the action is still needed.";
     case "approval_not_current":
       return "This request is not for the step the run is waiting at. Open the run's current approval to decide it.";
     case "run_not_waiting":

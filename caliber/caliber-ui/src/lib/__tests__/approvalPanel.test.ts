@@ -44,6 +44,8 @@ describe("which requests the panel owns", () => {
     [{ proposal_id: "EP-1", status: "pending" as const }, true],
     [{ proposal_id: "EP-1", status: "approved" as const }, true],
     [{ proposal_id: "EP-1", status: "rejected" as const }, false],
+    [{ proposal_id: "EP-1", status: "superseded" as const }, false],
+    [{ proposal_id: "EP-1", status: "withdrawn" as const }, false],
     [{ proposal_id: "EP-1", status: "pending" as const, superseded_by: "RAP-2" }, false],
     [{ proposal_id: "EP-1", status: "approved" as const, consumed_at: "2026-11-01T13:00:00" }, false],
     [{ proposal_id: null, status: "pending" as const }, false],
@@ -172,6 +174,13 @@ describe("the one message for each refusal", () => {
     expect(isClosedState("open")).toBe(false);
     expect(isClosedState("expired")).toBe(true);
     expect(isClosedState("already_consumed")).toBe(true);
+    expect(isClosedState("withdrawn")).toBe(true);
+  });
+
+  it("explains a withdrawn request (taken back, or its run ended) and says nothing will be done", () => {
+    const text = denialMessage("withdrawn");
+    expect(text).toMatch(/withdrawn/);
+    expect(text).toMatch(/Nothing was or will be done/);
   });
 });
 
@@ -181,6 +190,7 @@ describe("classifying a failed decision call", () => {
 
   it.each([
     ["already_consumed"],
+    ["withdrawn"],
     ["superseded"],
     ["expired"],
     ["approval_not_current"],

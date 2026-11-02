@@ -107,6 +107,12 @@
       "nav_order": 14.5
     },
     {
+      "href": "m-66-beta-scope.html",
+      "label": "Beta scope",
+      "section": "start",
+      "nav_order": 14.6
+    },
+    {
       "href": "m-37-five-minute-quickstart.html",
       "label": "5-minute quickstart",
       "section": "start",
