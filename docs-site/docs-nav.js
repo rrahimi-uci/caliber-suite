@@ -1130,7 +1130,7 @@ window.DOCS_DATA = {
         "A CALIBER API integration question"
       ],
       "stability": "ga",
-      "reviewed_on": "2026-10-15",
+      "reviewed_on": "2026-11-02",
       "version_applicability": "current main branch docs contract",
       "tags": [
         "api",
@@ -1571,7 +1571,7 @@ window.DOCS_DATA = {
         "A PostgreSQL database and a way to set environment variables for the CALIBER process"
       ],
       "stability": "beta",
-      "reviewed_on": "2026-11-01",
+      "reviewed_on": "2026-11-02",
       "version_applicability": "current main branch docs contract",
       "tags": [
         "reference-profile",

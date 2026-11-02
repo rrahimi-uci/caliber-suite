@@ -6,7 +6,7 @@ product_area: operations
 stability: beta
 prerequisites:
   - A PostgreSQL database and a way to set environment variables for the CALIBER process
-reviewed_on: 2026-11-01
+reviewed_on: 2026-11-02
 version_applicability: current main branch docs contract
 tags:
   - reference-profile
@@ -1559,6 +1559,13 @@ redacted summaries (the numbers are unchanged; no payload appears). The run trac
 and the assistant's `get_workflow_run_trace` tool apply the same rule, decided by the run's project (owner or editor
 reads; a run outside any project belongs to the user who started it). A trace the caller may not see at all is still a
 `404`, never a redacted `200`. Outside the reference profile nothing is redacted, as before.
+
+The same boundary is enforced at span creation for governed OpenAI Chat and Responses tool calls. Their shared
+helper emits only the payload-free `SAFE_SPAN_ATTRIBUTES` and deliberately omits `caliber.tool.input`,
+`caliber.tool.output`, provider tool arguments and provider tool results. An unauthorized trace reader therefore
+receives safe metadata rather than a payload that was emitted and later redacted. The adapter conformance suite
+captures both governed paths with a fake tracer and plants a secret in the argument and result to verify that it
+does not cross the boundary. The ungoverned development path retains its existing tool-span attributes.
 
 *Recovery:* a viewer or reviewer who needs the contents asks a project owner or editor to read them, or is made an
 editor (`PATCH /projects/{id}/members/{user_id}`); an administrator who needs them must be a member of the project (admin
@@ -4666,9 +4673,10 @@ DOES NOT CONFORM (3 failed)
 that a real client is configured as its stub is, that a provider's tokens are what it reported, or that a model cannot be talked into a
 harmful proposal (a proposal is only ever the model's claim, which the platform binds and an approver reads). `another_steps_result`
 (a provider that answers another step's identity) cannot be staged through a provider script and stays in the per-scenario harness. The
-Agents and Anthropic adapters and the boundary emit no spans; the chat and Responses adapters run a read tool through a shared helper
-that opens a tool span carrying the model's arguments and the tool's output (the ungoverned loops do too), and no span is checked: the
-checked outputs are the result, log records, warnings, stdout and stderr. A read tool that raises ends an Agents step `malformed_result` but
+Agents and Anthropic adapters and the boundary emit no spans; the chat and Responses adapters run a read tool through a shared helper.
+Governed calls omit payload attributes at emission and the conformance suite captures both paths with a fake tracer; the ungoverned
+loops retain their existing input/output attributes. The checked outputs also include the result, log records, warnings, stdout and stderr.
+A read tool that raises ends an Agents step `malformed_result` but
 lets the other adapters' model recover: both are allowed (the rule requires only that the message is not handed to the provider and that
 nothing crashes), and the Agents policy is pinned by its own test. `FakeWorkflowExecutor` is the platform's scripted adapter (its entries
 are structured, so a hostile model cannot be staged through it) and has its own tests (`tests/test_agent_step_adapter.py`); the suite

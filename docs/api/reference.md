@@ -6,7 +6,7 @@ product_area: api
 stability: ga
 prerequisites:
   - A CALIBER API integration question
-reviewed_on: 2026-10-15
+reviewed_on: 2026-11-02
 version_applicability: current main branch docs contract
 tags:
   - api
@@ -85,6 +85,12 @@ copying payloads. A foreign or unknown trace returns non-disclosing `404`; a vis
 returns `403`, including when explicit `input` or `expected` overrides are supplied. These refusals do not change the
 dataset version or create an example. Authorized captures retain the existing payload shape and add the source
 lineage tags `from-trace` and `trace:{trace_id}`.
+
+For governed OpenAI Chat and Responses tool calls, the platform enforces this boundary when it creates the span:
+only payload-free `SAFE_SPAN_ATTRIBUTES` are emitted. `caliber.tool.input`, `caliber.tool.output`, provider tool
+arguments and provider tool results are omitted, so a caller without `trace.payload.read` cannot recover them from
+an emitted span. The ungoverned development path retains its existing tool-span attributes. See the reference-profile
+trace contract for the allow-list and refusal/recovery behavior.
 
 ## Feature-flagged areas
 
