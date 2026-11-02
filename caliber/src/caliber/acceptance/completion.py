@@ -271,9 +271,8 @@ def evaluate_run(
         if key not in reads:
             try:
                 reads[key] = _case_record(reader(base_url, case_id))
-            except (
-                Exception
-            ):  # an unreachable or refusing downstream: not an observation (the text is never kept)
+            except Exception:
+                # an unreachable or refusing downstream: not an observation (the text is never kept)
                 logger.warning("the case of proposal %s could not be read", proposal_id)
                 reads[key] = None
         return reads[key]

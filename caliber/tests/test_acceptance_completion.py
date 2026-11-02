@@ -661,8 +661,10 @@ def test_every_effect_gets_its_own_decision_and_one_rejection_rejects_the_run(
         good = _committed_proposal(factory, occurrence="occ-1", request_id="DR-1")
         bad = _committed_proposal(factory, occurrence="occ-2", request_id="DR-2")
 
-        outcome = _evaluate(factory, Reader(_case(_request("DR-1", 2))))
+        reader = Reader(_case(_request("DR-1", 2)))
+        outcome = _evaluate(factory, reader)
 
+        assert reader.calls == [(BASE_URL, CASE)], "two effects on one case are one read"
         assert outcome.status == ACCEPTANCE_REJECTED
         by_candidate = {d.candidate_id: d.outcome for d in outcome.decisions}
         assert by_candidate == {good: "accepted", bad: "rejected"}

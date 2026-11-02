@@ -276,7 +276,8 @@ def test_an_effect_the_downstream_no_longer_shows_is_rejected_even_though_it_was
     [
         pytest.param(Reading(fail=OSError("connection refused")), id="unreachable"),
         pytest.param(
-            Reading(alter=lambda a: CaseAnswer(503, {"error": "unavailable"})), id="unavailable"
+            Reading(alter=lambda a: CaseAnswer(503, a.body)),
+            id="a-503-that-carries-the-real-case",
         ),
         pytest.param(
             Reading(alter=lambda a: CaseAnswer(200, ["not", "a", "case"])), id="not-a-case"
