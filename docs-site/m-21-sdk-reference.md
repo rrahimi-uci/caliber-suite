@@ -5850,11 +5850,11 @@ Reject a pending Human Approval checkpoint.
 
 Withdraw an approved approval request that dispatch has not consumed yet.
 
-Needs the same authority as deciding the request (the project ``approve`` role and the node's
-``required_role`` scope). ``payload`` may carry ``reason`` and nothing else. A consumed request is
-a ``409`` with ``reason_code`` ``already_consumed`` and is never withdrawn; a repeat of a
-recorded withdrawal answers ``200`` again. The dispatcher refuses a withdrawn request
-(``withdrawn``), so no effect is sent for it.
+Needs the same authority as deciding the request (the project ``approve`` role and
+the node's ``required_role`` scope). ``payload`` may carry ``reason`` and nothing
+else. A consumed request is a ``409`` with ``reason_code`` ``already_consumed`` and
+is never withdrawn; a repeat of a recorded withdrawal answers ``200`` again. The
+dispatcher refuses a withdrawn request (``withdrawn``), so no effect is sent for it.
 
 | Parameter | Kind | Type | Default |
 | --- | --- | --- | --- |
