@@ -62,7 +62,7 @@ jobs:
     # retrieval quality.
     steps:
       - uses: actions/checkout@v5
-      - uses: astral-sh/setup-uv@v10.0.1
+      - uses: astral-sh/setup-uv@v10.3.3
         with:
           enable-cache: true
           cache-dependency-glob: caliber/pyproject.toml
