@@ -24,6 +24,9 @@ tags:
 > the `/openapi-integrations*` routes answer 404 (`reason_code: feature_disabled`) and the OpenAPI
 > Integrations page is hidden. Tools already published from an integration stay in the tool registry. Enabling
 > the flag means you accept preview behavior. See [Feature flags](../start/alpha-scope.md#feature-flags).
+> The Beta does not change that: `GET /capabilities` reports `adapters.openapi_integrations` as `preview` and never `supported`;
+> only the trusted document-request connector and release evaluation can be, in the reference profile. See
+> [Capability exposure](../operate/reference-profile.md#capability-exposure-what-is-supported-b15-support1-755).
 
 Use this page when the practical question is how to bring a third-party
 OpenAPI spec into CALIBER, decide which operations should become agent-facing

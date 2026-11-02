@@ -8,6 +8,9 @@
 > it is off, the `/mcp-servers*` routes answer 404 (`reason_code: feature_disabled`), the MCP Servers page is
 > hidden, and a workflow MCP node is reported as unavailable ("A registered MCP server that CALIBER can reach (needs CALIBER_FEATURE_INTEGRATIONS=true)"). Enabling the
 > flag means you accept preview behavior. See [Feature flags](m-61-alpha-scope.md#feature-flags).
+> The Beta does not change that: `GET /capabilities` reports `adapters.mcp_servers` as `preview` (or `unavailable` under the
+> reference profile, which lists no MCP command or host) and never `supported`; see
+> [Capability exposure](m-64-reference-profile.md#capability-exposure-what-is-supported-b15-support1-755).
 
 Use this page when the practical question is how to connect CALIBER to an MCP
 server, verify the discovered tools, and govern what remote tools may do.

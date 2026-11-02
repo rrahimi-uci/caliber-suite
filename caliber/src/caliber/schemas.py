@@ -3646,6 +3646,29 @@ class FeatureFlagSchema(BaseModel):
     stability: str
 
 
+class AdapterCapabilitySchema(BaseModel):
+    """One adapter's support level (see :func:`caliber.features.adapter_capabilities`).
+
+    ``status`` is ``supported``, ``preview`` or ``unavailable``. Only the trusted reference
+    connector and the release evaluation path can be ``supported``, and only while the
+    deployment is a valid reference deployment whose live code matches their scenario evidence.
+    """
+
+    status: str
+    #: ``connector``, ``release_evaluation``, ``mcp_server`` or ``openapi_integration``.
+    kind: str
+    label: str
+    #: Why the adapter is not ``supported``; ``None`` when it is. ``feature_disabled`` is the code
+    #: of the 404 a disabled area answers.
+    reason_code: str | None = None
+    #: The environment variable that changes the answer, or ``profile`` when no setting does.
+    disabled_by: str | None = None
+    #: The exact refusal or recovery text for an operator.
+    message: str = ""
+    #: The scenario tests that demonstrate a ``supported`` adapter (pytest node ids); empty otherwise.
+    evidence: list[str] = Field(default_factory=list)
+
+
 class PlatformCapabilitiesSchema(BaseModel):
     """Response payload for ``GET /caliber/capabilities``."""
 
@@ -3653,6 +3676,10 @@ class PlatformCapabilitiesSchema(BaseModel):
     #: ``cookbooks``, ``release_candidates``). The SPA hides a disabled area; an SDK
     #: can feature-detect without provoking a ``feature_disabled`` 404.
     features: dict[str, FeatureFlagSchema] = Field(default_factory=dict)
+    #: Per-adapter support, keyed by adapter id (``document_request_connector``,
+    #: ``release_evaluation``, ``mcp_servers``, ``openapi_integrations``). A flag being on never
+    #: implies ``supported``; read this to decide whether to drop a preview label.
+    adapters: dict[str, AdapterCapabilitySchema] = Field(default_factory=dict)
     workflow_runs: WorkflowRunCapabilitySchema
     sync_workflow_version_run: bool = True
     artifact_families: dict[str, dict[str, object]] = Field(default_factory=dict)
