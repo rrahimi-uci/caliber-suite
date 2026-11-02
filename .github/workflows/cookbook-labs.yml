@@ -114,7 +114,7 @@ jobs:
           npm ci
           npx playwright install --with-deps chromium
       - name: Cache the embedding model lab 06 needs
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.cache/huggingface
           key: hf-all-minilm-l6-v2
