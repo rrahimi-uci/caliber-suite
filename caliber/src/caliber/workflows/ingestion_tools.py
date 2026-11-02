@@ -31,6 +31,8 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from caliber.workflows.host_paths import confine_in_reference_profile
+
 logger = logging.getLogger(__name__)
 
 # A PDF whose PyPDF text is shorter than this (after strip) is treated as
@@ -253,6 +255,10 @@ def extract_document(ref: str, *, max_chars: int = 200_000, ocr: str = "auto") -
     fallback; it applies only to PDFs (ignored for other formats).
     """
     path = Path(str(ref).strip())
+    # In the reference profile a host path is read only inside CALIBER_WORKFLOW_FILE_ROOT (B12.4c, #770). This tool runs in the
+    # sandbox child, which is given the profile and the root and nothing else; the pinned managed-file override, which takes a
+    # content-pinned ref rather than a host path, replaces this function before it is reached whenever a workflow declares files.
+    path = confine_in_reference_profile(path, what="extract_document")
     if not path.is_file():
         raise IngestionError(f"document not found: {ref!r}")
     fmt = _EXT_FORMAT.get(path.suffix.lower(), "text")
