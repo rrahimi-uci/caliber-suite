@@ -6,8 +6,9 @@ receipt).  A span that names those records lets an operator walk from a trace to
 reading a payload.  Because a later task (B11.3b) reads these attributes back as a causal chain, the
 only values allowed here are identifiers the platform has itself read from a persisted row:
 
-* **Fixed allow-list.**  Exactly four keys exist (:data:`CAUSAL_ATTRIBUTE_KEYS`); nothing else is
-  accepted from a caller, so this module cannot be used to attach a payload to a span.
+* **Fixed allow-list.**  Exactly four causal-link keys exist
+  (:data:`CAUSAL_ATTRIBUTE_KEYS`).  The separate :data:`RUN_ID_KEY` is only a
+  run-correlation attribute; it is not part of the causal-links union.
 * **Bounded and typed.**  A value must be a plain ``str`` that is an opaque identifier (ASCII,
   starts with a letter, at most :data:`MAX_ID_LENGTH` characters, no whitespace or ``@``).  Anything
   else is dropped, never truncated or redacted into a lookalike, and never raised: tracing must not
@@ -39,11 +40,16 @@ CAUSAL_ATTRIBUTE_KEYS: Final[Mapping[str, str]] = {
     "approval_id": "caliber.approval_id",
     "effect_id": "caliber.effect_id",
 }
+#: The persisted workflow-run correlation key.  This is deliberately separate
+#: from :data:`CAUSAL_ATTRIBUTE_KEYS`: B11.3b's causal-links API remains the
+#: four-key proposal/decision/approval/effect union.
+RUN_ID_KEY: Final[str] = "caliber.run_id"
 #: The span key for the stable code of a refused governed step.
 REFUSAL_CODE_KEY: Final = "caliber.refusal_code"
 #: Attribute keys a manifest author must not be able to set through trace-group tags.
 RESERVED_SPAN_KEYS: Final[frozenset[str]] = frozenset(CAUSAL_ATTRIBUTE_KEYS.values()) | {
-    REFUSAL_CODE_KEY
+    RUN_ID_KEY,
+    REFUSAL_CODE_KEY,
 }
 #: The complete namespace reserved for platform-owned run and span attributes.
 RESERVED_SPAN_PREFIX: Final = "caliber."
@@ -92,6 +98,22 @@ def causal_attributes(
     return attributes
 
 
+def _run_attribute(run_id: object) -> dict[str, str]:
+    """Return a trusted persisted workflow-run correlation attribute.
+
+    ``caliber.run_id`` is intentionally not emitted by :func:`causal_attributes`:
+    it identifies the run containing a span, but does not add a fifth member to
+    the B11.3b causal-links API union.
+    """
+    if run_id is None:
+        return {}
+    clean = _identifier(run_id)
+    if clean is None:
+        logger.debug("dropping a non-identifier value for span attribute run_id")
+        return {}
+    return {RUN_ID_KEY: clean}
+
+
 def _platform_refusals() -> tuple[type[BaseException], ...]:
     """The refusal types whose ``code`` is a stable platform vocabulary.
 
@@ -125,18 +147,22 @@ class GovernedSpan:
     def bind(
         self,
         *,
+        run_id: object = None,
         proposal_id: object = None,
         decision_id: object = None,
         approval_id: object = None,
         effect_id: object = None,
     ) -> None:
         """Record the identifiers the caller has just read from a persisted row."""
-        for key, value in causal_attributes(
-            proposal_id=proposal_id,
-            decision_id=decision_id,
-            approval_id=approval_id,
-            effect_id=effect_id,
-        ).items():
+        for key, value in {
+            **_run_attribute(run_id),
+            **causal_attributes(
+                proposal_id=proposal_id,
+                decision_id=decision_id,
+                approval_id=approval_id,
+                effect_id=effect_id,
+            ),
+        }.items():
             # Tracing must never change what a governed effect does, and this runs after the effect's own
             # transaction has committed: a redactor or tracer failure is logged and the attribute is absent.
             try:
@@ -165,6 +191,7 @@ def governed_span(
     name: str,
     *,
     span_type: str = "CHAIN",
+    run_id: object = None,
     proposal_id: object = None,
     decision_id: object = None,
     approval_id: object = None,
@@ -183,6 +210,7 @@ def governed_span(
         handle = GovernedSpan(span)
         # Bound after the span opens, not passed to it: opening sanitizes its start attributes with no guard.
         handle.bind(
+            run_id=run_id,
             proposal_id=proposal_id,
             decision_id=decision_id,
             approval_id=approval_id,
@@ -203,6 +231,7 @@ __all__ = [
     "REFUSAL_CODE_KEY",
     "RESERVED_SPAN_KEYS",
     "RESERVED_SPAN_PREFIX",
+    "RUN_ID_KEY",
     "GovernedSpan",
     "causal_attributes",
     "governed_span",

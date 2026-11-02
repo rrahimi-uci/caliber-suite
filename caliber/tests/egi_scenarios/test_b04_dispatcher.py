@@ -346,6 +346,7 @@ def test_governed_path_spans_carry_the_ids_of_the_persisted_rows(
         "caliber.approval_id": approval.runtime_approval_id,
         "caliber.effect_id": receipt.receipt_id,
     }
+    assert dispatched.attributes["caliber.run_id"] == run_id
     # The commit-time recheck names the same proposal, approval and decision, and has no outcome yet.
     assert _causal(check) == {
         "caliber.proposal_id": proposal_id,
@@ -357,10 +358,11 @@ def test_governed_path_spans_carry_the_ids_of_the_persisted_rows(
         "caliber.approval_id": approval_id,
         "caliber.effect_id": receipt.receipt_id,
     }
+    assert written.attributes["caliber.run_id"] == run_id
     for span in (check, dispatched, written):
         assert span.attributes["caliber.status"] == "completed"
         # Nothing but the allow-listed ids (and the tracer's own status) is on a governed-effect span.
-        assert set(span.attributes) <= {*_CAUSAL, "caliber.status"}
+        assert set(span.attributes) <= {*_CAUSAL, "caliber.run_id", "caliber.status"}
 
 
 def test_a_refused_recheck_names_what_it_bound_and_its_code_and_nothing_else(
@@ -452,6 +454,8 @@ def test_an_unknown_approval_id_is_never_linked_from_a_span(
         assert "RAP-forged00" not in repr(span.attributes)
     check = next(span for span in fake.spans if span.name == "effect.approval.commit_check")
     assert _causal(check) == {"caliber.proposal_id": proposal_id}
+    dispatched = next(span for span in fake.spans if span.name == "effect.dispatch")
+    assert dispatched.attributes["caliber.run_id"] == _run_id
     assert check.attributes["caliber.refusal_code"] == "not_found"
 
 
@@ -761,6 +765,7 @@ def test_an_admission_refusal_binds_no_row_to_the_span(
     assert refused.value.code == "connector_config_not_admitted"
     dispatched = next(span for span in fake.spans if span.name == "effect.dispatch")
     assert _causal(dispatched) == {}, "nothing was read from a row, so nothing is linked"
+    assert "caliber.run_id" not in dispatched.attributes
     assert dispatched.attributes["caliber.refusal_code"] == "connector_config_not_admitted"
     for span in fake.spans:
         assert approval_id not in repr(span.attributes)

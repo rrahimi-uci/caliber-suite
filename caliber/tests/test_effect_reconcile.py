@@ -63,6 +63,7 @@ from caliber.effects.records import (
     transition,
 )
 from caliber.integrations.openapi.executor import OpenApiExecutionError
+from caliber.observability.mlflow_tracing import Tracer, set_tracer
 from caliber.ownership import Lease, acquire, release
 from tests.dialect_helpers import DIALECTS, POSTGRES_TEST_URL
 from tests.effect_helpers import TTL_SECONDS, leased
@@ -70,6 +71,7 @@ from tests.test_effect_proposals import _seed_run
 from tests.test_effect_receipts import CASE, DOC, _proposal
 from tests.test_effect_records import AT, ATTEMPT, OWNER, _move
 from tests.test_event_outbox import _count, _database
+from tests.test_mlflow_tracing import FakeMlflow
 
 RECONCILER = "reconciler-1"
 PROJECT = "PRJ-ep"
@@ -526,6 +528,36 @@ def test_an_unknown_effect_the_downstream_holds_is_committed_with_its_receipt(
     )
     assert (again.outcome, again.state) == (MOVED, COMMITTED)
     assert len(downstream.asked) == 1
+
+
+def test_reconciler_receipt_span_carries_the_persisted_run_id_outside_runtime_trace(
+    database: Any,
+) -> None:
+    """Reconciliation has no workflow runtime context, so the proposal/run rows are its authority."""
+    _, factory = database
+    with factory() as session:
+        proposal_id = _unknown(session, "o-run-correlation")
+        body = _stored(session, proposal_id)
+        session.commit()
+    lease = _owner(factory)
+    downstream = _Downstream(factory)
+    with factory() as session:
+        from caliber.effects.records import proposal_view
+
+        downstream.script[proposal_view(session, proposal_id).logical_key] = Answer(200, body)
+
+    fake = FakeMlflow()
+    set_tracer(Tracer(mlflow_module=fake))
+    try:
+        result = reconcile_one(
+            factory, proposal_id, lease=lease, targets=TARGETS, lookup=downstream, now=AT
+        )
+    finally:
+        set_tracer(None)
+
+    assert (result.outcome, result.state) == (RECONCILED_COMMITTED, COMMITTED)
+    written = next(span for span in fake.spans if span.name == "effect.receipt.write")
+    assert written.attributes["caliber.run_id"] == "RUN-ep"
 
 
 def test_a_lost_owners_dispatch_is_abandoned_then_settled_in_one_pass(database: Any) -> None:
