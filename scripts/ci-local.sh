@@ -239,6 +239,7 @@ job_migration_parity_postgres() {
         tests/test_causal_links.py \
         tests/test_approval_binding.py \
         tests/test_approval_supersession.py \
+        tests/test_run_settlement.py \
         tests/test_routes_system_effects.py \
         tests/test_effect_reconcile.py \
         tests/test_effect_http_reconcile.py \

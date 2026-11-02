@@ -895,7 +895,13 @@ def test_approve_and_reject_racing_leave_exactly_one_decision(
         row = session.get(CaliberRuntimeApprovalRequest, approval_id)
         assert row is not None and row.consumed_at is None
         assert row.status == ("approved" if first == "approve" else "rejected")
-    _unconsumed(approver, approval_id, proposal_id)
+    if first == "approve":
+        _unconsumed(approver, approval_id, proposal_id)
+    else:
+        # A rejection fails the run and, since #1074, settles its never-dispatched proposal in the same transaction.
+        with approver.session_factory() as session:
+            state = proposal_state(session, proposal_id)
+            assert (state.state, state.reason) == ("failed", "approval_rejected")
 
 
 @contextmanager

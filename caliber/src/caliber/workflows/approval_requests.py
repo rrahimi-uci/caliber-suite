@@ -34,6 +34,15 @@ or a consumer that holds one finishes first and the supersession then sees its o
 Anything that decides or consumes a request must lock *that request's row* ``FOR UPDATE`` and re-run ``approval_refusal`` on it
 before writing; taking the run row first, if it takes both, keeps the order. The locks are held until the caller commits or rolls
 back, so a caller keeps its transaction short.
+
+**Withdrawal (#1074).** An approved decision that dispatch has not consumed can be taken back: :func:`withdraw_approval` sets the
+request's ``status`` to ``withdrawn`` (terminal; the decision, the approvers and every frozen binding column stay as they
+were) on a row the caller has locked under the run lock. The dispatcher's claim refuses a withdrawn request with the stable code
+``withdrawn`` and consumes nothing, so a withdrawal and a claim cannot both win: whichever takes the run lock first decides
+(a consumed request is ``already_consumed`` and is never withdrawn; a withdrawn one is never consumed). The route that exposes
+it checks the caller's authority first (the same as approving or rejecting: the project ``approve`` action and the node's
+``required_role`` scope); the run's own lifecycle withdraws the live requests of an ended run in
+:func:`caliber.effects.run_settlement.settle_run_effects`.
 """
 
 from __future__ import annotations
@@ -54,15 +63,24 @@ from caliber.db.models import (
 from caliber.effects.records import PRINTABLE, PROPOSED
 from caliber.ids import new_runtime_approval_id
 from caliber.workflows.approval_policy import (
+    REFUSAL_ALREADY_CONSUMED,
+    REFUSAL_EXPIRED,
+    REFUSAL_NOT_APPROVED,
+    REFUSAL_SUPERSEDED,
+    REFUSAL_WITHDRAWN,
     STATUS_SUPERSEDED,
+    STATUS_WITHDRAWN,
     SUPPORTED_TIMEOUT_BEHAVIORS,
     VALID_ROLES,
     ApprovalPolicy,
+    approval_refusal,
     policy_digest,
 )
 
 PROPOSAL_NOT_PROPOSED: Final = "proposal_not_proposed"
 PROPOSAL_NOT_FOUND: Final = "proposal_not_found"
+#: A request that guards no effect proposal (a legacy node-level one) has nothing to withdraw.
+NOT_BOUND: Final = "not_bound"
 BAD_FIELD: Final = "bad_field"
 #: What an approver may answer (ADR 0003 ``approval_request.allowed_responses``).
 ALLOWED_RESPONSES: Final = ("approve", "reject", "request_changes")
@@ -287,6 +305,45 @@ def create_approval_request(
     return request
 
 
+class ApprovalWithdrawRefused(PermissionError):  # noqa: N818 - a refusal, named for what it says
+    """A request cannot be withdrawn; ``code`` is one of the stable refusal codes and the message is the code only."""
+
+    def __init__(self, code: str) -> None:
+        super().__init__(code)
+        self.code = code
+
+
+def withdraw_approval(request: CaliberRuntimeApprovalRequest, *, now: datetime) -> bool:
+    """Take back an approved, unconsumed bound request: ``True`` when it was withdrawn now, ``False`` when it already was.
+
+    The caller holds the run lock and has locked ``request`` ``FOR UPDATE`` (the order of every writer of a request) and has
+    already checked that the caller may decide it; this applies only the request's own state, with the codes the decision route
+    and the claim use, checked most final first: ``not_bound`` (a legacy request guards no effect), ``already_consumed``
+    (dispatch used the decision: it is never withdrawn, even after its expiry), ``superseded`` and ``expired`` (the request is
+    already unusable; nothing is left to withdraw), then ``not_approved`` (a ``pending`` request is decided, a ``rejected`` one is
+    final). A request that is already ``withdrawn`` is the same answer again: ``False`` and nothing is written. Only ``status``
+    moves, and the caller commits; ``now`` is the clock read after the lock was won.
+    """
+    if request.proposal_id is None:
+        raise ApprovalWithdrawRefused(NOT_BOUND)
+    if request.consumed_at is not None:
+        raise ApprovalWithdrawRefused(REFUSAL_ALREADY_CONSUMED)
+    refusal = approval_refusal(
+        status=request.status,
+        superseded_by=request.superseded_by,
+        expires_at=request.expires_at,
+        now=now,
+    )
+    if refusal == REFUSAL_WITHDRAWN:
+        return False
+    if refusal in (REFUSAL_SUPERSEDED, REFUSAL_EXPIRED):
+        raise ApprovalWithdrawRefused(refusal)
+    if request.status != "approved":
+        raise ApprovalWithdrawRefused(REFUSAL_NOT_APPROVED)
+    request.status = STATUS_WITHDRAWN
+    return True
+
+
 def _supersede_live_requests(
     session: Session, *, replacement: CaliberRuntimeApprovalRequest
 ) -> None:
@@ -326,10 +383,13 @@ __all__ = [
     "ALLOWED_RESPONSES",
     "BAD_FIELD",
     "MAX_TTL_SECONDS",
+    "NOT_BOUND",
     "PROPOSAL_NOT_FOUND",
     "PROPOSAL_NOT_PROPOSED",
     "ApprovalRequestError",
+    "ApprovalWithdrawRefused",
     "configured_ttl_seconds",
     "create_approval_request",
     "policy_digest",
+    "withdraw_approval",
 ]

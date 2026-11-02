@@ -185,8 +185,8 @@ def approval_state(
 ) -> dict[str, Any]:
     """Whether the request can be decided now.
 
-    The order follows what is *true* of the request and run, most final first: ``already_consumed``; ``superseded`` and
-    ``expired`` (``approval_refusal``); ``rejected`` (a rejection fails the run and clears its current node, so it has to be
+    The order follows what is *true* of the request and run, most final first: ``already_consumed``; ``superseded``,
+    ``withdrawn`` (#1074; taken back before dispatch consumed it) and ``expired`` (``approval_refusal``); ``rejected`` (a rejection fails the run and clears its current node, so it has to be
     named before the run's state is judged); a run that is no longer waiting for approval (``run_not_waiting``: cancelled,
     failed, finished or resumed, which also clears its current node); then, for a bound request, a node other than the one the
     run waits at (``approval_not_current``); then a request that already holds a decision and waits for dispatch
