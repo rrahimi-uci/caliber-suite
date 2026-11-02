@@ -285,7 +285,11 @@ OpenAPI integrations are preview: no scenario evidence supports them in the refe
 
 The capability report reads, for a client or the web app, `data.adapters.<adapter id>` with `status`, `kind`, `label`,
 `reason_code`, `disabled_by`, `message` and `evidence`. Read it instead of probing for a `404`. `data.features` is
-unchanged. How the navigation renders these values is #771; a visible entry grants no authority.
+unchanged. The web app's navigation renders these values (#771): a `Supported`, `Preview` or `Unavailable` chip with the `message` above
+as its description on MCP Servers, OpenAPI Integrations and Release candidates, and a "Support status" panel that lists all four adapters,
+including the connector, which has no page. An unavailable adapter that is listed is a disabled item, and anything the server does not
+report as supported reads as `Preview`. A visible entry grants no authority; see
+[how the web app renders it](../operate/reference-profile.md#capability-exposure-what-is-supported-b15-support1-755).
 
 ## Known limits
 
