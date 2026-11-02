@@ -161,6 +161,14 @@ def test_a_skipped_gate_with_nothing_failing_fails_the_run(monkeypatch, tmp_path
     assert exit_code == 1
 
 
+def test_a_cancelled_gate_with_nothing_failing_fails_the_run(monkeypatch, tmp_path) -> None:
+    """A timeout is reported as ``cancelled`` and must not hide behind a green ledger."""
+    jobs = _all_gates()
+    jobs[0]["conclusion"] = "cancelled"
+    _, exit_code = _run_ledger(monkeypatch, tmp_path, jobs)
+    assert exit_code == 1
+
+
 def test_a_gate_missing_from_the_run_entirely_fails_the_run(monkeypatch, tmp_path) -> None:
     """A renamed or deleted job is absent, not skipped, and must not read as fine."""
     jobs = _all_gates()[1:]
