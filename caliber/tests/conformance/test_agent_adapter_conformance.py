@@ -22,13 +22,18 @@ from __future__ import annotations
 
 import asyncio
 import io
+import json
 import logging
 import warnings
 from collections.abc import Callable
+from dataclasses import replace
 from typing import Any
 
 import pytest
 
+from caliber.observability.mlflow_tracing import Tracer, set_tracer
+from caliber.observability.trace_access import redact_trace_detail
+from caliber.profile import SAFE_SPAN_ATTRIBUTES
 from caliber.testing.adapter_conformance import (
     MALFORMED_USAGE,
     RULES,
@@ -56,6 +61,7 @@ from caliber.testing.adapter_conformance import (
 from caliber.testing.agent_step_conformance import (
     PROTECTED_CLASS,
     PROTECTED_TOOL,
+    READ_TOOL,
     Scenario,
     assert_claim_mismatch,
     canary_protected_tool,
@@ -72,6 +78,7 @@ from tests.conformance.test_agent_adapter_openai_agents import (
 from tests.conformance.test_agent_adapter_openai_chat import chat_subject
 from tests.conformance.test_agent_adapter_openai_responses import responses_subject
 from tests.conformance.toy_adapter import ToyAdapter, toy_provider, toy_subject
+from tests.test_mlflow_tracing import FakeMlflow
 
 SUBJECTS: tuple[AdapterUnderTest, ...] = (
     chat_subject(),
@@ -80,12 +87,67 @@ SUBJECTS: tuple[AdapterUnderTest, ...] = (
     anthropic_subject(),
 )
 
+OPENAI_GOVERNED_SUBJECTS = (chat_subject(), responses_subject())
+
 
 @pytest.mark.parametrize("rule", RULES, ids=lambda rule: rule.id)
 @pytest.mark.parametrize("subject", SUBJECTS, ids=lambda subject: subject.name)
 def test_the_adapter_conforms_to_the_rule(subject: AdapterUnderTest, rule: Rule) -> None:
     result = check_rule(subject, rule.id)
     assert result.status is Status.PASS, f"{subject.name} did not run {rule.id}: {result.detail}"
+
+
+@pytest.mark.parametrize("subject", OPENAI_GOVERNED_SUBJECTS, ids=lambda subject: subject.name)
+def test_governed_openai_tool_spans_are_payload_free_for_unauthorized_readers(
+    subject: Any,
+) -> None:
+    """The Chat and Responses governed paths must not put tool payloads in spans (#1077)."""
+    fake = FakeMlflow()
+    set_tracer(Tracer(mlflow_module=fake))
+    secret = "governed-tool-secret-1077"
+
+    def setup(ctx: Any) -> None:
+        def secret_read_tool(**arguments: Any) -> dict[str, Any]:
+            ctx.read_calls.append(arguments)
+            return {"tool_output": secret}
+
+        ctx.custom_input = replace(
+            ctx.default_input,
+            read_tools={READ_TOOL: secret_read_tool},
+        )
+
+    observe(
+        subject,
+        (
+            Reply(
+                text=None,
+                calls=(Call(READ_TOOL, {"tool_argument": secret}),),
+                usage=ProviderUsage(70, 10, 80),
+            ),
+            Reply(text="done", usage=ProviderUsage(80, 20, 100)),
+        ),
+        scenario=Scenario.READ_TOOL_CALL,
+        setup=setup,
+        marker=secret,
+    )
+
+    assert len(fake.spans) == 2  # platform entry and direct adapter conformance runs
+    for span in fake.spans:
+        assert set(span.attributes) <= SAFE_SPAN_ATTRIBUTES
+        assert "caliber.tool.input" not in span.attributes
+        assert "caliber.tool.output" not in span.attributes
+        assert secret not in repr(span.attributes)
+
+    unauthorized = redact_trace_detail(
+        {
+            "spans": [
+                {"span_id": str(index), "attributes": span.attributes}
+                for index, span in enumerate(fake.spans)
+            ]
+        },
+        allowed=False,
+    )
+    assert secret not in json.dumps(unauthorized, sort_keys=True)
 
 
 def test_the_registered_adapters_are_the_four_shipped_ones_and_every_rule_runs_for_each() -> None:
