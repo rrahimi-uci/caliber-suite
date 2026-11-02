@@ -3629,7 +3629,8 @@ Recovery is always the same shape: the occurrence is retried as the next `attemp
 
 | the adapter | result | recover by |
 | --- | --- | --- |
- | has no Agents SDK installed | `refused`, `provider_unavailable` | install the optional Agents SDK extra; the legacy `run_agent` path remains available |
+| has no Agents SDK installed | `refused`, `provider_unavailable` | install the optional Agents SDK extra |
+| has an Agents SDK below the adapter floor, or one missing a required capability | `refused`, `sdk_incompatible` | install `openai-agents>=0.9.0`; no ungoverned protected-tool fallback is attempted |
 | has no `run_step`, or an `async def` one | `refused`, `adapter_unsupported` | passing an `AgentStepAdapter` with a plain `run_step` |
 | raises (a provider error, anything else) | `adapter_error` | reading the server log (the exception's class and the step id, never its text) and retrying as the next attempt |
 | times out (`TimeoutError`) | `adapter_timeout` | the call's outcome is unknown: retry as the next attempt; the reservation is kept |
@@ -3667,8 +3668,16 @@ settles them after ([B08.4](#token-reservations-reserved-before-the-call-charged
 ### OpenAI Agents governed step (B08.openai-agents, #728)
 
 `OpenAIAgentsWorkflowExecutor.run_step` runs one bounded governed step through the optional OpenAI Agents SDK; the
-adapter is `caliber.workflows.step_openai_agents` and the legacy `run_agent` path is unchanged. The SDK is loaded lazily
+adapter is `caliber.workflows.step_openai_agents` and the legacy `run_agent` path uses the same SDK capability guard. The SDK is loaded lazily
 through the executor and the ordinary conformance tests use a deterministic offline SDK stub.
+
+- **SDK floor.** The `llm` extra declares `openai-agents>=0.9.0`, the first release whose `FunctionTool` signature contains all
+  capabilities this adapter passes: `needs_approval` appeared in 0.8.0, while `timeout_seconds` and `timeout_behavior` first appear in
+  0.9.0. The callable `Agent.tool_use_behavior` hook and its `ToolsToFinalOutputResult` return type are already present in 0.0.7 and
+  remain in the current 0.24.0 release. A signature-based guard checks these capabilities before registering tools. If an older or
+  vendor-modified SDK fails the check, the governed path returns `refused` / `sdk_incompatible` before a provider call; the legacy path
+  raises the typed `OpenAIAgentsSDKCompatibilityError`. CALIBER does not silently omit timeout or approval arguments and does not
+  fall back to an ungoverned protected-tool call.
 
 - **Tools.** Read tools are exposed with their normal function schema and are executed only from `step_input.read_tools`.
   Protected tools are exposed with the strict proposal envelope (`args`, and optional `resource` and
@@ -3688,13 +3697,13 @@ through the executor and the ordinary conformance tests use a deterministic offl
   [conformance suite](#adapter-conformance-suite-the-rules-every-provider-adapter-passes-b085-769) checks all of it, and
   `test_agent_adapter_openai_agents_real_sdk.py` runs it on the installed SDK with a scripted model.
 - **Failures.** Provider timeouts are `adapter_timeout`, other provider exceptions are `provider_error`, unreadable SDK
-  output or proposals are `malformed_result`, a provider refusal is `refused` with `model_refused`, and an unavailable
-  optional SDK is `refused` with `provider_unavailable`. Provider text, tool arguments and exception messages are not copied
-  to results or logs.
+  output or proposals are `malformed_result`, a provider refusal is `refused` with `model_refused`, an unavailable optional SDK is
+  `refused` with `provider_unavailable`, and an SDK below the capability floor is `refused` with `sdk_incompatible`. Provider text,
+  tool arguments and exception messages are not copied to results or logs.
 
 Results recover as for every governed step: a protected proposal proceeds to the approval/binding boundary, provider
-failures are retried as the next attempt with the reservation kept, and a missing optional SDK is fixed by installing the
-Agents SDK extra rather than falling back to an ungoverned protected-tool call.
+failures are retried as the next attempt with the reservation kept, and a missing or incompatible optional SDK is fixed by installing
+the Agents SDK extra at or above the declared floor rather than falling back to an ungoverned protected-tool call.
 
 ### Anthropic governed step (B08.anthropic, #727)
 
@@ -4598,9 +4607,8 @@ line of the report. It relaxes only those spend checks, never a rule. **No shipp
 `max_turns` for the run and `tool_use_behavior` (a function; present since `openai-agents` 0.0.7 and run here on 0.20 and 0.24, where the SDK requires the
 function to return its own `ToolsToFinalOutputResult`, which the adapter uses) for everything else: after each turn's tools the adapter's function ends the run for a proposal, the tool-call limit, the token budget
 or the deadline, before the model is asked again. `test_agent_adapter_openai_agents_real_sdk.py` runs that on the installed SDK with a scripted
-model, so the emulation the conformance suite uses cannot drift from what the SDK does. (Separately and before this change: the adapter
-already builds `FunctionTool(needs_approval=..., timeout_seconds=...)`, which `openai-agents` 0.0.7 does not accept, so the declared
-minimum `>=0.0.7` is stale for the adapter as a whole; follow-up.)
+model, so the emulation the conformance suite uses cannot drift from what the SDK does. The compatibility guard and its deterministic
+tests keep the declared floor aligned with the signatures the adapter actually uses.
 
 **The suite has been shown to fail.** `tests/conformance/broken_adapters.py` holds 39 deliberately broken adapters, each the reference
 adapter with exactly one defect (it runs a protected tool, strips a claimed `receipt_id` and proposes anyway, forgets usage on a cut-off,
