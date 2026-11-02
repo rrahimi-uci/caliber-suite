@@ -38,6 +38,28 @@
     @apply bg-gradient-to-r from-violet-50 to-caliber-50/50 text-caliber-purple font-medium shadow-nav-active;
   }
 
+  /*
+   * Adapter support chips (B15-Support.3). Colours are set per theme here, in one place, not with
+   * the utility classes the dark theme patches one by one: a dark-theme override exists for those
+   * tints' backgrounds but not for every text colour, which left dark text on a dark tint. Each
+   * pair is at least 4.5:1 (WCAG AA) in its own theme, measured in the browser spec.
+   */
+  .adapter-chip-supported {
+    background-color: #ecfdf5;
+    color: #065f46;
+    box-shadow: inset 0 0 0 1px rgba(5, 150, 105, 0.35);
+  }
+  .adapter-chip-preview {
+    background-color: #fffbeb;
+    color: #78350f;
+    box-shadow: inset 0 0 0 1px rgba(217, 119, 6, 0.4);
+  }
+  .adapter-chip-unavailable {
+    background-color: #f1f5f9;
+    color: #1e293b;
+    box-shadow: inset 0 0 0 1px rgba(100, 116, 139, 0.45);
+  }
+
   /* Cards */
   .stat-card {
     @apply rounded-2xl border border-slate-200/60 bg-white p-5 transition-all duration-300 shadow-card dark:border-slate-700/70 dark:bg-slate-950;
@@ -506,6 +528,21 @@ html.dark .nav-item-active {
     rgba(124, 58, 237, 0.15),
     rgba(99, 102, 241, 0.08)
   ) !important;
+}
+html.dark .adapter-chip-supported {
+  background-color: rgba(16, 185, 129, 0.18);
+  color: #6ee7b7;
+  box-shadow: inset 0 0 0 1px rgba(110, 231, 183, 0.4);
+}
+html.dark .adapter-chip-preview {
+  background-color: rgba(245, 158, 11, 0.16);
+  color: #fcd34d;
+  box-shadow: inset 0 0 0 1px rgba(252, 211, 77, 0.4);
+}
+html.dark .adapter-chip-unavailable {
+  background-color: #1f2937;
+  color: #e2e8f0;
+  box-shadow: inset 0 0 0 1px rgba(148, 163, 184, 0.45);
 }
 html.dark .nav-item:hover {
   background-color: rgba(255, 255, 255, 0.04) !important;

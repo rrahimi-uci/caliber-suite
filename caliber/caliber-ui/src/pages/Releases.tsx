@@ -11,7 +11,7 @@
  * an empty release board is indistinguishable from a broken one, and on this page
  * that reads as "nothing is in production".
  */
-import { Link } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom";
 
 import { caliberApi } from "@/api/caliberApi";
 import type {
@@ -37,7 +37,7 @@ import {
 import { useFeature } from "@/hooks/useFeature";
 import { SCOPE_ADMIN, SCOPE_OPERATOR, hasScope } from "@/lib/scopes";
 import { relativeTime } from "@/lib/time";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 const ACTION_LABEL: Record<string, string> = {
   promote_prompt: "Promote",
@@ -153,8 +153,26 @@ function ReleaseSignoffFactory({
 
   const listError = candidates.error;
 
+  // The navigation's "Release candidates" entry links here (``/releases#release-signoff``). The
+  // router does not scroll to a hash, and this section only mounts once capabilities say its flag
+  // is on, so the page scrolls to it when it appears.
+  const location = useLocation();
+  const sectionRef = useRef<HTMLElement>(null);
+  useEffect(() => {
+    if (location.hash === "#release-signoff") {
+      sectionRef.current?.scrollIntoView?.({ block: "start" });
+    }
+    // ``location.key`` changes on every navigation, so following the link again from further down
+    // the page (the hash is already set) scrolls back to the section.
+  }, [location.hash, location.key]);
+
   return (
-    <section className="space-y-3" data-testid="release-signoff-factory">
+    <section
+      id="release-signoff"
+      ref={sectionRef}
+      className="space-y-3 scroll-mt-20"
+      data-testid="release-signoff-factory"
+    >
       <div
         role="note"
         data-testid="release-signoff-record-only"
