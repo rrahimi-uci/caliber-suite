@@ -5122,6 +5122,73 @@ development profile is unchanged. Rolling back is reverting the change; nothing 
 network), `caliber/tests/test_profile.py` (the two requirement rows) and the scenario
 `caliber/tests/egi_scenarios/test_b12_plugin_refusal.py`, which starts real reference processes with a real installed distribution.
 
+## Attack pack (B12.4c, #770)
+
+The refusals above are claims; this is the evidence that they hold against someone trying to get around them.
+`caliber/tests/egi_scenarios/test_v14_reference_profile.py` is a PostgreSQL public-path scenario file (the "EGI scenarios (PostgreSQL)"
+job) in which an attacker tries every public admission route, and each attempt is denied with the named status and reason while the
+effect is measured where it would have happened, never in CALIBER's logs:
+
+- **`downstream.mutations()`**: the attacker's installed module (an `external_app` entrypoint, a registered tool) files a request at the
+  disposable system of record, so a refusal that failed to stop it is a committed mutation;
+- **a marker file** written when the attacker's module or a hostile plugin is imported (nothing is imported from a refused plugin);
+- **the sandbox spawn counter**: every start of the tool-sandbox child process is recorded (a `python_code` node, an assistant tool
+  draft and a tool test run each start one in the development profile and none in the reference profile).
+
+The same hostile input runs on the development profile (the SQLite instance of `reference_app`, which runs `development` with the same
+safe settings), which is the control that proves the payload is live and that the refusal, not the payload, is what stopped it.
+
+| case | what the attacker tries | what is asserted (reference profile) |
+| --- | --- | --- |
+| `forged_identity_header` | `X-CALIBER-User` with no, wrong, empty, truncated or over-long proxy secret, on reads and writes | `401`, nothing stored, nothing dispatched; a proxied request is accepted (control); a user header that names no single user (`anonymous`, empty, a list) authenticates nobody |
+| `csrf_without_token` | no, empty, garbled, tampered, another user's, expired and future-dated CSRF tokens | `403` with a CSRF reason, nothing stored |
+| `ssrf_metadata_ip` | `169.254.169.254` as a literal, in decimal, in hex, as an IPv4-mapped and as the AWS IPv6 literal, a name that resolves to it, loopback and private names, a name with a public and a metadata record, through the OpenAPI spec-URL routes | blocked with the egress reason, no request reaches the connection layer |
+| `dns_rebinding` | a name that answers a public address to the policy check and the metadata address to the connection | blocked before the connection layer; a stable public name connects to the vetted address with the original `Host` and SNI |
+| `forbidden_module_import` | an installed plugin that is not allowlisted (no allowlist, `*`, a prefix, a near miss, the entry-point name of an untrusted distribution), installed after the process started, or handed straight to the registry | the process exits with `plugin_not_allowlisted` and binds no port; the registry and every route that loads plugins answer with the one code; the module is never imported |
+| `secret_canary` | hostile manifests, tools and inputs that name a stored secret, refused code runs, traversals, forged requests | the value is in no response, log record, run event or audit row (the #666 scan, with a planted-value control and proof the platform resolved the secret during the attacks) |
+| `unsafe_config_refused` | every rule of `REFERENCE_REQUIREMENTS`, alone and all at once, through a real process | the process exits with that one violation by code and by the variable to change, binds no port; a test fails if a rule has no attack |
+
+Code and paths, on the routes an author, an operator or a stranger can reach: validate, compile, publish, promote, preview (saved
+version and manifest override), synchronous run, queued run (by alias and by version), event trigger, cron scheduler, service invoke,
+evaluation, import, export, the same hostile version run by a separate owner process, a restart over the same database, sixteen concurrent
+publishes and promotions, an edit after validation, a dormant node, a code node reached through a subworkflow, an unknown node kind, an
+administrator's Python tool in both binding forms with the sandbox on and off (and one that claims to be shipped, sandboxed or of a new
+backend), an assistant tool draft, a tool test run, an MCP stdio command, a host path outside the file root (dotdot, absolute, symlinked
+file, symlinked folder, folder-pattern walk), an `output_folder` write and an upload named with a traversal. Every refusal of code carries
+`unsupported_in_reference_profile` and no node ran.
+
+**What the attack pack found and fixed.** The preview-run, run and evaluation routes caught a compile failure in a broad `except` and
+answered `400` with the text `manifest failed validation; cannot compile`, dropping the one refusal code that publish, promotion, compile,
+import and the worker already carried. They now answer, for example,
+`400 {"detail": "cannot preview: unsupported_in_reference_profile: python_code node 'code' runs author-supplied Python ..."}`. Nothing ran
+before the fix either; the code was missing from the answer.
+
+**Observations that are not defects.** An MCP stdio command an administrator registers is refused by the MCP allowlist's own message
+(`stdio command ... is not in CALIBER_MCP_STDIO_COMMAND_ALLOWLIST`), not by the profile's code, because the reference profile lists no MCP
+command and the dispatcher admits an MCP call, never a server (B12.3b). `python_code` is a process boundary with ambient authority, but its
+source runs with restricted builtins, so the pack's `python_code` payload is observed by the sandbox spawn and the run's output rather than
+by a downstream write; the `external_app` and registered-tool payloads do write to the downstream. A `python_code` node in ordinary Preview is
+blocked in every profile ("Preview cannot isolate"); the refusal is observed on the routes that really run it.
+
+**The pack bites: mutation check.** `caliber/scripts/attack_pack_mutants.py` copies `src/caliber`, breaks the refusal code in one way at a
+time (a registry kind classified inert, the policy never bound, every registered Python tool treated as shipped, validation and compile
+refusals removed, promotion not preflighted, the inventory refusals never firing, a plugin allowlist matched by prefix, startup accepting an
+unlisted plugin, an unconfined root or CSRF off, the file root not confining, the CSRF signature, the proxy secret and the egress pin,
+address list and literal-address checks) and runs the pack against each copy, including the CALIBER processes it starts. Every mutant must
+be killed. `python scripts/attack_pack_mutants.py --check` verifies that every edit's anchor still exists exactly once (offline; also a
+unit test, `caliber/tests/test_attack_pack_mutants.py`).
+
+```sh
+cd caliber
+CALIBER_TEST_POSTGRES_URL=postgresql+psycopg://caliber:caliber@localhost:55432/caliber_egi_admin \
+  python -m pytest tests/egi_scenarios/test_v14_reference_profile.py --no-cov -q   # the pack
+CALIBER_TEST_POSTGRES_URL=... python scripts/attack_pack_mutants.py                # the mutation check
+```
+
+**Configuration, migration and rollback.** No new setting, no migration and no stored data change; the only product change is the text of
+three `400` details. **Trusted-code admission is not containment.** The pack proves that code and plugins the profile does not admit are
+refused, and that an allowlisted plugin is admitted; it does not claim an allowlisted plugin, or the sandbox, contains hostile code.
+
 ## Acceptance predicates (B09.1, #779)
 
 A run is accepted on an authoritative domain predicate over what the system of record says, never on an HTTP status or on what a

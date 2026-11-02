@@ -328,12 +328,17 @@ class World:
         return self.call(
             "POST",
             "/workflow-runs",
-            {"input": "go", "idempotency_key": f"attack-{uuid.uuid4().hex}", **seed_release(self.app, PROJECT_A), **body},
+            {
+                "input": "go",
+                "idempotency_key": f"attack-{uuid.uuid4().hex}",
+                **seed_release(self.app, PROJECT_A),
+                **body,
+            },
         )
 
     def work(self) -> None:
         """One tick of the workflow-run worker, in this process."""
-        from caliber.orchestrator.workflow_run_worker import WorkflowRunWorker  # noqa: PLC0415
+        from caliber.orchestrator.workflow_run_worker import WorkflowRunWorker
 
         WorkflowRunWorker(
             session_factory=self.app.session_factory,
@@ -355,7 +360,7 @@ class World:
             return str(row.status)
 
     def count(self, model: type) -> int:
-        from sqlalchemy import func  # noqa: PLC0415
+        from sqlalchemy import func
 
         with self.app.session_factory() as session:
             return int(session.execute(select(func.count()).select_from(model)).scalar_one())

@@ -303,7 +303,8 @@ def _build_workflow_predict(
         )
     except Exception as exc:
         raise HTTPException(
-            status_code=400, detail=f"failed to compile workflow {version_id!r}: {failure_detail(exc)}"
+            status_code=400,
+            detail=f"failed to compile workflow {version_id!r}: {failure_detail(exc)}",
         ) from exc
 
     def predict(inputs: Mapping[str, Any]) -> str:

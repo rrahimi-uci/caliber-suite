@@ -835,7 +835,9 @@ async def preview_run_route(request: Request) -> JSONResponse:
             request,
         )
     except (CompileError, WorkflowManifestError, ValueError, RuntimeError) as exc:
-        raise HTTPException(status_code=400, detail=f"cannot preview: {failure_detail(exc)}") from exc
+        raise HTTPException(
+            status_code=400, detail=f"cannot preview: {failure_detail(exc)}"
+        ) from exc
     metrics.record_workflow_preview(str(result.get("status", "error")))
     return envelope_response_dict(result)
 
@@ -904,7 +906,9 @@ async def run_version_route(request: Request) -> JSONResponse:
             request,
         )
     except (CompileError, WorkflowManifestError, ValueError, RuntimeError) as exc:
-        raise HTTPException(status_code=400, detail=f"cannot run workflow: {failure_detail(exc)}") from exc
+        raise HTTPException(
+            status_code=400, detail=f"cannot run workflow: {failure_detail(exc)}"
+        ) from exc
     return envelope_response_dict(result)
 
 

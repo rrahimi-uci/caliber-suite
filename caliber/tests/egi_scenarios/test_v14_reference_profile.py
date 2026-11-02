@@ -33,12 +33,11 @@ from typing import Any
 import httpx
 import pytest
 from sqlalchemy import select, text
-
 from starlette.testclient import TestClient
 
-from caliber.config import CaliberConfig
 from caliber import egress
 from caliber import secrets as secrets_module
+from caliber.config import CaliberConfig
 from caliber.csrf import CSRFTokenManager
 from caliber.db.models import (
     CaliberAuditLog,
@@ -52,11 +51,11 @@ from caliber.db.models import (
     CaliberWorkflowRunEvent,
     CaliberWorkflowVersion,
 )
-from caliber.profile import REFERENCE_REQUIREMENTS
-from caliber.secret_store import SecretStore, generate_key
 from caliber.extensibility import PluginRefused, entrypoints, optimizer_registry
 from caliber.extensibility.registry import OptimizerRegistry, OptimizerSpec
 from caliber.orchestrator.scheduler import WorkflowSchedulerTask
+from caliber.profile import REFERENCE_REQUIREMENTS
+from caliber.secret_store import SecretStore, generate_key
 from caliber.server import create_app
 from caliber.workflows.admission import AdmissionSettings
 from caliber.workflows.code_policy import REFUSAL_CODE, CodePolicy, bind_code_policy
@@ -83,9 +82,9 @@ from tests.egi_scenarios.harness.attacks import (
 )
 from tests.egi_scenarios.harness.process import HEALTH_PATH, ServerProcess, ServerStartError
 from tests.egi_scenarios.test_b02_admission import _published_workflow
+from tests.test_egress_rebinding import METADATA, PUBLIC, RecordingTransport
 from tests.test_secret_canary import KEY_ENV as CANARY_KEY_ENV
 from tests.test_secret_canary import SECRET_NAME, SECRET_REFERENCE, Scan
-from tests.test_egress_rebinding import METADATA, PUBLIC, RecordingTransport
 from tests.workflow_helpers import make_manifest, seed_eval_dataset
 
 pytestmark = pytest.mark.xdist_group("egi-scenario-processes")
@@ -268,7 +267,9 @@ def test_a_hostile_version_that_predates_the_profile_cannot_be_previewed_promote
         {"input": "go", "manifest": manifest},
     )
     sync_run = world.call(
-        "POST", f"/workflow-versions/{hostile.version_id}/run", {"input": "go", "manifest": manifest}
+        "POST",
+        f"/workflow-versions/{hostile.version_id}/run",
+        {"input": "go", "manifest": manifest},
     )
     promoted = world.call(
         "POST",
@@ -392,7 +393,9 @@ def test_an_administrators_python_tool_is_refused_in_every_binding_form_and_neve
     """A registered Python tool is refused at author time, at publish and at run, whether it is an agent's tool or a tool
     node, and whether or not the sandbox is switched on: the platform's own configuration decides, not a label the tool carries."""
     world.config_update(registered_tool_sandbox_enabled=sandbox == "sandbox_on")
-    ref = world.seed_tool(backend_config={"sandbox": True, "isolation": "container"}, owner="caliber")
+    ref = world.seed_tool(
+        backend_config={"sandbox": True, "isolation": "container"}, owner="caliber"
+    )
     before = world.effects()
 
     def manifest_for(workflow_id: str) -> dict[str, Any]:
@@ -418,7 +421,9 @@ def test_an_administrators_python_tool_is_refused_in_every_binding_form_and_neve
         _refusal_in(published)
         assert (run.status, run.error_code) == ("failed", REFUSAL_CODE), run.error_summary
         assert after == before, "the tool's module was never imported and never called"
-    elif sandbox == "sandbox_off":  # the control: in the development profile the unsandboxed tool is imported and runs
+    elif (
+        sandbox == "sandbox_off"
+    ):  # the control: in the development profile the unsandboxed tool is imported and runs
         assert validated.json()["data"]["errors"] == []
         assert published.status_code == 200, published.text
         assert run.status == "completed", run.error_summary
@@ -575,7 +580,8 @@ def _run_host_node(world: World, node: dict[str, Any], run_input: str) -> tuple[
     run_id = str(accepted.json()["data"]["workflow_run_id"])
     world.work()
     said = "".join(
-        world.call("GET", path).text for path in (f"/workflow-runs/{run_id}", f"/workflow-runs/{run_id}/events")
+        world.call("GET", path).text
+        for path in (f"/workflow-runs/{run_id}", f"/workflow-runs/{run_id}/events")
     )
     return world.run_row(run_id), said
 
@@ -607,7 +613,9 @@ def test_a_file_input_node_cannot_read_outside_the_file_root_in_either_profile(
     assert OUTSIDE_SECRET not in str(run.error_summary) + said
 
 
-def test_a_file_input_node_still_reads_inside_the_file_root(world: World, file_tree: FileTree) -> None:
+def test_a_file_input_node_still_reads_inside_the_file_root(
+    world: World, file_tree: FileTree
+) -> None:
     """The control: the root is a boundary, not a ban."""
     run, said = _run_host_node(world, FILE_INPUT, str(file_tree.root / "inside.txt"))
     assert run.status == "completed", run.error_summary
@@ -665,7 +673,9 @@ PLUGIN_MODULE = "egi_attack_plugin"
 PLUGIN_OPTIMIZER = "EgiAttack"
 
 
-def _install_plugin(site: Path, marker: Path, *, distribution: str, entry_point: str = "attack") -> None:
+def _install_plugin(
+    site: Path, marker: Path, *, distribution: str, entry_point: str = "attack"
+) -> None:
     """A real installed distribution (``dist-info`` plus a module) whose module writes ``marker`` when it is imported."""
     site.mkdir(parents=True, exist_ok=True)
     (site / f"{PLUGIN_MODULE}.py").write_text(
@@ -809,7 +819,9 @@ def test_a_plugin_installed_after_the_process_started_is_refused_on_every_route_
 
         capabilities = world.call("GET", "/capabilities")
         optimization = _optimization_request(world.app)
-        pairs = world.call("GET", "/capabilities")  # a second load attempt: the refusal is remembered, not retried
+        pairs = world.call(
+            "GET", "/capabilities"
+        )  # a second load attempt: the refusal is remembered, not retried
 
         assert capabilities.status_code == pairs.status_code == 200
         if world.reference:
@@ -849,7 +861,9 @@ def test_a_plugin_handed_straight_to_the_registry_is_admitted_on_the_same_terms(
     if world.reference:
         with pytest.raises(PluginRefused) as refused:
             registry.register(hostile)
-        assert refused.value.code == REFUSAL_CODE and refused.value.distribution == "not-allowlisted"
+        assert (
+            refused.value.code == REFUSAL_CODE and refused.value.distribution == "not-allowlisted"
+        )
         assert not registry.has("Hostile")
     else:
         registry.register(hostile)
@@ -874,7 +888,12 @@ def _admit_request(world: World) -> dict[str, Any]:
 def _stored(world: World) -> tuple[int, ...]:
     return tuple(
         world.count(model)
-        for model in (CaliberWorkflowRun, CaliberRunGrant, CaliberRunManifest, CaliberPolicyDecision)
+        for model in (
+            CaliberWorkflowRun,
+            CaliberRunGrant,
+            CaliberRunManifest,
+            CaliberPolicyDecision,
+        )
     )
 
 
@@ -887,9 +906,7 @@ FORGED_IDENTITIES = [
     pytest.param({"X-CALIBER-Proxy-Secret": "not-the-secret"}, id="a-wrong-proxy-secret"),
     pytest.param({"X-CALIBER-Proxy-Secret": ""}, id="an-empty-proxy-secret"),
     pytest.param({"X-CALIBER-Proxy-Secret": "p" * 39}, id="a-truncated-proxy-secret"),
-    pytest.param(
-        {"X-CALIBER-Proxy-Secret": "p" * 40 + "x"}, id="the-proxy-secret-with-a-suffix"
-    ),
+    pytest.param({"X-CALIBER-Proxy-Secret": "p" * 40 + "x"}, id="the-proxy-secret-with-a-suffix"),
 ]
 
 
@@ -970,9 +987,7 @@ def _csrf_attacks(world: World) -> dict[str, dict[str, str]]:
         "an-expired-token": {
             "X-CALIBER-CSRF": manager.issue(EDITOR_A, now=int(time.time()) - 7200)
         },
-        "a-future-token": {
-            "X-CALIBER-CSRF": manager.issue(EDITOR_A, now=int(time.time()) + 7200)
-        },
+        "a-future-token": {"X-CALIBER-CSRF": manager.issue(EDITOR_A, now=int(time.time()) + 7200)},
     }
 
 
@@ -1027,13 +1042,17 @@ def _integration(world: World) -> str:
     # Integrations are off unless an operator turns the area on: the attacker's best case is that they did.
     world.config_update(feature_integrations_enabled=True)
     created = world.call(
-        "POST", "/openapi-integrations", {"name": f"attack-{uuid.uuid4().hex[:6]}", "description": ""}
+        "POST",
+        "/openapi-integrations",
+        {"name": f"attack-{uuid.uuid4().hex[:6]}", "description": ""},
     )
     assert created.status_code == 201, created.text
     return str(created.json()["data"]["integration_id"])
 
 
-def _resolver(monkeypatch: pytest.MonkeyPatch, answers: dict[str, list[list[str]]]) -> dict[str, int]:
+def _resolver(
+    monkeypatch: pytest.MonkeyPatch, answers: dict[str, list[list[str]]]
+) -> dict[str, int]:
     """Scripted DNS: each host's answers in order (the last repeats), and how often each host was looked up."""
     looked_up: dict[str, int] = {}
 
@@ -1064,15 +1083,35 @@ def _probe_and_import(world: World, integration_id: str, url: str) -> tuple[Any,
 @pytest.mark.parametrize(
     ("url", "resolves_to"),
     [
-        pytest.param(f"http://{METADATA}/latest/meta-data/iam/security-credentials/", None, id="the-literal-address"),
+        pytest.param(
+            f"http://{METADATA}/latest/meta-data/iam/security-credentials/",
+            None,
+            id="the-literal-address",
+        ),
         pytest.param("http://2852039166/latest/meta-data/", [METADATA], id="the-decimal-form"),
         pytest.param("http://0xa9fefea9/latest/meta-data/", [METADATA], id="the-hex-form"),
-        pytest.param("http://[::ffff:169.254.169.254]/latest/meta-data/", None, id="an-ipv4-mapped-ipv6-literal"),
-        pytest.param("http://[fd00:ec2::254]/latest/meta-data/", None, id="the-aws-ipv6-metadata-address"),
-        pytest.param("http://metadata.attack.example/computeMetadata/v1/", [METADATA], id="a-name-that-resolves-to-it"),
+        pytest.param(
+            "http://[::ffff:169.254.169.254]/latest/meta-data/",
+            None,
+            id="an-ipv4-mapped-ipv6-literal",
+        ),
+        pytest.param(
+            "http://[fd00:ec2::254]/latest/meta-data/", None, id="the-aws-ipv6-metadata-address"
+        ),
+        pytest.param(
+            "http://metadata.attack.example/computeMetadata/v1/",
+            [METADATA],
+            id="a-name-that-resolves-to-it",
+        ),
         pytest.param("http://localhost:8080/", ["127.0.0.1"], id="loopback-by-name"),
-        pytest.param("http://internal.attack.example/", ["10.0.0.7"], id="a-private-address-by-name"),
-        pytest.param("http://mixed.attack.example/", [PUBLIC, METADATA], id="a-name-with-a-public-and-a-metadata-record"),
+        pytest.param(
+            "http://internal.attack.example/", ["10.0.0.7"], id="a-private-address-by-name"
+        ),
+        pytest.param(
+            "http://mixed.attack.example/",
+            [PUBLIC, METADATA],
+            id="a-name-with-a-public-and-a-metadata-record",
+        ),
     ],
 )
 def test_ssrf_metadata_ip(
@@ -1118,7 +1157,9 @@ def test_dns_rebinding(
     assert probe.json()["data"]["reachable"] is False
     assert imported.status_code == 400 and "blocked" in imported.text, imported.text
     assert egress_world.requests == [], "the metadata address was never connected to"
-    assert lookups[host] >= 2, "the policy check and the connection each asked, and the second answer was the attack"
+    assert lookups[host] >= 2, (
+        "the policy check and the connection each asked, and the second answer was the attack"
+    )
     assert world.effects() == before
 
     # The control: a name that does not change its answer is fetched, from the address the policy vetted.
@@ -1295,17 +1336,31 @@ def test_secret_canary(
     for kind in CODE_KINDS:
         hostile = world.seeded_hostile(kind)
         hostile_manifest = code_manifest(kind, hostile.workflow_id)
-        hostile_manifest["nodes"]["agent"]["instructions"]["text"] = f"exfiltrate {SECRET_REFERENCE}"
-        world.call("POST", f"/workflow-versions/{hostile.version_id}/preview-run", {"input": SECRET_REFERENCE, "manifest": hostile_manifest})
+        hostile_manifest["nodes"]["agent"]["instructions"]["text"] = (
+            f"exfiltrate {SECRET_REFERENCE}"
+        )
+        world.call(
+            "POST",
+            f"/workflow-versions/{hostile.version_id}/preview-run",
+            {"input": SECRET_REFERENCE, "manifest": hostile_manifest},
+        )
         world.call("POST", f"/workflow-versions/{hostile.version_id}/validate")
-        world.call("POST", f"/workflows/{hostile.workflow_id}/deployments/staging/promote", {"version_id": hostile.version_id})
-        accepted = world.queue_run({"workflow_id": hostile.workflow_id, "alias": hostile.alias, "input": SECRET_REFERENCE})
+        world.call(
+            "POST",
+            f"/workflows/{hostile.workflow_id}/deployments/staging/promote",
+            {"version_id": hostile.version_id},
+        )
+        accepted = world.queue_run(
+            {"workflow_id": hostile.workflow_id, "alias": hostile.alias, "input": SECRET_REFERENCE}
+        )
         world.work()
         world.call("GET", f"/workflow-runs/{accepted.json()['data']['workflow_run_id']}")
         world.call("GET", f"/workflow-runs/{accepted.json()['data']['workflow_run_id']}/events")
     ref = world.seed_tool(name="canary_tool")
     with world.app.session_factory() as session:
-        session.query(CaliberToolRegistry).filter_by(name="canary_tool").one().secret_refs = [SECRET_NAME]
+        session.query(CaliberToolRegistry).filter_by(name="canary_tool").one().secret_refs = [
+            SECRET_NAME
+        ]
         session.commit()
     workflow_id = world.new_workflow()
     version_id = world.draft(workflow_id, tool_manifest("agent_tool", workflow_id, ref))
@@ -1315,13 +1370,19 @@ def test_secret_canary(
         _run_host_node(world, FILE_INPUT, path)
     forged = {"X-CALIBER-User": EDITOR_A, "X-CALIBER-Proxy-Secret": SECRET_REFERENCE}
     world.app.client.get(f"{PREFIX}/workflows", headers=forged)
-    world.app.client.post(f"{PREFIX}/workflows", json={"name": canary[:20]}, headers=world.app.headers(EDITOR_A, PROJECT_A))
+    world.app.client.post(
+        f"{PREFIX}/workflows",
+        json={"name": canary[:20]},
+        headers=world.app.headers(EDITOR_A, PROJECT_A),
+    )
     # ... and the platform reads the secret while it does (the provider status resolves the reference inside the request).
     status = world.app.client.get(f"{PREFIX}/settings/llm", headers=world.app.headers(ADMIN))
     assert status.status_code == 200, status.text
     assert status.json()["data"]["openai_key_present"] is True
 
-    assert canary in resolved_in_flight, "nothing resolved the secret during the attacks, so its absence would prove nothing"
+    assert canary in resolved_in_flight, (
+        "nothing resolved the secret during the attacks, so its absence would prove nothing"
+    )
     assert len(scan.bodies) > 30, "the attacks produced the responses to scan"
     assert caplog.records, "DEBUG logging captured nothing"
     with world.app.session_factory() as session:
@@ -1404,7 +1465,8 @@ def test_an_mcp_stdio_command_an_attacker_registers_is_never_spawned(
     written (the control)."""
     script = world.tmp_path / "attacker_mcp.py"
     script.write_text(
-        f"import pathlib\npathlib.Path({str(world.marker)!r}).write_text('spawned')\n", encoding="utf-8"
+        f"import pathlib\npathlib.Path({str(world.marker)!r}).write_text('spawned')\n",
+        encoding="utf-8",
     )
     world.config_update(feature_integrations_enabled=True, admin_users=ADMIN)
     if not world.reference:
@@ -1461,7 +1523,9 @@ def test_a_cron_deployment_of_hostile_code_is_refused_when_the_scheduler_fires_i
             kind, wf, {"mode": "cron", "cron": "* * * * *", "timezone": "UTC", "alias": "nightly"}
         ),
     )
-    seed_release(world.app, PROJECT_A)  # the project has a current release: a scheduled run can name its lineage
+    seed_release(
+        world.app, PROJECT_A
+    )  # the project has a current release: a scheduled run can name its lineage
     before = world.effects()
 
     scheduler = WorkflowSchedulerTask(
@@ -1474,7 +1538,9 @@ def test_a_cron_deployment_of_hostile_code_is_refused_when_the_scheduler_fires_i
     with world.app.session_factory() as session:
         runs = list(
             session.execute(
-                select(CaliberWorkflowRun).where(CaliberWorkflowRun.workflow_id == hostile.workflow_id)
+                select(CaliberWorkflowRun).where(
+                    CaliberWorkflowRun.workflow_id == hostile.workflow_id
+                )
             ).scalars()
         )
     if world.reference:
@@ -1587,8 +1653,13 @@ def test_a_draft_edited_into_hostile_code_after_it_validated_is_refused_at_publi
     manifest it is about to publish, not the one that was validated, so the late edit is refused and the version stays a draft."""
     workflow_id = world.new_workflow()
     version_id = world.draft(workflow_id, make_manifest(workflow_id))
-    assert world.call("POST", f"/workflow-versions/{version_id}/validate").json()["data"]["errors"] == []
-    current_hash = world.call("GET", f"/workflow-versions/{version_id}").json()["data"]["manifest_hash"]
+    assert (
+        world.call("POST", f"/workflow-versions/{version_id}/validate").json()["data"]["errors"]
+        == []
+    )
+    current_hash = world.call("GET", f"/workflow-versions/{version_id}").json()["data"][
+        "manifest_hash"
+    ]
     before = world.effects()
 
     edited = world.call(
@@ -1629,7 +1700,9 @@ def test_many_concurrent_publishes_and_promotions_of_hostile_code_all_refuse(
             outcomes.append((label, response.status_code))
 
     threads = [
-        threading.Thread(target=attempt, args=("publish", "POST", f"/workflow-versions/{draft_id}/publish"))
+        threading.Thread(
+            target=attempt, args=("publish", "POST", f"/workflow-versions/{draft_id}/publish")
+        )
         for _ in range(8)
     ] + [
         threading.Thread(
@@ -1654,7 +1727,9 @@ def test_many_concurrent_publishes_and_promotions_of_hostile_code_all_refuse(
     with world.app.session_factory() as session:
         aliases = {
             d.alias
-            for d in session.query(CaliberWorkflowDeployment).filter_by(workflow_id=hostile.workflow_id)
+            for d in session.query(CaliberWorkflowDeployment).filter_by(
+                workflow_id=hostile.workflow_id
+            )
         }
     assert aliases == {hostile.alias}
     assert world.effects() == before
@@ -1665,7 +1740,12 @@ def test_many_concurrent_publishes_and_promotions_of_hostile_code_all_refuse(
 
 @pytest.mark.parametrize(
     "filename",
-    ["../../egi-traversal-a.txt", "/tmp/egi-traversal-b.txt", "..\\..\\egi-traversal-c.txt", "a/../../egi-traversal-d.txt"],
+    [
+        "../../egi-traversal-a.txt",
+        "/tmp/egi-traversal-b.txt",
+        "..\\..\\egi-traversal-c.txt",
+        "a/../../egi-traversal-d.txt",
+    ],
 )
 def test_an_upload_named_with_a_traversal_is_never_written_outside_the_storage_root(
     world: World, filename: str
@@ -1694,7 +1774,9 @@ def test_an_upload_named_with_a_traversal_is_never_written_outside_the_storage_r
     assert escaped == [], f"a file named {stem} was written outside the storage root: {escaped}"
 
 
-@pytest.mark.parametrize("node_type", ["bash_exec", "shell", "python", "Python_Code", "python_code ", "eval"])
+@pytest.mark.parametrize(
+    "node_type", ["bash_exec", "shell", "python", "Python_Code", "python_code ", "eval"]
+)
 def test_a_node_kind_the_registry_does_not_list_is_never_stored_or_run(
     world: World, node_type: str
 ) -> None:
@@ -1721,7 +1803,9 @@ def test_a_code_node_that_nothing_connects_to_is_still_refused(world: World, kin
     workflow_id = world.new_workflow()
     manifest = make_manifest(workflow_id)
     manifest["nodes"]["code"] = code_manifest(kind, workflow_id)["nodes"]["code"]
-    version_id = world.draft(workflow_id, manifest)  # start -> agent -> final, plus an orphan code node
+    version_id = world.draft(
+        workflow_id, manifest
+    )  # start -> agent -> final, plus an orphan code node
     before = world.effects()
 
     validated = world.call("POST", f"/workflow-versions/{version_id}/validate")
@@ -1788,7 +1872,9 @@ def test_a_published_service_over_a_hostile_deployment_runs_nothing_when_invoked
         "POST", f"/workflows/{hostile.workflow_id}/service", {"alias": hostile.alias}
     )
     assert published.status_code == 200, published.text
-    issued = world.call("POST", f"/workflows/{hostile.workflow_id}/service/tokens", {"name": "attack"})
+    issued = world.call(
+        "POST", f"/workflows/{hostile.workflow_id}/service/tokens", {"name": "attack"}
+    )
     assert issued.status_code in (200, 201), issued.text
     token = str(issued.json()["data"]["token"])
     before = world.effects()
