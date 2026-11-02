@@ -5131,14 +5131,22 @@ adds is the notice that the server did not say.
 | **Support status** (a closed disclosure under the navigation) | all four, including `document_request_connector`, which has no page | each adapter's label, status chip, the `message` word for word and, for a `supported` adapter, how many scenario tests `evidence` cites |
 
 - **The flag still decides whether a destination is listed; `adapters` decides what it is called.** A flag that is off lists nothing, exactly
-  as before, so a default install's navigation is unchanged and carries no chip. The area's exact refusal is still one click away in
-  Support status, word for word the `404` text.
+  as before, so with all three flags off the navigation lists the same destinations as the alpha, none of them labelled. Every
+  install does get one new control under the navigation, the closed "Support status" button, and the area's exact refusal is one click
+  away there, word for word the `404` text.
 - **Status is a word and an icon, never a colour alone** (`Supported`, `Preview`, `Unavailable`, the server's three words and no other
-  tier). A screen reader hears the destination's own name, then the status word and the `message` as its description. The chip colours
-  meet WCAG AA contrast (checked in the browser spec).
-- **An `unavailable` adapter that is listed is a disabled item**: visible, reachable by keyboard so its reason is heard, with
-  `aria-disabled="true"`, and not followed by a click or Enter. A `preview` adapter stays a normal link with its `Preview` chip: `preview`
-  can run, only nothing supports it.
+  tier). A screen reader hears the destination's own name, then the status word and the `message` as its description. A sighted person
+  gets the same text as a popover on the item, on hover and on keyboard focus (not shown in the collapsed icon rail, whose tooltip carries
+  the status), and in the Support status panel. The chip colours are set per theme (`.adapter-chip-*` in `styles/index.css`); the browser
+  spec measures each status chip, on the panel and on the navigation items, and a disabled item's label at at least 4.5:1 against the
+  colour actually painted, in both the light and the dark theme. That is a check of those elements, not an audit of the whole page.
+- **An `unavailable` adapter that is listed is a disabled item**: visible, its label at full strength, reachable by keyboard so its reason
+  is heard and shown, with `aria-disabled="true"`, and not followed by a click or Enter. A `preview` adapter stays a normal link with its
+  `Preview` chip: `preview` can run, only nothing supports it.
+- **Only two adapters can read `Supported`.** The app allows `Supported` only for `document_request_connector` and `release_evaluation`,
+  the two `caliber.features.SUPPORT_EVIDENCE` can promote. If a server ever reported `mcp_servers` or `openapi_integrations` as
+  `supported`, the app would still show `Preview`, with the notice `This app shows only the reference connector and release evaluation as
+  supported, so this adapter is shown as preview.` Every other rule below is the server's.
 - **Fail closed.** Nothing reads as `supported` unless the server reported a `supported` entry that is whole: a `message`, no
   `reason_code`, and at least one `evidence` entry. While capabilities load nothing is labelled; if the request fails, the server predates
   `adapters`, an entry is missing or `null`, or a status is not one of the three words, the adapter reads as `Preview` with the notice

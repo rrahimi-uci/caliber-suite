@@ -144,7 +144,7 @@ function NavItem({
   // Nothing is labelled while capabilities load: no status is claimed before the server has spoken.
   const reported = support && !support.view.loading ? support.view : null;
   const disabled = reported?.status === "unavailable";
-  const className = `nav-item ${baseSize} ${isActive ? "nav-item-active" : ""} ${collapsed ? "md:justify-center md:px-0" : ""} ${disabled ? "cursor-not-allowed opacity-70 hover:bg-transparent" : ""}`;
+  const className = `nav-item ${baseSize} ${isActive ? "nav-item-active" : ""} ${collapsed ? "md:justify-center md:px-0" : ""} ${disabled ? "cursor-not-allowed hover:bg-transparent" : ""}`;
   const descriptionId = reported && support ? `nav-support-${support.id}` : undefined;
   const title = collapsed
     ? reported
@@ -154,7 +154,7 @@ function NavItem({
 
   const content = (
     <>
-      <span className={`relative ${small ? "w-4 h-4" : "w-[18px] h-[18px]"} flex-shrink-0 ${isActive ? "text-caliber-purple" : "text-slate-400"}`}>
+      <span className={`relative ${small ? "w-4 h-4" : "w-[18px] h-[18px]"} flex-shrink-0 ${isActive ? "text-caliber-purple" : "text-slate-400"} ${disabled ? "opacity-60" : ""}`}>
         {icon}
         {badge && badge.count > 0 && (
           <span
@@ -182,31 +182,42 @@ function NavItem({
     </>
   );
 
-  // The status and the server's exact text, read after the destination's name.
-  const description = reported && (
-    <span id={descriptionId} className="sr-only">
-      {describeAdapterSupport(reported)}
-    </span>
-  );
+  // The status and the server's exact text. A screen reader hears it after the destination's name
+  // (``aria-describedby``); a sighted person gets the same text as a popover on hover and on
+  // keyboard focus (``focus-within``), so the reason is on the item itself and not only inside
+  // the closed "Support status" panel. The popover is skipped in the icon rail, which has no room
+  // (its tooltip carries the status instead).
+  const withSupport = (link: JSX.Element): JSX.Element =>
+    reported ? (
+      <div className="group relative">
+        {link}
+        <span
+          id={descriptionId}
+          data-testid={`nav-support-text-${support?.id}`}
+          className={`pointer-events-none absolute left-3 right-3 top-full z-50 mt-0.5 hidden rounded-md border border-slate-200 bg-white px-2.5 py-2 text-[11px] font-normal leading-snug text-slate-700 shadow-lg group-focus-within:block group-hover:block ${collapsed ? "md:hidden" : ""}`}
+        >
+          {describeAdapterSupport(reported)}
+        </span>
+      </div>
+    ) : (
+      link
+    );
 
   // An unavailable adapter is shown but cannot be followed: a link that is not a link, still
-  // reachable by keyboard so its reason is heard. Visibility here grants no backend authority.
+  // reachable by keyboard so its reason is heard and shown. Visibility here grants no authority.
   if (disabled) {
-    return (
-      <>
-        <span
-          role="link"
-          aria-disabled="true"
-          tabIndex={0}
-          className={className}
-          aria-describedby={descriptionId}
-          title={title}
-          data-testid={`nav-disabled-${support?.id}`}
-        >
-          {content}
-        </span>
-        {description}
-      </>
+    return withSupport(
+      <span
+        role="link"
+        aria-disabled="true"
+        tabIndex={0}
+        className={className}
+        aria-describedby={descriptionId}
+        title={title}
+        data-testid={`nav-disabled-${support?.id}`}
+      >
+        {content}
+      </span>,
     );
   }
 
@@ -230,37 +241,31 @@ function NavItem({
   // A place inside a page is a plain link: ``NavLink`` would also mark the page's own entry as
   // current for it, and exactly one location is the current one.
   if (hash !== undefined) {
-    return (
-      <>
-        <Link
-          to={to}
-          className={className}
-          aria-current={isActive ? "location" : undefined}
-          aria-describedby={descriptionId}
-          onClick={onNavigate}
-          title={title}
-        >
-          {content}
-        </Link>
-        {description}
-      </>
-    );
-  }
-
-  return (
-    <>
-      <NavLink
+    return withSupport(
+      <Link
         to={to}
         className={className}
-        end={false}
+        aria-current={isActive ? "location" : undefined}
         aria-describedby={descriptionId}
         onClick={onNavigate}
         title={title}
       >
         {content}
-      </NavLink>
-      {description}
-    </>
+      </Link>,
+    );
+  }
+
+  return withSupport(
+    <NavLink
+      to={to}
+      className={className}
+      end={false}
+      aria-describedby={descriptionId}
+      onClick={onNavigate}
+      title={title}
+    >
+      {content}
+    </NavLink>,
   );
 }
 

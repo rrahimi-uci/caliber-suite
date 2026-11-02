@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Locator, type Page } from "@playwright/test";
 
 import { signIn } from "./helpers";
 
@@ -16,7 +16,10 @@ import { signIn } from "./helpers";
  *  - The server's three statuses and its exact reason text reach the screen; nothing the server
  *    did not report as supported is shown as supported; an unavailable adapter is a disabled item
  *    that cannot be followed with the mouse or the keyboard; the labels are words, not colour
- *    alone, and meet WCAG AA contrast.
+ *    alone, and measure at least 4.5:1 (WCAG AA for normal text) in both the light and the dark
+ *    theme, against the colour actually painted (a screenshot sample, not the computed
+ *    background, which misses a translucent tint over the sidebar's gradient). The measurement is
+ *    of the status chips and a disabled item's label only, not an audit of the whole page.
  *
  * The full suite's server has the integrations and release-candidate flags on, and the rewrite
  * turns them on regardless, so this spec does not depend on the server's own state.
@@ -132,27 +135,54 @@ function navItem(page: Page, label: string) {
     .filter({ has: page.locator("span.flex-1", { hasText: new RegExp(`^${label}$`) }) });
 }
 
-/** WCAG contrast ratio of a chip's text on its own background, from computed styles. */
-async function contrastOf(page: Page, selector: string): Promise<number> {
-  return page.locator(selector).first().evaluate((element) => {
-    const parse = (value: string): [number, number, number] => {
-      const match = value.match(/rgba?\(([^)]+)\)/);
-      if (!match?.[1]) throw new Error(`unparseable colour: ${value}`);
-      const [r = 0, g = 0, b = 0] = match[1].split(/[ ,/]+/).map(Number);
-      return [r, g, b];
-    };
-    const luminance = ([r, g, b]: [number, number, number]): number => {
-      const channel = (c: number): number => {
-        const s = c / 255;
-        return s <= 0.03928 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4;
+/**
+ * WCAG contrast ratio of an element's text against the colour actually painted behind it.
+ *
+ * `getComputedStyle(...).backgroundColor` is not enough: a chip's tint is translucent in the dark
+ * theme and the sidebar behind it is a gradient image, so the colour a person sees is neither.
+ * The text colour is read from the computed style; the background is the most common pixel of a
+ * real screenshot of the element (text and icon pixels are the minority), so it includes the
+ * translucent tint composited over whatever is behind it, in the theme that is on.
+ */
+async function paintedContrast(locator: Locator): Promise<number> {
+  const png = (await locator.screenshot()).toString("base64");
+  const textColor = await locator.evaluate((element) => getComputedStyle(element).color);
+  return locator.page().evaluate(
+    async ({ base64, color }) => {
+      const image = new Image();
+      image.src = `data:image/png;base64,${base64}`;
+      await image.decode();
+      const canvas = document.createElement("canvas");
+      canvas.width = image.width;
+      canvas.height = image.height;
+      const context = canvas.getContext("2d");
+      if (!context) throw new Error("no 2d context");
+      context.drawImage(image, 0, 0);
+      const { data } = context.getImageData(0, 0, canvas.width, canvas.height);
+      const counts = new Map<string, number>();
+      for (let i = 0; i < data.length; i += 4) {
+        const key = `${data[i]},${data[i + 1]},${data[i + 2]}`;
+        counts.set(key, (counts.get(key) ?? 0) + 1);
+      }
+      const [background] = [...counts.entries()].sort((a, b) => b[1] - a[1])[0] ?? [];
+      if (!background) throw new Error("empty screenshot");
+      const match = color.match(/rgba?\(([^)]+)\)/);
+      if (!match?.[1]) throw new Error(`unparseable colour: ${color}`);
+      const text = match[1].split(/[ ,/]+/).map(Number).slice(0, 3);
+      const paint = background.split(",").map(Number);
+      const luminance = (rgb: number[]): number => {
+        const [r = 0, g = 0, b = 0] = rgb.map((c) => {
+          const s = c / 255;
+          return s <= 0.03928 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4;
+        });
+        return 0.2126 * r + 0.7152 * g + 0.0722 * b;
       };
-      return 0.2126 * channel(r) + 0.7152 * channel(g) + 0.0722 * channel(b);
-    };
-    const style = getComputedStyle(element);
-    const a = luminance(parse(style.color));
-    const b = luminance(parse(style.backgroundColor));
-    return (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
-  });
+      const a = luminance(text);
+      const b = luminance(paint);
+      return (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
+    },
+    { base64: png, color: textColor },
+  );
 }
 
 test.describe("Beta support labels in the navigation", () => {
@@ -264,7 +294,7 @@ test.describe("Beta support labels in the navigation", () => {
     await expect(list).toContainText("The server did not report why.");
   });
 
-  test("the support panel is a keyboard-operable disclosure and each status is a word, not a colour alone, at AA contrast", async ({
+  test("the support panel is a keyboard-operable disclosure and each status is a word, not a colour alone", async ({
     page,
   }) => {
     await serveAdapters(page, {
@@ -289,16 +319,83 @@ test.describe("Beta support labels in the navigation", () => {
       "Preview",
     ]);
 
-    for (const status of ["supported", "preview", "unavailable"]) {
-      const ratio = await contrastOf(
-        page,
-        `[data-testid="adapter-support-list"] [data-testid="adapter-support-chip"][data-status="${status}"]`,
-      );
-      expect(ratio, `${status} chip contrast`).toBeGreaterThanOrEqual(4.5);
-    }
-
     await page.keyboard.press("Space");
     await expect(toggle).toHaveAttribute("aria-expanded", "false");
     await expect(page.getByTestId("adapter-support-list")).toHaveCount(0);
+  });
+
+  for (const theme of ["light", "dark"] as const) {
+    test(`every status chip and the disabled item's label are at least 4.5:1 against what is painted, in the ${theme} theme`, async ({
+      page,
+    }) => {
+      await serveAdapters(page, {
+        document_request_connector: SUPPORTED_CONNECTOR,
+        release_evaluation: SUPPORTED_RELEASE,
+        mcp_servers: UNAVAILABLE_MCP,
+        openapi_integrations: PREVIEW_OPENAPI,
+      });
+      await signIn(page);
+      await openAllNavGroups(page);
+
+      const html = page.locator("html");
+      const isDark = async (): Promise<boolean> =>
+        ((await html.getAttribute("class")) ?? "").includes("dark");
+      if ((await isDark()) !== (theme === "dark")) {
+        await page
+          .getByRole("button", { name: theme === "dark" ? /Switch to dark mode/ : /Switch to light mode/ })
+          .click();
+      }
+      await expect.poll(isDark).toBe(theme === "dark");
+
+      await page.getByTestId("nav-support-toggle").click();
+      for (const status of ["supported", "preview", "unavailable"]) {
+        const chip = page
+          .locator(
+            `[data-testid="adapter-support-list"] [data-testid="adapter-support-chip"][data-status="${status}"]`,
+          )
+          .first();
+        await chip.scrollIntoViewIfNeeded();
+        const ratio = await paintedContrast(chip);
+        expect(ratio, `${status} chip, ${theme} theme`).toBeGreaterThanOrEqual(4.5);
+      }
+      // The same chips on the navigation items, over the item's own background.
+      for (const label of ["Release candidates", "OpenAPI Integrations"]) {
+        const chip = navItem(page, label).getByTestId("adapter-support-chip");
+        await chip.scrollIntoViewIfNeeded();
+        expect(await paintedContrast(chip), `${label} chip, ${theme} theme`).toBeGreaterThanOrEqual(4.5);
+      }
+      // A disabled item's label is not dimmed below readable.
+      const label = page.getByTestId("nav-disabled-mcp_servers").locator("span.flex-1");
+      await label.scrollIntoViewIfNeeded();
+      expect(await paintedContrast(label), `disabled label, ${theme} theme`).toBeGreaterThanOrEqual(4.5);
+    });
+  }
+
+  test("the reason is on the item for a sighted person: a popover on hover and on keyboard focus", async ({
+    page,
+  }) => {
+    await serveAdapters(page, {
+      document_request_connector: SUPPORTED_CONNECTOR,
+      release_evaluation: SUPPORTED_RELEASE,
+      mcp_servers: UNAVAILABLE_MCP,
+      openapi_integrations: PREVIEW_OPENAPI,
+    });
+    await signIn(page);
+    await openAllNavGroups(page);
+
+    const popover = page.getByTestId("nav-support-text-mcp_servers");
+    await expect(popover).toBeHidden();
+    await page.getByTestId("nav-disabled-mcp_servers").focus();
+    await expect(popover).toBeVisible();
+    await expect(popover).toHaveText(`Unavailable. ${UNAVAILABLE_MCP.message}`);
+    await page.getByTestId("nav-disabled-mcp_servers").blur();
+    await expect(popover).toBeHidden();
+
+    const preview = page.getByTestId("nav-support-text-openapi_integrations");
+    await navItem(page, "OpenAPI Integrations").hover();
+    await expect(preview).toBeVisible();
+    await expect(preview).toHaveText(`Preview. ${PREVIEW_OPENAPI.message}`);
+    await page.mouse.move(700, 400);
+    await expect(preview).toBeHidden();
   });
 });

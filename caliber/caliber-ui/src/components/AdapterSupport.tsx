@@ -5,13 +5,16 @@
  * the UI turns the server's per-adapter report (``caliber/features.py``, #755) into words, and it
  * has one rule: **an adapter reads as supported only when the server said so, completely.**
  *
+ *   * An adapter that can never be supported (MCP servers, OpenAPI integrations) is capped at
+ *     ``preview`` even if the server says ``supported``: the UI's own allowlist, the same two
+ *     adapters ``caliber.features.SUPPORT_EVIDENCE`` can promote.
  *   * Loading, a failed request, a server that predates ``adapters``, an entry for an adapter the
  *     UI does not know, a status the UI does not know (nothing here reads or invents a "GA" or
  *     any other tier) and a ``supported`` entry that is missing its text, carries a reason, or
  *     cites no evidence all read as ``preview``, never as ``supported``.
  *   * The reason and recovery text is the server's ``message`` word for word, the same text the
  *     disabled route answers with. The UI writes no support claim of its own: the only text it adds
- *     is the notice that the server did not say.
+ *     is the notice that the server did not say, and the notice that it capped an adapter.
  *   * A status is a word plus an icon, never a colour alone.
  *
  * Reading this grants no backend authority. A ``supported`` adapter is still subject to the
@@ -56,12 +59,28 @@ const STATUS_ICON: Record<AdapterSupportStatus, typeof Ban> = {
   unavailable: Ban,
 };
 
-// Text on a pale tint of the same hue, all above 4.5:1 (WCAG AA for the 10px bold chip).
+// The colours are in ``styles/index.css`` (``.adapter-chip-*``), set per theme in one place, so a
+// chip is readable in light and dark. The browser spec measures the contrast in both.
 const STATUS_CLASS: Record<AdapterSupportStatus, string> = {
-  supported: "bg-emerald-50 text-emerald-800 ring-1 ring-emerald-300/60",
-  preview: "bg-amber-50 text-amber-900 ring-1 ring-amber-300/60",
-  unavailable: "bg-slate-100 text-slate-800 ring-1 ring-slate-300/70",
+  supported: "adapter-chip-supported",
+  preview: "adapter-chip-preview",
+  unavailable: "adapter-chip-unavailable",
 };
+
+/**
+ * The adapters that may ever read ``supported``: the reference connector and release evaluation,
+ * the same two ``caliber.features.SUPPORT_EVIDENCE`` can promote. MCP servers and OpenAPI
+ * integrations are capped at ``preview`` here whatever the server sends, so a server regression
+ * cannot promote them. Everything else stays server-driven.
+ */
+const MAY_BE_SUPPORTED: ReadonlySet<AdapterId> = new Set<AdapterId>([
+  "document_request_connector",
+  "release_evaluation",
+]);
+
+/** Shown when the server says ``supported`` for an adapter that can never be: the UI's own downgrade. */
+export const NEVER_SUPPORTED_MESSAGE =
+  "This app shows only the reference connector and release evaluation as supported, so this adapter is shown as preview.";
 
 export interface AdapterSupportView {
   /** True until capabilities have either loaded or failed. Nothing is labelled meanwhile. */
@@ -94,6 +113,16 @@ export function useAdapterSupportView(id: AdapterId): AdapterSupportView {
   // holds (a message) and cites the scenarios behind it. Anything less is not promoted.
   const completeSupport =
     nonEmpty(info?.message) && info?.reason_code == null && evidence.length > 0;
+  if (status === "supported" && !MAY_BE_SUPPORTED.has(id)) {
+    return {
+      loading,
+      status: "preview",
+      label,
+      message: NEVER_SUPPORTED_MESSAGE,
+      reported: false,
+      evidenceCount: 0,
+    };
+  }
   if (info === null || (status === "supported" && !completeSupport)) {
     return {
       loading,

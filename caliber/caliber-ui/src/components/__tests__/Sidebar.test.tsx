@@ -438,6 +438,13 @@ describe("alpha_navigation_regression", () => {
         .map((link) => link.querySelector("span.flex-1")?.textContent?.trim()),
     ).toEqual(ALPHA_LABELS);
     expect(screen.queryAllByTestId("adapter-support-chip")).toHaveLength(0);
+    // What does change on a default install: one new control under the navigation, closed. It is
+    // not a destination (a button, not a link), so the link list above is exactly the alpha's.
+    const toggle = screen.getByTestId("nav-support-toggle");
+    expect(toggle.tagName).toBe("BUTTON");
+    expect(toggle).toHaveAccessibleName("Support status");
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    expect(within(nav).getAllByRole("link")).toHaveLength(ALPHA_LABELS.length);
     // Alpha destinations carry no description either.
     for (const link of within(nav).getAllByRole("link")) {
       expect(link).not.toHaveAttribute("aria-describedby");
@@ -587,5 +594,197 @@ describe("support status disclosure", () => {
     );
     expect(chipOf(nav, "MCP Servers")?.parentElement).toHaveClass("md:hidden");
     expect(screen.getByTestId("nav-support-toggle").closest("div.mt-3")).toHaveClass("md:hidden");
+    // The popover has no room in the rail either.
+    expect(within(nav).getByTestId("nav-support-text-mcp_servers")).toHaveClass("md:hidden");
+  });
+});
+
+describe("what the server cannot make supported, and what it cannot make the UI render", () => {
+  it.each(["mcp_servers", "openapi_integrations"] as const)(
+    "caps %s at Preview even when the server reports a complete supported entry",
+    async (id) => {
+      serve(ALL_ON, {
+        ...referenceAdapters(),
+        [id]: entry(id, "supported", `${LABEL[id]} is supported: a server regression.`),
+      });
+      renderSidebar();
+      const nav = await openAllGroups();
+      const label = id === "mcp_servers" ? "MCP Servers" : "OpenAPI Integrations";
+      await waitFor(() => expect(chipOf(nav, label)).toBeInTheDocument());
+      expect(chipOf(nav, label)).toHaveAttribute("data-status", "preview");
+      expect(chipOf(nav, label)).toHaveTextContent("Preview");
+      const link = within(nav).getByRole("link", { name: label });
+      expect(descriptionOf(link)).toBe(
+        "Preview. This app shows only the reference connector and release evaluation as supported, so this adapter is shown as preview.",
+      );
+      const list = await openSupportPanel();
+      const row = within(list).getByTestId(`adapter-support-${id}`);
+      expect(row).toHaveAttribute("data-status", "preview");
+      expect(row).not.toHaveTextContent("Backed by");
+      expect(row).not.toHaveTextContent("a server regression");
+    },
+  );
+
+  it("still lets the two reference adapters read Supported", async () => {
+    serve(ALL_ON, referenceAdapters());
+    renderSidebar();
+    const list = await openSupportPanel();
+    await waitFor(() =>
+      expect(within(list).getByTestId("adapter-support-release_evaluation")).toHaveAttribute(
+        "data-status",
+        "supported",
+      ),
+    );
+    expect(within(list).getByTestId("adapter-support-document_request_connector")).toHaveAttribute(
+      "data-status",
+      "supported",
+    );
+  });
+
+  it("never shows 'Backed by' for a preview entry that lists evidence", async () => {
+    serve(ALL_ON, {
+      ...referenceAdapters(),
+      mcp_servers: entry("mcp_servers", "preview", MESSAGES.mcpPreview, {
+        evidence: ["tests/x.py::test_a", "tests/x.py::test_b"],
+      }),
+      release_evaluation: entry("release_evaluation", "unavailable", MESSAGES.evaluatorDisabled, {
+        evidence: ["tests/x.py::test_c"],
+      }),
+    });
+    renderSidebar();
+    const list = await openSupportPanel();
+    await waitFor(() =>
+      expect(within(list).getByTestId("adapter-support-mcp_servers")).toHaveAttribute(
+        "data-status",
+        "preview",
+      ),
+    );
+    expect(within(list).getByTestId("adapter-support-mcp_servers")).not.toHaveTextContent("Backed by");
+    expect(within(list).getByTestId("adapter-support-release_evaluation")).not.toHaveTextContent(
+      "Backed by",
+    );
+    // Only the supported connector cites its evidence.
+    expect(within(list).getByTestId("adapter-support-document_request_connector")).toHaveTextContent(
+      "Backed by 2 scenario tests.",
+    );
+  });
+
+  it("keeps an unavailable entry with no message Unavailable, and says the server did not report why", async () => {
+    serve(ALL_ON, {
+      ...referenceAdapters(),
+      mcp_servers: entry("mcp_servers", "unavailable", "", { reason_code: "mcp_not_in_reference_profile" }),
+    });
+    renderSidebar();
+    const nav = await openAllGroups();
+    const disabled = await within(nav).findByTestId("nav-disabled-mcp_servers");
+    expect(within(disabled).getByTestId("adapter-support-chip")).toHaveAttribute("data-status", "unavailable");
+    expect(descriptionOf(disabled)).toBe(
+      "Unavailable. The server did not report why. Nothing is shown as supported unless the server says so.",
+    );
+  });
+
+  it("renders markup, script and javascript: text in a label or message as inert text", async () => {
+    const hostile = {
+      label: '<img src=x onerror="window.__pwned=1"> <script>window.__pwned=1</script>',
+      message: '<script>window.__pwned=1</script><a href="javascript:window.__pwned=1">click</a>',
+    };
+    serve(ALL_ON, {
+      ...referenceAdapters(),
+      mcp_servers: entry("mcp_servers", "preview", hostile.message, { label: hostile.label }),
+      release_evaluation: entry("release_evaluation", "unavailable", hostile.message, {
+        label: hostile.label,
+      }),
+    });
+    renderSidebar();
+    const nav = await openAllGroups();
+    const list = await openSupportPanel();
+    await waitFor(() =>
+      expect(within(list).getByTestId("adapter-support-mcp_servers")).toHaveTextContent(hostile.message),
+    );
+    expect(within(list).getByTestId("adapter-support-mcp_servers")).toHaveTextContent(hostile.label);
+    // Text, not elements: nothing was parsed out of it.
+    for (const root of [nav, list]) {
+      expect(root.querySelector("script")).toBeNull();
+      expect(root.querySelector("img")).toBeNull();
+      expect(root.querySelector('a[href^="javascript:"]')).toBeNull();
+    }
+    expect((window as unknown as { __pwned?: number }).__pwned).toBeUndefined();
+    expect(descriptionOf(within(nav).getByTestId("nav-disabled-release_evaluation"))).toBe(
+      `Unavailable. ${hostile.message}`,
+    );
+  });
+
+  it("renders a 5000-character message without breaking the item, the chip or the panel", async () => {
+    const long = `${"reason ".repeat(715)}end`.slice(0, 5000);
+    serve(ALL_ON, {
+      ...referenceAdapters(),
+      mcp_servers: entry("mcp_servers", "preview", long),
+    });
+    renderSidebar();
+    const nav = await openAllGroups();
+    await waitFor(() => expect(chipOf(nav, "MCP Servers")).toHaveTextContent("Preview"));
+    expect(descriptionOf(within(nav).getByRole("link", { name: "MCP Servers" }))).toBe(`Preview. ${long}`);
+    const list = await openSupportPanel();
+    expect(within(list).getByTestId("adapter-support-mcp_servers")).toHaveTextContent(long);
+    expect(within(list).getAllByRole("listitem")).toHaveLength(4);
+  });
+
+  it("gives each status its own chip style, so a swapped style is caught", async () => {
+    serve(ALL_ON, {
+      ...referenceAdapters(),
+      mcp_servers: entry("mcp_servers", "unavailable", MESSAGES.mcpUnavailable),
+    });
+    renderSidebar();
+    const list = await openSupportPanel();
+    await waitFor(() =>
+      expect(within(list).getByTestId("adapter-support-mcp_servers")).toHaveAttribute(
+        "data-status",
+        "unavailable",
+      ),
+    );
+    const classOf = (id: string): string =>
+      within(within(list).getByTestId(`adapter-support-${id}`)).getByTestId("adapter-support-chip")
+        .className;
+    expect(classOf("release_evaluation")).toContain("adapter-chip-supported");
+    expect(classOf("release_evaluation")).not.toMatch(/adapter-chip-(preview|unavailable)/);
+    expect(classOf("openapi_integrations")).toContain("adapter-chip-preview");
+    expect(classOf("openapi_integrations")).not.toMatch(/adapter-chip-(supported|unavailable)/);
+    expect(classOf("mcp_servers")).toContain("adapter-chip-unavailable");
+    expect(classOf("mcp_servers")).not.toMatch(/adapter-chip-(supported|preview)/);
+  });
+});
+
+describe("the reason is on the item, not only in the closed panel", () => {
+  it("shows the server's text as a hover and focus popover on each labelled item, and keeps a disabled label at full strength", async () => {
+    serve(ALL_ON, {
+      ...referenceAdapters(),
+      mcp_servers: entry("mcp_servers", "unavailable", MESSAGES.mcpUnavailable),
+    });
+    renderSidebar();
+    const nav = await openAllGroups();
+    const disabled = await within(nav).findByTestId("nav-disabled-mcp_servers");
+
+    const popover = within(nav).getByTestId("nav-support-text-mcp_servers");
+    expect(popover).toHaveTextContent(`Unavailable. ${MESSAGES.mcpUnavailable}`);
+    // Revealed by hover and by keyboard focus on the row (a title is neither keyboard-reachable nor
+    // reliably touch-reachable), hidden otherwise, and the item's description points at it.
+    expect(popover.className).toContain("group-hover:block");
+    expect(popover.className).toContain("group-focus-within:block");
+    expect(popover.className).toMatch(/(^|\s)hidden(\s|$)/);
+    expect(disabled).toHaveAttribute("aria-describedby", popover.id);
+    expect(popover.parentElement).toHaveClass("group");
+    // The disabled label is not dimmed (the status chip and cursor say it is disabled).
+    expect(disabled.className).not.toMatch(/opacity/);
+    expect(within(nav).getByTestId("nav-support-text-release_evaluation")).toHaveTextContent(
+      `Supported. ${MESSAGES.releaseSupported}`,
+    );
+  });
+
+  it("puts no popover on items that carry no support label", async () => {
+    serve({ aria: true });
+    renderSidebar();
+    const nav = await openAllGroups();
+    await waitFor(() => expect(within(nav).getByText("Plans")).toBeInTheDocument());
+    expect(nav.querySelector('[data-testid^="nav-support-text-"]')).toBeNull();
   });
 });

@@ -162,7 +162,9 @@ function ReleaseSignoffFactory({
     if (location.hash === "#release-signoff") {
       sectionRef.current?.scrollIntoView?.({ block: "start" });
     }
-  }, [location.hash]);
+    // ``location.key`` changes on every navigation, so following the link again from further down
+    // the page (the hash is already set) scrolls back to the section.
+  }, [location.hash, location.key]);
 
   return (
     <section

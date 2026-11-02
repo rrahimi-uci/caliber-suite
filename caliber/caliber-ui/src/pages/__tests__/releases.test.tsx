@@ -1,7 +1,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { http, HttpResponse } from "msw";
-import { MemoryRouter } from "react-router-dom";
+import { Link, MemoryRouter } from "react-router-dom";
 import {
   afterAll,
   afterEach,
@@ -865,6 +865,39 @@ describe("Releases with the release_candidates feature off (the alpha default)",
       const factory = await screen.findByTestId("release-signoff-factory");
       expect(factory).toHaveAttribute("id", "release-signoff");
       await waitFor(() => expect(scrolled).toEqual([factory]));
+    } finally {
+      Element.prototype.scrollIntoView = original;
+    }
+  });
+
+  it("scrolls again when the link is followed while the hash is already set", async () => {
+    const scrolled: Element[] = [];
+    const original = Element.prototype.scrollIntoView;
+    Element.prototype.scrollIntoView = function scrollIntoView(this: Element): void {
+      scrolled.push(this);
+    };
+    try {
+      server.use(
+        http.get(`${API_BASE}/capabilities`, () =>
+          HttpResponse.json(capabilitiesBody({ release_candidates: true })),
+        ),
+        http.get(`${API_BASE}/releases/candidates`, () => HttpResponse.json(envelope([]))),
+      );
+      const qc = new QueryClient({
+        defaultOptions: { queries: { retry: false, gcTime: 0 } },
+      });
+      render(
+        <QueryClientProvider client={qc}>
+          <MemoryRouter initialEntries={["/releases#release-signoff"]}>
+            <Link to="/releases#release-signoff">Release candidates</Link>
+            <Releases />
+          </MemoryRouter>
+        </QueryClientProvider>,
+      );
+      await screen.findByTestId("release-signoff-factory");
+      await waitFor(() => expect(scrolled).toHaveLength(1));
+      fireEvent.click(screen.getByRole("link", { name: "Release candidates" }));
+      await waitFor(() => expect(scrolled).toHaveLength(2));
     } finally {
       Element.prototype.scrollIntoView = original;
     }
