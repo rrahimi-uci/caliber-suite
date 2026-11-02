@@ -9,6 +9,7 @@ const EXPECTED_NAV_ORDER = [
   "Test Sets",
   "Evaluations",
   "Releases",
+  "Release candidates",
   "Skills",
   "Tools",
   "Workflows",
