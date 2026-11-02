@@ -494,9 +494,12 @@ The capability record (`http`, version 1) says so and its digest is pinned in `R
 re-admission the record promises. A downstream that reuses a key for a different request, or whose lookup is not honest, is outside what the
 platform can know: the receipt is as sound as the endpoint the operator chose to list.
 
-Not delivered here, and stated so: the **attested operator resolution** of a *permanent* unknown (a downstream that never shows the request
-and cannot prove absence) is #1054, a separate mechanism (an operator write path with its own evidence, authority and ADR 0003 amendment); until
-then such a proposal stays `unknown` and its dependents blocked, exactly as the runbook says. The `registered_tool`, `openapi_http` and `mcp`
+The **attested operator resolution** of a *permanent* unknown is now a separate, evidence-bearing mechanism (#1054): an admin on
+the execution owner may `POST .../system/effects/proposals/{proposal_id}/attest-failure` with `resolution: "failed"`, an operator
+reason and an opaque downstream evidence reference. It uses the existing `unknown` -> `reconciled` -> `failed` transitions,
+records the decision in the same audit transaction and wakes parked runs. It cannot attest `committed`; only a verified receipt can
+produce that state. Without downstream evidence, the proposal stays `unknown` and its dependents remain blocked, exactly as the
+runbook says. The `registered_tool`, `openapi_http` and `mcp`
 connectors remain unverifiable and refused. The receipt callback (`POST .../effects/callbacks/receipt`) still knows only `document-request`.
 
 ### Draft preview is read-only (#1072)
@@ -5712,7 +5715,7 @@ ADR 0001 describes the whole reference shape; this table is what the *process* c
 - **Origin rules** (#533). ADR 0001 names them, but #533 has no allowed-origins task yet; that rule is not scheduled.
 - **The trusted-connector set** (#534), **the full attack pack** (#535), **a single execution owner** (#536) and **the Apply separation-of-duties flag** (#589).
 - **A governed effect context outside the worker's own graph** (#1051, #1068): the worker binds one for an admitted reference-profile run, but synchronous version runs, evaluation, gate and Aria previews, and the sub-workflows of a worker run have no owner lease and bind none, so the reference profile refuses their protected nodes (and an agent in them that can reach a mapped tool) and the development profile runs them on the legacy guarded path; see "Profiles and a missing governed context".
-- **A verifier for the other workflow connectors** (#1055, #1051): a registered-tool, OpenAPI or MCP node, and a webhook or API-request node whose URL the operator did not list in `CALIBER_EFFECT_HTTP_VERIFIERS`, is refused `no_authoritative_verifier` in the reference profile because the connector has no lookup by key the platform can call; a governed agent step reaches `document_request` and a listed webhook reaches `http` end to end. A *permanent* unknown (a lookup that never shows the request) has no operator exit yet: the attested resolution is #1054. A workflow node whose effect ended unknown fails its run and a settlement does not resume it. Model-chosen calls of an agent that is not governed (B04.6, #768) are not routed.
+- **A verifier for the other workflow connectors** (#1055, #1051): a registered-tool, OpenAPI or MCP node, and a webhook or API-request node whose URL the operator did not list in `CALIBER_EFFECT_HTTP_VERIFIERS`, is refused `no_authoritative_verifier` in the reference profile because the connector has no lookup by key the platform can call; a governed agent step reaches `document_request` and a listed webhook reaches `http` end to end. A *permanent* unknown (a lookup that never shows the request) has the evidence-bearing #1054 operator exit: an execution-owner admin may attest `failed` with downstream absence evidence, but never `committed`; a workflow node whose effect ended unknown fails its run and a settlement does not resume it. Model-chosen calls of an agent that is not governed (B04.6, #768) are not routed.
 - **Acceptance covers `document-request` effects only** (#784, #791): in this profile a run is judged, and is `completed` only when every `document-request` effect it proposed has an `accepted` decision (see [Acceptance at run completion](#acceptance-at-run-completion-b092b-791)). Effects of any other connector, the operator-listed generic `http` webhook included, have no criteria set and are not judged: a run whose only effects are such completes as before with `acceptance: null`. The criteria set is the registry `caliber.acceptance.completion.CRITERIA_BY_CONNECTOR`; adding a connector means adding its criteria, not a setting.
 - **Cookie flags:** `auth_session_cookie_secure` is not checked.
 - **The database role:** whether the application connects as a role without `UPDATE`, `DELETE` or `TRUNCATE` on `caliber_run_manifests` (see "Run manifests are written once").
