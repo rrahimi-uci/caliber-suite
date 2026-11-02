@@ -110,6 +110,11 @@ class WorkflowRun:
     claimed_by: str | None = None
     error: str | None = None
     output: Any = None
+    #: Whether the platform accepted what the run's effects did to the downstream system of
+    #: record: ``{"status": "accepted" | "rejected" | "error", "criteria_version", "error_code",
+    #: "decisions": [...]}``, or ``None`` for a run with nothing to judge and for every run that
+    #: finished before acceptance existed (never relabelled).
+    acceptance: dict[str, Any] | None = None
     extra: dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
@@ -127,8 +132,22 @@ class WorkflowRun:
         return self.status in TERMINAL_RUN_STATES
 
     @property
+    def accepted(self) -> bool | None:
+        """``True`` / ``False`` when the platform judged the run's effects, else ``None``.
+
+        ``None`` means nothing was judged: the run had nothing to judge, or it is a legacy run.
+        """
+        if not isinstance(self.acceptance, dict):
+            return None
+        return self.acceptance.get("status") == "accepted"
+
+    @property
     def succeeded(self) -> bool:
-        return self.status in {"succeeded", "completed"}
+        """A completed run, and not one whose effects the platform rejected.
+
+        A server never serves ``completed`` with a rejection; this stays closed if one ever did.
+        """
+        return self.status in {"succeeded", "completed"} and self.accepted is not False
 
 
 @dataclass

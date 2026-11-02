@@ -16,6 +16,9 @@ from pydantic import ValidationError
 from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session, sessionmaker
 
+from caliber.acceptance import completion as acceptance_completion
+from caliber.acceptance.decision import AcceptanceError
+from caliber.acceptance.predicates import PredicateError
 from caliber.audit import record as audit_record
 from caliber.config import CaliberConfig
 from caliber.context.assembly import context_recorder_for
@@ -29,6 +32,7 @@ from caliber.db.models import (
     CaliberWorkflowVersion,
 )
 from caliber.db.scoping import synthetic_identity
+from caliber.effects.callbacks import parse_bindings
 from caliber.effects.governed_context import (
     RUN_NOT_ADMITTED,
     GovernedContextUnavailable,
@@ -39,7 +43,7 @@ from caliber.effects.governed_context import (
     run_authority,
     step_context,
 )
-from caliber.effects.reconcile import effect_gate
+from caliber.effects.reconcile import effect_gate, targets_from_bindings
 from caliber.effects.run_settlement import (
     RUN_CANCELLED_REASON,
     RUN_COMPLETED_REASON,
@@ -72,6 +76,8 @@ from caliber.workflows.run_events import append_run_event
 from caliber.workflows.run_identity import IdentityDenied, identity_for_run
 from caliber.workflows.run_pins import PinsError, verify_run_pins
 from caliber.workflows.run_state import (
+    ACCEPTANCE_ERROR,
+    ACCEPTANCE_FAILURE_CODES,
     RUN_STATUS_CANCELLED,
     RUN_STATUS_COMPLETED,
     RUN_STATUS_EXPIRED,
@@ -83,6 +89,7 @@ from caliber.workflows.run_state import (
     RUN_STATUS_WAITING_EVENT,
     assert_run_transition,
     normalize_runtime_result_status,
+    status_after_acceptance,
 )
 from caliber.workflows.runtime import NodeStep, RuntimeResumeCheckpoint, WorkflowRunResult, execute
 from caliber.workspace_runtime_lineage import RuntimeLineageError, require_runtime_lineage
@@ -570,11 +577,14 @@ class WorkflowRunWorker:
         config: CaliberConfig,
         event_bus: EventBus | None = None,
         lease_provider: LeaseProvider | None = None,
+        case_reader: acceptance_completion.CaseReader | None = None,
     ) -> None:
         self._session_factory = session_factory
         self._config = config
         self._event_bus = event_bus
         self._lease_provider = lease_provider
+        # How the platform reads the system of record when it judges a completing run (B09.2b, #791). Only a test passes one.
+        self._case_reader = case_reader or acceptance_completion.read_case
         self._interval_seconds = float(config.workflow_run_worker_interval_seconds)
         self._lease_duration = timedelta(seconds=float(config.workflow_run_lease_seconds))
         from caliber.observability.worker_registry import new_worker_id  # noqa: PLC0415
@@ -2252,7 +2262,7 @@ class WorkflowRunWorker:
                 return
             status = normalize_runtime_result_status(result.status)
             if status == RUN_STATUS_COMPLETED:
-                self._mark_completed(session, row, result)
+                self._complete_if_accepted(session, row, result)
                 return
             self._mark_failed(
                 session,
@@ -2726,11 +2736,99 @@ class WorkflowRunWorker:
             }
         )
 
+    def _complete_if_accepted(
+        self,
+        session: Session,
+        run: CaliberWorkflowRun,
+        result: WorkflowRunResult,
+    ) -> None:
+        """Complete a run the runtime reports as done only if the platform's own acceptance of its effects allows it (B09.2b, #791).
+
+        In the reference profile every effect of the run that has a criteria set is judged against what the downstream's system
+        of record says now (:func:`caliber.acceptance.completion.evaluate_run`), and the run is ``completed`` only if each has
+        an ``accepted`` decision (:func:`~caliber.workflows.run_state.status_after_acceptance`). A rejection fails the run
+        (``acceptance_rejected``); a decision that cannot be recorded or read, or a criterion that breaks, fails it too
+        (``acceptance_error``) and is audited, never swallowed and never a pass. The decisions are recorded in this transaction,
+        so they commit with the run's terminal status or not at all. The development profile has no governed effects and keeps
+        its path unchanged. A run with no effect that has a criteria set (and every run that ran before this existed) completes
+        with no acceptance information.
+        """
+        if getattr(self._config, "profile", "") != "reference":
+            self._mark_completed(session, run, result)
+            return
+        run_id = run.workflow_run_id
+        try:
+            targets = targets_from_bindings(
+                parse_bindings(getattr(self._config, "effect_callback_connectors", "[]"))
+            )
+            # A savepoint: a failure takes back only this pass's decisions, not the run row's pending changes (its trace links).
+            with session.begin_nested():
+                outcome = acceptance_completion.evaluate_run(
+                    session, run, targets=targets, reader=self._case_reader
+                )
+        except Exception as exc:
+            self._fail_acceptance_error(session, run, result, exc)
+            return
+        if outcome is None:
+            self._mark_completed(session, run, result)
+            return
+        acceptance = outcome.as_summary()
+        if status_after_acceptance(RUN_STATUS_COMPLETED, outcome.status) == RUN_STATUS_COMPLETED:
+            self._mark_completed(session, run, result, acceptance=acceptance)
+            return
+        failed = sorted(
+            f"{decision.candidate_id}:{','.join(decision.failed_criteria) or decision.reason_code}"
+            for decision in outcome.decisions
+            if not decision.accepted
+        )
+        self._mark_failed(
+            session,
+            run,
+            result=result,
+            error_code=ACCEPTANCE_FAILURE_CODES[outcome.status],
+            error_summary=(
+                f"acceptance rejected the run: {len(failed)} of {len(outcome.decisions)} governed effects "
+                f"did not meet {outcome.criteria_version} ({'; '.join(failed)})"
+            ),
+            acceptance=acceptance,
+        )
+        logger.info("run %s failed acceptance (%d rejected)", run_id, len(failed))
+
+    def _fail_acceptance_error(
+        self,
+        session: Session,
+        run: CaliberWorkflowRun,
+        result: WorkflowRunResult,
+        exc: Exception,
+    ) -> None:
+        """Fail a run whose acceptance could not be judged: audit why (the fixed code and the type, never a value), then fail closed."""
+        code = exc.code if isinstance(exc, AcceptanceError | PredicateError) else "unexpected"
+        logger.exception("acceptance of run %s could not be judged (%s)", run.workflow_run_id, code)
+        audit_record(
+            session,
+            actor="workflow_run_worker",
+            action="acceptance_error",
+            entity_type="workflow_run",
+            entity_id=run.workflow_run_id,
+            details={"code": code, "error_type": type(exc).__name__},
+            severity="high",
+        )
+        self._mark_failed(
+            session,
+            run,
+            result=result,
+            error_code=ACCEPTANCE_FAILURE_CODES[ACCEPTANCE_ERROR],
+            error_summary=f"acceptance of the run's effects could not be judged ({code}); the run is not accepted",
+            acceptance=acceptance_completion.error_summary(code),
+        )
+
     def _mark_completed(
         self,
         session: Session,
         run: CaliberWorkflowRun,
         result: WorkflowRunResult,
+        *,
+        acceptance: dict[str, Any] | None = None,
     ) -> None:
         assert_run_transition(run.status, RUN_STATUS_COMPLETED)
         run.status = RUN_STATUS_COMPLETED
@@ -2742,6 +2840,8 @@ class WorkflowRunWorker:
         summary = workflow_run_summary(result, preview=False)
         summary.update(_manifest_summary_metadata(run.summary))
         summary["input"] = _input_from_summary(run.summary)
+        if acceptance is not None:
+            summary["acceptance"] = acceptance
         run.summary = summary
         run.error_code = None
         run.error_summary = None
@@ -2829,6 +2929,7 @@ class WorkflowRunWorker:
         result: WorkflowRunResult | None = None,
         error_code: str,
         error_summary: str,
+        acceptance: dict[str, Any] | None = None,
     ) -> None:
         assert_run_transition(run.status, RUN_STATUS_FAILED)
         run.status = RUN_STATUS_FAILED
@@ -2845,6 +2946,8 @@ class WorkflowRunWorker:
         summary["input"] = _input_from_summary(run.summary)
         summary["status"] = RUN_STATUS_FAILED
         summary["error"] = error_summary
+        if acceptance is not None:
+            summary["acceptance"] = acceptance
         run.summary = summary
         run.error_code = error_code
         run.error_summary = error_summary

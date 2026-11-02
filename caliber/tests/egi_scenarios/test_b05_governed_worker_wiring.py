@@ -199,6 +199,8 @@ def proposing_executor() -> FakeWorkflowExecutor:
         effect_class="irreversible_write",
         resource=f"cases/{CASE}/document-requests",
         args={"document_type": DOCUMENT},
+        # The case's version when the model asked: acceptance (B09.2b) needs the version an effect was proposed against.
+        expected_resource_version="1",
     )
     return FakeWorkflowExecutor(
         step_script=[ScriptedStep("proposed_action", (action,), usage=StepUsage(10, 5, 15, 1, 0))]
@@ -239,6 +241,7 @@ def build_worker(
     *,
     lease_provider: Callable[[], Lease | None] | None,
     executor: FakeWorkflowExecutor | None = None,
+    case_reader: Any = None,
     **config_changes: Any,
 ) -> WorkflowRunWorker:
     monkeypatch.setattr(
@@ -248,6 +251,7 @@ def build_worker(
         app.session_factory,
         config=worker_config(app, downstream, **config_changes),
         lease_provider=lease_provider,
+        case_reader=case_reader,
     )
 
 
