@@ -10189,8 +10189,10 @@ The operator reconciliation view: legacy effect-ledger claims
 (``effects``, ``source: legacy_ledger``; defaults to
 ``status=in_progress`` server-side, the set that needs a decision) and
 effect proposals (``proposals``, ``source: effect_proposal``; defaults to
-the open states, settled by the reconciler; its one operator action is
-``reconcile_effect_proposal``). Every row carries ``source``, ``source_version`` and the
+the open states, settled by the reconciler; their operator actions are
+``reconcile_effect_proposal`` and, for a permanent unknown,
+``attest_effect_proposal_failure``). Every row carries ``source``, ``source_version`` and
+the
 ``safe_actions`` that apply to that kind. ``params``: ``source``
 (``all``, ``legacy`` or ``proposal``), ``status``, ``proposal_state``
 (``open``, ``any`` or one state), ``workflow_run_id``, ``limit``.
@@ -10240,6 +10242,27 @@ process that is not the execution owner answers ``409``.
 | --- | --- | --- | --- |
 | `proposal_id` | positional-or-keyword | `str` | `—` |
 | `reason` | keyword-only | `str` | `—` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `attest_effect_proposal_failure(proposal_id: str, *, reason: str, evidence_reference: str) -> Any`
+
+Attest downstream absence for a permanent-unknown proposal.
+
+The action records the opaque evidence reference and moves ``unknown`` through
+``reconciled`` to ``failed`` under the execution-owner lease. It cannot commit a proposal;
+only a verified receipt can do that.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `proposal_id` | positional-or-keyword | `str` | `—` |
+| `reason` | keyword-only | `str` | `—` |
+| `evidence_reference` | keyword-only | `str` | `—` |
 
 **Returns:** `Any`
 
