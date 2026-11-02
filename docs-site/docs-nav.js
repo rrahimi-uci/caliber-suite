@@ -1538,7 +1538,7 @@ window.DOCS_DATA = {
         "A PostgreSQL database and a way to set environment variables for the CALIBER process"
       ],
       "stability": "beta",
-      "reviewed_on": "2026-10-30",
+      "reviewed_on": "2026-11-01",
       "version_applicability": "current main branch docs contract",
       "tags": [
         "reference-profile",

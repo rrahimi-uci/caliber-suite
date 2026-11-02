@@ -39,9 +39,12 @@ An unknown profile name is a configuration error. `GET /ajax-api/2.0/mlflow/cali
 | `egress_policy_disabled` | `egress_policy_enabled` | `CALIBER_EGRESS_POLICY_ENABLED` | true | The egress policy is what stops a tool or webhook from reaching internal addresses. |
 | `mcp_insecure_http` | `mcp_allow_insecure_http` | `CALIBER_MCP_ALLOW_INSECURE_HTTP` | false | Plain-HTTP MCP servers send tool calls and results in the clear. |
 | `mcp_allowlist_not_in_profile` | `mcp_stdio_command_allowlist, mcp_remote_host_allowlist` | `CALIBER_MCP_STDIO_COMMAND_ALLOWLIST, CALIBER_MCP_REMOTE_HOST_ALLOWLIST` | empty (the profile lists no MCP command or host) | An allowlisted stdio command is arbitrary code on the CALIBER host and an allowlisted remote host is an endpoint nobody reviewed; the dispatcher admits an MCP call, never a server. |
+| `plugin_not_allowlisted` | `CALIBER_PLUGIN_ALLOWLIST` | `CALIBER_PLUGIN_ALLOWLIST` | naming every installed optimizer plugin's distribution, or the plugin uninstalled | A plugin is code that runs inside the control plane and can write the artifact CALIBER promotes; the profile loads one only when its distribution is named, and refuses any other installed plugin. |
+| `workflow_file_root_unconfined` | `workflow_file_root` | `CALIBER_WORKFLOW_FILE_ROOT` | unset or a directory, never `unconfined` | `unconfined` lets a host-filesystem node read or write any path the server can reach; the profile confines host paths to a configured root or refuses them. |
 | `self_approval_allowed` | `approval_allow_self_approval` | `CALIBER_APPROVAL_ALLOW_SELF_APPROVAL` | false | The account that started a run could approve its own protected action. |
 | `apply_distinct_approver_disabled` | `apply_require_distinct_approver` | `CALIBER_APPLY_REQUIRE_DISTINCT_APPROVER` | true | The account that requested a refinement job could apply its own candidate to production, and a job with no recorded requester could be applied unreviewed. |
 | `memory_inference_enabled` | `memory_infer` | `CALIBER_MEMORY_INFER` | false while CALIBER_MEMORY_ENABLED is true | LLM-inferred memory writes create durable, free-form facts nobody owns; the owned memory lifecycle does not exist yet. |
+| `http_lookup_cleartext` | `effect_http_verifiers` | `CALIBER_EFFECT_HTTP_VERIFIERS` | every `lookup_url` is `https` | The read-back by key carries no credentials and its answer is what commits an effect: over cleartext anyone who can see or alter it can forge a receipt for an effect that never happened. |
 | `fault_barriers_enabled` | `fault_barriers` | `CALIBER_FAULT_BARRIERS` | unset | An armed fault barrier makes the process exit on purpose; it exists only for scenario tests. |
 
 The messages in the refusal name the setting and the variable to change. The table is checked by
@@ -114,19 +117,24 @@ route or recursively invoke the OpenAPI execution surface. Egress is checked bef
 the default client at connection time.
 
 The generic HTTP backend cannot assume that every endpoint supports durable idempotency or a lookup-by-key API. It
-therefore emits `Idempotency-Key` from the proposal's stable logical key, but requires the runtime caller to provide an
-authoritative receipt verifier for the endpoint. The verifier must read the downstream's own state and return receipt
-facts matching the proposal's connector, resource, intent hash and attempt. A missing verifier, missing exact approval or
-missing lease is refused before transport; a response that cannot be verified does not become `committed` and remains
-recoverable as an unknown effect. The platform makes no universal exactly-once claim for arbitrary HTTP services.
+therefore emits `Idempotency-Key` from the proposal's stable logical key (a workflow-supplied `Idempotency-Key` header with any
+other value is refused before anything is sent: the lookup that settles the effect asks by the logical key), but requires the
+runtime caller to provide an authoritative receipt verifier for the endpoint. The verifier must read the downstream's own state
+and return receipt facts matching the proposal's connector, resource, intent hash and attempt. In the worker that verifier is the
+read-back by key at an endpoint **the operator listed** (`CALIBER_EFFECT_HTTP_VERIFIERS`, see
+[The generic HTTP connector's read-back](#the-generic-http-connectors-read-back-by-key-1055)). A missing verifier, missing exact
+approval or missing lease is refused before transport; a response that cannot be verified does not become `committed` and remains
+recoverable as an unknown effect, which the reconciler settles by the same lookup. The platform makes no universal exactly-once
+claim for arbitrary HTTP services.
 
 In the reference profile a manifest-backed plan without this governed context is refused rather than falling back to the raw
 sender. Outside the reference profile it is not refused: see [Profiles and a missing governed context](#profiles-and-a-missing-governed-context-1068).
 Legacy plans without a workflow manifest retain the existing `_perform_guarded_effect` ledger behavior and do not create an
 effect proposal. The runtime integration that owns a run must bind the context with the run id, exact approval provider, live
 execution-owner lease and endpoint-specific verifier. Since #1051 the worker does bind it in the reference profile (see
-[The worker binds the governed path](#the-worker-binds-the-governed-path-1051)), but with no verifier for the generic `http` connector
-(#1055) a webhook or API-request node is refused `no_authoritative_verifier` before its proposal is recorded.
+[The worker binds the governed path](#the-worker-binds-the-governed-path-1051)); since #1055 a webhook or API-request node whose exact
+URL the operator listed in `CALIBER_EFFECT_HTTP_VERIFIERS` is dispatched and read back by key, and any other URL is refused
+`no_authoritative_verifier` before its proposal is recorded.
 
 ## Governed registered tools (B04.3)
 
@@ -382,11 +390,14 @@ fixed code and sends nothing.
 | the deploy-gate replay | unchanged: a preview, protected tools stubbed |
 | standalone exports and plans a caller builds itself | unchanged: not governed |
 
-**A workflow node (webhook, API request, registered tool, OpenAPI tool, MCP tool) is bound to the context and refused.** The context the
+**A workflow node is bound to the context; only an operator-listed webhook or API request is dispatched.** The context the
 worker binds has the whole mechanism (a proposal, an approval request bound to the exact intent, a park behind it, a dispatch under the
-lease), but it names no backend it can verify: the generic `http`, `registered_tool`, `openapi_http` and `mcp` connectors have no lookup by key
-the platform can call, so an outcome it could not read back would end `unknown` and park the run with no way out (#1055). Such a node is
-therefore refused **before its proposal is recorded**, so no approval is asked for or spent on it:
+lease) and names the backends it can verify. Since #1055 that is the generic `http` backend, for **exactly the URLs the operator
+listed** for the run's project in `CALIBER_EFFECT_HTTP_VERIFIERS` (the read-back is described in
+[The generic HTTP connector's read-back](#the-generic-http-connectors-read-back-by-key-1055)); with nothing listed the context
+dispatches nothing. The `registered_tool`, `openapi_http` and `mcp` connectors have no lookup by key the platform can call, so an outcome
+it could not read back would end `unknown` with no way out: such a node, and an HTTP node whose URL nobody listed, is refused **before its
+proposal is recorded**, so no approval is asked for or spent on it:
 
 ```text
 HTTP effect refused: no_authoritative_verifier
@@ -395,9 +406,9 @@ OpenAPI effect refused: no_authoritative_verifier
 MCP effect refused: no_authoritative_verifier
 ```
 
-A verifier for a backend (`effect_context(authority, verifiers={...})`) is what makes it reachable; until #1055 settles which connectors
-have one, the only backend a production run reaches is `document_request`, through a governed agent step. A protected MCP tool call (B04.5) goes
-through the same context and is refused the same way.
+A verifier for a backend (`effect_context(authority, verifiers={...})`) is what makes it reachable; the backends a production run reaches
+are `document_request`, through a governed agent step, and `http` at listed endpoints, through a webhook or API-request node. A protected
+MCP tool call (B04.5) goes through the same context and is refused the same way.
 
 **Limits, stated plainly.**
 
@@ -413,12 +424,65 @@ through the same context and is refused the same way.
   an approved, unconsumed decision are #1074. A refusal or an error that arrives *after* the downstream was called (settling refused
   because the lease moved on, a verifier that raised) is not a failure of the run: the proposal is read again, an open one
   (`dispatched`, `unknown`) parks the run `waiting_effect` for the reconciler and a committed one completes the node.
+- A webhook or API-request node whose effect ends `unknown` (a timeout after the send, a 5xx, a 2xx the lookup cannot see yet) **fails its
+  run** (`ToolExecutionError: HTTP effect did not commit: ...`): unlike a governed agent step it does not park. The proposal stays
+  `unknown`, and the reconciler settles it by the listed lookup without sending again. Settling it **does not resume the failed run**, and
+  a run that is woken after a settlement (a dispatcher killed after the send) finds its one logical effect already `committed` and fails
+  with `HTTP effect was already recorded as committed; not run again`: the response of the original send was never durable, so the node
+  cannot complete from it. Before running such a workflow again, read the proposal: a new run is a new effect with a new key, and the
+  downstream may already hold the first one (see the [recovery runbook](m-65-recovery-runbook.md)).
 - Model-chosen tool calls of an agent that is **not** governed are not routed (#768). An agent that is bound to a mapped tool, or can reach one through handoffs, is either governed (the worker's own graph) or refused in every plan `build_plan` and the refinement and calibration replays build outside a preview; a plan a caller builds by hand and passes no `agents_requiring_governance` is not covered (it is not governed either: see the table).
 - If the store is down at both the settlement and the re-read that follows a failed dispatch, the run fails `store_failed`; the proposal is still the reconciler's (it was claimed, so it is `dispatched` or `unknown` and is settled by key).
 - `CALIBER_AGENT_STEP_TOOL_BACKENDS` outside the reference profile is ignored and logged at startup (there is no lease to dispatch under).
 
 No migration. The new setting is `CALIBER_AGENT_STEP_TOOL_BACKENDS` (default `[]`: no agent is governed, and a reference profile with
 the default behaves as before). Rolling back is reverting the change; a recorded proposal stays readable and reconcilable.
+
+### The generic HTTP connector's read-back by key (#1055)
+
+The generic `http` connector has no platform-wide read-by-key contract: a webhook is any URL. What it has is **per endpoint, and the operator's
+decision**. `CALIBER_EFFECT_HTTP_VERIFIERS` is a JSON array of `{"project_id", "resource", "lookup_url"}` (default `[]`, validated at startup,
+read once by the reconciler loop and per run by the worker). For effects of that project whose recorded `resource` (the URL the node sends to,
+compared **exactly**: scheme, host, port, path and query as the workflow writes it) is `resource`, the downstream is asked at `lookup_url`
+(`http` or `https`, a host, no credentials, no query, no braces). A manifest, a tool call or a model chooses only which *listed* resource an
+effect is for, by naming its URL; it cannot add one or point a lookup somewhere else, and an unlisted URL is refused before it is recorded.
+
+The contract the downstream implements: `GET <lookup_url>?idempotency_key=<key>` answers `200` with a JSON object holding the request it stored
+under that key: `idempotency_key` (the proposal's logical key), `request_id` (its own id, 1 to 239 printable characters; **unique per endpoint**, see below),
+`method`, `url` and `body` (the JSON value it stored, `null` when there was none; numbers are compared as JSON numbers, so `12` and `12.0` are the same and `12.5` is not). Anything else is not a receipt: a `404`, a `5xx`, a redirect,
+another status, an unreadable body, or a stored request whose key, method, URL or body is not the proposal's (compared as canonical JSON). A
+proposal that expects a resource version is never verified (this connector cannot read one back). The lookup is a plain read through the same
+read-only executor the reconciler uses, so the egress policy applies (an internal address needs the operator's allowance) and **no credentials
+are sent**: expose it on a network the platform may reach. **The reference profile refuses a `lookup_url` that is not `https`**
+(`http_lookup_cleartext`; the development profile accepts `http`): the key is a public digest and the answer is what commits an effect, so a
+cleartext path would let anyone who can see or alter it forge a receipt. Each lookup has a **5 s timeout** (it runs after every 2xx, on the worker
+thread, under the dispatch lease; a slow downstream leaves the effect `unknown` for the reconciler). The executor does not cap the size of an
+answer (a limit that predates this change): list only endpoints you operate.
+
+**Request ids are per endpoint.** The database keeps one receipt per `(connector, downstream_request_id)` and every `http` endpoint shares the
+connector, so the receipt records `<first 16 hex of sha256(resource)>:<request_id>`: stable across restarts and config order, and two endpoints (or
+projects) that both issue `1` cannot starve each other. Within one endpoint an id still belongs to one proposal: a downstream that reuses an id
+for a second effect gets a `receipt_conflict` and that proposal stays `unknown` (it cannot take another endpoint's ids). It must read its own writes: a `2xx` the sender saw is visible to the very next lookup.
+
+What the platform does with it, and nothing else:
+
+| Moment | What the platform does |
+| --- | --- |
+| right after a 2xx | asks the lookup once; a stored request that is this effect becomes a verified receipt and the proposal `committed`; anything else leaves it `unknown` (`receipt_unverified`) |
+| after a timeout, a 5xx, a settle that failed, an abandoned or expired dispatch | the proposal is `unknown`; the reconciler (loop, or the operator's `reconcile`) asks the same lookup by the same key. It **never sends the effect again** |
+| the lookup finds nothing (`404`) | still `unknown`, pass after pass: for this connector a `404` is **never** "it did not happen" (`absence_proves_noncommit` is false), because the request may still be in flight |
+| the lookup cannot be reached, or the resource is not listed | `lookup_failed`, or `not_bound` (nothing is asked) |
+
+The capability record (`http`, version 1) says so and its digest is pinned in `REFERENCE_CONNECTORS`: `lookup_by_key` true with
+`read_your_writes`, no precondition, no documented rejection status, key scope and retention unconfirmed (so the connector still carries the
+`write_not_exactly_once` and `key_retention_unconfirmed` accepted risks). It changes the pinned digests of the `http` connector, which is the
+re-admission the record promises. A downstream that reuses a key for a different request, or whose lookup is not honest, is outside what the
+platform can know: the receipt is as sound as the endpoint the operator chose to list.
+
+Not delivered here, and stated so: the **attested operator resolution** of a *permanent* unknown (a downstream that never shows the request
+and cannot prove absence) is #1054, a separate mechanism (an operator write path with its own evidence, authority and ADR 0003 amendment); until
+then such a proposal stays `unknown` and its dependents blocked, exactly as the runbook says. The `registered_tool`, `openapi_http` and `mcp`
+connectors remain unverifiable and refused. The receipt callback (`POST .../effects/callbacks/receipt`) still knows only `document-request`.
 
 ### Draft preview is read-only (#1072)
 
@@ -632,8 +696,8 @@ touches them (it takes about fifty minutes, so it is not a required check).
 
 **Moving off it.** #1051 wired the context in the worker (an authorization provider, the execution-owner lease, park and resume while
 an approval is pending), for the reference profile only: the development profile has no execution-owner lease to dispatch under, and no
-generic connector has an authoritative receipt verifier yet (#1055). `legacy_guarded_effects` is therefore **not** removed: it goes when
-the development profile can dispatch under a lease and the workflow connectors can be verified. A deployment that needs the exact-intent
+generic connector except `http` at operator-listed endpoints has an authoritative receipt verifier (#1055). `legacy_guarded_effects` is therefore
+**not** removed: it goes when the development profile can dispatch under a lease and the workflow connectors can be verified. A deployment that needs the exact-intent
 guarantees must run `CALIBER_PROFILE=reference`, where a protected workflow node is refused rather than sent without them.
 
 ## Memory is owned, derived and read-mostly
@@ -2190,7 +2254,8 @@ an operator asks.
 - **Bounded.** No lock is held across a lookup (each proposal is read, asked about and written in separate transactions), and on PostgreSQL every transaction of the pass carries
   `lock_timeout` and `statement_timeout` of a third of `CALIBER_EXECUTION_LEASE_SECONDS`, like the controller's own lease calls. A budget-cut pass resumes after the last proposal it
   looked at, so a backlog of effects that stay `unknown` can neither starve the rest nor be the only thing ever looked at.
-- **Targets** are the `CALIBER_EFFECT_CALLBACK_CONNECTORS` bindings (the `base_url` of each `(connector, project)` that may report a receipt). With none bound the loop still
+- **Targets** are the `CALIBER_EFFECT_CALLBACK_CONNECTORS` bindings (the `base_url` of each `(connector, project)` that may report a receipt) and the generic `http` lookup endpoints of
+  `CALIBER_EFFECT_HTTP_VERIFIERS` (one per listed `(project, resource)`, #1055). With none bound the loop still
   abandons the dispatches of lost leases and expires stuck in-flight ones, and every lookup reports `not_bound`.
 - **Stop.** A stop ends the pass at its next proposal and waits up to `CALIBER_SHUTDOWN_GRACE_SECONDS` for it. A lookup in progress is not interrupted; if it outlasts the grace the stop
   returns with a warning and that one proposal finishes alone (its writes stay fenced by the lease, so it cannot record anything once the lease is released). The reconciler holds no claims, so there is nothing to give back.
@@ -4949,7 +5014,7 @@ unchanged: all of these forms keep working there, and a version authored there i
 compiles, promotes or runs it. The policy is process-wide state bound at startup (like the registered-tool module allowlist), so
 a change of profile or sandbox setting needs a restart. Rolling back is reverting the change; nothing refused was written.
 
-**What this does not do.** It does not decide which modules a registered tool may import (the module allowlist, #763) and does not
+**What this does not do.** It does not decide which modules a registered tool may import (the module allowlist, see "Plugins and host paths (B12.4b, #763)") and does not
 contain hostile tool code (the sandbox is trusted-code admission, see "Who is trusted to write tools" in the tools guide); the
 other `refuse` inventory rows are refused at run time by B04.7 (#774, [Refused paths in the reference profile](#refused-paths-in-the-reference-profile-b047-774)). A subworkflow node is not
 expanded at the parent: the parent validates, compiles and promotes, and the child is checked at its own validation, compile,
@@ -5051,6 +5116,188 @@ for each one's variable), never a configured value. The queue (`CALIBER_WORKFLOW
   `unavailable_evaluator_disabled`, `compatibility_values` and the pins), the scenario `caliber/tests/egi_scenarios/test_b15_capability_exposure.py`
   on a real reference app, and the alpha-defaults browser spec `caliber/caliber-ui/e2e/feature-flags.spec.ts`.
 
+## Plugins and host paths (B12.4b, #763)
+
+Two more ways code or data reaches the control plane are held to the same refusal code,
+`unsupported_in_reference_profile` (`caliber.workflows.code_policy.REFUSAL_CODE`, ADR 0001): an installed **optimizer plugin** and a
+**host path** a workflow node reads or writes. There is no second code.
+
+**Plugins.** A plugin is a distribution that advertises itself into the `caliber.optimizers` entry-point group; loading it imports its
+code into the control-plane process, where it can write the artifact CALIBER promotes. Allowlisting a distribution
+(`CALIBER_PLUGIN_ALLOWLIST`, a comma-separated list of distribution names) is **trusted-code admission**: a decision about who is trusted,
+not containment of hostile code. The entry-point group is the only way a plugin is admitted (there is no upload or install route; a
+ratchet test fails if another `importlib.metadata.entry_points` call appears in the source). The reference profile refuses at every
+point a plugin could be admitted:
+
+| where | what happens to an installed plugin whose distribution is not allowlisted |
+| --- | --- |
+| startup | the process refuses to start, with the violation `plugin_not_allowlisted` naming the distribution (metadata is read, nothing is imported) |
+| the registry's first use (`OptimizerRegistry.load_plugins`, reached by every `get`, `has`, `names`, listing) | `PluginRefused` (`code` `unsupported_in_reference_profile`, `distribution`, `distributions`) is raised **before any plugin is imported, allowlisted ones included**, each refused distribution is recorded in `load_errors`, and every later use raises again |
+| `discover_optimizer_plugins()` | raises `PluginRefused` on the first iteration |
+| `OptimizerRegistry.register(spec)` with `source="plugin"` | raises `PluginRefused`: a plugin handed over directly is admitted on the same terms |
+
+An allowlisted distribution loads as before (it is still `experimental`, and still cannot shadow a built-in). A distribution with no
+metadata name is refused; the allowlist match normalises names the way packaging does (`Acme_Optimizers` matches `acme-optimizers`).
+The development profile is unchanged: an unlisted plugin is skipped with an `info` log and shown in `GET /capabilities` as installed and
+inert.
+
+```text
+reference profile refused (1 violation):
+- optimizer plugin acme-optimizers is installed but not allowlisted, and the reference profile refuses a plugin it was not told to trust; set CALIBER_PLUGIN_ALLOWLIST to name its distribution (a deliberate decision to run that code inside the control plane) or uninstall it [plugin_not_allowlisted]
+
+# a process that was started clean and had a plugin installed afterwards:
+POST /ajax-api/2.0/mlflow/caliber/prompts/optimization/runs   {"optimizer_type": "GEPA", ...}
+503 {"detail": "unsupported_in_reference_profile: optimizer plugin acme-optimizers is installed but not allowlisted; the reference profile loads a plugin only when its distribution is named in CALIBER_PLUGIN_ALLOWLIST ..."}
+
+GET /ajax-api/2.0/mlflow/caliber/capabilities      # still answers
+200 {"data": {"extensibility": {"optimizers": [], "plugins": [{"name": "acme", "distribution": "acme-optimizers",
+     "allowlisted": false, "error": "unsupported_in_reference_profile: optimizer plugin acme-optimizers is installed but ..."}], ...}}}
+```
+
+A refinement job that names an optimizer in a refused deployment fails with the same message (`LLMProviderError`); no optimizer is
+reported as dispatchable while the refusal stands, because none is: the registry refuses, it does not fall back to the built-ins.
+
+Recovery: add the distribution to `CALIBER_PLUGIN_ALLOWLIST` (only if you have decided to run its code inside the control plane) or
+uninstall it, then restart the process. `GET /capabilities` lists each installed plugin with `allowlisted` and, for a refused one, the
+`error` above, and reading it imports nothing.
+
+**Host paths.** `CALIBER_WORKFLOW_FILE_ROOT` confines the host-filesystem nodes (`file_input` without a managed file, `folder_input`,
+`output_folder`) to a directory: the path is resolved first (`..` and symlinks included) and a path that lands outside raises
+`PathOutsideRoot`, a `ValueError` that carries the resolved `path` and the `root`, so `../../outside.txt` is refused whatever the
+working directory. A `folder_input` node confines the files it reads as well as its folder: with a root configured, a glob pattern
+that is absolute or has a `..` segment is refused, and each file the glob returns is resolved (symlinks included) and checked
+against the root before it is opened, so a symlink inside the root that points outside is refused too (names that merely contain
+dots, such as `a..b.txt` or `*.tar.gz`, are ordinary). Unset refuses these nodes outright. The reference profile removes the third state, the literal `unconfined`:
+startup refuses it (`workflow_file_root_unconfined`), and a process that is running the reference profile and sees it anyway refuses
+the node with `unsupported_in_reference_profile` rather than reading the path. The built-in `read_text_file`, `list_folder_files`,
+`grep_files` and `regex_search` tools are a different mechanism and are not confined by this root: the reference profile refuses them
+outright (inventory row EP-055, B04.7, #774; see [Refused paths](#refused-paths-in-the-reference-profile-b047-774)), so no host
+path reaches them there. The managed file tools
+(`caliber.workflows.file_tools`) never take a host path: they take a `caliber://` ref, and a traversal in a ref
+(`../../outside.txt`) is rejected by the ref grammar before any storage is touched.
+
+```text
+reference profile refused (1 violation):
+- workflow_file_root is 'unconfined', so a host-filesystem node can read or write any path the server can reach; set CALIBER_WORKFLOW_FILE_ROOT to a directory (or unset it to refuse those nodes) for the reference profile [workflow_file_root_unconfined]
+
+file/folder input path '/etc/passwd' is outside the configured workflow file root '/srv/caliber/files'. Bind a managed project file, or widen CALIBER_WORKFLOW_FILE_ROOT.
+```
+
+**Not done here, and why.** The registered-tool module allowlist (`CALIBER_REGISTERED_TOOL_MODULE_ALLOWLIST`, unset permits every
+module) is unchanged: whether a reference deployment may run an administrator's module at all is the refusal of the protected-effect
+inventory rows EP-015, EP-016 and EP-019, refused at bind by B04.7 (#774, [Refused paths](#refused-paths-in-the-reference-profile-b047-774)) except CALIBER's own shipped tools, and a profile rule that
+demanded a module list now would be a second, partial answer to the same question.
+
+**Concurrency and ordering.** The registry holds its lock for the whole load, so a caller that arrives while another is loading
+waits for the result (a refusal included) instead of being served a registry that is still empty. A registry first used before the
+profile was bound (so its load skipped an unlisted plugin as a development load does) checks the installed plugins once the profile
+is bound and refuses then, rather than keeping the earlier state. `CALIBER_PLUGIN_ALLOWLIST` is read from the environment only (it
+has no configuration field), so the profile's requirement names the variable as the setting.
+
+**Configuration, migration and rollback.** No new setting, no migration and no stored data change. A reference deployment that has an
+unlisted plugin installed, or `CALIBER_WORKFLOW_FILE_ROOT=unconfined`, now refuses to start: fix it as above before upgrading. The
+development profile is unchanged. Rolling back is reverting the change; nothing refused was written.
+
+**Oracle.** `caliber/tests/test_profile_code_refusal.py` (the plugin and file-root tests, with a scripted entry point and no
+network), `caliber/tests/test_profile.py` (the two requirement rows) and the scenario
+`caliber/tests/egi_scenarios/test_b12_plugin_refusal.py`, which starts real reference processes with a real installed distribution.
+
+## Acceptance predicates (B09.1, #779)
+
+A run is accepted on an authoritative domain predicate over what the system of record says, never on an HTTP status or on what a
+model wrote. `caliber.acceptance` holds the first piece: **pure predicates** over observations the caller has already read. A
+predicate does no I/O, reads no clock and draws no random number, so the same observations always give the same verdict, judging
+calls and changes nothing downstream, and a recorded observation can be judged again later without touching the downstream. The
+module imports only the standard library, and a test asserts that it imports no `httpx`, `requests` or `sqlalchemy`.
+
+```python
+from caliber.acceptance import HARBORLIGHT_V1, Observations, evaluate_all
+
+observations = Observations(
+    {
+        "proposal": {
+            "case_id": "MORT-2026-000184",
+            "document_type": "pay_statement",
+            "expected_version": 1,
+        },
+        "receipt": {"downstream_request_id": "DR-0001"},
+        "case_record": {
+            "case_id": "MORT-2026-000184",
+            "version": 2,
+            "document_requests": [
+                {"request_id": "DR-0001", "document_type": "pay_statement", "case_version": 2}
+            ],
+        },
+    }
+)
+for result in evaluate_all(HARBORLIGHT_V1, observations):
+    print(result.predicate_id, result.passed, result.evidence_ref)
+# document_request_exists True /case_record/document_requests/0
+# attached_to_expected_version True /case_record/document_requests/0/case_version
+```
+
+- **`Observations`** is a frozen mapping of downstream reads and receipts. Dictionaries become read-only mappings and lists
+  become tuples; the source is copied. Only JSON-shaped values are accepted: exact built-in strings, integers, finite floats,
+  booleans and `None` (a `str` or `int` subclass is refused, because it can override equality), string-keyed mappings and lists,
+  at most 32 levels of nesting (the top mapping is level 1), so nothing a predicate sees can change underneath it. A mapping or
+  list whose accessors raise is refused, not propagated. The number of entries is not bounded here; the caller bounds what it
+  reads. `as_dict()` returns a plain copy for a digest or a stored record.
+- **`Predicate(id, criteria_version, rule_ids, evaluate)`** is one criterion (all predicates of a set are critical: a failed one rejects the candidate; there is no `critical` flag). `id` and each `rule_id` are lower-case identifiers
+  (`[a-z0-9][a-z0-9._-]{0,127}`, the shape of a rule id in a rule bundle) and `criteria_version` is
+  `[a-z0-9][a-z0-9._-]{0,63}`. `evaluate` returns a `CriterionResult(predicate_id, passed, evidence_ref)` whose `evidence_ref` is
+  the RFC 6901 JSON pointer, into the observations, of the value that decided it.
+- **`evaluate_all(predicates, observations)`** returns every result in the order given and does not stop at a failure. All the
+  predicates must share one `criteria_version` (a decision is made under one version).
+
+**Harborlight, `HARBORLIGHT_V1`** (criteria version `harborlight-v1`) reads three keys, **all required**:
+`proposal` (`case_id`, `document_type`, `expected_version`), `receipt` (`downstream_request_id`) and `case_record` (`case_id` and
+`document_requests[]`, each with `request_id`, `document_type`, `case_version`):
+
+| Predicate | Passes when |
+| --- | --- |
+| `document_request_exists` | the case record lists the request the receipt names, with exactly the proposal's `document_type` |
+| `attached_to_expected_version` | that request's `case_version` is `expected_version + 1` |
+
+Both **fail closed**: a missing, malformed, mismatched or ambiguous value is a failed criterion, never an exception and never a
+pass. Every failure points at what was wrong:
+
+| `evidence_ref` | Meaning |
+| --- | --- |
+| `/proposal/document_type`, `/proposal/expected_version` | missing, not a (non-empty) string, or not a non-negative integer (a boolean is not an integer) |
+| `/case_record/case_id` | the proposal's `case_id` is missing or empty, or the record is of another case (compared exactly) |
+| `/case_record/document_requests` | the list is missing or not a list, or the receipt's request is not listed (or is listed with another `document_type`) |
+| `/receipt/downstream_request_id` | no usable receipt: the acceptance is judged against nothing |
+| `/case_record/document_requests/N/request_id` | the same `request_id` is listed twice (the receipt would not identify one request) |
+| `/case_record/document_requests/N/case_version` | the request is listed at the wrong or a non-integer version: a downstream that answered `2xx` and left the case where it was, the false success of gap analysis V11 |
+
+Three choices are worth knowing:
+
+- **`expected_version + 1`, not `expected_version`.** The downstream (and the connector that dispatches to it) stamps a stored
+  request with the case version **after** its mutation, one more than the `If-Match` it was sent; the document-request
+  connector's own lookup check uses the same rule. A literal equality with the proposal's expected version would reject every
+  real success, and equality with it now means the downstream did not advance the case.
+- **The receipt is required and binding.** Only the request the receipt names is judged. Without that, a refused second
+  proposal for the same document type would be accepted on the first proposal's request. A dispatch that was refused has no
+  receipt and so is not accepted.
+- **The case must be the proposal's.** A case record of another case, or a proposal that names none, proves nothing.
+
+The proposal's `expected_version` is an integer here; the connector's `ProposalView.expected_resource_version` is a string, so
+a caller converts it (and refuses a value that is not a decimal integer) before it builds the observations.
+
+**Contract errors are raised, not judged.** `PredicateError` carries a stable `code` and a message that names a JSON pointer and
+never an observation value: `invalid_observations` (not a mapping, not JSON-shaped, too deep, a non-string key, a non-finite
+number, or observations that were not frozen into `Observations`), `invalid_predicate` (a bad id, criteria version or rule id, a
+non-callable `evaluate`, something that is not a `Predicate`), `empty_predicate_set` (a decision over nothing would accept
+everything), `duplicate_predicate_id`, `mixed_criteria_versions`, `predicate_failed` (a predicate raised; the original is the
+`__cause__`) and `invalid_result` (not the predicate's own `CriterionResult`). Recovery: fix the caller. The one exception is
+`invalid_observations` raised while building `Observations` from what a downstream returned (a NaN, a non-JSON value, too deep):
+the caller must catch it and record the acceptance as rejected for that reason, not let it crash the run.
+
+**Configuration, migration and rollback.** No setting, no migration, no endpoint and no stored data: nothing calls these
+predicates yet. Persisting a decision (#784), the runtime and status integration (#791), recording observations (#799) and replay
+(#805) build on them, and the consolidated acceptance report belongs to #612. The development profile is unchanged. Rolling back
+is reverting the change.
+
 ## Not enforced yet
 
 ADR 0001 describes the whole reference shape; this table is what the *process* checks today. Not checked:
@@ -5059,7 +5306,8 @@ ADR 0001 describes the whole reference shape; this table is what the *process* c
 - **Origin rules** (#533). ADR 0001 names them, but #533 has no allowed-origins task yet; that rule is not scheduled.
 - **The trusted-connector set** (#534), **the full attack pack** (#535), **a single execution owner** (#536) and **the Apply separation-of-duties flag** (#589).
 - **A governed effect context outside the worker's own graph** (#1051, #1068): the worker binds one for an admitted reference-profile run, but synchronous version runs, evaluation, gate and Aria previews, and the sub-workflows of a worker run have no owner lease and bind none, so the reference profile refuses their protected nodes (and an agent in them that can reach a mapped tool) and the development profile runs them on the legacy guarded path; see "Profiles and a missing governed context".
-- **A verifier for the generic workflow connectors** (#1055, #1051): a webhook, API-request, registered-tool, OpenAPI or MCP node is refused `no_authoritative_verifier` in the reference profile because no connector other than `document_request` has a lookup by key; only a governed agent step reaches a backend end to end. Model-chosen calls of an agent that is not governed (B04.6, #768) are not routed.
+- **A verifier for the other workflow connectors** (#1055, #1051): a registered-tool, OpenAPI or MCP node, and a webhook or API-request node whose URL the operator did not list in `CALIBER_EFFECT_HTTP_VERIFIERS`, is refused `no_authoritative_verifier` in the reference profile because the connector has no lookup by key the platform can call; a governed agent step reaches `document_request` and a listed webhook reaches `http` end to end. A *permanent* unknown (a lookup that never shows the request) has no operator exit yet: the attested resolution is #1054. A workflow node whose effect ended unknown fails its run and a settlement does not resume it. Model-chosen calls of an agent that is not governed (B04.6, #768) are not routed.
+- **Acceptance of a run** (#784, #791): the predicates exist (B09.1, #779) but no run is judged by them yet; a run that finishes is still `completed` or `failed` as before, with no accepted or rejected outcome.
 - **Cookie flags:** `auth_session_cookie_secure` is not checked.
 - **The database role:** whether the application connects as a role without `UPDATE`, `DELETE` or `TRUNCATE` on `caliber_run_manifests` (see "Run manifests are written once").
 

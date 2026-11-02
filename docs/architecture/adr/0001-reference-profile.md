@@ -114,6 +114,15 @@ sandbox label is never isolation, and nothing a tool, manifest or registry row c
 trusted-code admission, not containment of hostile code, and is #763. The development profile keeps every one of these.
 The remaining `refuse` rows of the inventory stay with B04.7 (#774).
 
+### Amendment, 2026-11-01 (#763): installed plugins are refused unless allowlisted, and the file root has no `unconfined`
+
+A plugin is code that runs in the control-plane process, so the reference profile admits one only by naming its distribution in
+`CALIBER_PLUGIN_ALLOWLIST` (trusted-code admission, not containment of hostile code) and refuses every other installed plugin with
+the one refusal code of this ADR, `unsupported_in_reference_profile`, not a second code: the process refuses to start
+(`plugin_not_allowlisted`), and the optimizer registry raises `PluginRefused` before it imports any plugin. `CALIBER_WORKFLOW_FILE_ROOT=unconfined`
+is likewise refused at startup (`workflow_file_root_unconfined`) and at the node, so a host path is allowed only inside a configured
+root. The mechanics and the recovery are in `docs/operate/reference-profile.md` ("Plugins and host paths").
+
 ## Consequences
 
 - Scenario tests (V01–V35) run on this shape: the "EGI scenarios (PostgreSQL)" job is the one that proves the

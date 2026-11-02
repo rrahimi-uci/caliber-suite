@@ -14,7 +14,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Final
 
-from caliber.config import CaliberConfig
+from caliber.config import UNCONFINED_WORKFLOW_FILE_ROOT, CaliberConfig
+from caliber.effects.http_verifiers import parse_endpoints
+from caliber.extensibility.entrypoints import ALLOWLIST_ENV_VAR, unallowlisted_plugin_labels
 from caliber.testing.fault_barriers import ENV_VAR as FAULT_BARRIERS_ENV
 from caliber.testing.fault_barriers import armed_barriers
 
@@ -115,8 +117,8 @@ REFERENCE_CONNECTORS: Final[tuple[TrustedConnector, ...]] = (
         connector="http",
         connector_version="1",
         implementation="caliber.effects.dispatcher:_HttpBackend",
-        capability_digest="sha256:9ff6abe2c9c957f2c3083ab553a80ad9cbe87c624635f4ec78dc00ef18ab5e29",
-        configuration_digest="sha256:d9242a5e4448cc62152084fc1b32f4c1bbfe312cb9bf10c72f3078c3d10811bf",
+        capability_digest="sha256:4e47f6cb94c1e5a9bce7ccc9ff0ef43ee7763d42e48913557487197d744c2115",
+        configuration_digest="sha256:ad247b245f5475c7e6a02d8aa6ca0a1b8a3c8d85a1865e1c3cb044234ae93713",
         accepted_risks=("write_not_exactly_once", "key_retention_unconfirmed"),
         config_keys=("sender", "receipt_verifier"),
         required_config_keys=("sender", "receipt_verifier"),
@@ -291,6 +293,20 @@ REFERENCE_REQUIREMENTS: tuple[Requirement, ...] = (
         "An allowlisted stdio command is arbitrary code on the CALIBER host and an allowlisted remote host is an endpoint nobody reviewed; the dispatcher admits an MCP call, never a server.",
     ),
     Requirement(
+        "plugin_not_allowlisted",
+        "CALIBER_PLUGIN_ALLOWLIST",
+        "CALIBER_PLUGIN_ALLOWLIST",
+        "naming every installed optimizer plugin's distribution, or the plugin uninstalled",
+        "A plugin is code that runs inside the control plane and can write the artifact CALIBER promotes; the profile loads one only when its distribution is named, and refuses any other installed plugin.",
+    ),
+    Requirement(
+        "workflow_file_root_unconfined",
+        "workflow_file_root",
+        "CALIBER_WORKFLOW_FILE_ROOT",
+        "unset or a directory, never `unconfined`",
+        "`unconfined` lets a host-filesystem node read or write any path the server can reach; the profile confines host paths to a configured root or refuses them.",
+    ),
+    Requirement(
         "self_approval_allowed",
         "approval_allow_self_approval",
         "CALIBER_APPROVAL_ALLOW_SELF_APPROVAL",
@@ -310,6 +326,13 @@ REFERENCE_REQUIREMENTS: tuple[Requirement, ...] = (
         "CALIBER_MEMORY_INFER",
         "false while CALIBER_MEMORY_ENABLED is true",
         "LLM-inferred memory writes create durable, free-form facts nobody owns; the owned memory lifecycle does not exist yet.",
+    ),
+    Requirement(
+        "http_lookup_cleartext",
+        "effect_http_verifiers",
+        "CALIBER_EFFECT_HTTP_VERIFIERS",
+        "every `lookup_url` is `https`",
+        "The read-back by key carries no credentials and its answer is what commits an effect: over cleartext anyone who can see or alter it can forge a receipt for an effect that never happened.",
     ),
     Requirement(
         "fault_barriers_enabled",
@@ -350,6 +373,61 @@ def _unlisted_mcp_allowlists(config: CaliberConfig) -> list[tuple[str, str]]:
     ):
         offending.append(("mcp_remote_host_allowlist", "CALIBER_MCP_REMOTE_HOST_ALLOWLIST"))
     return offending
+
+
+def _plugin_and_file_root_violations(config: CaliberConfig) -> list[ProfileViolation]:
+    """The installed-plugin rule and the unconfined-file-root rule (B12.4b, #763), in that order."""
+    found: list[ProfileViolation] = []
+    refused_plugins = unallowlisted_plugin_labels()
+    if refused_plugins:
+        # Distribution names are public package names, not secrets; the message names what to allowlist or uninstall.
+        found.append(
+            ProfileViolation(
+                code="plugin_not_allowlisted",
+                setting="CALIBER_PLUGIN_ALLOWLIST",
+                env_var=ALLOWLIST_ENV_VAR,
+                message=(
+                    f"optimizer plugin {', '.join(refused_plugins)} is installed but not allowlisted, and the reference "
+                    f"profile refuses a plugin it was not told to trust; set {ALLOWLIST_ENV_VAR} to name its "
+                    "distribution (a deliberate decision to run that code inside the control plane) or uninstall it"
+                ),
+            )
+        )
+    if config.workflow_file_root.strip() == UNCONFINED_WORKFLOW_FILE_ROOT:
+        found.append(
+            ProfileViolation(
+                code="workflow_file_root_unconfined",
+                setting="workflow_file_root",
+                env_var="CALIBER_WORKFLOW_FILE_ROOT",
+                message=(
+                    "workflow_file_root is 'unconfined', so a host-filesystem node can read or write any path the server "
+                    "can reach; set CALIBER_WORKFLOW_FILE_ROOT to a directory (or unset it to refuse those nodes) for "
+                    "the reference profile"
+                ),
+            )
+        )
+    return found
+
+
+def _http_lookup_violations(config: CaliberConfig) -> list[ProfileViolation]:
+    """``http_lookup_cleartext`` when any listed ``lookup_url`` of ``CALIBER_EFFECT_HTTP_VERIFIERS`` is not ``https`` (#1055)."""
+    if not any(
+        endpoint.lookup_url.lower().startswith("http://")
+        for endpoint in parse_endpoints(config.effect_http_verifiers)
+    ):
+        return []
+    return [
+        ProfileViolation(
+            code="http_lookup_cleartext",
+            setting="effect_http_verifiers",
+            env_var="CALIBER_EFFECT_HTTP_VERIFIERS",
+            message=(
+                "effect_http_verifiers lists a lookup_url that is not https, so the answer that commits an "
+                "effect travels in the clear; set every lookup_url in CALIBER_EFFECT_HTTP_VERIFIERS to https "
+                "for the reference profile"
+            ),
+        )
+    ]
 
 
 def reference_profile_violations(config: CaliberConfig) -> list[ProfileViolation]:
@@ -442,6 +520,7 @@ def reference_profile_violations(config: CaliberConfig) -> list[ProfileViolation
                 ),
             )
         )
+    found.extend(_plugin_and_file_root_violations(config))
     if config.approval_allow_self_approval:
         found.append(
             _violation(
@@ -472,6 +551,7 @@ def reference_profile_violations(config: CaliberConfig) -> list[ProfileViolation
                 "false",
             )
         )
+    found.extend(_http_lookup_violations(config))
     armed = sorted(armed_barriers())
     if armed:
         found.append(
