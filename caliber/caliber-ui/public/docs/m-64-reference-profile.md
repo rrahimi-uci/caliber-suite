@@ -917,7 +917,55 @@ Identical requests at different loop occurrences therefore remain separate, whil
 already-recorded occurrence is a conflict. Reads resolve the project and principal scope before touching storage and then
 verify both byte length and SHA-256, so a foreign-scope read cannot probe an object and a changed object cannot become replay
 input. Migration `0136` must be applied before enabling this recorder; rolling code back leaves the immutable table and
-objects unused. This is the durable observation primitive, not yet a public replay endpoint or a B14 evidence package.
+objects unused.
+
+**Bounded historical replay (B09.4, #805).** An authorized project reader can ask the platform to compare the stored
+acceptance decisions with a pure re-judgment of one admitted run:
+
+```http
+POST /ajax-api/2.0/mlflow/caliber/workflow-runs/WR-1/replay
+X-CALIBER-Project: project-a
+Content-Type: application/json
+
+{}
+```
+
+HTTP `200` returns an enveloped `ReplayReport` with `schema_version: "v1"`, the immutable manifest id/digest, the
+selected observation ids and count, the criteria version, one decision comparison per governed proposal, and
+`matches_original`. The optional body is `{"observation_ids":["OBS-deadbeef"]}`. The list is non-empty, unique,
+lowercase `OBS-` ids and is bounded at 256; an omitted list selects all observations visible to the caller, also bounded
+at 256. Each verified object is bounded at 1 MiB.
+
+This endpoint is synchronous and read-only. It calls neither a model/provider nor a downstream reader, dispatcher or
+effect connector; it does not write a decision, run summary, audit row or any other SQL state. It reads the immutable
+admission manifest with `legacy: false`, checks that the pinned workflow version and project match the run, scopes the
+observation index by run/project/principal before reading object bytes, and verifies each content digest and byte length.
+The current supported replay shape is deliberately narrow: `document-request` proposals judged by `harborlight-v1`,
+with recorded JSON case reads projected to `case_id` and `document_requests` (each request may contain only the fields
+the live acceptance projection reads). A recorded model observation is accepted only in the v1 runtime shape
+`{final_output, structured_output, tool_calls, model, prompt_version}` with `tool_calls` a list. Unsupported connectors,
+criteria versions, observation kinds or payload shapes are refused; replay never guesses a replacement or falls back to
+live execution.
+
+Refusals are explicit and carry the stable code in `detail`; no stored observation bytes are included. Examples:
+
+```text
+POST .../workflow-runs/WR-1/replay  {}
+409 {"detail":"observations_missing: the run has no visible observations"}
+
+POST .../workflow-runs/WR-1/replay  {"observation_ids":["OBS-deadbeef"]}
+409 {"detail":"observation_scope: one or more observations are outside the replay scope"}
+
+POST .../workflow-runs/WR-1/replay  {}
+409 {"detail":"observation_integrity: an observation failed its storage integrity check"}
+```
+
+The first two examples recover by supplying the exact project/principal-scoped observation ids and retaining the
+manifest/object pair; the third requires restoring the immutable storage object from the deployment's backup or
+discarding the replay request. A malformed request is `400`; missing/tampered/foreign/malformed/unsupported or
+over-bound observations, missing/tampered pins, and an un-replayable decision set are `409`. None of those responses
+starts a new run or invokes a live dependency. This is a bounded comparison surface, not the B14 evidence package and
+not a second storage contract: replay consumes B09.3 rows and the existing run-manifest and acceptance contracts only.
 
 **What it never returns.** No prompt, argument, intent body, `resource` of a proposal, resource version, downstream request
 id, manifest or context body, `requested_by` / `decided_by` / `subject_user_id`, decision prose or policy purpose. The

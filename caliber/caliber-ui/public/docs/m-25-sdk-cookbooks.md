@@ -43,6 +43,30 @@ For setup and typed client behavior, use the [SDK guide](m-20-sdk-guide.md) and 
 [SDK API reference](m-21-sdk-reference.md). This page is only for end-to-end runnable
 examples.
 
+## Offline replay recovery check
+
+For a run that already has a B09.3 observation set and an immutable admission
+manifest, an operator can perform the bounded B09.4 comparison with the same
+project-scoped credentials. This route is deliberately a raw HTTP example:
+there is no parallel cookbook storage format and no live fallback.
+
+```bash
+curl --fail-with-body -sS \
+  -X POST "$CALIBER_BASE_URL/ajax-api/2.0/mlflow/caliber/workflow-runs/$RUN_ID/replay" \
+  -H "Authorization: Bearer $CALIBER_TOKEN" \
+  -H "X-CALIBER-Project: $CALIBER_PROJECT_ID" \
+  -H "Content-Type: application/json" \
+  --data '{"observation_ids":["OBS-deadbeef"]}'
+```
+
+HTTP `200` is a `ReplayReport`; it compares stable decision semantics and
+does not call a provider, downstream, dispatcher or effect. A `409` such as
+`observation_scope: one or more observations are outside the replay scope` or
+`observation_integrity: an observation failed its storage integrity check` is
+an explicit refusal. Re-select the exact project/principal-scoped ids or
+restore the immutable object from backup; never respond by starting a live run.
+Unsupported shapes are refused rather than approximated.
+
 ## Cookbook implementations
 
 Each script on this page finishes its scenario entirely through typed SDK calls. Recipes 03 to 08, 10 and 18 install their versioned entry from the built-in cookbook catalog, recipe 01 checks that its entry is listed, the others drive the lab's own prompts, skills, workflows or assets directly, and recipe 17 is a standalone SDK automation that creates its own project and assets. `client.raw` is the SDK's permanent escape hatch for anything not yet wrapped; a few scripts use it for a readiness probe, an invalid payload or a route the typed layer does not cover, and each summary below says so. Some scripts sign test accounts in with plain `httpx` calls, since the SDK acts as one token.

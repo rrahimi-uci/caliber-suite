@@ -52,6 +52,25 @@ GET /ajax-api/2.0/mlflow/caliber/openapi.json
 | Review queues | `GET/POST /review-queues`, `GET/PATCH /review-queues/{id}`, `POST /review-queues/{id}/items`, `GET /review-queues/{id}/alignment-examples` | Queue metadata remains visible to authorized queue readers; governed request/response values are placeholders without `trace.payload.read` |
 | Projects and access | `GET /projects`, `GET /projects/{id}`, member CRUD under `/projects/{id}/members` | Project responses include `access_role` and `permissions`; membership changes are owner-only and also need `caliber.operator` |
 
+## Bounded historical replay
+
+`POST /workflow-runs/{run_id}/replay` is a synchronous, read-only route for an admitted run. With `{}` it selects all
+observations visible to the authenticated project reader; with `{"observation_ids":["OBS-deadbeef"]}` it selects an
+explicit non-empty subset. Both forms are bounded at 256 observations and each object is bounded at 1 MiB. A valid
+request returns HTTP `200` with an enveloped `ReplayReport`; the report compares stable decision semantics and the
+acceptance observation digest without exposing stored observation bytes.
+
+Replay verifies the scoped B09.3 index before storage access, the content hash/size, the immutable admission manifest and
+the run's named acceptance decisions. It calls no provider, downstream reader, dispatcher or effect connector and writes
+no SQL state. The supported shape is currently `document-request` with `harborlight-v1` and the recorded case-read
+projection; unsupported shapes refuse instead of being guessed or sent through a live fallback.
+
+Examples of exact refusal details are `409 observation_scope: one or more observations are outside the replay scope`,
+`409 observation_integrity: an observation failed its storage integrity check`, and
+`409 observation_unsupported: the read observation is not a supported case record`. A malformed request or id list is
+`400`; a missing, malformed or over-bound observation set is a `409` refusal. The caller must restore or re-select the
+durable B09.3 evidence and retry; the route never creates a new run as recovery.
+
 The mutating routes of prompts, skills, tools, workflows, knowledge bases,
 datasets and judges check the caller's project role as well as the token scope: a
 non-member gets 404 and a member whose role is too weak (for example a `viewer`)
@@ -141,7 +160,7 @@ Use the typed SDK where it exists. When a family is marked `Raw only`, the curre
 | Agents (`agents`) | `ga` | `9` | Typed SDK | `client.agents` | The agent record that verification items, refinement jobs, approvals and rollback checkpoints hang off. |
 | Workflows (`workflows`) | `ga` | `28` | Typed SDK | `client.workflows` | Workflow CRUD plus the umbrella entry point for versions, runs, and services. |
 | Workflow Versions (`workflow-versions`) | `ga` | `16` | Typed SDK | `client.workflows.versions` | Create, validate, compile, and publish immutable workflow versions. |
-| Workflow Runs (`workflow-runs`) | `ga` | `24` | Typed SDK | `client.workflows.runs` | Submit, inspect, cancel, and wait on workflow executions. |
+| Workflow Runs (`workflow-runs`) | `ga` | `25` | Partial (24/25) | `client.workflows.runs` | Submit, inspect, cancel, and wait on workflow executions. |
 | Workflow Components (`workflow-components`) | `ga` | `1` | Typed SDK | `client.workflows.components()` | The workflow node catalog, with each component's runtime requirements. |
 | Workflow Templates (`workflow-templates`) | `ga` | `1` | Typed SDK | `client.workflows.templates()` | Starter workflow templates. |
 | Workflow Files (`workflow-files`) | `ga` | `1` | Typed SDK | `client.workflows.upload_staging_file()` | Staging uploads for workflow inputs. |
@@ -194,8 +213,8 @@ The served contract is route-table grounded and body-complete: paths and methods
 
 | Field | Value |
 | --- | --- |
-| Route paths | `395` |
-| Operations | `481` |
+| Route paths | `396` |
+| Operations | `482` |
 | Path coverage | `complete` |
 | Request bodies | `complete` |
 | GA families | `23` |
@@ -230,7 +249,7 @@ Use these quick jumps when you already know the CALIBER subsystem and want the d
 | [Agents (`agents`)](#agents-agents) | `9` | `6` |
 | [Workflows (`workflows`)](#workflows-workflows) | `28` | `20` |
 | [Workflow Versions (`workflow-versions`)](#workflow-versions-workflow-versions) | `16` | `15` |
-| [Workflow Runs (`workflow-runs`)](#workflow-runs-workflow-runs) | `24` | `23` |
+| [Workflow Runs (`workflow-runs`)](#workflow-runs-workflow-runs) | `25` | `24` |
 | [Workflow Components (`workflow-components`)](#workflow-components-workflow-components) | `1` | `1` |
 | [Workflow Templates (`workflow-templates`)](#workflow-templates-workflow-templates) | `1` | `1` |
 | [Workflow Files (`workflow-files`)](#workflow-files-workflow-files) | `1` | `1` |
@@ -594,7 +613,7 @@ Supported management routes that belong to the stable public automation surface.
 
 #### Workflow Runs (`workflow-runs`)
 
-24 operation(s) across 23 route path(s).
+25 operation(s) across 24 route path(s).
 
 | Method | Path | Required scope | Parameters | Responses | Details |
 | --- | --- | --- | --- | --- | --- |
@@ -619,6 +638,7 @@ Supported management routes that belong to the stable public automation surface.
 | `GET` | `/ajax-api/2.0/mlflow/caliber/workflow-runs/{run_id}/files/{file_id}/content` | any authenticated user | `file_id`, `run_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_workflow_runs_run_id_files_file_id_content` |
 | `GET` | `/ajax-api/2.0/mlflow/caliber/workflow-runs/{run_id}/lineage` | any authenticated user | `run_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_workflow_runs_run_id_lineage` |
 | `GET` | `/ajax-api/2.0/mlflow/caliber/workflow-runs/{run_id}/manifest` | any authenticated user | `run_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_workflow_runs_run_id_manifest` |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/workflow-runs/{run_id}/replay` | project role (`read`) | `run_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_workflow_runs_run_id_replay`; request body documented in OpenAPI |
 | `POST` | `/ajax-api/2.0/mlflow/caliber/workflow-runs/{run_id}/resume` | project role (`resource.execute`) | `run_id` | `202`, `400`, `401`, `403`, `404` | `operationId`: `post_workflow_runs_run_id_resume`; request body documented in OpenAPI |
 | `POST` | `/ajax-api/2.0/mlflow/caliber/workflow-runs/{run_id}/retry` | project role (`resource.execute`) | `run_id` | `202`, `400`, `401`, `403`, `404` | `operationId`: `post_workflow_runs_run_id_retry`; request body documented in OpenAPI |
 | `GET` | `/ajax-api/2.0/mlflow/caliber/workflow-runs/{run_id}/trace` | any authenticated user | `run_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_workflow_runs_run_id_trace` |

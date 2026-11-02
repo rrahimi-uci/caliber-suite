@@ -178,6 +178,12 @@ class WorkingDirectoryService:
         self._backends = backend_cache if backend_cache is not None else {}
         self._backends[backend.name] = backend
 
+    @property
+    def backend(self) -> StorageBackend:
+        """The configured backend, exposed for read-only consumers such as historical replay."""
+
+        return self._backend
+
     def _config_for_backend(self, backend_name: str) -> WorkflowStorageConfig:
         if backend_name not in {"local", "s3"}:
             raise StorageValidationError(f"unknown storage backend: {backend_name!r}")
