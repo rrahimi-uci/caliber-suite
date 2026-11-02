@@ -214,6 +214,7 @@ what depends on them, are `dispatched`, `unknown` and `reconciled`.
 | `reconciled` | the reconciler began settling it and has not finished | Wait; the next pass or the callback finishes it |
 | `committed` | a verified receipt exists | Do not repeat it. (The platform makes at most one local claim per effect and verifies a receipt; it does not promise exactly-once delivery by the downstream) |
 | `failed` | a definitive rejection, not sent, or proven absence | Final. A new run is a new effect |
+| `failed`, `reason` `run_failed`, `run_cancelled`, `run_expired`, `run_completed` or `approval_rejected`, no `dispatched_at` | the run ended before this proposal was dispatched, so it was settled in the transaction that ended the run (or by the owner's once-a-minute sweep for a run that ended earlier). It was **never sent**; its approval request is `withdrawn` | Nothing. To do the effect, start a new run. A `dispatched` or `unknown` proposal of the same run is not touched by this and stays the reconciler's |
 
 **How an unknown effect gets settled.** Only the owner's reconciler asks, by the original logical key, through the
 connector's own lookup, at the `base_url` of the `CALIBER_EFFECT_CALLBACK_CONNECTORS` binding for that connector and
@@ -228,6 +229,13 @@ project (for the generic `http` connector, at the `lookup_url` the operator list
 | 5xx, 401 or any other status | still `unknown` (detail `http_<code>`) |
 | a 2xx whose body is not this proposal's effect (unreadable, or another request under the key) | still `unknown`, reported `unverified` |
 | cannot be reached, or no binding for the connector and project | still `unknown` (`lookup_failed`, `not_bound`) |
+
+**A run that ended with a `proposed` effect.** The run's end settles its never-dispatched proposals and withdraws its live
+approval requests in the same transaction (see the `failed` rows above), so a run that cannot be ended because that settlement
+fails (a database error) stays as it was and the end is retried: read the server log for the error class, fix the store, and
+the run ends normally. A run that ended before this existed is settled by the owner's sweep (once a minute, 50 runs per sweep,
+continuing after the last run of a full batch); a run the sweep cannot settle is logged by run id and error code or class, and
+the sweep goes on with the runs behind it. Until a proposal is settled the dispatcher refuses it (`run_ended`), so nothing is sent.
 
 **A `dispatched` row that does not clear.** A row with `abandoned: false` and `lease.expired: false` was dispatched under the
 lease the owner still holds. If the dispatcher's settle fails while it keeps that lease (the store went away after the send, the

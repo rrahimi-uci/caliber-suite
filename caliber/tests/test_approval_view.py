@@ -425,10 +425,13 @@ def test_after_the_real_reject_route_the_state_is_rejected_not_another_nodes_req
 
 
 @pytest.mark.parametrize("decided_first", [False, True])
-def test_after_the_real_cancel_route_the_run_is_not_waiting(
+def test_after_the_real_cancel_route_a_live_bound_request_is_withdrawn(
     client: TestClient, decided_first: bool
 ) -> None:
-    """Cancelling clears ``current_node_id`` too: the state is ``run_not_waiting``, never ``approval_not_current``."""
+    """Cancelling clears ``current_node_id`` and, since #1074, withdraws the run's live bound requests in the same transaction.
+
+    The state is ``withdrawn`` (a fact about the request), never ``approval_not_current``, and nobody may decide it.
+    """
     run_id, bound_id, _proposal_id = _parked(client)
     if decided_first:  # approved (quorum met) and then the run is cancelled before dispatch
         approved = client.post(
@@ -445,8 +448,9 @@ def test_after_the_real_cancel_route_the_run_is_not_waiting(
 
     data = _view(client, run_id, bound_id)
 
-    assert data["state"]["code"] == "run_not_waiting"
-    assert data["caller"]["approve"] == {"allowed": False, "reason_code": "run_not_waiting"}
+    assert data["state"]["code"] == "withdrawn"
+    assert data["caller"]["approve"] == {"allowed": False, "reason_code": "withdrawn"}
+    assert data["caller"]["reject"] == {"allowed": False, "reason_code": "withdrawn"}
 
 
 def test_a_request_for_another_node_of_a_waiting_run_is_still_not_current(
