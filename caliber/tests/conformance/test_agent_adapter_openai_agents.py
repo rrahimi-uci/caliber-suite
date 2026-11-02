@@ -6,11 +6,13 @@ import asyncio
 import json
 import sys
 from datetime import datetime, timezone
+from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
 import httpx
 import pytest
+import tomllib
 
 from caliber.contracts.agent_step import AgentStepResult, parse_step_result
 from caliber.testing.adapter_conformance import (
@@ -25,9 +27,15 @@ from caliber.testing.adapter_conformance import (
     Script,
     fault_exception,
 )
+from caliber.workflows import openai_agents_compat as compat
 from caliber.workflows import step_openai_agents as adapter
 from caliber.workflows.agent_step import AgentStepInput, StepHandoffTarget, run_agent_step
 from caliber.workflows.ir import IRAgent, IRToolBinding, NodeType
+from caliber.workflows.openai_agents_compat import (
+    OPENAI_AGENTS_MIN_VERSION,
+    OpenAIAgentsSDKCompatibilityError,
+    require_supported_sdk,
+)
 from caliber.workflows.runtime import OpenAIAgentsWorkflowExecutor
 from tests.agent_step_conformance import (
     PROTECTED_TOOL,
@@ -451,6 +459,77 @@ def test_agents_maps_missing_sdk_and_timeout_without_payload() -> None:
     result = adapter.run_openai_agents_step(timeout_config, ctx.request, ctx.step_input)
     assert result.error_code == "adapter_timeout"
     assert SECRET_MARKER not in json.dumps(result.record())
+
+
+def test_declared_floor_matches_the_capabilities_the_adapter_requires() -> None:
+    with (Path(__file__).parents[2] / "pyproject.toml").open("rb") as stream:
+        project = tomllib.load(stream)
+    requirement = next(
+        item
+        for item in project["project"]["optional-dependencies"]["llm"]
+        if item.startswith("openai-agents")
+    )
+    assert requirement == f"openai-agents>={OPENAI_AGENTS_MIN_VERSION}"
+
+
+def test_an_older_function_tool_signature_is_refused_before_provider_use() -> None:
+    class ApprovalOnlyFunctionTool:
+        def __init__(
+            self,
+            name: str,
+            description: str,
+            params_json_schema: dict[str, Any],
+            on_invoke_tool: Any,
+            strict_json_schema: bool = True,
+            needs_approval: bool = False,
+        ) -> None:
+            del (
+                name,
+                description,
+                params_json_schema,
+                on_invoke_tool,
+                strict_json_schema,
+                needs_approval,
+            )
+
+    with pytest.raises(OpenAIAgentsSDKCompatibilityError) as raised:
+        require_supported_sdk(agent_cls=_Agent, function_tool_cls=ApprovalOnlyFunctionTool)
+    assert raised.value.missing_capabilities == (
+        "FunctionTool.timeout_seconds",
+        "FunctionTool.timeout_behavior",
+    )
+
+    ctx = make_context()
+    old_sdk = list(sdk())
+    old_sdk[1] = ApprovalOnlyFunctionTool
+    calls_before = len(_Runner.calls)
+    result = adapter.run_openai_agents_step(
+        adapter.AgentsStepConfig(
+            default_model="gpt-4o",
+            reasoning_effort="medium",
+            api_key="unused",
+            sdk_loader=lambda: tuple(old_sdk),
+        ),
+        ctx.request,
+        ctx.step_input,
+    )
+    assert (result.stop_reason, result.error_code) == ("refused", adapter.SDK_INCOMPATIBLE)
+    assert len(_Runner.calls) == calls_before
+
+
+def test_an_uninspectable_sdk_is_rejected_closed(monkeypatch: pytest.MonkeyPatch) -> None:
+    def signature_fails(_target: Any) -> Any:
+        raise TypeError("not inspectable")
+
+    monkeypatch.setattr(compat.inspect, "signature", signature_fails)
+    with pytest.raises(compat.OpenAIAgentsSDKCompatibilityError) as raised:
+        compat.require_supported_sdk(agent_cls=_Agent, function_tool_cls=_FunctionTool)
+    assert raised.value.missing_capabilities == (
+        "FunctionTool.needs_approval",
+        "FunctionTool.timeout_seconds",
+        "FunctionTool.timeout_behavior",
+        "Agent.tool_use_behavior",
+    )
 
 
 def test_agents_estimates_usage_when_sdk_omits_raw_responses() -> None:

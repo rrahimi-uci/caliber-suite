@@ -117,7 +117,11 @@ redis = [
 # core CALIBER package stays usable (and unit-testable) without it via the
 # FakeLLMProvider in caliber.llm.fake.
 llm = [
-    "openai-agents>=0.0.7",
+    # 0.9.0 is the first release whose FunctionTool has needs_approval,
+    # timeout_seconds and timeout_behavior, all of which the governed adapter
+    # supplies. Older SDKs are refused with sdk_incompatible before a provider
+    # call rather than silently losing a timeout or approval capability.
+    "openai-agents>=0.9.0",
     "openai>=1.40",
     "gepa>=0.0.27",
 ]
