@@ -41,6 +41,7 @@ import {
   Library,
   ListChecks,
   Network,
+  PackageCheck,
   MessageSquareText,
   Scale,
   PlugZap,
@@ -52,10 +53,18 @@ import {
   Wrench,
   ShieldCheck,
 } from "lucide-react";
-import { NavLink, useLocation } from "react-router-dom";
+import { Link, NavLink, useLocation } from "react-router-dom";
 
 import { caliberApi } from "@/api/caliberApi";
-import type { FeatureId } from "@/api/workflowTypes";
+import type { AdapterId, FeatureId } from "@/api/workflowTypes";
+import {
+  ADAPTER_STATUS_LABEL,
+  AdapterStatusChip,
+  AdapterSupportList,
+  describeAdapterSupport,
+  useAdapterSupportView,
+  type AdapterSupportView,
+} from "@/components/AdapterSupport";
 import {
   HEALTH_DOT,
   HEALTH_TITLE,
@@ -78,6 +87,12 @@ interface NavItemProps {
   badge?: Badge;
   small?: boolean;
   external?: boolean;
+  /**
+   * The adapter this destination is, with its support read from ``/capabilities`` (B15-Support.3).
+   * It adds a status chip and the server's reason and recovery text; an ``unavailable`` adapter
+   * is a disabled item, not a link. Support grants no authority: the route still enforces its own.
+   */
+  support?: { id: AdapterId; view: AdapterSupportView };
   onNavigate?: () => void;
 }
 
@@ -113,18 +128,33 @@ function NavItem({
   badge,
   small = false,
   external = false,
+  support,
   onNavigate,
 }: NavItemProps): JSX.Element {
   const location = useLocation();
   const collapsed = useContext(CollapsedContext);
+  // A destination may name a place inside a page (``/releases#release-signoff``); it is the
+  // current one only while both the page and that place are.
+  const [path = to, hash] = to.split("#");
   const isActive =
-    !external && (location.pathname === to || location.pathname.startsWith(`${to}/`));
+    !external &&
+    (location.pathname === path || location.pathname.startsWith(`${path}/`)) &&
+    (hash === undefined || location.hash === `#${hash}`);
   const baseSize = small ? "text-xs" : "text-[13px]";
-  const className = `nav-item ${baseSize} ${isActive ? "nav-item-active" : ""} ${collapsed ? "md:justify-center md:px-0" : ""}`;
+  // Nothing is labelled while capabilities load: no status is claimed before the server has spoken.
+  const reported = support && !support.view.loading ? support.view : null;
+  const disabled = reported?.status === "unavailable";
+  const className = `nav-item ${baseSize} ${isActive ? "nav-item-active" : ""} ${collapsed ? "md:justify-center md:px-0" : ""} ${disabled ? "cursor-not-allowed hover:bg-transparent" : ""}`;
+  const descriptionId = reported && support ? `nav-support-${support.id}` : undefined;
+  const title = collapsed
+    ? reported
+      ? `${label} (${ADAPTER_STATUS_LABEL[reported.status]})`
+      : label
+    : undefined;
 
   const content = (
     <>
-      <span className={`relative ${small ? "w-4 h-4" : "w-[18px] h-[18px]"} flex-shrink-0 ${isActive ? "text-caliber-purple" : "text-slate-400"}`}>
+      <span className={`relative ${small ? "w-4 h-4" : "w-[18px] h-[18px]"} flex-shrink-0 ${isActive ? "text-caliber-purple" : "text-slate-400"} ${disabled ? "opacity-60" : ""}`}>
         {icon}
         {badge && badge.count > 0 && (
           <span
@@ -142,8 +172,54 @@ function NavItem({
           {badge.count}
         </span>
       )}
+      {reported && (
+        // The word and icon are visible; a screen reader gets the same status, and the server's
+        // reason, from the description below, so the link's name stays the destination's name.
+        <span aria-hidden="true" className={collapsed ? "md:hidden" : undefined}>
+          <AdapterStatusChip status={reported.status} />
+        </span>
+      )}
     </>
   );
+
+  // The status and the server's exact text. A screen reader hears it after the destination's name
+  // (``aria-describedby``); a sighted person gets the same text as a popover on hover and on
+  // keyboard focus (``focus-within``), so the reason is on the item itself and not only inside
+  // the closed "Support status" panel. The popover is skipped in the icon rail, which has no room
+  // (its tooltip carries the status instead).
+  const withSupport = (link: JSX.Element): JSX.Element =>
+    reported ? (
+      <div className="group relative">
+        {link}
+        <span
+          id={descriptionId}
+          data-testid={`nav-support-text-${support?.id}`}
+          className={`pointer-events-none absolute left-3 right-3 top-full z-50 mt-0.5 hidden rounded-md border border-slate-200 bg-white px-2.5 py-2 text-[11px] font-normal leading-snug text-slate-700 shadow-lg group-focus-within:block group-hover:block ${collapsed ? "md:hidden" : ""}`}
+        >
+          {describeAdapterSupport(reported)}
+        </span>
+      </div>
+    ) : (
+      link
+    );
+
+  // An unavailable adapter is shown but cannot be followed: a link that is not a link, still
+  // reachable by keyboard so its reason is heard and shown. Visibility here grants no authority.
+  if (disabled) {
+    return withSupport(
+      <span
+        role="link"
+        aria-disabled="true"
+        tabIndex={0}
+        className={className}
+        aria-describedby={descriptionId}
+        title={title}
+        data-testid={`nav-disabled-${support?.id}`}
+      >
+        {content}
+      </span>,
+    );
+  }
 
   // External targets (e.g. the standalone docs site) open in a new tab via a
   // plain anchor — they aren't React routes.
@@ -155,24 +231,51 @@ function NavItem({
         rel="noopener noreferrer"
         className={className}
         onClick={onNavigate}
-        title={collapsed ? label : undefined}
+        title={title}
       >
         {content}
       </a>
     );
   }
 
-  return (
+  // A place inside a page is a plain link: ``NavLink`` would also mark the page's own entry as
+  // current for it, and exactly one location is the current one.
+  if (hash !== undefined) {
+    return withSupport(
+      <Link
+        to={to}
+        className={className}
+        aria-current={isActive ? "location" : undefined}
+        aria-describedby={descriptionId}
+        onClick={onNavigate}
+        title={title}
+      >
+        {content}
+      </Link>,
+    );
+  }
+
+  return withSupport(
     <NavLink
       to={to}
       className={className}
       end={false}
+      aria-describedby={descriptionId}
       onClick={onNavigate}
-      title={collapsed ? label : undefined}
+      title={title}
     >
       {content}
-    </NavLink>
+    </NavLink>,
   );
+}
+
+/** A destination that is an adapter: reads its support from the capabilities and hands it to ``NavItem``. */
+function AdapterNavItem({
+  adapter,
+  ...props
+}: Omit<NavItemProps, "support"> & { adapter: AdapterId }): JSX.Element {
+  const view = useAdapterSupportView(adapter);
+  return <NavItem {...props} support={{ id: adapter, view }} />;
 }
 
 interface NavEntry {
@@ -187,6 +290,11 @@ interface NavEntry {
    * reports the flag on; its route is wrapped in ``FeatureGate`` for the deep-link case.
    */
   feature?: FeatureId;
+  /**
+   * The adapter this destination is. The flag decides whether it is listed; the adapter's
+   * reported support decides how it is labelled and whether it can be followed.
+   */
+  adapter?: AdapterId;
 }
 
 interface NavGroup {
@@ -226,6 +334,9 @@ const NAV_GROUPS: NavGroup[] = [
       { to: "/eval-datasets", icon: <FlaskConical className={NAV_ICON_CLASS} strokeWidth={1.85} />, label: "Test Sets" },
       { to: "/evaluations", icon: <Gauge className={NAV_ICON_CLASS} strokeWidth={1.85} />, label: "Evaluations" },
       { to: "/releases", icon: <Rocket className={NAV_ICON_CLASS} strokeWidth={1.85} />, label: "Releases" },
+      // The signoff section of the Releases page (record-only candidates and their evaluation):
+      // listed only while its flag is on, and labelled with the evaluation path's reported support.
+      { to: "/releases#release-signoff", icon: <PackageCheck className={NAV_ICON_CLASS} strokeWidth={1.85} />, label: "Release candidates", feature: "release_candidates", adapter: "release_evaluation" },
     ],
   },
   {
@@ -261,8 +372,8 @@ const NAV_GROUPS: NavGroup[] = [
     title: "Integrations",
     items: [
       { to: "/gateway", icon: <Network className={NAV_ICON_CLASS} strokeWidth={1.85} />, label: "LLM Gateway" },
-      { to: "/mcp-servers", icon: <PlugZap className={NAV_ICON_CLASS} strokeWidth={1.85} />, label: "MCP Servers", feature: "integrations" },
-      { to: "/openapi-integrations", icon: <Globe className={NAV_ICON_CLASS} strokeWidth={1.85} />, label: "OpenAPI Integrations", feature: "integrations" },
+      { to: "/mcp-servers", icon: <PlugZap className={NAV_ICON_CLASS} strokeWidth={1.85} />, label: "MCP Servers", feature: "integrations", adapter: "mcp_servers" },
+      { to: "/openapi-integrations", icon: <Globe className={NAV_ICON_CLASS} strokeWidth={1.85} />, label: "OpenAPI Integrations", feature: "integrations", adapter: "openapi_integrations" },
     ],
   },
   {
@@ -463,6 +574,11 @@ export function Sidebar({
           />
         </div>
 
+        {/* What this deployment supports, adapter by adapter, with the server's exact reason and
+            recovery text. Reachable even for an area whose flag is off (its destination is not
+            listed), and the only place the connector, which has no page, is named. */}
+        <SupportStatus collapsed={collapsed} />
+
         {/* Footer status (hidden in the collapsed rail). Derived from the
             real /health poll — a decorative always-green dot here taught
             users to ignore the status lights. Deliberately left visible
@@ -485,6 +601,39 @@ export function Sidebar({
       </nav>
     </aside>
     </CollapsedContext.Provider>
+  );
+}
+
+/**
+ * A disclosure listing each adapter's reported support. Closed by default; its content is
+ * unmounted while closed (like a nav group), so a closed panel adds no duplicate of the text the
+ * navigation items already describe. Hidden in the icon rail, which has no room for text.
+ */
+function SupportStatus({ collapsed }: { collapsed: boolean }): JSX.Element {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className={`mt-3 ${collapsed ? "md:hidden" : ""}`}>
+      <div className="px-4">
+        <button
+          type="button"
+          onClick={() => setOpen((value) => !value)}
+          aria-expanded={open}
+          aria-controls="nav-support-panel"
+          data-testid="nav-support-toggle"
+          // A darker slate than the group headers: this one is a control a person must read.
+          className="flex w-full items-center gap-1.5 px-2 py-1 rounded-md text-[10px] font-bold uppercase tracking-widest text-slate-600 hover:text-slate-800 hover:bg-slate-100/60 transition-colors"
+        >
+          <ChevronRight
+            className={`h-3 w-3 flex-shrink-0 transition-transform duration-150 ${open ? "rotate-90" : ""}`}
+            aria-hidden="true"
+          />
+          <span className="flex-1 text-left">Support status</span>
+        </button>
+      </div>
+      <div id="nav-support-panel" className="mt-1">
+        {open && <AdapterSupportList />}
+      </div>
+    </div>
   );
 }
 
@@ -566,17 +715,21 @@ function NavGroupSection({
       */}
       <div id={panelId}>
         {open &&
-          group.items.map((item) => (
-            <NavItem
-              key={item.to}
-              to={item.to}
-              icon={item.icon}
-              label={item.label}
-              external={item.external}
-              badge={item.badgeKey ? badges[item.badgeKey] : undefined}
-              onNavigate={onNavigate}
-            />
-          ))}
+          group.items.map((item) => {
+            const props = {
+              to: item.to,
+              icon: item.icon,
+              label: item.label,
+              external: item.external,
+              badge: item.badgeKey ? badges[item.badgeKey] : undefined,
+              onNavigate,
+            };
+            return item.adapter ? (
+              <AdapterNavItem key={item.to} adapter={item.adapter} {...props} />
+            ) : (
+              <NavItem key={item.to} {...props} />
+            );
+          })}
       </div>
     </div>
   );

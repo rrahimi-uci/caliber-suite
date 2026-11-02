@@ -125,8 +125,9 @@ export interface AdapterSupportState {
   loading: boolean;
   /**
    * ``supported`` only when the server reported exactly that for this adapter. Loading, a failed
-   * request, a server that predates ``adapters`` and a malformed entry all read as ``preview``
-   * (the label the alpha UI already shows), never as ``supported``.
+   * request, a server that predates ``adapters`` and a malformed entry all read as ``preview``,
+   * never as ``supported``. ``components/AdapterSupport.tsx`` (#771) is what renders it, and
+   * tightens ``supported`` further (it must carry its message, no reason code and its evidence).
    */
   status: AdapterSupportStatus;
   /** The server's entry (reason, variable, message, evidence), or ``null`` when it sent none. */
