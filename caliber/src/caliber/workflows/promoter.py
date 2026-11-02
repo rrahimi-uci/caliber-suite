@@ -1093,7 +1093,7 @@ def build_plan(  # noqa: PLR0915 - central workflow plan assembler
             return {
                 "status": "error",
                 "output": "",
-                "error": _compile_failure_detail(exc),
+                "error": compile_failure_detail(exc),
                 "error_code": REFUSAL_CODE,
                 "tokens": 0,
             }
@@ -1702,7 +1702,7 @@ def workflow_run_summary(result: WorkflowRunResult, *, preview: bool) -> dict[st
 # ---------------------------------------------------------------------------
 
 
-def _compile_failure_detail(exc: CompileError) -> str:
+def compile_failure_detail(exc: CompileError) -> str:
     """A compile failure for an HTTP detail: the reference profile's refusals by their code, else the error's own text.
 
     The validation report travels on ``exc.report``; without this the publish response would say "failed validation" and
@@ -1716,6 +1716,15 @@ def _compile_failure_detail(exc: CompileError) -> str:
     others = [str(e.get("message", "")) for e in errors if e.get("code") != REFUSAL_CODE]
     detail = f"{REFUSAL_CODE}: " + "; ".join(refused)
     return f"{detail}; other errors: " + "; ".join(others) if others else detail
+
+
+def failure_detail(exc: BaseException) -> str:
+    """An error for an HTTP detail: a compile failure by :func:`compile_failure_detail`, any other error by its text.
+
+    The preview, run and evaluation routes catch several error types in one clause; this keeps the reference profile's
+    one code on the compile failure among them (B12.4c, #770).
+    """
+    return compile_failure_detail(exc) if isinstance(exc, CompileError) else str(exc)
 
 
 def publish_version(
@@ -1737,7 +1746,7 @@ def publish_version(
     try:
         compile_version(session, version, persist=True)
     except CompileError as exc:
-        raise PublishError(f"version does not compile: {_compile_failure_detail(exc)}") from exc
+        raise PublishError(f"version does not compile: {compile_failure_detail(exc)}") from exc
 
     compiled_bundle = version.compiled_bundle if isinstance(version.compiled_bundle, dict) else {}
     deployment_bundle = compiled_bundle.get("deployment_bundle")
@@ -3085,9 +3094,11 @@ __all__ = [
     "approve_promotion",
     "build_executor",
     "build_plan",
+    "compile_failure_detail",
     "compile_version",
     "describe_executor",
     "evaluate_deploy_gates",
+    "failure_detail",
     "promote",
     "promote_workflow_candidate",
     "prune_workflow_runs",

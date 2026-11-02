@@ -1,0 +1,530 @@
+#!/usr/bin/env python3
+# ruff: noqa: T201 - a command-line tool: printing is its output
+"""Mutation check for the reference-profile attack pack (B12.4c, #770).
+
+A test that cannot fail proves nothing. This script breaks the refusal code on purpose, one mutant at a time, and runs the
+attack pack (``tests/egi_scenarios/test_v14_reference_profile.py``) against each broken copy. A mutant is **killed** when an
+assertion of the pack fails (an ``ERROR`` in a fixture is infrastructure, not a kill) and the killing test passes on the unmutated
+source, **survived** when the pack passes (a hole in the pack, or an equivalent mutant: a change that alters no behaviour a caller
+can observe), and **broken** when the pack could not run (a mutant that does not import is not evidence). The mutation run is
+manual; CI runs only the offline anchor check (``tests/test_attack_pack_mutants.py``).
+
+Each mutant is a source edit of a throwaway copy of ``src/caliber`` (the working tree is never touched), and the pack runs
+against that copy through ``PYTHONPATH``, including the CALIBER processes it starts.
+
+    python scripts/attack_pack_mutants.py --check            # every edit's anchor exists exactly once (offline, instant)
+    python scripts/attack_pack_mutants.py --list
+    python scripts/attack_pack_mutants.py [--only NAME ...]  # needs CALIBER_TEST_POSTGRES_URL; minutes per surviving mutant
+
+The exit status is non-zero if any mutant survived or was broken.
+"""
+
+from __future__ import annotations
+
+import argparse
+import os
+import shutil
+import subprocess
+import sys
+import tempfile
+from dataclasses import dataclass
+from pathlib import Path
+
+CALIBER_DIR = Path(__file__).resolve().parents[1]
+SRC = CALIBER_DIR / "src" / "caliber"
+PACK = "tests/egi_scenarios/test_v14_reference_profile.py"
+# ``test_second_owner_is_api_only`` (#673) is a 3-second-lease timing test of the execution owner, unrelated to the refusals: under load it
+# flakes on its own, so it is not part of the mutation run (it stays in the pack).
+
+
+@dataclass(frozen=True)
+class Edit:
+    path: str  # relative to src/caliber
+    old: str
+    new: str
+
+
+@dataclass(frozen=True)
+class Mutant:
+    name: str
+    why: str  # what a refusal that broke this way would let an attacker do
+    edits: tuple[Edit, ...]
+    #: The mutated code runs in the tool-sandbox child, which is started with ``python -I`` and so ignores ``PYTHONPATH``: the runner
+    #: points that child at the mutated copy (in the copy only), or the mutant would never be loaded and could not be killed.
+    child_code: bool = False
+
+
+def _e(path: str, old: str, new: str) -> Edit:
+    return Edit(path, old, new)
+
+
+MUTANTS: tuple[Mutant, ...] = (
+    Mutant(
+        "python_code_is_classified_inert",
+        "the compiler's registry no longer marks python_code as executing code",
+        (
+            _e(
+                "workflows/code_policy.py",
+                "    why = CODE_NODE_KINDS.get(node_type)\n    if why is not None:",
+                "    if node_type is NodeType.PYTHON_CODE:\n        return None\n"
+                "    why = CODE_NODE_KINDS.get(node_type)\n    if why is not None:",
+            ),
+        ),
+    ),
+    Mutant(
+        "external_app_is_classified_inert",
+        "the compiler's registry no longer marks external_app as executing code",
+        (
+            _e(
+                "workflows/code_policy.py",
+                "    why = CODE_NODE_KINDS.get(node_type)\n    if why is not None:",
+                "    if node_type is NodeType.EXTERNAL_APP:\n        return None\n"
+                "    why = CODE_NODE_KINDS.get(node_type)\n    if why is not None:",
+            ),
+        ),
+    ),
+    Mutant(
+        "policy_is_never_reference_from_a_configuration",
+        "a configuration that says reference no longer yields a refusing policy",
+        (
+            _e(
+                "workflows/code_policy.py",
+                '            reference=getattr(config, "profile", "") == "reference",',
+                "            reference=False,",
+            ),
+        ),
+    ),
+    Mutant(
+        "app_does_not_bind_the_policy",
+        "create_app no longer binds the process-wide policy the routes and the promoter read",
+        (
+            _e(
+                "server.py",
+                "    bind_code_policy(CodePolicy.from_config(resolved))",
+                "    bind_code_policy(CodePolicy())",
+            ),
+        ),
+    ),
+    Mutant(
+        "every_registered_python_tool_is_shipped",
+        "an administrator's Python module is admitted as if CALIBER shipped it",
+        (
+            _e(
+                "effects/refusals.py",
+                "    return BUILTIN_TOOL_MODULE_BY_NAME.get(\n"
+                "        callable_name\n"
+                "    ) == module_path and not inventory_refuses_tool_name(callable_name)",
+                "    return True",
+            ),
+        ),
+    ),
+    Mutant(
+        "validation_does_not_check_code",
+        "validate stops reporting code, so an author is told the workflow is clean",
+        (
+            _e(
+                "workflows/validation.py",
+                "    for refusal in manifest_refusals(manifest, resolver, code_policy):\n"
+                "        report.add(refusal.code, refusal.path, refusal.message)",
+                "    return",
+            ),
+        ),
+    ),
+    Mutant(
+        "promotion_does_not_preflight_code",
+        "an alias can be moved onto a version that holds code",
+        (
+            _e(
+                "workflows/promoter.py",
+                "    if not resolve_code_policy(policy).reference:\n",
+                "    if True:\n",
+            ),
+        ),
+    ),
+    Mutant(
+        "no_refusal_at_validation_or_compile",
+        "validation and compile both stop refusing, leaving only promotion and the runtime entry",
+        (
+            _e(
+                "workflows/validation.py",
+                "    for refusal in manifest_refusals(manifest, resolver, code_policy):\n"
+                "        report.add(refusal.code, refusal.path, refusal.message)",
+                "    return",
+            ),
+            _e(
+                "workflows/compiler.py",
+                "    if not refusals:\n        return\n    raise CompileError(\n        summarize(refusals),",
+                "    return\n    raise CompileError(\n        summarize(refusals),",
+            ),
+        ),
+    ),
+    Mutant(
+        "inventory_refusals_never_fire",
+        "every protected-path refusal (exports, output_folder, tool sandbox, assistant) stops refusing",
+        (
+            _e(
+                "effects/refusals.py",
+                '    return getattr(config, "profile", "") == "reference"',
+                "    return False",
+            ),
+        ),
+    ),
+    Mutant(
+        "direct_plugin_registration_is_not_admitted",
+        "OptimizerRegistry.register stops applying the allowlist to a plugin handed to it",
+        (
+            _e(
+                "extensibility/entrypoints.py",
+                "        _reference_profile_active()\n"
+                '        and _normalize(distribution or "") not in allowlisted_distributions()',
+                "        False\n"
+                '        and _normalize(distribution or "") not in allowlisted_distributions()',
+            ),
+        ),
+    ),
+    Mutant(
+        "allowlist_matches_by_prefix",
+        "naming a prefix of a distribution admits it",
+        (
+            _e(
+                "extensibility/entrypoints.py",
+                '        if _normalize(distribution or "") not in allowed:\n'
+                "            labels.add(distribution or entry.name)",
+                '        if not any(_normalize(distribution or "").startswith(item) for item in allowed):\n'
+                "            labels.add(distribution or entry.name)",
+            ),
+        ),
+    ),
+    Mutant(
+        "startup_ignores_an_unlisted_plugin",
+        "a reference process starts with an installed plugin nobody trusted",
+        (_e("profile.py", "    if refused_plugins:", "    if False:"),),
+    ),
+    Mutant(
+        "startup_accepts_an_unconfined_file_root",
+        "a reference process starts with CALIBER_WORKFLOW_FILE_ROOT=unconfined",
+        (
+            _e(
+                "profile.py",
+                "    if config.workflow_file_root.strip() == UNCONFINED_WORKFLOW_FILE_ROOT:",
+                "    if False:",
+            ),
+        ),
+    ),
+    Mutant(
+        "startup_accepts_csrf_off",
+        "a reference process starts with CSRF protection disabled",
+        (_e("profile.py", "    if not config.csrf_enabled:", "    if False:"),),
+    ),
+    Mutant(
+        "file_root_does_not_confine",
+        "a host-path node reads outside CALIBER_WORKFLOW_FILE_ROOT",
+        (
+            _e(
+                "workflows/runtime.py",
+                "    if resolved != root and root not in resolved.parents:",
+                "    if False:",
+            ),
+        ),
+    ),
+    Mutant(
+        "csrf_signature_is_not_compared",
+        "any CSRF token with the right shape is accepted",
+        (
+            _e(
+                "csrf.py",
+                "        if not hmac.compare_digest(expected, signature):",
+                "        if False:",
+            ),
+        ),
+    ),
+    Mutant(
+        "proxy_secret_is_not_compared",
+        "an X-CALIBER-User header is trusted without the proxy's secret",
+        (
+            _e(
+                "auth.py",
+                "    return hmac.compare_digest(presented, expected)",
+                "    return True",
+            ),
+        ),
+    ),
+    Mutant(
+        "egress_checks_only_the_first_address",
+        "a name with a public and a metadata record is connected to",
+        (
+            _e(
+                "egress.py",
+                "    for address in addresses:\n        if address.lower() in resolved_policy.allowed_hosts:",
+                "    for address in addresses[:1]:\n        if address.lower() in resolved_policy.allowed_hosts:",
+            ),
+        ),
+    ),
+    Mutant(
+        "egress_does_not_pin_the_vetted_address",
+        "the connection resolves the name again, so a rebinding answer is connected to",
+        (
+            _e(
+                "egress.py",
+                "        url=_replace_host(parts, addresses[0]),",
+                "        url=parts.geturl(),",
+            ),
+        ),
+    ),
+    Mutant(
+        "egress_allows_a_literal_metadata_address",
+        "http://169.254.169.254/ is fetched",
+        (
+            _e(
+                "egress.py",
+                "    if direct is not None:\n        raise EgressBlockedError(_describe(lowered, lowered, direct))",
+                "    if False:\n        raise EgressBlockedError(_describe(lowered, lowered, direct))",
+            ),
+        ),
+    ),
+    Mutant(
+        "shipped_tool_matched_by_name_only",
+        "a registry row with a shipped callable's name and an attacker's module is admitted as shipped",
+        (
+            _e(
+                "effects/refusals.py",
+                "    return BUILTIN_TOOL_MODULE_BY_NAME.get(\n"
+                "        callable_name\n"
+                "    ) == module_path and not inventory_refuses_tool_name(callable_name)",
+                "    return callable_name in BUILTIN_TOOL_MODULE_BY_NAME and not inventory_refuses_tool_name(\n"
+                "        callable_name\n"
+                "    )",
+            ),
+        ),
+    ),
+    Mutant(
+        "file_root_compared_by_string_prefix",
+        "a sibling directory that starts with the root's name (root-evil next to root) is inside the root",
+        (
+            _e(
+                "workflows/runtime.py",
+                "    if resolved != root and root not in resolved.parents:",
+                "    if not str(resolved).startswith(str(root)):",
+            ),
+        ),
+    ),
+    Mutant(
+        "plugin_without_a_distribution_is_admitted",
+        "an installed entry point whose distribution cannot be named is skipped by the refusal",
+        (
+            _e(
+                "extensibility/entrypoints.py",
+                '        if _normalize(distribution or "") not in allowed:\n'
+                "            labels.add(distribution or entry.name)",
+                "        if distribution and _normalize(distribution) not in allowed:\n"
+                "            labels.add(distribution or entry.name)",
+            ),
+        ),
+    ),
+    Mutant(
+        "extract_document_reads_any_host_path",
+        "the shipped extract_document tool opens a path outside the file root (the bypass the pack found)",
+        (
+            _e(
+                "workflows/ingestion_tools.py",
+                '    path = confine_in_reference_profile(path, what="extract_document")',
+                "    pass",
+            ),
+        ),
+        child_code=True,
+    ),
+    Mutant(
+        "sandbox_child_is_not_told_the_profile",
+        "the sandbox child runs a shipped tool without knowing it is in the reference profile or where the root is",
+        (
+            _e(
+                "tool_sandbox/service.py",
+                "        if not self.reference_profile:\n            return {}\n        environment =",
+                "        if True:\n            return {}\n        environment =",
+            ),
+        ),
+    ),
+    Mutant(
+        "host_path_confinement_compared_by_string_prefix",
+        "the tool's own confinement treats root-evil as inside root",
+        (
+            _e(
+                "workflows/host_paths.py",
+                "    if resolved != root and root not in resolved.parents:",
+                "    if not str(resolved).startswith(str(root)):",
+            ),
+        ),
+        child_code=True,
+    ),
+)
+
+
+#: How the sandbox starts its child (``tool_sandbox/service.py``): the interpreter command and its environment.
+_CHILD_SPAWN_ANCHORS = (
+    '[sys.executable, "-I", "-B", str(_RUNNER_PATH)]',
+    "env=self._child_environment(),",
+)
+
+
+def check_anchors() -> list[str]:
+    """Problems with the mutant table: an edit whose anchor is missing or ambiguous, a duplicate name, a no-op edit."""
+    problems: list[str] = []
+    names = [m.name for m in MUTANTS]
+    problems += [f"duplicate mutant name {n}" for n in set(names) if names.count(n) > 1]
+    for mutant in MUTANTS:
+        for edit in mutant.edits:
+            text = (SRC / edit.path).read_text(encoding="utf-8")
+            count = text.count(edit.old)
+            if count != 1:
+                problems.append(f"{mutant.name}: {edit.path} anchor found {count} times (need 1)")
+            if edit.old == edit.new:
+                problems.append(f"{mutant.name}: the edit changes nothing")
+    if any(m.child_code for m in MUTANTS):
+        service = (SRC / "tool_sandbox" / "service.py").read_text(encoding="utf-8")
+        for anchor in _CHILD_SPAWN_ANCHORS:
+            if service.count(anchor) != 1:
+                problems.append(
+                    f"sandbox spawn anchor {anchor!r} found {service.count(anchor)} times (need 1)"
+                )
+    return problems
+
+
+def _run_pack(src: Path, pytest_args: list[str], *, select: list[str]) -> tuple[int, str]:
+    """Run the pack (or just ``select``) against the CALIBER source in ``src``; ``(exit status, output)``."""
+    env = dict(os.environ)
+    env["PYTHONPATH"] = os.pathsep.join([str(src), str(CALIBER_DIR)])
+    env["PYTHONDONTWRITEBYTECODE"] = "1"
+    completed = subprocess.run(  # noqa: S603 - the interpreter running this script, fixed arguments
+        [
+            sys.executable,
+            "-m",
+            "pytest",
+            *(select or [PACK, "-k", "postgresql and not second_owner"]),
+            "-x",
+            "-q",
+            "-rfE",
+            "--no-cov",
+            "-p",
+            "no:cacheprovider",
+            *pytest_args,
+        ],
+        cwd=CALIBER_DIR,
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    return completed.returncode, completed.stdout
+
+
+def _summary_ids(output: str, kind: str) -> list[str]:
+    """The test ids of the ``FAILED`` (assertion) or ``ERROR`` (fixture, setup, infrastructure) lines of a ``-rfE`` summary."""
+    return [
+        line.split(" ", 1)[1].split(" - ", 1)[0]
+        for line in output.splitlines()
+        if line.startswith(f"{kind} ")
+    ]
+
+
+def _point_the_sandbox_child_at(mutated_src: Path) -> None:
+    """In the throwaway copy only: start the sandbox child without ``-I`` and with the copy on its ``PYTHONPATH``."""
+    service = mutated_src / "caliber" / "tool_sandbox" / "service.py"
+    text = service.read_text(encoding="utf-8")
+    popen, environment = _CHILD_SPAWN_ANCHORS
+    assert text.count(popen) == 1 and text.count(environment) == 1, (
+        "the sandbox's spawn changed: update the runner"
+    )
+    text = text.replace(popen, '[sys.executable, "-B", str(_RUNNER_PATH)]').replace(
+        environment, f'env={{**self._child_environment(), "PYTHONPATH": {str(mutated_src)!r}}},'
+    )
+    service.write_text(text, encoding="utf-8")
+
+
+def run_mutant(mutant: Mutant, pytest_args: list[str]) -> tuple[str, str]:
+    """``(verdict, detail)`` for one mutant.
+
+    * ``killed``: the pack **failed an assertion** (a ``FAILED`` test, never an ``ERROR`` in a fixture or at setup, which a loaded
+      machine produces on its own), and the killing test passes against the unmutated source, so the failure is the mutant's and
+      not a flake. ``detail`` is the killing test's id.
+    * ``survived``: the pack passed.
+    * ``broken``: the pack could not run, or only ever errored (it is run a second time before giving up), or the killing test
+      fails on the pristine source too. A broken mutant is not evidence either way.
+    """
+    with tempfile.TemporaryDirectory(prefix="caliber-mutant-") as scratch:
+        mutated_src = Path(scratch) / "src"
+        shutil.copytree(
+            SRC.parent, mutated_src, ignore=shutil.ignore_patterns("__pycache__", "*.pyc")
+        )
+        for edit in mutant.edits:
+            target = mutated_src / "caliber" / edit.path
+            text = target.read_text(encoding="utf-8")
+            if text.count(edit.old) != 1:
+                return "broken", f"anchor not found exactly once in {edit.path}"
+            target.write_text(text.replace(edit.old, edit.new), encoding="utf-8")
+        if mutant.child_code:
+            _point_the_sandbox_child_at(mutated_src)
+        output = ""
+        for _attempt in range(2):
+            status, output = _run_pack(mutated_src, pytest_args, select=[])
+            if status == 0:
+                return "survived", "\n".join(output.splitlines()[-3:])
+            failed = _summary_ids(output, "FAILED")
+            if status == 1 and failed:
+                killer = failed[0]
+                pristine_status, pristine = _run_pack(SRC.parent, pytest_args, select=[killer])
+                if pristine_status == 0:
+                    return "killed", killer
+                return "broken", f"{killer} also fails on the unmutated source:\n" + "\n".join(
+                    pristine.splitlines()[-6:]
+                )
+            # Only errors (or no tests ran): infrastructure under load. Run it once more.
+        return "broken", "no assertion failed, only errors:\n" + "\n".join(output.splitlines()[-8:])
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawTextHelpFormatter
+    )
+    parser.add_argument(
+        "--check", action="store_true", help="only verify the mutant table against the source"
+    )
+    parser.add_argument("--list", action="store_true", help="list the mutants")
+    parser.add_argument("--only", nargs="*", default=[], help="run only these mutants")
+    args, pytest_args = parser.parse_known_args(argv)
+
+    problems = check_anchors()
+    if problems:
+        print("\n".join(problems), file=sys.stderr)
+        return 2
+    if args.list:
+        for mutant in MUTANTS:
+            print(f"{mutant.name}: {mutant.why}")
+        return 0
+    if args.check:
+        print(f"{len(MUTANTS)} mutants, every anchor found exactly once")
+        return 0
+    if not os.environ.get("CALIBER_TEST_POSTGRES_URL"):
+        print(
+            "CALIBER_TEST_POSTGRES_URL is required: the pack's refusals are PostgreSQL scenarios",
+            file=sys.stderr,
+        )
+        return 2
+
+    chosen = [m for m in MUTANTS if not args.only or m.name in args.only]
+    verdicts: dict[str, str] = {}
+    for mutant in chosen:
+        verdict, detail = run_mutant(mutant, pytest_args)
+        verdicts[mutant.name] = verdict
+        print(
+            f"{verdict.upper():9} {mutant.name}  <- {detail.splitlines()[0] if detail else ''}",
+            flush=True,
+        )
+        if verdict != "killed":
+            print(detail, file=sys.stderr)
+    killed = sum(1 for v in verdicts.values() if v == "killed")
+    print(f"{killed}/{len(chosen)} mutants killed")
+    return 0 if killed == len(chosen) else 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
