@@ -27,7 +27,7 @@ GET /ajax-api/2.0/mlflow/caliber/openapi.json
 | --- | --- |
 | `GET /health` | Cheap liveness probe; a bare `{status, version, db}` body (no `data` envelope), 503 with `status: "degraded"` when the database probe fails |
 | `GET /readiness` | Dependency readiness; 503 while a required dependency (database, applied schema migrations, an HTTP MLflow, remote object storage, ...) is not ready, with `checks` and `blockers` in `data` |
-| `GET /capabilities` | Surface discovery and stability tiers, plus `features`: for each of `aria`, `integrations`, `cookbooks` and `release_candidates`, whether it is `enabled` and its `env_var`, `label` and `stability` |
+| `GET /capabilities` | Surface discovery and stability tiers, plus `features`: for each of `aria`, `integrations`, `cookbooks` and `release_candidates`, whether it is `enabled` and its `env_var`, `label` and `stability`, and `adapters`: for each of `document_request_connector`, `release_evaluation`, `mcp_servers` and `openapi_integrations`, a `status` of `supported`, `preview` or `unavailable` with its `reason_code`, `disabled_by`, `message` and, for a supported one, the scenario `evidence` ([Beta scope](m-66-beta-scope.md)) |
 | `GET /openapi.json` | Full management API contract (authenticated; a raw document, not enveloped) |
 | `GET /settings/runtime` | Runtime configuration summary |
 | `GET /me` | Caller identity and effective session information |
@@ -78,7 +78,7 @@ MCP servers and OpenAPI integrations, cookbooks, and release-candidate signoff w
 **off by default**; Aria is the exception and ships **on** (`CALIBER_FEATURE_ARIA=false` turns it off). While one is off, every route of that area answers HTTP 404 with
 `reason_code: feature_disabled` and a `detail` that names the variable to set. The routes still appear in the
 served OpenAPI document. Call `GET /capabilities` and read `features` before you rely on one, rather than
-probing for the 404; the response also reports `openapi_integrations.enabled`, which follows the `integrations`
+probing for the 404 (a flag says an area is on, not that it is supported: read `adapters` for that); the response also reports `openapi_integrations.enabled`, which follows the `integrations`
 flag. See [Feature flags](m-61-alpha-scope.md#feature-flags) for the variables and what each one turns on.
 
 ## Workflow-service OpenAPI

@@ -18,6 +18,12 @@ tags:
 
 # Alpha install
 
+> **Historical page.** This is the install of the `0.1.0a1` alpha and stays as written. It starts the default
+> `development` profile, in which no adapter is reported `supported`: the capability report says `preview` for the
+> document-request connector, and `preview` or `unavailable` (while its area flag or evaluator is off, as it is by
+> default) for the release evaluation and the MCP and OpenAPI integrations. The
+> supported shape is the reference profile; [Beta scope](beta-scope.md) says what it supports, with the evidence.
+
 This page takes you from nothing to a logged-in administrator who can create a project and a
 prompt. It needs no Docker and no checkout.
 
@@ -287,13 +293,16 @@ To turn Aria off instead, set `CALIBER_FEATURE_ARIA=false` and restart.
 
 Turn on only what you want to try. Each variable is read once at startup and accepts `true`, `1`, `yes` or
 `on`. Enabling one means you accept that area's preview behavior (it may change, a signoff records a
-decision and deploys nothing, a workspace release evaluation never runs); see
-[Feature flags](alpha-scope.md#feature-flags). Some cookbooks need more than the cookbooks flag, for
+decision and deploys nothing, and a workspace release evaluation runs only while the evaluator variable above is also
+on); see [Feature flags](alpha-scope.md#feature-flags). Enabling one promotes nothing: a development deployment reports
+every adapter `preview` or `unavailable`, never `supported` ([Beta scope](beta-scope.md)). Some cookbooks need more than the cookbooks flag, for
 example the Aria labs need `CALIBER_FEATURE_ARIA` (already on by default); each lab's README names its
 flags.
 
 To confirm what the server picked up, sign in as in step 6 and read `features` from the capabilities
-response. Each of the four ids carries `enabled`, `env_var`, `label` and `stability`:
+response. Each of the four ids carries `enabled`, `env_var`, `label` and `stability`. The same response carries
+`adapters`, the per-adapter support status (`supported`, `preview` or `unavailable`, with a reason and the setting that
+changes it):
 
 ```bash
 curl -s -b jar $B/capabilities
