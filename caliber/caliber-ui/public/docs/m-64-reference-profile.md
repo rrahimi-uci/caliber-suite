@@ -906,8 +906,18 @@ no field: the decision link already carries the decision's fields.
 **Whole-run markers.** `run_manifest` is `linked` (id, schema version, digest, creation time; the manifest body stays at
 `/admission-manifest`), `legacy` (`legacy_run_has_no_manifest`: a run admitted before manifests has none and never will)
 or `missing` (`manifest_row_missing`: an admitted run whose row is not there). `acceptance` and `evidence_package` are
-`{status: not_available, code: acceptance_record_not_available | evidence_package_not_available}`: those records
-(B09, B14) do not exist yet and are never synthesized. `trace_id` is the run's stored trace id, a pointer only.
+`{status: not_available, code: acceptance_record_not_available | evidence_package_not_available}` when the corresponding
+record is not present; an evidence package (B14) is not synthesized. `trace_id` is the run's stored trace id, a pointer only.
+
+**Replay observations (B09.3, #799).** A replay-enabled runtime plan may bind an `ObservationRecorder` to a workflow run.
+After each agent/provider turn it writes one immutable `model` observation and one immutable `read` observation for each
+observable tool result. The database row stores the run, project, principal, node occurrence, attempt, request digest,
+content digest, provider provenance and storage reference; the bytes are written to the configured `StorageBackend`.
+Identical requests at different loop occurrences therefore remain separate, while a changed request or content at an
+already-recorded occurrence is a conflict. Reads resolve the project and principal scope before touching storage and then
+verify both byte length and SHA-256, so a foreign-scope read cannot probe an object and a changed object cannot become replay
+input. Migration `0136` must be applied before enabling this recorder; rolling code back leaves the immutable table and
+objects unused. This is the durable observation primitive, not yet a public replay endpoint or a B14 evidence package.
 
 **What it never returns.** No prompt, argument, intent body, `resource` of a proposal, resource version, downstream request
 id, manifest or context body, `requested_by` / `decided_by` / `subject_user_id`, decision prose or policy purpose. The

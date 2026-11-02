@@ -2407,6 +2407,64 @@ def _effect_receipt_digest_matches_bytes(_mapper: Any, _connection: Any, target:
         raise ValueError("receipt_digest must be the lowercase SHA-256 of receipt_bytes")
 
 
+class CaliberStepObservation(Base):
+    """Immutable provider/read material used by the side-effect-free replay path (B09.3, #799).
+
+    The bytes live in the configured :class:`~caliber.storage.base.StorageBackend`; this row is the scoped,
+    durable index. ``occurrence_id`` is the runtime's logical step identity, so identical requests at distinct
+    loop occurrences are intentionally distinct observations. The request and content digests let readers reject
+    equivocation before a replay can use bytes that were tampered with or associated with another project.
+    """
+
+    __tablename__ = "caliber_step_observations"
+    __table_args__ = (
+        Index("ix_step_observations_run", "workflow_run_id", "created_at"),
+        Index("ix_step_observations_scope", "project_id", "principal", "created_at"),
+        UniqueConstraint(
+            "workflow_run_id",
+            "node_id",
+            "occurrence_id",
+            "attempt",
+            "observation_kind",
+            name="uq_step_observation_occurrence",
+        ),
+        CheckConstraint(
+            "observation_kind IN ('model', 'read')",
+            name="ck_step_observation_kind",
+        ),
+        CheckConstraint("attempt >= 1", name="ck_step_observation_attempt"),
+        CheckConstraint("content_size >= 0", name="ck_step_observation_content_size"),
+        CheckConstraint("length(request_digest) = 64", name="ck_step_observation_request_digest"),
+        CheckConstraint("length(content_hash) = 64", name="ck_step_observation_content_hash"),
+        CheckConstraint("length(content_ref) > 0", name="ck_step_observation_content_ref"),
+    )
+
+    observation_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    workflow_run_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("caliber_workflow_runs.workflow_run_id")
+    )
+    project_id: Mapped[str | None] = mapped_column(
+        String(64), ForeignKey("caliber_projects.project_id"), nullable=True, default=None
+    )
+    principal: Mapped[str] = mapped_column(String(256))
+    node_id: Mapped[str] = mapped_column(String(128))
+    occurrence_id: Mapped[str] = mapped_column(String(128))
+    attempt: Mapped[int] = mapped_column(Integer)
+    observation_kind: Mapped[str] = mapped_column(String(16))
+    request_digest: Mapped[str] = mapped_column(String(64))
+    content_hash: Mapped[str] = mapped_column(String(64))
+    content_size: Mapped[int] = mapped_column(Integer)
+    storage_backend: Mapped[str] = mapped_column(String(16))
+    content_ref: Mapped[str] = mapped_column(String(1024))
+    object_version_id: Mapped[str | None] = mapped_column(String(256), nullable=True, default=None)
+    provider: Mapped[str] = mapped_column(String(128))
+    provider_version: Mapped[str] = mapped_column(String(128))
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+
+guard_immutable(CaliberStepObservation)
+
+
 class CaliberStepTokenReservation(Base):
     """The tokens one governed agent step was admitted to spend, reserved before its adapter is called (B08.4, #761).
 
