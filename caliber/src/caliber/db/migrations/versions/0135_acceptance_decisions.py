@@ -12,7 +12,12 @@ reason, a ``reason_code`` other than ``invalid_observations`` (a rejection recor
 frozen; it carries no criteria), counts out of range, and a digest that is not 64 characters. The record is also written
 once: a BEFORE UPDATE/DELETE trigger refuses any change (SQLite and PostgreSQL; PostgreSQL adds a BEFORE TRUNCATE trigger and
 revokes ``UPDATE``, ``DELETE`` and ``TRUNCATE`` from ``PUBLIC``; the trigger function is pinned to the migration's schema with
-``pg_temp`` last in ``search_path``). The foreign key to the run is enforced on PostgreSQL (SQLite leaves foreign keys
+``pg_temp`` last in ``search_path``). On SQLite (the development dialect) a BEFORE INSERT trigger also refuses an insert whose
+id or key already exists, because ``INSERT OR REPLACE`` would otherwise delete the old row without firing the DELETE trigger;
+unenforced foreign keys and a replaced table remain possible from raw SQL, as for migration 0133. The PostgreSQL protection
+(the REVOKE) holds against a non-owner role only: a role that owns the table (the application's default role, see the 0114
+section of the reference profile) can still disable triggers and grant itself privileges, so run the application as a role that
+does not own the tables where the evidence must resist the application itself. The foreign key to the run is enforced on PostgreSQL (SQLite leaves foreign keys
 unenforced, so the writer checks the run itself).
 
 The migration is purely additive (a new table nothing else references) and nothing reads it before the code that writes it,
@@ -58,7 +63,15 @@ _PG_TRIGGERS = (
     f"CREATE TRIGGER trg_{_TABLE}_no_truncate BEFORE TRUNCATE ON {_TABLE} "
     f"FOR EACH STATEMENT EXECUTE FUNCTION {_FUNCTION}()",
 )
+_REPLACE_MESSAGE = "a decision with this id or key already exists"
 _SQLITE_TRIGGERS = (
+    # ``INSERT OR REPLACE`` deletes the conflicting row without firing a DELETE trigger, so the INSERT trigger refuses any
+    # insert whose id or key is already there (an ordinary duplicate insert fails here instead of at the UNIQUE constraint).
+    f"CREATE TRIGGER trg_{_TABLE}_no_replace BEFORE INSERT ON {_TABLE} "
+    f"WHEN EXISTS (SELECT 1 FROM {_TABLE} WHERE decision_id = NEW.decision_id OR (workflow_run_id = NEW.workflow_run_id "
+    "AND candidate_id = NEW.candidate_id AND criteria_version = NEW.criteria_version "
+    "AND observation_digest = NEW.observation_digest)) "
+    f"BEGIN SELECT RAISE(ABORT, '{_MESSAGE}: {_REPLACE_MESSAGE}'); END",
     f"CREATE TRIGGER trg_{_TABLE}_no_update BEFORE UPDATE ON {_TABLE} "
     f"BEGIN SELECT RAISE(ABORT, '{_MESSAGE}: UPDATE refused'); END",
     f"CREATE TRIGGER trg_{_TABLE}_no_delete BEFORE DELETE ON {_TABLE} "

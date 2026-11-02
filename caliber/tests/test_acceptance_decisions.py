@@ -28,7 +28,7 @@ from typing import Any
 import pytest
 from alembic import command
 from alembic.config import Config
-from sqlalchemy import create_engine, delete, insert, select, text, update
+from sqlalchemy import create_engine, delete, func, insert, select, text, update
 from sqlalchemy import inspect as sa_inspect
 from sqlalchemy.engine import Engine
 from sqlalchemy.exc import DataError, DBAPIError, IntegrityError
@@ -292,10 +292,10 @@ def test_text_that_is_not_unicode_cannot_be_digested() -> None:
 @pytest.mark.parametrize(
     ("observations", "pointer"),
     [
-        ({"a": float("nan")}, "/a is not a finite number"),
-        ({"a": float("inf")}, "/a is not a finite number"),
-        ({"a": [b"bytes"]}, "/a/0 is a bytes, which is not JSON-shaped"),
-        ({"a": {1: "x"}}, "/a has a key that is not a string"),
+        ({"a": float("nan")}, "/* is not a finite number"),
+        ({"a": float("inf")}, "/* is not a finite number"),
+        ({"a": [b"bytes"]}, "/*/0 is a bytes, which is not JSON-shaped"),
+        ({"a": {1: "x"}}, "/* has a key that is not a string"),
         (None, "observations must be a mapping, not a NoneType"),
         (["not", "a", "mapping"], "observations must be a mapping, not a list"),
         ({"a": "lone \ud800"}, "not valid Unicode"),
@@ -313,27 +313,38 @@ def test_unreadable_observations_are_a_rejection_not_a_crash(
     assert len(verdict.observation_digest) == 64
 
 
-def test_unreadable_observations_that_differ_have_different_digests_and_never_a_readable_ones() -> (
+def test_unreadable_observations_are_one_decision_per_problem_and_place_and_the_digest_is_pinned() -> (
     None
 ):
     a = judge(HARBORLIGHT_V1, {"a": float("nan")})
-    b = judge(HARBORLIGHT_V1, {"b": float("nan")})
     assert a == judge(HARBORLIGHT_V1, {"a": float("nan")})
-    assert a.observation_digest != b.observation_digest
-    detail_only = {"unreadable": a.reason_detail}
-    assert judge(HARBORLIGHT_V1, detail_only).observation_digest != a.observation_digest
+    assert a.observation_digest != judge(HARBORLIGHT_V1, {"a": [float("nan")]}).observation_digest
+    # the digest is domain-separated from a readable observation's (canonical JSON starts with "{"): pinned, not derived
+    assert a.reason_detail == "/* is not a finite number"
+    expected = hashlib.sha256(
+        b"caliber.acceptance.unreadable-observations\n" + a.reason_detail.encode("ascii")
+    ).hexdigest()
+    assert a.observation_digest == expected
 
 
-def test_the_reason_detail_never_carries_a_value_and_is_ascii_and_bounded() -> None:
-    secret = "do-not-store-0xBEEF"
-    verdict = judge(HARBORLIGHT_V1, {"k": {"v": [secret, float("nan")]}})
-    assert verdict.reason_detail is not None
-    assert "/k/v/1" in verdict.reason_detail and secret not in verdict.reason_detail
-    long_key = "é" * 600  # a key is downstream data: it is cut, and what is not ASCII is replaced
-    long_verdict = judge(HARBORLIGHT_V1, {long_key: float("nan")})
-    detail = long_verdict.reason_detail
-    assert detail is not None and len(detail) == 512
-    assert detail.isascii() and detail.startswith("/???")
+def test_the_reason_detail_never_carries_a_key_or_a_value_and_is_ascii_and_bounded() -> None:
+    secret_value = "do-not-store-0xBEEF"
+    secret_key = "ada.lovelace@example.invalid"
+    verdict = judge(HARBORLIGHT_V1, {secret_key: {"v": [secret_value, float("nan")]}})
+    assert verdict.reason_detail == "/*/*/1 is not a finite number"
+    for secret in (secret_value, secret_key):
+        assert secret not in (verdict.reason_detail or "")
+    keyed = judge(HARBORLIGHT_V1, {secret_key: {1: "x"}})
+    assert keyed.reason_detail == "/* has a key that is not a string"
+    deep: dict[str, Any] = {}
+    node = deep
+    for _ in range(40):
+        node["k"] = {}
+        node = node["k"]
+    deep_detail = judge(HARBORLIGHT_V1, deep).reason_detail
+    assert deep_detail is not None and "nested deeper than 32 levels" in deep_detail
+    assert deep_detail.isascii() and len(deep_detail) <= 512
+    assert deep_detail.split(" ")[0] == "/*" * 32
 
 
 def test_a_contract_error_is_raised_not_judged_even_for_unreadable_observations() -> None:
@@ -555,7 +566,7 @@ def test_unreadable_observations_are_stored_as_a_rejection_and_the_run_goes_on(
         decision = first.decision
         assert decision.outcome == REJECTED
         assert decision.reason_code == "invalid_observations"
-        assert decision.reason_detail == "/case_record/version is not a finite number"
+        assert decision.reason_detail == "/*/* is not a finite number"
         assert decision.criteria == () and decision.failed_criteria == ()
         (row,) = rows(engine)
         assert (row.criteria, row.criteria_total, row.criteria_failed) == ([], 0, 0)
@@ -974,6 +985,99 @@ def test_reading_an_unknown_decision_is_a_key_error(
             )
             is None
         )
+
+
+@pytest.mark.parametrize("dialect", DIALECTS)
+def test_a_run_with_a_decision_is_kept_by_retention_pruning(
+    dialect: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Pruning would orphan the decision (SQLite) or break on its foreign key and fail the whole batch (PostgreSQL)."""
+    from caliber.workflows.promoter import prune_workflow_runs
+
+    with acceptance_db(dialect, tmp_path, monkeypatch) as engine:
+        seed_run(engine, "RUN-0135-PLAIN")
+        record(engine)
+        far_future = datetime.now(timezone.utc) + timedelta(days=30)
+        with Session(engine) as session, session.begin():
+            assert prune_workflow_runs(session, retention_days=1, now=far_future) == 1
+        with Session(engine) as session:
+            assert session.get(CaliberWorkflowRun, RUN) is not None, (
+                "the run with a decision is kept"
+            )
+            assert session.get(CaliberWorkflowRun, "RUN-0135-PLAIN") is None
+        assert len(rows(engine)) == 1
+
+
+def test_deleting_a_workflow_whose_runs_have_decisions_is_a_409(
+    client: Any, db_session: Session
+) -> None:
+    from tests.workflow_helpers import PREFIX, create_workflow
+
+    kept = create_workflow(client, "Has Decision")
+    db_session.add(CaliberWorkflowRun(workflow_run_id="RUN-dec", workflow_id=kept))
+    db_session.commit()
+    record_decision(
+        db_session,
+        workflow_run_id="RUN-dec",
+        candidate_id=CANDIDATE,
+        predicates=HARBORLIGHT_V1,
+        observations=_observations(),
+    )
+    db_session.commit()
+
+    refused = client.delete(f"{PREFIX}/workflows/{kept}")
+    assert refused.status_code == 409, refused.text
+    assert "immutable acceptance decisions" in refused.text
+    assert client.get(f"{PREFIX}/workflows/{kept}").status_code == 200
+    assert db_session.get(CaliberWorkflowRun, "RUN-dec") is not None
+    assert (
+        db_session.execute(select(func.count()).select_from(CaliberAcceptanceDecision)).scalar_one()
+        == 1
+    )
+
+    other = create_workflow(client, "Has No Decision")
+    assert client.delete(f"{PREFIX}/workflows/{other}").status_code == 200
+
+
+def test_sqlite_refuses_insert_or_replace_over_a_decision(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``INSERT OR REPLACE`` deletes the conflicting row without firing a DELETE trigger; the INSERT trigger stops it."""
+    with acceptance_db("sqlite", tmp_path, monkeypatch) as engine:
+        first = record(engine, _observations("stale_case_version")).decision
+        (row,) = rows(engine)
+        insert_or_replace = text(
+            "INSERT OR REPLACE INTO caliber_acceptance_decisions (decision_id, workflow_run_id, candidate_id, "
+            "criteria_version, observation_digest, outcome, criteria, criteria_total, criteria_failed, decided_at) "
+            "VALUES (:id, :run, :cand, :version, :digest, 'accepted', '[]', 1, 0, '2026-11-01 12:00:00')"
+        )
+        for params in (
+            {  # the same key under a new id
+                "id": "acc-swap",
+                "run": RUN,
+                "cand": first.candidate_id,
+                "version": first.criteria_version,
+                "digest": first.observation_digest,
+            },
+            {  # the same id under a new key
+                "id": first.decision_id,
+                "run": RUN,
+                "cand": "prop-other",
+                "version": first.criteria_version,
+                "digest": "d" * 64,
+            },
+        ):
+            with pytest.raises(IntegrityError, match="already exists"):
+                with engine.begin() as connection:
+                    connection.execute(insert_or_replace, params)
+        (after,) = rows(engine)
+        assert (after.decision_id, after.outcome, after.criteria_failed) == (
+            row.decision_id,
+            REJECTED,
+            1,
+        )
+        # an ordinary insert of a new decision still works
+        assert record(engine, candidate="prop-another").created
 
 
 def _forged(**overrides: Any) -> CaliberAcceptanceDecision:

@@ -5172,9 +5172,10 @@ the observations of the value that decided it, as above) and the `rule_ids` the 
 
 **Unreadable observations are a recorded rejection, not a crash.** If the observations cannot be frozen (`invalid_observations`: not
 a mapping, a NaN, a non-JSON value, nesting past 32 levels, text that is not valid Unicode), the decision is `rejected` with no
-criteria, `reason_code` `invalid_observations` and `reason_detail` set to the contract error's message: a JSON pointer and a type,
-never a value (non-ASCII is replaced and the text is cut at 512 characters). Its digest covers that detail, so the same unreadable
-answer is one decision and a different one is another. Every *other* predicate contract error (`empty_predicate_set`,
+criteria, `reason_code` `invalid_observations` and `reason_detail` set to the contract error's *redacted* message: a JSON pointer whose
+mapping keys are elided to `*` (list indexes stay, e.g. `/*/*/1 is not a finite number`) and a type, never a key or a value, because a
+key is downstream data and the row is write-once (non-ASCII is replaced and the text is cut at 512 characters; `PredicateError.redacted`). Its digest covers that detail, so unreadable observations with the same
+problem at the same place (keys elided) are one decision, and another problem or another place is another. Every *other* predicate contract error (`empty_predicate_set`,
 `duplicate_predicate_id`, `mixed_criteria_versions`, `invalid_predicate`, `predicate_failed`, `invalid_result`) is raised as
 `PredicateError` and **nothing is stored**: a bug cannot become an accepted run or a silent rejection.
 
@@ -5197,7 +5198,22 @@ criterion and no reason; a row has criteria or an `invalid_observations` reason,
 characters), a foreign key to `caliber_workflow_runs` (enforced on PostgreSQL), and write-once triggers on SQLite and PostgreSQL
 (`UPDATE` and `DELETE`; PostgreSQL adds a `TRUNCATE` trigger and revokes `UPDATE`, `DELETE` and `TRUNCATE` from `PUBLIC`; the trigger
 function is pinned to the migration's schema). A role that was granted those privileges anyway is stopped by the trigger. The
-ORM refuses edits and bulk changes too. The migration is purely additive and nothing reads the table before the code that writes it, so
+ORM refuses edits and bulk changes too. On SQLite a BEFORE INSERT trigger also refuses an insert whose id or key already exists, so
+`INSERT OR REPLACE` cannot swap a decision (it deletes without firing the DELETE trigger); unenforced foreign keys remain possible from
+raw SQL, as for migration `0133`. **The PostgreSQL protection holds against a non-owner role only:** the application runs as the table
+owner by default (see the `0114` section above), and an owner can disable triggers and grant itself privileges, so run the application as
+a role that does not own the tables where this evidence must resist the application itself.
+
+**Deleting runs.** A run with a decision is retained evidence: deleting a workflow whose runs carry one is refused with `409`
+(`cannot delete workflow: its runs have immutable acceptance decisions`), and retention pruning (`prune_workflow_runs`) skips such runs,
+so neither orphans a decision (SQLite) nor breaks on its foreign key (PostgreSQL).
+
+**For the runtime integration (#791) and the evidence package (#826).** `record_decision` accepts any `Predicate` set and the criteria version
+is not pinned to an approved set, so the caller must pass `HARBORLIGHT_V1` explicitly (recording a predicate-set digest is a candidate
+follow-up); `decision_conflict` and `decision_corrupt` are raised, not audited, so the caller should audit them; `decisions_for_run` orders by
+the application clock's `decided_at` and then id, not by insertion order, and which decision settles a run is #791's rule; `candidate_id` has
+no foreign key, so #826 resolves whether an id is a proposal or a counterfactual candidate; a predicate that raises is a `PredicateError`
+and nothing is recorded. The migration is purely additive and nothing reads the table before the code that writes it, so
 migrations run before the new code serves with no rolling-deploy hazard. **There is no backfill:** runs that finished before this
 revision have no decision and are never given one. Nothing in the runtime calls `record_decision` yet (#791), so no run gains or loses
 anything on upgrade, and the causal-links `acceptance` marker is still `not_available` / `acceptance_record_not_available` (#791 and

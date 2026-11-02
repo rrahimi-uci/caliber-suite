@@ -200,7 +200,7 @@ def test_an_answer_that_is_not_json_is_a_recorded_rejection_and_not_a_crash(
 
     assert recorded.decision.outcome == REJECTED
     assert recorded.decision.reason_code == "invalid_observations"
-    assert recorded.decision.reason_detail == "/case_record/version is not a finite number"
+    assert recorded.decision.reason_detail == "/*/* is not a finite number"
     (row,) = _stored(reference_app)
     assert (row.criteria, row.criteria_total) == ([], 0)
     assert _run_status(reference_app) == "running"

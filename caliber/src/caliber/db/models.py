@@ -2521,7 +2521,7 @@ class CaliberAcceptanceDecision(Base):
     ``criteria_total`` and ``criteria_failed`` count them. Every predicate is critical: the outcome is ``accepted`` only if no
     criterion failed, and nothing else (no transport status) is an input. Observations that cannot be frozen
     (``invalid_observations``) are a ``rejected`` decision with no criteria, a ``reason_code`` and the contract error's
-    ``reason_detail`` (a JSON pointer and a type, never an observation value). CHECK constraints make the table itself refuse an
+    ``reason_detail`` (a JSON pointer with every mapping key elided to ``*``, and a type: never a key or a value). CHECK constraints make the table itself refuse an
     ``accepted`` row with a failed criterion or a reason, and UPDATE, DELETE and TRUNCATE are refused by database triggers
     (migration 0135) and by ``ImmutableRecordError``.
     """

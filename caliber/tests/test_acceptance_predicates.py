@@ -627,6 +627,29 @@ def test_a_hostile_container_becomes_a_predicate_error() -> None:
         Observations(Boom(a=1))
 
 
+def test_the_redacted_message_elides_every_key_and_keeps_list_indexes() -> None:
+    """What is stored as evidence (B09.2a) is ``redacted``: a key is downstream data and must not outlive the run."""
+    key = "ada.lovelace@example.invalid"
+    for data, redacted, message_part in (
+        ({key: {"v": [1, float("nan")]}}, "/*/*/1 is not a finite number", "/v/1"),
+        ({key: [b"x"]}, "/*/0 is a bytes, which is not JSON-shaped", "/0 is a bytes"),
+        ({key: {1: "x"}}, "/* has a key that is not a string", "has a key that is not a string"),
+    ):
+        with pytest.raises(PredicateError) as caught:
+            Observations(data)
+        assert caught.value.redacted == redacted
+        assert key.replace("/", "~1") in str(caught.value), (
+            "the message itself still names the path"
+        )
+        assert message_part in str(caught.value)
+        assert key not in caught.value.redacted
+    with pytest.raises(PredicateError) as top:
+        Observations(None)  # type: ignore[arg-type]
+    assert top.value.redacted == "observations must be a mapping, not a NoneType"
+    assert PredicateError("invalid_result", "m").redacted == "m"
+    assert PredicateError("invalid_result", "m", "r").redacted == "r"
+
+
 def test_an_error_message_names_the_path_but_never_quotes_a_value() -> None:
     secret = "do-not-print-me-0xBEEF"
     with pytest.raises(PredicateError) as caught:
@@ -910,8 +933,9 @@ def test_the_pure_acceptance_modules_import_no_io_library(module: str) -> None:
     assert imports <= ALLOWED_IMPORTS, sorted(imports - ALLOWED_IMPORTS)
 
 
-def test_the_decision_store_reaches_no_network_clock_or_randomness_source_of_its_own() -> None:
-    """``decision.py`` may use the database layer (it stores decisions) but no HTTP client, socket or random source."""
+def test_the_decision_store_reaches_no_network_or_process_source_beyond_its_clock_and_ids() -> None:
+    """``decision.py`` may use the database layer (it stores decisions), the clock (an injectable ``now``, UTC now by default)
+    and ``uuid4`` ids; it imports no HTTP client, socket, ``random``, ``os`` or ``time``."""
     imports = _imports(SOURCE_DIR / "decision.py")
     top_level = {name.split(".")[0] for name in imports}
     assert (

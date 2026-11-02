@@ -19,7 +19,7 @@ The table's CHECK constraints refuse an ``accepted`` row with a failed criterion
 **Unreadable observations are a rejection, not a crash.** ``Observations(...)`` refuses what is not JSON-shaped (NaN, a
 ``bytes``, a hostile container, nesting past 32 levels). A downstream that answered with such a value did not prove the effect, so
 :func:`judge` returns a ``rejected`` verdict with no criteria, ``reason_code`` ``invalid_observations`` and the contract error's
-message as ``reason_detail`` (a JSON pointer and a type, never a value; non-ASCII is replaced and the text cut at 512 characters).
+redacted message as ``reason_detail``: a JSON pointer whose mapping keys are elided to ``*`` (list indexes stay) and a type, never a key or a value (non-ASCII is replaced and the text cut at 512 characters).
 A non-mapping (a failed read that produced ``None``) is the same. Every *other* contract error (an empty or mixed predicate set,
 a predicate that raises or returns another predicate's result) is raised as :class:`PredicateError` and nothing is stored, so a
 bug cannot become an accepted run or a silent rejection.
@@ -189,9 +189,8 @@ def judge(predicates: Sequence[Predicate], observations: Mapping[str, Any]) -> V
         )
         digest = observation_digest(frozen)
     except PredicateError as exc:
-        detail = _NOT_ASCII_PRINTABLE.sub("?", str(exc).removeprefix(f"{exc.code}: "))[
-            :MAX_REASON_DETAIL
-        ]
+        # ``redacted`` has every mapping key elided from the pointer (a key is downstream data and would be kept for good).
+        detail = _NOT_ASCII_PRINTABLE.sub("?", exc.redacted)[:MAX_REASON_DETAIL]
         return Verdict(
             criteria_version=version,
             observation_digest=hashlib.sha256(
