@@ -12,8 +12,8 @@ Nothing in the run summary surfaced that. GitHub renders a skipped job in the sa
 neutral grey as one that was never going to run, and the run's overall status is
 green either way. This script is the missing readout: it lists every required gate
 with the conclusion it actually reached, writes that to the job summary so it is
-visible without opening the API, and fails when a gate was skipped on a run that
-would otherwise have reported success.
+visible without opening the API, and fails when a gate was skipped or canceled
+on a run that would otherwise have reported success.
 
 It deliberately does *not* fail on a skip that follows a failure. That cascade is
 how ``needs:`` is supposed to work, the run is already red, and re-reporting it
@@ -57,7 +57,9 @@ REQUIRED_GATES = (
 )
 
 #: Conclusions that mean the gate produced no evidence about this commit.
-DID_NOT_RUN = {"skipped", None}
+#: A timed-out job is reported by the Actions API as ``cancelled``; treating it
+#: as a successful gate would allow a timeout to hide behind a green ledger.
+DID_NOT_RUN = {"skipped", "cancelled", None}
 
 API = "https://api.github.com"
 
