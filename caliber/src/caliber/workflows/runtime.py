@@ -1288,6 +1288,9 @@ class OpenAIAgentsWorkflowExecutor:
                 "openai-agents is not installed. Install with "
                 "`pip install caliber-suite[llm]` to enable Agents SDK workflow runs."
             ) from exc
+        from caliber.workflows.openai_agents_compat import require_supported_sdk  # noqa: PLC0415
+
+        require_supported_sdk(agent_cls=Agent, function_tool_cls=FunctionTool)
         return (
             Agent,
             FunctionTool,
