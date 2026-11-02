@@ -190,7 +190,9 @@ class EffectReconcilerTask:
         self._stop_requested = threading.Event()
         self._last_reap = float("-inf")
         self._last_settle = float("-inf")
-        self._settle_cursor: str | None = None  # the last run id the previous settlement sweep looked at
+        self._settle_cursor: str | None = (
+            None  # the last run id the previous settlement sweep looked at
+        )
         self._last_beat = float("-inf")
         self._cursor: tuple[int, str] | None = None  # (fencing token, last proposal id looked at)
 

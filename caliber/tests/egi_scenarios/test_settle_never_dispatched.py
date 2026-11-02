@@ -482,7 +482,10 @@ def test_a_caller_without_the_required_role_cannot_tell_a_legacy_request_from_a_
                 CaliberRuntimeApprovalRequest.proposal_id.is_(None),
             )
         ).scalar_one()
-        legacy.policy_snapshot = {**(legacy.policy_snapshot or {}), "required_role": "caliber.admin"}
+        legacy.policy_snapshot = {
+            **(legacy.policy_snapshot or {}),
+            "required_role": "caliber.admin",
+        }
         legacy_id = legacy.runtime_approval_id
         bound = session.get(CaliberRuntimeApprovalRequest, bound_id)
         assert bound is not None

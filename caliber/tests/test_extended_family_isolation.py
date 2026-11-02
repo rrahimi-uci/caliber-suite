@@ -214,6 +214,9 @@ def _build_world(  # noqa: PLR0915 - one linear fixture: it seeds one of everyth
     )
     assert run.status_code == 200, run.text
     ids["run_id"] = run.json()["data"]["workflow_run_id"]
+    ids["approval_id"] = (
+        "RAP-iso-none"  # the withdraw route is refused on the project role before it looks the request up
+    )
     _park_run_waiting_for_event(db_session, ids["run_id"], "iso.event")
     post(f"/workflows/{wid}/service", {}, expect=200)
     ids["token_id"] = post(f"/workflows/{wid}/service/tokens", {"name": "iso-token"})["token_id"]
@@ -602,6 +605,13 @@ def _routes(ids: dict[str, str]) -> list[Route]:
         Route("workflow", "POST", "/workflow-runs/{run_id}/resume", ACTION_EXECUTE, {}),
         Route("workflow", "POST", "/workflow-runs/{run_id}/approval/approve", ACTION_APPROVE, {}),
         Route("workflow", "POST", "/workflow-runs/{run_id}/approval/reject", ACTION_APPROVE, {}),
+        Route(
+            "workflow",
+            "POST",
+            "/workflow-runs/{run_id}/approvals/{approval_id}/withdraw",
+            ACTION_APPROVE,
+            {},
+        ),
         Route(
             "workflow",
             "POST",
