@@ -39,6 +39,10 @@ KEY_HEADER: Final = "Idempotency-Key"  # gitleaks:allow
 PRECONDITION_HEADER: Final = "If-Match"
 SUBMIT_PATH: Final = "/cases/{case_id}/document-requests"
 LOOKUP_PATH: Final = "/document-requests"
+#: The downstream's own record of one case (the system of record the acceptance criteria read, B09.2b, #791).
+CASE_PATH: Final = "/cases/{case_id}"
+#: How long the platform's read of a case may take: it runs on the worker thread as a run completes, so it is short.
+CASE_READ_TIMEOUT_SECONDS: Final = 5.0
 
 CAPABILITY: Final = ConnectorCapability(
     connector=CONNECTOR,
@@ -152,6 +156,54 @@ def submit_input(
     return {"path_params": {"case_id": case_id}, "header_params": headers, "body": body}
 
 
+def case_config(server_url: str) -> dict[str, Any]:
+    """The execution config of the read of a case record (a ``GET``; one attempt: the caller records what it could not read)."""
+    return {
+        "kind": "openapi_http",
+        "method": "GET",
+        "path": CASE_PATH,
+        "server_url": server_url,
+        "auth_binding": None,
+        "max_attempts": 1,
+        "timeout_seconds": CASE_READ_TIMEOUT_SECONDS,
+    }
+
+
+def case_input(case_id: str) -> dict[str, Any]:
+    """The input of a case read; ``case_id`` must be a single safe path segment."""
+    if not isinstance(case_id, str) or not _CASE_ID.fullmatch(case_id):
+        raise ValueError(
+            "case_id must be 1 to 128 letters, digits, dots, underscores or hyphens, starting with a letter or digit"
+        )
+    return {"path_params": {"case_id": case_id}}
+
+
+_RESOURCE = re.compile(r"cases/(?P<case>[A-Za-z0-9][A-Za-z0-9._-]{0,127})/document-requests")
+#: A canonical case version: no sign, no leading zero, no whitespace, ASCII digits only, at most 18 of them (always an ``int``
+#: a predicate and a database column can hold). :func:`build_intent` writes ``str(int)``, which is always this shape.
+_VERSION_TEXT = re.compile(r"0|[1-9][0-9]{0,17}")
+
+
+def case_id_of_resource(resource: object) -> str | None:
+    """The case a proposal's recorded ``resource`` (``cases/<case_id>/document-requests``) is about, or ``None`` if it is not exactly that."""
+    if not isinstance(resource, str):
+        return None
+    matched = _RESOURCE.fullmatch(resource)
+    return matched.group("case") if matched else None
+
+
+def expected_version_of(text: object) -> int | None:
+    """The integer a proposal's ``expected_resource_version`` text stands for, or ``None`` if it is not a canonical version.
+
+    The connector keeps the version as text (the intent is hashed over it) but the acceptance predicates compare an ``int``.
+    The conversion is strict so that two spellings never stand for one version: only ``0`` or digits with no leading zero
+    (``"01"``, ``" 1"``, ``"+1"``, ``"-1"``, ``"1.0"``, a non-ASCII digit and ``"1e3"`` are refused).
+    """
+    if not isinstance(text, str) or not _VERSION_TEXT.fullmatch(text):
+        return None
+    return int(text)
+
+
 def lookup_input(idempotency_key: str) -> dict[str, Any]:
     """The input of a lookup-by-key call."""
     return {"query_params": {"idempotency_key": _key(idempotency_key)}}
@@ -217,6 +269,8 @@ def facts_from_lookup(
 
 __all__ = [
     "CAPABILITY",
+    "CASE_PATH",
+    "CASE_READ_TIMEOUT_SECONDS",
     "CONNECTOR",
     "KEY_HEADER",
     "LOOKUP_PATH",
@@ -224,6 +278,10 @@ __all__ = [
     "SUBMIT_PATH",
     "VERSION",
     "build_intent",
+    "case_config",
+    "case_id_of_resource",
+    "case_input",
+    "expected_version_of",
     "facts_from_lookup",
     "lookup_config",
     "lookup_input",

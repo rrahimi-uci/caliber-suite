@@ -39,6 +39,7 @@ import { Canvas } from "@/components/workflows/Canvas";
 import { GraphDiff } from "@/components/workflows/GraphDiff";
 import { NodeDetailPanel } from "@/components/workflows/NodeDetailPanel";
 import { RunFilePanel } from "@/components/workflows/RunFilePanel";
+import { WorkflowRunAcceptanceBadge } from "@/components/workflows/WorkflowRunAcceptanceBadge";
 import { WorkflowRunArtifactPersistenceBadge } from "@/components/workflows/WorkflowRunArtifactPersistenceBadge";
 import { WorkflowRunLineagePanel } from "@/components/workflows/WorkflowRunLineagePanel";
 import { WorkflowRunTracePanel } from "@/components/workflows/WorkflowRunTracePanel";
@@ -3787,6 +3788,10 @@ export function WorkflowDetail(): JSX.Element {
                   <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500">
                     <span className="font-mono text-slate-700">{selectedRun.workflow_run_id}</span>
                     <RunStatusBadge status={selectedRun.status} />
+                    <WorkflowRunAcceptanceBadge
+                      run={selectedRun}
+                      dataTestId="selected-run-acceptance"
+                    />
                     <WorkflowRunArtifactPersistenceBadge
                       run={selectedRun}
                       dataTestId="selected-run-artifact-persistence"
@@ -4525,6 +4530,10 @@ export function WorkflowDetail(): JSX.Element {
                           <td className="px-5 py-3">
                             <div className="flex flex-col items-start gap-1">
                               <RunStatusBadge status={run.status} />
+                              <WorkflowRunAcceptanceBadge
+                                run={run}
+                                dataTestId={`run-acceptance-${run.workflow_run_id}`}
+                              />
                               <WorkflowRunArtifactPersistenceBadge
                                 run={run}
                                 compact

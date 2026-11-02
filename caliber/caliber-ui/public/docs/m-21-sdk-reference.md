@@ -12640,6 +12640,7 @@ One execution.
 | `claimed_by` | `str | None` | `None` |
 | `error` | `str | None` | `None` |
 | `output` | `Any` | `None` |
+| `acceptance` | `dict[str, Any] | None` | `None` |
 | `extra` | `dict[str, Any]` | `field(default_factory=dict)` |
 
 **Properties**
@@ -12652,9 +12653,21 @@ This callable takes no public parameters.
 
 **Returns:** `bool`
 
+###### `accepted() -> bool | None`
+
+``True`` / ``False`` when the platform judged the run's effects, else ``None``.
+
+``None`` means nothing was judged: the run had nothing to judge, or it is a legacy run.
+
+This callable takes no public parameters.
+
+**Returns:** `bool | None`
+
 ###### `succeeded() -> bool`
 
-Operate on the workflow run surface with the supplied arguments and return the server response.
+A completed run, and not one whose effects the platform rejected.
+
+A server never serves ``completed`` with a rejection; this stays closed if one ever did.
 
 This callable takes no public parameters.
 
