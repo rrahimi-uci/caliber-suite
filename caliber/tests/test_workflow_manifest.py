@@ -6,11 +6,14 @@ import pytest
 from pydantic import ValidationError
 
 from caliber.workflows.manifest import (
+    RESERVED_TRACE_GROUP_TAG_CODE,
     FileInputNode,
     FolderInputNode,
     GuardrailNode,
     McpResourceNode,
+    MLflowConfig,
     PythonCodeNode,
+    ReservedTraceGroupTagError,
     UnsupportedSchemaVersionError,
     WorkflowManifest,
     compute_manifest_hash,
@@ -24,6 +27,36 @@ def test_valid_minimal_manifest_parses() -> None:
     assert isinstance(manifest, WorkflowManifest)
     assert manifest.workflow_id == "test_wf"
     assert set(manifest.nodes) == {"start", "agent", "final"}
+
+
+@pytest.mark.parametrize(
+    "key",
+    [
+        "caliber.run_id",
+        "caliber.job_id",
+        "caliber.session_id",
+        "caliber.node_id",
+        "caliber.refusal_code",
+        "caliber.future_platform_attribute",
+    ],
+)
+def test_manifest_rejects_author_controlled_caliber_trace_group_tags(key: str) -> None:
+    data = make_manifest(mlflow={"trace_group_tags": {key: "author-controlled"}})
+
+    with pytest.raises(ReservedTraceGroupTagError) as caught:
+        parse_manifest(data)
+
+    assert caught.value.code == RESERVED_TRACE_GROUP_TAG_CODE
+    assert caught.value.path == "mlflow.trace_group_tags"
+
+
+def test_direct_mlflow_config_validation_uses_reserved_trace_group_tag_code() -> None:
+    with pytest.raises(ValidationError) as caught:
+        MLflowConfig.model_validate(
+            {"trace_group_tags": {"caliber.future_platform_attribute": "spoofed"}}
+        )
+
+    assert any(issue["type"] == RESERVED_TRACE_GROUP_TAG_CODE for issue in caught.value.errors())
 
 
 def test_file_input_accepts_one_content_pinned_managed_ref() -> None:

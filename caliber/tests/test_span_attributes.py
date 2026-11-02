@@ -176,9 +176,16 @@ def test_a_manifest_cannot_forge_a_causal_link_through_trace_group_tags() -> Non
     assert not ((set(with_id) & RESERVED_SPAN_KEYS) - {"caliber.proposal_id"})
 
 
-def test_without_reserved_keys_keeps_every_other_tag() -> None:
-    tags = {"team": "ops", "caliber.node_id": "n", REFUSAL_CODE_KEY: "x", **ALL_FOUR}
-    assert without_reserved_keys(tags) == {"team": "ops", "caliber.node_id": "n"}
+def test_without_reserved_keys_drops_the_entire_caliber_namespace() -> None:
+    tags = {
+        "team": "ops",
+        "caliber.node_id": "n",
+        "caliber.run_id": "spoofed",
+        "caliber.future_attribute": "spoofed",
+        REFUSAL_CODE_KEY: "x",
+        **ALL_FOUR,
+    }
+    assert without_reserved_keys(tags) == {"team": "ops"}
 
 
 # ----------------------------------------------------------------------------- governed_span
