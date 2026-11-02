@@ -5113,8 +5113,10 @@ carries a second object, `adapters`, next to the unchanged `features`: one entry
 evaluation path can be, because only they have an entry in `caliber.features.SUPPORT_EVIDENCE`: the scenario tests that demonstrate
 them and, for the evaluator, the pinned implementation and evidence shape those scenarios ran against. MCP servers and OpenAPI
 integrations have no entry, so no configuration promotes them. The other transports the dispatcher admits (`http`, `registered_tool`,
-`openapi_http` and the `mcp-tool` call connector) are not exposed here and claim nothing (see "Not enforced yet": none of them has a
-verifier by key).
+`openapi_http` and the `mcp-tool` call connector) are not exposed here and claim nothing. `http` has a read-back by key only at the URLs an
+operator lists (#1055) and no evidence entry; the other three have no verifier by key and the worker refuses them (see "Not enforced yet" and
+[The worker binds the governed path](#the-worker-binds-the-governed-path-1051)). [Beta scope](../start/beta-scope.md) reads this report for an
+operator, with each supported claim's evidence and the known limits.
 
 Each adapter is resolved in this order; the first rule that matches decides:
 
@@ -5129,7 +5131,7 @@ Each adapter is resolved in this order; the first rule that matches decides:
 | `document_request_connector`, `release_evaluation` | `CALIBER_BACKGROUND_TASKS_ENABLED` is false (the reconciler and evaluator loops the cited recovery scenarios rely on do not run) | `unavailable` | `background_tasks_disabled` | that variable |
 | `document_request_connector` | `CALIBER_EFFECT_RECONCILER_ENABLED` is false (an effect whose outcome was never recorded stays blocked) | `unavailable` | `reconciler_disabled` | that variable |
 | `release_evaluation` | `CALIBER_EVAL_PROVIDER` is `fake` (simulated scores) | `preview` | `simulated_provider` | `CALIBER_EVAL_PROVIDER` |
-| `release_evaluation` | `CALIBER_EVAL_PROVIDER` is anything but `mlflow` or `fake` (an unknown, padded or unresolved value such as `auto`) | `preview` | `eval_provider_unrecognized` | `CALIBER_EVAL_PROVIDER` |
+| `release_evaluation` | `CALIBER_EVAL_PROVIDER` is anything but `mlflow` or `fake` (an unknown or padded value, such as a typo; `auto` never reaches this rule, because the settings load resolves it to `mlflow` or `fake`) | `preview` | `eval_provider_unrecognized` | `CALIBER_EVAL_PROVIDER` |
 | `document_request_connector` | the live transport is not the one `REFERENCE_CONNECTORS` pins | `unavailable` | the admission code (for example `connector_capability_mismatch`) | `profile` |
 | `release_evaluation` | the evaluator class or the evidence schema version differs from the pin | `unavailable` | `evaluator_evidence_mismatch` | `profile` |
 | the two supported adapters | none of the above | `supported` | `null` | `null` |
@@ -5187,7 +5189,8 @@ for each one's variable), never a configured value. The queue (`CALIBER_WORKFLOW
 - **Scenario evidence is cited, not run here.** `tests/test_feature_flags.py` fails when an `evidence` entry does not name an existing
   test function, so a claim cannot cite a test that is not there; whether those tests pass is the "EGI scenarios (PostgreSQL)" job.
 - **Oracle.** `caliber/tests/test_feature_flags.py` (`supported_reference_visible`, `unsupported_mcp_not_promoted`,
-  `unavailable_evaluator_disabled`, `compatibility_values` and the pins), the scenario `caliber/tests/egi_scenarios/test_b15_capability_exposure.py`
+  `unavailable_evaluator_disabled`, `compatibility_values` and the pins), `caliber/tests/test_beta_scope_contract.py` (the
+  [Beta scope](../start/beta-scope.md) page cannot drift from the adapter table, the evidence or the quoted messages), the scenario `caliber/tests/egi_scenarios/test_b15_capability_exposure.py`
   on a real reference app, and the alpha-defaults browser spec `caliber/caliber-ui/e2e/feature-flags.spec.ts`.
 
 ## Plugins and host paths (B12.4b, #763)
@@ -5480,6 +5483,7 @@ A configuration that passes this page is the minimum for the reference profile, 
 
 ## Related
 
+- [Beta scope](../start/beta-scope.md) for what the reference profile supports, with the evidence behind each claim and the known limits.
 - [Reference profile recovery runbook](recovery-runbook.md) for the operator steps when the owner dies, an effect is `unknown`, a callback is redelivered or events back up.
 - [Health and readiness](health-and-readiness.md) for what the readiness response contains.
 - [Configuration and provider setup](configuration-and-provider-setup.md) for the settings themselves.

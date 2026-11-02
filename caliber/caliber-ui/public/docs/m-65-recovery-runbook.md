@@ -213,6 +213,13 @@ project (for the generic `http` connector, at the `lookup_url` the operator list
 | a 2xx whose body is not this proposal's effect (unreadable, or another request under the key) | still `unknown`, reported `unverified` |
 | cannot be reached, or no binding for the connector and project | still `unknown` (`lookup_failed`, `not_bound`) |
 
+**A run that ended with a `proposed` effect.** The run's end settles its never-dispatched proposals and withdraws its live
+approval requests in the same transaction (see the `failed` rows above), so a run that cannot be ended because that settlement
+fails (a database error) stays as it was and the end is retried: read the server log for the error class, fix the store, and
+the run ends normally. A run that ended before this existed is settled by the owner's sweep (once a minute, 50 runs per sweep,
+continuing after the last run of a full batch); a run the sweep cannot settle is logged by run id and error code or class, and
+the sweep goes on with the runs behind it. Until a proposal is settled the dispatcher refuses it (`run_ended`), so nothing is sent.
+
 **A `dispatched` row that does not clear.** A row with `abandoned: false` and `lease.expired: false` was dispatched under the
 lease the owner still holds. If the dispatcher's settle fails while it keeps that lease (the store went away after the send, the
 receipt lookup raised), the dispatcher records `unknown` itself (`settle_failed:<code>`), so such a row does not stay
