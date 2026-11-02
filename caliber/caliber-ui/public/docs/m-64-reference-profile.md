@@ -5406,7 +5406,9 @@ itself, from its own records and one read of the downstream:
 
 A case that cannot be read (no binding for the project, a connection error, a status other than `200`, a body that is not a case, a list of
 more than 10 000 requests) is simply absent: both criteria fail closed and the decision is a **recorded rejection**. The run does not wait for
-a downstream that may never answer; a new run is the retry. Observations that cannot be frozen as JSON (for example a `NaN`) are the existing
+a downstream that may never answer; a new run is the retry. A pass reads each distinct case once, however many of the run's effects are on it; the worker's heartbeat has
+already stopped when the pass runs, so a run whose effects are on many different cases that are all unreachable spends up to 5 s on each before
+it fails (keep that well under `CALIBER_WORKFLOW_RUN_LEASE_SECONDS`). Observations that cannot be frozen as JSON (for example a `NaN`) are the existing
 `invalid_observations` rejection, never a crash. A proposal with no `expected_resource_version` cannot satisfy `attached_to_expected_version`
 and is rejected: **propose document requests against the case version you read** (the downstream stamps the stored request with that version
 plus one).
