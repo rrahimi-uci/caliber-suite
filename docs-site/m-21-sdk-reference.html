@@ -2249,6 +2249,13 @@
 <p><strong>Returns:</strong> <code>Any</code></p>
 <p><strong>Raises:</strong></p>
 <ul><li><a href="#caliberapierror"><code>CaliberAPIError</code></a></li><li><a href="#calibertransporterror"><code>CaliberTransportError</code></a></li></ul>
+<h6 id="withdraw_approvalrun_id-str-approval_id-str-payload-any"><code>withdraw_approval(run_id: str, approval_id: str, **payload) -&gt; Any</code><a class="anchor" href="#withdraw_approvalrun_id-str-approval_id-str-payload-any" aria-hidden="true" tabindex="-1">#</a></h6>
+<p>Withdraw an approved approval request that dispatch has not consumed yet.</p>
+<p>Needs the same authority as deciding the request (the project `<code>approve</code><code> role and the node's </code><code>required_role</code><code> scope). </code><code>payload</code><code> may carry </code><code>reason</code><code> and nothing else. A consumed request is a </code><code>409</code><code> with </code><code>reason_code</code><code> </code><code>already_consumed</code><code> and is never withdrawn; a repeat of a recorded withdrawal answers </code><code>200</code><code> again. The dispatcher refuses a withdrawn request (</code><code>withdrawn</code>`), so no effect is sent for it.</p>
+<div class="table-wrap"><table><thead><tr><th>Parameter</th><th>Kind</th><th>Type</th><th>Default</th></tr></thead><tbody><tr><td><code>run_id</code></td><td>positional-or-keyword</td><td><code>str</code></td><td><code>—</code></td></tr><tr><td><code>approval_id</code></td><td>positional-or-keyword</td><td><code>str</code></td><td><code>—</code></td></tr><tr><td><code>payload</code></td><td>var-keyword</td><td><code>Any</code></td><td><code>—</code></td></tr></tbody></table></div>
+<p><strong>Returns:</strong> <code>Any</code></p>
+<p><strong>Raises:</strong></p>
+<ul><li><a href="#caliberapierror"><code>CaliberAPIError</code></a></li><li><a href="#calibertransporterror"><code>CaliberTransportError</code></a></li></ul>
 <h6 id="filesrun_id-str-params-any"><code>files(run_id: str, **params) -&gt; Any</code><a class="anchor" href="#filesrun_id-str-params-any" aria-hidden="true" tabindex="-1">#</a></h6>
 <p>Files recorded for this run, hiding pending/rejected/deleted rows. `<code>params</code><code> may carry </code><code>kind</code>`.</p>
 <div class="table-wrap"><table><thead><tr><th>Parameter</th><th>Kind</th><th>Type</th><th>Default</th></tr></thead><tbody><tr><td><code>run_id</code></td><td>positional-or-keyword</td><td><code>str</code></td><td><code>—</code></td></tr><tr><td><code>params</code></td><td>var-keyword</td><td><code>Any</code></td><td><code>—</code></td></tr></tbody></table></div>

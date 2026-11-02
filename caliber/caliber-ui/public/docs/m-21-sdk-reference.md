@@ -5846,6 +5846,29 @@ Reject a pending Human Approval checkpoint.
 - [`CaliberAPIError`](#caliberapierror)
 - [`CaliberTransportError`](#calibertransporterror)
 
+###### `withdraw_approval(run_id: str, approval_id: str, **payload) -> Any`
+
+Withdraw an approved approval request that dispatch has not consumed yet.
+
+Needs the same authority as deciding the request (the project ``approve`` role and the node's
+``required_role`` scope). ``payload`` may carry ``reason`` and nothing else. A consumed request is
+a ``409`` with ``reason_code`` ``already_consumed`` and is never withdrawn; a repeat of a
+recorded withdrawal answers ``200`` again. The dispatcher refuses a withdrawn request
+(``withdrawn``), so no effect is sent for it.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `run_id` | positional-or-keyword | `str` | `—` |
+| `approval_id` | positional-or-keyword | `str` | `—` |
+| `payload` | var-keyword | `Any` | `—` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
 ###### `files(run_id: str, **params) -> Any`
 
 Files recorded for this run, hiding pending/rejected/deleted

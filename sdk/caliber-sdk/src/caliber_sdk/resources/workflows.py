@@ -380,14 +380,12 @@ class WorkflowRunsAPI(Resource):
     def withdraw_approval(self, run_id: str, approval_id: str, **payload: Any) -> Any:
         """Withdraw an approved approval request that dispatch has not consumed yet.
 
-        Needs the same authority as deciding the request (the project ``approve`` role and the node's
-        ``required_role`` scope). ``payload`` may carry ``reason`` and nothing else. A consumed request is
-        a ``409`` with ``reason_code`` ``already_consumed`` and is never withdrawn; a repeat of a
-        recorded withdrawal answers ``200`` again. The dispatcher refuses a withdrawn request
-        (``withdrawn``), so no effect is sent for it."""
-        return self._post(
-            f"/workflow-runs/{run_id}/approvals/{approval_id}/withdraw", json=payload
-        )
+        Needs the same authority as deciding the request (the project ``approve`` role and
+        the node's ``required_role`` scope). ``payload`` may carry ``reason`` and nothing
+        else. A consumed request is a ``409`` with ``reason_code`` ``already_consumed`` and
+        is never withdrawn; a repeat of a recorded withdrawal answers ``200`` again. The
+        dispatcher refuses a withdrawn request (``withdrawn``), so no effect is sent for it."""
+        return self._post(f"/workflow-runs/{run_id}/approvals/{approval_id}/withdraw", json=payload)
 
     def files(self, run_id: str, **params: Any) -> Any:
         """Files recorded for this run, hiding pending/rejected/deleted

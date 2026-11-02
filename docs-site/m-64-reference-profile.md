@@ -420,8 +420,9 @@ MCP tool call (B04.5) goes through the same context and is refused the same way.
   the write (`document_request` does: a stale version is the downstream's 412, a definitive rejection). The platform has no read of its
   own for another connector's target, so a versioned proposal for any other connector is `version_unverifiable`.
 - A revoked approver, a lease that is gone *before* the claim, or a connector with no binding ends the run `failed` with the proposal
-  still `proposed`; a downstream that rejects ends it with the proposal `failed`. Settling the proposal of an ended run and withdrawing
-  an approved, unconsumed decision are #1074. A refusal or an error that arrives *after* the downstream was called (settling refused
+  still `proposed` until the run's own end settles it (the run's end moves a never-dispatched proposal to `failed` with the reason
+  `run_failed`, and withdraws its live requests, see [Settling what a run never dispatched](#settling-what-a-run-never-dispatched-1074));
+  a downstream that rejects ends it with the proposal `failed`. A refusal or an error that arrives *after* the downstream was called (settling refused
   because the lease moved on, a verifier that raised) is not a failure of the run: the proposal is read again, an open one
   (`dispatched`, `unknown`) parks the run `waiting_effect` for the reconciler and a committed one completes the node.
 - A webhook or API-request node whose effect ends `unknown` (a timeout after the send, a 5xx, a 2xx the lookup cannot see yet) **fails its
@@ -1820,8 +1821,8 @@ with session_factory() as session:
   state. The decision, audit row and workflow event are recorded; the route never sets `consumed_at` and never calls a backend.
   The approver is the authenticated principal (the body forbids any other field) and may not be the run's initiator or the
   request's `requested_by` unless `CALIBER_APPROVAL_ALLOW_SELF_APPROVAL` is set. A request the route cannot decide is a `409`
-  with a stable `reason_code` and a static, payload-free message, nothing written: `already_consumed`, `superseded`, `expired`,
-  `approval_not_current` (another node's request), `already_decided` (approved or rejected). On PostgreSQL the route's lock
+  with a stable `reason_code` and a static, payload-free message, nothing written: `already_consumed`, `superseded`, `withdrawn`,
+  `expired`, `approval_not_current` (another node's request), `already_decided` (approved or rejected). On PostgreSQL the route's lock
   waits are bounded by `SET LOCAL lock_timeout` (5 s, the Apply claim's bound); a wait that runs out is `503` `approval_busy`
   (retryable, nothing decided, nothing held), because these handlers run on the event loop and a stuck lock must not pin one.
   So is a deadlock in which the decision is the victim (SQLSTATE `40P01`, a writer that takes the run and request rows in the
@@ -1848,9 +1849,6 @@ with session_factory() as session:
   on the request (`commit_decision_id`, migration `0134`; see the causal-links section), so a refused or rolled-back claim
   leaves neither the consumption nor the id.
   **A decision does not wake the run.** It stays `waiting_approval` until `POST .../resume` (operator scope) requeues it.
-  **Limits.** An approved decision that dispatch has not consumed cannot be withdrawn, other than by revoking the approver's
-  project role (the claim rechecks it) or by superseding the request; rejecting a bound request fails the run but leaves its
-  proposal `proposed`, and no reaper settles proposals of ended runs. Both are tracked in #1074.
 
 ```python
 from caliber.effects.dispatcher import EffectRefused, admit_backend, dispatch, submit_proposal
@@ -1922,6 +1920,66 @@ except StaleVersion as stale:
 - **Limits.** The occurrence id is allocated and persisted by the caller before the effect is attempted; this module records
   it and cannot tell whether a caller reused one wrongly. `deployment` is this installation's one configured organization
   (ADR 0001). Connector capability, receipts and reconciliation remain separate services below.
+
+### Settling what a run never dispatched (#1074)
+
+A governed step records its effect as a `proposed` proposal and parks behind an approval request. Until #1074 a run that then
+ended without dispatching it (the request was rejected, the run failed, was cancelled or expired) left the proposal `proposed`
+and its request `pending` or `approved` for good, and an approved decision nobody consumed could be stopped only by revoking
+the approver's role or superseding the request. Now:
+
+- **No new state, no migration.** A never-dispatched proposal ends in the existing terminal state `failed` (the `proposed` to
+  `failed` edge of ADR 0003, a compare-and-set on `version`) with a short `reason`: `run_failed`, `run_cancelled`, `run_expired`,
+  `run_completed` or `approval_rejected`, and `settled_at`. It carries no `dispatched_at`, `owner_id`, `attempt` or receipt,
+  which is how a reader tells "never sent" from a failed dispatch. A request moves to the new terminal status `withdrawn`
+  (`caliber_runtime_approval_requests.status` has no database check on its value, so no migration is needed); only `status`
+  moves, the recorded decision and approvers stay as they were. See the [ADR 0003 amendment](https://github.com/rrahimi-uci/caliber-suite/blob/main/docs/architecture/adr/0003-control-record-schemas.md).
+- **When.** In the transaction that writes the run's terminal status: the reject route (`approval_rejected`), the cancel route for
+  a run that is not executing, and the worker's failure, cancellation, completion, expiry and checkpoint-maintenance paths
+  (`caliber.effects.run_settlement.settle_run_effects`). Every live bound request of the run (pending, or approved and not
+  consumed and not superseded) is withdrawn; a legacy node-level request (it guards no effect) and a rejected, superseded or
+  consumed request are left alone. One audit row (`settle_run_effects`) lists the ids (the first 50) and the exact counts, and
+  only when something changed.
+- **Backstop.** The owner-only effect reconciler loop sweeps runs that are already over and still hold a `proposed` proposal or a
+  live bound request (a run that ended before this existed, or by a path that missed it) once a minute under the execution-owner
+  lease, at most 50 runs per sweep, each in its own transaction. It keeps no cursor and is idempotent. Until it reaches such a
+  run the dispatcher's claim refuses it anyway: the claim re-reads the run under the run lock and answers `run_ended`, sending and
+  consuming nothing.
+- **What is never touched.** Only `proposed` is settled. A `dispatched` or `unknown` proposal (the effect may have been sent)
+  belongs to the dispatcher and the reconciler, which ask the downstream by key; `approved`, `reconciled` and settled proposals
+  and a consumed request are not read, let alone changed. Nothing a model, a manifest or a request body says can choose the
+  reason, the status or the proposals: only the run's lifecycle code calls the settlement, with a fixed vocabulary, and it
+  refuses a run that has not ended.
+- **Races.** Settlement and the claim take the same locks in the same order (run, proposal rows, request rows) and the claim
+  re-reads the run's status under the run lock, so exactly one wins: either the claim commits first (the proposal is
+  `dispatched` and the request consumed, and the settlement finds nothing) or the settlement commits first (the proposal is
+  `failed`, the request `withdrawn`, and the claim is refused `run_ended` with nothing sent or consumed). Both orders are
+  scenario tests on PostgreSQL.
+
+**Withdrawing an approved decision.** `POST /workflow-runs/{run_id}/approvals/{approval_id}/withdraw` with an optional body
+`{"reason": "..."}` (the model forbids anything else; the request is named by the path) takes back an approved decision that
+dispatch has not consumed. It needs the same authority as deciding the request: the project `approve` action (checked before any
+lock) and the node's `required_role` scope (checked before any state code is revealed), so the requester alone cannot withdraw
+and a project member who may not decide the request learns nothing of its state. The separation-of-duties rule of an approval
+(not the initiator or the requester) is deliberately **not** applied: withdrawing only removes the authority to act, as a
+rejection does, so a requester who also holds the approval authority may withdraw their own request. Under the run lock and then
+the request lock the request becomes `withdrawn` only if it is bound to a proposal, `approved`, not consumed, not superseded and
+not expired. Refusals are `409` with a stable `reason_code`: `already_consumed` (never withdrawn, even after its expiry),
+`superseded`, `expired`, `not_approved` (a pending request is decided, a rejected one is final) and `not_bound` (a legacy
+request guards no effect); an unknown request or one of another run is `404`. A repeat of a recorded withdrawal is `200` again
+with nothing written (idempotent, one audit row `withdraw_workflow_run_runtime_approval`, one `workflow.run.approval.withdrawn`
+run event that names who withdrew it and why). The run's status is not part of the rule (a run that has ended had its live
+requests withdrawn when it ended, which a late withdrawal answers `200`), and the run is not failed: the proposal stays
+`proposed`, and a new request for it may be made and consumed. The route holds the same bounded lock waits as the decision routes
+(`503` `approval_busy`). The dispatcher's claim and the route serialize on the run lock: a withdrawn request is refused by the
+claim with `withdrawn` (nothing consumed, nothing sent) and a consumed one is never withdrawn, so at most one of the two wins,
+in either arrival order. The approval view reports the state `withdrawn`.
+
+**Limits.** A withdrawal does not wake or fail the run (`POST .../resume` remains separate), and the proposal stays `proposed`,
+so the effect needs a new approval request before it can be dispatched. The sweep scans `caliber_effect_proposals` by state, which no index serves (an index would need a migration), so it
+runs once a minute rather than every tick. A pending request is not withdrawable through the route (decide it, or reject it);
+the console does not yet offer a withdraw button (the state code `withdrawn` is understood by the panel, the action is API
+and SDK only: `workflows.runs.withdraw_approval`).
 
 ### Trusted connector admission (B12.3a, #738)
 

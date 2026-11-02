@@ -337,7 +337,7 @@ def test_the_terminal_status_the_caller_just_wrote_is_seen_without_a_commit(
     """The session factory has autoflush off; the settlement flushes the status the end path set in the same transaction."""
     _, factory = database
     proposal_id, _ = _proposed_with_request(factory, "a")
-    with factory() as session:
+    with factory(autoflush=False) as session:
         run = session.get(CaliberWorkflowRun, RUN)
         assert run is not None
         run.status = "failed"  # not flushed, not committed
