@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+### Security
+
+- **Workflow authors cannot spoof CALIBER-owned trace attributes.** Manifest validation now refuses every
+  `mlflow.trace_group_tags` key under the reserved `caliber.` namespace with the stable code
+  `reserved_trace_group_tag`; runtime tag merging also drops that namespace as a defense in depth. This
+  protects the run, job, session, node, refusal, causal-link and future platform-owned attributes exposed by
+  `SAFE_SPAN_ATTRIBUTES`.
+
+  **Upgrade note:** no database migration is required. Existing stored manifests are not rewritten, but a
+  manifest containing a `caliber.*` trace-group tag must remove that tag before it can be validated, compiled,
+  published or run after upgrading.
+
 ## [0.1.0a1] - 2026-10-23
 
 First alpha. What it does, what it does not and the known limitations are in the
