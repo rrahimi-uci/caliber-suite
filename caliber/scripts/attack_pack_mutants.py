@@ -3,9 +3,11 @@
 """Mutation check for the reference-profile attack pack (B12.4c, #770).
 
 A test that cannot fail proves nothing. This script breaks the refusal code on purpose, one mutant at a time, and runs the
-attack pack (``tests/egi_scenarios/test_v14_reference_profile.py``) against each broken copy. A mutant is **killed** when the
-pack fails, **survived** when it passes (a hole in the pack, or an equivalent mutant: a change that alters no behaviour a caller
-can observe), and **broken** when the pack could not run (a mutant that does not import is not evidence).
+attack pack (``tests/egi_scenarios/test_v14_reference_profile.py``) against each broken copy. A mutant is **killed** when an
+assertion of the pack fails (an ``ERROR`` in a fixture is infrastructure, not a kill) and the killing test passes on the unmutated
+source, **survived** when the pack passes (a hole in the pack, or an equivalent mutant: a change that alters no behaviour a caller
+can observe), and **broken** when the pack could not run (a mutant that does not import is not evidence). The mutation run is
+manual; CI runs only the offline anchor check (``tests/test_attack_pack_mutants.py``).
 
 Each mutant is a source edit of a throwaway copy of ``src/caliber`` (the working tree is never touched), and the pack runs
 against that copy through ``PYTHONPATH``, including the CALIBER processes it starts.
@@ -275,6 +277,78 @@ MUTANTS: tuple[Mutant, ...] = (
             ),
         ),
     ),
+    Mutant(
+        "shipped_tool_matched_by_name_only",
+        "a registry row with a shipped callable's name and an attacker's module is admitted as shipped",
+        (
+            _e(
+                "effects/refusals.py",
+                "    return BUILTIN_TOOL_MODULE_BY_NAME.get(\n"
+                "        callable_name\n"
+                "    ) == module_path and not inventory_refuses_tool_name(callable_name)",
+                "    return callable_name in BUILTIN_TOOL_MODULE_BY_NAME and not inventory_refuses_tool_name(\n"
+                "        callable_name\n"
+                "    )",
+            ),
+        ),
+    ),
+    Mutant(
+        "file_root_compared_by_string_prefix",
+        "a sibling directory that starts with the root's name (root-evil next to root) is inside the root",
+        (
+            _e(
+                "workflows/runtime.py",
+                "    if resolved != root and root not in resolved.parents:",
+                "    if not str(resolved).startswith(str(root)):",
+            ),
+        ),
+    ),
+    Mutant(
+        "plugin_without_a_distribution_is_admitted",
+        "an installed entry point whose distribution cannot be named is skipped by the refusal",
+        (
+            _e(
+                "extensibility/entrypoints.py",
+                '        if _normalize(distribution or "") not in allowed:\n'
+                "            labels.add(distribution or entry.name)",
+                "        if distribution and _normalize(distribution) not in allowed:\n"
+                "            labels.add(distribution or entry.name)",
+            ),
+        ),
+    ),
+    Mutant(
+        "extract_document_reads_any_host_path",
+        "the shipped extract_document tool opens a path outside the file root (the bypass the pack found)",
+        (
+            _e(
+                "workflows/ingestion_tools.py",
+                '    path = confine_in_reference_profile(path, what="extract_document")',
+                "    pass",
+            ),
+        ),
+    ),
+    Mutant(
+        "sandbox_child_is_not_told_the_profile",
+        "the sandbox child runs a shipped tool without knowing it is in the reference profile or where the root is",
+        (
+            _e(
+                "tool_sandbox/service.py",
+                "        if not self.reference_profile:\n            return {}\n        environment =",
+                "        if True:\n            return {}\n        environment =",
+            ),
+        ),
+    ),
+    Mutant(
+        "host_path_confinement_compared_by_string_prefix",
+        "the tool's own confinement treats root-evil as inside root",
+        (
+            _e(
+                "workflows/host_paths.py",
+                "    if resolved != root and root not in resolved.parents:",
+                "    if not str(resolved).startswith(str(root)):",
+            ),
+        ),
+    ),
 )
 
 
@@ -294,8 +368,53 @@ def check_anchors() -> list[str]:
     return problems
 
 
+def _run_pack(src: Path, pytest_args: list[str], *, select: list[str]) -> tuple[int, str]:
+    """Run the pack (or just ``select``) against the CALIBER source in ``src``; ``(exit status, output)``."""
+    env = dict(os.environ)
+    env["PYTHONPATH"] = os.pathsep.join([str(src), str(CALIBER_DIR)])
+    env["PYTHONDONTWRITEBYTECODE"] = "1"
+    completed = subprocess.run(  # noqa: S603 - the interpreter running this script, fixed arguments
+        [
+            sys.executable,
+            "-m",
+            "pytest",
+            *(select or [PACK, "-k", "postgresql"]),
+            "-x",
+            "-q",
+            "-rfE",
+            "--no-cov",
+            "-p",
+            "no:cacheprovider",
+            *pytest_args,
+        ],
+        cwd=CALIBER_DIR,
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    return completed.returncode, completed.stdout
+
+
+def _summary_ids(output: str, kind: str) -> list[str]:
+    """The test ids of the ``FAILED`` (assertion) or ``ERROR`` (fixture, setup, infrastructure) lines of a ``-rfE`` summary."""
+    return [
+        line.split(" ", 1)[1].split(" - ", 1)[0]
+        for line in output.splitlines()
+        if line.startswith(f"{kind} ")
+    ]
+
+
 def run_mutant(mutant: Mutant, pytest_args: list[str]) -> tuple[str, str]:
-    """``(verdict, tail of the pack's output)`` for one mutant: ``killed``, ``survived`` or ``broken``."""
+    """``(verdict, detail)`` for one mutant.
+
+    * ``killed``: the pack **failed an assertion** (a ``FAILED`` test, never an ``ERROR`` in a fixture or at setup, which a loaded
+      machine produces on its own), and the killing test passes against the unmutated source, so the failure is the mutant's and
+      not a flake. ``detail`` is the killing test's id.
+    * ``survived``: the pack passed.
+    * ``broken``: the pack could not run, or only ever errored (it is run a second time before giving up), or the killing test
+      fails on the pristine source too. A broken mutant is not evidence either way.
+    """
     with tempfile.TemporaryDirectory(prefix="caliber-mutant-") as scratch:
         mutated_src = Path(scratch) / "src"
         shutil.copytree(
@@ -307,36 +426,22 @@ def run_mutant(mutant: Mutant, pytest_args: list[str]) -> tuple[str, str]:
             if text.count(edit.old) != 1:
                 return "broken", f"anchor not found exactly once in {edit.path}"
             target.write_text(text.replace(edit.old, edit.new), encoding="utf-8")
-        env = dict(os.environ)
-        env["PYTHONPATH"] = os.pathsep.join([str(mutated_src), str(CALIBER_DIR)])
-        env["PYTHONDONTWRITEBYTECODE"] = "1"
-        completed = subprocess.run(  # noqa: S603 - the interpreter running this script, fixed arguments
-            [
-                sys.executable,
-                "-m",
-                "pytest",
-                PACK,
-                "-x",
-                "-q",
-                "--no-cov",
-                "-p",
-                "no:cacheprovider",
-                "-k",
-                "postgresql",
-                *pytest_args,
-            ],
-            cwd=CALIBER_DIR,
-            env=env,
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-    tail = "\n".join(completed.stdout.splitlines()[-6:])
-    if completed.returncode == 1:
-        return "killed", tail
-    if completed.returncode == 0:
-        return "survived", tail
-    return "broken", tail
+        output = ""
+        for _attempt in range(2):
+            status, output = _run_pack(mutated_src, pytest_args, select=[])
+            if status == 0:
+                return "survived", "\n".join(output.splitlines()[-3:])
+            failed = _summary_ids(output, "FAILED")
+            if status == 1 and failed:
+                killer = failed[0]
+                pristine_status, pristine = _run_pack(SRC.parent, pytest_args, select=[killer])
+                if pristine_status == 0:
+                    return "killed", killer
+                return "broken", f"{killer} also fails on the unmutated source:\n" + "\n".join(
+                    pristine.splitlines()[-6:]
+                )
+            # Only errors (or no tests ran): infrastructure under load. Run it once more.
+        return "broken", "no assertion failed, only errors:\n" + "\n".join(output.splitlines()[-8:])
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -371,11 +476,14 @@ def main(argv: list[str] | None = None) -> int:
     chosen = [m for m in MUTANTS if not args.only or m.name in args.only]
     verdicts: dict[str, str] = {}
     for mutant in chosen:
-        verdict, tail = run_mutant(mutant, pytest_args)
+        verdict, detail = run_mutant(mutant, pytest_args)
         verdicts[mutant.name] = verdict
-        print(f"{verdict.upper():9} {mutant.name}", flush=True)
+        print(
+            f"{verdict.upper():9} {mutant.name}  <- {detail.splitlines()[0] if detail else ''}",
+            flush=True,
+        )
         if verdict != "killed":
-            print(tail, file=sys.stderr)
+            print(detail, file=sys.stderr)
     killed = sum(1 for v in verdicts.values() if v == "killed")
     print(f"{killed}/{len(chosen)} mutants killed")
     return 0 if killed == len(chosen) else 1

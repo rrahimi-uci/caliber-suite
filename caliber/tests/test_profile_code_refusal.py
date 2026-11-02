@@ -1270,7 +1270,7 @@ def test_the_publish_detail_keeps_every_refusal_and_the_other_errors(
 
 
 def test_the_preview_run_and_evaluation_routes_answer_a_refused_manifest_by_the_code(
-    client: TestClient,
+    client: TestClient, db_session: Any
 ) -> None:
     """B12.4c (#770): the preview, run and evaluation routes catch a compile failure in a broad ``except``; each says the one code."""
     from caliber.workflows.promoter import failure_detail
@@ -1290,6 +1290,21 @@ def test_the_preview_run_and_evaluation_routes_answer_a_refused_manifest_by_the_
     )
     assert preview.status_code == 400, preview.text
     assert preview.json()["detail"].startswith(f"cannot preview: {REFUSAL_CODE}: ")
+    from tests.workflow_helpers import seed_eval_dataset
+
+    evaluated = client.post(
+        f"{PREFIX}/evaluations",
+        json={
+            "dataset_id": seed_eval_dataset(db_session),
+            "predict_target": "workflow",
+            "subject_ref": version_id,
+            "scorers": [],
+        },
+    )
+    assert evaluated.status_code == 400, evaluated.text
+    assert evaluated.json()["detail"].startswith(
+        f"failed to compile workflow {version_id!r}: {REFUSAL_CODE}: "
+    )
     ran = client.post(f"{PREFIX}/workflow-versions/{version_id}/run", json={"input": "go"})
     assert ran.status_code == 400, ran.text
     assert ran.json()["detail"].startswith(f"cannot run workflow: {REFUSAL_CODE}: ")

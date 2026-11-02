@@ -58,6 +58,7 @@ from caliber.profile import REFERENCE_REQUIREMENTS
 from caliber.secret_store import SecretStore, generate_key
 from caliber.server import create_app
 from caliber.workflows.admission import AdmissionSettings
+from caliber.workflows.builtin_tools import register_builtin_tools
 from caliber.workflows.code_policy import REFUSAL_CODE, CodePolicy, bind_code_policy
 from tests.egi_scenarios.conftest import (
     APPROVER_A,
@@ -298,8 +299,10 @@ def test_a_hostile_version_that_predates_the_profile_cannot_be_previewed_promote
             assert refused.status_code == 400, refused.text
             _refusal_in(refused)
         assert preview_override.json()["detail"].startswith(f"cannot preview: {REFUSAL_CODE}: ")
-        # A synchronous real run is not admitted at all in the reference profile (it would bypass admission).
+        # A synchronous real run is not admitted at all in the reference profile (it would bypass admission), whatever the
+        # workflow holds: this is NOT a code refusal route, it is closed before the version is looked at.
         assert sync_run.status_code == 409, sync_run.text
+        assert sync_run.json()["detail"].startswith("sync_run_not_admitted: "), sync_run.text
         assert import_preview.status_code == 200, import_preview.text
         assert [e["code"] for e in import_preview.json()["data"]["validation"]["errors"]] == [
             REFUSAL_CODE
@@ -489,6 +492,7 @@ class FileTree:
 
     root: Path
     outside: Path
+    sibling: Path  # ``root-evil``: starts with the root's name, is not inside it
 
     @property
     def secret_file(self) -> Path:
@@ -499,14 +503,17 @@ class FileTree:
 def file_tree(world: World, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> FileTree:
     root = tmp_path / "root"
     outside = tmp_path / "outside"
+    sibling = tmp_path / "root-evil"
     root.mkdir()
     outside.mkdir()
+    sibling.mkdir()
+    (sibling / "outside.txt").write_text(OUTSIDE_SECRET, encoding="utf-8")
     (root / "inside.txt").write_text(INSIDE_TEXT, encoding="utf-8")
     (outside / "outside.txt").write_text(OUTSIDE_SECRET, encoding="utf-8")
     (root / "link.txt").symlink_to(outside / "outside.txt")
     (root / "dirlink").symlink_to(outside, target_is_directory=True)
     monkeypatch.setenv("CALIBER_WORKFLOW_FILE_ROOT", str(root))
-    return FileTree(root, outside)
+    return FileTree(root, outside, sibling)
 
 
 def _host_node_manifest(workflow_id: str, node: dict[str, Any]) -> dict[str, Any]:
@@ -592,6 +599,7 @@ def _run_host_node(world: World, node: dict[str, Any], run_input: str) -> tuple[
         pytest.param("../outside/outside.txt", id="dotdot"),
         pytest.param("{root}/../outside/outside.txt", id="dotdot-after-the-root"),
         pytest.param("{outside}/outside.txt", id="an-absolute-path-outside"),
+        pytest.param("{sibling}/outside.txt", id="a-sibling-whose-name-starts-with-the-roots-name"),
         pytest.param("link.txt", id="a-symlink-inside-that-points-outside"),
         pytest.param("dirlink/outside.txt", id="a-symlinked-folder-that-points-outside"),
     ],
@@ -602,7 +610,7 @@ def test_a_file_input_node_cannot_read_outside_the_file_root_in_either_profile(
     """``../../outside.txt`` and its cousins are refused with ``PathOutsideRoot`` (a refused run, nothing read): in the
     reference profile because the root is configured, and in the development profile too, because a configured root is a boundary
     in every profile."""
-    target = path.format(root=file_tree.root, outside=file_tree.outside)
+    target = path.format(root=file_tree.root, outside=file_tree.outside, sibling=file_tree.sibling)
     if not target.startswith("/"):
         target = str(file_tree.root / target)
 
@@ -1080,36 +1088,64 @@ def _probe_and_import(world: World, integration_id: str, url: str) -> tuple[Any,
     return probe, imported
 
 
+#: What ``EgressBlockedError`` says about each destination (``caliber.egress._describe``): the reason is part of the contract.
+METADATA_REASON = "the cloud instance-metadata endpoint"
+LOOPBACK_REASON = "a loopback address"
+PRIVATE_REASON = "a private network address"
+
+
 @pytest.mark.parametrize(
-    ("url", "resolves_to"),
+    ("url", "resolves_to", "reasons"),
     [
         pytest.param(
             f"http://{METADATA}/latest/meta-data/iam/security-credentials/",
             None,
+            (METADATA_REASON,),
             id="the-literal-address",
         ),
-        pytest.param("http://2852039166/latest/meta-data/", [METADATA], id="the-decimal-form"),
-        pytest.param("http://0xa9fefea9/latest/meta-data/", [METADATA], id="the-hex-form"),
+        pytest.param(
+            "http://2852039166/latest/meta-data/",
+            [METADATA],
+            (METADATA_REASON,),
+            id="the-decimal-form",
+        ),
+        pytest.param(
+            "http://0xa9fefea9/latest/meta-data/",
+            [METADATA],
+            (METADATA_REASON,),
+            id="the-hex-form",
+        ),
         pytest.param(
             "http://[::ffff:169.254.169.254]/latest/meta-data/",
             None,
+            (METADATA_REASON, "a link-local address", "a reserved address"),
             id="an-ipv4-mapped-ipv6-literal",
         ),
         pytest.param(
-            "http://[fd00:ec2::254]/latest/meta-data/", None, id="the-aws-ipv6-metadata-address"
+            "http://[fd00:ec2::254]/latest/meta-data/",
+            None,
+            (METADATA_REASON, PRIVATE_REASON, "a reserved address"),
+            id="the-aws-ipv6-metadata-address",
         ),
         pytest.param(
             "http://metadata.attack.example/computeMetadata/v1/",
             [METADATA],
+            (METADATA_REASON,),
             id="a-name-that-resolves-to-it",
         ),
-        pytest.param("http://localhost:8080/", ["127.0.0.1"], id="loopback-by-name"),
         pytest.param(
-            "http://internal.attack.example/", ["10.0.0.7"], id="a-private-address-by-name"
+            "http://localhost:8080/", ["127.0.0.1"], (LOOPBACK_REASON,), id="loopback-by-name"
+        ),
+        pytest.param(
+            "http://internal.attack.example/",
+            ["10.0.0.7"],
+            (PRIVATE_REASON,),
+            id="a-private-address-by-name",
         ),
         pytest.param(
             "http://mixed.attack.example/",
             [PUBLIC, METADATA],
+            (METADATA_REASON,),
             id="a-name-with-a-public-and-a-metadata-record",
         ),
     ],
@@ -1120,6 +1156,7 @@ def test_ssrf_metadata_ip(
     monkeypatch: pytest.MonkeyPatch,
     url: str,
     resolves_to: list[str] | None,
+    reasons: tuple[str, ...],
 ) -> None:
     """``ssrf_metadata_ip``: an operator-reachable route that fetches a URL refuses the cloud metadata endpoint, whatever way
     the URL spells it, with ``EgressBlockedError``'s reason, and no request leaves the process. The same in the development
@@ -1135,7 +1172,9 @@ def test_ssrf_metadata_ip(
     assert probe.status_code == 200, probe.text
     assert probe.json()["data"]["allowed"] is False and probe.json()["data"]["reachable"] is False
     assert imported.status_code == 400, imported.text
-    assert "blocked" in imported.text
+    assert "is blocked: it points at" in imported.text and any(
+        r in imported.text for r in reasons
+    ), imported.text
     assert egress_world.requests == [], "no request reached the connection layer"
     assert world.effects() == before
 
@@ -1155,7 +1194,10 @@ def test_dns_rebinding(
     probe, imported = _probe_and_import(world, integration_id, f"https://{host}/openapi.json")
 
     assert probe.json()["data"]["reachable"] is False
-    assert imported.status_code == 400 and "blocked" in imported.text, imported.text
+    assert imported.status_code == 400, imported.text
+    assert (
+        f"(resolved to {METADATA}) is blocked: it points at {METADATA_REASON}" in imported.text
+    ), imported.text
     assert egress_world.requests == [], "the metadata address was never connected to"
     assert lookups[host] >= 2, (
         "the policy check and the connection each asked, and the second answer was the attack"
@@ -1317,9 +1359,12 @@ def test_secret_canary(
     caplog: pytest.LogCaptureFixture,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """``secret_canary`` (#533, #666): a stored secret is absent from every refusal the attack pack provokes: the responses
-    (status line, headers, body), the log records, the workflow run events and the audit log. The scan can fail (a planted value
-    is found), and the platform resolved the secret during the attacks, so its absence is not an unset setting."""
+    """``secret_canary`` (#533, #666): a stored secret is absent from every response, log record, workflow run event and audit row
+    the attack pack's refused paths produce (status line, headers and body scanned by the #666 ``Scan``), even though the attacker's
+    manifests, tools and inputs name it. Stated plainly: the refused paths stop before anything resolves a secret, so what this proves
+    is that a refusal does not echo what it was given or what it knows; the platform's own resolution is exercised by the provider
+    status read at the end (an administrator's ``GET /settings/llm`` resolves the reference), and the scan can fail (a planted value is
+    found). It is not a claim that a successful run cannot leak a secret: that is ``tests/test_secret_canary.py``."""
     world, canary, scan = canary_world
     resolved_in_flight: list[str | None] = []
     original = secrets_module._resolve_stored
@@ -1640,6 +1685,9 @@ def test_the_execution_owner_process_refuses_a_hostile_run_the_api_process_queue
     assert kind in str(run.error_summary)
     assert world.effects().mutations == before.mutations
     assert not world.marker.exists(), "the owner process never imported the attacker's module"
+    assert "no workflow node ran" in str(run.error_summary) or "reference profile" in str(
+        run.error_summary
+    ), run.error_summary
 
 
 # -- races -----------------------------------------------------------------------------------------------------------------
@@ -1896,3 +1944,171 @@ def test_a_published_service_over_a_hostile_deployment_runs_nothing_when_invoked
     else:
         assert run.status == "completed", run.error_summary
         assert world.effects() != before, "the control: the service run executed the node"
+
+
+# -- shipped tools that open a host path (the bypass this pack found, #770) -----------------------------------------------
+
+
+def _extract_document_manifest(workflow_id: str) -> dict[str, Any]:
+    return tool_manifest("tool_node", workflow_id, "tool.extract_document.v1")
+
+
+def _seed_shipped_tools(world: World) -> None:
+    with world.app.session_factory() as session:
+        register_builtin_tools(session)
+        session.commit()
+
+
+@pytest.mark.parametrize(
+    "target",
+    [
+        pytest.param("{outside}/outside.txt", id="an-absolute-path-outside-the-root"),
+        pytest.param("{root}/../outside/outside.txt", id="dotdot-out-of-the-root"),
+        pytest.param("{sibling}/outside.txt", id="a-sibling-whose-name-starts-with-the-roots-name"),
+        pytest.param("{root}/link.txt", id="a-symlink-inside-the-root-that-points-outside"),
+        pytest.param("{root}/dirlink/outside.txt", id="a-symlinked-folder-that-points-outside"),
+    ],
+)
+def test_the_shipped_extract_document_tool_cannot_read_outside_the_file_root(
+    world: World, file_tree: FileTree, target: str
+) -> None:
+    """The shipped ``extract_document`` tool opens whatever host path it is given. In the reference profile it is confined to
+    ``CALIBER_WORKFLOW_FILE_ROOT`` (it runs in the sandbox child, which is told the profile and the root): preview, a queued run and
+    a tool test run all fail with the outside-root reason and none of them says what is in the file. The development profile does not
+    confine it (the control: the file is read)."""
+    _seed_shipped_tools(world)
+    path = target.format(root=file_tree.root, outside=file_tree.outside, sibling=file_tree.sibling)
+    workflow_id = world.new_workflow()
+    version_id = world.draft(workflow_id, _extract_document_manifest(workflow_id))
+    assert world.call("POST", f"/workflow-versions/{version_id}/publish").status_code == 200
+    with world.app.session_factory() as session:
+        tool_id = (
+            session.query(CaliberToolRegistry).filter_by(name="extract_document").one().tool_id
+        )
+
+    preview = world.call("POST", f"/workflow-versions/{version_id}/preview-run", {"input": path})
+    accepted = world.queue_run({"workflow_version_id": version_id, "input": path})
+    assert accepted.status_code == 202, accepted.text
+    run_id = str(accepted.json()["data"]["workflow_run_id"])
+    world.work()
+    run = world.run_row(run_id)
+    said = (
+        world.call("GET", f"/workflow-runs/{run_id}").text
+        + world.call("GET", f"/workflow-runs/{run_id}/events").text
+    )
+    test_run = world.call("POST", f"/tools/{tool_id}/test-run", {"input": {"ref": path}})
+
+    if world.reference:
+        assert run.status == "failed", run.error_summary
+        assert "outside the configured workflow file root" in str(run.error_summary)
+        assert "outside the configured workflow file root" in test_run.text, test_run.text
+        for text in (preview.text, said, test_run.text, str(run.error_summary)):
+            assert OUTSIDE_SECRET not in text
+    else:
+        assert OUTSIDE_SECRET in said + test_run.text, (
+            "the control: the development profile reads the path"
+        )
+
+
+def test_the_shipped_extract_document_tool_still_reads_inside_the_file_root(
+    world: World, file_tree: FileTree
+) -> None:
+    """The control: the root is a boundary, not a ban."""
+    _seed_shipped_tools(world)
+    workflow_id = world.new_workflow()
+    version_id = world.draft(workflow_id, _extract_document_manifest(workflow_id))
+    assert world.call("POST", f"/workflow-versions/{version_id}/publish").status_code == 200
+
+    accepted = world.queue_run(
+        {"workflow_version_id": version_id, "input": str(file_tree.root / "inside.txt")}
+    )
+    world.work()
+
+    run = world.run_row(str(accepted.json()["data"]["workflow_run_id"]))
+    assert run.status == "completed", run.error_summary
+
+
+def test_with_no_file_root_the_shipped_extract_document_tool_reads_nothing(
+    world: World, file_tree: FileTree, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    if not world.reference:
+        pytest.skip("the development profile does not confine the tool")
+    _seed_shipped_tools(world)
+    monkeypatch.delenv("CALIBER_WORKFLOW_FILE_ROOT")
+    workflow_id = world.new_workflow()
+    version_id = world.draft(workflow_id, _extract_document_manifest(workflow_id))
+    assert world.call("POST", f"/workflow-versions/{version_id}/publish").status_code == 200
+
+    accepted = world.queue_run(
+        {"workflow_version_id": version_id, "input": str(file_tree.root / "inside.txt")}
+    )
+    world.work()
+
+    run = world.run_row(str(accepted.json()["data"]["workflow_run_id"]))
+    assert run.status == "failed"
+    assert "unmanaged host-filesystem reads are disabled" in str(run.error_summary)
+    assert INSIDE_TEXT not in str(run.error_summary)
+
+
+# -- a registry row that borrows a shipped callable's name ------------------------------------------------------------------
+
+
+def test_a_shipped_callable_name_in_an_attackers_module_is_refused_at_author_time_and_at_run(
+    world: World,
+) -> None:
+    """Shipped means the exact (module, callable) pair the registry seed writes. A row that names a shipped callable
+    (``grok_parse``) in the attacker's module is an administrator's module: refused at validation and publish, and a version that
+    was published before the profile fails its run by the one code, with the module never imported."""
+    ref = world.seed_tool("grok_parse", callable_name="grok_parse", owner="caliber")
+    workflow_id = world.new_workflow()
+    version_id = world.draft(workflow_id, tool_manifest("agent_tool", workflow_id, ref))
+    hostile = world.seeded_hostile(
+        "tool", manifest_for=lambda wf: tool_manifest("agent_tool", wf, ref)
+    )
+    before = world.effects()
+
+    validated = world.call("POST", f"/workflow-versions/{version_id}/validate")
+    published = world.call("POST", f"/workflow-versions/{version_id}/publish")
+    accepted = world.queue_run({"workflow_id": hostile.workflow_id, "alias": hostile.alias})
+    world.work()
+    run = world.run_row(str(accepted.json()["data"]["workflow_run_id"]))
+
+    if world.reference:
+        assert [e["code"] for e in validated.json()["data"]["errors"]] == [REFUSAL_CODE]
+        assert published.status_code == 400, published.text
+        _refusal_in(published)
+        assert (run.status, run.error_code) == ("failed", REFUSAL_CODE), run.error_summary
+        assert world.effects() == before
+    else:
+        assert validated.json()["data"]["errors"] == []
+
+
+# -- a plugin whose distribution cannot be named ---------------------------------------------------------------------------
+
+
+def test_an_installed_plugin_with_no_distribution_is_refused_not_skipped(
+    world: World, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An entry point that no distribution owns (a stray ``entry_points.txt``) cannot be allowlisted by name, so in the reference
+    profile it is refused as ``<unknown>``/its entry-point name, never imported, and never skipped silently."""
+    registry = optimizer_registry()
+    registry.reset_for_tests()
+    loads: list[str] = []
+
+    class NoDistribution(_InstalledLater):
+        name = "orphan"
+        dist = None
+
+    monkeypatch.setattr(entrypoints, "_entry_points", lambda: [NoDistribution(loads)])
+    monkeypatch.setenv(entrypoints.ALLOWLIST_ENV_VAR, "orphan,<unknown>,")
+    try:
+        capabilities = world.call("GET", "/capabilities")
+        assert capabilities.status_code == 200, capabilities.text
+        (plugin,) = capabilities.json()["data"]["extensibility"]["plugins"]
+        if world.reference:
+            assert plugin["allowlisted"] is False
+            assert plugin["error"].startswith(f"{REFUSAL_CODE}: ")
+            assert "orphan" in plugin["error"]
+        assert loads == []
+    finally:
+        registry.reset_for_tests()
