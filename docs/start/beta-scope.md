@@ -37,7 +37,8 @@ matching the code.
 
 Supported does **not** mean any of these:
 
-- It is not a general-availability label, a service level or a promise about upgrades, performance or hosting.
+- It is not a release label (nothing here says a Beta is out), a service level or a promise about upgrades, performance or
+  hosting.
 - It does not grant authority. A supported adapter is still behind the authorization, approval and admission checks of
   its own route and the effect dispatcher.
 - It is not a claim about every integration, connector or MCP backend. Only the two adapters in the matrix below can be
@@ -65,9 +66,24 @@ On top of the profile, each adapter needs a little more:
 | `document_request_connector` | the background loops on, and the effect reconciler on (both default on) | `CALIBER_BACKGROUND_TASKS_ENABLED`, `CALIBER_EFFECT_RECONCILER_ENABLED` |
 | `release_evaluation` | the release area on, its evaluator on, the background loops on, and a real evaluation provider | `CALIBER_FEATURE_RELEASE_CANDIDATES`, `CALIBER_WORKSPACE_RELEASE_EVALUATOR_ENABLED`, `CALIBER_BACKGROUND_TASKS_ENABLED`, `CALIBER_EVAL_PROVIDER=mlflow` |
 
-Neither adapter is on after the [alpha install](alpha-install.md): that install runs the development profile, with the
-release area off, so its report is `preview` for the connector and `unavailable` for the rest (the default row below).
-The workflow queue (`CALIBER_WORKFLOW_RUN_QUEUE_ENABLED`) is not a condition of either claim.
+These are the settings the report itself checks. Neither adapter is on after the [alpha install](alpha-install.md): that
+install runs the development profile, with the release area and the integrations area off, so its report is `preview`
+for the connector and `unavailable` for the rest; with the release area, its evaluator and the integrations area all on it is `preview`
+for all four (the matrix below). The workflow queue (`CALIBER_WORKFLOW_RUN_QUEUE_ENABLED`) is not a
+condition of either claim.
+
+**`supported` is not a statement that a binding exists.** The report does not read the operator's wiring, and the reference
+profile does not require it. For a protected action to actually reach the document-request connector from a workflow run,
+the operator also sets:
+
+| setting | what it does | if it is missing |
+| --- | --- | --- |
+| `CALIBER_AGENT_STEP_TOOL_BACKENDS` | maps a registered tool, by its registry identity, to a backend (`document_request`) so an agent bound to it runs as a governed step | empty (the default): no agent is governed, and the connector is reached by nothing |
+| `CALIBER_EFFECT_CALLBACK_CONNECTORS` | binds the connector to the downstream `base_url` the effect is sent to and the reconciler asks, per project | no binding: `connector_unbound`, refused before anything is claimed, and nothing is sent |
+
+A deployment can therefore report `document_request_connector` as `supported` and still send nothing, because no tool is
+mapped or no connector is bound. Read the [worker's trusted inputs](../operate/reference-profile.md#the-worker-binds-the-governed-path-1051)
+before relying on it.
 
 ## The support matrix
 
@@ -86,8 +102,11 @@ resolution order, one rule per row, is in
 ### Evidence for each supported adapter
 
 The report lists these scenario test ids in `evidence` for a supported adapter, and lists nothing for any other status.
-Each id is a test function on `main`; the contract test fails on one that does not exist. The scenarios run in the CI job
-"EGI scenarios (PostgreSQL)" (`pytest tests/egi_scenarios`, paths relative to `caliber/`).
+Each id is a test function on `main`; the contract test fails on one that does not exist. Paths are relative to `caliber/`.
+Where each runs differs by adapter: the connector scenarios are dialect-parameterised, and their PostgreSQL parameter runs
+in the CI job `egi-scenarios-postgres` ("EGI scenarios (PostgreSQL)", `pytest tests/egi_scenarios`, defined in
+[`.github/workflows/ci.yml`](https://github.com/rrahimi-uci/caliber-suite/blob/main/.github/workflows/ci.yml)); the
+release-evaluation scenarios are collected by the same job but do not use PostgreSQL (see the limits below).
 
 | adapter id | scenario | what it demonstrates |
 | --- | --- | --- |
@@ -113,6 +132,10 @@ What the evidence does not cover, stated so the word "supported" is not read wid
 - **The release-evaluation scenarios use a scripted evaluation provider.** They prove the claim, recovery and fenced
   completion of an attempt, not the quality of a real provider's scores. With `CALIBER_EVAL_PROVIDER=mlflow` the evaluator
   calls the real provider and reports `supported`; with `fake` it reports `preview` because the scores are simulated.
+- **The release-evaluation scenarios run on SQLite created from the models, not on PostgreSQL.** They build their database
+  with `Base.metadata.create_all` (no migrations), without a reference-profile app or the capability route. They show the
+  claim, recovery and fencing logic of the evaluator, not PostgreSQL concurrency or lease behaviour, and not the migrated
+  schema. Only the connector scenarios have a PostgreSQL parameter.
 - **No scenario here proves the whole loop for one workflow end to end under the capability report.** The end-to-end
   governed run (approve, resume, one send, a receipt read back by key) is shown by
   `tests/egi_scenarios/test_b05_governed_worker_wiring.py::test_a_proposal_is_approved_over_http_resumed_and_sent_exactly_once`,
@@ -126,10 +149,10 @@ sends a protected action only through a connector whose outcome the platform can
 
 | node or tool | what the reference profile does | evidence (a control, not a support claim) |
 | --- | --- | --- |
-| a governed agent step bound to a tool the operator mapped to `document_request` | proposes, parks `waiting_approval`, and after a different person approves and an operator resumes, sends once and reads the receipt back by key | `tests/egi_scenarios/test_b05_governed_worker_wiring.py::test_a_proposal_is_approved_over_http_resumed_and_sent_exactly_once` |
+| a governed agent step bound to a tool the operator mapped to `document_request` (`CALIBER_AGENT_STEP_TOOL_BACKENDS`), with the connector bound to a downstream for the project (`CALIBER_EFFECT_CALLBACK_CONNECTORS`) | proposes, parks `waiting_approval`, and after a different person approves and an operator resumes, sends once and reads the receipt back by key | `tests/egi_scenarios/test_b05_governed_worker_wiring.py::test_a_proposal_is_approved_over_http_resumed_and_sent_exactly_once` |
 | a webhook or API-request node whose exact URL the operator listed in `CALIBER_EFFECT_HTTP_VERIFIERS` | sends to the generic `http` connector, which is reachable at those URLs only; the `http` connector is not one of the four adapters and the report claims nothing for it | `tests/egi_scenarios/test_b05_http_unknown_settlement.py::test_a_listed_webhook_is_sent_once_and_its_2xx_is_confirmed_by_the_lookup` |
 | a webhook or API-request node whose URL nobody listed | refused before a proposal is recorded: `HTTP effect refused: no_authoritative_verifier` | `tests/egi_scenarios/test_b05_http_unknown_settlement.py::test_a_webhook_whose_url_is_not_listed_is_refused_before_a_proposal_exists` |
-| a registered-tool, OpenAPI or MCP node | refused before a proposal is recorded: `registered tool effect refused: no_authoritative_verifier`, `OpenAPI effect refused: no_authoritative_verifier`, `MCP effect refused: no_authoritative_verifier` (these connectors have no lookup by key the platform can call; one shared check produces the sentence, and the tests show it for the HTTP label and the `registered_tool` verifier) | `tests/test_governed_worker_wiring.py::test_a_workflow_node_is_refused_before_anything_is_recorded_when_its_backend_has_no_verifier`, `tests/test_governed_worker_wiring.py::test_the_receipt_verifier_of_a_context_never_allows_an_unverified_connector` |
+| a protected (non-read) registered-tool, OpenAPI or MCP call | refused before a proposal is recorded (a read-class call, such as a `GET`, `HEAD` or `OPTIONS` of a read row or a read-class registered or MCP tool, still runs inline): `registered tool effect refused: no_authoritative_verifier`, `OpenAPI effect refused: no_authoritative_verifier`, `MCP effect refused: no_authoritative_verifier` (these connectors have no lookup by key the platform can call; one shared check produces the sentence, and the tests show it for the HTTP label and the `registered_tool` verifier) | `tests/test_governed_worker_wiring.py::test_a_workflow_node_is_refused_before_anything_is_recorded_when_its_backend_has_no_verifier`, `tests/test_governed_worker_wiring.py::test_the_receipt_verifier_of_a_context_never_allows_an_unverified_connector` |
 
 Everything the inventory marks as running code, or writing to the host or a database with no dispatcher in front of it, is
 refused in the reference profile with `unsupported_in_reference_profile` before anything runs: the `python_code`,
@@ -138,8 +161,8 @@ tool-sandbox service and the host-file built-ins
 ([Refused paths](../operate/reference-profile.md#refused-paths-in-the-reference-profile-b047-774),
 [Executable code](../operate/reference-profile.md#executable-code-is-refused-b124a-754)). An installed optimizer plugin
 whose distribution is not in `CALIBER_PLUGIN_ALLOWLIST`, and `CALIBER_WORKFLOW_FILE_ROOT=unconfined`, stop the process from
-starting; a `folder_input`, `file_input` or `output_folder` node reads or writes only inside the configured file root, and
-with none configured it is refused
+starting; a `folder_input` node, or a `file_input` node without a managed file, reads only inside the configured file root,
+and with none configured it is refused (`output_folder` is refused outright, see above)
 ([Plugins and host paths](../operate/reference-profile.md#plugins-and-host-paths-b124b-763)).
 
 | refusal | scenario that starts a real reference process or app and shows it |
@@ -266,9 +289,11 @@ These are true of `main` today and are deliberate; each one that has an owner na
 
 - **The worker dispatches only two connectors.** In the reference profile a production run reaches `document_request`
   (through a governed agent step) and `http` (through a webhook or API-request node at operator-listed URLs). The
-  `registered_tool`, `openapi_http` and `mcp` connectors have no lookup by key the platform can call, so a node that
-  would use one is refused `no_authoritative_verifier` before its proposal is recorded. Model-chosen tool calls of an
-  agent that is not governed are not routed (#768, and #1079 for replays).
+  `registered_tool`, `openapi_http` and `mcp` connectors have no lookup by key the platform can call, so a protected
+  (non-read) call that would use one is refused `no_authoritative_verifier` before its proposal is recorded; read-class
+  calls still run inline. A protected call the *model* chooses is proposed (in a governed agent step) or refused (in every
+  other governed loop), never run directly; a plan a caller builds by hand, with no governed context, is not governed
+  ([Model-selected tool calls](../operate/reference-profile.md#model-selected-tool-calls-b046-768)).
 - **A permanent unknown has no operator exit yet.** A downstream that never shows a request and cannot prove its absence
   leaves the proposal `unknown` and its dependents blocked. The attested operator resolution is #1054 and is not
   delivered; the [recovery runbook](../operate/recovery-runbook.md) says what to do and not to do until then.
@@ -276,14 +301,28 @@ These are true of `main` today and are deliberate; each one that has an owner na
   after the send, a 5xx, a 2xx the lookup cannot see yet) fails its run; unlike a governed agent step it does not park.
   The reconciler settles the proposal by the listed lookup without sending again, but settling does not resume the failed
   run. Read the proposal before running such a workflow again: a new run is a new effect with a new key. Settling the
-  proposal of an ended run, and withdrawing an approved decision that was never consumed, are #1074.
+  proposal of an ended run, and withdrawing an approved decision that was never consumed, are #1074. A run that is woken
+  after a settlement finds its one effect already `committed` and fails with `HTTP effect was already recorded as committed;
+  not run again`, because the response of the original send was never durable.
+- **A revoked approver, a lost lease or an unbound connector fails the run** with the proposal left `proposed` (nothing was
+  sent); settling that proposal is #1074.
+- **A tool node's own `requires_approval` gate still asks first**, and a governed effect then asks the exact-intent
+  question, so such a node is approved twice.
+- **A versioned proposal is sent only through `document_request`.** The platform has no read of its own for another
+  connector's target, so a versioned proposal for any other connector is `version_unverifiable`.
+- **The `http` read-back is the operator's endpoint.** A `lookup_url` that is not `https` is refused at startup
+  (`http_lookup_cleartext`) because the lookup carries no credentials and its answer commits the effect; a `404` from it is
+  never proof that an effect did not happen.
+- **Acceptance decisions are stored, not yet applied.** The decisions of #784 are persisted, but nothing in run completion
+  reads them yet (#791 is open), so a run that finishes is still `completed` or `failed` and no end-to-end acceptance gating
+  is claimed.
 - **Fifteen protected-effect rows are not routed.** The inventory marks them `dispatch`, but no connector routes them yet,
   and the matrix records them as `unrouted` instead of claiming otherwise. They are not refused in the reference profile
   either, because their reference-profile behaviour has not been decided:
 
 | inventory rows | what they are | owner |
 | --- | --- | --- |
-| EP-009, EP-010, EP-013, EP-051, EP-059 | knowledge-build and object-store writes | #1086 |
+| EP-009, EP-010, EP-013, EP-051, EP-059 | knowledge-build runs, review-queue enqueue (a platform-database write), output-bucket and object-store writes | #1086 |
 | EP-070, EP-071, EP-072, EP-075, EP-076, EP-077 | prompt and release publishing | #1087 |
 | EP-017, EP-081, EP-090 | the synchronous run route, Aria's `run_workflow` tool, and a path with no production caller | #1088 |
 | EP-034 | Aria's published-tool call | #1063 |
@@ -291,10 +330,13 @@ These are true of `main` today and are deliberate; each one that has an owner na
 - **Generated Python can still reach a client.** The runnable export routes answer `409` in the reference profile, but the
   generated text is sealed into the compiled bundle and can leave through compile, get and publish. That is part of #1088;
   do not read the two `409`s as a guarantee that no generated Python reaches a client.
-- **Governed effects outside the worker's own graph.** Synchronous version runs, evaluation, gate and Aria previews and the
-  sub-workflows of a worker run have no execution-owner lease and bind no governed context, so the reference profile
-  refuses their protected nodes (and an agent in them that can reach a mapped tool). The development profile runs them on
-  the legacy guarded path.
+- **Governed effects outside the worker's own graph.** Synchronous version runs and the sub-workflows of a worker run
+  have no execution-owner lease and bind no governed context, so the reference profile refuses their protected nodes (and
+  an agent in them that can reach a mapped tool); the development profile runs them on the legacy guarded path.
+  Evaluation, gate and Aria previews are different: they run as previews, with protected tools stubbed, so that refusal
+  does not apply. Refinement and calibration replays are not previews: an agent bound to a mapped tool (or handing off to
+  one) is refused in the replay, so evaluating or calibrating such a workflow scores an error in the reference profile
+  until the replay is given a manifest without that agent.
 - **A governed effect inside a fan-out, loop, error boundary, handoff or `parallel` branch** cannot park the run: the run is
   refused up front (agents) or fails (effects).
 - **The capability `adapters` map is an owner-confirmable decision.** Which adapters can be `supported`, and which scenarios

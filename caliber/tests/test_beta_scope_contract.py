@@ -224,6 +224,60 @@ def test_the_pins_the_page_names_are_the_live_ones() -> None:
     assert "caliber.features.SUPPORT_EVIDENCE" in text
 
 
+def test_the_also_needs_table_is_the_settings_the_report_checks() -> None:
+    """Each supported adapter's conditions are derived from what the report says can change its answer.
+
+    The table names every setting that is ever a supported adapter's ``disabled_by`` (so an omission fails) and nothing
+    else (so an invented condition fails). ``CALIBER_PROFILE`` is the profile itself, described above the table.
+    """
+    rows = _table(_section(_page(), "## The supported shape"))
+    by_adapter = {_code(row[0])[0]: row for row in rows}
+    assert set(by_adapter) == set(SUPPORT_EVIDENCE)
+
+    for adapter_id in SUPPORT_EVIDENCE:
+        checked = {
+            str(block["disabled_by"])
+            for _name, block_adapter, block in _all_blocks()
+            if block_adapter == adapter_id and str(block["disabled_by"]).startswith("CALIBER_")
+        } - {"CALIBER_PROFILE"}
+        named = set(re.findall(r"CALIBER_[A-Z_]+", by_adapter[adapter_id][2]))
+        assert checked, adapter_id
+        assert named == checked, (adapter_id, named ^ checked)
+
+
+def test_the_page_says_supported_is_not_a_binding_and_the_profile_does_not_require_one() -> None:
+    """The report cannot see the operator's wiring; if the profile ever starts requiring it, the page must change."""
+    text = " ".join(_page().split())
+    profile_source = Path(profile_module.__file__).read_text(encoding="utf-8")
+
+    for variable in ("CALIBER_AGENT_STEP_TOOL_BACKENDS", "CALIBER_EFFECT_CALLBACK_CONNECTORS"):
+        assert variable in text, variable
+        assert variable not in profile_source, f"the profile now checks {variable}: update the page"
+    assert "`supported` is not a statement that a binding exists" in text
+    assert "connector_unbound" in text
+
+
+def test_the_release_evaluation_evidence_is_described_as_the_sqlite_scenarios_they_are() -> None:
+    """The page says those scenarios do not run on PostgreSQL; if they start to, the page must change."""
+    scenarios = (
+        CALIBER_DIR / "tests" / "egi_scenarios" / "test_v13_release_evaluation.py"
+    ).read_text(encoding="utf-8")
+    factory = (CALIBER_DIR / "tests" / "test_workspace_release_evaluation_execution.py").read_text(
+        encoding="utf-8"
+    )
+
+    assert "from tests.test_workspace_release_evaluation_execution import _factory" in scenarios
+    assert 'create_engine(f"sqlite:///' in factory and "Base.metadata.create_all(engine)" in factory
+    assert "DIALECTS" not in scenarios
+    text = " ".join(_page().split())
+    assert "run on SQLite created from the models, not on PostgreSQL" in text
+    assert "Only the connector scenarios have a PostgreSQL parameter" in text
+    connector = (
+        CALIBER_DIR / "tests" / "egi_scenarios" / "test_v07_restart_exactly_once.py"
+    ).read_text(encoding="utf-8")
+    assert "params=DIALECTS" in connector
+
+
 def _functions(path: Path) -> set[str]:
     return {
         node.name
@@ -410,7 +464,7 @@ def test_no_page_claims_a_general_availability_status() -> None:
     assert re.search(r"^stability: beta$", text, re.MULTILINE)
     for pattern in (
         r"\bGA\b",
-        r"generally available",
+        r"general(?:ly)?[- ]availab",
         r"production[- ]ready",
         r"enterprise[- ]grade",
         r"fully supported",

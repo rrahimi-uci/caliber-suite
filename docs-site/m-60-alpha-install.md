@@ -5,7 +5,8 @@
 
 > **Historical page.** This is the install of the `0.1.0a1` alpha and stays as written. It starts the default
 > `development` profile, in which no adapter is reported `supported`: the capability report says `preview` for the
-> document-request connector and `unavailable` for the release evaluation and the MCP and OpenAPI integrations. The
+> document-request connector, and `preview` or `unavailable` (while its area flag or evaluator is off, as it is by
+> default) for the release evaluation and the MCP and OpenAPI integrations. The
 > supported shape is the reference profile; [Beta scope](m-66-beta-scope.md) says what it supports, with the evidence.
 
 This page takes you from nothing to a logged-in administrator who can create a project and a
