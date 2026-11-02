@@ -21,6 +21,11 @@ window.DOCS_DATA = {
           "newtab": false
         },
         {
+          "href": "m-66-beta-scope.html",
+          "label": "Beta scope",
+          "newtab": false
+        },
+        {
           "href": "m-37-five-minute-quickstart.html",
           "label": "5-minute quickstart",
           "newtab": false
@@ -1263,6 +1268,34 @@ window.DOCS_DATA = {
       "tags": [
         "alpha",
         "scope",
+        "limitations"
+      ],
+      "newtab": false,
+      "nav_hidden": false
+    },
+    {
+      "href": "m-66-beta-scope.html",
+      "label": "Beta scope",
+      "section": "Start here",
+      "section_id": "start",
+      "summary": "What the reference profile supports in the Beta work, adapter by adapter, with the scenario tests behind each claim, the exact refusal text for everything else, and the known limits.",
+      "audience": [
+        "developer",
+        "operator",
+        "decision-maker"
+      ],
+      "doc_type": "concept",
+      "prerequisites": [
+        "A reading of the reference profile page, if you intend to run the supported shape"
+      ],
+      "stability": "beta",
+      "reviewed_on": "2026-11-01",
+      "version_applicability": "current main branch docs contract",
+      "tags": [
+        "beta",
+        "scope",
+        "reference-profile",
+        "capabilities",
         "limitations"
       ],
       "newtab": false,

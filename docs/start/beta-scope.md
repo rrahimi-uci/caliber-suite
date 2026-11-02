@@ -1,0 +1,326 @@
+---
+audience:
+  - developer
+  - operator
+  - decision-maker
+doc_type: concept
+product_area: docs
+stability: beta
+prerequisites:
+  - A reading of the reference profile page, if you intend to run the supported shape
+reviewed_on: 2026-11-01
+version_applicability: current main branch docs contract
+tags:
+  - beta
+  - scope
+  - reference-profile
+  - capabilities
+  - limitations
+---
+
+# Beta scope: the supported profile and its evidence
+
+> **What this page is.** It says which parts of CALIBER the Beta work supports, which it does not, and which scenario
+> tests the support claim rests on. It describes `main`; it does not announce a release, and the Beta release gate
+> (#613) is a separate decision. The [alpha scope](alpha-scope.md) and [alpha install](alpha-install.md) pages stay
+> as the record of the `0.1.0a1` alpha and are not rewritten here. The consolidated Beta scope table (#877) will
+> extend this page; until it does, this page covers the supported profile and the adapter capabilities only.
+
+## What "supported" means here
+
+An adapter is **supported** only when `GET /ajax-api/2.0/mlflow/caliber/capabilities` reports it as `supported` in
+`data.adapters` for the deployment you are looking at. That report is derived from the running configuration and from
+the scenario tests cited below (`caliber.features.SUPPORT_EVIDENCE`); no setting says "supported", and an adapter with no
+evidence entry cannot be. The rest of this page is a reading of that report, not a second source for it: a contract test
+(`caliber/tests/test_beta_scope_contract.py`) fails when the table, the evidence or the quoted messages below stop
+matching the code.
+
+Supported does **not** mean any of these:
+
+- It is not a general-availability label, a service level or a promise about upgrades, performance or hosting.
+- It does not grant authority. A supported adapter is still behind the authorization, approval and admission checks of
+  its own route and the effect dispatcher.
+- It is not a claim about every integration, connector or MCP backend. Only the two adapters in the matrix below can be
+  supported; every other path is preview, unavailable or refused, and says so.
+
+Every adapter reports exactly one status:
+
+| status | meaning |
+| --- | --- |
+| `supported` | the reference profile admits it, the deployment is configured as the cited scenarios were, and the live code still matches what they exercised |
+| `preview` | it can run, but nothing in the supported shape covers it; this is the best an MCP server or an OpenAPI integration can be, and every adapter is here outside the reference profile |
+| `unavailable` | it cannot run in this deployment; the report names the setting that says so, or `profile` when no setting does |
+
+## The supported shape
+
+The supported shape is the [reference profile](../operate/reference-profile.md): `CALIBER_PROFILE=reference`, started from a
+configuration that passes every rule on that page (PostgreSQL, CSRF on, no development fallbacks, the egress policy on, no
+MCP allowlist entries, no unlisted plugin, a confined file root, two-person approval and Apply). A process that breaks a
+rule refuses to start and lists every violation. The default profile, `development`, is unchanged and supports nothing.
+
+On top of the profile, each adapter needs a little more:
+
+| adapter | also needs | variable |
+| --- | --- | --- |
+| `document_request_connector` | the background loops on, and the effect reconciler on (both default on) | `CALIBER_BACKGROUND_TASKS_ENABLED`, `CALIBER_EFFECT_RECONCILER_ENABLED` |
+| `release_evaluation` | the release area on, its evaluator on, the background loops on, and a real evaluation provider | `CALIBER_FEATURE_RELEASE_CANDIDATES`, `CALIBER_WORKSPACE_RELEASE_EVALUATOR_ENABLED`, `CALIBER_BACKGROUND_TASKS_ENABLED`, `CALIBER_EVAL_PROVIDER=mlflow` |
+
+Neither adapter is on after the [alpha install](alpha-install.md): that install runs the development profile, with the
+release area off, so its report is `preview` for the connector and `unavailable` for the rest (the default row below).
+The workflow queue (`CALIBER_WORKFLOW_RUN_QUEUE_ENABLED`) is not a condition of either claim.
+
+## The support matrix
+
+| adapter id | what it is | best status it can reach | reference profile, configured as above | development profile (the default) |
+| --- | --- | --- | --- | --- |
+| `document_request_connector` | the trusted `document_request` transport that the effect dispatcher sends an approved protected action through | `supported` | `supported` | `preview` (`not_reference_profile`) |
+| `release_evaluation` | the workspace release evaluator that executes queued evaluation attempts of a release | `supported` | `supported` | `preview` (`not_reference_profile`), or `unavailable` while the release area or the evaluator is off |
+| `mcp_servers` | MCP servers registered with the gateway | `preview` | `unavailable` (`mcp_not_in_reference_profile`): the profile lists no MCP command or host, so no server is reachable | `preview` (`no_support_evidence`), or `unavailable` while `CALIBER_FEATURE_INTEGRATIONS` is off |
+| `openapi_integrations` | imported OpenAPI integrations and the tools published from them | `preview` | `preview` (`no_support_evidence`) | `preview` (`no_support_evidence`), or `unavailable` while `CALIBER_FEATURE_INTEGRATIONS` is off |
+
+The four rows are the four adapters the capability report lists, in that order. A closed area flag wins over everything
+else: the adapter is `unavailable` with the same `feature_disabled` code and text as the `404` of its routes. The full
+resolution order, one rule per row, is in
+[Capability exposure](../operate/reference-profile.md#capability-exposure-what-is-supported-b15-support1-755).
+
+### Evidence for each supported adapter
+
+The report lists these scenario test ids in `evidence` for a supported adapter, and lists nothing for any other status.
+Each id is a test function on `main`; the contract test fails on one that does not exist. The scenarios run in the CI job
+"EGI scenarios (PostgreSQL)" (`pytest tests/egi_scenarios`, paths relative to `caliber/`).
+
+| adapter id | scenario | what it demonstrates |
+| --- | --- | --- |
+| `document_request_connector` | `tests/egi_scenarios/test_connector_capabilities.py::test_stable_key_mutates_once` | the same idempotency key sent twice commits once at the downstream |
+| `document_request_connector` | `tests/egi_scenarios/test_connector_capabilities.py::test_stale_precondition_returns_412_and_no_mutation` | a write bound to a version that is not current is refused `412` and changes nothing |
+| `document_request_connector` | `tests/egi_scenarios/test_connector_capabilities.py::test_query_by_key_after_lost_response` | after a response is lost, the request is found by its key at the downstream |
+| `document_request_connector` | `tests/egi_scenarios/test_b04_dispatcher.py::test_dispatcher_uses_canonical_approval_and_registered_connector` | on a reference-profile app, an approval recorded over the decision route and a real execution-owner lease reach the registered connector once, with an outbox row and a receipt |
+| `document_request_connector` | `tests/egi_scenarios/test_v07_restart_exactly_once.py::test_kill_after_downstream_commit` | a dispatcher killed after the downstream committed leaves one mutation, found by key and not sent again |
+| `release_evaluation` | `tests/egi_scenarios/test_v13_release_evaluation.py::test_evaluator_crash_recovers` | after an evaluator crash, the provider runs it already observed stay on the evaluation and only the recovered claim settles it |
+| `release_evaluation` | `tests/egi_scenarios/test_v13_release_evaluation.py::test_worker_records_provider_run_before_completion_crash` | a provider run is recorded before completion, so a crash between the two loses no run identifier |
+| `release_evaluation` | `tests/egi_scenarios/test_v13_release_evaluation.py::test_recovery_before_provider_result_keeps_attempt_history` | a crash before the provider returns still burns the old claim number and keeps the attempt history |
+
+Two pins keep the claim tied to the code it was shown on: for the connector, the admission record
+`caliber.profile.REFERENCE_CONNECTORS` (implementation, capability digest and configuration digest, checked live), and for
+the evaluator, the implementation `WorkspaceReleaseEvaluator` and evidence schema version `1`. Changing either withdraws the
+claim (`unavailable`) until a reviewer confirms the scenarios again.
+
+What the evidence does not cover, stated so the word "supported" is not read wider than it is:
+
+- **The connector scenarios run against a purpose-built downstream fixture** (a case record with document requests,
+  started by the tests), not against a customer system. They show the platform's side of the contract: a stable key, a
+  precondition, a read-back by key. A downstream that does not behave like that fixture is outside the claim.
+- **The release-evaluation scenarios use a scripted evaluation provider.** They prove the claim, recovery and fenced
+  completion of an attempt, not the quality of a real provider's scores. With `CALIBER_EVAL_PROVIDER=mlflow` the evaluator
+  calls the real provider and reports `supported`; with `fake` it reports `preview` because the scores are simulated.
+- **No scenario here proves the whole loop for one workflow end to end under the capability report.** The end-to-end
+  governed run (approve, resume, one send, a receipt read back by key) is shown by
+  `tests/egi_scenarios/test_b05_governed_worker_wiring.py::test_a_proposal_is_approved_over_http_resumed_and_sent_exactly_once`,
+  which is evidence for the controls described below but is not one of the pinned `evidence` entries. Adding it is a
+  reviewed change to `SUPPORT_EVIDENCE`, not a documentation edit.
+
+## What the worker reaches in the supported shape
+
+Support of an adapter is not the same as every path to it being open. In the reference profile the workflow-run worker
+sends a protected action only through a connector whose outcome the platform can read back by key. Today that is:
+
+| node or tool | what the reference profile does | evidence (a control, not a support claim) |
+| --- | --- | --- |
+| a governed agent step bound to a tool the operator mapped to `document_request` | proposes, parks `waiting_approval`, and after a different person approves and an operator resumes, sends once and reads the receipt back by key | `tests/egi_scenarios/test_b05_governed_worker_wiring.py::test_a_proposal_is_approved_over_http_resumed_and_sent_exactly_once` |
+| a webhook or API-request node whose exact URL the operator listed in `CALIBER_EFFECT_HTTP_VERIFIERS` | sends to the generic `http` connector, which is reachable at those URLs only; the `http` connector is not one of the four adapters and the report claims nothing for it | `tests/egi_scenarios/test_b05_http_unknown_settlement.py::test_a_listed_webhook_is_sent_once_and_its_2xx_is_confirmed_by_the_lookup` |
+| a webhook or API-request node whose URL nobody listed | refused before a proposal is recorded: `HTTP effect refused: no_authoritative_verifier` | `tests/egi_scenarios/test_b05_http_unknown_settlement.py::test_a_webhook_whose_url_is_not_listed_is_refused_before_a_proposal_exists` |
+| a registered-tool, OpenAPI or MCP node | refused before a proposal is recorded: `registered tool effect refused: no_authoritative_verifier`, `OpenAPI effect refused: no_authoritative_verifier`, `MCP effect refused: no_authoritative_verifier` (these connectors have no lookup by key the platform can call; one shared check produces the sentence, and the tests show it for the HTTP label and the `registered_tool` verifier) | `tests/test_governed_worker_wiring.py::test_a_workflow_node_is_refused_before_anything_is_recorded_when_its_backend_has_no_verifier`, `tests/test_governed_worker_wiring.py::test_the_receipt_verifier_of_a_context_never_allows_an_unverified_connector` |
+
+Everything the inventory marks as running code, or writing to the host or a database with no dispatcher in front of it, is
+refused in the reference profile with `unsupported_in_reference_profile` before anything runs: the `python_code`,
+`external_app` and `output_folder` nodes, an administrator's registered Python tool, runnable exports, the standalone
+tool-sandbox service and the host-file built-ins
+([Refused paths](../operate/reference-profile.md#refused-paths-in-the-reference-profile-b047-774),
+[Executable code](../operate/reference-profile.md#executable-code-is-refused-b124a-754)). An installed optimizer plugin
+whose distribution is not in `CALIBER_PLUGIN_ALLOWLIST`, and `CALIBER_WORKFLOW_FILE_ROOT=unconfined`, stop the process from
+starting; a `folder_input`, `file_input` or `output_folder` node reads or writes only inside the configured file root, and
+with none configured it is refused
+([Plugins and host paths](../operate/reference-profile.md#plugins-and-host-paths-b124b-763)).
+
+| refusal | scenario that starts a real reference process or app and shows it |
+| --- | --- |
+| a code node, an administrator's Python tool, a refused path | `tests/egi_scenarios/test_b12_code_refusal.py::test_authoring_a_code_node_is_refused_by_validate_compile_and_publish`, `tests/egi_scenarios/test_b04_refusals.py::test_runnable_code_exports_are_refused_in_the_reference_profile` |
+| an MCP allowlist entry | `tests/egi_scenarios/test_b12_mcp_startup_rule.py::test_an_unlisted_mcp_entry_refuses_startup_before_serving` |
+| an unlisted plugin, an unconfined file root | `tests/egi_scenarios/test_b12_plugin_refusal.py::test_an_unlisted_installed_plugin_refuses_startup_and_is_never_imported`, `tests/egi_scenarios/test_b12_plugin_refusal.py::test_an_unconfined_file_root_refuses_startup` |
+
+## Opt-in, disabled and unavailable: the exact answers
+
+A feature flag says an area is on, never that it is supported, and turning one on promotes nothing. Each flag is read once
+at startup, so restart after changing it.
+
+A route of a disabled area answers `404` with `reason_code: feature_disabled` and the variable to set; the same sentence is the
+adapter's `message` in the capability report. Each row below is what the report says, word for word, and the recovery is
+the variable in `disabled_by` (`profile` means no setting changes the answer).
+
+**A disabled area (the default install).** `CALIBER_FEATURE_RELEASE_CANDIDATES` unset:
+
+```text
+GET /ajax-api/2.0/mlflow/caliber/releases/candidates
+404 {"detail": "Release-candidate signoff and workspace releases is disabled in this deployment. Set CALIBER_FEATURE_RELEASE_CANDIDATES=true to enable it.", "status_code": 404, "reason_code": "feature_disabled"}
+
+release_evaluation.message  (reason_code feature_disabled, disabled_by CALIBER_FEATURE_RELEASE_CANDIDATES)
+Release-candidate signoff and workspace releases is disabled in this deployment. Set CALIBER_FEATURE_RELEASE_CANDIDATES=true to enable it.
+
+mcp_servers.message and openapi_integrations.message  (reason_code feature_disabled, disabled_by CALIBER_FEATURE_INTEGRATIONS)
+MCP servers and OpenAPI integrations is disabled in this deployment. Set CALIBER_FEATURE_INTEGRATIONS=true to enable it.
+```
+
+**Not the reference profile (a development deployment).** Recovery: start a process with `CALIBER_PROFILE=reference` from a
+configuration that passes it; nothing else promotes the adapter.
+
+```text
+document_request_connector.message  (reason_code not_reference_profile, disabled_by CALIBER_PROFILE)
+OpenAPI document-request connector is preview in this deployment: it is supported only under CALIBER_PROFILE=reference. Set CALIBER_PROFILE=reference and start from a configuration that passes the profile to use it as a supported path.
+
+release_evaluation.message  (reason_code not_reference_profile, disabled_by CALIBER_PROFILE)
+Workspace release evaluation is preview in this deployment: it is supported only under CALIBER_PROFILE=reference. Set CALIBER_PROFILE=reference and start from a configuration that passes the profile to use it as a supported path.
+```
+
+**A reference process whose configuration breaks the profile.** Normally such a process refuses to start, so this is the
+answer of a configuration the report is asked about, with the codes the profile checks (not a configured value):
+
+```text
+reference profile refused (1 violation):
+- csrf_enabled is false; set CALIBER_CSRF_ENABLED=true for the reference profile [csrf_disabled]
+
+document_request_connector.message  (reason_code reference_profile_violations, disabled_by profile)
+OpenAPI document-request connector is unavailable: this configuration breaks the reference profile (csrf_disabled). Change the settings named in the startup refusal.
+
+release_evaluation.message  (reason_code reference_profile_violations, disabled_by profile)
+Workspace release evaluation is unavailable: this configuration breaks the reference profile (csrf_disabled). Change the settings named in the startup refusal.
+```
+
+**A pin no longer matches the code.** The claim is withdrawn until a reviewer confirms the scenarios again; no setting
+changes it (`disabled_by` is `profile`):
+
+```text
+document_request_connector.message  (reason_code connector_capability_mismatch; connector_not_admitted if the record is gone)
+OpenAPI document-request connector is unavailable: the registered transport is not the one the reference profile admits (connector_capability_mismatch).
+
+release_evaluation.message  (reason_code evaluator_evidence_mismatch)
+Workspace release evaluation is unavailable: the evaluator or its evidence shape is not the one its scenario evidence covers (evaluator_evidence_mismatch).
+```
+
+**The release path, one condition at a time.** Recovery is the variable in `disabled_by`. (`CALIBER_EVAL_PROVIDER=auto`, the
+Docker stack's default, is resolved when the settings load: to `mlflow` when a real language-model provider is configured and
+to `fake` otherwise, so the report never sees `auto`.)
+
+```text
+release_evaluation.message  (release area on, evaluator off: evaluator_disabled)
+Workspace release evaluation is unavailable in this deployment. Set CALIBER_WORKSPACE_RELEASE_EVALUATOR_ENABLED=true to enable it.
+
+release_evaluation.message  (CALIBER_EVAL_PROVIDER=fake: simulated_provider)
+Workspace release evaluation is preview while its scores are simulated. Set CALIBER_EVAL_PROVIDER=mlflow so the evaluation is a real one.
+
+release_evaluation.message  (CALIBER_EVAL_PROVIDER set to anything but mlflow or fake, a typo or a padded value for example: eval_provider_unrecognized)
+Workspace release evaluation is preview: CALIBER_EVAL_PROVIDER is not a provider this build supports. Set CALIBER_EVAL_PROVIDER=mlflow so the evaluation is a real one.
+
+release_evaluation.message  (CALIBER_BACKGROUND_TASKS_ENABLED=false: background_tasks_disabled)
+Workspace release evaluation is unavailable: the release evaluator runs in a background loop and CALIBER_BACKGROUND_TASKS_ENABLED is false. Set CALIBER_BACKGROUND_TASKS_ENABLED=true to enable it.
+```
+
+**The connector, one condition at a time:**
+
+```text
+document_request_connector.message  (CALIBER_BACKGROUND_TASKS_ENABLED=false: background_tasks_disabled)
+OpenAPI document-request connector is unavailable: the effect reconciler runs in a background loop and CALIBER_BACKGROUND_TASKS_ENABLED is false. Set CALIBER_BACKGROUND_TASKS_ENABLED=true to enable it.
+
+document_request_connector.message  (CALIBER_EFFECT_RECONCILER_ENABLED=false: reconciler_disabled)
+OpenAPI document-request connector is unavailable: the effect reconciler is off, so an effect whose outcome was never recorded stays blocked. Set CALIBER_EFFECT_RECONCILER_ENABLED=true to enable it.
+```
+
+A `supported` adapter's `message` and the capability block it sits in:
+
+```text
+document_request_connector.message
+OpenAPI document-request connector is supported: the reference profile admits this transport by its pinned implementation, capability record and configuration.
+
+release_evaluation.message
+Workspace release evaluation is supported: the evaluator and its evidence shape match the scenario evidence.
+```
+
+**MCP servers and OpenAPI integrations.** With the integrations area on, the reference profile reports MCP servers as
+unavailable and OpenAPI integrations as preview; nothing promotes either:
+
+```text
+mcp_servers.message  (reference profile, area on: mcp_not_in_reference_profile, disabled_by profile)
+MCP servers are unavailable under the reference profile: it lists no MCP command or host, so no server is reachable.
+
+mcp_servers.message and openapi_integrations.message  (development profile, area on: no_support_evidence, disabled_by profile)
+MCP servers are preview: no scenario evidence supports them in the reference profile, and no setting changes that.
+OpenAPI integrations are preview: no scenario evidence supports them in the reference profile, and no setting changes that.
+```
+
+The capability report reads, for a client or the web app, `data.adapters.<adapter id>` with `status`, `kind`, `label`,
+`reason_code`, `disabled_by`, `message` and `evidence`. Read it instead of probing for a `404`. `data.features` is
+unchanged. How the navigation renders these values is #771; a visible entry grants no authority.
+
+## Known limits
+
+These are true of `main` today and are deliberate; each one that has an owner names it.
+
+- **The worker dispatches only two connectors.** In the reference profile a production run reaches `document_request`
+  (through a governed agent step) and `http` (through a webhook or API-request node at operator-listed URLs). The
+  `registered_tool`, `openapi_http` and `mcp` connectors have no lookup by key the platform can call, so a node that
+  would use one is refused `no_authoritative_verifier` before its proposal is recorded. Model-chosen tool calls of an
+  agent that is not governed are not routed (#768, and #1079 for replays).
+- **A permanent unknown has no operator exit yet.** A downstream that never shows a request and cannot prove its absence
+  leaves the proposal `unknown` and its dependents blocked. The attested operator resolution is #1054 and is not
+  delivered; the [recovery runbook](../operate/recovery-runbook.md) says what to do and not to do until then.
+- **An unknown webhook outcome fails the run.** A webhook or API-request node whose effect ends `unknown` (a timeout
+  after the send, a 5xx, a 2xx the lookup cannot see yet) fails its run; unlike a governed agent step it does not park.
+  The reconciler settles the proposal by the listed lookup without sending again, but settling does not resume the failed
+  run. Read the proposal before running such a workflow again: a new run is a new effect with a new key. Settling the
+  proposal of an ended run, and withdrawing an approved decision that was never consumed, are #1074.
+- **Fifteen protected-effect rows are not routed.** The inventory marks them `dispatch`, but no connector routes them yet,
+  and the matrix records them as `unrouted` instead of claiming otherwise. They are not refused in the reference profile
+  either, because their reference-profile behaviour has not been decided:
+
+| inventory rows | what they are | owner |
+| --- | --- | --- |
+| EP-009, EP-010, EP-013, EP-051, EP-059 | knowledge-build and object-store writes | #1086 |
+| EP-070, EP-071, EP-072, EP-075, EP-076, EP-077 | prompt and release publishing | #1087 |
+| EP-017, EP-081, EP-090 | the synchronous run route, Aria's `run_workflow` tool, and a path with no production caller | #1088 |
+| EP-034 | Aria's published-tool call | #1063 |
+
+- **Generated Python can still reach a client.** The runnable export routes answer `409` in the reference profile, but the
+  generated text is sealed into the compiled bundle and can leave through compile, get and publish. That is part of #1088;
+  do not read the two `409`s as a guarantee that no generated Python reaches a client.
+- **Governed effects outside the worker's own graph.** Synchronous version runs, evaluation, gate and Aria previews and the
+  sub-workflows of a worker run have no execution-owner lease and bind no governed context, so the reference profile
+  refuses their protected nodes (and an agent in them that can reach a mapped tool). The development profile runs them on
+  the legacy guarded path.
+- **A governed effect inside a fan-out, loop, error boundary, handoff or `parallel` branch** cannot park the run: the run is
+  refused up front (agents) or fails (effects).
+- **The capability `adapters` map is an owner-confirmable decision.** Which adapters can be `supported`, and which scenarios
+  pin them, is `caliber.features.ADAPTERS` and `SUPPORT_EVIDENCE`. Adding an adapter, or promoting `http` or a
+  registered-tool path, is a reviewed change to those tables with its own scenario evidence, and then a change to this
+  page; the owner confirms that decision, and nothing in this page or in a setting makes it.
+- **MCP servers stay out of the reference profile.** The profile lists no MCP command or host
+  (`caliber.profile.REFERENCE_MCP_ALLOWLIST` is empty), including the first-party PostgreSQL servers; adding an entry is an
+  ADR 0001 change.
+- **Not enforced by the process.** The single tenant and region, the object store, at least two projects, origin rules, the
+  database role and cookie flags are stated in ADR 0001 and listed under
+  [Not enforced yet](../operate/reference-profile.md#not-enforced-yet); a configuration that passes the profile is the
+  minimum for the supported shape, not the whole of it.
+
+## What stays from the alpha
+
+The alpha pages describe `0.1.0a1` and stay as written, except where a sentence there contradicted `main` and was
+corrected. Everything the alpha scope says about the default install still holds: the default profile supports no
+adapter, the preview areas stay behind their flags (Aria ships on), and enabling a flag accepts that area's preview
+behaviour and promotes nothing. What the Beta adds is the per-adapter answer above, the reference profile, and the refusal
+codes, none of which changes a default.
+
+## Related
+
+- [Reference profile](../operate/reference-profile.md) for the settings, the refusal catalogue and the resolution order of
+  the capability report.
+- [Reference profile recovery runbook](../operate/recovery-runbook.md) for an unknown effect, a lost owner or a backlog.
+- [Alpha scope and known limitations](alpha-scope.md) and [Alpha install](alpha-install.md), the alpha record.
+- [REST API reference](../api/reference.md) for `GET /capabilities`.
