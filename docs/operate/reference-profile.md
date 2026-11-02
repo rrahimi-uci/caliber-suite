@@ -5167,7 +5167,7 @@ for result in evaluate_all(HARBORLIGHT_V1, observations):
   `[a-z0-9][a-z0-9._-]{0,63}`. `evaluate` returns a `CriterionResult(predicate_id, passed, evidence_ref)` whose `evidence_ref` is
   the RFC 6901 JSON pointer, into the observations, of the value that decided it.
 - **`evaluate_all(predicates, observations)`** returns every result in the order given and does not stop at a failure. All the
-  predicates must share one `criteria_version` (a decision is made under one version).
+  predicates must share one `criteria_version` (a decision is made under one version). `check_predicate_set(predicates)` runs just those set checks (non-empty, all `Predicate`, unique ids, one version) and returns the tuple; B09.2a uses it to know the criteria version of a decision without judging.
 
 **Harborlight, `HARBORLIGHT_V1`** (criteria version `harborlight-v1`) reads three keys, **all required**:
 `proposal` (`case_id`, `document_type`, `expected_version`), `receipt` (`downstream_request_id`) and `case_record` (`case_id` and
@@ -5213,10 +5213,101 @@ everything), `duplicate_predicate_id`, `mixed_criteria_versions`, `predicate_fai
 `invalid_observations` raised while building `Observations` from what a downstream returned (a NaN, a non-JSON value, too deep):
 the caller must catch it and record the acceptance as rejected for that reason, not let it crash the run.
 
-**Configuration, migration and rollback.** No setting, no migration, no endpoint and no stored data: nothing calls these
-predicates yet. Persisting a decision (#784), the runtime and status integration (#791), recording observations (#799) and replay
-(#805) build on them, and the consolidated acceptance report belongs to #612. The development profile is unchanged. Rolling back
-is reverting the change.
+**Configuration, migration and rollback.** No setting, no endpoint and no stored data of its own: the predicates are pure. Persisting a
+decision is [Acceptance decisions (B09.2a, #784)](#acceptance-decisions-b092a-784); the runtime and status integration (#791),
+recording observations (#799) and replay (#805) build on them, and the consolidated acceptance report belongs to #612. The
+development profile is unchanged. Rolling back is reverting the change.
+
+## Acceptance decisions (B09.2a, #784)
+
+`caliber.acceptance.decision` turns the predicates' verdict into a stored decision. `judge(predicates, observations)` is pure (no
+database, no I/O) and returns a `Verdict`; `record_decision(session, ...)` judges and stores the verdict **in the caller's
+transaction** (it flushes and never commits, so the decision lands or rolls back with whatever the caller does next, such as
+completing the run, #791). The package root `caliber.acceptance` stays I/O-free: import `caliber.acceptance.decision` explicitly.
+
+```python
+from caliber.acceptance import HARBORLIGHT_V1
+from caliber.acceptance.decision import record_decision
+
+with Session(engine) as session, session.begin():
+    recorded = record_decision(
+        session,
+        workflow_run_id="run-123",
+        candidate_id="prop-9f2c",  # the effect proposal (or counterfactual candidate) that was judged
+        predicates=HARBORLIGHT_V1,
+        observations={"proposal": {...}, "receipt": {...}, "case_record": {...}},
+    )
+recorded.decision.outcome   # "accepted" or "rejected"
+recorded.decision.failed_criteria   # ("attached_to_expected_version",) for a downstream that answered 2xx and left the case where it was
+recorded.created            # False when the same decision was already recorded
+```
+
+**What identifies a decision.** `(workflow_run_id, candidate_id, criteria_version, observation_digest)` is unique
+(`uq_acceptance_decision_key`). `observation_digest` is the SHA-256 of the canonical JSON of the observations the predicates saw
+(sorted keys, no whitespace, UTF-8, so key order does not matter). Recording the same decision again, also from a concurrent
+worker, returns the stored row with `created` false and changes nothing (the first decision keeps its `decided_at`). A new
+candidate, a new criteria version or any other observation is a **new decision**: a run can hold several, for example a retry whose
+observations differ from the first attempt's. One key with a *different* verdict (the predicates changed without a new criteria
+version) is `decision_conflict` and never replaces the first. The observation bytes are not stored here; only their digest is
+(recording them in `StorageBackend` is B09.3, #799).
+
+**What decides the outcome.** Only the criteria. Every predicate is critical: the decision is `accepted` if and only if none failed.
+Nothing else is an input: `judge` and `record_decision` take no transport status, no model text and no override, and the table
+refuses an `accepted` row that has a failed criterion even from raw SQL (`ck_acceptance_decision_critical`). The stored
+`criteria` list, in predicate order, is the per-criterion evidence: `predicate_id`, `passed`, `evidence_ref` (the JSON pointer into
+the observations of the value that decided it, as above) and the `rule_ids` the predicate enforces; `criteria_total` and
+`criteria_failed` count them.
+
+**Unreadable observations are a recorded rejection, not a crash.** If the observations cannot be frozen (`invalid_observations`: not
+a mapping, a NaN, a non-JSON value, nesting past 32 levels, text that is not valid Unicode), the decision is `rejected` with no
+criteria, `reason_code` `invalid_observations` and `reason_detail` set to the contract error's *redacted* message: a JSON pointer whose
+mapping keys are elided to `*` (list indexes stay, e.g. `/*/*/1 is not a finite number`) and a type, never a key or a value, because a
+key is downstream data and the row is write-once (non-ASCII is replaced and the text is cut at 512 characters; `PredicateError.redacted`). Its digest covers that detail, so unreadable observations with the same
+problem at the same place (keys elided) are one decision, and another problem or another place is another. Every *other* predicate contract error (`empty_predicate_set`,
+`duplicate_predicate_id`, `mixed_criteria_versions`, `invalid_predicate`, `predicate_failed`, `invalid_result`) is raised as
+`PredicateError` and **nothing is stored**: a bug cannot become an accepted run or a silent rejection.
+
+**Refusals.** `AcceptanceError` carries a stable `code`; its message never carries an observation value.
+
+| `code` | Meaning | Recovery |
+| --- | --- | --- |
+| `bad_field` | `workflow_run_id` is not 1..64 characters, `candidate_id` does not match `[A-Za-z0-9][A-Za-z0-9._:-]{0,127}`, or `now` is not a datetime | fix the caller |
+| `unknown_run` | the run does not exist (checked by the writer on SQLite, where foreign keys are not enforced, and by the foreign key on PostgreSQL) | record only for a run that was admitted |
+| `decision_conflict` | a different verdict is already stored under this run, candidate, criteria version and observation digest | the stored decision stands; ship the changed predicates under a new `criteria_version` |
+| `decision_corrupt` | a reader found a row whose criteria do not match its counts or its outcome (a row inserted around the application) | treat the run as unaccepted and investigate the row; readers never repair it |
+| `store_failed` | the database refused the row for a reason other than the key (a defect, or the migration has not run) | run `alembic upgrade head`; the session stays usable and nothing was stored |
+
+`read_decision`, `find_decision` and `decisions_for_run` (oldest `decided_at` first, ties by decision id) rebuild the record from the
+stored columns and verify it, so a reader never sees a decision other than the one the row states. A run holds one decision per
+key, so *which* of a run's decisions settles the run is the runtime's rule (#791), not stored here.
+
+**Migration `0135`.** Creates `caliber_acceptance_decisions`: a unique key, CHECK constraints (an `accepted` row has no failed
+criterion and no reason; a row has criteria or an `invalid_observations` reason, not both; counts are in range; the digest is 64
+characters), a foreign key to `caliber_workflow_runs` (enforced on PostgreSQL), and write-once triggers on SQLite and PostgreSQL
+(`UPDATE` and `DELETE`; PostgreSQL adds a `TRUNCATE` trigger and revokes `UPDATE`, `DELETE` and `TRUNCATE` from `PUBLIC`; the trigger
+function is pinned to the migration's schema). A role that was granted those privileges anyway is stopped by the trigger. The
+ORM refuses edits and bulk changes too. On SQLite a BEFORE INSERT trigger also refuses an insert whose id or key already exists, so
+`INSERT OR REPLACE` cannot swap a decision (it deletes without firing the DELETE trigger); unenforced foreign keys remain possible from
+raw SQL, as for migration `0133`. **The PostgreSQL protection holds against a non-owner role only:** the application runs as the table
+owner by default (see the `0114` section above), and an owner can disable triggers and grant itself privileges, so run the application as
+a role that does not own the tables where this evidence must resist the application itself.
+
+**Deleting runs.** A run with a decision is retained evidence: deleting a workflow whose runs carry one is refused with `409`
+(`cannot delete workflow: its runs have immutable acceptance decisions`), and retention pruning (`prune_workflow_runs`) skips such runs,
+so neither orphans a decision (SQLite) nor breaks on its foreign key (PostgreSQL).
+
+**For the runtime integration (#791) and the evidence package (#826).** `record_decision` accepts any `Predicate` set and the criteria version
+is not pinned to an approved set, so the caller must pass `HARBORLIGHT_V1` explicitly (recording a predicate-set digest is a candidate
+follow-up); `decision_conflict` and `decision_corrupt` are raised, not audited, so the caller should audit them; `decisions_for_run` orders by
+the application clock's `decided_at` and then id, not by insertion order, and which decision settles a run is #791's rule; `candidate_id` has
+no foreign key, so #826 resolves whether an id is a proposal or a counterfactual candidate; a predicate that raises is a `PredicateError`
+and nothing is recorded. The migration is purely additive and nothing reads the table before the code that writes it, so
+migrations run before the new code serves with no rolling-deploy hazard. **There is no backfill:** runs that finished before this
+revision have no decision and are never given one. Nothing in the runtime calls `record_decision` yet (#791), so no run gains or loses
+anything on upgrade, and the causal-links `acceptance` marker is still `not_available` / `acceptance_record_not_available` (#791 and
+the evidence package, #818, link it). **Rollback:** `alembic downgrade 0134` drops the table and its function and loses the stored
+decisions; reverting the code alone leaves the table in place and unused. No setting is added and the development profile is
+unchanged.
 
 ## Not enforced yet
 

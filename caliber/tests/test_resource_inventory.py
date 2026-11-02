@@ -73,7 +73,10 @@ _EXPECTED_COUNTS = {
     # +1 (`B08.4`): CaliberStepTokenReservation is an immutable-once-final child of a workflow run (FK `workflow_run_id`) with no
     # project column of its own, like CaliberEffectProposal: the run supplies the project boundary. Confirmed by direct look; it is
     # written and read only through `caliber.budget.step_reservation`, never listed through a route.
-    SCOPING_UNSCOPED: 60,
+    # +1 (`B09.2a`): CaliberAcceptanceDecision is an immutable child of a workflow run (FK `workflow_run_id`) with no project column
+    # of its own, like CaliberEffectReceipt: the run supplies the project boundary. Confirmed by direct look; it is written and read
+    # only through `caliber.acceptance.decision`, never listed through a route.
+    SCOPING_UNSCOPED: 61,
     # -1 (`P1-E`): CaliberPersonalAccessToken gained project_id (optional
     # PAT project binding) and moves from owned_catalog to project_only --
     # see below.

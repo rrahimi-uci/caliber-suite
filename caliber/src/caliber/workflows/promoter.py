@@ -42,6 +42,7 @@ from caliber.auth import SCOPE_VIEWER, CaliberIdentity
 from caliber.config import CaliberConfig
 from caliber.context.authorize import GOVERNED_RUN_REQUIRED, ContextDenied
 from caliber.db.models import (
+    CaliberAcceptanceDecision,
     CaliberAgentConfig,
     CaliberEffectProposal,
     CaliberEvalDataset,
@@ -1550,7 +1551,7 @@ def prune_workflow_runs(
     Returns the number of rows deleted. The janitor calls this each sweep so the
     ``caliber_workflow_runs`` index doesn't grow without bound (plan §26.3 sets
     a 7-day default for preview traces). ``retention_days <= 0`` disables pruning.
-    Runs that have an immutable manifest or an effect proposal are never pruned.
+    Runs that have an immutable manifest, an effect proposal or an acceptance decision are never pruned.
     """
     if retention_days <= 0:
         return 0
@@ -1577,9 +1578,18 @@ def prune_workflow_runs(
         .where(CaliberEffectProposal.workflow_run_id == CaliberWorkflowRun.workflow_run_id)
         .exists()
     )
+    # An acceptance decision (B09.2a) is the same: immutable evidence that references the run; deleting the run would orphan it
+    # (SQLite) or violate its foreign key and fail the whole batch (PostgreSQL).
+    has_decision = (
+        select(CaliberAcceptanceDecision.decision_id)
+        .where(CaliberAcceptanceDecision.workflow_run_id == CaliberWorkflowRun.workflow_run_id)
+        .exists()
+    )
     rows = (
         session.execute(
-            select(CaliberWorkflowRun).where(age_ts < cutoff, ~has_manifest, ~has_proposal)
+            select(CaliberWorkflowRun).where(
+                age_ts < cutoff, ~has_manifest, ~has_proposal, ~has_decision
+            )
         )
         .scalars()
         .all()
