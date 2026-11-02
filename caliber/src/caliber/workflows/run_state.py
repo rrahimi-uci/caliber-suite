@@ -91,6 +91,37 @@ class InvalidRunStateTransition(Exception):  # noqa: N818 - public API name
         return f"invalid workflow-run transition: {self.from_status!r} -> {self.to_status!r}"
 
 
+#: Acceptance of a run's governed effects (B09.2b, #791). It is information beside the lifecycle status, never a new status:
+#: every consumer that reads ``completed`` as "succeeded" stays correct because a run whose acceptance is not ``accepted``
+#: never reaches ``completed``. ``accepted``: every acceptance-governed effect of the run has an ``accepted`` decision.
+#: ``rejected``: at least one has a ``rejected`` decision. ``error``: the run could not be judged (a decision could not be
+#: recorded or read, or a criterion is broken), which is never success either. A run with no acceptance-governed effect, and every
+#: run completed before this existed, carries no acceptance information at all (``None``): they are not relabelled.
+ACCEPTANCE_ACCEPTED = "accepted"
+ACCEPTANCE_REJECTED = "rejected"
+ACCEPTANCE_ERROR = "error"
+ACCEPTANCE_STATUSES = frozenset({ACCEPTANCE_ACCEPTED, ACCEPTANCE_REJECTED, ACCEPTANCE_ERROR})
+
+#: The ``error_code`` of a run that failed because acceptance did not accept it, by acceptance status.
+ACCEPTANCE_FAILURE_CODES: dict[str, str] = {
+    ACCEPTANCE_REJECTED: "acceptance_rejected",
+    ACCEPTANCE_ERROR: "acceptance_error",
+}
+
+
+def status_after_acceptance(run_status: str, acceptance_status: str | None) -> str:
+    """The status a run may take once its acceptance is known: ``completed`` only with no acceptance information or an accepted one.
+
+    Any other acceptance status (``rejected``, ``error`` and, fail closed, a value this build does not know) turns a
+    ``completed`` result into ``failed``; a status that is not ``completed`` is returned as it is.
+    """
+    if run_status != RUN_STATUS_COMPLETED:
+        return run_status
+    if acceptance_status is None or acceptance_status == ACCEPTANCE_ACCEPTED:
+        return RUN_STATUS_COMPLETED
+    return RUN_STATUS_FAILED
+
+
 def normalize_runtime_result_status(runtime_status: str) -> str:
     """Map runtime interpreter statuses into persisted workflow-run statuses."""
     return RUNTIME_RESULT_TO_RUN_STATUS.get(runtime_status, RUN_STATUS_FAILED)
@@ -113,6 +144,11 @@ def assert_run_transition(from_status: str, to_status: str) -> None:
 
 
 __all__ = [
+    "ACCEPTANCE_ACCEPTED",
+    "ACCEPTANCE_ERROR",
+    "ACCEPTANCE_FAILURE_CODES",
+    "ACCEPTANCE_REJECTED",
+    "ACCEPTANCE_STATUSES",
     "ALLOWED_RUN_TRANSITIONS",
     "RUN_STATUS_CANCELLED",
     "RUN_STATUS_COMPLETED",
@@ -128,4 +164,5 @@ __all__ = [
     "assert_run_transition",
     "can_transition_run_status",
     "normalize_runtime_result_status",
+    "status_after_acceptance",
 ]

@@ -160,6 +160,46 @@ def test_issued_token_token_field_is_keyword_only() -> None:
     assert issued.token == "secret"
 
 
+def test_workflow_run_carries_acceptance_and_never_calls_a_rejected_run_a_success() -> None:
+    from caliber_sdk.models._decode import decode
+    from caliber_sdk.models.workflows import WorkflowRun
+
+    accepted = decode(
+        WorkflowRun,
+        {"workflow_run_id": "WR-1", "status": "completed", "acceptance": {"status": "accepted"}},
+    )
+    assert (accepted.acceptance, accepted.accepted, accepted.succeeded) == (
+        {"status": "accepted"},
+        True,
+        True,
+    )
+    rejected = decode(
+        WorkflowRun,
+        {
+            "workflow_run_id": "WR-2",
+            "status": "failed",
+            "error_code": "acceptance_rejected",
+            "acceptance": {"status": "rejected", "decisions": [{"decision_id": "acc-1"}]},
+        },
+    )
+    assert (rejected.accepted, rejected.succeeded, rejected.is_terminal) == (False, False, True)
+    assert "acceptance" not in rejected.extra, "a known field is typed, not left in extra"
+    # a server that ever served `completed` with a rejection (it does not) is not a success here
+    contradictory = decode(
+        WorkflowRun,
+        {"workflow_run_id": "WR-3", "status": "completed", "acceptance": {"status": "error"}},
+    )
+    assert (contradictory.accepted, contradictory.succeeded) == (False, False)
+    # nothing to judge, a legacy run and an older server: no acceptance information, not relabelled
+    for payload in (
+        {"workflow_run_id": "WR-4", "status": "completed", "acceptance": None},
+        {"workflow_run_id": "WR-5", "status": "completed"},
+        {"workflow_run_id": "WR-6", "status": "completed", "acceptance": "accepted"},
+    ):
+        legacy = decode(WorkflowRun, payload)
+        assert (legacy.accepted, legacy.succeeded) == (None, True)
+
+
 def test_workflow_run_reads_output_and_error_from_the_servers_summary() -> None:
     from caliber_sdk.models._decode import decode
     from caliber_sdk.models.workflows import WorkflowRun

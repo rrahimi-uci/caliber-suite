@@ -21,7 +21,15 @@ import re
 from datetime import datetime
 from typing import Any, Final, Generic, Literal, TypeVar
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    ValidationError,
+    computed_field,
+    field_validator,
+    model_validator,
+)
 
 from caliber.assistant.task_context import TaskContextRef
 
@@ -1728,6 +1736,49 @@ class WorkflowPatchSchema(BaseModel):
     created_at: datetime
 
 
+class WorkflowRunAcceptanceDecisionSchema(BaseModel):
+    """One acceptance decision that settled a run: a row of ``caliber_acceptance_decisions`` (B09.2a), by id and verdict."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    decision_id: str
+    candidate_id: str
+    outcome: Literal["accepted", "rejected"]
+    observation_digest: str
+    failed_criteria: list[str] = Field(default_factory=list)
+
+
+class WorkflowRunAcceptanceSchema(BaseModel):
+    """Whether the platform accepted what a run's effects did to the system of record (B09.2b, #791).
+
+    ``status`` is ``accepted`` (every governed effect has an accepted decision), ``rejected`` (at least one was judged not to
+    have produced the intended state) or ``error`` (the run could not be judged: ``error_code`` says why). A run is
+    ``completed`` only when this is ``accepted`` or absent. ``decisions`` are the decisions that settled the run, by id.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    status: Literal["accepted", "rejected", "error"]
+    criteria_version: str | None = None
+    error_code: str | None = None
+    decisions: list[WorkflowRunAcceptanceDecisionSchema] = Field(default_factory=list)
+
+
+def _acceptance_from_summary(summary: object) -> WorkflowRunAcceptanceSchema | None:
+    """The acceptance record a run's summary holds, ``None`` if it has none (a legacy run, or one with nothing to judge).
+
+    A record that is present but not readable is reported as an ``error`` (``acceptance_unreadable``), never as acceptance and
+    never as no information.
+    """
+    raw = summary.get("acceptance") if isinstance(summary, dict) else None
+    if raw is None:
+        return None
+    try:
+        return WorkflowRunAcceptanceSchema.model_validate(raw)
+    except ValidationError:
+        return WorkflowRunAcceptanceSchema(status="error", error_code="acceptance_unreadable")
+
+
 class WorkflowRunSchema(BaseModel):
     """Serialized form of :class:`caliber.db.models.CaliberWorkflowRun`."""
 
@@ -1764,6 +1815,12 @@ class WorkflowRunSchema(BaseModel):
     error_code: str | None = None
     error_summary: str | None = None
     summary: dict[str, object] | None
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def acceptance(self) -> WorkflowRunAcceptanceSchema | None:
+        """The acceptance of the run's effects (B09.2b); ``None`` for a run that has none, which is never relabelled."""
+        return _acceptance_from_summary(self.summary)
 
 
 class WorkflowRunHistoryArtifactStatsSchema(BaseModel):

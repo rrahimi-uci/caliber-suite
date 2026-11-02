@@ -410,6 +410,7 @@ def test_openapi_non_get_requires_proposal(factory: sessionmaker[Session]) -> No
 #: ``unsupported_effect_path`` (B04.4, #750), so none of these can perform a write. A new caller fails this test until it is
 #: routed through the dispatcher or deliberately pinned here with its reason.
 RAW_OPENAPI_CALLERS = {
+    "acceptance/completion.py": "the platform's own read of the downstream's case record when it judges a completing run (B09.2b, #791): a GET that carries no effect",
     "assistant/capabilities.py": "Aria's published-tool call (EP-034): reads only, a protected method is refused by the entry; its governed write route is #1063",
     "effects/reconcile.py": "the reconciler's lookup by key: a GET that carries no effect",
     "integrations/openapi/executor.py": "the executor itself",

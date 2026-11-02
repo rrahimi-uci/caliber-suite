@@ -445,6 +445,12 @@ export interface WorkflowRun {
   input_file_ref?: string | null;
   error_code?: string | null;
   error_summary?: string | null;
+  /**
+   * Whether the platform accepted what the run's effects did to the downstream system of record (B09.2b).
+   * `null` (or absent) for a run with nothing to judge and for every run that finished before acceptance
+   * existed: those are never relabelled. A run is `completed` only when this is `accepted` or `null`.
+   */
+  acceptance?: WorkflowRunAcceptance | null;
   summary: {
     output?: string;
     input?: string;
@@ -467,6 +473,21 @@ export interface WorkflowRun {
     timeout_checkpoint_id?: string;
     artifact_persistence?: WorkflowRunArtifactPersistenceSummary | null;
   } | null;
+}
+
+export interface WorkflowRunAcceptanceDecision {
+  decision_id: string;
+  candidate_id: string;
+  outcome: "accepted" | "rejected";
+  observation_digest: string;
+  failed_criteria: string[];
+}
+
+export interface WorkflowRunAcceptance {
+  status: "accepted" | "rejected" | "error";
+  criteria_version: string | null;
+  error_code: string | null;
+  decisions: WorkflowRunAcceptanceDecision[];
 }
 
 export interface WorkflowRunArtifactPersistenceSummary {
