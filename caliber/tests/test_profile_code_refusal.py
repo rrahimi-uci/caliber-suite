@@ -1264,9 +1264,9 @@ def test_promotion_checks_a_registered_python_tool_against_the_registry_row(
 def test_the_publish_detail_keeps_every_refusal_and_the_other_errors(
     report: dict[str, Any] | None, expected: str
 ) -> None:
-    from caliber.workflows.promoter import _compile_failure_detail
+    from caliber.workflows.promoter import compile_failure_detail
 
-    assert _compile_failure_detail(CompileError("failed", report=report)) == expected
+    assert compile_failure_detail(CompileError("failed", report=report)) == expected
 
 
 def test_publish_refuses_code_in_the_reference_profile(client: TestClient) -> None:

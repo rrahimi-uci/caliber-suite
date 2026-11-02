@@ -257,7 +257,7 @@ def _build_workflow_predict(
         bind_project_managed_file_runtime,
         managed_file_tool_aliases,
     )
-    from caliber.workflows.promoter import build_executor, build_plan  # noqa: PLC0415
+    from caliber.workflows.promoter import build_executor, build_plan, failure_detail  # noqa: PLC0415
     from caliber.workflows.runtime import execute  # noqa: PLC0415
 
     version = session.get(CaliberWorkflowVersion, version_id)
@@ -303,7 +303,7 @@ def _build_workflow_predict(
         )
     except Exception as exc:
         raise HTTPException(
-            status_code=400, detail=f"failed to compile workflow {version_id!r}: {exc}"
+            status_code=400, detail=f"failed to compile workflow {version_id!r}: {failure_detail(exc)}"
         ) from exc
 
     def predict(inputs: Mapping[str, Any]) -> str:
