@@ -2375,11 +2375,19 @@ def _execute_model_tool_call(
         return marker, _tool_result_text(marker)
     tracer = get_tracer()
     started = time.perf_counter()
+    # Governed adapters pass ``error_detail=False``.  Their tool arguments and
+    # results may contain payloads, while B11.3a permits only payload-free span
+    # attributes for that path.  Keep the existing payload attributes for the
+    # ungoverned loops, whose trace readers apply the normal fail-closed
+    # projection in ``trace_access``.
+    span_attributes: dict[str, Any] = {"caliber.tool": name}
+    if error_detail:
+        span_attributes["caliber.tool.input"] = arguments or fallback_input
     try:
         with tracer.span(
             f"tool.{name}",
             span_type="TOOL",
-            attributes={"caliber.tool": name, "caliber.tool.input": arguments or fallback_input},
+            attributes=span_attributes,
         ) as span:
             try:
                 result = _call_tool(fn, arguments, fallback_input=fallback_input)
@@ -2387,7 +2395,8 @@ def _execute_model_tool_call(
                 span.set_attribute(
                     "caliber.tool.latency_ms", round((time.perf_counter() - started) * 1000, 3)
                 )
-            span.set_attribute("caliber.tool.output", result)
+            if error_detail:
+                span.set_attribute("caliber.tool.output", result)
         return result, _tool_result_text(result)
     except ModelToolCallRefused as refusal:
         marker = refusal_marker(name, refusal.code)
