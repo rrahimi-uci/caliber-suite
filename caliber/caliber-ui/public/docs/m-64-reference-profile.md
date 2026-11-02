@@ -5286,7 +5286,13 @@ startup refuses it (`workflow_file_root_unconfined`), and a process that is runn
 the node with `unsupported_in_reference_profile` rather than reading the path. The built-in `read_text_file`, `list_folder_files`,
 `grep_files` and `regex_search` tools are a different mechanism and are not confined by this root: the reference profile refuses them
 outright (inventory row EP-055, B04.7, #774; see [Refused paths](#refused-paths-in-the-reference-profile-b047-774)), so no host
-path reaches them there. The managed file tools
+path reaches them there. The shipped `extract_document` tool also opens a host path (a bare path, not a managed ref), and it is **confined,
+not refused** (B12.4c, #770): it runs in the sandbox child, which a reference-profile sandbox gives `CALIBER_PROFILE` and
+`CALIBER_WORKFLOW_FILE_ROOT` and nothing else, and it resolves the path (`..` and symlinks included) and checks it against the root before
+opening anything. A path outside raises `PathOutsideRoot` (the call fails; "outside the configured workflow file root"), no root refuses the
+read, and `unconfined` is refused with `unsupported_in_reference_profile`. A workflow that declares managed files binds the content-pinned
+override instead, which takes a ref and no host path. Before #770 this tool read any path the server could read in the reference profile.
+The managed file tools
 (`caliber.workflows.file_tools`) never take a host path: they take a `caliber://` ref, and a traversal in a ref
 (`../../outside.txt`) is rejected by the ref grammar before any storage is touched.
 
@@ -5315,6 +5321,101 @@ development profile is unchanged. Rolling back is reverting the change; nothing 
 **Oracle.** `caliber/tests/test_profile_code_refusal.py` (the plugin and file-root tests, with a scripted entry point and no
 network), `caliber/tests/test_profile.py` (the two requirement rows) and the scenario
 `caliber/tests/egi_scenarios/test_b12_plugin_refusal.py`, which starts real reference processes with a real installed distribution.
+
+## Attack pack (B12.4c, #770)
+
+The refusals above are claims; this is the evidence that they hold against someone trying to get around them.
+`caliber/tests/egi_scenarios/test_v14_reference_profile.py` is a PostgreSQL public-path scenario file (the "EGI scenarios (PostgreSQL)"
+job) in which an attacker tries the public admission routes listed below (and says which are not covered), and each attempt is denied with the named status and reason while the
+effect is measured where it would have happened, never in CALIBER's logs:
+
+- **`downstream.mutations()`**: the attacker's installed module (an `external_app` entrypoint, a registered tool) files a request at the
+  disposable system of record, so a refusal that failed to stop it is a committed mutation;
+- **a marker file** written when the attacker's module or a hostile plugin is imported (nothing is imported from a refused plugin);
+- **the sandbox spawn counter**: every start of the tool-sandbox child process is recorded (a `python_code` node, an assistant tool
+  draft and a tool test run each start one in the development profile and none in the reference profile).
+
+The same hostile input runs on the development profile (the SQLite instance of `reference_app`, which runs `development` with the same
+safe settings), which is the control that proves the payload is live and that the refusal, not the payload, is what stopped it.
+
+| case | what the attacker tries | what is asserted (reference profile) |
+| --- | --- | --- |
+| `forged_identity_header` | `X-CALIBER-User` with no, wrong, empty, truncated or over-long proxy secret, on reads and writes | `401`, nothing stored, nothing dispatched; a proxied request is accepted (control); a user header that names no single user (`anonymous`, empty, a list) authenticates nobody |
+| `csrf_without_token` | no, empty, garbled, tampered, another user's, expired and future-dated CSRF tokens | `403` with a CSRF reason, nothing stored |
+| `ssrf_metadata_ip` | `169.254.169.254` as a literal, in decimal, in hex, as an IPv4-mapped and as the AWS IPv6 literal, a name that resolves to it, loopback and private names, a name with a public and a metadata record, through the OpenAPI spec-URL routes | `400` whose detail reads `outbound request to '<host>' (resolved to <address>) is blocked: it points at the cloud instance-metadata endpoint` (or `a loopback address`, `a private network address`); no request reaches the connection layer |
+| `dns_rebinding` | a name that answers a public address to the policy check and the metadata address to the connection | blocked before the connection layer; a stable public name connects to the vetted address with the original `Host` and SNI |
+| `forbidden_module_import` | an installed plugin that is not allowlisted (no allowlist, `*`, a prefix, a near miss, the entry-point name of an untrusted distribution), installed after the process started, or handed straight to the registry | the process exits with `plugin_not_allowlisted` and binds no port; the registry and every route that loads plugins answer with the one code; the module is never imported |
+| `secret_canary` | hostile manifests, tools and inputs that name a stored secret, refused code runs, traversals, forged requests | a refusal echoes neither what it was given nor what the platform knows: the value is in no response, log record, run event or audit row (the #666 scan, with a planted-value control; the secret is resolved by the administrator's provider-status read at the end, because the refused paths stop before any resolution) |
+| `unsafe_config_refused` | every rule of `REFERENCE_REQUIREMENTS`, alone and all at once, through a real process | the process exits with that one violation by code and by the variable to change, binds no port; a test fails if a rule has no attack |
+
+**Routes covered, and routes not.** Covered (each with the control that the same input runs on the development profile): validate,
+compile, publish, promote, preview (saved version and manifest override), queued run (by alias and by version), event trigger, cron
+scheduler, service invoke, evaluation, import, export, the same hostile version run by a separate execution-owner process, a restart over
+the same database, sixteen concurrent publishes and promotions, an edit after validation, a dormant node, a code node reached through a
+subworkflow, an unknown node kind, an administrator's Python tool in both binding forms with the sandbox on and off (and rows that claim
+to be shipped, sandboxed, of a new backend, or that borrow a shipped callable's name in another module), an assistant tool draft, a tool
+test run, an MCP stdio command, `file_input`/`folder_input` escapes (dotdot, absolute, sibling directory, symlinked file, symlinked folder,
+glob walk), an `output_folder` write, the shipped `extract_document` tool, an upload named with a traversal, and plugins (unlisted,
+wildcard, prefix, near miss, entry-point name, no distribution, installed after start, handed straight to the registry).
+
+Not covered here, and why: the synchronous `POST /workflow-versions/{id}/run` is closed before the version is looked at
+(`409 sync_run_not_admitted`), so it is not a code-refusal route (the unit test
+`test_the_preview_run_and_evaluation_routes_answer_a_refused_manifest_by_the_code` covers its refusal detail outside the reference
+profile); webhook and API-request nodes (their egress is enforced at the dispatcher, B04.3, and by `ssrf_metadata_ip`'s guard, but the pack
+drives the guard through the OpenAPI spec-URL routes, the one operator-reachable fetch of a caller-supplied URL); model-selected tool calls
+(B04.6, `test_b04_model_selected_calls.py`); calibration runs, release evaluation, copilot edit, plan build and propose-patch (they
+compile through the same `validate_manifest` and `compile_workflow` the covered routes use; not driven separately); skill package import,
+object-store import and MCP `invoke-tool`. `downstream.mutations()` is the oracle for the `external_app` and registered-tool payloads;
+for `python_code` (restricted builtins, no out-of-process write) it is the sandbox spawn counter and the run's output, and for the
+separate owner process the import marker and the run's own failure. Exact examples of what each refusal says are in the sections above
+and in the table.
+
+**What the attack pack found and fixed.**
+
+1. *A shipped tool read any host path (a real bypass on main).* `extract_document` is one of CALIBER's own shipped tools, so the profile
+   admits it, but it opens whatever path it is given, and it runs in the tool-sandbox child, which has an empty environment and so knew
+   neither the profile nor `CALIBER_WORKFLOW_FILE_ROOT`. A tool node bound to it, given a path outside the root as the run input, completed
+   (preview, queued run and tool test run) and returned the file's text. A prompt-injected or model-selected call would have exfiltrated any
+   file the server can read. The fix is the smallest correct one: a reference-profile sandbox now hands its child exactly `CALIBER_PROFILE`
+   and `CALIBER_WORKFLOW_FILE_ROOT`, and the tool confines its path (`caliber.workflows.host_paths`): a path outside the root, a sibling
+   whose name starts with the root's, a `..` and a symlink out are refused with `PathOutsideRoot`; no root refuses the read; `unconfined` is
+   refused with `unsupported_in_reference_profile`. The development profile and the content-pinned managed-file override (which takes a ref,
+   not a host path) are unchanged. The audit of every shipped built-in (`demo_tools`, `ingestion_tools`, `memory_tools`, `file_tools`): the
+   other host-path readers (`read_text_file`, `list_folder_files`, `grep_files`, `regex_search`) are refused wholesale (EP-055);
+   `list_workdir_files`, `read_workdir_file`, `get_file_metadata`, `write_workdir_file`, `create_artifact` and `grok_parse` are stubs or pure
+   functions that open no path; the memory tools open no path. Inventory row EP-056 now says so.
+2. *Three routes dropped the refusal code.* The preview-run, run and evaluation routes caught a compile failure in a broad `except` and
+   answered `400` with `manifest failed validation; cannot compile`, dropping the code that publish, promotion, compile, import and the worker
+   already carried. They now answer, for example,
+   `400 {"detail": "cannot preview: unsupported_in_reference_profile: python_code node 'code' runs author-supplied Python ..."}` and
+   `400 {"detail": "failed to compile workflow 'WFV-...': unsupported_in_reference_profile: ..."}`. The code is in the `detail` string, not a
+   separate machine-readable field (publish, promote and the run summary carry it the same way). Nothing ran before the fix either.
+
+**Observations that are not defects.** An MCP stdio command an administrator registers is refused by the MCP allowlist's own message
+(`stdio command ... is not in CALIBER_MCP_STDIO_COMMAND_ALLOWLIST`), not by the profile's code, because the reference profile lists no MCP
+command and the dispatcher admits an MCP call, never a server (B12.3b). `python_code` is a process boundary with ambient authority, but its
+source runs with restricted builtins, so the pack's `python_code` payload is observed by the sandbox spawn and the run's output rather than
+by a downstream write; the `external_app` and registered-tool payloads do write to the downstream. A `python_code` node in ordinary Preview is
+blocked in every profile ("Preview cannot isolate"); the refusal is observed on the routes that really run it.
+
+**The pack bites: mutation check.** `caliber/scripts/attack_pack_mutants.py` copies `src/caliber`, breaks the refusal code in one way at a
+time (a registry kind classified inert, the policy never bound, every registered Python tool treated as shipped, validation and compile
+refusals removed, promotion not preflighted, the inventory refusals never firing, a plugin allowlist matched by prefix, startup accepting an
+unlisted plugin, an unconfined root or CSRF off, the file root not confining, the CSRF signature, the proxy secret and the egress pin,
+address list and literal-address checks) and runs the pack against each copy, including the CALIBER processes it starts. Every mutant must
+be killed. `python scripts/attack_pack_mutants.py --check` verifies that every edit's anchor still exists exactly once (offline; also a
+unit test, `caliber/tests/test_attack_pack_mutants.py`).
+
+```sh
+cd caliber
+CALIBER_TEST_POSTGRES_URL=postgresql+psycopg://caliber:caliber@localhost:55432/caliber_egi_admin \
+  python -m pytest tests/egi_scenarios/test_v14_reference_profile.py --no-cov -q   # the pack
+CALIBER_TEST_POSTGRES_URL=... python scripts/attack_pack_mutants.py                # the mutation check
+```
+
+**Configuration, migration and rollback.** No new setting, no migration and no stored data change; the only product change is the text of
+three `400` details. **Trusted-code admission is not containment.** The pack proves that code and plugins the profile does not admit are
+refused, and that an allowlisted plugin is admitted; it does not claim an allowlisted plugin, or the sandbox, contains hostile code.
 
 ## Acceptance predicates (B09.1, #779)
 

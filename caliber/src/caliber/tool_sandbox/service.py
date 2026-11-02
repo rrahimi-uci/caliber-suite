@@ -198,6 +198,21 @@ class LocalSubprocessToolSandbox:
             reference_profile=reference_profile_active(config),
         )
 
+    def _child_environment(self) -> dict[str, str]:
+        """The environment of the sandbox child: empty, except that a reference-profile sandbox tells it the profile and the root.
+
+        A shipped tool that reads a host path (``extract_document``) confines the path itself, in the child, because the child
+        is where it runs (``caliber.workflows.host_paths``, B12.4c, #770). Nothing else of the parent's environment, no secret
+        and no credential, crosses.
+        """
+        if not self.reference_profile:
+            return {}
+        environment = {"CALIBER_PROFILE": "reference"}
+        root = os.environ.get("CALIBER_WORKFLOW_FILE_ROOT")
+        if root is not None:
+            environment["CALIBER_WORKFLOW_FILE_ROOT"] = root
+        return environment
+
     def _refuse_in_reference_profile(
         self, row_id: str, *, authored: bool, module_path: str = "", callable_name: str = ""
     ) -> None:
@@ -331,7 +346,7 @@ class LocalSubprocessToolSandbox:
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 cwd=cwd,
-                env={},
+                env=self._child_environment(),
                 text=True,
                 start_new_session=os.name == "posix",
             )
