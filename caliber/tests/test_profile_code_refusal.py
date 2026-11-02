@@ -1264,9 +1264,55 @@ def test_promotion_checks_a_registered_python_tool_against_the_registry_row(
 def test_the_publish_detail_keeps_every_refusal_and_the_other_errors(
     report: dict[str, Any] | None, expected: str
 ) -> None:
-    from caliber.workflows.promoter import _compile_failure_detail
+    from caliber.workflows.promoter import compile_failure_detail
 
-    assert _compile_failure_detail(CompileError("failed", report=report)) == expected
+    assert compile_failure_detail(CompileError("failed", report=report)) == expected
+
+
+def test_the_preview_run_and_evaluation_routes_answer_a_refused_manifest_by_the_code(
+    client: TestClient, db_session: Any
+) -> None:
+    """B12.4c (#770): the preview, run and evaluation routes catch a compile failure in a broad ``except``; each says the one code."""
+    from caliber.workflows.promoter import failure_detail
+
+    refusal = CompileError(
+        "failed", report={"errors": [{"code": REFUSAL_CODE, "message": "no code"}]}
+    )
+    assert failure_detail(refusal) == f"{REFUSAL_CODE}: no code"
+    assert failure_detail(CompileError("plain failure")) == "plain failure"
+    assert failure_detail(ValueError("not a compile failure")) == "not a compile failure"
+
+    workflow_id = create_workflow(client)
+    version_id, _ = create_draft(client, workflow_id, _python_code_manifest())
+    bind_code_policy(REFERENCE)
+    preview = client.post(
+        f"{PREFIX}/workflow-versions/{version_id}/preview-run", json={"input": "go"}
+    )
+    assert preview.status_code == 400, preview.text
+    assert preview.json()["detail"].startswith(f"cannot preview: {REFUSAL_CODE}: ")
+    from tests.workflow_helpers import seed_eval_dataset
+
+    evaluated = client.post(
+        f"{PREFIX}/evaluations",
+        json={
+            "dataset_id": seed_eval_dataset(db_session),
+            "predict_target": "workflow",
+            "subject_ref": version_id,
+            "scorers": [],
+        },
+    )
+    assert evaluated.status_code == 400, evaluated.text
+    assert evaluated.json()["detail"].startswith(
+        f"failed to compile workflow {version_id!r}: {REFUSAL_CODE}: "
+    )
+    ran = client.post(f"{PREFIX}/workflow-versions/{version_id}/run", json={"input": "go"})
+    assert ran.status_code == 400, ran.text
+    assert ran.json()["detail"].startswith(f"cannot run workflow: {REFUSAL_CODE}: ")
+    bind_code_policy(DEVELOPMENT)
+    unchanged = client.post(
+        f"{PREFIX}/workflow-versions/{version_id}/preview-run", json={"input": "go"}
+    )
+    assert unchanged.status_code == 200, "outside the reference profile the route is unchanged"
 
 
 def test_publish_refuses_code_in_the_reference_profile(client: TestClient) -> None:
