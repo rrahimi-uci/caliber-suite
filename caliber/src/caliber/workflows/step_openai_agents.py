@@ -37,11 +37,16 @@ from caliber.workflows.agent_step import (
     refusal,
 )
 from caliber.workflows.ir import IRToolBinding
+from caliber.workflows.openai_agents_compat import (
+    OpenAIAgentsSDKCompatibilityError,
+    require_supported_sdk,
+)
 
 logger = logging.getLogger("caliber.workflows.step_openai_agents")
 
 MODEL_REFUSED: Final = "model_refused"
 PROVIDER_UNAVAILABLE: Final = "provider_unavailable"
+SDK_INCOMPATIBLE: Final = "sdk_incompatible"
 _MAX_COUNT: Final = 2_147_483_647
 _TIMEOUT_CLASSES: Final = frozenset({"APITimeoutError", "TimeoutException"})
 _TIMEOUT_MODULES: Final = frozenset({"openai", "httpx", "httpcore"})
@@ -354,7 +359,7 @@ def _build_tools(
     return tools
 
 
-def _run(  # noqa: PLR0911, PLR0912 - bounded provider/limit state machine
+def _run(  # noqa: PLR0911, PLR0912, PLR0915 - bounded provider/limit state machine
     config: AgentsStepConfig,
     request: AgentStepRequest,
     step_input: AgentStepInput,
@@ -374,6 +379,7 @@ def _run(  # noqa: PLR0911, PLR0912 - bounded provider/limit state machine
         runner_cls,
         _handoff,
     ) = config.sdk_loader()
+    require_supported_sdk(agent_cls=agent_cls, function_tool_cls=function_tool_cls)
     agent = step_input.agent
     model = agent.model if agent.model and agent.model != "inherit" else config.default_model
     instructions = rt._agent_instruction_text(agent) or _DEFAULT_SYSTEM_PROMPT
@@ -527,6 +533,8 @@ def run_openai_agents_step(
     """Run one bounded Agents SDK step; provider and decoding failures never escape."""
     try:
         return _run(config, request, step_input)
+    except OpenAIAgentsSDKCompatibilityError:
+        return refusal(request, SDK_INCOMPATIBLE)
     except Exception as exc:
         logger.warning(
             "agent step %s: openai agents step failed (%s)",
@@ -541,6 +549,7 @@ def run_openai_agents_step(
 __all__ = [
     "MODEL_REFUSED",
     "PROVIDER_UNAVAILABLE",
+    "SDK_INCOMPATIBLE",
     "AgentsStepConfig",
     "run_openai_agents_step",
 ]
