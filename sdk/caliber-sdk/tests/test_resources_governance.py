@@ -169,11 +169,15 @@ def test_system_effects_recovery_hits_the_documented_paths() -> None:
         caliber.system.effects(status="in_progress")
         caliber.system.resolve_effect("EFF-1", resolution="skip", reason="confirmed delivered")
         caliber.system.reconcile_effect_proposal("prop-1", reason="INC-1: downstream confirms")
+        caliber.system.attest_effect_proposal_failure(
+            "prop-1", reason="INC-2: downstream confirms absence", evidence_reference="DS-2"
+        )
 
     assert seen == [
         "GET /system/effects",
         "POST /system/effects/EFF-1/resolve",
         "POST /system/effects/proposals/prop-1/reconcile",
+        "POST /system/effects/proposals/prop-1/attest-failure",
     ]
 
 

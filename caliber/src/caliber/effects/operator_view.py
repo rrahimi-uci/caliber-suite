@@ -5,10 +5,11 @@ Two records of "an effect that may need a human" exist and they are different th
 * the **legacy ledger** (``caliber_effect_ledger``, ``workflows.effect_ledger``): one row per claimed effect of the queued-run
   worker, ``in_progress`` until it finishes. Its operator decision is the admin ``resolve`` action (``skip``: the effect reached
   the remote system; ``retry``: it did not). Nothing here changes it, migrates it away or invents a v1 receipt for it;
-* the **effect proposal** (``caliber_effect_proposals``, ADR 0003): seven states, compare-and-set, verified receipts. It is
-  settled by the reconciler's lookup by key (:mod:`caliber.effects.reconcile`), never by an operator's say-so. Its one safe
-  action is ``reconcile`` (B05.5d, #997, :mod:`caliber.effects.operator_action`): ask the downstream now, as the owner, audited,
-  settling it only on the downstream's own evidence. It is listed only where it can do something.
+* the **effect proposal** (``caliber_effect_proposals``, ADR 0003): seven states, compare-and-set, verified receipts. Its
+  normal safe action is ``reconcile`` (B05.5d, #997): ask the downstream now, as the owner, audited, settling it only on
+  downstream evidence. A permanent ``unknown`` also offers ``attest_failed``: an owner-fenced admin action that stores an
+  opaque reference to downstream absence evidence and uses the existing ``unknown`` -> ``reconciled`` -> ``failed`` edges.
+  It can never commit an effect.
 
 Every row carries ``source`` and ``source_version`` and the ``safe_actions`` that apply to *that* kind of row, so a client cannot
 apply the legacy ``resolve`` to a proposal or read a proposal as a ledger claim. No row carries a payload: no arguments, intent
@@ -25,6 +26,7 @@ from sqlalchemy.orm import Session
 
 from caliber.db.models import CaliberEffectProposal, CaliberWorkflowRun
 from caliber.effects.operator_action import ACTION as RECONCILE_ACTION
+from caliber.effects.operator_action import ATTEST_FAILURE_ACTION
 from caliber.effects.reconcile import OPEN_STATES
 from caliber.effects.records import DISPATCHED, RECONCILED, STATES, UNKNOWN
 from caliber.ownership import current_lease, database_now
@@ -52,11 +54,11 @@ def describe_sources() -> dict[str, dict[str, Any]]:
         },
         PROPOSAL_SOURCE: {
             "source_version": PROPOSAL_VERSION,
-            "settled_by": "reconciler",
-            "safe_actions": [RECONCILE_ACTION],
+            "settled_by": "reconciler_or_attested_operator",
+            "safe_actions": [RECONCILE_ACTION, ATTEST_FAILURE_ACTION],
             "applies_to": (
-                "state unknown or reconciled, or dispatched under a lease that was taken over (abandoned): "
-                "settled only by the downstream's own evidence, never by an operator's say-so"
+                "reconcile applies to state unknown or reconciled, or dispatched under a lease that was taken over; "
+                "attest_failed applies only to unknown or reconciled and requires a downstream evidence reference"
             ),
         },
     }
@@ -183,10 +185,13 @@ def _proposal_row(proposal: Any, held: Any) -> dict[str, Any]:
     abandoned: bool | None = None
     if proposal.state == DISPATCHED and proposal.dispatch_token is not None and held is not None:
         abandoned = proposal.dispatch_token < held.fencing_token
+    safe_actions = [RECONCILE_ACTION] if _reconcilable(proposal.state, abandoned) else []
+    if proposal.state in (UNKNOWN, RECONCILED) and safe_actions:
+        safe_actions.append(ATTEST_FAILURE_ACTION)
     return {
         "source": PROPOSAL_SOURCE,
         "source_version": PROPOSAL_VERSION,
-        "safe_actions": [RECONCILE_ACTION] if _reconcilable(proposal.state, abandoned) else [],
+        "safe_actions": safe_actions,
         "proposal_id": proposal.proposal_id,
         "workflow_run_id": proposal.workflow_run_id,
         "project_id": str(project_id),

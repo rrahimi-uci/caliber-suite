@@ -30,8 +30,8 @@ itself**:
 
   It must read its own writes: a ``2xx`` the sender saw is visible to the very next lookup (the capability record's
   ``read_your_writes``). A ``404`` is **never** "it did not happen" for this connector (``absence_proves_noncommit`` is false): the
-  request may still be in flight at the downstream, so the proposal stays ``unknown`` (the attested operator resolution of
-  #1054 is the separate, not yet built, way out of a permanent unknown).
+  request may still be in flight at the downstream, so the proposal stays ``unknown``. A permanent unknown can use the separate
+  #1054 attested-failure action only when an operator supplies a reference to the downstream's own absence evidence.
 * **What the platform believes.** :func:`facts_from_lookup` builds a receipt only if the stored request is *this proposal's
   effect*: the key is the logical key, the method, the URL and the body are exactly the ones the proposal recorded (compared as
   canonical JSON, never trusting the downstream's say-so about "the same"), and the proposal expects no resource version (a

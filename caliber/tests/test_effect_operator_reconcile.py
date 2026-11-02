@@ -26,10 +26,15 @@ import caliber.routes.system_effects as routes_module
 from caliber.db.models import CaliberAuditLog, CaliberEffectReceipt
 from caliber.effects.operator_action import (
     ACTION,
+    ATTEST_FAILURE_ACTION,
+    ATTEST_FAILURE_AUDIT_ACTION,
     AUDIT_ACTION,
     MAX_CONCURRENT_REQUESTS,
+    MAX_EVIDENCE_REFERENCE_CHARS,
     MAX_REASON_CHARS,
+    NotAttestable,
     NotReconcilable,
+    attest_failure_as_operator,
     reconcile_as_operator,
 )
 from caliber.effects.operator_view import describe_sources, list_proposals, proposal_states
@@ -48,6 +53,7 @@ from caliber.effects.records import (
     FAILED,
     LEASE_LOST,
     PROPOSED,
+    RECONCILED,
     UNKNOWN,
     Intent,
     ProposalError,
@@ -401,10 +407,109 @@ def test_reconcile_is_offered_for_exactly_the_rows_where_it_does_something(datab
     assert (rows[abandoned]["abandoned"], rows[current]["abandoned"]) == (True, False)
     assert {pid: row["safe_actions"] for pid, row in rows.items()} == {
         abandoned: [ACTION],
-        unknown: [ACTION],
+        unknown: [ACTION, ATTEST_FAILURE_ACTION],
         current: [],
     }, "a dispatch of the lease that is current now is the dispatcher's: nothing to ask yet"
-    assert describe_sources()["effect_proposal"]["safe_actions"] == [ACTION] == ["reconcile"]
+    assert describe_sources()["effect_proposal"]["safe_actions"] == [ACTION, ATTEST_FAILURE_ACTION]
+
+
+def test_attested_absence_uses_existing_edges_and_audits_the_decision(database: Any) -> None:
+    _, factory = database
+    proposal_id, lease = _unknown_and_lease(factory)
+    result = attest_failure_as_operator(
+        factory,
+        proposal_id,
+        actor=OPERATOR,
+        reason="INC-1054: downstream owner confirms absence",
+        evidence_reference="ticket://INC-1054/downstream-absence",
+        lease=lease,
+    )
+    assert (result.resolution, result.state_before, result.state, result.settled) == (
+        "failed",
+        UNKNOWN,
+        FAILED,
+        True,
+    )
+    assert _state(factory, proposal_id).state == FAILED
+    with factory() as session:
+        audit = session.execute(
+            select(CaliberAuditLog).where(CaliberAuditLog.action == ATTEST_FAILURE_AUDIT_ACTION)
+        ).scalar_one()
+    assert audit.actor == OPERATOR and audit.severity == "high"
+    assert audit.details == {
+        "resolution": "failed",
+        "reason": "INC-1054: downstream owner confirms absence",
+        "evidence_reference": "ticket://INC-1054/downstream-absence",
+        "state_before": UNKNOWN,
+        "state_after": FAILED,
+        "owner_id": OWNER,
+        "fencing_token": lease.fencing_token,
+    }
+
+
+def test_attested_absence_from_reconciled_uses_only_the_terminal_edge(database: Any) -> None:
+    _, factory = database
+    proposal_id, lease = _unknown_and_lease(factory)
+    with factory() as session:
+        _move(session, proposal_id, RECONCILED, reason="downstream evidence recorded")
+        session.commit()
+    reconciled_version = _state(factory, proposal_id).version
+
+    result = attest_failure_as_operator(
+        factory,
+        proposal_id,
+        actor=OPERATOR,
+        reason="INC-1054: downstream owner confirms absence",
+        evidence_reference="ticket://INC-1054/downstream-absence",
+        lease=lease,
+    )
+
+    assert (result.state_before, result.state) == (RECONCILED, FAILED)
+    assert _state(factory, proposal_id).state == FAILED
+    assert _state(factory, proposal_id).version == reconciled_version + 1
+
+
+@pytest.mark.parametrize(
+    "reason,evidence_reference",
+    [
+        ("", "ticket://INC-1054"),
+        ("reason", ""),
+        ("reason", "x" * (MAX_EVIDENCE_REFERENCE_CHARS + 1)),
+        ("reason", None),
+    ],
+)
+def test_attested_absence_requires_bounded_evidence(
+    database: Any, reason: str, evidence_reference: str
+) -> None:
+    _, factory = database
+    proposal_id, lease = _unknown_and_lease(factory)
+    with pytest.raises(ValueError):
+        attest_failure_as_operator(
+            factory,
+            proposal_id,
+            actor=OPERATOR,
+            reason=reason,
+            evidence_reference=evidence_reference,
+            lease=lease,
+        )
+    assert _state(factory, proposal_id).state == UNKNOWN
+    assert _audits(factory, ATTEST_FAILURE_AUDIT_ACTION) == []
+
+
+def test_attested_absence_never_resolves_a_terminal_proposal(database: Any) -> None:
+    _, factory = database
+    proposal_id = _settled_proposal(factory, FAILED)
+    _, lease = _unknown_and_lease(factory)
+    with pytest.raises(NotAttestable) as refused:
+        attest_failure_as_operator(
+            factory,
+            proposal_id,
+            actor=OPERATOR,
+            reason="reason",
+            evidence_reference="ticket://INC-1054",
+            lease=lease,
+        )
+    assert refused.value.state == FAILED
 
 
 # ---------------------------------------------------------------- the route
@@ -426,6 +531,10 @@ def owner_client(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> TestCli
 
 def _route(proposal_id: str) -> str:
     return f"{PREFIX}/system/effects/proposals/{proposal_id}/reconcile"
+
+
+def _attest_route(proposal_id: str) -> str:
+    return f"{PREFIX}/system/effects/proposals/{proposal_id}/attest-failure"
 
 
 def _hold(client: TestClient, db_session: Session, role: str = "owner") -> Any:
@@ -466,6 +575,102 @@ def test_the_route_asks_as_the_owner_settles_on_evidence_and_audits_the_caller(
     ).scalars()
     assert row.actor == DEFAULT_TEST_USER, "the authenticated caller is the actor"
     assert row.details["reason"] == REASON
+
+
+def test_the_attestation_route_records_absence_evidence_and_only_fails(
+    owner_client: TestClient, db_session: Session
+) -> None:
+    proposal_id = _unknown_one(db_session, "occ-attest-route")
+    db_session.commit()
+    lease = _hold(owner_client, db_session)
+    response = owner_client.post(
+        _attest_route(proposal_id),
+        json={
+            "resolution": "failed",
+            "reason": "INC-1054: downstream owner confirms absence",
+            "evidence_reference": "ticket://INC-1054/downstream-absence",
+        },
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["data"] == {
+        "proposal_id": proposal_id,
+        "resolution": "failed",
+        "state_before": UNKNOWN,
+        "state": FAILED,
+        "settled": True,
+    }
+    db_session.expire_all()
+    assert proposal_state(db_session, proposal_id).state == FAILED
+    audit = db_session.execute(
+        select(CaliberAuditLog).where(CaliberAuditLog.action == ATTEST_FAILURE_AUDIT_ACTION)
+    ).scalar_one()
+    assert audit.actor == DEFAULT_TEST_USER
+    assert audit.details["evidence_reference"] == "ticket://INC-1054/downstream-absence"
+    assert audit.details["fencing_token"] == lease.fencing_token
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        {"resolution": "committed", "reason": REASON, "evidence_reference": "ticket://INC-1054"},
+        {"resolution": "failed", "reason": REASON},
+        {
+            "resolution": "failed",
+            "reason": REASON,
+            "evidence_reference": "ticket://INC-1054",
+            "state": "failed",
+        },
+    ],
+)
+def test_the_attestation_route_rejects_unsafe_resolution_fields(
+    owner_client: TestClient, db_session: Session, body: dict[str, Any]
+) -> None:
+    proposal_id = _unknown_one(db_session, "occ-attest-body")
+    db_session.commit()
+    _hold(owner_client, db_session)
+    response = owner_client.post(_attest_route(proposal_id), json=body)
+    assert response.status_code == 400, response.text
+    db_session.expire_all()
+    assert proposal_state(db_session, proposal_id).state == UNKNOWN
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        {"resolution": "failed", "reason": "", "evidence_reference": "ticket://INC-1054"},
+        {"resolution": "failed", "reason": REASON, "evidence_reference": ""},
+        {"resolution": "failed", "reason": REASON, "evidence_reference": None},
+    ],
+)
+def test_the_attestation_route_rejects_unbounded_evidence_fields(
+    owner_client: TestClient, db_session: Session, body: dict[str, Any]
+) -> None:
+    proposal_id = _unknown_one(db_session, "occ-attest-invalid-text")
+    db_session.commit()
+    _hold(owner_client, db_session)
+    response = owner_client.post(_attest_route(proposal_id), json=body)
+    assert response.status_code == 400, response.text
+    db_session.expire_all()
+    assert proposal_state(db_session, proposal_id).state == UNKNOWN
+
+
+def test_the_attestation_route_requires_the_execution_owner(
+    owner_client: TestClient, db_session: Session
+) -> None:
+    proposal_id = _unknown_one(db_session, "occ-attest-no-owner")
+    db_session.commit()
+    response = owner_client.post(
+        _attest_route(proposal_id),
+        json={
+            "resolution": "failed",
+            "reason": REASON,
+            "evidence_reference": "ticket://INC-1054",
+        },
+    )
+    assert response.status_code == 409
+    assert "not_execution_owner" in response.json()["detail"]
+    db_session.expire_all()
+    assert proposal_state(db_session, proposal_id).state == UNKNOWN
 
 
 def test_the_route_leaves_an_unproven_proposal_unknown_and_says_so(
@@ -700,3 +905,54 @@ def test_the_operator_and_the_loop_asking_at_once_settle_it_exactly_once_on_post
         assert sorted(outcomes) == sorted([RECONCILED_COMMITTED, MOVED]), outcomes
         # whichever lost still left its audit row
         assert len(_audits(factory)) == 1
+
+
+def test_attestation_racing_the_owner_loop_has_one_terminal_outcome_on_postgresql(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    if not POSTGRES_TEST_URL:
+        pytest.skip("the race needs PostgreSQL")
+    with _database("postgresql", tmp_path, monkeypatch) as (_, factory):
+        _seed_run(factory)
+        proposal_id, lease = _unknown_and_lease(factory)
+        entered_lookup = threading.Event()
+        release_lookup = threading.Event()
+        errors: list[BaseException] = []
+        loop_result: list[Any] = []
+
+        def lookup(connector: Any, base_url: str, key: str) -> Answer:
+            entered_lookup.set()
+            assert release_lookup.wait(20)
+            return Answer(404, {})
+
+        task = EffectReconcilerTask(
+            factory,
+            SimpleNamespace(effect_callback_connectors=BINDINGS),
+            lease_provider=lambda: lease,
+            lookup=lookup,
+        )
+
+        def loop() -> None:
+            try:
+                loop_result.append(task.tick())
+            except BaseException as exc:  # pragma: no cover - reported below
+                errors.append(exc)
+
+        thread = threading.Thread(target=loop, daemon=True)
+        thread.start()
+        assert entered_lookup.wait(20), "the loop must read unknown before the attestation writes"
+        result = attest_failure_as_operator(
+            factory,
+            proposal_id,
+            actor=OPERATOR,
+            reason="INC-1054: absence confirmed",
+            evidence_reference="ticket://INC-1054/race-loop",
+            lease=lease,
+        )
+        release_lookup.set()
+        thread.join(60)
+        assert not errors, errors
+        assert result.state == FAILED and _state(factory, proposal_id).state == FAILED
+        assert loop_result and [item.state for item in loop_result[0].results] == [FAILED]
+        assert _audits(factory, ATTEST_FAILURE_AUDIT_ACTION)
+        assert _audits(factory) == []
