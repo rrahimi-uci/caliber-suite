@@ -642,6 +642,15 @@ class CaliberConfig(BaseModel):
             "older than this many days."
         ),
     )
+    evidence_retention_days: float = Field(
+        default=365.0,
+        ge=0,
+        description=(
+            "Retention window for scope-authorized evidence archives. ``0`` "
+            "expires an archive immediately after export; the janitor deletes "
+            "the object and leaves a member tombstone for HTTP 410 responses."
+        ),
+    )
     workflow_run_queue_enabled: bool = Field(
         default=False,
         description=(
@@ -2357,6 +2366,7 @@ _ENV_VAR_TABLE: list[tuple[str, str, Any]] = [
     ("CALIBER_JANITOR_INTERVAL_SECONDS", "janitor_interval_seconds", float),
     ("CALIBER_JANITOR_STALE_THRESHOLD_SECONDS", "janitor_stale_threshold_seconds", float),
     ("CALIBER_WORKFLOW_RUN_RETENTION_DAYS", "workflow_run_retention_days", float),
+    ("CALIBER_EVIDENCE_RETENTION_DAYS", "evidence_retention_days", float),
     (
         "CALIBER_WORKFLOW_RUN_QUEUE_ENABLED",
         "workflow_run_queue_enabled",

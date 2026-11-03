@@ -2191,8 +2191,8 @@ class CaliberEvidenceArchive(Base):
     this row is the authoritative, project-scoped locator and cache identity.  The
     authorization-scope digest is deliberately part of the uniqueness key and object
     path, so a later viewer/redaction decision cannot reuse another principal's bytes.
-    Lifecycle columns are nullable schema preparation for the retention/tombstone slice;
-    B14.3a does not expire or delete an archive.
+    Lifecycle columns hold the B14.4 retention/tombstone state. A tombstoned
+    row remains as the authoritative refusal record after its object is deleted.
     """
 
     __tablename__ = "caliber_evidence_archives"
@@ -2234,7 +2234,8 @@ class CaliberEvidenceArchive(Base):
     size_bytes: Mapped[int] = mapped_column(Integer)
     exported_by: Mapped[str] = mapped_column(String(256))
     exported_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
-    # Reserved for B14.4 retention/janitor behavior. B14.3a records no expiry.
+    # B14.4 retention/janitor lifecycle. Legacy B14.3a rows are backfilled on
+    # access or by the janitor before their expiry decision is applied.
     expires_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     tombstone_json: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)

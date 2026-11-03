@@ -106,6 +106,7 @@ remain supported overrides.
 | --- | --- |
 | `CALIBER_WORKFLOW_RUN_EVENT_BACKEND` | `in_process` (the default), `database`, `nats` or `redis` |
 | `CALIBER_WORKFLOW_RUN_QUEUE_ENABLED` | `false` by default; the run queue that wait and human-approval nodes need, together with `CALIBER_WORKFLOW_RUN_CHECKPOINTING_ENABLED` |
+| `CALIBER_EVIDENCE_RETENTION_DAYS` | scope-authorized evidence-archive lifetime in days; defaults to `365`, and `0` expires immediately after export |
 
 ## 7. Access and auth
 

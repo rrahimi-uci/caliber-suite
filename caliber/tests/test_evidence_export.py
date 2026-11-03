@@ -1,4 +1,4 @@
-"""B14.3a evidence archive export and persistence contract."""
+"""B14.3a/B14.4 evidence archive export and retention contract."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ import json
 import stat
 import warnings
 import zipfile
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 from zipfile import ZipFile
 
@@ -38,6 +38,7 @@ from caliber.evidence import (
     EvidencePackageError,
     archive_member_name,
     assemble,
+    expire_evidence_archives,
     export_archive,
     payload_bytes_for_package,
     verify_archive,
@@ -798,6 +799,134 @@ def test_archive_database_race_returns_the_concurrent_locator(
     assert result.archive_bytes
 
 
+def test_expired_archive_is_deleted_and_tombstoned(db_session: Session, tmp_path: object) -> None:
+    _seed_run(db_session)
+    backend = LocalStorageBackend(str(tmp_path))
+    exported_at = datetime(2026, 11, 3, 9, 0, tzinfo=timezone.utc)
+    result = export_archive(
+        db_session,
+        run_id=RUN_ID,
+        identity=IDENTITY,
+        backend=backend,
+        actor=OWNER,
+        retention_days=0,
+        now=exported_at,
+    )
+    row = db_session.execute(select(CaliberEvidenceArchive)).scalar_one()
+    storage = SimpleNamespace(
+        for_backend=lambda _name: SimpleNamespace(backend=backend),
+    )
+
+    changed = expire_evidence_archives(
+        db_session,
+        storage,  # type: ignore[arg-type]
+        now=exported_at + timedelta(seconds=1),
+    )
+    db_session.commit()
+    db_session.refresh(row)
+
+    assert changed == 1
+    assert row.deleted_at is not None
+    assert row.tombstone_json == {"removed_members": row.member_ids_json}
+    assert not backend.exists(result.object_key)
+    assert (
+        expire_evidence_archives(
+            db_session,
+            storage,  # type: ignore[arg-type]
+            now=exported_at + timedelta(seconds=2),
+        )
+        == 0
+    )
+
+
+def test_expired_archive_storage_failure_remains_retryable(
+    db_session: Session, tmp_path: object
+) -> None:
+    _seed_run(db_session)
+    result = export_archive(
+        db_session,
+        run_id=RUN_ID,
+        identity=IDENTITY,
+        backend=LocalStorageBackend(str(tmp_path)),
+        retention_days=0,
+        now=datetime(2026, 11, 3, 9, 0, tzinfo=timezone.utc),
+    )
+
+    class FailingBackend:
+        def delete(self, _key: str, *, hard: bool = False) -> None:
+            raise StorageError("delete unavailable")
+
+    storage = SimpleNamespace(
+        for_backend=lambda _name: SimpleNamespace(backend=FailingBackend()),
+    )
+    changed = expire_evidence_archives(
+        db_session,
+        storage,  # type: ignore[arg-type]
+        now=datetime(2026, 11, 3, 9, 0, 1, tzinfo=timezone.utc),
+    )
+    row = db_session.execute(select(CaliberEvidenceArchive)).scalar_one()
+
+    assert changed == 0
+    assert row.deleted_at is None
+    assert row.tombstone_json is None
+    assert result.archive_bytes
+
+
+def test_retention_boundaries_validate_and_backfill_legacy_rows(
+    db_session: Session, tmp_path: object
+) -> None:
+    _seed_run(db_session)
+    backend = LocalStorageBackend(str(tmp_path))
+    exported_at = datetime(2026, 11, 3, 9, 0, tzinfo=timezone.utc)
+
+    with pytest.raises(EvidenceExportError, match="retention days"):
+        export_archive(
+            db_session,
+            run_id=RUN_ID,
+            identity=IDENTITY,
+            backend=backend,
+            retention_days=float("inf"),
+        )
+    result = export_archive(
+        db_session,
+        run_id=RUN_ID,
+        identity=IDENTITY,
+        backend=backend,
+        now=exported_at,
+    )
+    row = db_session.execute(select(CaliberEvidenceArchive)).scalar_one()
+
+    # B14.3a rows have no expiry until the janitor or a cache read backfills it.
+    row.expires_at = None
+    db_session.flush()
+    cached = export_archive(
+        db_session,
+        run_id=RUN_ID,
+        identity=IDENTITY,
+        backend=backend,
+        now=exported_at + timedelta(days=1),
+    )
+    assert cached.archive_id == result.archive_id
+    assert row.expires_at == exported_at + timedelta(days=365)
+
+    row.expires_at = None
+    changed = expire_evidence_archives(
+        db_session,
+        SimpleNamespace(
+            for_backend=lambda _name: SimpleNamespace(backend=backend),
+        ),  # type: ignore[arg-type]
+        now=exported_at + timedelta(days=1),
+    )
+    assert changed == 1
+    assert row.deleted_at is None
+    with pytest.raises(EvidenceExportError, match="retention days"):
+        expire_evidence_archives(
+            db_session,
+            SimpleNamespace(for_backend=lambda _name: SimpleNamespace(backend=backend)),  # type: ignore[arg-type]
+            retention_days=-1,
+        )
+
+
 def test_persisted_archive_integrity_and_manifest_contract_are_verified(
     db_session: Session, tmp_path: object
 ) -> None:
@@ -1004,9 +1133,7 @@ def test_evidence_route_downloads_persisted_archive(
         assert json.loads(archive.read("manifest.json"))["workflow_run_id"] == run_id
 
 
-def test_evidence_route_redacts_for_a_project_viewer(
-    client: TestClient, db_session: Session
-) -> None:
+def test_viewer_export_redacted_and_verifies(client: TestClient, db_session: Session) -> None:
     project_id = "project-evidence-viewer"
     run_id = "run-evidence-viewer"
     workflow_id = "workflow-evidence-viewer"
@@ -1068,7 +1195,78 @@ def test_evidence_route_redacts_for_a_project_viewer(
         headers={"X-CALIBER-Project": project_id, "X-CALIBER-User": viewer},
     )
     assert response.status_code == 200, response.text
+    verified = verify_archive(response.content)
+    assert verified.valid
+    assert verified.redaction == "redacted"
     with ZipFile(io.BytesIO(response.content)) as archive:
         payload = archive.read(archive_member_name("run_manifest:manifest-viewer"))
     assert b"viewer-target@example.com" not in payload
     assert b"[REDACTED]" in payload
+
+
+def test_expired_export_is_tombstoned_and_returns_410(
+    client: TestClient, db_session: Session
+) -> None:
+    project_id = "project-evidence-expired"
+    run_id = "run-evidence-expired"
+    workflow_id = "workflow-evidence-expired"
+    db_session.add(
+        CaliberProject(
+            project_id=project_id,
+            name="Evidence expired project",
+            owner="@test",
+            storage_backend="local",
+        )
+    )
+    db_session.add(
+        CaliberWorkflow(
+            workflow_id=workflow_id,
+            name="Evidence expired workflow",
+            owner="@test",
+            project_id=project_id,
+            visibility="project",
+        )
+    )
+    db_session.add(
+        CaliberWorkflowRun(
+            workflow_run_id=run_id,
+            workflow_id=workflow_id,
+            project_id=project_id,
+            tenant_id="tenant-expired",
+            created_by="@test",
+            status="completed",
+            manifest_legacy=False,
+        )
+    )
+    raw = b'{"route":"expired"}'
+    db_session.add(
+        CaliberRunManifest(
+            manifest_id="manifest-expired",
+            workflow_run_id=run_id,
+            schema_version="v1",
+            manifest_bytes=raw,
+            manifest_digest=hashlib.sha256(raw).hexdigest(),
+        )
+    )
+    db_session.commit()
+
+    client.app.state.config = client.app.state.config.model_copy(
+        update={"evidence_retention_days": 0.0}
+    )
+    headers = {"X-CALIBER-Project": project_id, "X-CALIBER-User": "@test"}
+    first = client.get(f"{PREFIX}/workflow-runs/{run_id}/evidence", headers=headers)
+    assert first.status_code == 200, first.text
+
+    client.app.state.janitor._tick()
+    row = db_session.execute(
+        select(CaliberEvidenceArchive).where(CaliberEvidenceArchive.workflow_run_id == run_id)
+    ).scalar_one()
+    assert row.deleted_at is not None
+    assert row.tombstone_json == {"removed_members": row.member_ids_json}
+
+    expired = client.get(f"{PREFIX}/workflow-runs/{run_id}/evidence", headers=headers)
+    assert expired.status_code == 410, expired.text
+    assert expired.json()["detail"] == {
+        "reason": "evidence_expired",
+        "tombstone": {"removed_members": row.member_ids_json},
+    }

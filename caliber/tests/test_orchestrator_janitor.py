@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 from datetime import datetime, timedelta, timezone
+from types import SimpleNamespace
 
 import pytest
 from sqlalchemy.orm import Session, sessionmaker
@@ -344,6 +345,49 @@ async def test_start_twice_raises(session_factory: sessionmaker) -> None:  # typ
             await janitor.start()
     finally:
         await janitor.stop()
+
+
+def test_tick_runs_evidence_retention_sweep(
+    session_factory: sessionmaker,  # type: ignore[type-arg]
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from caliber.workflows import promoter
+
+    monkeypatch.setattr(promoter, "prune_workflow_runs", lambda *_args, **_kwargs: 1)
+    janitor = JanitorTask(
+        session_factory,
+        workflow_run_retention_days=1.0,
+        working_dir_service=SimpleNamespace(),  # type: ignore[arg-type]
+    )
+    janitor._tick()
+
+
+@pytest.mark.asyncio
+async def test_run_logs_a_tick_failure_and_can_be_cancelled(
+    session_factory: sessionmaker,  # type: ignore[type-arg]
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    janitor = JanitorTask(session_factory, interval_seconds=999.0)
+    calls = 0
+
+    def fail_once() -> None:
+        nonlocal calls
+        calls += 1
+        janitor._stopped.set()
+        raise RuntimeError("synthetic janitor failure")
+
+    monkeypatch.setattr(janitor, "_tick", fail_once)
+    await janitor._run()
+    assert calls == 1
+
+    janitor._stopped.clear()
+
+    async def cancel_to_thread(_func: object) -> None:
+        raise asyncio.CancelledError
+
+    monkeypatch.setattr(asyncio, "to_thread", cancel_to_thread)
+    with pytest.raises(asyncio.CancelledError):
+        await janitor._run()
 
 
 # ---------------------------------------------------------------------------

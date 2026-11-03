@@ -51,7 +51,11 @@ from caliber.evidence import (
     EvidencePackageError,
     EvidencePackageNotFoundError,
 )
-from caliber.evidence.export import EvidenceExportError, export_archive
+from caliber.evidence.export import (
+    EvidenceArchiveExpiredError,
+    EvidenceExportError,
+    export_archive,
+)
 from caliber.ids import new_workflow_run_id
 from caliber.mcp_policy import deployment_blockers
 from caliber.observability import causal_links
@@ -1457,7 +1461,13 @@ async def get_workflow_run_evidence(request: Request) -> Response:
                 backend=service.for_backend(project.storage_backend).backend,
                 actor=actor,
                 redact=not payloads_allowed,
+                retention_days=request.app.state.config.evidence_retention_days,
             )
+        except EvidenceArchiveExpiredError as exc:
+            raise HTTPException(
+                status_code=410,
+                detail=cast(Any, {"reason": "evidence_expired", "tombstone": exc.tombstone}),
+            ) from exc
         except (EvidencePackageNotFoundError, EvidencePackageAuthorizationError) as exc:
             raise HTTPException(
                 status_code=404, detail=f"workflow run {run_id!r} not found"

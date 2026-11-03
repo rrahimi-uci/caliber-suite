@@ -46,8 +46,10 @@ from caliber.db.models import (
     CaliberRefinementJob,
     CaliberReleaseOperation,
 )
+from caliber.evidence.export import expire_evidence_archives
 from caliber.observability import metrics
 from caliber.observability.trace import bind_trace_id
+from caliber.storage import WorkingDirectoryService
 
 logger = logging.getLogger("caliber.orchestrator.janitor")
 
@@ -82,6 +84,8 @@ class JanitorTask:
         stale_threshold_seconds: float = DEFAULT_STALE_THRESHOLD_SECONDS,
         workflow_run_retention_days: float = 0.0,
         applying_stale_seconds: float = DEFAULT_APPLYING_STALE_SECONDS,
+        evidence_retention_days: float = 365.0,
+        working_dir_service: WorkingDirectoryService | None = None,
     ) -> None:
         self._session_factory = session_factory
         self._applying_stale = timedelta(seconds=applying_stale_seconds)
@@ -89,6 +93,8 @@ class JanitorTask:
         self._stale_threshold = timedelta(seconds=stale_threshold_seconds)
         # Retention for the workflow-run index (ext D2); 0 disables pruning.
         self._workflow_run_retention_days = workflow_run_retention_days
+        self._evidence_retention_days = evidence_retention_days
+        self._working_dir_service = working_dir_service
         self._task: asyncio.Task[None] | None = None
         self._stopped = asyncio.Event()
 
@@ -112,11 +118,11 @@ class JanitorTask:
         """
         if self._task is None:
             return
-        self._stopped.set()
-        self._task.cancel()
-        with suppress(asyncio.CancelledError):
-            await self._task
+        task = self._task
         self._task = None
+        self._stopped.set()
+        task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
         logger.info("janitor stopped")
 
     async def _run(self) -> None:
@@ -156,7 +162,16 @@ class JanitorTask:
                 )
                 if pruned:
                     logger.info("janitor pruned %d expired workflow-run rows", pruned)
-            if candidates or reverted or self._workflow_run_retention_days > 0:
+            evidence_changed = 0
+            if self._working_dir_service is not None:
+                evidence_changed = expire_evidence_archives(
+                    session,
+                    self._working_dir_service,
+                    retention_days=self._evidence_retention_days,
+                )
+                if evidence_changed:
+                    logger.info("janitor updated %d expired evidence archives", evidence_changed)
+            if candidates or reverted or evidence_changed or self._workflow_run_retention_days > 0:
                 session.commit()
 
     def _revert_stale_applying(self, session: Session) -> int:
