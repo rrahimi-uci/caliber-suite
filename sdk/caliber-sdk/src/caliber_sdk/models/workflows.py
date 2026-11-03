@@ -151,6 +151,222 @@ class WorkflowRun:
 
 
 @dataclass
+class WorkflowRuntimeApproval:
+    """One runtime approval request raised by a workflow run.
+
+    The server names this resource by ``runtime_approval_id`` and scopes it to
+    ``workflow_run_id``.  ``proposal_id`` is present only for the exact-intent
+    approval path; it is never inferred by the SDK.
+    """
+
+    runtime_approval_id: str = ""
+    workflow_run_id: str = ""
+    project_id: str | None = None
+    node_id: str = ""
+    status: str = ""
+    requested_at: str | None = None
+    decided_at: str | None = None
+    decided_by: str | None = None
+    decision_reason: str | None = None
+    policy_snapshot: dict[str, Any] | None = None
+    proposal_id: str | None = None
+    expires_at: str | None = None
+    superseded_by: str | None = None
+    consumed_at: str | None = None
+    extra: dict[str, Any] = field(default_factory=dict)
+
+    def __getitem__(self, key: str) -> Any:
+        """Keep the pre-typed dict-style read compatible for one release cycle."""
+        if key in self.__dataclass_fields__:
+            return getattr(self, key)
+        return self.extra[key]
+
+
+@dataclass
+class ApprovalRecord:
+    """The approval request and its recorded decision."""
+
+    runtime_approval_id: str = ""
+    workflow_run_id: str = ""
+    project_id: str | None = None
+    node_id: str = ""
+    status: str = ""
+    requested_at: str | None = None
+    decided_at: str | None = None
+    decided_by: str | None = None
+    decision_reason: str | None = None
+    extra: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class ApprovalBinding:
+    """The exact-intent pins of a proposal-bound approval request."""
+
+    proposal_id: str = ""
+    intent_hash: str = ""
+    evidence_hash: str = ""
+    policy_digest: str = ""
+    expected_resource_version: str | None = None
+    expires_at: str | None = None
+    requested_by: str | None = None
+    superseded_by: str | None = None
+    consumed_at: str | None = None
+    extra: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class ApprovalArgumentField:
+    """The name and value kind of one proposal argument, never its value."""
+
+    name: str | None = None
+    kind: str = ""
+    extra: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class ApprovalProposal:
+    """The safe-to-display proposal nested in an approval view."""
+
+    proposal_id: str = ""
+    connector: str = ""
+    connector_version: str = ""
+    effect_class: str = ""
+    resource: str = ""
+    state: str = ""
+    args_fields: list[ApprovalArgumentField] = field(default_factory=list)
+    args_field_count: int = 0
+    args_truncated: bool = False
+    extra: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class ApprovalPolicy:
+    required_role: str = ""
+    approval_count: int = 0
+    timeout_behavior: str = ""
+    allow_self_approval: bool = False
+    extra: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class ApprovalQuorum:
+    approvers: list[str] = field(default_factory=list)
+    required: int = 0
+    remaining: int = 0
+    extra: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class ApprovalState:
+    code: str = ""
+    superseded_by: str | None = None
+    extra: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class ApprovalAbility:
+    allowed: bool = False
+    reason_code: str | None = None
+    extra: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class ApprovalCaller:
+    principal: str = ""
+    approve: ApprovalAbility = field(default_factory=ApprovalAbility)
+    reject: ApprovalAbility = field(default_factory=ApprovalAbility)
+    extra: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class WorkflowApprovalView:
+    """The run-scoped approval view, including the optional proposal."""
+
+    approval: ApprovalRecord = field(default_factory=ApprovalRecord)
+    binding: ApprovalBinding | None = None
+    proposal: ApprovalProposal | None = None
+    policy: ApprovalPolicy = field(default_factory=ApprovalPolicy)
+    quorum: ApprovalQuorum = field(default_factory=ApprovalQuorum)
+    state: ApprovalState = field(default_factory=ApprovalState)
+    allowed_responses: list[str] = field(default_factory=list)
+    caller: ApprovalCaller = field(default_factory=ApprovalCaller)
+    extra: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class RuntimeApprovalAck:
+    """A partial quorum response from the approve route."""
+
+    workflow_run_id: str = ""
+    runtime_approval_id: str = ""
+    status: str = ""
+    approvals: int = 0
+    required_approvals: int = 0
+    remaining_approvals: int = 0
+    extra: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class WorkflowRunReplayDecision:
+    candidate_id: str = ""
+    criteria_version: str = ""
+    outcome: str = ""
+    observation_digest: str = ""
+    failed_criteria: list[str] = field(default_factory=list)
+    reason_code: str | None = None
+    original_decision_id: str = ""
+    semantic_match: bool = False
+    observation_match: bool = False
+    extra: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class WorkflowRunReplayReport:
+    """The server's read-only historical replay report.
+
+    ``matches_original`` is the authoritative comparison result.  The SDK
+    deliberately does not rename it to a CLI-specific ``matched`` status.
+    """
+
+    schema_version: str = ""
+    workflow_run_id: str = ""
+    manifest_id: str = ""
+    manifest_digest: str = ""
+    observation_count: int = 0
+    observation_ids: list[str] = field(default_factory=list)
+    criteria_version: str = ""
+    decisions: list[WorkflowRunReplayDecision] = field(default_factory=list)
+    matches_original: bool = False
+    extra: dict[str, Any] = field(default_factory=dict)
+
+    def __eq__(self, other: object) -> bool:
+        """Compare legacy response-shaped dicts without losing typed access."""
+        if isinstance(other, dict):
+            for key, value in other.items():
+                if key in self.__dataclass_fields__:
+                    actual = getattr(self, key)
+                else:
+                    actual = self.extra.get(key)
+                if actual != value:
+                    return False
+            return True
+        if not isinstance(other, WorkflowRunReplayReport):
+            return NotImplemented
+        return (
+            self.schema_version == other.schema_version
+            and self.workflow_run_id == other.workflow_run_id
+            and self.manifest_id == other.manifest_id
+            and self.manifest_digest == other.manifest_digest
+            and self.observation_count == other.observation_count
+            and self.observation_ids == other.observation_ids
+            and self.criteria_version == other.criteria_version
+            and self.decisions == other.decisions
+            and self.matches_original == other.matches_original
+            and self.extra == other.extra
+        )
+
+
+@dataclass
 class AdmissionManifest:
     """The immutable manifest a run was admitted with: what it was pinned to and who started it.
 
@@ -430,8 +646,22 @@ class WorkflowService:
 __all__ = [
     "FAILED_RUN_STATES",
     "TERMINAL_RUN_STATES",
+    "ApprovalAbility",
+    "ApprovalArgumentField",
+    "ApprovalBinding",
+    "ApprovalCaller",
+    "ApprovalPolicy",
+    "ApprovalProposal",
+    "ApprovalQuorum",
+    "ApprovalRecord",
+    "ApprovalState",
+    "RuntimeApprovalAck",
     "Workflow",
+    "WorkflowApprovalView",
     "WorkflowRun",
+    "WorkflowRunReplayDecision",
+    "WorkflowRunReplayReport",
+    "WorkflowRuntimeApproval",
     "WorkflowService",
     "WorkflowVersion",
 ]

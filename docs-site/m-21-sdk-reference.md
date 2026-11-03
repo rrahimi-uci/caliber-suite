@@ -49,6 +49,15 @@ Every documented class and module-level function, with the module that defines i
 | [`AccountsAPI`](#accountsapi) | [`caliber_sdk.resources.auth`](#module-caliber_sdkresourcesauth) |
 | [`AdminAPI`](#adminapi) | [`caliber_sdk.resources.auth`](#module-caliber_sdkresourcesauth) |
 | [`AgentsAPI`](#agentsapi) | [`caliber_sdk.resources.assets`](#module-caliber_sdkresourcesassets) |
+| [`ApprovalAbility`](#approvalability) | [`caliber_sdk.models.workflows`](#module-caliber_sdkmodelsworkflows) |
+| [`ApprovalArgumentField`](#approvalargumentfield) | [`caliber_sdk.models.workflows`](#module-caliber_sdkmodelsworkflows) |
+| [`ApprovalBinding`](#approvalbinding) | [`caliber_sdk.models.workflows`](#module-caliber_sdkmodelsworkflows) |
+| [`ApprovalCaller`](#approvalcaller) | [`caliber_sdk.models.workflows`](#module-caliber_sdkmodelsworkflows) |
+| [`ApprovalPolicy`](#approvalpolicy) | [`caliber_sdk.models.workflows`](#module-caliber_sdkmodelsworkflows) |
+| [`ApprovalProposal`](#approvalproposal) | [`caliber_sdk.models.workflows`](#module-caliber_sdkmodelsworkflows) |
+| [`ApprovalQuorum`](#approvalquorum) | [`caliber_sdk.models.workflows`](#module-caliber_sdkmodelsworkflows) |
+| [`ApprovalRecord`](#approvalrecord) | [`caliber_sdk.models.workflows`](#module-caliber_sdkmodelsworkflows) |
+| [`ApprovalState`](#approvalstate) | [`caliber_sdk.models.workflows`](#module-caliber_sdkmodelsworkflows) |
 | [`AriaAPI`](#ariaapi) | [`caliber_sdk.resources.operations`](#module-caliber_sdkresourcesoperations) |
 | [`AriaDraftsAPI`](#ariadraftsapi) | [`caliber_sdk.resources.operations`](#module-caliber_sdkresourcesoperations) |
 | [`AriaInteraction`](#ariainteraction) | [`caliber_sdk.models.operations`](#module-caliber_sdkmodelsoperations) |
@@ -233,6 +242,7 @@ Every documented class and module-level function, with the module that defines i
 | [`ReviewQueue`](#reviewqueue) | [`caliber_sdk.models.operations`](#module-caliber_sdkmodelsoperations) |
 | [`ReviewQueuesAPI`](#reviewqueuesapi) | [`caliber_sdk.resources.operations`](#module-caliber_sdkresourcesoperations) |
 | [`ReworkTasksAPI`](#reworktasksapi) | [`caliber_sdk.resources.operations`](#module-caliber_sdkresourcesoperations) |
+| [`RuntimeApprovalAck`](#runtimeapprovalack) | [`caliber_sdk.models.workflows`](#module-caliber_sdkmodelsworkflows) |
 | [`RuntimeSettings`](#runtimesettings) | [`caliber_sdk.models.core`](#module-caliber_sdkmodelscore) |
 | [`RuntimeSettingsSummary`](#runtimesettingssummary) | [`caliber_sdk.models.core`](#module-caliber_sdkmodelscore) |
 
@@ -290,12 +300,16 @@ Every documented class and module-level function, with the module that defines i
 | [`WaitFailed`](#waitfailed) | [`caliber_sdk.waiters`](#module-caliber_sdkwaiters) |
 | [`WaitTimeout`](#waittimeout) | [`caliber_sdk.waiters`](#module-caliber_sdkwaiters) |
 | [`Workflow`](#workflow) | [`caliber_sdk.models.workflows`](#module-caliber_sdkmodelsworkflows) |
+| [`WorkflowApprovalView`](#workflowapprovalview) | [`caliber_sdk.models.workflows`](#module-caliber_sdkmodelsworkflows) |
 | [`WorkflowBenchmarkReportsAPI`](#workflowbenchmarkreportsapi) | [`caliber_sdk.resources.workflows`](#module-caliber_sdkresourcesworkflows) |
 | [`WorkflowPromotionsAPI`](#workflowpromotionsapi) | [`caliber_sdk.resources.workflows`](#module-caliber_sdkresourcesworkflows) |
 | [`WorkflowRun`](#workflowrun) | [`caliber_sdk.models.workflows`](#module-caliber_sdkmodelsworkflows) |
 | [`WorkflowRunCapabilities`](#workflowruncapabilities) | [`caliber_sdk.models.core`](#module-caliber_sdkmodelscore) |
 | [`WorkflowRunFailed`](#workflowrunfailed) | [`caliber_sdk.resources.workflows`](#module-caliber_sdkresourcesworkflows) |
+| [`WorkflowRunReplayDecision`](#workflowrunreplaydecision) | [`caliber_sdk.models.workflows`](#module-caliber_sdkmodelsworkflows) |
+| [`WorkflowRunReplayReport`](#workflowrunreplayreport) | [`caliber_sdk.models.workflows`](#module-caliber_sdkmodelsworkflows) |
 | [`WorkflowRunsAPI`](#workflowrunsapi) | [`caliber_sdk.resources.workflows`](#module-caliber_sdkresourcesworkflows) |
+| [`WorkflowRuntimeApproval`](#workflowruntimeapproval) | [`caliber_sdk.models.workflows`](#module-caliber_sdkmodelsworkflows) |
 | [`WorkflowsAPI`](#workflowsapi) | [`caliber_sdk.resources.workflows`](#module-caliber_sdkresourcesworkflows) |
 | [`WorkflowService`](#workflowservice) | [`caliber_sdk.models.workflows`](#module-caliber_sdkmodelsworkflows) |
 | [`WorkflowServicesAPI`](#workflowservicesapi) | [`caliber_sdk.resources.workflows`](#module-caliber_sdkresourcesworkflows) |
@@ -5754,7 +5768,7 @@ from the start.
 - [`CaliberAPIError`](#caliberapierror)
 - [`CaliberTransportError`](#calibertransporterror)
 
-###### `replay(run_id: str, *, observation_ids: list[str] | None = None) -> Any`
+###### `replay(run_id: str, *, observation_ids: list[str] | None = None) -> WorkflowRunReplayReport`
 
 Replay a run from its recorded observations without live execution.
 
@@ -5768,7 +5782,7 @@ report to a specific recorded subset.
 | `run_id` | positional-or-keyword | `str` | `—` |
 | `observation_ids` | keyword-only | `list[str] | None` | `None` |
 
-**Returns:** `Any`
+**Returns:** `WorkflowRunReplayReport`
 
 **Raises:**
 
@@ -5903,7 +5917,7 @@ Durable checkpoints recorded during this run, newest first.
 - [`CaliberAPIError`](#caliberapierror)
 - [`CaliberTransportError`](#calibertransporterror)
 
-###### `approvals(run_id: str) -> Any`
+###### `approvals(run_id: str) -> list[WorkflowRuntimeApproval]`
 
 Human Approval checkpoints this run has raised, pending or
 decided.
@@ -5912,14 +5926,14 @@ decided.
 | --- | --- | --- | --- |
 | `run_id` | positional-or-keyword | `str` | `—` |
 
-**Returns:** `Any`
+**Returns:** `list[WorkflowRuntimeApproval]`
 
 **Raises:**
 
 - [`CaliberAPIError`](#caliberapierror)
 - [`CaliberTransportError`](#calibertransporterror)
 
-###### `approval(run_id: str, approval_id: str) -> Any`
+###### `approval(run_id: str, approval_id: str) -> WorkflowApprovalView`
 
 The approver's view of one approval request: what is being decided and what the
 caller may do (B06.5). Read-only. For a request bound to an effect proposal it carries
@@ -5935,40 +5949,98 @@ approval of another run and an unknown id are the same
 | `run_id` | positional-or-keyword | `str` | `—` |
 | `approval_id` | positional-or-keyword | `str` | `—` |
 
-**Returns:** `Any`
+**Returns:** `WorkflowApprovalView`
 
 **Raises:**
 
 - [`CaliberAPIError`](#caliberapierror)
 - [`CaliberTransportError`](#calibertransporterror)
 
-###### `approve(run_id: str, **payload) -> Any`
+###### `approval_proposal(run_id: str, approval_id: str) -> ApprovalProposal | None`
+
+Return the proposal shown by a run-scoped approval view.
+
+The server has no standalone proposal route.  This helper follows the
+existing approval view and returns its nested proposal, so callers do
+not have to reconstruct a parallel ``ProposalsAPI`` abstraction.
+``None`` is an honest result for a legacy node-level approval or a
+caller that is not allowed to see proposal details.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `run_id` | positional-or-keyword | `str` | `—` |
+| `approval_id` | positional-or-keyword | `str` | `—` |
+
+**Returns:** `ApprovalProposal | None`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `decide(run_id: str, *, runtime_approval_id: str, decision: Literal['approve', 'reject'], reason: str | None = None) -> WorkflowRun | RuntimeApprovalAck`
+
+Record an explicit decision on a proposal-bound run approval.
+
+``run_id`` and ``runtime_approval_id`` are both required because the
+server scopes an approval to its run.  Only the two server routes are
+supported; ``request_changes`` is approval metadata, not a decision
+endpoint.  The server may return a partial-quorum acknowledgement for
+``approve`` or the typed run after a terminal decision.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `run_id` | positional-or-keyword | `str` | `—` |
+| `runtime_approval_id` | keyword-only | `str` | `—` |
+| `decision` | keyword-only | `Literal['approve', 'reject']` | `—` |
+| `reason` | keyword-only | `str | None` | `None` |
+
+**Returns:** [`WorkflowRun | RuntimeApprovalAck`](#workflowrun)
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+- `ValueError`
+
+###### `approve(run_id: str, *, runtime_approval_id: str | None = None, reason: str | None = None, **legacy_payload) -> WorkflowRun | RuntimeApprovalAck`
 
 Approve a pending Human Approval checkpoint. The run does not
 resume automatically -- call :meth:`resume` after.
 
+Proposal-bound callers should pass ``runtime_approval_id``.  The
+optional payload is retained for older node-level approval examples;
+:meth:`decide` is the strict exact-intent contract.
+
 | Parameter | Kind | Type | Default |
 | --- | --- | --- | --- |
 | `run_id` | positional-or-keyword | `str` | `—` |
-| `payload` | var-keyword | `Any` | `—` |
+| `runtime_approval_id` | keyword-only | `str | None` | `None` |
+| `reason` | keyword-only | `str | None` | `None` |
+| `legacy_payload` | var-keyword | `Any` | `—` |
 
-**Returns:** `Any`
+**Returns:** [`WorkflowRun | RuntimeApprovalAck`](#workflowrun)
 
 **Raises:**
 
 - [`CaliberAPIError`](#caliberapierror)
 - [`CaliberTransportError`](#calibertransporterror)
 
-###### `reject(run_id: str, **payload) -> Any`
+###### `reject(run_id: str, *, runtime_approval_id: str | None = None, reason: str | None = None, **legacy_payload) -> WorkflowRun | RuntimeApprovalAck`
 
 Reject a pending Human Approval checkpoint.
+
+See :meth:`approve` for the compatibility behavior of the optional
+legacy payload; proposal-bound callers should use the explicit id.
 
 | Parameter | Kind | Type | Default |
 | --- | --- | --- | --- |
 | `run_id` | positional-or-keyword | `str` | `—` |
-| `payload` | var-keyword | `Any` | `—` |
+| `runtime_approval_id` | keyword-only | `str | None` | `None` |
+| `reason` | keyword-only | `str | None` | `None` |
+| `legacy_payload` | var-keyword | `Any` | `—` |
 
-**Returns:** `Any`
+**Returns:** [`WorkflowRun | RuntimeApprovalAck`](#workflowrun)
 
 **Raises:**
 
@@ -11175,7 +11247,7 @@ sdk/caliber-sdk/examples/quickstart.py#quickstart
 
 **Public exports**
 
-`FAILED_RUN_STATES`, `IMPORT_JOB_TERMINAL_STATES`, `RELEASE_EVALUATION_TERMINAL_STATES`, `RELEASE_OPERATION_TERMINAL_STATES`, `STABILITY_BETA`, `STABILITY_GA`, `STABILITY_INTERNAL`, `TERMINAL_RUN_STATES`, `Account`, `AdmissionManifest`, `Agent`, `AriaInteraction`, `AriaPlan`, `AriaPlanDetail`, `AriaPlanStep`, `AuditEntry`, `Bucket`, `CalibrationJob`, `Capabilities`, `CausalAbsentRecord`, `CausalApprovalLink`, `CausalContextLink`, `CausalContextManifest`, `CausalDecisionLink`, `CausalEffect`, `CausalEffectOutcomeLink`, `CausalLinks`, `CausalPolicyDecision`, `CausalRunManifestLink`, `CookbookRecipe`, `CursorPage`, `ErrorBody`, `EvalDataset`, `EvalExample`, `Evaluation`, `Extensibility`, `FeatureFlag`, `FieldError`, `Identity`, `IssuedToken`, `Job`, `Judge`, `JudgeAlignment`, `KnowledgeBase`, `LlmSetupStatus`, `McpServer`, `OpenApiIntegration`, `OpenApiIntegrationVersion`, `OpenApiOperation`, `OpenApiOperationDependency`, `OpenApiToolDraft`, `OptimizerPlugin`, `Page`, `PersonalAccessToken`, `PlatformAdminInventory`, `Project`, `ProjectFile`, `ProjectFolder`, `ProjectMember`, `Prompt`, `QualityReview`, `RegisteredOptimizer`, `ReleaseCandidate`, `ReviewQueue`, `ReworkTask`, `RuntimeSettings`, `RuntimeSettingsSummary`, `SessionInfo`, `Skill`, `SkillRender`, `SkillSelection`, `SkillVersion`, `Stability`, `StoredObject`, `Tool`, `Trace`, `VerificationBatchResult`, `VerificationItem`, `Workflow`, `WorkflowRun`, `WorkflowRunCapabilities`, `WorkflowService`, `WorkflowVersion`, `WorkspaceBreakGlassApplyResult`, `WorkspaceChangeRequest`, `WorkspaceChangeRequestCheck`, `WorkspaceChangeRequestComment`, `WorkspaceChangeRequestHead`, `WorkspaceChangeRequestReview`, `WorkspaceChangeRequestReviewer`, `WorkspaceEnvironment`, `WorkspaceExternalReviewAttestation`, `WorkspaceImportJob`, `WorkspaceImportReconciliation`, `WorkspaceRelease`, `WorkspaceReleaseDecision`, `WorkspaceReleaseEvaluation`, `WorkspaceReleaseEvidence`, `WorkspaceReleaseOperation`, `WorkspaceReleaseOperationItem`, `WorkspaceReleaseOperationResult`, `WorkspaceRevision`, `WorkspaceRevisionDiff`, `WorkspaceRevisionResource`, `WorkspaceSource`, `WorkspaceSourceCapabilities`, `WorkspaceSourceConnection`, `WorkspaceSourceReconciliationResult`, `WorkspaceSourceState`, `WorkspaceVersionTag`, `decode`, `decode_list`
+`FAILED_RUN_STATES`, `IMPORT_JOB_TERMINAL_STATES`, `RELEASE_EVALUATION_TERMINAL_STATES`, `RELEASE_OPERATION_TERMINAL_STATES`, `STABILITY_BETA`, `STABILITY_GA`, `STABILITY_INTERNAL`, `TERMINAL_RUN_STATES`, `Account`, `AdmissionManifest`, `Agent`, `ApprovalAbility`, `ApprovalArgumentField`, `ApprovalBinding`, `ApprovalCaller`, `ApprovalPolicy`, `ApprovalProposal`, `ApprovalQuorum`, `ApprovalRecord`, `ApprovalState`, `AriaInteraction`, `AriaPlan`, `AriaPlanDetail`, `AriaPlanStep`, `AuditEntry`, `Bucket`, `CalibrationJob`, `Capabilities`, `CausalAbsentRecord`, `CausalApprovalLink`, `CausalContextLink`, `CausalContextManifest`, `CausalDecisionLink`, `CausalEffect`, `CausalEffectOutcomeLink`, `CausalLinks`, `CausalPolicyDecision`, `CausalRunManifestLink`, `CookbookRecipe`, `CursorPage`, `ErrorBody`, `EvalDataset`, `EvalExample`, `Evaluation`, `Extensibility`, `FeatureFlag`, `FieldError`, `Identity`, `IssuedToken`, `Job`, `Judge`, `JudgeAlignment`, `KnowledgeBase`, `LlmSetupStatus`, `McpServer`, `OpenApiIntegration`, `OpenApiIntegrationVersion`, `OpenApiOperation`, `OpenApiOperationDependency`, `OpenApiToolDraft`, `OptimizerPlugin`, `Page`, `PersonalAccessToken`, `PlatformAdminInventory`, `Project`, `ProjectFile`, `ProjectFolder`, `ProjectMember`, `Prompt`, `QualityReview`, `RegisteredOptimizer`, `ReleaseCandidate`, `ReviewQueue`, `ReworkTask`, `RuntimeApprovalAck`, `RuntimeSettings`, `RuntimeSettingsSummary`, `SessionInfo`, `Skill`, `SkillRender`, `SkillSelection`, `SkillVersion`, `Stability`, `StoredObject`, `Tool`, `Trace`, `VerificationBatchResult`, `VerificationItem`, `Workflow`, `WorkflowApprovalView`, `WorkflowRun`, `WorkflowRunCapabilities`, `WorkflowRunReplayDecision`, `WorkflowRunReplayReport`, `WorkflowRuntimeApproval`, `WorkflowService`, `WorkflowVersion`, `WorkspaceBreakGlassApplyResult`, `WorkspaceChangeRequest`, `WorkspaceChangeRequestCheck`, `WorkspaceChangeRequestComment`, `WorkspaceChangeRequestHead`, `WorkspaceChangeRequestReview`, `WorkspaceChangeRequestReviewer`, `WorkspaceEnvironment`, `WorkspaceExternalReviewAttestation`, `WorkspaceImportJob`, `WorkspaceImportReconciliation`, `WorkspaceRelease`, `WorkspaceReleaseDecision`, `WorkspaceReleaseEvaluation`, `WorkspaceReleaseEvidence`, `WorkspaceReleaseOperation`, `WorkspaceReleaseOperationItem`, `WorkspaceReleaseOperationResult`, `WorkspaceRevision`, `WorkspaceRevisionDiff`, `WorkspaceRevisionResource`, `WorkspaceSource`, `WorkspaceSourceCapabilities`, `WorkspaceSourceConnection`, `WorkspaceSourceReconciliationResult`, `WorkspaceSourceState`, `WorkspaceVersionTag`, `decode`, `decode_list`
 
 ### Module `caliber_sdk.models.common`
 
@@ -12720,7 +12792,7 @@ sdk/caliber-sdk/examples/workflow_run.py#run_and_wait
 
 **Public exports**
 
-`FAILED_RUN_STATES`, `TERMINAL_RUN_STATES`, `Workflow`, `WorkflowRun`, `WorkflowService`, `WorkflowVersion`
+`FAILED_RUN_STATES`, `TERMINAL_RUN_STATES`, `ApprovalAbility`, `ApprovalArgumentField`, `ApprovalBinding`, `ApprovalCaller`, `ApprovalPolicy`, `ApprovalProposal`, `ApprovalQuorum`, `ApprovalRecord`, `ApprovalState`, `RuntimeApprovalAck`, `Workflow`, `WorkflowApprovalView`, `WorkflowRun`, `WorkflowRunReplayDecision`, `WorkflowRunReplayReport`, `WorkflowRuntimeApproval`, `WorkflowService`, `WorkflowVersion`
 
 #### Classes
 
@@ -12844,6 +12916,270 @@ A server never serves ``completed`` with a rejection; this stays closed if one e
 This callable takes no public parameters.
 
 **Returns:** `bool`
+
+##### `WorkflowRuntimeApproval`
+
+`class WorkflowRuntimeApproval()`
+
+One runtime approval request raised by a workflow run.
+
+The server names this resource by ``runtime_approval_id`` and scopes it to
+``workflow_run_id``.  ``proposal_id`` is present only for the exact-intent
+approval path; it is never inferred by the SDK.
+
+**Dataclass fields**
+
+| Field | Type | Default |
+| --- | --- | --- |
+| `runtime_approval_id` | `str` | `''` |
+| `workflow_run_id` | `str` | `''` |
+| `project_id` | `str | None` | `None` |
+| `node_id` | `str` | `''` |
+| `status` | `str` | `''` |
+| `requested_at` | `str | None` | `None` |
+| `decided_at` | `str | None` | `None` |
+| `decided_by` | `str | None` | `None` |
+| `decision_reason` | `str | None` | `None` |
+| `policy_snapshot` | `dict[str, Any] | None` | `None` |
+| `proposal_id` | `str | None` | `None` |
+| `expires_at` | `str | None` | `None` |
+| `superseded_by` | `str | None` | `None` |
+| `consumed_at` | `str | None` | `None` |
+| `extra` | `dict[str, Any]` | `field(default_factory=dict)` |
+
+##### `ApprovalRecord`
+
+`class ApprovalRecord()`
+
+The approval request and its recorded decision.
+
+**Dataclass fields**
+
+| Field | Type | Default |
+| --- | --- | --- |
+| `runtime_approval_id` | `str` | `''` |
+| `workflow_run_id` | `str` | `''` |
+| `project_id` | `str | None` | `None` |
+| `node_id` | `str` | `''` |
+| `status` | `str` | `''` |
+| `requested_at` | `str | None` | `None` |
+| `decided_at` | `str | None` | `None` |
+| `decided_by` | `str | None` | `None` |
+| `decision_reason` | `str | None` | `None` |
+| `extra` | `dict[str, Any]` | `field(default_factory=dict)` |
+
+##### `ApprovalBinding`
+
+`class ApprovalBinding()`
+
+The exact-intent pins of a proposal-bound approval request.
+
+**Dataclass fields**
+
+| Field | Type | Default |
+| --- | --- | --- |
+| `proposal_id` | `str` | `''` |
+| `intent_hash` | `str` | `''` |
+| `evidence_hash` | `str` | `''` |
+| `policy_digest` | `str` | `''` |
+| `expected_resource_version` | `str | None` | `None` |
+| `expires_at` | `str | None` | `None` |
+| `requested_by` | `str | None` | `None` |
+| `superseded_by` | `str | None` | `None` |
+| `consumed_at` | `str | None` | `None` |
+| `extra` | `dict[str, Any]` | `field(default_factory=dict)` |
+
+##### `ApprovalArgumentField`
+
+`class ApprovalArgumentField()`
+
+The name and value kind of one proposal argument, never its value.
+
+**Dataclass fields**
+
+| Field | Type | Default |
+| --- | --- | --- |
+| `name` | `str | None` | `None` |
+| `kind` | `str` | `''` |
+| `extra` | `dict[str, Any]` | `field(default_factory=dict)` |
+
+##### `ApprovalProposal`
+
+`class ApprovalProposal()`
+
+The safe-to-display proposal nested in an approval view.
+
+**Dataclass fields**
+
+| Field | Type | Default |
+| --- | --- | --- |
+| `proposal_id` | `str` | `''` |
+| `connector` | `str` | `''` |
+| `connector_version` | `str` | `''` |
+| `effect_class` | `str` | `''` |
+| `resource` | `str` | `''` |
+| `state` | `str` | `''` |
+| `args_fields` | `list[ApprovalArgumentField]` | `field(default_factory=list)` |
+| `args_field_count` | `int` | `0` |
+| `args_truncated` | `bool` | `False` |
+| `extra` | `dict[str, Any]` | `field(default_factory=dict)` |
+
+##### `ApprovalPolicy`
+
+`class ApprovalPolicy()`
+
+Data model returned by the SDK for approval policy records.
+
+**Dataclass fields**
+
+| Field | Type | Default |
+| --- | --- | --- |
+| `required_role` | `str` | `''` |
+| `approval_count` | `int` | `0` |
+| `timeout_behavior` | `str` | `''` |
+| `allow_self_approval` | `bool` | `False` |
+| `extra` | `dict[str, Any]` | `field(default_factory=dict)` |
+
+##### `ApprovalQuorum`
+
+`class ApprovalQuorum()`
+
+Data model returned by the SDK for approval quorum records.
+
+**Dataclass fields**
+
+| Field | Type | Default |
+| --- | --- | --- |
+| `approvers` | `list[str]` | `field(default_factory=list)` |
+| `required` | `int` | `0` |
+| `remaining` | `int` | `0` |
+| `extra` | `dict[str, Any]` | `field(default_factory=dict)` |
+
+##### `ApprovalState`
+
+`class ApprovalState()`
+
+Data model returned by the SDK for approval state records.
+
+**Dataclass fields**
+
+| Field | Type | Default |
+| --- | --- | --- |
+| `code` | `str` | `''` |
+| `superseded_by` | `str | None` | `None` |
+| `extra` | `dict[str, Any]` | `field(default_factory=dict)` |
+
+##### `ApprovalAbility`
+
+`class ApprovalAbility()`
+
+Data model returned by the SDK for approval ability records.
+
+**Dataclass fields**
+
+| Field | Type | Default |
+| --- | --- | --- |
+| `allowed` | `bool` | `False` |
+| `reason_code` | `str | None` | `None` |
+| `extra` | `dict[str, Any]` | `field(default_factory=dict)` |
+
+##### `ApprovalCaller`
+
+`class ApprovalCaller()`
+
+Data model returned by the SDK for approval caller records.
+
+**Dataclass fields**
+
+| Field | Type | Default |
+| --- | --- | --- |
+| `principal` | `str` | `''` |
+| `approve` | `ApprovalAbility` | `field(default_factory=ApprovalAbility)` |
+| `reject` | `ApprovalAbility` | `field(default_factory=ApprovalAbility)` |
+| `extra` | `dict[str, Any]` | `field(default_factory=dict)` |
+
+##### `WorkflowApprovalView`
+
+`class WorkflowApprovalView()`
+
+The run-scoped approval view, including the optional proposal.
+
+**Dataclass fields**
+
+| Field | Type | Default |
+| --- | --- | --- |
+| `approval` | `ApprovalRecord` | `field(default_factory=ApprovalRecord)` |
+| `binding` | `ApprovalBinding | None` | `None` |
+| `proposal` | `ApprovalProposal | None` | `None` |
+| `policy` | `ApprovalPolicy` | `field(default_factory=ApprovalPolicy)` |
+| `quorum` | `ApprovalQuorum` | `field(default_factory=ApprovalQuorum)` |
+| `state` | `ApprovalState` | `field(default_factory=ApprovalState)` |
+| `allowed_responses` | `list[str]` | `field(default_factory=list)` |
+| `caller` | `ApprovalCaller` | `field(default_factory=ApprovalCaller)` |
+| `extra` | `dict[str, Any]` | `field(default_factory=dict)` |
+
+##### `RuntimeApprovalAck`
+
+`class RuntimeApprovalAck()`
+
+A partial quorum response from the approve route.
+
+**Dataclass fields**
+
+| Field | Type | Default |
+| --- | --- | --- |
+| `workflow_run_id` | `str` | `''` |
+| `runtime_approval_id` | `str` | `''` |
+| `status` | `str` | `''` |
+| `approvals` | `int` | `0` |
+| `required_approvals` | `int` | `0` |
+| `remaining_approvals` | `int` | `0` |
+| `extra` | `dict[str, Any]` | `field(default_factory=dict)` |
+
+##### `WorkflowRunReplayDecision`
+
+`class WorkflowRunReplayDecision()`
+
+Data model returned by the SDK for workflow run replay decision records.
+
+**Dataclass fields**
+
+| Field | Type | Default |
+| --- | --- | --- |
+| `candidate_id` | `str` | `''` |
+| `criteria_version` | `str` | `''` |
+| `outcome` | `str` | `''` |
+| `observation_digest` | `str` | `''` |
+| `failed_criteria` | `list[str]` | `field(default_factory=list)` |
+| `reason_code` | `str | None` | `None` |
+| `original_decision_id` | `str` | `''` |
+| `semantic_match` | `bool` | `False` |
+| `observation_match` | `bool` | `False` |
+| `extra` | `dict[str, Any]` | `field(default_factory=dict)` |
+
+##### `WorkflowRunReplayReport`
+
+`class WorkflowRunReplayReport()`
+
+The server's read-only historical replay report.
+
+``matches_original`` is the authoritative comparison result.  The SDK
+deliberately does not rename it to a CLI-specific ``matched`` status.
+
+**Dataclass fields**
+
+| Field | Type | Default |
+| --- | --- | --- |
+| `schema_version` | `str` | `''` |
+| `workflow_run_id` | `str` | `''` |
+| `manifest_id` | `str` | `''` |
+| `manifest_digest` | `str` | `''` |
+| `observation_count` | `int` | `0` |
+| `observation_ids` | `list[str]` | `field(default_factory=list)` |
+| `criteria_version` | `str` | `''` |
+| `decisions` | `list[WorkflowRunReplayDecision]` | `field(default_factory=list)` |
+| `matches_original` | `bool` | `False` |
+| `extra` | `dict[str, Any]` | `field(default_factory=dict)` |
 
 ##### `WorkflowService`
 

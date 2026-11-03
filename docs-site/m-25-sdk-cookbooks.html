@@ -97,6 +97,9 @@
 <p>Every code block on this page is generated from the source files under <code>sdk/caliber-sdk/examples/cookbooks/</code> at build time. The example test suite executes those files so the published docs stay tied to runnable SDK code.</p>
 <p>For setup and typed client behavior, use the <a href="m-20-sdk-guide.html">SDK guide</a> and the <a href="m-21-sdk-reference.html">SDK API reference</a>. This page is only for end-to-end runnable examples.</p>
 <h2 id="offline-replay-recovery-check">Offline replay recovery check<a class="anchor" href="#offline-replay-recovery-check" aria-hidden="true" tabindex="-1">#</a></h2>
+<p>For the installed Beta governed evidence-review journey, the run-scoped SDK and CLI calls are <code>submit</code> -&gt; <code>approvals</code>/<code>approval</code> -&gt; <code>decide</code> -&gt; <code>resume</code> -&gt; <code>evidence</code> -&gt; <code>replay</code>. The proposal is nested in the approval view; the server has no standalone proposal resource. The maintained installed example is <code>examples/cookbooks/cookbook_22_governed_evidence_review.py</code> and the operator replay command is:</p>
+<pre class="language-bash"><code class="language-bash">caliberctl workflow run replay RUN_ID</code></pre>
+<p>The command preserves the server's <code>matches_original</code> field and fails when it is false. It never treats <code>request_changes</code> metadata as an executable route.</p>
 <p>For a run that already has a B09.3 observation set and an immutable admission manifest, an operator can perform the bounded B09.4 comparison with the same project-scoped credentials. This route is deliberately a raw HTTP example: there is no parallel cookbook storage format and no live fallback.</p>
 <pre class="language-bash"><code class="language-bash">curl --fail-with-body -sS \
   -X POST "$CALIBER_BASE_URL/ajax-api/2.0/mlflow/caliber/workflow-runs/$RUN_ID/replay" \

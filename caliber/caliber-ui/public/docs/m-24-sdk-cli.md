@@ -107,6 +107,7 @@ visible in the process list), `--project` (default `$CALIBER_PROJECT`), `--json`
 | `capabilities` | What the deployment supports. |
 | `token list \| create \| rotate \| revoke` | Access token lifecycle. |
 | `workflow list \| run \| status` | Run a workflow and wait for it. |
+| `workflow run replay <run_id>` | Replay recorded observations without live execution. Exits 0 only when the server reports `matches_original: true`; a changed replay exits 1. |
 | `workflow deployments \| promote \| rollback \| promotions` | Deployment-alias governance: what's live, point an alias at a version, restore the prior one, and list pending/historical promotions. |
 | `promotion approve \| reject` | Act on a pending gated promotion (see `workflow promote`). |
 | `gate-verdict show \| record` | Advisory per-version evaluation verdicts (`prompt`/`workflow`/`skill`). |
@@ -133,6 +134,13 @@ credential — exit 0 for "nobody" would let it proceed on a false premise.
 **`workflow run` waits by default.** The non-waiting form is only useful to
 something that will poll later, and a deploy script that forgot to wait reports
 success for work that has not happened.
+
+**`workflow run replay` is read-only.** It calls the run-scoped replay route
+with no live provider, downstream, dispatcher, or effect call. The JSON result
+keeps the server's `matches_original` field; `true` means the recorded
+observations and decisions match the original run, while `false` is a failed
+verification and exits 1. A server refusal such as an out-of-scope or
+integrity-invalid observation remains an API failure.
 
 **`--idempotency-key` is passed through, never generated.** Submission is the one
 mutating call the SDK will not retry on its own. A key this tool invented would

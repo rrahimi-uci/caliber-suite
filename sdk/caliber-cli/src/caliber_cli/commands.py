@@ -127,6 +127,9 @@ def workflow_run(client: CaliberClient, args: argparse.Namespace, out: Printer) 
     concept to apply it to -- would look like the flag was honored when it was
     ignored.
     """
+    if not args.version_id and not args.workflow_id:
+        out.error("workflow run requires --workflow-id or --version-id")
+        return exits.USAGE
     if args.version_id and args.alias:
         out.error(
             "--alias requires --workflow-id and cannot be combined with "
@@ -159,6 +162,18 @@ def workflow_run(client: CaliberClient, args: argparse.Namespace, out: Printer) 
     if run.status in {"succeeded", "completed"}:
         return exits.OK
     return exits.FAILURE
+
+
+def workflow_run_replay(client: CaliberClient, args: argparse.Namespace, out: Printer) -> int:
+    """Replay one run's recorded observations without live execution.
+
+    ``matches_original`` is the server's comparison result.  It is not
+    renamed to a synthetic CLI status, and a mismatch is a failure so a CI
+    caller cannot mistake a changed replay for a verified one.
+    """
+    report = client.workflows.runs.replay(args.run_id)
+    out.data(report)
+    return exits.OK if report.matches_original else exits.FAILURE
 
 
 def workflow_status(client: CaliberClient, args: argparse.Namespace, out: Printer) -> int:
