@@ -1,9 +1,8 @@
 """Exact source and registration contracts for the Beta Lab 22 cookbook.
 
-Lab 22 is intentionally a documentation/registration slice. The V01 runtime
-scenario, browser journey, and installed SDK/CLI clients are owned by their
-dependent tasks; this contract keeps the package ready without creating a
-second runtime or client contract in this workstream.
+Lab 22 keeps the cookbook package and its disposable reference-profile runner
+explicitly wired. The browser journey remains owned by B15.3b; this contract
+ensures the API runner cannot silently fall back to an unsafe SQLite setup.
 """
 
 from __future__ import annotations
@@ -17,6 +16,7 @@ import pytest
 REPO_ROOT = Path(__file__).resolve().parents[2]
 LAB = REPO_ROOT / "docs-site/cookbooks/22-governed-evidence-review-lab"
 RUNNER = REPO_ROOT / "scripts/cookbook-run-all.sh"
+BOOTSTRAP = REPO_ROOT / "caliber/scripts/cookbook_22_reference_bootstrap.py"
 BUILDER = REPO_ROOT / "docs-site/build-docs.mjs"
 APP = REPO_ROOT / "caliber/caliber-ui/src/App.tsx"
 
@@ -106,11 +106,21 @@ def test_lab22_runner_registration_is_selectable_without_a_ui_claim() -> None:
         r'ALL_LABS="01 02 03 04 05 06 07 08 09 10 11 12 13 14 15 16 18 19 20 21 22"',
         text,
     )
-    assert re.search(
-        r"\b22\) LAB_TITLE=\"governed evidence review\"; LAB_FLAGS=\"cookbooks\"", text
-    )
+    lab22 = text[text.index("    22)") :]
+    assert 'LAB_TITLE="governed evidence review"; LAB_FLAGS="release_candidates,cookbooks"' in lab22
+    assert 'LAB_HELPERS="harborlight22 scriptedllm22"' in lab22
+    assert "LAB_REAL=1" in lab22
     assert "LAB_API_ARGV=(-m examples.cookbooks.cookbook_22_governed_evidence_review)" in text
-    assert 'LAB_UI=""' in text[text.index("22) LAB_TITLE=") :]
+    assert 'LAB_UI=""' in lab22
+    assert 'CALIBER_DATABASE_URL="$LAB22_DATABASE_URL"' in text
+    assert (
+        'CALIBER_COOKBOOK_PRESTART="$REPO_ROOT/caliber/scripts/cookbook_22_reference_bootstrap.py"'
+        in text
+    )
+    assert "CALIBER_EFFECT_CALLBACK_CONNECTORS=" in text
+    assert "harborlight22) start_helper harborlight-22 8810" in text
+    assert "scriptedllm22) start_helper scripted-llm-22 8792" in text
+    assert BOOTSTRAP.is_file()
 
 
 def test_lab22_is_registered_in_docs_builder_and_generated_nav() -> None:

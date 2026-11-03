@@ -59,10 +59,17 @@ For the installed cookbook runner, use the lab registration after the dependent 
 artifacts are present:
 
 ```bash
-export CALIBER_OPERATOR_USERS=admin,lab22-approver
-export CALIBER_APPROVER_USERS=admin,lab22-approver
-scripts/cookbook-env.sh up lab22 --flags cookbooks
+export CALIBER_LAB22_DATABASE_URL=postgresql+psycopg://caliber:caliber@127.0.0.1:5432/caliber
+scripts/cookbook-run-all.sh --labs 22
 ```
+
+The runner starts the disposable Harborlight downstream, migrates PostgreSQL, seeds the fixed
+project/release coordinates needed for reference-profile lineage, and supplies the exact
+project-scoped callback binding. It also starts a loopback OpenAI-compatible deterministic model
+stand-in so the installed example exercises CALIBER's real chat-completions adapter without a
+paid model or external network access. It never falls back to SQLite. To start the stack manually, use
+the same PostgreSQL URL and the reference settings below; the runner-only prestart fixture is
+otherwise required before the server can accept a Lab 22 run.
 
 The authoritative profile settings and refusal text are in the Beta scope page. Do not copy
 secrets or real provider credentials into a disposable lab stack.
@@ -85,13 +92,18 @@ credit outcome.
 | Variable or binding | Lab value | Why |
 | --- | --- | --- |
 | `CALIBER_PROFILE` | `reference` | enables the supported Beta trust boundary; development is not the acceptance profile |
+| `CALIBER_DATABASE_URL` | PostgreSQL URL | reference profile refuses SQLite because ownership and recovery depend on transactional row locks |
+| `CALIBER_ASSISTANT_ENGINE` | `openai` | selects the OpenAI-compatible Chat Completions path used by the local deterministic model stand-in |
+| `CALIBER_LLM_BASE_URL` | `http://127.0.0.1:8792/v1` | routes the governed agent turn through the local deterministic model stand-in |
+| `CALIBER_CSRF_ENABLED` | `true` | protects session-authenticated approval mutations |
+| `CALIBER_AUTH_BOOTSTRAP_ALLOW_INSECURE_DEFAULT` | `false` | the runner uses an explicit disposable password source rather than the insecure default bootstrap |
 | `CALIBER_OPERATOR_USERS` | `admin,lab22-approver` | admits the worker lease and the operator resume path |
 | `CALIBER_APPROVER_USERS` | `admin,lab22-approver` | gives only the distinct approver the platform approval scope |
 | `CALIBER_BACKGROUND_TASKS_ENABLED` | `true` | runs the governed worker/reconciler loops |
 | `CALIBER_EFFECT_RECONCILER_ENABLED` | `true` | verifies the downstream receipt after the effect |
 | `CALIBER_AGENT_STEP_TOOL_BACKENDS` | registered tool → `document_request` | binds the governed step to the trusted connector |
 | `CALIBER_EFFECT_CALLBACK_CONNECTORS` | project A → disposable Harborlight downstream | supplies the authoritative lookup by stable request key |
-| `CALIBER_FEATURE_COOKBOOKS` | `true` | only needed to install the gallery recipe; it is not an authorization grant |
+| `CALIBER_FEATURE_COOKBOOKS` and `CALIBER_FEATURE_RELEASE_CANDIDATES` | `true` | the recipe gallery and approved runtime-lineage release lookup are enabled; neither flag is an authorization grant |
 
 The exact binding syntax is deployment-specific and belongs to the reference-profile page. A
 missing binding must refuse closed; it must not silently fall back to an unverified HTTP call.
@@ -178,8 +190,9 @@ system.
 
 ## Cleanup and reset
 
-The scenario owns only its disposable project, users, run, evidence and local downstream. Use the
-example's cleanup option when available, then remove the disposable stack:
+The scenario owns only its disposable users, run, evidence and local downstream. The fixed
+bootstrap project and release must remain available for the browser journey; the example's
+cleanup option verifies that they remain intact. Remove the disposable stack/database to reset:
 
 ```bash
 scripts/cookbook-env.sh down lab22

@@ -86,6 +86,22 @@ jobs:
     name: Run every cookbook lab (API and UI)
     runs-on: ubuntu-latest
     timeout-minutes: 120
+    services:
+      postgres:
+        # Lab 22 is the reference-profile cookbook and therefore refuses SQLite.
+        # The other cookbook labs continue to use their isolated SQLite stacks.
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: caliber
+          POSTGRES_PASSWORD: caliber
+          POSTGRES_DB: caliber
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U caliber -d caliber"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     steps:
       - uses: actions/checkout@v5
       - uses: astral-sh/setup-uv@v10.3.3
@@ -101,7 +117,7 @@ jobs:
         working-directory: caliber
         run: |
           uv venv .venv --python 3.12
-          uv pip install --python .venv/bin/python -e ".[dev,llm,knowledge,knowledge-local]"
+          uv pip install --python .venv/bin/python -e ".[dev,postgres,llm,knowledge,knowledge-local]"
           uv pip install --python .venv/bin/python -e ../sdk/caliber-sdk -e ../sdk/caliber-cli
       - uses: actions/setup-node@v7
         with:
@@ -126,6 +142,7 @@ jobs:
       - name: Run the labs
         env:
           LABS: ${{ github.event.inputs.labs }}
+          CALIBER_LAB22_DATABASE_URL: postgresql+psycopg://caliber:caliber@127.0.0.1:5432/caliber
         run: |
           if [[ -n "${LABS:-}" ]]; then
             scripts/cookbook-run-all.sh --labs "$LABS"

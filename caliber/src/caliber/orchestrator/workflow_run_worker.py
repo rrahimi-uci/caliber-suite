@@ -57,6 +57,7 @@ from caliber.ids import new_runtime_approval_id, new_workflow_run_checkpoint_id
 from caliber.mcp_policy import deployment_blockers
 from caliber.observability.trace import bind_trace_id
 from caliber.policy.grants import GrantDenied, load_grant
+from caliber.replay.observations import ObservationRecorder
 from caliber.secrets import resolve_secret
 from caliber.storage import StorageError, WorkingDirectoryService, build_backend
 from caliber.workflows.admission import CONTEXT_READ_ACTION, AdmissionSettings
@@ -1876,6 +1877,17 @@ class WorkflowRunWorker:
                     error_summary=_compile_error_summary(exc),
                 )
                 return
+            # Bind the replay recorder to the same run transaction and storage backend as the
+            # worker.  The runtime already emits model/read observation events, but keeping this
+            # callback optional means direct preview/export callers remain unchanged; admitted
+            # persisted runs must retain the observations that the public replay endpoint consumes.
+            plan.observation_recorder = ObservationRecorder(
+                session=session,
+                backend=build_backend(self._config.workflow_storage),
+                workflow_run_id=run.workflow_run_id,
+                project_id=run.project_id,
+                principal=str(run.created_by or "@workflow-run-worker"),
+            )
             # At-most-once external effects. This is the only execution path that
             # can be *restarted*: an expired lease resets the run to ``queued`` and,
             # without a wait/approval checkpoint, execution begins again from the
@@ -2262,7 +2274,12 @@ class WorkflowRunWorker:
                 return
             status = normalize_runtime_result_status(result.status)
             if status == RUN_STATUS_COMPLETED:
-                self._complete_if_accepted(session, row, result)
+                self._complete_if_accepted(
+                    session,
+                    row,
+                    result,
+                    observation_recorder=plan.observation_recorder,
+                )
                 return
             self._mark_failed(
                 session,
@@ -2741,6 +2758,8 @@ class WorkflowRunWorker:
         session: Session,
         run: CaliberWorkflowRun,
         result: WorkflowRunResult,
+        *,
+        observation_recorder: Any = None,
     ) -> None:
         """Complete a run the runtime reports as done only if the platform's own acceptance of its effects allows it (B09.2b, #791).
 
@@ -2764,7 +2783,11 @@ class WorkflowRunWorker:
             # A savepoint: a failure takes back only this pass's decisions, not the run row's pending changes (its trace links).
             with session.begin_nested():
                 outcome = acceptance_completion.evaluate_run(
-                    session, run, targets=targets, reader=self._case_reader
+                    session,
+                    run,
+                    targets=targets,
+                    reader=self._case_reader,
+                    observation_recorder=observation_recorder,
                 )
         except Exception as exc:
             self._fail_acceptance_error(session, run, result, exc)

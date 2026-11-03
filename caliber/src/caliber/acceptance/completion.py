@@ -279,6 +279,7 @@ def evaluate_run(
     targets: Targets,
     reader: CaseReader = read_case,
     now: datetime | None = None,
+    observation_recorder: Callable[[Mapping[str, Any]], Any] | None = None,
 ) -> RunAcceptance | None:
     """Judge every governed effect of ``run`` and record one decision per candidate, or ``None`` if it has none to judge.
 
@@ -312,6 +313,19 @@ def evaluate_run(
                 # an unreachable or refusing downstream: not an observation (the text is never kept)
                 logger.warning("the case of proposal %s could not be read", proposal_id)
                 reads[key] = None
+            if reads[key] is not None and observation_recorder is not None:
+                observation_recorder(
+                    {
+                        "node_id": "acceptance.case",
+                        "occurrence_id": f"case:{case_id}",
+                        "attempt": 1,
+                        "observation_kind": "read",
+                        "request": {"case_id": case_id},
+                        "content": reads[key],
+                        "provider": "acceptance.case_reader",
+                        "provider_version": "v1",
+                    }
+                )
         return reads[key]
 
     decisions: list[AcceptanceDecision] = []

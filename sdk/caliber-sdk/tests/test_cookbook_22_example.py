@@ -36,12 +36,52 @@ class FakeLab22:
         def ok(data: object, status: int = 200) -> httpx.Response:
             return httpx.Response(status, json={"data": data})
 
-        if (request.method, path) == ("POST", "/projects"):
-            return ok({"project_id": "PRJ-22", "name": body["name"]}, 201)
-        if path == "/projects/PRJ-22/members" and request.method == "POST":
+        if (request.method, path) == ("GET", "/projects"):
             return ok(
-                {"project_id": "PRJ-22", "user_id": body["user_id"], "role": body["role"]},
-                201,
+                [
+                    {
+                        "project_id": "PRJ-cookbook-22",
+                        "name": "cookbook-22-governed-review",
+                        "status": "active",
+                    }
+                ]
+            )
+        if path == "/projects/PRJ-cookbook-22/environments" and request.method == "GET":
+            return ok(
+                {
+                    "environments": [
+                        {
+                            "environment_id": "WSE-cookbook-22-dev",
+                            "project_id": "PRJ-cookbook-22",
+                            "name": "dev",
+                            "status": "active",
+                            "current_release_id": "WSREL-cookbook-22",
+                        }
+                    ]
+                }
+            )
+        if path == "/projects/PRJ-cookbook-22/releases" and request.method == "GET":
+            return ok(
+                [
+                    {
+                        "release_id": "WSREL-cookbook-22",
+                        "project_id": "PRJ-cookbook-22",
+                        "environment_id": "WSE-cookbook-22-dev",
+                        "status": "approved",
+                    }
+                ]
+            )
+        if path == "/tools" and request.method == "GET":
+            return ok(
+                [
+                    {
+                        "tool_id": "TOOL-cookbook-22",
+                        "name": "request_missing_document",
+                        "version": "1.0",
+                        "status": "active",
+                        "requires_approval": True,
+                    }
+                ]
             )
         if (request.method, path) == ("GET", "/cookbooks"):
             return ok({"recipes": [{"id": "22", "title": "Governed Evidence Review", "steps": []}]})
@@ -58,6 +98,8 @@ class FakeLab22:
         if (request.method, path) == ("POST", "/workflow-versions/WFV-22/publish"):
             return ok({"version_id": "WFV-22", "workflow_id": "WF-22", "status": "published"})
         if (request.method, path) == ("POST", "/workflow-runs"):
+            assert body["workspace_release_id"] == "WSREL-cookbook-22"
+            assert body["environment_id"] == "WSE-cookbook-22-dev"
             return ok(
                 {
                     "workflow_run_id": "RUN-22",
@@ -190,3 +232,7 @@ def test_lab22_sdk_example_uses_typed_run_scoped_journey() -> None:
     assert result["replay_matches_original"] is True
     assert "POST /workflow-runs/RUN-22/approval/approve" in fake.calls
     assert "POST /workflow-runs/RUN-22/replay" in fake.calls
+    assert "GET /projects" in fake.calls
+    assert "GET /projects/PRJ-cookbook-22/environments" in fake.calls
+    assert "GET /projects/PRJ-cookbook-22/releases" in fake.calls
+    assert "GET /tools" in fake.calls

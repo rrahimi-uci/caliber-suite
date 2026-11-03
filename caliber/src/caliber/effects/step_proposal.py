@@ -640,6 +640,10 @@ def _bind_named_tool(
         connector=connector,
         version=admitted.connector_version,
         effect_class=trust.effect_class,
+        # The document-request connector owns and validates its optional
+        # precondition. It is a model-supplied input, not a platform identity
+        # claim like connector, version, or effect class.
+        expected_resource_version=action.expected_resource_version,
     )
     # The destination is the model's to name within the admitted connector's pattern; the placeholder never fits it.
     pattern = (BACKENDS[kind].configuration or {}).get("resource")
