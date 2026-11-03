@@ -1,0 +1,26 @@
+workflow_goal: Run one synthetic evidence-review request through governed admission, distinct approval, one verified document-request effect, evidence export and non-mutating replay.
+# The downstream and case fixture are owned by the EGI scenario package. This cookbook teaches
+# and installs that contract; it does not create a second route or duplicate the fixture.
+feasibility:
+  - The editor's run is admitted in project A and pauses at waiting_approval before any downstream call.
+  - The scripted provider proposes exactly one request_missing_document action for MORT-2026-000184 and pay_statement at expected version 1.
+  - The initiating editor cannot approve; a distinct project approver can approve the exact proposal and an operator can resume the run.
+  - The document-request connector commits once, reads the receipt back by stable key, and the case advances from version 1 to version 2.
+  - The downstream contract returns 201 for the first commit, 200 for the same-key replay, and 412 for a stale If-Match without changing state.
+  - The evidence bundle links run, proposal, approval, decision, receipt and downstream request; replay is matched and non-mutating.
+  - Project-B reads, unknown ids, missing verifier bindings and unauthorized approval refuse closed.
+manual_flow:
+  - step: admit
+    action: start the installed evidence-review workflow as the editor in project A and inspect the paused proposal
+  - step: approve
+    action: verify the editor refusal, then approve the exact proposal as the distinct approver and resume as operator
+  - step: verify
+    action: read the case and receipt, export evidence, and verify one downstream mutation
+  - step: replay
+    action: replay the exact export offline and confirm matched with no outbound mutation
+components:
+  workflow: one installed evidence-review workflow using a scripted model
+  downstream: existing D1 Harborlight projection and document-request ledger
+  fixture: caliber/tests/fixtures/egi/case_000184.json, provenance-pinned and synthetic
+  evidence: workflow run, causal links, export and replay
+  authorization: project A editor, distinct approver, operator resume; project B isolated

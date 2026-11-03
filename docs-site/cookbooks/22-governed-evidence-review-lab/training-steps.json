@@ -1,0 +1,52 @@
+{
+  "steps": [
+    {
+      "id": "22.1",
+      "title": "Read the Beta trust boundary",
+      "route": "/cookbooks",
+      "do": "Open the Beta scope and reference-profile links before installing the recipe. Confirm that the case is synthetic and the connector is supported only in the configured reference shape."
+    },
+    {
+      "id": "22.2",
+      "title": "Admit the evidence-review run",
+      "route": "/workflows",
+      "do": "Install the governed evidence-review recipe and start it as the project-A editor. Inspect the run until it is waiting for approval with one request_missing_document proposal."
+    },
+    {
+      "id": "22.3",
+      "title": "Observe the approval refusal",
+      "route": "/workflow-runs/{run_id}",
+      "do": "As the initiating editor, try to approve the protected proposal. Confirm the project_role_required refusal and that the downstream ledger is still empty."
+    },
+    {
+      "id": "22.4",
+      "title": "Approve and resume",
+      "route": "/workflow-runs/{run_id}",
+      "do": "Sign in as the distinct approver, inspect the exact proposal diff, approve it, then resume the run as the configured operator."
+    },
+    {
+      "id": "22.5",
+      "title": "Verify the single effect",
+      "route": "/workflow-runs/{run_id}",
+      "do": "Confirm completed and accepted, then read the receipt and Harborlight case. The case is version 2 and the downstream ledger contains exactly one document request."
+    },
+    {
+      "id": "22.6",
+      "title": "Inspect causal evidence",
+      "route": "/audit-log",
+      "do": "Open the run evidence and audit trail. Confirm the run, proposal, approval, decision, receipt and downstream request ids are linked with no missing or unrecorded links."
+    },
+    {
+      "id": "22.7",
+      "title": "Export and replay",
+      "route": "/workflow-runs/{run_id}",
+      "do": "Download the exact evidence export and replay it offline. Confirm matched and verify that the downstream mutation count remains one."
+    },
+    {
+      "id": "22.8",
+      "title": "Check isolation and stale recovery",
+      "route": "/workflow-runs/{run_id}",
+      "do": "Switch to project B and confirm the run is not readable. Submit a stale If-Match request only to demonstrate the 412 refusal; refresh the case before a legitimate retry."
+    }
+  ]
+}

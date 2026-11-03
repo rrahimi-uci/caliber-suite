@@ -1,0 +1,20 @@
+quality_gates:
+  - gate: admission
+    target: project-A editor starts the run and it pauses at waiting_approval before any downstream mutation
+  - gate: protected proposal
+    target: exactly one request_missing_document proposal for MORT-2026-000184/pay_statement/version-1; initiating editor receives 403
+  - gate: distinct approval
+    target: project-A approver approves the exact proposal and the operator resumes the run
+  - gate: verified effect
+    target: one committed proposal, one receipt verified by read-back, case version 2, one downstream request
+  - gate: downstream boundaries
+    target: first POST 201, same-key replay 200 with no new mutation, stale If-Match 412 with no state change
+  - gate: isolation
+    target: project-B and unknown run reads return scoped 404; missing verifier refuses before proposal creation
+  - gate: evidence
+    target: accepted terminal run, complete causal links, export with stable ids, offline replay matched and non-mutating
+  - gate: installed artifacts
+    target: cookbook runner API/UI paths and the dependent EGI scenario use the same fixture and contract
+notes:
+  - This package contributes documentation and registration evidence; B15.2 owns the V01 scenario and B15.3b owns the browser spec.
+  - SDK/CLI installed-artifact execution is completed by the dependent governance SDK/CLI package; this lab must not invent a parallel client contract.

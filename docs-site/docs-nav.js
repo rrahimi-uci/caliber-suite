@@ -358,6 +358,11 @@ window.DOCS_DATA = {
           "href": "m-cookbook-21-workspace-source-to-release.html",
           "label": "21 · Workspace Source-to-Release",
           "newtab": false
+        },
+        {
+          "href": "m-cookbook-22-governed-evidence-review.html",
+          "label": "22 · Governed Evidence Review",
+          "newtab": false
         }
       ]
     },
@@ -2937,6 +2942,29 @@ window.DOCS_DATA = {
     {
       "href": "m-cookbook-21-workspace-source-to-release.html",
       "label": "21 · Workspace Source-to-Release",
+      "section": "Examples",
+      "section_id": "examples",
+      "summary": "",
+      "audience": [
+        "developer",
+        "operator",
+        "system-user"
+      ],
+      "doc_type": "example",
+      "prerequisites": [],
+      "stability": "ga",
+      "reviewed_on": "2026-08-10",
+      "version_applicability": "current main branch docs contract",
+      "tags": [
+        "cookbook",
+        "example"
+      ],
+      "newtab": false,
+      "nav_hidden": false
+    },
+    {
+      "href": "m-cookbook-22-governed-evidence-review.html",
+      "label": "22 · Governed Evidence Review",
       "section": "Examples",
       "section_id": "examples",
       "summary": "",
