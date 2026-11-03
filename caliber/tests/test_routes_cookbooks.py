@@ -21,15 +21,15 @@ from caliber.workflows.manifest import parse_manifest
 PREFIX = "/ajax-api/2.0/mlflow/caliber"
 
 
-def test_catalog_contains_exactly_20_versioned_parseable_examples(client: TestClient) -> None:
+def test_catalog_contains_exactly_21_versioned_parseable_examples(client: TestClient) -> None:
     response = client.get(f"{PREFIX}/cookbooks")
     assert response.status_code == 200, response.text
     data = response.json()["data"]
     assert data["schema_version"] == 1
     assert data["catalog_version"]
-    # 01-16 and 18-21: 17 is a standalone SDK automation with no catalog entry.
+    # 01-16 and 18-22: 17 is a standalone SDK automation with no catalog entry.
     assert [recipe["id"] for recipe in data["recipes"]] == [
-        f"{number:02d}" for number in (*range(1, 17), *range(18, 22))
+        f"{number:02d}" for number in (*range(1, 17), *range(18, 23))
     ]
 
     for recipe in build_cookbook_catalog()["recipes"]:
