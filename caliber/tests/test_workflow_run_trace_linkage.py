@@ -334,6 +334,7 @@ def test_governed_step_spans_carry_decision_ids(
         receipt = session.scalars(select(CaliberEffectReceipt)).one()
         assert approval.consumed_at is not None
         assert proposal.receipt_id == receipt.receipt_id
+        run_id = proposal.workflow_run_id
         rows = {
             "caliber.proposal_id": proposal.proposal_id,
             "caliber.decision_id": decision.decision_id,
@@ -343,6 +344,7 @@ def test_governed_step_spans_carry_decision_ids(
 
     dispatched = _only(fake, "effect.dispatch")
     assert _causal(dispatched) == rows
+    assert dispatched.attributes["caliber.run_id"] == run_id
     assert dispatched.attributes["caliber.status"] == "completed"
     assert dispatched.span_type == "TOOL"
 
@@ -353,8 +355,9 @@ def test_governed_step_spans_carry_decision_ids(
         key: rows[key]
         for key in ("caliber.proposal_id", "caliber.approval_id", "caliber.effect_id")
     }
+    assert written.attributes["caliber.run_id"] == run_id
     # Only the allow-listed ids and the tracer's own status: no payload, URL, argument or message.
-    allowed = {*CAUSAL_KEYS, "caliber.status"}
+    allowed = {*CAUSAL_KEYS, "caliber.run_id", "caliber.status"}
     assert set(dispatched.attributes) <= allowed
     assert set(written.attributes) <= allowed
 

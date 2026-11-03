@@ -780,11 +780,17 @@ that path name those rows, so an operator can go from a trace to the database wi
 | Span (type) | Opened by | Attributes it can carry |
 | --- | --- | --- |
 | `effect.approval.commit_check` (`CHAIN`) | `approval_valid_at_commit` | `caliber.proposal_id` once the locked proposal is read; `caliber.approval_id` once the request is bound to that proposal's exact intent, policy and evidence; `caliber.decision_id` from the run's current policy decision, only when every check passed |
-| `effect.dispatch` (`TOOL`) | `dispatch` | `caliber.proposal_id` from the proposal read; `caliber.approval_id` and `caliber.decision_id` from the validator's answer; `caliber.effect_id` after the settlement has committed |
-| `effect.receipt.write` (`CHAIN`) | `record_receipt` | `caliber.proposal_id`; the proposal's recorded approval (`caliber.approval_id` for an exact-intent approval, `caliber.decision_id` for a policy decision); `caliber.effect_id` once the receipt is stored in the caller's transaction |
+| `effect.dispatch` (`TOOL`) | `dispatch` | `caliber.run_id` from the validated proposal/run relationship; `caliber.proposal_id` from the proposal read; `caliber.approval_id` and `caliber.decision_id` from the validator's answer; `caliber.effect_id` after the settlement has committed |
+| `effect.receipt.write` (`CHAIN`) | `record_receipt` | `caliber.run_id` from the persisted proposal/run relationship; `caliber.proposal_id`; the proposal's recorded approval (`caliber.approval_id` for an exact-intent approval, `caliber.decision_id` for a policy decision); `caliber.effect_id` once the receipt is stored in the caller's transaction |
 
 `run_tags(ctx, node_id=..., proposal_id=..., decision_id=..., approval_id=..., effect_id=...)` accepts the same four
 ids for a caller that has read them from a row, and emits each as `caliber.<name>` only when given.
+
+The `effect.dispatch` and `effect.receipt.write` spans also carry `caliber.run_id` when the immutable proposal has a matching persisted
+`CaliberWorkflowRun` row. This is a separate, payload-free run-correlation attribute, not a fifth causal-link id and not part
+of the `GET /workflow-runs/{run_id}/causal-links` four-key union. In particular, an out-of-runtime reconciler call can still
+be correlated to its workflow run from the proposal row. If the proposal/run relationship is missing or malformed, the
+attribute is omitted; the persisted proposal, receipt and run rows remain the authoritative fallback for B11.3b.
 
 **An id is a link only if a row backs it.** An attribute is absent, never blank or guessed, when the platform has not
 read that row: a proposal that never reached a verified receipt has no `caliber.effect_id` (`unknown` and `failed`
@@ -793,16 +799,16 @@ store it), and the approval id a caller passes to `dispatch` is a claim until th
 proposal, so a refused dispatch never carries it. `caliber.effect_id` is the **receipt id**: the platform's only record
 that the downstream effect happened and was read back.
 
-**What can reach a span.** Four keys, one allow-list, no payload:
+**What can reach a span.** Four causal-link keys plus one run-correlation key, one allow-list, no payload:
 
-- Only the four keys above, `caliber.refusal_code` and the tracer's own `caliber.status`, `caliber.error_type` and
+- Only the four causal-link keys above, the separate `caliber.run_id` correlation key, `caliber.refusal_code` and the tracer's own `caliber.status`, `caliber.error_type` and
   `caliber.error` are set on these spans. No URL, argument, request, response, scope, approver, evidence hash or
   exception message is ever an attribute.
 - A value must be a plain string that is an opaque identifier: ASCII letters, digits, `.`, `_`, `:`, `-`, starting
   with a letter, at most 128 characters. Anything else (a number, an email address, whitespace, a path, a longer
   string) is **dropped, not truncated**: a truncated id would name a different row.
 - A workflow manifest cannot assert a link. Its `mlflow.trace_group_tags` are merged into the run tags first, and the
-  five reserved keys are removed from them, so a tag named `caliber.proposal_id` is ignored.
+  six reserved keys are removed from them, so a tag named `caliber.proposal_id` or `caliber.run_id` is ignored.
 - A failure inside one of these spans is recorded as the exception *type* and, only when it is a platform refusal
   (`ProposalError`, `EffectRefused`, `ApprovalCommitRefused`), its stable `caliber.refusal_code` such as
   `stale_version`; the `code` of any other exception is not copied. The exception is re-raised after the span has
