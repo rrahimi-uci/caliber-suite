@@ -70,6 +70,7 @@ test.describe(`Cookbook ${LAB22_ID}: governed evidence review`, () => {
     await ui.signIn("admin", ADMIN_PASSWORD);
     await ensureApproverAccount(editorPage);
 
+    await editorPage.getByLabel("Active workspace").selectOption(PROJECT_ID);
     await expect(editorPage.getByLabel("Active workspace")).toContainText(
       WORKSPACE,
     );
@@ -106,6 +107,16 @@ test.describe(`Cookbook ${LAB22_ID}: governed evidence review`, () => {
     await editorPage.getByTestId("publish-next-1").click();
     await editorPage.getByTestId("publish-next-2").click();
     await editorPage.getByTestId("publish-confirm").click();
+
+    const workflowId = editorUrl.match(/\/workflows\/(WF-[^/]+)/)?.[1];
+    expect(workflowId).toMatch(/^WF-/);
+    await editorPage.goto(`/caliber/workflows/${workflowId}`);
+    await expect(editorPage.getByTestId("workflow-detail")).toBeVisible();
+    await editorPage.getByTestId("workflow-pause-toggle").click();
+    await expect(editorPage.getByTestId("workflow-pause-toggle")).toHaveText(
+      "Pause",
+    );
+    await editorPage.goto(editorUrl);
 
     await editorPage.getByTestId("editor-run-monitor").click();
     await editorPage

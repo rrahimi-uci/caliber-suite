@@ -14,10 +14,13 @@ It is a lab fixture, not a production migration: it is invoked only by
 
 from __future__ import annotations
 
+from sqlalchemy import select
+
 from caliber.config import CaliberConfig
 from caliber.db.models import (
     CaliberProject,
     CaliberProjectMember,
+    CaliberToolRegistry,
     CaliberWorkspaceEnvironment,
     CaliberWorkspaceRelease,
     CaliberWorkspaceRevision,
@@ -29,6 +32,7 @@ from caliber.deployment_environments import (
     WORKSPACE_ENVIRONMENT_NAMES,
     WORKSPACE_ENVIRONMENT_PROMOTION_ORDER,
 )
+from caliber.ids import new_tool_id
 from caliber.workspace_release_service import create_workspace_release
 
 PROJECT_ID = "PRJ-cookbook-22"
@@ -37,6 +41,8 @@ REVISION_ID = "WSR-cookbook-22"
 RELEASE_ID = "WSREL-cookbook-22"
 APPROVER_MEMBER_ID = "PRJM-cookbook-22-approver"
 ADMIN_MEMBER_ID = "PRJM-cookbook-22-admin"
+TOOL_NAME = "request_missing_document"
+TOOL_VERSION = "1.0"
 
 
 def _require_identity(label: str, actual: object, expected: object) -> None:
@@ -100,6 +106,59 @@ def main() -> None:  # noqa: PLR0912, PLR0915 - linear disposable fixture bootst
                     _require_identity(f"member {member_id}.user_id", member.user_id, user_id)
                     member.role = role
                     member.status = "active"
+
+            # The installed cookbook references this operator-registered tool by
+            # identity. Seed the same project-scoped metadata that the SDK
+            # journey creates before publishing; validation must not depend on
+            # which journey happened to run first.
+            tool = (
+                session.execute(
+                    select(CaliberToolRegistry).where(
+                        CaliberToolRegistry.name == TOOL_NAME,
+                        CaliberToolRegistry.version == TOOL_VERSION,
+                    )
+                )
+                .scalars()
+                .first()
+            )
+            if tool is None:
+                session.add(
+                    CaliberToolRegistry(
+                        tool_id=new_tool_id(),
+                        project_id=PROJECT_ID,
+                        visibility="project",
+                        name=TOOL_NAME,
+                        version=TOOL_VERSION,
+                        description="Synthetic Harborlight document-request tool binding",
+                        module_path="caliber.workflows.demo_tools",
+                        callable_name="write_workdir_file",
+                        execution_backend="python_callable",
+                        side_effect_level="external_action",
+                        requires_approval=True,
+                        allow_in_preview=False,
+                        owner="admin",
+                        status="active",
+                    )
+                )
+            else:
+                _require_identity("tool.project_id", tool.project_id, PROJECT_ID)
+                _require_identity("tool.visibility", tool.visibility, "project")
+                _require_identity("tool.name", tool.name, TOOL_NAME)
+                _require_identity("tool.version", tool.version, TOOL_VERSION)
+                _require_identity(
+                    "tool.description",
+                    tool.description,
+                    "Synthetic Harborlight document-request tool binding",
+                )
+                _require_identity(
+                    "tool.module_path", tool.module_path, "caliber.workflows.demo_tools"
+                )
+                _require_identity("tool.callable_name", tool.callable_name, "write_workdir_file")
+                _require_identity("tool.execution_backend", tool.execution_backend, "python_callable")
+                _require_identity("tool.side_effect_level", tool.side_effect_level, "external_action")
+                _require_identity("tool.requires_approval", tool.requires_approval, True)
+                _require_identity("tool.allow_in_preview", tool.allow_in_preview, False)
+                _require_identity("tool.status", tool.status, "active")
 
             environments: dict[str, CaliberWorkspaceEnvironment] = {}
             for name in WORKSPACE_ENVIRONMENT_NAMES:
