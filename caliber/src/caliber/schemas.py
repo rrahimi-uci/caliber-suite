@@ -1905,6 +1905,46 @@ class AdmissionManifestSchema(BaseModel):
     manifest_digest: str | None = None
 
 
+class WorkflowRunReplayRequest(BaseModel):
+    """Optional bounded selection of the run's already-scoped observation ids."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    observation_ids: list[str] | None = Field(default=None, max_length=256)
+
+
+class WorkflowRunReplayDecisionSchema(BaseModel):
+    """Stable semantic comparison for one historical replay candidate."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    candidate_id: str
+    criteria_version: str
+    outcome: str
+    observation_digest: str
+    failed_criteria: list[str] = Field(default_factory=list)
+    reason_code: str | None = None
+    original_decision_id: str
+    semantic_match: bool
+    observation_match: bool
+
+
+class WorkflowRunReplayReportSchema(BaseModel):
+    """HTTP 200 report returned after a bounded, read-only historical replay."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    schema_version: Literal["v1"]
+    workflow_run_id: str
+    manifest_id: str
+    manifest_digest: str
+    observation_count: int = Field(ge=1, le=256)
+    observation_ids: list[str] = Field(min_length=1, max_length=256)
+    criteria_version: str
+    decisions: list[WorkflowRunReplayDecisionSchema] = Field(min_length=1)
+    matches_original: bool
+
+
 #: How one link of a causal chain stands (B11.3b, #745).
 #:
 #: ``linked``        a persisted row this record names exists and belongs to this run

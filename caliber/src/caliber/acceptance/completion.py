@@ -187,6 +187,16 @@ def _case_record(answer: CaseAnswer) -> dict[str, Any] | None:
     return record
 
 
+def case_record_from_observation(value: object) -> dict[str, Any] | None:
+    """Project one already-recorded case response to the fields acceptance reads.
+
+    Historical replay uses this pure projection instead of calling :func:`read_case`. Keeping the projection here
+    means live completion and offline replay cannot drift in which downstream fields contribute to the decision digest.
+    """
+
+    return _case_record(CaseAnswer(200, value))
+
+
 def _receipt_observation(session: Session, proposal_id: str) -> dict[str, Any] | None:
     receipt_id = proposal_state(session, proposal_id).receipt_id
     if receipt_id is None:
@@ -200,14 +210,19 @@ def _receipt_observation(session: Session, proposal_id: str) -> dict[str, Any] |
     return {"downstream_request_id": record["downstream_request_id"]}
 
 
-def _observations(
+def observations_for_proposal(
     session: Session,
     proposal_id: str,
     *,
-    project_id: str | None,
-    targets: Targets,
-    read_once: Callable[[str, str, str], dict[str, Any] | None],
+    case_record: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
+    """Build the pure acceptance observations for a proposal.
+
+    ``case_record`` is supplied by the caller. Live completion obtains it through its guarded downstream reader;
+    historical replay obtains it from verified B09.3 observation bytes. This function performs only SQL reads and
+    never persists a decision.
+    """
+
     view = proposal_view(session, proposal_id)
     args = view.args if view.args is not None else {}
     case_id = document_request.case_id_of_resource(view.resource)
@@ -226,12 +241,34 @@ def _observations(
     if receipt is None:
         return observations
     observations["receipt"] = receipt
-    base_url = targets.get((view.connector, project_id)) if project_id is not None else None
-    if case_id is None or base_url is None:
+    if case_record is not None:
+        observations["case_record"] = dict(case_record)
+    return observations
+
+
+def _observations(
+    session: Session,
+    proposal_id: str,
+    *,
+    project_id: str | None,
+    targets: Targets,
+    read_once: Callable[[str, str, str], dict[str, Any] | None],
+) -> dict[str, Any]:
+    """Build live-completion observations from the guarded reader."""
+
+    view = proposal_view(session, proposal_id)
+    observations = observations_for_proposal(session, proposal_id)
+    # A downstream read is meaningful only after the proposal's own receipt has
+    # been verified. This preserves the live completion contract while the
+    # public helper remains a read-only builder for historical replay.
+    if "receipt" not in observations:
         return observations
-    record = read_once(base_url, case_id, proposal_id)
-    if record is not None:
-        observations["case_record"] = record
+    case_id = document_request.case_id_of_resource(view.resource)
+    base_url = targets.get((view.connector, project_id)) if project_id is not None else None
+    if case_id is not None and base_url is not None:
+        record = read_once(base_url, case_id, proposal_id)
+        if record is not None:
+            observations["case_record"] = record
     return observations
 
 
@@ -311,8 +348,10 @@ __all__ = [
     "Criteria",
     "RunAcceptance",
     "Targets",
+    "case_record_from_observation",
     "error_summary",
     "evaluate_run",
     "is_proposal_candidate",
+    "observations_for_proposal",
     "read_case",
 ]

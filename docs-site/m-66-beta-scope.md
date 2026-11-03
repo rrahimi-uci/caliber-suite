@@ -345,9 +345,11 @@ These are true of `main` today and are deliberate; each one that has an owner na
   database role and cookie flags are stated in ADR 0001 and listed under
   [Not enforced yet](m-64-reference-profile.md#not-enforced-yet); a configuration that passes the profile is the
   minimum for the supported shape, not the whole of it.
-- **Replay observations are a storage/runtime primitive, not the Beta evidence package.** B09.3 records immutable,
-  project- and principal-scoped model/read observations with content digests for replay-enabled plans. It does not expose a
-  public replay route or claim that the B14 evidence package exists; see the [reference-profile replay notes](m-64-reference-profile.md#replay-observations-b093-799).
+- **Bounded historical replay is a read-only comparison, not the Beta evidence package.** B09.3 records immutable,
+  project- and principal-scoped model/read observations with content digests; B09.4 adds
+  `POST /workflow-runs/{run_id}/replay`, which returns HTTP 200 only for a bounded, supported historical comparison.
+  Missing, tampered, foreign, malformed, unsupported or over-bound observations refuse with no live fallback. It does not
+  claim that the B14 evidence package exists; see the [reference-profile replay notes](m-64-reference-profile.md#bounded-historical-replay-b094-805).
 
 ## What stays from the alpha
 

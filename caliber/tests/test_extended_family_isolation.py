@@ -33,6 +33,8 @@ Deliberately out of the sweep, with the reason:
   visibility- and role-checked.
 * Read-shaped POSTs (``test-render``, ``test-selection``, ``validate``, import preview):
   they persist nothing, so a viewer may use them.
+* ``/workflow-runs/{run_id}/replay``: a read-only historical report over recorded
+  observations; it requires project read access and does not mutate the run.
 """
 
 from __future__ import annotations
@@ -860,6 +862,11 @@ _NOT_SWEPT: dict[tuple[str, str], str] = {
         ("POST", "/skills/{skill_id}/test-selection", "persists nothing; a viewer may test"),
         ("POST", "/workflow-versions/{version_id}/validate", "persists nothing; read-shaped"),
         ("POST", "/knowledge/query", "a read: queries a version the caller can see"),
+        (
+            "POST",
+            "/workflow-runs/{run_id}/replay",
+            "read-only historical report; requires project read access",
+        ),
         (
             "POST",
             "/gate-verdicts/{artifact_type}/{version_key}",

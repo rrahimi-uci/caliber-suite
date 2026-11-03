@@ -238,6 +238,51 @@ def test_read_returns_verified_bytes_and_list_is_metadata_only(
     assert listed[0].content is None
 
 
+def test_list_observation_rows_bounds_and_selects_metadata(
+    db_session: Session, tmp_path: Path
+) -> None:
+    _seed_run(db_session)
+    backend = _backend(tmp_path)
+    record = _record(db_session, backend)
+    db_session.commit()
+
+    selected = list_observation_rows(
+        db_session,
+        workflow_run_id="WR-OBS",
+        project_id=None,
+        principal="@operator",
+        observation_ids=[record.observation_id],
+        limit=1,
+    )
+    assert [item.observation_id for item in selected] == [record.observation_id]
+    assert selected[0].content is None
+
+    with pytest.raises(ObservationValidationError):
+        list_observation_rows(
+            db_session,
+            workflow_run_id="WR-OBS",
+            project_id=None,
+            principal="@operator",
+            observation_ids=[],
+        )
+    with pytest.raises(ObservationValidationError):
+        list_observation_rows(
+            db_session,
+            workflow_run_id="WR-OBS",
+            project_id=None,
+            principal="@operator",
+            observation_ids=[1],  # type: ignore[list-item]
+        )
+    with pytest.raises(ObservationValidationError):
+        list_observation_rows(
+            db_session,
+            workflow_run_id="WR-OBS",
+            project_id=None,
+            principal="@operator",
+            limit=0,
+        )
+
+
 @pytest.mark.parametrize(
     ("request_value", "content_kind"),
     [

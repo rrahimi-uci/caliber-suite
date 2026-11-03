@@ -2182,6 +2182,13 @@
 <p><strong>Returns:</strong> <code>Any</code></p>
 <p><strong>Raises:</strong></p>
 <ul><li><a href="#caliberapierror"><code>CaliberAPIError</code></a></li><li><a href="#calibertransporterror"><code>CaliberTransportError</code></a></li></ul>
+<h6 id="replayrun_id-str-observation_ids-liststr-none-none-any"><code>replay(run_id: str, *, observation_ids: list[str] | None = None) -&gt; Any</code><a class="anchor" href="#replayrun_id-str-observation_ids-liststr-none-none-any" aria-hidden="true" tabindex="-1">#</a></h6>
+<p>Replay a run from its recorded observations without live execution.</p>
+<p>Historical replay is bounded and read-only on the server. When `<code>observation_ids</code>` is omitted, the server replays all visible observations up to its configured bound; supplying ids narrows the report to a specific recorded subset.</p>
+<div class="table-wrap"><table><thead><tr><th>Parameter</th><th>Kind</th><th>Type</th><th>Default</th></tr></thead><tbody><tr><td><code>run_id</code></td><td>positional-or-keyword</td><td><code>str</code></td><td><code>—</code></td></tr><tr><td><code>observation_ids</code></td><td>keyword-only</td><td>`list[str]</td><td>None`</td><td><code>None</code></td></tr></tbody></table></div>
+<p><strong>Returns:</strong> <code>Any</code></p>
+<p><strong>Raises:</strong></p>
+<ul><li><a href="#caliberapierror"><code>CaliberAPIError</code></a></li><li><a href="#calibertransporterror"><code>CaliberTransportError</code></a></li></ul>
 <h6 id="eventsrun_id-str-params-any"><code>events(run_id: str, **params) -&gt; Any</code><a class="anchor" href="#eventsrun_id-str-params-any" aria-hidden="true" tabindex="-1">#</a></h6>
 <p>The run's event tail. `<code>params</code><code> may carry </code><code>after</code><code>/</code><code>limit</code>` for incremental polling.</p>
 <div class="table-wrap"><table><thead><tr><th>Parameter</th><th>Kind</th><th>Type</th><th>Default</th></tr></thead><tbody><tr><td><code>run_id</code></td><td>positional-or-keyword</td><td><code>str</code></td><td><code>—</code></td></tr><tr><td><code>params</code></td><td>var-keyword</td><td><code>Any</code></td><td><code>—</code></td></tr></tbody></table></div>

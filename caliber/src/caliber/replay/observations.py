@@ -348,17 +348,33 @@ def list_observation_rows(
     workflow_run_id: str,
     project_id: str | None,
     principal: str,
+    observation_ids: Sequence[str] | None = None,
+    limit: int | None = None,
 ) -> list[ObservationRecord]:
-    """List only index rows visible to the supplied scope; no object bytes are fetched."""
+    """List only index rows visible to the supplied scope; no object bytes are fetched.
+
+    ``observation_ids`` and ``limit`` are metadata-query bounds for consumers such as historical replay. They do not
+    broaden the scope predicate and deliberately happen before any object bytes are read.
+    """
 
     actor = _text("principal", principal, 256)
     run_id = _text("workflow_run_id", workflow_run_id, 64)
+    if observation_ids is not None:
+        ids = tuple(observation_ids)
+        if not ids:
+            raise ObservationValidationError("observation_ids must not be empty")
+        if any(type(item) is not str or not item for item in ids):
+            raise ObservationValidationError("observation_ids must contain non-empty strings")
+    else:
+        ids = ()
+    if limit is not None and (type(limit) is not int or limit < 1):
+        raise ObservationValidationError("limit must be a positive integer")
     scope = (
         CaliberStepObservation.project_id.is_(project_id)
         if project_id is None
         else CaliberStepObservation.project_id == project_id
     )
-    rows = session.scalars(
+    statement = (
         select(CaliberStepObservation)
         .where(
             CaliberStepObservation.workflow_run_id == run_id,
@@ -371,7 +387,12 @@ def list_observation_rows(
             CaliberStepObservation.attempt,
             CaliberStepObservation.observation_id,
         )
-    ).all()
+    )
+    if ids:
+        statement = statement.where(CaliberStepObservation.observation_id.in_(ids))
+    if limit is not None:
+        statement = statement.limit(limit)
+    rows = session.scalars(statement).all()
     return [_record(row) for row in rows]
 
 

@@ -7,9 +7,11 @@ import logging
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from copy import deepcopy
+from dataclasses import asdict
 from datetime import datetime, timezone
 from typing import Any, Literal, cast
 
+from pydantic import ValidationError
 from sqlalchemy import func, select, text
 from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.orm import Session
@@ -20,7 +22,13 @@ from starlette.responses import JSONResponse
 from starlette.routing import Route
 
 from caliber.audit import record as audit_record
-from caliber.auth import SCOPE_OPERATOR, current_scopes, require_scopes, require_user
+from caliber.auth import (
+    SCOPE_OPERATOR,
+    current_scopes,
+    require_scopes,
+    require_user,
+    resolve_identity,
+)
 from caliber.db.models import (
     CaliberProject,
     CaliberRuntimeApprovalRequest,
@@ -43,10 +51,12 @@ from caliber.mcp_policy import deployment_blockers
 from caliber.observability import causal_links
 from caliber.observability.trace_access import can_read_run_payloads, redact_trace_detail
 from caliber.profile import payload_governance_active
+from caliber.replay import ReplayError, replay_historical
 from caliber.resource_access import ACTION_APPROVE, require_project_access_if_scoped
 from caliber.routes._deps import (
     envelope_response,
     get_session_factory,
+    get_working_dir_service,
     parse_json_object,
     scoped_child_or_404,
 )
@@ -66,6 +76,8 @@ from caliber.schemas import (
     WorkflowRunEventSchema,
     WorkflowRunLineageSchema,
     WorkflowRunManifestSchema,
+    WorkflowRunReplayReportSchema,
+    WorkflowRunReplayRequest,
     WorkflowRunResumeByEventRequest,
     WorkflowRunResumeRequest,
     WorkflowRunRetryRequest,
@@ -141,6 +153,7 @@ DETAIL_PATH = PREFIX + "/workflow-runs/{run_id}"
 LINEAGE_PATH = DETAIL_PATH + "/lineage"
 MANIFEST_PATH = DETAIL_PATH + "/manifest"
 ADMISSION_MANIFEST_PATH = DETAIL_PATH + "/admission-manifest"
+REPLAY_PATH = DETAIL_PATH + "/replay"
 CAUSAL_LINKS_PATH = DETAIL_PATH + "/causal-links"
 EVENTS_PATH = DETAIL_PATH + "/events"
 TRACE_PATH = DETAIL_PATH + "/trace"
@@ -1401,6 +1414,47 @@ async def get_workflow_run_manifest(request: Request) -> JSONResponse:
             manifest_hash=manifest_hash,
             manifest=manifest,
         )
+    return envelope_response(data)
+
+
+async def replay_workflow_run(request: Request) -> JSONResponse:
+    """Replay one admitted run from verified observations without live execution or SQL writes (B09.4, #805)."""
+
+    actor = require_user(request)
+    body = await parse_json_object(request, allow_empty=True, max_body_bytes=16 * 1024)
+    try:
+        payload = WorkflowRunReplayRequest.model_validate(body)
+    except ValidationError as exc:
+        raise HTTPException(status_code=400, detail="invalid historical replay request") from exc
+    run_id = request.path_params["run_id"]
+    factory = get_session_factory(request)
+    with factory() as session:
+        run = _get_run_or_404(session, run_id, request=request)
+        try:
+            require_project_access_if_scoped(
+                session, resolve_identity(request), run.project_id, "read"
+            )
+        except HTTPException as exc:
+            if exc.status_code != 404:  # noqa: PLR2004 - HTTP not found
+                raise
+            raise HTTPException(
+                status_code=404, detail=f"workflow run {run_id!r} not found"
+            ) from exc
+        try:
+            report = replay_historical(
+                session,
+                get_working_dir_service(request).backend,
+                run=run,
+                project_id=run.project_id,
+                principal=actor,
+                observation_ids=payload.observation_ids,
+            )
+        except ReplayError as exc:
+            raise HTTPException(
+                status_code=exc.status_code,
+                detail=f"{exc.code}: {exc}",
+            ) from exc
+        data = WorkflowRunReplayReportSchema.model_validate(asdict(report))
     return envelope_response(data)
 
 
@@ -3316,6 +3370,7 @@ def register(app: Starlette) -> None:
     app.routes.append(
         Route(ADMISSION_MANIFEST_PATH, get_workflow_run_admission_manifest, methods=["GET"])
     )
+    app.routes.append(Route(REPLAY_PATH, replay_workflow_run, methods=["POST"]))
     app.routes.append(Route(CAUSAL_LINKS_PATH, get_workflow_run_causal_links, methods=["GET"]))
     app.routes.append(Route(EVENTS_PATH, list_workflow_run_events, methods=["GET"]))
     app.routes.append(Route(TRACE_PATH, get_workflow_run_trace, methods=["GET"]))

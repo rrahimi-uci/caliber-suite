@@ -239,6 +239,26 @@ sdk/caliber-sdk/examples/agentic.py#plan_from_intent
 be refused at execution time by policy, so reading capabilities first turns a
 runtime rejection into a decision you made.
 
+## Bounded historical replay
+
+The B09.4 replay route is intentionally documented as raw HTTP until the typed SDK has a matching model; do not invent a
+second SDK storage or observation contract. Use the same authenticated client transport and project scope as other
+workflow-run calls:
+
+```python
+report = client.post(
+    f"/workflow-runs/{run_id}/replay",
+    json={"observation_ids": observation_ids},  # omit the key to select all visible observations
+)
+```
+
+The successful response is HTTP `200` and contains a `ReplayReport`. It is a bounded, read-only comparison: no model,
+downstream, dispatcher, effect, decision or run-summary call is made. `observation_ids` must be a non-empty unique list
+of at most 256 `OBS-` ids; object bytes are limited to 1 MiB. Missing, tampered, foreign, malformed, unsupported or
+over-bound evidence refuses with a stable `409` detail such as
+`observation_integrity: an observation failed its storage integrity check`; malformed request syntax is `400`. Treat
+these as recovery signals to restore/select the exact B09.3 evidence, never as permission to retry a live workflow.
+
 ## Cookbooks
 
 > **Disabled by default.** Cookbooks are a preview area and are off by default; enable with

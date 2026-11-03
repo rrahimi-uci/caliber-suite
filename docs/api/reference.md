@@ -66,6 +66,25 @@ GET /ajax-api/2.0/mlflow/caliber/openapi.json
 | Review queues | `GET/POST /review-queues`, `GET/PATCH /review-queues/{id}`, `POST /review-queues/{id}/items`, `GET /review-queues/{id}/alignment-examples` | Queue metadata remains visible to authorized queue readers; governed request/response values are placeholders without `trace.payload.read` |
 | Projects and access | `GET /projects`, `GET /projects/{id}`, member CRUD under `/projects/{id}/members` | Project responses include `access_role` and `permissions`; membership changes are owner-only and also need `caliber.operator` |
 
+## Bounded historical replay
+
+`POST /workflow-runs/{run_id}/replay` is a synchronous, read-only route for an admitted run. With `{}` it selects all
+observations visible to the authenticated project reader; with `{"observation_ids":["OBS-deadbeef"]}` it selects an
+explicit non-empty subset. Both forms are bounded at 256 observations and each object is bounded at 1 MiB. A valid
+request returns HTTP `200` with an enveloped `ReplayReport`; the report compares stable decision semantics and the
+acceptance observation digest without exposing stored observation bytes.
+
+Replay verifies the scoped B09.3 index before storage access, the content hash/size, the immutable admission manifest and
+the run's named acceptance decisions. It calls no provider, downstream reader, dispatcher or effect connector and writes
+no SQL state. The supported shape is currently `document-request` with `harborlight-v1` and the recorded case-read
+projection; unsupported shapes refuse instead of being guessed or sent through a live fallback.
+
+Examples of exact refusal details are `409 observation_scope: one or more observations are outside the replay scope`,
+`409 observation_integrity: an observation failed its storage integrity check`, and
+`409 observation_unsupported: the read observation is not a supported case record`. A malformed request or id list is
+`400`; a missing, malformed or over-bound observation set is a `409` refusal. The caller must restore or re-select the
+durable B09.3 evidence and retry; the route never creates a new run as recovery.
+
 The mutating routes of prompts, skills, tools, workflows, knowledge bases,
 datasets and judges check the caller's project role as well as the token scope: a
 non-member gets 404 and a member whose role is too weak (for example a `viewer`)
