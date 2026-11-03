@@ -314,6 +314,34 @@ property name or an unbounded amount of text; at most 20 violations are listed, 
 plain token (otherwise by its type), and a record of more than 1 MiB of JSON text (1048576 characters) is refused before it is
 validated. An integer field accepts only an integer: `1.0` is not one. No other kind changes.
 
+### evidence_package
+
+EvidencePackage (B14.1, #818): the canonical, scope-authorized join of a run's persisted control records. The assembler (B14.2, #826)
+selects the view after authorization; this record describes the bytes that the assembler and later verifier must agree on.
+
+| field | type | required | note |
+| --- | --- | --- | --- |
+| `schema_version` | const `v1` | yes | the schema version of this package |
+| `package_id` | string | yes | unique package identity |
+| `workflow_run_id` | string | yes | the run whose evidence is joined |
+| `tenant_id` | string | yes | deployment scope; `local` in the reference profile |
+| `region` | string | yes | deployment scope; `local` in the reference profile |
+| `project_id` | string | yes | the server-derived project scope of the run |
+| `view` | object | yes | `authorization` is `authorized`; `redaction` is `none` or `redacted`. The caller cannot widen this view |
+| `members` | array of objects | yes | complete membership; each member carries `member_id`, registered `kind`, selected `payload_sha256`, `metadata_sha256`, `parent_ids` and canonical `metadata` |
+| `missing_links` | array of objects | yes | explicit `link`, `status` (`missing`, `unrecorded`, `pending` or `not_required`) and stable `code`; an optional `expected_member_id` names the absent row |
+| `evaluator_provenance` | array of objects | yes | evaluator records with criteria version, provider/simulation provenance, input/result digests and evaluation time; B09 acceptance observations may also carry `observation_sha256` |
+| `package_sha256` | string (64 lowercase hex) | yes | SHA-256 over the canonical package manifest, excluding this field and later signatures |
+| `signatures` | array of objects | no | later attestations (`algorithm`, `key_id`, `signature`), appended after the package digest and excluded from its input |
+| `created_at` | string (RFC 3339 date-time) | yes | when this package record was assembled |
+
+The schema is strict at every named boundary. Member ids are unique; every `parent_ids` entry must name another member in the complete
+package, or an explicitly declared `expected_member_id` in `missing_links`. `metadata_sha256` is checked against the canonical JSON of
+that member's metadata, so changing a link or metadata without recomputing its digest is rejected. The package digest itself is not a
+digest of a sorted list of payload digests: it covers the selected view, complete membership, parent links, canonical metadata, missing-link
+declarations and evaluator provenance. Raw and authorized-redacted packages are therefore distinct records. Unknown schema versions or
+unknown fields are rejected; a missing or broken link is represented explicitly rather than inferred or silently omitted.
+
 ## Amendment: never-dispatched proposals and withdrawn requests (#1074)
 
 A `proposed` proposal whose run ends without dispatching it (the approval was rejected, the run failed, was cancelled, expired

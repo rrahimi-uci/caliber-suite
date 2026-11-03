@@ -1,6 +1,6 @@
 """Load and apply the JSON Schemas of the control records.
 
-Ten kinds, each with a schema per supported version in ``schemas/<kind>.<version>.json``. A record names its
+Eleven kinds, each with a schema per supported version in ``schemas/<kind>.<version>.json``. A record names its
 version in ``schema_version``. The CloudEvents envelope (``event_envelope``) cannot: its ``specversion`` is
 CloudEvents' own and stays ``1.0``, so it names its schema version in the extension attribute ``schemaversion``,
 which defaults to ``v1`` when absent. Adding an optional field to a schema keeps its version; removing or
@@ -16,6 +16,7 @@ integer (``1.0`` is not one). Every other kind keeps the messages and the lenien
 from __future__ import annotations
 
 import functools
+import hashlib
 import json
 import re
 from collections.abc import Mapping
@@ -37,6 +38,7 @@ KINDS = (
     "event_envelope",
     "agent_step_request",
     "agent_step_result",
+    "evidence_package",
 )
 #: Versions a record of each kind may carry. ``event_envelope`` carries CloudEvents' ``specversion``.
 SUPPORTED_VERSIONS: dict[str, tuple[str, ...]] = {
@@ -50,6 +52,7 @@ SUPPORTED_VERSIONS: dict[str, tuple[str, ...]] = {
     "event_envelope": ("v1",),
     "agent_step_request": ("v1",),
     "agent_step_result": ("v1",),
+    "evidence_package": ("v1",),
 }
 #: Which field of a record names its version, and the version assumed when a kind allows the field to be absent.
 _VERSION_FIELD: dict[str, tuple[str, str | None]] = {"event_envelope": ("schemaversion", "v1")}
@@ -178,6 +181,71 @@ def _version_label(version: object) -> str:
     return f"<{type(version).__name__}>"
 
 
+def _evidence_package_errors(record: dict[str, Any]) -> list[str]:
+    """Check the cross-record invariants JSON Schema cannot express.
+
+    The package schema carries the complete member set, so a parent id must name
+    another member unless the package explicitly records that expected member as
+    absent.  Metadata is hashed independently as a canonical JSON object; this
+    keeps a metadata edit detectable even when the payload bytes are unchanged.
+    """
+    members = record["members"]
+    member_ids = [member["member_id"] for member in members]
+    errors: list[str] = []
+    if len(member_ids) != len(set(member_ids)):
+        errors.append("members: member_id values must be unique")
+
+    declared_missing = {
+        link.get("expected_member_id")
+        for link in record["missing_links"]
+        if isinstance(link.get("expected_member_id"), str)
+    }
+    for index, member in enumerate(members):
+        if member["kind"] not in KINDS:
+            errors.append(f"members/{index}/kind: is not a registered contract kind")
+        expected_metadata_digest = hashlib.sha256(
+            json.dumps(
+                member["metadata"], sort_keys=True, separators=(",", ":"), ensure_ascii=False
+            ).encode("utf-8")
+        ).hexdigest()
+        if member["metadata_sha256"] != expected_metadata_digest:
+            errors.append(f"members/{index}/metadata_sha256: does not match canonical metadata")
+        for parent_index, parent_id in enumerate(member["parent_ids"]):
+            if parent_id not in member_ids and parent_id not in declared_missing:
+                errors.append(
+                    f"members/{index}/parent_ids/{parent_index}: does not name a package member"
+                )
+    if record["package_sha256"] != _evidence_package_digest(record):
+        errors.append("package_sha256: does not match the canonical package manifest")
+    return errors
+
+
+def _evidence_package_digest(record: dict[str, Any]) -> str:
+    """Return the digest of the canonical authorized package view.
+
+    ``members`` and each member's ``parent_ids`` are sets for package purposes,
+    so their presentation order is normalized.  The package digest covers every
+    other field in the selected view, including missing-link and evaluator
+    provenance entries, while the self-digest and optional signatures are
+    deliberately excluded.
+    """
+    manifest = {
+        key: value for key, value in record.items() if key not in {"package_sha256", "signatures"}
+    }
+    manifest["members"] = sorted(
+        [{**member, "parent_ids": sorted(member["parent_ids"])} for member in manifest["members"]],
+        key=lambda member: member["member_id"],
+    )
+    canonical = json.dumps(
+        manifest,
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=False,
+        allow_nan=False,
+    ).encode("utf-8")
+    return hashlib.sha256(canonical).hexdigest()
+
+
 _QUIET_BOUNDS = frozenset({"minLength", "maxLength", "minItems", "maxItems", "minimum", "maximum"})
 
 
@@ -255,3 +323,7 @@ def validate_record(kind: str, payload: Mapping[str, Any]) -> None:
         if len(errors) > _MAX_QUIET_ERRORS:
             messages.append(f"and {len(errors) - _MAX_QUIET_ERRORS} more violations")
         raise ContractValidationError(kind, messages)
+    if kind == "evidence_package":
+        errors = _evidence_package_errors(record)
+        if errors:
+            raise ContractValidationError(kind, errors)

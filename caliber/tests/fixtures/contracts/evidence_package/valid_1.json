@@ -1,0 +1,67 @@
+{
+  "schema_version": "v1",
+  "package_id": "ep-0001",
+  "workflow_run_id": "run-0001",
+  "tenant_id": "local",
+  "region": "local",
+  "project_id": "project-1",
+  "view": {
+    "authorization": "authorized",
+    "redaction": "redacted"
+  },
+  "members": [
+    {
+      "member_id": "mf-0001",
+      "kind": "run_manifest",
+      "payload_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "metadata_sha256": "05ffdaf8fbbcee22d0cc2d16a01d8fb62dbf35978bbb6f92fc88f439368ef7ef",
+      "parent_ids": [],
+      "metadata": {
+        "schema_version": "v1",
+        "created_at": "2026-11-03T09:00:00Z"
+      }
+    },
+    {
+      "member_id": "pr-0001",
+      "kind": "proposal",
+      "payload_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "metadata_sha256": "1e36da84cd39ce64702bb7ab955dd892203177a3364e67c32126ce62d29a506e",
+      "parent_ids": [
+        "mf-0001"
+      ],
+      "metadata": {
+        "schema_version": "v1",
+        "state": "committed"
+      }
+    }
+  ],
+  "missing_links": [
+    {
+      "link": "acceptance",
+      "status": "unrecorded",
+      "code": "acceptance_record_not_available",
+      "expected_member_id": null
+    }
+  ],
+  "evaluator_provenance": [
+    {
+      "evaluator_id": "harborlight-v1",
+      "criteria_version": "harborlight-v1",
+      "provider": "caliber.acceptance",
+      "simulated": false,
+      "input_sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+      "result_sha256": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+      "observation_sha256": "1111111111111111111111111111111111111111111111111111111111111111",
+      "evaluated_at": "2026-11-03T09:00:01Z"
+    }
+  ],
+  "package_sha256": "2d2282f2531e492c3784a8c177a692a13053b509466a3a183dc91147da6cd2d3",
+  "signatures": [
+    {
+      "algorithm": "ed25519",
+      "key_id": "key-1",
+      "signature": "base64-signature"
+    }
+  ],
+  "created_at": "2026-11-03T09:00:02Z"
+}

@@ -1,4 +1,4 @@
-"""The control-record contracts: ten kinds, versioned schemas, typed rejection.
+"""The control-record contracts: eleven kinds, versioned schemas, typed rejection.
 
 Fixtures under ``tests/fixtures/contracts/<kind>/`` are discovered by file-name prefix, so a package that adds
 a record field or a kind adds fixtures and does not edit this test:
