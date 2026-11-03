@@ -9,7 +9,9 @@ wait for a request in flight, nothing left running at teardown.
 from __future__ import annotations
 
 import contextlib
+import hashlib
 import json
+import shutil
 import threading
 import time
 from collections.abc import Iterator
@@ -22,6 +24,18 @@ from starlette.testclient import TestClient
 from tests.egi_scenarios.conftest import START_TIMEOUT_SECONDS, Downstream, free_port
 from tests.egi_scenarios.downstream import app as downstream_app
 from tests.egi_scenarios.downstream.app import SEED_PATH, build_server, create_app
+from tests.egi_scenarios.downstream.harborlight import (
+    BOOK_COMMIT,
+    BOOK_LICENSE,
+    BOOK_SOURCE_PATH,
+    BOOK_SOURCE_SHA256,
+    CASE_FIXTURE_PATH,
+    CASE_ID,
+    CASE_VERSION,
+    FIXTURE_DIR,
+    load_downstream_seed,
+    load_harborlight_case,
+)
 
 CASE = "MORT-2026-000184"
 POST = f"/cases/{CASE}/document-requests"
@@ -52,7 +66,7 @@ def test_health(app: TestClient) -> None:
 
 
 def test_the_seed_is_the_harborlight_case(app: TestClient) -> None:
-    assert json.loads(SEED_PATH.read_text(encoding="utf-8"))["case_id"] == CASE
+    assert json.loads(SEED_PATH.read_text(encoding="utf-8"))["case_id"] == CASE_ID == CASE
     case = app.get(f"/cases/{CASE}").json()
     assert case == {
         "case_id": CASE,
@@ -60,6 +74,100 @@ def test_the_seed_is_the_harborlight_case(app: TestClient) -> None:
         "missing_documents": ["pay_statement"],
         "document_requests": [],
     }
+
+
+def test_harborlight_fixture_is_pinned_and_contains_the_c01_c03_case(app: TestClient) -> None:
+    fixture = load_harborlight_case()
+    assert fixture["case_id"] == CASE_ID
+    assert fixture["case_version"] == CASE_VERSION
+    assert fixture["synthetic_notice"].startswith("SYNTHETIC TRAINING DATA")
+    assert [document["document_id"] for document in fixture["documents"]] == [
+        "APP-000184",
+        "PAY-000184-01",
+        "PUR-000184",
+    ]
+    source = (FIXTURE_DIR / "SOURCE.md").read_text(encoding="utf-8")
+    assert BOOK_COMMIT in source
+    assert BOOK_LICENSE in source
+    assert BOOK_SOURCE_PATH in source
+    assert hashlib.sha256(CASE_FIXTURE_PATH.read_bytes()).hexdigest() == BOOK_SOURCE_SHA256
+    assert load_downstream_seed() == {
+        "case_id": CASE_ID,
+        "version": CASE_VERSION,
+        "missing_documents": ["pay_statement"],
+    }
+
+
+def test_installed_fixture_directory_can_seed_the_existing_downstream(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """The app consumes the packaged data, not a checkout-only relative path."""
+    installed = tmp_path / "installed" / "fixtures" / "egi"
+    installed.mkdir(parents=True)
+    shutil.copy2(CASE_FIXTURE_PATH, installed / CASE_FIXTURE_PATH.name)
+    shutil.copy2(FIXTURE_DIR / "SOURCE.md", installed / "SOURCE.md")
+    monkeypatch.setattr(downstream_app, "SEED_PATH", installed / CASE_FIXTURE_PATH.name)
+
+    with TestClient(create_app(str(tmp_path / "installed.db"))) as client:
+        assert client.get(f"/cases/{CASE_ID}").json()["version"] == CASE_VERSION
+        created = client.post(
+            f"/cases/{CASE_ID}/document-requests",
+            json=BODY,
+            headers=_key("installed-fixture", {"If-Match": str(CASE_VERSION)}),
+        )
+        assert created.status_code == 201
+        replay = client.post(
+            f"/cases/{CASE_ID}/document-requests",
+            json=BODY,
+            headers=_key("installed-fixture", {"If-Match": str(CASE_VERSION)}),
+        )
+        assert replay.status_code == 200
+        assert replay.json() == created.json()
+        stale = client.post(
+            f"/cases/{CASE_ID}/document-requests",
+            json={"document_type": "bank_statement"},
+            headers=_key("installed-stale", {"If-Match": str(CASE_VERSION)}),
+        )
+        assert stale.status_code == 412
+        assert client.get("/_test/mutations").json() == {"count": 1}
+
+
+def test_harborlight_loader_rejects_invalid_json(tmp_path: Path) -> None:
+    path = tmp_path / "case_000184.json"
+    path.write_text("{", encoding="utf-8")
+    with pytest.raises(ValueError, match="invalid JSON"):
+        load_harborlight_case(path)
+
+
+def test_harborlight_loader_rejects_a_non_object_root(tmp_path: Path) -> None:
+    path = tmp_path / "case_000184.json"
+    path.write_text("[]", encoding="utf-8")
+    with pytest.raises(ValueError, match="root must be an object"):
+        load_harborlight_case(path)
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "message"),
+    [
+        ("case_id", "OTHER", "case_id"),
+        ("case_version", 2, "case_version"),
+        ("case_version", True, "case_version"),
+        ("synthetic_notice", "", "synthetic notice"),
+        ("synthetic_notice", None, "synthetic notice"),
+        ("documents", None, "documents"),
+        ("documents", [], "documents"),
+        ("documents", [{}], "documents"),
+    ],
+)
+def test_harborlight_loader_rejects_unpinned_case_shape(
+    tmp_path: Path, field: str, value: object, message: str
+) -> None:
+    payload = load_harborlight_case()
+    payload[field] = value
+    path = tmp_path / "case_000184.json"
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    with pytest.raises(ValueError, match=message):
+        load_harborlight_case(path)
 
 
 def test_an_unknown_case_is_404(app: TestClient) -> None:

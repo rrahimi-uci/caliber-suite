@@ -54,3 +54,17 @@ pass of the workflow-run worker in its own process (the lease, a scripted model,
 `test_b05_governed_worker_wiring.py` can kill a worker at either of them and show that the new owner never sends a second time.
 
 `test_b05_http_unknown_settlement.py` (#1055) drives a webhook workflow through the same worker against a second downstream of its own (an in-process server that counts its commits, honours the key and answers the read-by-key contract of the generic `http` connector): a timeout after the send, a worker killed on either side of it and a lookup that never shows the request all end with one commit and no second send.
+
+## Harborlight fixture lineage
+
+The disposable downstream is seeded from the single packaged case at
+`tests/fixtures/egi/case_000184.json`, not from a second copy beside the
+service. `downstream/harborlight.py` validates the synthetic C01--C03 case
+and projects it into the existing D1 seed shape. `tests/fixtures/egi/SOURCE.md`
+pins the upstream book commit, source path, file digest, and MIT code license.
+
+The downstream contract remains unchanged: the first document request returns
+`201`, a replay with the same idempotency key returns `200` without another
+mutation, and a new request with a stale `If-Match` returns `412`. The fixture
+contains synthetic data only and is not a credit, underwriting, approval, or
+denial decision.
