@@ -100,7 +100,7 @@ def test_lab22_readme_pins_beta_install_and_observable_refusal_contracts() -> No
     assert "does not create another route" in text
 
 
-def test_lab22_runner_registration_is_selectable_without_a_ui_claim() -> None:
+def test_lab22_runner_registration_is_selectable_with_the_beta_ui_journey() -> None:
     text = RUNNER.read_text(encoding="utf-8")
     assert re.search(
         r'ALL_LABS="01 02 03 04 05 06 07 08 09 10 11 12 13 14 15 16 18 19 20 21 22"',
@@ -111,7 +111,7 @@ def test_lab22_runner_registration_is_selectable_without_a_ui_claim() -> None:
     assert 'LAB_HELPERS="harborlight22 scriptedllm22"' in lab22
     assert "LAB_REAL=1" in lab22
     assert "LAB_API_ARGV=(-m examples.cookbooks.cookbook_22_governed_evidence_review)" in text
-    assert 'LAB_UI=""' in lab22
+    assert 'LAB_UI_ENV=(CALIBER_LAB22_ADMIN_PASSWORD="$LAB_ADMIN_PASSWORD")' in lab22
     assert 'CALIBER_DATABASE_URL="$LAB22_DATABASE_URL"' in text
     assert (
         'CALIBER_COOKBOOK_PRESTART="$REPO_ROOT/caliber/scripts/cookbook_22_reference_bootstrap.py"'
@@ -121,6 +121,7 @@ def test_lab22_runner_registration_is_selectable_without_a_ui_claim() -> None:
     assert "harborlight22) start_helper harborlight-22 8810" in text
     assert "scriptedllm22) start_helper scripted-llm-22 8792" in text
     assert BOOTSTRAP.is_file()
+    assert 'LAB_UI="22-governed-evidence-review.spec.ts"' in text[text.index("22) LAB_TITLE=") :]
 
 
 def test_lab22_is_registered_in_docs_builder_and_generated_nav() -> None:
