@@ -16,7 +16,7 @@
 #   scripts/cookbook-run-all.sh [--labs 01,02,...] [--tier simulated|standin]
 #                               [--api-only | --ui-only] [--keep] [--journey]
 #
-#   --labs LIST    comma list of lab numbers (default: 01-16, 18, 19 and 20). Always run in lab order.
+#   --labs LIST    comma list of lab numbers (default: 01-16, 18, 19, 20, 21 and 22). Always run in lab order.
 #   --tier T       simulated (default): the shipped simulated LLM and evaluator, which every lab
 #                  is written for. standin: labs 01 and 10 only, behind their scripted
 #                  OpenAI-compatible stand-in model servers (the other labs have no such tier).
@@ -61,11 +61,15 @@ ENVSH="$REPO_ROOT/scripts/cookbook-env.sh"
 COOKBOOKS="$REPO_ROOT/docs-site/cookbooks"
 RUN_ROOT="$REPO_ROOT/.tmp/cookbook-run-all"
 ENV_ROOT="$REPO_ROOT/.tmp/cookbook-env"
-ALL_LABS="01 02 03 04 05 06 07 08 09 10 11 12 13 14 15 16 18 19 20 21"
+ALL_LABS="01 02 03 04 05 06 07 08 09 10 11 12 13 14 15 16 18 19 20 21 22"
 JOURNEY_LABS="18 01 02 03 07 16"
 API_TIMEOUT="${COOKBOOK_RUN_ALL_API_TIMEOUT:-1800}"
 UI_TIMEOUT="${COOKBOOK_RUN_ALL_UI_TIMEOUT:-2400}"
 UP_TIMEOUT="${COOKBOOK_RUN_ALL_UP_TIMEOUT:-900}"
+# Lab 22 is the one reference-profile cookbook. Capture its database URL before
+# caller CALIBER_* variables are scrubbed below; ordinary labs remain isolated
+# SQLite stacks. CI supplies this from its disposable PostgreSQL service.
+LAB22_DATABASE_URL="${CALIBER_LAB22_DATABASE_URL:-${COOKBOOK_LAB22_DATABASE_URL:-}}"
 
 # Nothing from the caller's shell may leak into a lab (a stray CALIBER_TOKEN, provider keys, ...).
 for v in $(compgen -e | grep -E '^(CALIBER_|OPENAI_|ANTHROPIC_|MLFLOW_|AWS_|COOKBOOK_[0-9]|LAB[0-9]|HF_HUB)' || true); do
@@ -209,7 +213,7 @@ ARIA_USERS="admin,olga"
 # shellcheck disable=SC2054  # the commas are inside VAR=a,b values (user lists), not array separators
 lab_config() {
   local n="$1" sdk="$REPO_ROOT/sdk/caliber-sdk/examples/cookbooks"
-  LAB_TITLE=""; LAB_FLAGS="cookbooks"; LAB_S3=0; LAB_UP_ENV=(); LAB_HELPERS=""; LAB_TOKEN="plain:lab$n"
+  LAB_TITLE=""; LAB_FLAGS="cookbooks"; LAB_S3=0; LAB_UP_ENV=(); LAB_HELPERS=""; LAB_TOKEN="plain:lab$n"; LAB_ADMIN_PASSWORD=admin
   LAB_API_CWD="."; LAB_API_ARGV=(); LAB_API_ENV=(); LAB_UI=""; LAB_UI_ENV=(); LAB_REAL=0
   case "$n" in
     01) LAB_TITLE="prompt regression"; LAB_TOKEN="plain:cookbook-01"
@@ -300,6 +304,33 @@ lab_config() {
         LAB_UP_ENV=(CALIBER_OPERATOR_USERS=admin,lab21-reviewer)
         LAB_API_CWD="sdk/caliber-sdk"; LAB_API_ARGV=(-m examples.cookbooks.cookbook_21_workspace_source_to_release)
         LAB_UI="" ;;   # no UI exists for this surface in the alpha; the lab is API-first
+    22) [[ -n "$LAB22_DATABASE_URL" ]] || die "lab 22 requires CALIBER_LAB22_DATABASE_URL (an isolated PostgreSQL database)"
+        LAB_TITLE="governed evidence review"; LAB_FLAGS="release_candidates,cookbooks"; LAB_HELPERS="harborlight22 scriptedllm22"; LAB_REAL=1
+        LAB_UP_ENV=(CALIBER_PROFILE=reference CALIBER_DATABASE_URL="$LAB22_DATABASE_URL"
+                    CALIBER_OPERATOR_USERS=admin,lab22-approver CALIBER_APPROVER_USERS=admin,lab22-approver
+                    CALIBER_AUTH_DEV_FALLBACK_ENABLED=false CALIBER_AUTH_BOOTSTRAP_ALLOW_INSECURE_DEFAULT=false
+                    CALIBER_AUTH_BOOTSTRAP_ADMIN_PASSWORD_ENV=CALIBER_COOKBOOK_ADMIN_PASSWORD
+                    CALIBER_COOKBOOK_ADMIN_PASSWORD=cookbook22-admin-passphrase CALIBER_AUTH_SESSION_COOKIE_SECURE=false
+                    CALIBER_LLM_PROVIDER=openai CALIBER_LLM_API_KEY_ENV=CALIBER_LAB22_MODEL_KEY
+                    CALIBER_LAB22_MODEL_KEY=lab22-model-key CALIBER_LLM_DIAGNOSIS_MODEL=lab22-scripted
+                    CALIBER_LLM_BASE_URL=http://127.0.0.1:8792/v1 CALIBER_OPENAI_WORKFLOW_API=chat_completions
+                    CALIBER_EVAL_PROVIDER=fake CALIBER_ASSISTANT_ENGINE=openai
+                    CALIBER_CSRF_ENABLED=true
+                    CALIBER_CSRF_SIGNING_SECRET=cccccccccccccccccccccccccccccccccccccccccccccccc
+                    CALIBER_EGRESS_POLICY_ENABLED=true CALIBER_EGRESS_ALLOWED_HOSTS=127.0.0.1
+                    CALIBER_MCP_ALLOW_INSECURE_HTTP=false
+                    CALIBER_MCP_STDIO_COMMAND_ALLOWLIST= CALIBER_MCP_REMOTE_HOST_ALLOWLIST=
+                    CALIBER_APPROVAL_ALLOW_SELF_APPROVAL=false CALIBER_APPLY_REQUIRE_DISTINCT_APPROVER=true
+                    CALIBER_EFFECT_RECONCILER_ENABLED=true CALIBER_ALLOW_SIMULATED_PROVIDERS=true
+                    CALIBER_AGENT_STEP_TOOL_BACKENDS='[{"tool":"request_missing_document","version":"1.0","backend":"document_request"}]'
+                    CALIBER_EFFECT_CALLBACK_CONNECTORS='[{"connector":"document-request","project_id":"PRJ-cookbook-22","secret_source":"env://EGI_CALLBACK_SECRET","base_url":"http://127.0.0.1:8810"}]'
+                    EGI_CALLBACK_SECRET=ssssssssssssssssssssssssssssssssssssssss
+                    CALIBER_COOKBOOK_PRESTART="$REPO_ROOT/caliber/scripts/cookbook_22_reference_bootstrap.py")
+        LAB_ADMIN_PASSWORD=cookbook22-admin-passphrase
+        LAB_API_ENV=(LAB22_SUFFIX="-$(basename "$RUN_DIR")")
+        LAB_UI_ENV=(CALIBER_LAB22_ADMIN_PASSWORD="$LAB_ADMIN_PASSWORD")
+        LAB_API_CWD="sdk/caliber-sdk"; LAB_API_ARGV=(-m examples.cookbooks.cookbook_22_governed_evidence_review)
+        LAB_UI="22-governed-evidence-review.spec.ts" ;;
     *) die "no configuration for lab $n" ;;
   esac
   LAB_STACK="ra-lab$n"; [[ $TIER == standin ]] && LAB_STACK="ra-lab${n}m"
@@ -315,6 +346,8 @@ start_lab_helpers() {
       standin10) start_helper standin-10 8770 "$PY" "$COOKBOOKS/10-judge-certification-human-review-lab/assets/stand-in-model/stand_in_model_server.py" 8770 || return 1 ;;
       ticket19) start_helper ticket-api-19 8781 "$PY" "$COOKBOOKS/19-openapi-integration-governance-lab/assets/server/ticket_api.py" 8781 || return 1 ;;
       gateway20) start_helper llm-gateway-20 8791 "$PY" "$COOKBOOKS/20-llm-gateway-cost-guardrails-lab/assets/server/llm_gateway.py" 8791 || return 1 ;;
+      harborlight22) start_helper harborlight-22 8810 "$PY" "$REPO_ROOT/caliber/tests/egi_scenarios/downstream/app.py" --port 8810 --db "$RUN_DIR/harborlight-22.db" || return 1 ;;
+      scriptedllm22) start_helper scripted-llm-22 8792 "$PY" "$COOKBOOKS/22-governed-evidence-review-lab/assets/server/scripted_llm.py" 8792 || return 1 ;;
     esac
   done
 }
@@ -335,22 +368,36 @@ stack_up() { # stack_up NAME FLAGS S3 [VAR=VALUE...]
 stack_vars() { source "$ENV_ROOT/$1/env.sh"; }   # always called inside a subshell
 
 mint_token() { # prints the token on stdout (and nothing else); run in a subshell with env.sh sourced
-  local kind="$1" jar="$CALIBER_STATE_DIR/runall.jar" tok
-  local H='content-type: application/json' login='{"user_id":"admin","password":"admin"}'
+  local kind="$1" jar="$CALIBER_STATE_DIR/runall.jar" tok csrf login
+  local H='content-type: application/json'
   local pick='import json,sys; print(json.load(sys.stdin)["data"]["token"])'
+  login="$($PY -c 'import json,sys; print(json.dumps({"user_id":"admin","password":sys.argv[1]}))' "${LAB_ADMIN_PASSWORD:-admin}")"
+  csrf="$(curl -fsS -b "$jar" "$CALIBER_API/csrf" | "$PY" -c 'import json,sys; print(json.load(sys.stdin).get("data",{}).get("token") or "")' 2>/dev/null || true)"
+  local csrf_header=(); [[ -n "$csrf" ]] && csrf_header=(-H "X-CALIBER-CSRF: $csrf")
   case "$kind" in
     plain:*)
-      curl -sS -c "$jar" -X POST "$CALIBER_API/auth/login" -H "$H" -d "$login" >/dev/null || return 1
-      tok="$(curl -sS -b "$jar" -X POST "$CALIBER_API/auth/tokens" -H "$H" -d "{\"name\":\"${kind#plain:}\"}" | "$PY" -c "$pick")" ;;
+      curl -fsS -c "$jar" -X POST "$CALIBER_API/auth/login" -H "$H" "${csrf_header[@]}" -d "$login" >/dev/null || return 1
+      csrf="$(curl -fsS -b "$jar" "$CALIBER_API/csrf" | "$PY" -c 'import json,sys; print(json.load(sys.stdin).get("data",{}).get("token") or "")' 2>/dev/null || true)"
+      csrf_header=(); [[ -n "$csrf" ]] && csrf_header=(-H "X-CALIBER-CSRF: $csrf")
+      if [[ -n "$csrf" ]]; then
+        tok="$(curl -fsS -b "$jar" -X POST "$CALIBER_API/auth/tokens" -H "$H" "${csrf_header[@]}" -d "{\"name\":\"${kind#plain:}\"}" | "$PY" -c "$pick")" || return 1
+      else
+        tok="$(curl -fsS -b "$jar" -X POST "$CALIBER_API/auth/tokens" -H "$H" -d "{\"name\":\"${kind#plain:}\"}" | "$PY" -c "$pick")" || return 1
+      fi ;;
     scoped04)
-      curl -sS -c "$jar" -X POST "$CALIBER_API/auth/login" -H "$H" -d "$login" >/dev/null || return 1
-      curl -sS -b "$jar" -X POST "$CALIBER_API/auth/accounts" -H "$H" -d '{"user_id":"reviewer","password":"reviewer-pass-123"}' >/dev/null || return 1
-      tok="$(curl -sS -b "$jar" -X POST "$CALIBER_API/auth/tokens" -H "$H" \
-        -d '{"name":"cookbook-04","scopes":["caliber.admin","caliber.operator","caliber.approver"]}' | "$PY" -c "$pick")" ;;
+      curl -fsS -c "$jar" -X POST "$CALIBER_API/auth/login" -H "$H" "${csrf_header[@]}" -d "$login" >/dev/null || return 1
+      csrf="$(curl -fsS -b "$jar" "$CALIBER_API/csrf" | "$PY" -c 'import json,sys; print(json.load(sys.stdin).get("data",{}).get("token") or "")' 2>/dev/null || true)"
+      csrf_header=(); [[ -n "$csrf" ]] && csrf_header=(-H "X-CALIBER-CSRF: $csrf")
+      curl -fsS -b "$jar" -X POST "$CALIBER_API/auth/accounts" -H "$H" "${csrf_header[@]}" -d '{"user_id":"reviewer","password":"reviewer-pass-123"}' >/dev/null || return 1
+      tok="$(curl -fsS -b "$jar" -X POST "$CALIBER_API/auth/tokens" -H "$H" "${csrf_header[@]}" \
+        -d '{"name":"cookbook-04","scopes":["caliber.admin","caliber.operator","caliber.approver"]}' | "$PY" -c "$pick")" || return 1 ;;
     bearer18)
-      local session
-      session="$(curl -s -c - -o /dev/null -X POST "$CALIBER_API/auth/login" -H "$H" -d "$login" | awk '/caliber_session/ {print $7}')"
-      tok="$(curl -s -X POST "$CALIBER_API/auth/tokens" -H "Authorization: Bearer $session" -H "$H" -d '{"name":"lab18-admin"}' | "$PY" -c "$pick")" ;;
+      local session cookie_jar="$CALIBER_STATE_DIR/runall-bearer.jar"
+      curl -fsS -c "$cookie_jar" -X POST "$CALIBER_API/auth/login" -H "$H" "${csrf_header[@]}" -d "$login" >/dev/null || return 1
+      session="$(awk '/caliber_session/ {print $7}' "$cookie_jar")"
+      csrf="$(curl -fsS -b "$cookie_jar" "$CALIBER_API/csrf" | "$PY" -c 'import json,sys; print(json.load(sys.stdin).get("data",{}).get("token") or "")' 2>/dev/null || true)"
+      csrf_header=(); [[ -n "$csrf" ]] && csrf_header=(-H "X-CALIBER-CSRF: $csrf")
+      tok="$(curl -fsS -X POST "$CALIBER_API/auth/tokens" -H "Authorization: Bearer $session" -H "$H" "${csrf_header[@]}" -d '{"name":"lab18-admin"}' | "$PY" -c "$pick")" || return 1 ;;
     *) return 1 ;;
   esac
   [[ "$tok" == calpat_* ]] || return 1
@@ -373,7 +420,7 @@ if not d["ready"] or bad:
 step_up() { stack_up "$LAB_STACK" "$LAB_FLAGS" "$LAB_S3" ${LAB_UP_ENV[@]+"${LAB_UP_ENV[@]}"}; }
 step_api() {
   stack_vars "$LAB_STACK"; export CALIBER_TOKEN="$TOKEN"
-  export PYTHONPATH="$REPO_ROOT/sdk/caliber-sdk"
+  export PYTHONPATH="$REPO_ROOT/sdk/caliber-sdk/src:$REPO_ROOT/sdk/caliber-sdk"
   local kv; for kv in ${LAB_API_ENV[@]+"${LAB_API_ENV[@]}"}; do export "${kv?}"; done
   readiness_check || exit 1
   cd "$REPO_ROOT/$LAB_API_CWD" && exec "$PY" "${LAB_API_ARGV[@]}"

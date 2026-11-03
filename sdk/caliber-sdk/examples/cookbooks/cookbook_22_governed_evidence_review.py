@@ -26,6 +26,7 @@ from caliber_sdk.models import WorkflowRun
 
 API_PREFIX = "/ajax-api/2.0/mlflow/caliber"
 APPROVER = ("lab22-approver", "cookbook22-approver-passphrase")
+PROJECT_ID = os.environ.get("CALIBER_LAB22_PROJECT_ID", "PRJ-cookbook-22")
 CASE_ID = "MORT-2026-000184"
 DOCUMENT = "pay_statement"
 CASE_VERSION = "1"
@@ -53,13 +54,21 @@ def expect_status(status: int, action: Any, message: str) -> CaliberAPIError:
 
 def login_client(base_url: str, user: str, password: str) -> CaliberClient:
     """Sign in and mint a disposable token for the distinct approver."""
-    api = base_url.rstrip("/") + API_PREFIX
-    login = httpx.post(f"{api}/auth/login", json={"user_id": user, "password": password})
-    login.raise_for_status()
-    issued = httpx.post(
-        f"{api}/auth/tokens", json={"name": "cookbook-22-approver"}, cookies=login.cookies
-    )
-    issued.raise_for_status()
+    with httpx.Client(base_url=base_url, timeout=30) as session:
+        csrf = session.get("/ajax-api/2.0/mlflow/caliber/csrf").json()["data"]["token"]
+        login = session.post(
+            f"{API_PREFIX}/auth/login",
+            json={"user_id": user, "password": password},
+            headers={"X-CALIBER-CSRF": csrf},
+        )
+        login.raise_for_status()
+        csrf = session.get("/ajax-api/2.0/mlflow/caliber/csrf").json()["data"]["token"]
+        issued = session.post(
+            f"{API_PREFIX}/auth/tokens",
+            json={"name": "cookbook-22-approver"},
+            headers={"X-CALIBER-CSRF": csrf},
+        )
+        issued.raise_for_status()
     return CaliberClient(base_url, token=issued.json()["data"]["token"], timeout=180)
 
 
@@ -99,28 +108,86 @@ def install_review_workflow(caliber: CaliberClient, *, suffix: str) -> tuple[str
     return workflow_id, version_id
 
 
+def ensure_registered_tool(admin: CaliberClient) -> None:
+    """Register the shipped metadata row the governed recipe resolves by identity."""
+    existing = next(
+        (
+            tool
+            for tool in admin.tools.list(status="active")
+            if tool.name == "request_missing_document" and tool.version == "1.0"
+        ),
+        None,
+    )
+    if existing is None:
+        admin.tools.register(
+            "request_missing_document",
+            version="1.0",
+            module_path="caliber.workflows.demo_tools",
+            callable_name="write_workdir_file",
+            side_effect_level="external_action",
+            requires_approval=True,
+            allow_in_preview=False,
+            description="Synthetic Harborlight document-request tool binding",
+        )
+    check(True, "the governed tool is registered as an approved shipped binding")
+
+
 def run(admin: CaliberClient, *, approver: CaliberClient, suffix: str = "") -> dict[str, Any]:
     """Execute the public SDK journey against a configured reference stack."""
-    project = admin.projects.create(
-        f"cookbook-22-governed-review{suffix}",
-        description="Synthetic Harborlight governed evidence review",
+    project = next(
+        (candidate for candidate in admin.projects.list() if candidate.project_id == PROJECT_ID),
+        None,
     )
+    check(project is not None, f"the runner provisioned project {PROJECT_ID}")
+    assert project is not None
     project_id = project.project_id
-    admin.projects.add_member(project_id, APPROVER[0], role="reviewer")
+    environments = admin.projects.list_environments(project_id)
+    development = next((item for item in environments if item.name == "dev"), None)
+    check(development is not None, "the project has an active development environment")
+    assert development is not None
+    check(development.status == "active", "the development environment is active")
+    releases = admin.projects.releases.list(
+        project_id, status="approved", environment_id=development.environment_id
+    )
+    release = next(
+        (
+            candidate
+            for candidate in releases
+            if candidate.environment_id == development.environment_id
+        ),
+        None,
+    )
+    check(release is not None, "the project has an approved development release")
+    assert release is not None
+    check(
+        development.current_release_id == release.release_id,
+        "the approved development release is the environment's current pointer",
+    )
+    check(
+        release.environment_id == development.environment_id,
+        "the approved release belongs to the development environment",
+    )
 
     with admin.workspace_scope(project_id), approver.workspace_scope(project_id):
+        ensure_registered_tool(admin)
         workflow_id, version_id = install_review_workflow(admin, suffix=suffix)
         submitted = admin.workflows.runs.submit(
             workflow_version_id=version_id,
             input=f"request {DOCUMENT} for {CASE_ID} at version {CASE_VERSION}",
             idempotency_key=f"cookbook-22-{suffix or 'default'}",
+            workspace_release_id=release.release_id,
+            environment_id=development.environment_id,
         )
         waiting = wait_for_state(
             admin,
             submitted.workflow_run_id,
             wanted=frozenset({"waiting_approval", *TERMINAL}),
         )
-        check(waiting.status == "waiting_approval", "the run parks before any protected effect")
+        check(
+            waiting.status == "waiting_approval",
+            "the run parks before any protected effect "
+            f"(status={waiting.status}, error={getattr(waiting, 'error_summary', '')})",
+        )
 
         approvals = admin.workflows.runs.approvals(waiting.workflow_run_id)
         check(len(approvals) == 1, "the run exposes one runtime approval request")
@@ -186,10 +253,13 @@ def run(admin: CaliberClient, *, approver: CaliberClient, suffix: str = "") -> d
 
 
 def cleanup(admin: CaliberClient, *, suffix: str = "") -> None:
-    for project in admin.projects.list():
-        if project.name == f"cookbook-22-governed-review{suffix}":
-            admin.projects.archive(project.project_id)
-            say(f"archived project {project.project_id}")
+    """Keep the bootstrap project intact; PostgreSQL teardown owns fixture cleanup."""
+    del suffix
+    check(
+        any(project.project_id == PROJECT_ID for project in admin.projects.list()),
+        f"the disposable fixture project {PROJECT_ID} remains available",
+    )
+    say(f"kept bootstrap project {PROJECT_ID}; dispose the lab database to clean up")
 
 
 def main() -> None:

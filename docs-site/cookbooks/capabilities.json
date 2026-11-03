@@ -321,6 +321,23 @@
       "slug": "workspace-source-to-release",
       "summary": "Pin a workspace's entities into an immutable revision, diff two revisions, carry one through a reviewed change request, and take it to the release gate -- no Git involved. An API-first journey: this surface has no UI in the alpha.",
       "title": "Workspace Source-to-Release"
+    },
+    {
+      "activation_requires_review": true,
+      "capabilities": [
+        "governed effects",
+        "runtime approvals",
+        "evidence archives",
+        "offline replay",
+        "project isolation"
+      ],
+      "id": "22",
+      "prerequisites": [
+        "The reference profile, a distinct approver, and the registered request_missing_document connector bound to the Harborlight fixture"
+      ],
+      "slug": "governed-evidence-review",
+      "summary": "Run a synthetic evidence review through admission, a protected document request, distinct approval, verified effect, evidence export, and non-mutating replay.",
+      "title": "Governed Evidence Review"
     }
   ],
   "schema_version": 1,

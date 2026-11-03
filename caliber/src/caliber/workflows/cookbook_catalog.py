@@ -293,6 +293,28 @@ _RECIPES: tuple[dict[str, Any], ...] = (
             "change requests are ungated) and a second account to review"
         ],
     },
+    {
+        "id": "22",
+        "slug": "governed-evidence-review",
+        "title": "Governed Evidence Review",
+        "summary": (
+            "Run a synthetic evidence review through admission, a protected document request, "
+            "distinct approval, verified effect, evidence export, and non-mutating replay."
+        ),
+        "icon": "🧾",
+        "template_kind": "single_agent",
+        "capabilities": [
+            "governed effects",
+            "runtime approvals",
+            "evidence archives",
+            "offline replay",
+            "project isolation",
+        ],
+        "prerequisites": [
+            "The reference profile, a distinct approver, and the registered "
+            "request_missing_document connector bound to the Harborlight fixture"
+        ],
+    },
 )
 
 
@@ -543,6 +565,20 @@ def _specialize_manifest(recipe_id: str, manifest: dict[str, Any]) -> None:
                 edge["map"] = {"text": "research"}
             elif edge["id"] == "e_writer_join":
                 edge["map"] = {"text": "draft"}
+    elif recipe_id == "22":
+        # The V01 governed-effect seam resolves this registered tool through the
+        # runtime registry and supplies its trusted ``document_request`` backend
+        # from the reference-profile deployment configuration.  Keep the
+        # approval requirement in the manifest so validation cannot mistake the
+        # protected call for an ordinary inline tool.
+        nodes["agent"]["tools"] = ["request_missing_document"]
+        manifest["tools"] = {
+            "request_missing_document": {
+                "registry_ref": "tool.request_missing_document.v1",
+                "version_constraint": ">=1.0,<2.0",
+                "requires_approval": True,
+            }
+        }
 
 
 def _annotate_manifest(recipe: dict[str, Any]) -> dict[str, Any]:
@@ -599,7 +635,7 @@ def _annotate_manifest(recipe: dict[str, Any]) -> dict[str, Any]:
 #: Recipes whose README has no ``## Recipe`` section, so step count cannot be
 #: checked against a numbered list. Named rather than skipped, so that a README
 #: gaining one is a test failure rather than a silent gap in coverage.
-RECIPES_WITHOUT_NUMBERED_RECIPE_SECTION = frozenset({"18"})
+RECIPES_WITHOUT_NUMBERED_RECIPE_SECTION = frozenset({"18", "22"})
 
 _RECIPE_STEPS: dict[str, tuple[dict[str, str], ...]] = {
     "01": (
@@ -918,6 +954,16 @@ _RECIPE_STEPS: dict[str, tuple[dict[str, str], ...]] = {
             "title": "Read the refusals that guard the rest: accept, quality signoff and apply all 409",
             "route": "/audit-log",
         },
+    ),
+    "22": (
+        {"title": "Read the Beta trust boundary", "route": "/cookbooks"},
+        {"title": "Admit the evidence-review run", "route": "/workflows"},
+        {"title": "Observe the approval refusal", "route": "/workflow-runs/:runId"},
+        {"title": "Approve and resume", "route": "/workflow-runs/:runId"},
+        {"title": "Verify the single effect", "route": "/workflow-runs/:runId"},
+        {"title": "Inspect causal evidence", "route": "/audit-log"},
+        {"title": "Export and replay", "route": "/workflow-runs/:runId"},
+        {"title": "Check isolation and stale recovery", "route": "/workflow-runs/:runId"},
     ),
     "20": (
         {

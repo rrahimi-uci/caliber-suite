@@ -184,11 +184,14 @@ cleanup_failed_start() { # a start that dies half way must not leave an MLflow b
 }
 
 start_stack() { # start_stack NAME
-  local name="$1" STATE="$ROOT/$1" flags real workers s3 s3_port mlflow_port caliber_port
+  local name="$1" STATE="$ROOT/$1" flags real workers s3 s3_port mlflow_port caliber_port database_url
   mkdir -p "$STATE"
   # shellcheck disable=SC1091
   source "$STATE/config" 2>/dev/null || true
   flags="${FLAGS:-none}"; real="${REAL_LLM:-0}"; workers="${WORKERS:-1}"; s3="${S3:-0}"; s3_port="${S3_PORT:-0}"
+  # The development labs use an isolated SQLite file. Reference-profile labs must
+  # supply PostgreSQL explicitly; never silently downgrade them to SQLite.
+  database_url="${CALIBER_DATABASE_URL:-sqlite:///$STATE/caliber.db}"
   [[ "$s3" == 1 && "$s3_port" == 0 ]] && s3_port="$(free_port)"
   mlflow_port="${MLFLOW_PORT:-$(free_port)}"; caliber_port="${CALIBER_PORT:-$(free_port)}"
   printf 'FLAGS=%q\nREAL_LLM=%q\nWORKERS=%q\nS3=%q\nS3_PORT=%q\nMLFLOW_PORT=%q\nCALIBER_PORT=%q\n' \
@@ -200,12 +203,25 @@ start_stack() { # start_stack NAME
 
   build_ui
 
-  say "Migrating the CALIBER database ($STATE/caliber.db)"
+  if [[ "${CALIBER_PROFILE:-}" == reference && "$database_url" == sqlite:* ]]; then
+    die "reference-profile stacks require PostgreSQL; refusing SQLite database URL"
+  fi
+  say "Migrating the CALIBER database ($database_url)"
   (
     # shellcheck disable=SC2030  # scoped to this subshell on purpose: only the migration sees it
-    export CALIBER_DATABASE_URL="sqlite:///$STATE/caliber.db"
+    export CALIBER_DATABASE_URL="$database_url"
     "$VENV/bin/python" -m caliber.db.migrate >"$STATE/migrate.log" 2>&1
   ) || die "caliber-migrate failed (see $STATE/migrate.log)"
+
+  # A reference-profile cookbook may seed only disposable, deterministic fixture
+  # rows after migration and before the server opens the database. The hook is
+  # intentionally opt-in and receives the same database URL as the migration.
+  if [[ -n "${CALIBER_COOKBOOK_PRESTART:-}" ]]; then
+    say "Preparing the disposable cookbook fixture"
+    CALIBER_DATABASE_URL="$database_url" "$VENV/bin/python" "$CALIBER_COOKBOOK_PRESTART" \
+      >"$STATE/prestart.log" 2>&1 \
+      || die "cookbook prestart failed (see $STATE/prestart.log)"
+  fi
 
   if ! alive "$STATE/mlflow.pid"; then
     say "Starting MLflow on port $mlflow_port"
@@ -245,7 +261,7 @@ PY
     (
       cd "$STATE"
       # shellcheck disable=SC2031  # each subshell sets its own copy on purpose
-      export CALIBER_DATABASE_URL="sqlite:///$STATE/caliber.db"
+      export CALIBER_DATABASE_URL="$database_url"
       export MLFLOW_TRACKING_URI="http://127.0.0.1:$mlflow_port"
       # admin only by default; a lab that needs more people with platform scopes (lab 18) exports
       # CALIBER_ADMIN_USERS / CALIBER_OPERATOR_USERS / CALIBER_APPROVER_USERS before `up`/`restart`.
@@ -255,7 +271,10 @@ PY
       export CALIBER_PROMOTER_PROVIDER=mlflow CALIBER_ARTIFACT_STORE_PROVIDER=mlflow
       export CALIBER_LOG_SINK=stderr
       export CALIBER_AUTH_SESSION_COOKIE_SECURE=false
-      export CALIBER_AUTH_BOOTSTRAP_ALLOW_INSECURE_DEFAULT=true
+      # Development stacks keep the convenient admin/admin bootstrap. A
+      # reference-profile lab supplies an explicit password source and must be
+      # able to turn this exception off.
+      export CALIBER_AUTH_BOOTSTRAP_ALLOW_INSECURE_DEFAULT="${CALIBER_AUTH_BOOTSTRAP_ALLOW_INSECURE_DEFAULT:-true}"
       export CALIBER_WORKFLOW_STORAGE_BASE_URI="file://$STATE/workspaces"
       # on unless the caller sets it (lab 07 restarts a stack with it false to show the refusal)
       export CALIBER_WORKFLOW_RUN_QUEUE_ENABLED="${CALIBER_WORKFLOW_RUN_QUEUE_ENABLED:-true}"

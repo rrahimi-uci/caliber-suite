@@ -1,0 +1,21 @@
+id: SCN-22
+slug: governed-evidence-review-lab
+name: "Governed Evidence Review"
+track: govern
+objective: Run a synthetic missing-document request through admission, distinct approval, verified effect and non-mutating evidence replay.
+why_it_matters:
+  - A protected action is not complete when a model proposes it; the platform must stop, authorize, execute through a trusted connector and verify the outcome.
+  - Stable downstream keys and version preconditions make duplicate and stale writes observable without claiming universal exactly-once delivery.
+  - Evidence must join the causal chain and remain useful for replay without sending another mutation.
+inputs:
+  project_a: one editor, one distinct approver and one operator
+  project_b: one editor used only for isolation checks
+  case_id: MORT-2026-000184
+  case_version: 1
+  missing_document: pay_statement
+outputs:
+  run_status: completed
+  acceptance_status: accepted
+  downstream_case_version: 2
+  downstream_mutations: 1
+  replay_status: matched

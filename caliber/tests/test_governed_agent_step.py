@@ -495,6 +495,22 @@ def test_a_proposal_is_bound_recorded_once_and_asks_for_approval(world: Any) -> 
     assert approval.expires_at is not None and approval.superseded_by is None
 
 
+def test_a_document_request_proposal_preserves_its_optional_precondition(world: Any) -> None:
+    """The connector validates the model's numeric precondition at dispatch time."""
+    context = _context(world)
+    request = _request()
+    recorded = record_step_proposal(
+        context,
+        request,
+        _result(request, _action(expected_resource_version="1")),
+        _tools(),
+    )
+
+    proposals, _ = _rows(world)
+    assert recorded.created is True
+    assert proposals[0].expected_resource_version == "1"
+
+
 def test_the_same_step_again_finds_the_same_proposal_and_request(world: Any) -> None:
     context = _context(world)
     request = _request()
@@ -1121,6 +1137,28 @@ def test_a_scripted_protected_call_is_a_proposal_not_an_effect(world: Any) -> No
     assert asked.grant_id == "grant-1"
     assert asked.limits == replace(LIMITS, deadline="2026-10-26T09:10:00.000000Z")
     assert requests[0].evidence_hash == step_evidence_hash(asked, proposals[0].intent_hash)
+
+
+def test_a_governed_step_records_a_replayable_model_observation(world: Any) -> None:
+    observations: list[dict[str, Any]] = []
+    plan = _plan(world)
+    plan.observation_recorder = observations.append
+
+    result, _, _ = _run(world, [_proposing()], plan=plan)
+
+    assert result.status == "blocked"
+    assert len(observations) == 1
+    observation = observations[0]
+    assert observation["observation_kind"] == "model"
+    assert observation["occurrence_id"] == "agent"
+    assert set(observation["content"]) == {
+        "final_output",
+        "structured_output",
+        "tool_calls",
+        "model",
+        "prompt_version",
+    }
+    assert observation["content"]["tool_calls"] == []
 
 
 def test_the_adapter_is_handed_only_the_tools_the_platform_calls_read(world: Any) -> None:

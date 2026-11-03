@@ -569,6 +569,30 @@ export interface WorkflowRunCheckpoint {
   created_at: string;
 }
 
+/** The bounded, read-only report returned by historical workflow-run replay. */
+export interface WorkflowRunReplayReport {
+  schema_version: "v1";
+  workflow_run_id: string;
+  manifest_id: string;
+  manifest_digest: string;
+  observation_count: number;
+  observation_ids: string[];
+  criteria_version: string;
+  decisions: Array<{
+    candidate_id: string;
+    criteria_version: string;
+    outcome: string;
+    observation_digest: string;
+    failed_criteria: string[];
+    reason_code: string | null;
+    original_decision_id: string;
+    semantic_match: boolean;
+    observation_match: boolean;
+  }>;
+  /** Whether the historical replay agrees with the original recorded run. */
+  matches_original: boolean;
+}
+
 /** One span in a workflow run's MLflow trace (in-app trace viewer). */
 export interface WorkflowRunTraceSpan {
   span_id: string | null;

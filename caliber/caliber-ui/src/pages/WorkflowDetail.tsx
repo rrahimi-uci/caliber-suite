@@ -44,6 +44,7 @@ import { WorkflowRunArtifactPersistenceBadge } from "@/components/workflows/Work
 import { WorkflowRunLineagePanel } from "@/components/workflows/WorkflowRunLineagePanel";
 import { WorkflowRunTracePanel } from "@/components/workflows/WorkflowRunTracePanel";
 import { WorkflowRunRecoveryPanel } from "@/components/workflows/WorkflowRunRecoveryPanel";
+import { WorkflowRunEvidencePanel } from "@/components/workflows/WorkflowRunEvidencePanel";
 import { WorkflowRunLineagePicker } from "@/components/workflows/WorkflowRunLineagePicker";
 import { TraceReplayGraph } from "@/components/workflows/TraceReplayGraph";
 import {
@@ -4170,6 +4171,7 @@ export function WorkflowDetail(): JSX.Element {
                   }
                 />
               </div>
+              <WorkflowRunEvidencePanel runId={selectedRun.workflow_run_id} />
               <div
                 data-testid="run-lineage-section"
                 className="mt-3 rounded-2xl border border-slate-200/60 bg-white p-5 shadow-card"

@@ -69,6 +69,22 @@ def _run_summary(app: ReferenceApp, run_id: str) -> tuple[dict[str, Any] | None,
         return run.summary, int(observations or 0), int(decisions or 0)
 
 
+def _case_observation_id(app: ReferenceApp, run_id: str) -> str:
+    with app.session_factory() as session:
+        rows = list(
+            session.scalars(
+                select(CaliberStepObservation.observation_id).where(
+                    CaliberStepObservation.workflow_run_id == run_id,
+                    CaliberStepObservation.observation_kind == "read",
+                    CaliberStepObservation.node_id == "acceptance.case",
+                    CaliberStepObservation.occurrence_id == f"case:{CASE}",
+                )
+            )
+        )
+    assert len(rows) == 1
+    return rows[0]
+
+
 def test_replay_makes_no_live_calls(
     world: tuple[ReferenceApp, Downstream], monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -76,8 +92,7 @@ def test_replay_makes_no_live_calls(
 
     app, downstream = world
     run_id = drive(app, downstream, monkeypatch, Reading())
-    case = downstream.client.get(f"/cases/{CASE}").json()
-    observation_id = _record_case(app, run_id, case)
+    observation_id = _case_observation_id(app, run_id)
     before = _run_summary(app, run_id)
     mutations = downstream.mutations()
 
@@ -85,7 +100,14 @@ def test_replay_makes_no_live_calls(
         raise AssertionError("historical replay called the live downstream reader")
 
     monkeypatch.setattr(completion_module, "read_case", no_live_case_read)
-    response = _call(app, "POST", EDITOR_A, PROJECT_A, f"/workflow-runs/{run_id}/replay", {})
+    response = _call(
+        app,
+        "POST",
+        EDITOR_A,
+        PROJECT_A,
+        f"/workflow-runs/{run_id}/replay",
+        {"observation_ids": [observation_id]},
+    )
 
     assert response.status_code == 200, response.text
     report = response.json()["data"]
@@ -104,7 +126,12 @@ def test_missing_observations_refuse_without_live_fallback(
     world: tuple[ReferenceApp, Downstream], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     app, downstream = world
-    run_id = drive(app, downstream, monkeypatch, Reading())
+    run_id = drive(
+        app,
+        downstream,
+        monkeypatch,
+        Reading(fail=RuntimeError("deliberately unavailable")),
+    )
 
     response = _call(app, "POST", EDITOR_A, PROJECT_A, f"/workflow-runs/{run_id}/replay", {})
 
@@ -118,7 +145,7 @@ def test_tampered_observation_refuses_without_fallback(
 ) -> None:
     app, downstream = world
     run_id = drive(app, downstream, monkeypatch, Reading())
-    observation_id = _record_case(app, run_id, downstream.client.get(f"/cases/{CASE}").json())
+    observation_id = _case_observation_id(app, run_id)
 
     with app.session_factory() as session:
         row = session.scalar(
@@ -130,7 +157,14 @@ def test_tampered_observation_refuses_without_fallback(
         content_ref = row.content_ref
     _backend(app).write_bytes(content_ref, b"tampered", overwrite=True)
 
-    response = _call(app, "POST", EDITOR_A, PROJECT_A, f"/workflow-runs/{run_id}/replay", {})
+    response = _call(
+        app,
+        "POST",
+        EDITOR_A,
+        PROJECT_A,
+        f"/workflow-runs/{run_id}/replay",
+        {"observation_ids": [observation_id]},
+    )
 
     assert response.status_code == 409
     assert response.json()["detail"].startswith("observation_integrity:")
@@ -187,9 +221,16 @@ def test_malformed_or_unsupported_observation_refuses_without_fallback(
 ) -> None:
     app, downstream = world
     run_id = drive(app, downstream, monkeypatch, Reading())
-    _record_case(app, run_id, content)
+    observation_id = _record_case(app, run_id, content)
 
-    response = _call(app, "POST", EDITOR_A, PROJECT_A, f"/workflow-runs/{run_id}/replay", {})
+    response = _call(
+        app,
+        "POST",
+        EDITOR_A,
+        PROJECT_A,
+        f"/workflow-runs/{run_id}/replay",
+        {"observation_ids": [observation_id]},
+    )
 
     assert response.status_code == 409
     assert response.json()["detail"].startswith(f"{code}:")

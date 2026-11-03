@@ -20,12 +20,12 @@ INTRO = {
     "kicker": "UI Training Guide",
     "title": "CALIBER Cookbooks",
     "tagline": (
-        "Twenty practical, build-along recipes that teach the CALIBER platform "
+        "Twenty-one practical, build-along recipes that teach the CALIBER platform "
         "end-to-end — each backed by a versioned, installable system example with "
         "readiness checks and an explicit review-before-activation boundary."
     ),
     "meta": [
-        "20 cookbooks",
+        "21 cookbooks",
         "5 tracks",
         "UI-first",
         "Training-ready",
@@ -55,7 +55,7 @@ INTRO = {
         </ul>
       </div>
       <div class="callout">
-        <strong>The UI-first promise.</strong> With <code>CALIBER_FEATURE_COOKBOOKS=true</code> set on the server (off by default), open <strong>Cookbooks</strong> to install any of the 20 recipes as a paused workflow and editable draft. Review readiness before activation.
+        <strong>The UI-first promise.</strong> With <code>CALIBER_FEATURE_COOKBOOKS=true</code> set on the server (off by default), open <strong>Cookbooks</strong> to install any of the 21 recipes as a paused workflow and editable draft. Review readiness before activation.
         <ul>
           <li><strong>Test sets</strong> come from a file (<code>Upload JSON/JSONL</code>, labs 01 and 06) or from real runs (<code>Observability → open a trace → Add to test set</code>, lab 16).</li>
           <li><strong>The default model and evaluator are simulated.</strong> <code>Evaluations</code> refuses to score without a real model (<code>400 evaluation requires a real LLM provider</code>), and calibration evidence on the default stack is canned and marked <em>Simulated evaluation — not evidence</em>. Each lab says which of its steps are real and which are simulated.</li>
@@ -916,6 +916,56 @@ COOKBOOKS = [
             "<strong>Never wait on this fixture's evaluation.</strong> The lab leaves the owner-only evaluator disabled by default, and this fixture intentionally omits complete execution pins. The SDK's <code>wait_for_evaluation</code> would sit out its full 900&nbsp;s timeout; an enabled worker blocks the incomplete plan rather than fabricating evidence.",
             "<strong>One-way doors.</strong> <code>PUT /projects/{id}/source</code> flips a workspace to git_managed with no reverse, after which managed revisions cannot be released beyond dev -- the lab never calls it.",
             "<strong>Run it.</strong> <code>CALIBER_OPERATOR_USERS=admin,lab21-reviewer scripts/cookbook-env.sh up lab21 --flags release_candidates,cookbooks</code>, then <code>cd sdk/caliber-sdk &amp;&amp; ../../caliber/.venv/bin/python examples/cookbooks/cookbook_21_workspace_source_to_release.py</code> (under a minute; <code>--cleanup</code> archives what it created).",
+        ],
+    },
+    {
+        "id": "CB-22",
+        "num": "22",
+        "slug": "governed-evidence-review",
+        "track": "Govern",
+        "title": "Governed Evidence Review",
+        "subtitle": "Take one synthetic missing-document request through approval, one verified effect, complete evidence and non-mutating replay.",
+        "level": "Beta",
+        "time": "30–60 min",
+        "surfaces": [
+            "Workflows",
+            "Observability",
+            "Audit Log",
+            "Cookbooks",
+        ],
+        "build": "An evidence-review path that stops for a person. An editor admits a run for the pinned Harborlight case; the scripted model proposes <code>request_missing_document</code>; a distinct approver approves the exact proposal; an operator resumes; the trusted document-request connector commits once and verifies the receipt by read-back. The final export joins the run, proposal, approval, decision, effect and downstream request, and offline replay reports <code>matched</code> without another mutation. <strong>The case is synthetic and the scenario never makes a credit decision.</strong>",
+        "learn": [
+            "Read the Beta scope and reference-profile contract before installing a governed effect recipe",
+            "Inspect a run parked at <code>waiting_approval</code> and the exact proposal arguments: case <code>MORT-2026-000184</code>, <code>pay_statement</code>, expected version <code>1</code>",
+            "See the initiating editor refused with <code>403 project_role_required</code>, then approve as a distinct project user with the platform approver scope",
+            "Verify the downstream contract: first commit <code>201</code>, same-key replay <code>200</code>, stale <code>If-Match</code> <code>412</code>, and exactly one mutation",
+            "Trace causal links across the run, approval, policy decision, receipt and downstream request; export the evidence and replay it without an outbound write",
+            "Check project isolation and fail-closed unknown/unbound verifier paths rather than treating a missing authority as success",
+        ],
+        "mermaid": """flowchart LR
+  A[\"Editor admits evidence review\"] --> B[\"waiting_approval\"]
+  B --> C[\"Proposal: request_missing_document\"]
+  C --> D[\"Editor: 403 project_role_required\"]
+  C --> E[\"Distinct approver approves\"]
+  E --> F[\"Operator resumes\"]
+  F --> G[\"Connector: 201 + verified receipt\"]
+  G --> H[\"Case v1 -> v2; one request\"]
+  H --> I[\"Export evidence\"]
+  I --> J[\"Replay: matched, no mutation\"]""",
+        "gates": [
+            {"gate": "Admission", "target": "project-A editor starts the run and it pauses at waiting_approval before a downstream call"},
+            {"gate": "Authorization", "target": "initiating editor receives 403 project_role_required; distinct project approver approves the exact proposal"},
+            {"gate": "Effect", "target": "one committed proposal and one receipt; Harborlight case advances to version 2; downstream ledger records one mutation"},
+            {"gate": "Downstream contract", "target": "first POST 201, same-key replay 200, stale If-Match 412; no duplicate or stale mutation"},
+            {"gate": "Isolation", "target": "project-B and unknown run reads are scoped 404; missing authoritative verifier refuses before proposal creation"},
+            {"gate": "Evidence and replay", "target": "accepted run, complete causal links, stable export ids, replay matched and non-mutating"},
+        ],
+        "notes": [
+            "<strong>Profile.</strong> Start from <code>docs/start/beta-scope.md</code> and the reference profile. The disposable scenario binds the existing D1 downstream and uses the B15.1 provenance-pinned fixture; it does not create a parallel service.",
+            "<strong>Two people plus an operator.</strong> The initiating editor cannot approve. The approver must be distinct and hold the platform approval scope; the worker lease and resume path remain operator-controlled.",
+            "<strong>Refusals are evidence.</strong> <code>project_role_required</code>, scoped <code>404</code>, <code>no_authoritative_verifier</code>, <code>connector_unbound</code> and stale <code>412</code> are expected outcomes, not flaky setup failures.",
+            "<strong>Deterministic CI.</strong> The model, clock and downstream are scripted/local. The fixture is synthetic and not for credit decisions; ordinary tests never call a live provider or customer system.",
+            "<strong>Run it.</strong> <code>scripts/cookbook-run-all.sh --labs 22</code> runs the registered API path when the dependent V01 and installed SDK artifacts are present; the browser journey is supplied by B15.3b.",
         ],
     },
     {

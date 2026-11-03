@@ -5267,6 +5267,60 @@ def _record_step_observations(
         )
 
 
+def _record_governed_step_observation(
+    plan: RuntimePlan,
+    *,
+    executor: WorkflowExecutor,
+    agent: IRAgent,
+    input_text: str,
+    history: list[HistoryMessage],
+    occurrence_id: str,
+    attempt: int,
+) -> None:
+    """Persist the typed governed adapter result before its proposal parks the node.
+
+    Governed steps call the adapter inside ``governed_step`` and raise ``StepParked`` before the
+    ordinary ``AgentTurnResult`` observation hook can run.  The replay schema intentionally keeps
+    the same model-observation envelope, with the protected proposal remaining in the SQL proposal
+    row rather than being copied into observation bytes.
+    """
+
+    recorder = plan.observation_recorder
+    if recorder is None:
+        return
+    tool_specs, structured_suffix = _context_provider_material(executor, agent)
+    provider = type(executor).__name__
+    recorder(
+        {
+            "node_id": agent.node_id,
+            "occurrence_id": occurrence_id,
+            "attempt": attempt,
+            "observation_kind": "model",
+            "request": {
+                "node_id": agent.node_id,
+                "occurrence_id": occurrence_id,
+                "attempt": attempt,
+                "input": _json_compatible(input_text),
+                "history": _json_compatible(history),
+                "instructions": _json_compatible(_base_instruction_text(agent)),
+                "tool_specs": _json_compatible(tool_specs),
+                "structured_output_suffix": structured_suffix,
+                "provider": provider,
+                "provider_version": "runtime-v1",
+            },
+            "content": {
+                "final_output": "",
+                "structured_output": None,
+                "tool_calls": [],
+                "model": provider,
+                "prompt_version": "agent_step_v1",
+            },
+            "provider": provider,
+            "provider_version": "runtime-v1",
+        }
+    )
+
+
 def _run_agent_with_history(
     plan: RuntimePlan,
     executor: WorkflowExecutor,
@@ -5627,6 +5681,7 @@ def _run_governed_step(
     history: list[HistoryMessage],
     tool_callables: dict[str, Callable[..., Any]],
     binder: ToolProposalBinder | None = None,
+    plan: RuntimePlan | None = None,
 ) -> NoReturn:
     """One agent turn as a governed step: the platform, not the adapter, decides what runs and what is recorded (B08.2).
 
@@ -5670,8 +5725,28 @@ def _run_governed_step(
             # A store failure (a deadlock, a lock timeout) carries the statement's parameters, which are the model's arguments:
             # none of it reaches the run error or a log line, only a fixed code.
             raise ToolExecutionError("governed agent step proposal failed: store_failed") from None
+        if plan is not None:
+            _record_governed_step_observation(
+                plan,
+                executor=executor,
+                agent=agent,
+                input_text=input_text,
+                history=history,
+                occurrence_id=_STEP_OCCURRENCE.get() or agent.node_id,
+                attempt=_STEP_ATTEMPT.get(),
+            )
         raise _step_proposal.StepParked(
             proposal, step_request_id=step_request_id, usage=result.usage
+        )
+    if plan is not None:
+        _record_governed_step_observation(
+            plan,
+            executor=executor,
+            agent=agent,
+            input_text=input_text,
+            history=history,
+            occurrence_id=_STEP_OCCURRENCE.get() or agent.node_id,
+            attempt=_STEP_ATTEMPT.get(),
         )
     if result.stop_reason != "completed":
         raise _governed_stop_error(result)
@@ -5896,6 +5971,7 @@ def _run_governed_agent_node(
                 history=history,
                 tool_callables=callables,
                 binder=_RuntimeToolBinder(plan, nid),
+                plan=plan,
             ),
         )
     except _step_proposal.StepParked as parked:

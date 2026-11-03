@@ -348,6 +348,35 @@ def test_a_committed_effect_that_the_case_record_confirms_is_accepted_and_persis
         }
 
 
+@pytest.mark.parametrize("dialect", DIALECTS[:1])
+def test_a_confirmed_case_read_is_emitted_as_a_replay_observation(
+    dialect: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    with _world(dialect, tmp_path, monkeypatch) as factory:
+        _committed_proposal(factory)
+        events: list[dict[str, Any]] = []
+        with factory() as session:
+            run = session.get(CaliberWorkflowRun, RUN)
+            assert run is not None
+            outcome = evaluate_run(
+                session,
+                run,
+                targets=TARGETS,
+                reader=Reader(_case(_request())),
+                now=NOW,
+                observation_recorder=events.append,
+            )
+            session.commit()
+
+        assert outcome is not None and outcome.accepted
+        assert len(events) == 1
+        event = events[0]
+        assert event["observation_kind"] == "read"
+        assert event["node_id"] == "acceptance.case"
+        assert event["occurrence_id"] == f"case:{CASE}"
+        assert event["content"]["case_id"] == CASE
+
+
 @pytest.mark.parametrize(
     ("answer", "failed"),
     [

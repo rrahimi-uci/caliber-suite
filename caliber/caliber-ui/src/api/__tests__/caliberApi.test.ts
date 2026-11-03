@@ -389,6 +389,46 @@ describe("caliberApi", () => {
     }
   });
 
+  it("uses the existing workflow-run evidence and historical replay contracts", async () => {
+    const replayReport = {
+      schema_version: "v1",
+      workflow_run_id: "WR-1",
+      manifest_id: "MANIFEST-1",
+      manifest_digest: "sha256:manifest",
+      observation_count: 1,
+      observation_ids: ["OBS-1"],
+      criteria_version: "v1",
+      decisions: [],
+      matches_original: true,
+    };
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(new Response("PK\u0003\u0004", { status: 200 }))
+      .mockResolvedValueOnce(ok(replayReport));
+    vi.stubGlobal("fetch", fetchMock);
+    const api = await loadApi();
+
+    await api.caliberApi.downloadWorkflowRunEvidence("WR/1");
+    await api.caliberApi.replayWorkflowRun("WR/1");
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    const [downloadUrl, downloadInit] = fetchMock.mock.calls[0] as [
+      string,
+      RequestInit,
+    ];
+    expect(downloadUrl).toBe(`${API_BASE}/workflow-runs/WR%2F1/evidence`);
+    expect((downloadInit.headers as Record<string, string>).Accept).toBe(
+      "application/zip",
+    );
+    const [replayUrl, replayInit] = fetchMock.mock.calls[1] as [
+      string,
+      RequestInit,
+    ];
+    expect(replayUrl).toBe(`${API_BASE}/workflow-runs/WR%2F1/replay`);
+    expect(replayInit.method).toBe("POST");
+    expect(replayInit.body).toBe("{}");
+  });
+
   it("sends checkpoint-aware retry payloads for workflow recovery", async () => {
     const fetchMock = vi
       .fn()
