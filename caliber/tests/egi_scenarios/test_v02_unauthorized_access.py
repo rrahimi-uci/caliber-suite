@@ -250,7 +250,7 @@ def test_foreign_workspace_cannot_read_or_replay_any_run_surface(
             "workflow_id": workflow_id,
             "alias": "manual",
             "input": "boundary probe",
-            "idempotency_key": "v02-foreign-surfaces",
+            "idempotency_key": "boundary-probe",
             **seed_release(reference_app, PROJECT_A),
         },
     )
