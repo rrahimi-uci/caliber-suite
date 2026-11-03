@@ -289,7 +289,11 @@ def test_import_submission_is_durable_idempotent_and_digest_pinned(client: TestC
     )
     assert enabled.status_code == 200, enabled.text
 
-    first = _import(client, project_id)
+    # Replays of one idempotent request must reuse the exact uploaded bytes.
+    # Rebuilding a ZIP can change its timestamp on a slow runner and correctly
+    # turns the request into a different upload digest.
+    bundle = _bundle()
+    first = _import(client, project_id, bundle=bundle)
     assert first.status_code == 202, first.text
     job = first.json()["data"]
     assert job["status"] == "queued"
@@ -317,11 +321,11 @@ def test_import_submission_is_durable_idempotent_and_digest_pinned(client: TestC
     assert detail.status_code == 200
     assert detail.json()["data"]["import_job_id"] == job["import_job_id"]
 
-    repeated = _import(client, project_id)
+    repeated = _import(client, project_id, bundle=bundle)
     assert repeated.status_code == 202
     assert repeated.json()["data"]["import_job_id"] == job["import_job_id"]
 
-    idempotency_conflict = _import(client, project_id, commit="commit-2")
+    idempotency_conflict = _import(client, project_id, commit="commit-2", bundle=bundle)
     assert idempotency_conflict.status_code == 409
     assert idempotency_conflict.json()["detail"] == "import_idempotency_conflict"
 
