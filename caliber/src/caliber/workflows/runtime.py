@@ -132,6 +132,7 @@ from caliber.workflows.guardrails import (
     GuardrailBlockedError,
     GuardrailContext,
 )
+from caliber.workflows.host_paths import PathOutsideRoot
 from caliber.workflows.ir import (
     IRAgent,
     IRApiRequest,
@@ -1288,6 +1289,9 @@ class OpenAIAgentsWorkflowExecutor:
                 "openai-agents is not installed. Install with "
                 "`pip install caliber-suite[llm]` to enable Agents SDK workflow runs."
             ) from exc
+        from caliber.workflows.openai_agents_compat import require_supported_sdk  # noqa: PLC0415
+
+        require_supported_sdk(agent_cls=Agent, function_tool_cls=FunctionTool)
         return (
             Agent,
             FunctionTool,
@@ -2371,11 +2375,19 @@ def _execute_model_tool_call(
         return marker, _tool_result_text(marker)
     tracer = get_tracer()
     started = time.perf_counter()
+    # Governed adapters pass ``error_detail=False``.  Their tool arguments and
+    # results may contain payloads, while B11.3a permits only payload-free span
+    # attributes for that path.  Keep the existing payload attributes for the
+    # ungoverned loops, whose trace readers apply the normal fail-closed
+    # projection in ``trace_access``.
+    span_attributes: dict[str, Any] = {"caliber.tool": name}
+    if error_detail:
+        span_attributes["caliber.tool.input"] = arguments or fallback_input
     try:
         with tracer.span(
             f"tool.{name}",
             span_type="TOOL",
-            attributes={"caliber.tool": name, "caliber.tool.input": arguments or fallback_input},
+            attributes=span_attributes,
         ) as span:
             try:
                 result = _call_tool(fn, arguments, fallback_input=fallback_input)
@@ -2383,7 +2395,8 @@ def _execute_model_tool_call(
                 span.set_attribute(
                     "caliber.tool.latency_ms", round((time.perf_counter() - started) * 1000, 3)
                 )
-            span.set_attribute("caliber.tool.output", result)
+            if error_detail:
+                span.set_attribute("caliber.tool.output", result)
         return result, _tool_result_text(result)
     except ModelToolCallRefused as refusal:
         marker = refusal_marker(name, refusal.code)
@@ -9802,19 +9815,6 @@ def _selected_input_port(inputs: dict[str, Any]) -> str | None:
 def _select_input(inputs: dict[str, Any], run_input: str) -> str:
     port = _selected_input_port(inputs)
     return run_input if port is None else str(inputs[port])
-
-
-class PathOutsideRoot(ValueError):  # noqa: N818 - the name the reference-profile contract fixes (#763)
-    """A host path resolved outside ``CALIBER_WORKFLOW_FILE_ROOT`` (B12.4b, #763).
-
-    A ``ValueError`` so every caller that already handles the refusal keeps working; ``path`` is the resolved path and
-    ``root`` the configured root.
-    """
-
-    def __init__(self, message: str, *, path: Path, root: Path) -> None:
-        super().__init__(message)
-        self.path = path
-        self.root = root
 
 
 def confine_to_file_root(path: Path, *, what: str) -> Path:

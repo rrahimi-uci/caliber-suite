@@ -46,6 +46,7 @@ from tests.egi_scenarios.conftest import EDITOR_A, PROJECT_A, Downstream, Refere
 from tests.egi_scenarios.harness.process import free_port
 from tests.egi_scenarios.test_b02_admission import _call
 from tests.egi_scenarios.test_b05_governed_worker_wiring import (
+    ADMIN,
     CALIBER_DIR,
     Owner,
     _reference_only,
@@ -518,13 +519,83 @@ def test_a_worker_killed_mid_dispatch_of_a_webhook_never_sends_a_second_time(
         assert proposals(app)[0].state == "committed"
         assert run_row(app, run_id).status == "queued", "settling it woke the parked run"
         worker._tick()
-        # The woken node finds its one logical effect already committed and does not send it again. The response of the
-        # original send was never durable, so the node cannot complete from it: the run fails with that fixed reason.
         run = run_row(app, run_id)
         assert (run.status, run.error_code) == ("failed", "runtime_error")
         assert "already recorded as committed; not run again" in (run.error_summary or "")
     else:
-        # Killed before the send: the downstream never saw it, and its 404 is not proof it never will, so it stays unknown.
         assert [item.outcome for item in results] == [STILL_UNKNOWN]
         assert run_row(app, run_id).status == "waiting_effect"
     assert hook.commits == (1 if downstream_saw_it else 0)
+
+
+def test_public_attested_failure_wakes_a_permanent_unknown_without_resending(
+    world: tuple[ReferenceApp, Downstream],
+    hook: Hook,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """V07-style public recovery: a killed-before-send unknown is attested failed and the parked run wakes."""
+    app, downstream = world
+    _reference_only(app)
+    owner = Owner(app)
+    owner.take()
+    run_id, request_id, _worker = _park(app, downstream, hook, monkeypatch, owner)
+    _approve_and_resume(app, run_id, request_id)
+    owner.give_up()
+    killed = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "tests.egi_scenarios.harness.worker_child",
+            "--owner-id",
+            "egi-child-owner",
+        ],
+        cwd=CALIBER_DIR,
+        env=_child_env(app, downstream, hook, "before_dispatch"),
+        capture_output=True,
+        timeout=120,
+        check=False,
+    )
+    assert killed.returncode == 137, killed.stderr.decode()[-2000:]
+    proposal_id = proposals(app)[0].proposal_id
+    with app.session_factory() as session:
+        old = current_lease(session)
+        assert old is not None
+        release(session, old)
+        session.commit()
+    new_owner = Owner(app, "egi-owner-attest")
+    new_owner.take()
+    with app.session_factory() as session:
+        session.execute(
+            update(CaliberWorkflowRun)
+            .where(CaliberWorkflowRun.workflow_run_id == run_id)
+            .values(lease_expires_at=None, status="queued", claimed_by=None)
+        )
+        session.commit()
+    worker = build_worker(
+        app, downstream, monkeypatch, lease_provider=new_owner.provider, **_changes(hook)
+    )
+    worker._tick()
+    assert run_row(app, run_id).status == "waiting_effect"
+    assert [item.outcome for item in _reconcile(app, hook, new_owner)] == [STILL_UNKNOWN]
+    assert proposals(app)[0].state == "unknown"
+    _routes_config(app, downstream)
+    app.client.app.state.execution_role = SimpleNamespace(role="owner", lease=new_owner.lease)
+    response = _call(
+        app,
+        "POST",
+        ADMIN,
+        PROJECT_A,
+        f"/system/effects/proposals/{proposal_id}/attest-failure",
+        {
+            "resolution": "failed",
+            "reason": "INC-1054: downstream owner confirms absence",
+            "evidence_reference": "ticket://INC-1054/v07-absence",
+        },
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["data"]["state"] == "failed"
+    assert run_row(app, run_id).status == "queued"
+    assert hook.commits == 0
+    worker._tick()
+    assert hook.commits == 0, "attestation and wake-up never resend the ambiguous effect"
+    assert run_row(app, run_id).status != "waiting_effect"

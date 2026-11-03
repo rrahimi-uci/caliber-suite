@@ -91,6 +91,12 @@ returns `403`, including when explicit `input` or `expected` overrides are suppl
 dataset version or create an example. Authorized captures retain the existing payload shape and add the source
 lineage tags `from-trace` and `trace:{trace_id}`.
 
+For governed OpenAI Chat and Responses tool calls, the platform enforces this boundary when it creates the span:
+only payload-free `SAFE_SPAN_ATTRIBUTES` are emitted. `caliber.tool.input`, `caliber.tool.output`, provider tool
+arguments and provider tool results are omitted, so a caller without `trace.payload.read` cannot recover them from
+an emitted span. The ungoverned development path retains its existing tool-span attributes. See the reference-profile
+trace contract for the allow-list and refusal/recovery behavior.
+
 ## Feature-flagged areas
 
 MCP servers and OpenAPI integrations, cookbooks, and release-candidate signoff with Workspace releases are
@@ -201,7 +207,7 @@ Use the typed SDK where it exists. When a family is marked `Raw only`, the curre
 | Memory (`memory`) | `internal` | `4` | Typed SDK | `client.memory` | Add, search, list and delete agent long-term memory records. |
 | Metrics (`metrics`) | `internal` | `1` | n/a | `client.raw` | Every operation in this family is permanently outside SDK scope (see coverage_allowlist.toml's [[exclusion]] entries) -- there is nothing here a typed method would add. Use `client.raw` or the served OpenAPI document directly. |
 | Readiness (`readiness`) | `internal` | `1` | Typed SDK | `CaliberClient.readiness()` | The enveloped readiness report with its blocking checks. |
-| System (`system`) | `internal` | `12` | Typed SDK | `client.system` | Effect-ledger and webhook recovery: outward-facing work CALIBER could not complete and a person must resolve. |
+| System (`system`) | `internal` | `13` | Typed SDK | `client.system` | Effect-ledger and webhook recovery: outward-facing work CALIBER could not complete and a person must resolve. |
 | Webhooks (`webhooks`) | `internal` | `1` | n/a | `client.raw` | Every operation in this family is permanently outside SDK scope (see coverage_allowlist.toml's [[exclusion]] entries) -- there is nothing here a typed method would add. Use `client.raw` or the served OpenAPI document directly. |
 
 ## Current route inventory
@@ -213,8 +219,8 @@ The served contract is route-table grounded and body-complete: paths and methods
 
 | Field | Value |
 | --- | --- |
-| Route paths | `396` |
-| Operations | `482` |
+| Route paths | `397` |
+| Operations | `483` |
 | Path coverage | `complete` |
 | Request bodies | `complete` |
 | GA families | `23` |
@@ -300,7 +306,7 @@ Use these quick jumps when you already know the CALIBER subsystem and want the d
 | [Memory (`memory`)](#memory-memory) | `4` | `2` |
 | [Metrics (`metrics`)](#metrics-metrics) | `1` | `1` |
 | [Readiness (`readiness`)](#readiness-readiness) | `1` | `1` |
-| [System (`system`)](#system-system) | `12` | `12` |
+| [System (`system`)](#system-system) | `13` | `13` |
 | [Webhooks (`webhooks`)](#webhooks-webhooks) | `1` | `1` |
 
 ### GA routes
@@ -1164,12 +1170,13 @@ Published for route-table completeness, but not part of the supported SDK contra
 
 #### System (`system`)
 
-12 operation(s) across 12 route path(s).
+13 operation(s) across 13 route path(s).
 
 | Method | Path | Required scope | Parameters | Responses | Details |
 | --- | --- | --- | --- | --- | --- |
 | `GET` | `/ajax-api/2.0/mlflow/caliber/system/alerts` | any authenticated user | — | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_system_alerts` |
 | `GET` | `/ajax-api/2.0/mlflow/caliber/system/effects` | `caliber.operator` | — | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_system_effects` |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/system/effects/proposals/{proposal_id}/attest-failure` | `caliber.admin` | `proposal_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_system_effects_proposals_proposal_id_attest_failure`; request body documented in OpenAPI |
 | `POST` | `/ajax-api/2.0/mlflow/caliber/system/effects/proposals/{proposal_id}/reconcile` | `caliber.admin` | `proposal_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_system_effects_proposals_proposal_id_reconcile`; request body documented in OpenAPI |
 | `POST` | `/ajax-api/2.0/mlflow/caliber/system/effects/{effect_key}/resolve` | `caliber.admin` | `effect_key` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_system_effects_effect_key_resolve`; request body documented in OpenAPI |
 | `GET` | `/ajax-api/2.0/mlflow/caliber/system/incidents` | any authenticated user | — | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_system_incidents` |

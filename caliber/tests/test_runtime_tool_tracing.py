@@ -8,6 +8,7 @@ default, and that tool errors propagate while being recorded.
 
 from __future__ import annotations
 
+import json
 from types import SimpleNamespace
 
 import pytest
@@ -15,7 +16,8 @@ import pytest
 from caliber.audit import configure_redactor
 from caliber.observability.mlflow_tracing import Tracer, get_tracer, set_tracer
 from caliber.redaction import build_redactor
-from caliber.workflows.runtime import _invoke_agent_tools
+from caliber.workflows.ir import IRToolBinding
+from caliber.workflows.runtime import _execute_model_tool_call, _invoke_agent_tools
 
 from .test_mlflow_tracing import FakeMlflow
 
@@ -76,6 +78,35 @@ def test_tool_input_output_are_redacted() -> None:
     span = fake.spans[0]
     assert "jane@example.com" not in span.attributes["caliber.tool.input"]
     assert "jane@example.com" not in str(span.attributes["caliber.tool.output"])
+
+
+def test_model_tool_call_keeps_payload_attributes_for_ungoverned_loops() -> None:
+    fake = FakeMlflow()
+    set_tracer(Tracer(mlflow_module=fake))
+    secret = "ungoverned-tool-secret"
+    binding = IRToolBinding(
+        local_name="lookup",
+        registry_ref="tool.lookup.v1",
+        version_constraint=">=1",
+        requires_approval=False,
+        side_effect_level="read",
+        allow_in_preview=True,
+        module_path="<in-memory>",
+        callable_name="lookup",
+    )
+
+    result, _ = _execute_model_tool_call(
+        name="lookup",
+        arguments={"secret": secret},
+        tool_callables={"lookup": lambda **arguments: {"echo": arguments["secret"]}},
+        bindings={"lookup": binding},
+        fallback_input="fallback",
+    )
+
+    span = fake.spans[0]
+    assert result == {"echo": secret}
+    assert json.loads(span.attributes["caliber.tool.input"]) == {"secret": secret}
+    assert json.loads(span.attributes["caliber.tool.output"]) == {"echo": secret}
 
 
 def test_zero_arg_tool_falls_back() -> None:
