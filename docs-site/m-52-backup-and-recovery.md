@@ -6,9 +6,11 @@
 Use this page when you need to know what CALIBER state must be preserved, how to copy
 each part, and where disaster recovery stops and asset-specific rollback begins.
 
-**Not rehearsed.** The commands below are standard tools for each store and are correct as
-written, but the alpha has not run a full restore drill. Treat your first restore as a test,
-not a procedure, and rehearse it before you depend on it.
+The Beta restore smoke is now rehearsed offline against the deterministic downstream fixture.
+It restores a coordinated CALIBER database artifact after an external mutation is committed
+but before its receipt is recorded, preserves the admitted run's pins and artifact identifiers,
+and settles the unresolved effect by authoritative lookup. It does not claim that a database-only
+restore replaces restoring MLflow, object storage, workflow storage, or the secret-encryption key.
 
 ## At a glance
 
@@ -108,3 +110,26 @@ release (the bundled CALIBER container runs `alembic upgrade head` each time it 
 - [Alpha scope and limitations](m-61-alpha-scope.md)
 - [Operations runbook](m-19-runbook.md)
 - [The refinement loop](m-00-refinement-loop.md)
+
+## Restore smoke
+
+Run the deterministic smoke from the repository root:
+
+```bash
+scripts/verify-restore.sh --python caliber/.venv/bin/python
+```
+
+The smoke creates an admitted run with a canonical run manifest containing workflow and policy
+pins plus an exact artifact ID and checksum. A real downstream fixture commits one document request;
+the dispatcher is stopped before the receipt is persisted, so CALIBER retains an unresolved
+`dispatched` proposal while the downstream retains exactly one mutation. The SQLite database is
+copied to a named backup artifact, the target is deliberately changed, and that exact artifact is
+restored. The test then verifies the run pins, manifest bytes/digest, artifact ID, and unresolved
+proposal are present again before a new owner performs the authoritative lookup.
+
+The expected recovery result is one committed proposal, one verified receipt, and exactly one
+downstream mutation. A missing lookup is not treated as proof that no external write occurred, and
+the smoke never retries the effect. If the restored proposal is already committed, or the
+downstream mutation count becomes two, stop the release investigation: the restore/reconciliation
+boundary has been violated. This is an offline SQLite artifact smoke; the CI PostgreSQL migration
+parity and EGI scenario jobs remain required for the supported reference profile.

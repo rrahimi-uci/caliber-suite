@@ -176,7 +176,9 @@ These are real and deliberate for the alpha. Read them before you rely on the pr
   names no artifact, so any operator can overwrite any verdict. It is advisory: no release or promotion
   decision reads it.
 - **No HA, no performance targets, no SSO or MFA, no multi-tenant hosting.**
-- **Backups are documented, not rehearsed.** See [Backup and recovery](m-52-backup-and-recovery.md).
+- **Restore scope is limited.** The Beta restore smoke is rehearsed offline against the deterministic
+  downstream fixture, but a database-only smoke does not replace restoring MLflow, object storage,
+  workflow storage or the secret-encryption key. See [Backup and recovery](m-52-backup-and-recovery.md).
 - **No upgrade guarantees** from earlier tags, and the packages are not on PyPI. Build wheels from a
   checkout, or use the wheels of the `caliber-v0.1.0a1` pre-release.
 - **Preview areas may change** or be removed without notice. They are off by default; see [Feature flags](#feature-flags).

@@ -41,7 +41,7 @@ def test_the_page_states_every_known_limitation() -> None:
         "SQLite needs a separate MLflow store",
         "process boundary, not isolation",
         "Knowledge bases need an S3-compatible bucket",
-        "not rehearsed",
+        "Restore scope is limited",
         "No upgrade guarantees",
     ):
         assert phrase.lower() in page.lower(), phrase
@@ -89,7 +89,7 @@ def test_the_backup_page_names_the_store_that_holds_prompt_versions() -> None:
         "mc mirror",
     ):
         assert command in page, command
-    assert "Not rehearsed" in page
+    assert "Beta restore smoke is now rehearsed" in page
     assert "CALIBER_SECRET_ENCRYPTION_KEY_SOURCE" in page
 
 
