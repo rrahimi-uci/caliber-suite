@@ -38,7 +38,6 @@ import re
 import sqlite3
 import threading
 from collections.abc import Callable
-from pathlib import Path
 from typing import Any
 
 import uvicorn
@@ -49,7 +48,12 @@ from starlette.routing import Route
 from starlette.types import Receive, Scope, Send
 from uvicorn.protocols.http.h11_impl import H11Protocol
 
-SEED_PATH = Path(__file__).with_name("case_000184.json")
+if __package__:
+    from .harborlight import CASE_FIXTURE_PATH, load_downstream_seed
+else:  # The process fixture executes this file directly, not as an importable package.
+    from harborlight import CASE_FIXTURE_PATH, load_downstream_seed
+
+SEED_PATH = CASE_FIXTURE_PATH
 
 #: ``scope["extensions"]`` key under which :class:`DroppableH11Protocol` exposes the connection.
 TRANSPORT_EXTENSION = "egi.transport"
@@ -87,7 +91,7 @@ class _Store:
             self._load_seed()
 
     def _load_seed(self) -> None:
-        seed = json.loads(SEED_PATH.read_text(encoding="utf-8"))
+        seed = load_downstream_seed(SEED_PATH)
         self._db.execute(
             "INSERT INTO cases (case_id, version, missing_documents) VALUES (?, ?, ?)",
             (seed["case_id"], seed["version"], json.dumps(seed["missing_documents"])),

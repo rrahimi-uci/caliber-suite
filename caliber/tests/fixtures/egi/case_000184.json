@@ -1,0 +1,35 @@
+{
+  "synthetic_notice": "SYNTHETIC TRAINING DATA — NOT FOR CREDIT DECISIONS",
+  "tenant_id": "harborlight-us-west",
+  "case_id": "MORT-2026-000184",
+  "case_version": 1,
+  "applicant_token": "applicant-000184",
+  "applicant_display_name": "Alex Morgan",
+  "property_address": "101 Example Avenue, Portland, OR 97205",
+  "purpose": "mortgage_pre_underwriting_review",
+  "purchase_price": "USD 625000.00",
+  "requested_principal": "USD 500000.00",
+  "documents": [
+    {
+      "document_id": "APP-000184",
+      "kind": "mortgage_application",
+      "status": "available",
+      "source_revision": "application@1.0.0",
+      "sha256": "1111111111111111111111111111111111111111111111111111111111111111"
+    },
+    {
+      "document_id": "PAY-000184-01",
+      "kind": "pay_statement",
+      "status": "available",
+      "source_revision": "document-store@2026.09.16",
+      "sha256": "2222222222222222222222222222222222222222222222222222222222222222"
+    },
+    {
+      "document_id": "PUR-000184",
+      "kind": "purchase_agreement",
+      "status": "available",
+      "source_revision": "title-service@2026.09.16",
+      "sha256": "3333333333333333333333333333333333333333333333333333333333333333"
+    }
+  ]
+}
