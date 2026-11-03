@@ -300,6 +300,14 @@ The verifier proves archive and package integrity only. Beta archives are unsign
 not prove server origin, authorization, freshness, retention, deletion, or provenance. The SDK verifier is deliberately server-free and
 shares the wire-contract rules with the server verifier so installed clients do not need server dependencies.
 
+### Evidence archive retention and expiry (B14.4)
+
+Exports receive `expires_at = exported_at + evidence_retention_days`; the default is 365 days and `CALIBER_EVIDENCE_RETENTION_DAYS=0`
+is a useful deterministic test/deployment boundary. The janitor deletes expired archive objects through the configured `StorageBackend`,
+records `deleted_at`, and retains the removed member ids in a tombstone. A later evidence download returns HTTP 410 with
+`{"reason":"evidence_expired","tombstone":{"removed_members":[...]}}`; it never recreates an expired archive. Storage deletion failures
+leave the row active for a later retry and do not falsely report expiry.
+
 ## Cookbooks
 
 > **Disabled by default.** Cookbooks are a preview area and are off by default; enable with

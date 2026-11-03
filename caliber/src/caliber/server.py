@@ -875,6 +875,8 @@ def create_app(config: CaliberConfig | None = None) -> ASGIApp:  # noqa: PLR0915
         interval_seconds=resolved.janitor_interval_seconds,
         stale_threshold_seconds=resolved.janitor_stale_threshold_seconds,
         workflow_run_retention_days=resolved.workflow_run_retention_days,
+        evidence_retention_days=resolved.evidence_retention_days,
+        working_dir_service=working_dir_service,
     )
     from caliber.routes.prompts import _load_prompt_release_info  # noqa: PLC0415
 

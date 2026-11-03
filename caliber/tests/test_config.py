@@ -35,6 +35,7 @@ def test_defaults() -> None:
     assert config.memory_llm_model == "gpt-5.6-luna"
     assert config.assistant_reasoning == "high"
     assert config.mcp_require_external_isolation_for_aliases == "prod"
+    assert config.evidence_retention_days == 365.0
     assert config.auth_bootstrap_admin_user == "admin"
     assert config.auth_bootstrap_allow_insecure_default is False
     # A literal identity must never gain admin scope merely by upgrading CALIBER.
@@ -69,6 +70,14 @@ def test_s3_log_settings_from_env() -> None:
 def test_static_prefix_from_env() -> None:
     config = CaliberConfig.load(environ={"CALIBER_STATIC_PREFIX": "/mlflow"})
     assert config.static_prefix == "/mlflow"
+
+
+def test_evidence_retention_days_from_env_and_zero_boundary() -> None:
+    config = CaliberConfig.load(environ={"CALIBER_EVIDENCE_RETENTION_DAYS": "0"})
+    assert config.evidence_retention_days == 0
+
+    with pytest.raises(ConfigError, match="invalid CALIBER configuration"):
+        CaliberConfig.load(environ={"CALIBER_EVIDENCE_RETENTION_DAYS": "-1"})
 
 
 def test_dev_user_from_env() -> None:

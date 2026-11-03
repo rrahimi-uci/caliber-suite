@@ -3,8 +3,8 @@
 The archive bytes remain in ``StorageBackend``.  This migration adds the
 database source of truth for the object key, canonical view digest and
 authorization scope used to select/cache an exported package.  Expiry and
-tombstone columns are additive preparation for B14.4; this migration does not
-run retention or delete objects.
+tombstone columns are used by B14.4's janitor and route refusal; this migration
+itself does not run retention or delete objects.
 """
 
 from __future__ import annotations

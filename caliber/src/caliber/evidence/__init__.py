@@ -1,9 +1,12 @@
 """Evidence-package assembly and related immutable evidence views."""
 
 from caliber.evidence.export import (
+    DEFAULT_EVIDENCE_RETENTION_DAYS,
     EvidenceArchive,
+    EvidenceArchiveExpiredError,
     EvidenceExportError,
     authorization_scope_digest,
+    expire_evidence_archives,
     export_archive,
     export_evidence,
     export_evidence_archive,
@@ -27,8 +30,10 @@ from caliber.evidence.verify import (
 )
 
 __all__ = [
+    "DEFAULT_EVIDENCE_RETENTION_DAYS",
     "DEFAULT_LIMITS",
     "EvidenceArchive",
+    "EvidenceArchiveExpiredError",
     "EvidenceExportError",
     "EvidencePackage",
     "EvidencePackageAuthorizationError",
@@ -40,6 +45,7 @@ __all__ = [
     "archive_member_name",
     "assemble",
     "authorization_scope_digest",
+    "expire_evidence_archives",
     "export_archive",
     "export_evidence",
     "export_evidence_archive",

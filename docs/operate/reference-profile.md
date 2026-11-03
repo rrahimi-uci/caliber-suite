@@ -5894,6 +5894,18 @@ have no signature, so `origin_verified` is false and verification does not estab
 deletion, or provenance. The standalone SDK/CLI verifier intentionally uses only their installed standard-library dependencies rather than
 importing the server package.
 
+## Evidence archive retention and expiry (B14.4, #845)
+
+Each export is assigned `expires_at = exported_at + evidence_retention_days`; the default is 365 days and the operator setting is
+`CALIBER_EVIDENCE_RETENTION_DAYS`. The janitor uses the configured `StorageBackend` to delete expired archive bytes, then records
+`deleted_at` and `tombstone_json = {"removed_members": [...]}` on the retained archive row. Deletion is recorded only after the storage
+operation succeeds, so a transient storage failure leaves the archive retryable and does not produce a false 410.
+
+After a tombstone exists, `GET /ajax-api/2.0/mlflow/caliber/workflow-runs/{run_id}/evidence` returns HTTP 410 with
+`{"reason":"evidence_expired","tombstone":{"removed_members":[...]}}`. The route never recreates an expired scope/view archive. A
+zero-day retention setting expires an archive immediately after export and is suitable for lifecycle tests; normal deployments should keep
+the 365-day default or choose an explicit non-negative window.
+
 ## Not enforced yet
 
 ADR 0001 describes the whole reference shape; this table is what the *process* checks today. Not checked:

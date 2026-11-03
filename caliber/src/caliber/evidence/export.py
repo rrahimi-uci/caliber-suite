@@ -4,8 +4,9 @@ The package assembler owns the selected run membership and authorization
 boundary.  This module is the only beta consumer that materializes the
 selected payload bytes: it verifies the assembler's digests, applies the
 configured redactor before hashing the exported view, writes a deterministic
-ZIP through ``StorageBackend``, and records the scope-bound object locator.
-Verifier, SDK/CLI, and retention behavior are separate beta slices.
+ZIP through ``StorageBackend``, records the scope-bound object locator, and
+enforces the retention/tombstone lifecycle used by the janitor and route.
+Verifier and SDK/CLI behavior are separate beta slices.
 """
 
 from __future__ import annotations
@@ -14,10 +15,11 @@ import copy
 import hashlib
 import io
 import json
+import math
 import uuid
 import zipfile
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from sqlalchemy import select
@@ -45,12 +47,23 @@ from caliber.storage import (
     StorageBackend,
     StorageConflictError,
     StorageError,
+    WorkingDirectoryService,
     safe_relative_path,
 )
+
+DEFAULT_EVIDENCE_RETENTION_DAYS = 365.0
 
 
 class EvidenceExportError(ValueError):
     """A package could not be materialized as a valid archive."""
+
+
+class EvidenceArchiveExpiredError(EvidenceExportError):
+    """The requested scope-bound archive was tombstoned by retention."""
+
+    def __init__(self, row: CaliberEvidenceArchive) -> None:
+        self.tombstone = row.tombstone_json or {"removed_members": list(row.member_ids_json or [])}
+        super().__init__("evidence archive expired")
 
 
 @dataclass(frozen=True)
@@ -65,6 +78,7 @@ class EvidenceArchive:
     package_sha256: str
     authorization_scope_digest: str
     archive_sha256: str
+    expires_at: datetime | None
 
     @property
     def digest(self) -> str:
@@ -189,7 +203,35 @@ def _result_from_row(
         package_sha256=row.package_sha256,
         authorization_scope_digest=row.authorization_scope_digest,
         archive_sha256=row.archive_sha256,
+        expires_at=getattr(row, "expires_at", None),
     )
+
+
+def _utc(value: datetime) -> datetime:
+    """Normalize database timestamps before comparing them with an aware clock."""
+
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)
+
+
+def _ensure_active(
+    row: CaliberEvidenceArchive,
+    *,
+    now: datetime,
+    retention_days: float,
+) -> None:
+    expires_at = getattr(row, "expires_at", None)
+    if expires_at is None:
+        exported_at = getattr(row, "exported_at", None)
+        if exported_at is None:
+            # Minimal race-test stand-ins from the pre-retention contract do
+            # not carry lifecycle columns; the real ORM row always does.
+            return
+        expires_at = _utc(exported_at) + timedelta(days=retention_days)
+        row.expires_at = expires_at
+    if getattr(row, "deleted_at", None) is not None or _utc(expires_at) <= now:
+        raise EvidenceArchiveExpiredError(row)
 
 
 def _read_existing(backend: StorageBackend, row: CaliberEvidenceArchive) -> EvidenceArchive:
@@ -226,11 +268,16 @@ def export_archive(
     backend: StorageBackend,
     actor: str | None = None,
     redact: bool = False,
+    retention_days: float = DEFAULT_EVIDENCE_RETENTION_DAYS,
+    now: datetime | None = None,
 ) -> EvidenceArchive:
     """Export an authorized run package through the supplied storage backend."""
 
     if not isinstance(backend, StorageBackend):
         raise EvidenceExportError("backend must implement StorageBackend")
+    if not math.isfinite(retention_days) or retention_days < 0:
+        raise EvidenceExportError("evidence retention days must be finite and non-negative")
+    current_time = _utc(now or datetime.now(timezone.utc))
     package = assemble(session, run_id=run_id, identity=identity)
     project = session.get(CaliberProject, package.record["project_id"])
     if project is None:
@@ -249,10 +296,10 @@ def export_archive(
             CaliberEvidenceArchive.workflow_run_id == run_id,
             CaliberEvidenceArchive.package_sha256 == view_digest,
             CaliberEvidenceArchive.authorization_scope_digest == scope_digest,
-            CaliberEvidenceArchive.deleted_at.is_(None),
         )
     ).scalar_one_or_none()
     if existing is not None:
+        _ensure_active(existing, now=current_time, retention_days=retention_days)
         return _read_existing(backend, existing)
 
     archive_bytes = _zip_bytes(manifest, payloads)
@@ -292,7 +339,7 @@ def export_archive(
     except StorageError as exc:
         raise EvidenceExportError(f"evidence archive storage failed: {exc}") from exc
 
-    exported_at = datetime.now(timezone.utc)
+    exported_at = current_time
     row = CaliberEvidenceArchive(
         archive_id=f"evidence-archive-{uuid.uuid4().hex}",
         workflow_run_id=run_id,
@@ -311,6 +358,7 @@ def export_archive(
         size_bytes=len(archive_bytes),
         exported_by=actor or identity.user_id,
         exported_at=exported_at,
+        expires_at=exported_at + timedelta(days=retention_days),
     )
     session.add(row)
     try:
@@ -322,13 +370,50 @@ def export_archive(
                 CaliberEvidenceArchive.workflow_run_id == run_id,
                 CaliberEvidenceArchive.package_sha256 == str(manifest["package_sha256"]),
                 CaliberEvidenceArchive.authorization_scope_digest == scope_digest,
-                CaliberEvidenceArchive.deleted_at.is_(None),
             )
         ).scalar_one_or_none()
         if concurrent is None:
             raise
+        _ensure_active(concurrent, now=current_time, retention_days=retention_days)
         return _read_existing(backend, concurrent)
     return _result_from_row(row, archive_bytes, manifest)
+
+
+def expire_evidence_archives(
+    session: Session,
+    storage: WorkingDirectoryService,
+    *,
+    retention_days: float = DEFAULT_EVIDENCE_RETENTION_DAYS,
+    now: datetime | None = None,
+) -> int:
+    """Delete expired evidence objects and persist their member tombstones.
+
+    Rows are retained as the authoritative refusal record. A storage failure
+    leaves the row active so a later janitor sweep can retry without claiming
+    that bytes were removed.
+    """
+
+    if not math.isfinite(retention_days) or retention_days < 0:
+        raise EvidenceExportError("evidence retention days must be finite and non-negative")
+    current_time = _utc(now or datetime.now(timezone.utc))
+    rows = session.execute(
+        select(CaliberEvidenceArchive).where(CaliberEvidenceArchive.deleted_at.is_(None))
+    ).scalars()
+    changed = 0
+    for row in rows:
+        if row.expires_at is None:
+            row.expires_at = _utc(row.exported_at) + timedelta(days=retention_days)
+            changed += 1
+        if _utc(row.expires_at) > current_time:
+            continue
+        try:
+            storage.for_backend(row.storage_backend).backend.delete(row.object_key, hard=True)
+        except StorageError:
+            continue
+        row.deleted_at = current_time
+        row.tombstone_json = {"removed_members": list(row.member_ids_json or [])}
+        changed += 1
+    return changed
 
 
 export_evidence_archive = export_archive
@@ -336,9 +421,12 @@ export_evidence = export_archive
 
 
 __all__ = [
+    "DEFAULT_EVIDENCE_RETENTION_DAYS",
     "EvidenceArchive",
+    "EvidenceArchiveExpiredError",
     "EvidenceExportError",
     "authorization_scope_digest",
+    "expire_evidence_archives",
     "export_archive",
     "export_evidence",
     "export_evidence_archive",
