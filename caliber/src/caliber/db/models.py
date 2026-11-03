@@ -2184,6 +2184,62 @@ class CaliberWorkflowRun(Base):
     )
 
 
+class CaliberEvidenceArchive(Base):
+    """A persisted, scope-bound export of one assembled evidence package.
+
+    The archive bytes live in the configured :class:`~caliber.storage.base.StorageBackend`;
+    this row is the authoritative, project-scoped locator and cache identity.  The
+    authorization-scope digest is deliberately part of the uniqueness key and object
+    path, so a later viewer/redaction decision cannot reuse another principal's bytes.
+    Lifecycle columns are nullable schema preparation for the retention/tombstone slice;
+    B14.3a does not expire or delete an archive.
+    """
+
+    __tablename__ = "caliber_evidence_archives"
+    __table_args__ = (
+        UniqueConstraint(
+            "workflow_run_id",
+            "package_sha256",
+            "authorization_scope_digest",
+            name="uq_evidence_archive_scope_view",
+        ),
+        Index("ix_evidence_archives_run", "workflow_run_id", "exported_at"),
+        Index("ix_evidence_archives_expiry", "expires_at"),
+        CheckConstraint("length(package_sha256) = 64", name="ck_evidence_archive_package_digest"),
+        CheckConstraint(
+            "length(authorization_scope_digest) = 64",
+            name="ck_evidence_archive_scope_digest",
+        ),
+        CheckConstraint("length(archive_sha256) = 64", name="ck_evidence_archive_archive_digest"),
+        CheckConstraint("size_bytes >= 0", name="ck_evidence_archive_size"),
+        CheckConstraint("length(object_key) > 0", name="ck_evidence_archive_object_key"),
+    )
+
+    archive_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    workflow_run_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("caliber_workflow_runs.workflow_run_id")
+    )
+    tenant_id: Mapped[str] = mapped_column(String(64))
+    project_id: Mapped[str] = mapped_column(String(64), ForeignKey("caliber_projects.project_id"))
+    package_id: Mapped[str] = mapped_column(String(128))
+    package_sha256: Mapped[str] = mapped_column(String(64))
+    authorization_scope_digest: Mapped[str] = mapped_column(String(64))
+    member_ids_json: Mapped[list[str]] = mapped_column(JSON, default=list, server_default="[]")
+    storage_backend: Mapped[str] = mapped_column(String(16))
+    storage_uri: Mapped[str] = mapped_column(String(2048))
+    bucket: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    object_key: Mapped[str] = mapped_column(String(2048))
+    object_version_id: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    archive_sha256: Mapped[str] = mapped_column(String(64))
+    size_bytes: Mapped[int] = mapped_column(Integer)
+    exported_by: Mapped[str] = mapped_column(String(256))
+    exported_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    # Reserved for B14.4 retention/janitor behavior. B14.3a records no expiry.
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    tombstone_json: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+
+
 class CaliberRunManifest(Base):
     """What one workflow run was pinned to and who started it, as immutable canonical bytes.
 

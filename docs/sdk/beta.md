@@ -292,6 +292,17 @@ The package is validated with the same canonical digest helper used by the contr
 retention policy, or typed SDK model is added in this slice. When no acceptance decision is persisted, evaluator provenance is empty and
 the package records `acceptance_record_not_available`; consumers must not infer evaluator/provider data from unrelated run fields.
 
+### Evidence archive export (B14.3a)
+
+The server now exposes `GET /ajax-api/2.0/mlflow/caliber/workflow-runs/{run_id}/evidence` for an authorized, project-scoped run. It
+returns a deterministic ZIP containing the B14.2 `manifest.json` and the selected JSON payloads under hashed member names. The route
+derives identity, project visibility and raw-payload permission on the server; it does not accept a caller-selected scope or project.
+
+If raw payload access is not permitted, the server redacts payloads, metadata and evaluator provenance before computing member, package,
+archive and storage-key digests. Raw-authorized and redacted views are separately cached by authorization-scope digest and stored through
+the project's `StorageBackend`, with `caliber_evidence_archives` retaining the locator and integrity metadata. This slice does not add
+typed SDK/CLI download helpers, verification signatures, expiry, deletion, tombstones or HTTP-410 behavior; those remain #840/#845.
+
 ## Cookbooks
 
 > **Disabled by default.** Cookbooks are a preview area and are off by default; enable with

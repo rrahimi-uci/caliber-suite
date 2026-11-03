@@ -5847,6 +5847,25 @@ This slice adds no HTTP export, storage retention, signature, verifier or SDK mo
 and must not read foreign payloads to fill an absent link. There is no migration or deployment setting for B14.2; rollback is reverting
 the assembler and its tests while leaving the already-registered contract unchanged.
 
+## Evidence archive export (B14.3a, #833)
+
+`GET /ajax-api/2.0/mlflow/caliber/workflow-runs/{run_id}/evidence` materializes the already-authorized B14.2 package as a deterministic
+ZIP. The archive contains the canonical `manifest.json` plus one JSON payload at `members/<sha256(member_id)>.json` for each selected member;
+it contains no workflow files, traces, checkpoints or observations. The route resolves the identity and project server-side, applies the
+same run visibility and payload-read policy as the run surface, and never accepts a caller-supplied project or authorization scope.
+
+When the identity may not read raw payloads, redaction is applied to payloads, metadata and evaluator provenance before their member,
+package, archive and object-key digests are computed. Authorized raw and redacted views therefore have distinct package identities and
+scope-bound storage keys. A configured process redactor cannot silently redact an identity that has been authorized for raw payloads.
+Unredacted and redacted exports are independently cached by `(run, package view, authorization-scope digest)`; conditional object creation
+and digest verification prevent a concurrent exporter or a storage-key collision from overwriting bytes.
+
+Archive bytes are written through the project's configured `StorageBackend` and indexed by `caliber_evidence_archives`, including the
+package digest, authorization-scope digest, member ids, storage locator and archive digest. Generic workflow-run pruning retains runs
+with an archive. The expiry, deletion, tombstone/HTTP-410 behavior, verifier, signatures and typed SDK/CLI remain later slices (#840,
+#845); this export is an integrity-checked archive, not proof of origin or a consumer verifier. Migration `0138` is required; rollback
+removes the archive table and export route but does not delete already-written storage objects.
+
 ## Not enforced yet
 
 ADR 0001 describes the whole reference shape; this table is what the *process* checks today. Not checked:
