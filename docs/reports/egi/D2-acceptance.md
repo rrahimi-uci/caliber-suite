@@ -111,11 +111,21 @@ Open and visible; none blocks D2's exit criteria, each is owned by an issue. Iss
 | #976 | The context manifest records the step's initial context only: session memory is recorded as history without a memory authorization, manifests are not linked to the step, tool specifications and tool-loop results are not recorded, a registry prompt is resolved twice, retrieved text that passes through another node loses its provenance, a resumed run that replays a recorded knowledge-query output is refused, and other model calls (query answer synthesis, guardrail judges) are not recorded. |
 | #960 | Trace payloads in review-queue items and example-from-trace are not governed. |
 | #978 | `test_s3_log_handler_does_not_log_about_its_own_delivery_at_debug` depends on the environment (see above). |
-| #979 | `test_import_submission_is_durable_idempotent_and_digest_pinned` is timing-dependent and turned the push CI on main red once. |
+| #979 | Resolved by reusing one immutable ZIP request body for same-intent replays; the original slow-runner failure was caused by rebuilding a timestamped ZIP, which changed `upload_sha256` and correctly produced `import_idempotency_conflict`. |
 | #947 | The memory service passes entity ids that mem0 2.x rejects (search and list fail). |
 | design limits | A grant holds at most 256 resources; the context source guard is point-in-time; the token budget is an accounting estimate (enforcing it on a provider call is B08, a D3 package whose tasks are still open); the in-run memory tools exist, but a `context.read` authorization on `memory:<ref>` is not yet part of loading memory (#976). |
 
 ## Measured limits
+
+### #979 workspace-import replay resolution
+
+The historical failure in the candidate run was diagnosed as a test-fixture defect,
+not a workspace-import lifecycle defect. `_bundle()` creates a ZIP whose entry
+timestamp can change when a slow runner separates the requests. The replay test now
+constructs one bundle and reuses those exact bytes for the original request and its
+same-intent replay; changed commit and changed bundle cases still assert the 409
+conflicts. No sleep, polling, production behavior change, or weakened assertion was
+introduced. The focused test passed in five consecutive clean-environment runs.
 
 - Throughput and latency are not a D2 criterion and were not measured here beyond the existing tests' own timing assertions.
 - Cycle data: the 28 D2 PRs merged between 2026-10-26 and 2026-10-27 in one automated stream, each with a CI run and at least one independent review pass; that is an agent's rate, not a three-person team's, and is not a basis for a forecast. The reforecast is #608's.
