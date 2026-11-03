@@ -130,6 +130,7 @@ ASSISTANT_QUEUED_MESSAGE_PREFIX = "QMSG-"
 GATE_VERDICT_PREFIX = "GV-"
 SKILL_VERSION_PREFIX = "SKV-"
 WEBHOOK_DEAD_LETTER_PREFIX = "WDL-"
+STEP_OBSERVATION_PREFIX = "OBS-"
 
 _ID_SUFFIX_LEN = 8
 
@@ -629,3 +630,8 @@ def new_knowledge_base_test_run_id() -> str:
 def new_webhook_dead_letter_id() -> str:
     """Return a fresh webhook dead-letter ID, e.g. ``WDL-3a8f2c7e``."""
     return f"{WEBHOOK_DEAD_LETTER_PREFIX}{_suffix()}"
+
+
+def new_step_observation_id() -> str:
+    """Return a fresh durable replay-observation ID, e.g. ``OBS-3a8f2c7e``."""
+    return f"{STEP_OBSERVATION_PREFIX}{_suffix()}"
