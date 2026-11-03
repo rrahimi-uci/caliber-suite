@@ -25,6 +25,7 @@ from tests.egi_scenarios.conftest import (
     EDITOR_B,
     PROJECT_A,
     PROJECT_B,
+    VIEWER_B,
     Downstream,
     ReferenceApp,
     ScriptedModel,
@@ -74,7 +75,12 @@ def test_fixtures_boot(
                 select(CaliberProjectMember.user_id, CaliberProjectMember.project_id)
             ).all()
         )
-    assert members == {EDITOR_A: PROJECT_A, APPROVER_A: PROJECT_A, EDITOR_B: PROJECT_B}
+    assert members == {
+        EDITOR_A: PROJECT_A,
+        APPROVER_A: PROJECT_A,
+        EDITOR_B: PROJECT_B,
+        VIEWER_B: PROJECT_B,
+    }
 
     first = scripted_model.next_turn()
     assert first["name"] == "request_missing_document"
@@ -95,7 +101,7 @@ def test_the_reference_app_acts_as_a_user_of_a_project(
     assert reference_app.headers(EDITOR_A, PROJECT_A)["X-CALIBER-Project"] == PROJECT_A
     with reference_app.session_factory() as session:
         count = session.execute(select(func.count()).select_from(CaliberProjectMember)).scalar_one()
-    assert count == 3
+    assert count == 4
 
 
 # ---------------------------------------------------------------- barriers
