@@ -23,6 +23,9 @@ import { CaliberUi, uiOnlySlug } from "../ui-only-driver";
  */
 const LAB22_ID = "22";
 const LAB22_TITLE = "Governed Evidence Review";
+const PROJECT_ID = "PRJ-cookbook-22";
+const WORKSPACE = "cookbook-22-governed-review";
+const ADMIN_PASSWORD = process.env.CALIBER_LAB22_ADMIN_PASSWORD ?? "admin";
 const APPROVER = {
   user: "lab22-approver",
   password: "cookbook22-approver-passphrase",
@@ -61,35 +64,18 @@ test.describe(`Cookbook ${LAB22_ID}: governed evidence review`, () => {
     browser,
   }, testInfo) => {
     test.setTimeout(900_000);
-    const suffix = uiOnlySlug("lab22").replace("lab22-", "");
-    const workspace = `lab22-ui-${suffix}`;
     const workflowName = `cookbook-22-${uiOnlySlug("harborlight")}`;
     const ui = new CaliberUi(editorPage);
 
-    await ui.signIn("admin", "admin");
+    await ui.signIn("admin", ADMIN_PASSWORD);
     await ensureApproverAccount(editorPage);
 
-    await editorPage.getByRole("button", { name: "Create workspace" }).click();
-    await editorPage.getByPlaceholder("Document automation").fill(workspace);
-    await editorPage.getByRole("button", { name: "Create and select" }).click();
     await expect(editorPage.getByLabel("Active workspace")).toContainText(
-      workspace,
+      WORKSPACE,
     );
-    const projectId = await editorPage
-      .getByLabel("Active workspace")
-      .inputValue();
-
-    await editorPage.goto("/caliber/administration");
-    const access = editorPage.locator("#project-access-heading").locator("..");
-    await access
-      .getByLabel("Project for access management")
-      .selectOption(projectId);
-    await access.getByRole("textbox").fill(APPROVER.user);
-    await access.getByRole("combobox").selectOption({ label: "Reviewer" });
-    await access.getByRole("button", { name: "Add member" }).click();
-    await expect(
-      access.getByText(`Added ${APPROVER.user} to ${workspace}.`),
-    ).toBeVisible();
+    await expect(editorPage.getByLabel("Active workspace")).toHaveValue(
+      PROJECT_ID,
+    );
 
     await editorPage.goto("/caliber/cookbooks");
     await expect(
@@ -142,7 +128,7 @@ test.describe(`Cookbook ${LAB22_ID}: governed evidence review`, () => {
     const approverPage = await signedInAs(
       browser,
       String(testInfo.project.use.baseURL),
-      workspace,
+      WORKSPACE,
     );
     try {
       await approverPage.goto(editorUrl);
