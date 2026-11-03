@@ -151,7 +151,7 @@ Run the spec (the server must be up and the stand-in service running):
 ```bash
 cd caliber/caliber-ui
 CALIBER_LAB_BASE_URL="$CALIBER_URL/caliber" \
-  npx playwright test --config=playwright.labs.config.ts e2e/cookbooks/labs/16-observability-triage.spec.ts
+  npx playwright test --config=playwright.beta.config.ts e2e/cookbooks/labs/16-observability-triage.spec.ts
 ```
 
 It takes about three minutes and leaves 56 traces, a workflow with two versions, a test set and a queue (all uniquely named) on the stack.

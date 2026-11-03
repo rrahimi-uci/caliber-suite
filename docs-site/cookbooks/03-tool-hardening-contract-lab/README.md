@@ -243,7 +243,7 @@ The whole path is `caliber/caliber-ui/e2e/cookbooks/labs/03-tool-hardening.spec.
 
 ```bash
 cd caliber/caliber-ui
-CALIBER_LAB_BASE_URL="$CALIBER_URL/caliber" npx playwright test --config=playwright.labs.config.ts e2e/cookbooks/labs/03-tool-hardening.spec.ts
+CALIBER_LAB_BASE_URL="$CALIBER_URL/caliber" npx playwright test --config=playwright.beta.config.ts e2e/cookbooks/labs/03-tool-hardening.spec.ts
 ```
 
 ## Verify it worked

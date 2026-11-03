@@ -191,7 +191,7 @@ The Playwright spec `caliber/caliber-ui/e2e/cookbooks/labs/12-aria-evaluation-ha
 
 ```bash
 cd caliber/caliber-ui
-CALIBER_LAB_BASE_URL="$CALIBER_URL/caliber" npx playwright test --config=playwright.labs.config.ts e2e/cookbooks/labs/12-aria-evaluation-harness.spec.ts --output=/tmp/lab12-pw
+CALIBER_LAB_BASE_URL="$CALIBER_URL/caliber" npx playwright test --config=playwright.beta.config.ts e2e/cookbooks/labs/12-aria-evaluation-harness.spec.ts --output=/tmp/lab12-pw
 ```
 
 1. **State the intent.** In the sidebar open **Operate** and click **Plans**. Paste the sentence from [`assets/intent.md`](assets/intent.md) into **Goal**, set **Autonomy** to **Stop before each change**, and press **Decompose goal**. Expected: the plan opens with the status `draft`, "2 steps".

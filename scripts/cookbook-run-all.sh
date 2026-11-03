@@ -7,7 +7,7 @@
 #   fresh stack (scripts/cookbook-env.sh up ..., with the README's variables, flags and --s3)
 #   -> mint the token the way the README does
 #   -> run the lab's SDK example script (the API path)
-#   -> run the lab's Playwright spec (the UI path, playwright.labs.config.ts)
+#   -> run the lab's Playwright spec (the UI path, playwright.beta.config.ts)
 #   -> tear the stack and any helper process down
 #
 # and prints a table (lab, API, UI, seconds). The exit status is non-zero if any step failed.
@@ -321,7 +321,8 @@ lab_config() {
                     CALIBER_MCP_ALLOW_INSECURE_HTTP=false
                     CALIBER_MCP_STDIO_COMMAND_ALLOWLIST= CALIBER_MCP_REMOTE_HOST_ALLOWLIST=
                     CALIBER_APPROVAL_ALLOW_SELF_APPROVAL=false CALIBER_APPLY_REQUIRE_DISTINCT_APPROVER=true
-                    CALIBER_EFFECT_RECONCILER_ENABLED=true CALIBER_ALLOW_SIMULATED_PROVIDERS=true
+                    CALIBER_EFFECT_RECONCILER_ENABLED=true CALIBER_EFFECT_RECONCILER_INTERVAL_SECONDS=600
+                    CALIBER_ALLOW_SIMULATED_PROVIDERS=true
                     CALIBER_AGENT_STEP_TOOL_BACKENDS='[{"tool":"request_missing_document","version":"1.0","backend":"document_request"}]'
                     CALIBER_EFFECT_CALLBACK_CONNECTORS='[{"connector":"document-request","project_id":"PRJ-cookbook-22","secret_source":"env://EGI_CALLBACK_SECRET","base_url":"http://127.0.0.1:8810"}]'
                     EGI_CALLBACK_SECRET=ssssssssssssssssssssssssssssssssssssssss
@@ -429,7 +430,7 @@ step_ui() {
   stack_vars "$LAB_STACK"; export CALIBER_TOKEN="$TOKEN"
   local kv; for kv in ${LAB_UI_ENV[@]+"${LAB_UI_ENV[@]}"}; do export "${kv?}"; done
   export CALIBER_LAB_BASE_URL="$CALIBER_URL/caliber"
-  cd "$UI_DIR" && exec npx playwright test --config=playwright.labs.config.ts "e2e/cookbooks/labs/$LAB_UI" --output="$RUN_DIR/pw-lab$LAB_NUM"
+  cd "$UI_DIR" && exec npx playwright test --config=playwright.beta.config.ts "e2e/cookbooks/labs/$LAB_UI" --output="$RUN_DIR/pw-lab$LAB_NUM"
 }
 save_server_log() { # save_server_log NAME DEST : the last lines of the stack's server log, redacted
   local f="$ENV_ROOT/$1/caliber.log"

@@ -213,7 +213,7 @@ Run the spec against the running environment:
 
 ```bash
 cd caliber/caliber-ui
-CALIBER_LAB_BASE_URL="$CALIBER_URL/caliber" npx playwright test --config=playwright.labs.config.ts e2e/cookbooks/labs/04-document-extraction.spec.ts
+CALIBER_LAB_BASE_URL="$CALIBER_URL/caliber" npx playwright test --config=playwright.beta.config.ts e2e/cookbooks/labs/04-document-extraction.spec.ts
 ```
 
 The spec makes no API calls except its documented cleanup (it empties and removes the two buckets first, so it can be repeated); the `reviewer` account is created on the Administration page, and is reused when it already exists.

@@ -97,12 +97,13 @@ class _Store:
             (seed["case_id"], seed["version"], json.dumps(seed["missing_documents"])),
         )
 
-    def reset(self) -> None:
+    def reset(self, *, preserve_request_ids: bool = False) -> None:
         with self._lock:
             self._db.executescript(
                 "DELETE FROM document_requests; DELETE FROM mutations; DELETE FROM cases;"
-                " DELETE FROM sqlite_sequence;"
             )
+            if not preserve_request_ids:
+                self._db.execute("DELETE FROM sqlite_sequence")
             self._load_seed()
 
     def mutations(self) -> int:
@@ -380,8 +381,13 @@ def create_app(db_path: str) -> Starlette:
     async def mutations(_: Request) -> Response:
         return JSONResponse({"count": store.mutations()})
 
-    async def reset(_: Request) -> Response:
-        store.reset()
+    async def reset(request: Request) -> Response:
+        # The browser journey may reset the downstream between independent runs while CALIBER's
+        # receipt ledger remains in the same database. Preserving the AUTOINCREMENT sequence keeps
+        # the synthetic request ids globally distinct across those fixture resets; the default
+        # retains the compact DR-0001 behavior used by the fixture unit tests.
+        preserve_request_ids = request.query_params.get("preserve_request_ids") == "true"
+        store.reset(preserve_request_ids=preserve_request_ids)
         faults.arm("none", 0.0)
         return JSONResponse({"ok": True})
 

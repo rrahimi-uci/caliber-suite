@@ -126,7 +126,13 @@ the cookbook runner once that dependent artifact is present.
    export.
 5. Open **Replay** for the exported bundle. Confirm the result is `matched` and the downstream
    ledger still has one mutation.
-6. Switch to project B and confirm the same run is not readable. Try the stale version path and
+6. In a second run, arm the disposable Harborlight fixture's
+   `drop_response_after_commit` fault before resuming the approved run. Confirm the run parks at
+   `waiting_effect`, then use the public `GET /ajax-api/2.0/mlflow/caliber/system/effects` and
+   `POST /ajax-api/2.0/mlflow/caliber/system/effects/proposals/{proposal_id}/reconcile` routes
+   to recover it. The outcome must be `committed` with state `committed`, the run must become **Accepted**,
+   and the downstream ledger must still contain exactly one mutation.
+7. Switch to project B and confirm the same run is not readable. Try the stale version path and
    confirm the downstream responds `412` with no second request.
 
 ## Run it through the SDK

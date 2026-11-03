@@ -266,7 +266,7 @@ Create the token as in Setup, then run the same script without `--expect-stand-i
 
 ```bash
 PYTHONPATH=sdk/caliber-sdk caliber/.venv/bin/python sdk/caliber-sdk/examples/cookbooks/cookbook_10_trustworthy_evaluation.py --cleanup
-# UI: cd caliber/caliber-ui && CALIBER_LAB10_MODEL=real CALIBER_LAB_BASE_URL="$CALIBER_URL/caliber" npx playwright test --config=playwright.labs.config.ts e2e/cookbooks/labs/10-judge-certification.spec.ts
+# UI: cd caliber/caliber-ui && CALIBER_LAB10_MODEL=real CALIBER_LAB_BASE_URL="$CALIBER_URL/caliber" npx playwright test --config=playwright.beta.config.ts e2e/cookbooks/labs/10-judge-certification.spec.ts
 ```
 
 **What changes against the other tiers.** Evaluations run instead of answering `400`; the judge returns a verdict for every row (`scored` 50 of 50); and nothing
@@ -340,7 +340,7 @@ performs exactly these steps with real clicks; run it against a stack that is al
 
 ```bash
 cd caliber/caliber-ui
-CALIBER_LAB_BASE_URL="$CALIBER_URL/caliber" npx playwright test --config=playwright.labs.config.ts e2e/cookbooks/labs/10-judge-certification.spec.ts
+CALIBER_LAB_BASE_URL="$CALIBER_URL/caliber" npx playwright test --config=playwright.beta.config.ts e2e/cookbooks/labs/10-judge-certification.spec.ts
 # CALIBER_LAB10_MODEL says what is behind the server: stand-in (default), real, or simulated (the fake default).
 # The spec reads the app's own "Simulated providers" banner and stops at once if you named the wrong kind.
 ```

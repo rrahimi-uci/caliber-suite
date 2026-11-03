@@ -288,7 +288,7 @@ The whole path is `caliber/caliber-ui/e2e/cookbooks/labs/11-release-signoff.spec
 
 ```bash
 cd caliber/caliber-ui
-CALIBER_LAB_BASE_URL="$CALIBER_URL/caliber" npx playwright test --config=playwright.labs.config.ts e2e/cookbooks/labs/11-release-signoff.spec.ts
+CALIBER_LAB_BASE_URL="$CALIBER_URL/caliber" npx playwright test --config=playwright.beta.config.ts e2e/cookbooks/labs/11-release-signoff.spec.ts
 ```
 
 The card shows the status, the score, the counts, the unmet blocking criteria (key, score, threshold), the waivers (who, expiry, reason) and the report message. It does not show the signoff id,

@@ -183,7 +183,7 @@ The Playwright spec `caliber/caliber-ui/e2e/cookbooks/labs/13-aria-review-queue.
 
 ```bash
 cd caliber/caliber-ui
-CALIBER_LAB_BASE_URL="$CALIBER_URL/caliber" npx playwright test --config=playwright.labs.config.ts e2e/cookbooks/labs/13-aria-review-queue.spec.ts --output=/tmp/lab13-pw
+CALIBER_LAB_BASE_URL="$CALIBER_URL/caliber" npx playwright test --config=playwright.beta.config.ts e2e/cookbooks/labs/13-aria-review-queue.spec.ts --output=/tmp/lab13-pw
 ```
 
 For your own run, write the traces first and keep the ids: `MLFLOW_TRACKING_URI=$MLFLOW_TRACKING_URI caliber/.venv/bin/python docs-site/cookbooks/13-aria-review-governance-queue/assets/seed_traces.py > /tmp/traces.json` (they also appear in **Operate > Observability**).

@@ -434,7 +434,7 @@ The same steps are performed, with real clicks and the assertions above, by the 
 ```bash
 cd caliber/caliber-ui
 CALIBER_LAB_BASE_URL="$CALIBER_URL/caliber" \
-  npx playwright test --config=playwright.labs.config.ts e2e/cookbooks/labs/18-projects-roles-tokens-audit.spec.ts
+  npx playwright test --config=playwright.beta.config.ts e2e/cookbooks/labs/18-projects-roles-tokens-audit.spec.ts
 ```
 
 It also checks that the **Cookbooks** gallery (`CALIBER_FEATURE_COOKBOOKS`) lists this lab as **Projects, Roles, Tokens & Audit** with the same eleven guided steps. Installing it from the gallery creates a paused workflow in the active workspace; the lab does not need it.

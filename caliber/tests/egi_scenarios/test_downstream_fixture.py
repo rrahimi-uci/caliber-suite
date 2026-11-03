@@ -415,6 +415,12 @@ def test_reset_restores_seed(app: TestClient) -> None:
     assert app.post(POST, json=BODY, headers=_key("k1")).json()["request_id"] == "DR-0001"
 
 
+def test_reset_can_preserve_request_ids_for_cross_run_receipt_ledgers(app: TestClient) -> None:
+    app.post(POST, json=BODY, headers=_key("k1"))
+    assert app.post("/_test/reset?preserve_request_ids=true").status_code == 200
+    assert app.post(POST, json=BODY, headers=_key("k2")).json()["request_id"] == "DR-0002"
+
+
 def test_a_database_that_already_has_cases_is_not_reseeded(tmp_path: Path) -> None:
     db = str(tmp_path / "d.db")
     with TestClient(create_app(db)) as first:

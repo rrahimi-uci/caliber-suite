@@ -350,7 +350,7 @@ above up:
 
 ```bash
 cd caliber/caliber-ui
-CALIBER_LAB_BASE_URL="$CALIBER_URL/caliber" npx playwright test --config=playwright.labs.config.ts e2e/cookbooks/labs/02-skill-trigger-packaging.spec.ts
+CALIBER_LAB_BASE_URL="$CALIBER_URL/caliber" npx playwright test --config=playwright.beta.config.ts e2e/cookbooks/labs/02-skill-trigger-packaging.spec.ts
 ```
 
 Open `$CALIBER_URL/caliber/` and sign in as `admin` / `admin` first. The sidebar groups are **Get started** (Cookbooks is here, with the flag on), **Prompt lifecycle**, **Agent resources**
@@ -498,7 +498,7 @@ The candidate was generated but there was nothing to score it against. Naming a 
 ```bash
 PYTHONPATH=sdk/caliber-sdk caliber/.venv/bin/python -m examples.cookbooks.cookbook_02_precision_skills      # about 2 to 2.5 minutes
 cd caliber/caliber-ui && CALIBER_LAB_BASE_URL="$CALIBER_URL/caliber" \
-  npx playwright test --config=playwright.labs.config.ts e2e/cookbooks/labs/02-skill-trigger-packaging.spec.ts   # about 4 minutes
+  npx playwright test --config=playwright.beta.config.ts e2e/cookbooks/labs/02-skill-trigger-packaging.spec.ts   # about 4 minutes
 ```
 
 In real mode the script prints `"mode": "real"` and a calibration block like this (and `failures.no_test_set` for the run above); it exits `0` only if `simulated` is false, `provider` is not `fake`,
