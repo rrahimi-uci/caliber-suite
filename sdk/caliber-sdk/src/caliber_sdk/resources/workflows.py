@@ -431,6 +431,16 @@ class WorkflowRunsAPI(Resource):
         """Download a run file's raw bytes."""
         return self._transport.download(f"/workflow-runs/{run_id}/files/{file_id}/content")
 
+    def evidence(self, run_id: str) -> bytes:
+        """Download the scope-authorized evidence archive for one run.
+
+        The bytes are intentionally returned without decoding.  Callers that
+        need an integrity result can pass them to
+        :func:`caliber_sdk.verify_archive`; the SDK never claims that the
+        unsigned Beta archive proves origin.
+        """
+        return self._transport.download(f"/workflow-runs/{run_id}/evidence")
+
     def register_artifact(self, run_id: str, *, file_id: str, **params: Any) -> Any:
         """Promote an existing run file to a registered artifact.
         ``params`` may carry ``artifact_type``, ``display_name``,

@@ -21,10 +21,10 @@
 # revision (P4-C), Change Request/review/version-tag (P4-D), release-operation
 # (P5-C), release lifecycle (P5-F) and the source connection/webhook-delivery
 # reconciliation surface (P4-E) -- is now covered by typed resources. The
-# B14.3a evidence download is tracked as a temporary gap until B14.3b (#840)
-# adds the shared verifier and typed SDK/CLI consumption surface. The remaining
-# entries below are permanent exclusions. A future server operation without SDK
-# coverage must add a tracked [[gap]] or justify a permanent [[exclusion]].
+# B14.3a evidence download is now covered by the typed sync/async workflow-run
+# methods and the server-free verifier. The remaining entries below are
+# permanent exclusions. A future server operation without SDK coverage must add
+# a tracked [[gap]] or justify a permanent [[exclusion]].
 
 [[exclusion]]
 method = "GET"
@@ -65,10 +65,3 @@ reason = "Called by GitHub itself, never by a caliber_sdk client -- there is no 
 method = "POST"
 path = "/effects/callbacks/receipt"
 reason = "Called by a downstream connector, never by a caliber_sdk client -- there is no CALIBER identity on this request (see routes/system_effects.py and effects/callbacks.py: admission is an HMAC signature over connector, project, timestamp, delivery id and body against the connector's configured secret, not session/PAT auth). Operators read the resulting proposal and receipt through the effects list, which is SDK coverage; the inbound notification itself is deliberately not modelled."
-
-[[gap]]
-method = "GET"
-path = "/workflow-runs/{}/evidence"
-tag = "workflow-runs"
-stability = "ga"
-wave = "B14.3b (#840)"

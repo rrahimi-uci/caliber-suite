@@ -129,6 +129,18 @@ def build_parser() -> argparse.ArgumentParser:
     status = _add(workflow, "status", commands.workflow_status, "show one run")
     status.add_argument("run_id")
 
+    evidence = _add(
+        workflow,
+        "evidence",
+        commands.workflow_evidence,
+        "download and verify one run's evidence archive",
+    )
+    evidence.add_argument("run_id")
+    evidence.add_argument("--output", help="write the verified archive to this path")
+    evidence.add_argument(
+        "--force", action="store_true", help="overwrite --output if it already exists"
+    )
+
     deployments = _add(
         workflow,
         "deployments",

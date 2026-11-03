@@ -9,10 +9,12 @@ own. A CLI that invented semantics would be a second, undocumented API.
 from __future__ import annotations
 
 import argparse
+from pathlib import Path
 from typing import Any
 
 from caliber_sdk import CaliberClient
 from caliber_sdk.errors import CaliberAPIError
+from caliber_sdk.evidence import EvidenceVerificationError
 from caliber_sdk.models import (
     WorkspaceChangeRequest,
     WorkspaceImportJob,
@@ -22,6 +24,7 @@ from caliber_sdk.models import (
 from caliber_sdk.waiters import WaitTimeout
 
 from caliber_cli import exits
+from caliber_cli.evidence_verify import verify_and_write
 from caliber_cli.output import Printer
 
 
@@ -167,6 +170,26 @@ def workflow_status(client: CaliberClient, args: argparse.Namespace, out: Printe
         # between ``status`` and a ``run`` that hit its deadline.
         return exits.TIMEOUT
     return exits.OK if run.status in {"succeeded", "completed"} else exits.FAILURE
+
+
+def workflow_evidence(client: CaliberClient, args: argparse.Namespace, out: Printer) -> int:
+    """Download and verify one run's evidence archive before optional storage."""
+
+    archive = client.workflows.runs.evidence(args.run_id)
+    try:
+        if args.output:
+            result = verify_and_write(archive, Path(args.output), overwrite=args.force)
+        else:
+            from caliber_sdk import verify_archive
+
+            result = verify_archive(archive)
+    except EvidenceVerificationError as exc:
+        out.error(f"evidence verification failed: {exc.code}")
+        return exits.FAILURE
+    out.data(result)
+    if args.output:
+        out.note(f"verified evidence archive written to {args.output}")
+    return exits.OK
 
 
 def workflow_deployments(client: CaliberClient, args: argparse.Namespace, out: Printer) -> int:

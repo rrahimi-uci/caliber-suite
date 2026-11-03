@@ -39,6 +39,14 @@ from .errors import (
     CaliberTransportError,
     CaliberValidationError,
 )
+from .evidence import (
+    DEFAULT_LIMITS,
+    EvidenceVerification,
+    EvidenceVerificationError,
+    VerificationLimits,
+    verify_archive,
+    verify_evidence_archive,
+)
 from .models import ErrorBody, FieldError, Page, Stability
 from .resources import RawAPI, WorkflowRunFailed
 from .transport import API_PREFIX, UNSET_PROJECT, Response, Transport, UnsetProjectType
@@ -55,6 +63,7 @@ __version__ = "0.1.0a1"
 
 __all__ = [
     "API_PREFIX",
+    "DEFAULT_LIMITS",
     "ENV_BASE_URL",
     "ENV_PROJECT",
     "ENV_TOKEN",
@@ -78,6 +87,8 @@ __all__ = [
     "CaliberTransportError",
     "CaliberValidationError",
     "ErrorBody",
+    "EvidenceVerification",
+    "EvidenceVerificationError",
     "FieldError",
     "NoAuth",
     "Page",
@@ -88,10 +99,13 @@ __all__ = [
     "Transport",
     "TrustedHeaderAuth",
     "UnsetProjectType",
+    "VerificationLimits",
     "WaitFailed",
     "WaitTimeout",
     "WorkflowRunFailed",
     "__version__",
+    "verify_archive",
+    "verify_evidence_archive",
     "wait_for",
     "wait_for_terminal_state",
 ]

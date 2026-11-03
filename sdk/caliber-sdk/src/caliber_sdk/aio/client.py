@@ -308,6 +308,14 @@ class AsyncWorkflowRunsAPI(_AsyncResource):
             raise WorkflowRunFailed(run)
         return run
 
+    async def evidence(self, run_id: str) -> bytes:
+        """Download one run's scope-authorized evidence archive.
+
+        The async method mirrors ``client.workflows.runs.evidence`` and leaves
+        verification to the server-free :func:`caliber_sdk.verify_archive`.
+        """
+        return await self._transport.download(f"/workflow-runs/{run_id}/evidence")
+
 
 class AsyncJobsAPI(_AsyncResource):
     """Background jobs, and waiting on ones that stop for a person."""

@@ -77,6 +77,7 @@ caliberctl token revoke PAT-9 --yes      # revokes
 | `capabilities` | What the deployment supports. |
 | `token list \| create \| rotate \| revoke` | Access token lifecycle. |
 | `workflow list \| run \| status` | Run a workflow and wait for it. |
+| `workflow evidence RUN_ID [--output PATH] [--force]` | Download and verify a run's evidence archive before optional local output. |
 | `workflow deployments \| promote \| rollback \| promotions` | Deployment-alias governance: what's live, point an alias at a version, restore the prior one, and list pending/historical promotions. |
 | `promotion approve \| reject` | Act on a pending gated promotion (see `workflow promote`). |
 | `gate-verdict show \| record` | Advisory per-version evaluation verdicts (`prompt`/`workflow`/`skill`). |
@@ -89,6 +90,11 @@ caliberctl token revoke PAT-9 --yes      # revokes
 | `workspace import \| package \| cr \| release` | Git-backed Workspace lifecycle: import jobs, revision packages, Change Request review, and environment releases. Every leaf requires `--project`. **Experimental:** release evaluation has no executor in this build, so a `workspace release` stays queued, and `workspace release` is off by default (`CALIBER_FEATURE_RELEASE_CANDIDATES`). |
 
 ### Notes on specific commands
+
+`workflow evidence` verifies the archive before writing it and exits with a
+failure code for malformed, tampered, unsafe, or contract-invalid input. The
+archive is integrity-checked but unsigned (`origin_verified=false`); use
+`--force` only when intentionally replacing an existing output file.
 
 **`whoami` exits 6 on an anonymous identity.** `GET /me` reports rather than
 requires, so an unusable credential returns a 200 with `user_id: anonymous`.
