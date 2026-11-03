@@ -292,7 +292,7 @@ class WorkflowRunsAPI(Resource):
         from the start."""
         return self._post(f"/workflow-runs/{run_id}/retry", json=payload)
 
-    def replay(self, run_id: str, *, observation_ids: list[str] | None = None) -> Any:
+    def replay(self, run_id: str, *, observation_ids: _List[str] | None = None) -> Any:
         """Replay a run from its recorded observations without live execution.
 
         Historical replay is bounded and read-only on the server. When
@@ -300,7 +300,9 @@ class WorkflowRunsAPI(Resource):
         observations up to its configured bound; supplying ids narrows the
         report to a specific recorded subset.
         """
-        payload = {} if observation_ids is None else {"observation_ids": observation_ids}
+        payload: dict[str, Any] = (
+            {} if observation_ids is None else {"observation_ids": observation_ids}
+        )
         return self._post(f"/workflow-runs/{run_id}/replay", json=payload)
 
     def events(self, run_id: str, **params: Any) -> Any:
