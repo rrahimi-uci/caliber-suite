@@ -111,7 +111,7 @@ def build_parser() -> argparse.ArgumentParser:
         "submit a run and wait for it",
         requires_project=True,
     )
-    target = run.add_mutually_exclusive_group(required=True)
+    target = run.add_mutually_exclusive_group(required=False)
     target.add_argument("--workflow-id", help="run the deployment alias of this workflow")
     target.add_argument("--version-id", help="run this exact version")
     run.add_argument("--alias", help="deployment alias to run; requires --workflow-id")
@@ -125,6 +125,16 @@ def build_parser() -> argparse.ArgumentParser:
     )
     run.add_argument("--no-wait", action="store_true", help="submit and exit without waiting")
     run.add_argument("--timeout", type=float, default=900.0, help="seconds to wait (default 900)")
+    run_actions = run.add_subparsers(dest="run_action", metavar="<action>")
+    replay = run_actions.add_parser(
+        "replay", help="replay one run's recorded observations without live execution"
+    )
+    replay.set_defaults(
+        handler=commands.workflow_run_replay,
+        parser=replay,
+        requires_project=False,
+    )
+    replay.add_argument("run_id")
 
     status = _add(workflow, "status", commands.workflow_status, "show one run")
     status.add_argument("run_id")
@@ -678,6 +688,13 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     handler: Handler | None = getattr(args, "handler", None)
+    if (
+        handler is commands.workflow_run
+        and getattr(args, "run_action", None) is None
+        and not args.workflow_id
+        and not args.version_id
+    ):
+        args.parser.error("workflow run requires --workflow-id or --version-id")
     if handler is None or handler is _needs_subcommand:
         # A bare ``caliberctl`` or ``caliberctl token``: print that parser's help
         # and exit USAGE. Help on stdout, because the user asked for it by

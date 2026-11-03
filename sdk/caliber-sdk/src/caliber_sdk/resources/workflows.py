@@ -8,16 +8,30 @@ implementation detail of the route layer.
 from __future__ import annotations
 
 import json
-from typing import Any
+from typing import Any, Literal
 
 from ..errors import CaliberError
 from ..models._decode import decode, decode_list
 from ..models.workflows import (
     FAILED_RUN_STATES,
     AdmissionManifest,
+    ApprovalAbility,
+    ApprovalArgumentField,
+    ApprovalBinding,
+    ApprovalCaller,
+    ApprovalPolicy,
+    ApprovalProposal,
+    ApprovalQuorum,
+    ApprovalRecord,
+    ApprovalState,
     CausalLinks,
+    RuntimeApprovalAck,
     Workflow,
+    WorkflowApprovalView,
     WorkflowRun,
+    WorkflowRunReplayDecision,
+    WorkflowRunReplayReport,
+    WorkflowRuntimeApproval,
     WorkflowService,
     WorkflowVersion,
 )
@@ -25,6 +39,65 @@ from ..waiters import wait_for
 from ._base import Resource
 
 _List = list
+
+
+def _decode_approval_view(payload: Any) -> WorkflowApprovalView:
+    """Decode the nested approval view without making the wire tree untyped."""
+    data = payload if isinstance(payload, dict) else {}
+    view = decode(
+        WorkflowApprovalView,
+        {
+            key: value
+            for key, value in data.items()
+            if key not in {"approval", "binding", "proposal", "policy", "quorum", "state", "caller"}
+        },
+    )
+    view.approval = decode(ApprovalRecord, data.get("approval"))
+    binding = data.get("binding")
+    view.binding = decode(ApprovalBinding, binding) if isinstance(binding, dict) else None
+    proposal = data.get("proposal")
+    if isinstance(proposal, dict):
+        proposal_value = decode(ApprovalProposal, proposal)
+        proposal_value.args_fields = [
+            decode(ApprovalArgumentField, item)
+            for item in proposal.get("args_fields", [])
+            if isinstance(item, dict)
+        ]
+        view.proposal = proposal_value
+    else:
+        view.proposal = None
+    view.policy = decode(ApprovalPolicy, data.get("policy"))
+    view.quorum = decode(ApprovalQuorum, data.get("quorum"))
+    view.state = decode(ApprovalState, data.get("state"))
+    caller = data.get("caller")
+    if isinstance(caller, dict):
+        view.caller = decode(ApprovalCaller, caller)
+        view.caller.approve = decode(ApprovalAbility, caller.get("approve"))
+        view.caller.reject = decode(ApprovalAbility, caller.get("reject"))
+    else:
+        view.caller = ApprovalCaller()
+    return view
+
+
+def _decode_replay_report(payload: Any) -> WorkflowRunReplayReport:
+    data = payload if isinstance(payload, dict) else {}
+    report = decode(
+        WorkflowRunReplayReport,
+        {key: value for key, value in data.items() if key != "decisions"},
+    )
+    report.decisions = [
+        decode(WorkflowRunReplayDecision, item)
+        for item in data.get("decisions", [])
+        if isinstance(item, dict)
+    ]
+    return report
+
+
+def _decode_decision_response(payload: Any) -> WorkflowRun | RuntimeApprovalAck:
+    data = payload if isinstance(payload, dict) else {}
+    if "required_approvals" in data or "remaining_approvals" in data:
+        return decode(RuntimeApprovalAck, data)
+    return decode(WorkflowRun, data)
 
 
 class WorkflowRunFailed(CaliberError):
@@ -292,7 +365,9 @@ class WorkflowRunsAPI(Resource):
         from the start."""
         return self._post(f"/workflow-runs/{run_id}/retry", json=payload)
 
-    def replay(self, run_id: str, *, observation_ids: _List[str] | None = None) -> Any:
+    def replay(
+        self, run_id: str, *, observation_ids: _List[str] | None = None
+    ) -> WorkflowRunReplayReport:
         """Replay a run from its recorded observations without live execution.
 
         Historical replay is bounded and read-only on the server. When
@@ -303,7 +378,7 @@ class WorkflowRunsAPI(Resource):
         payload: dict[str, Any] = (
             {} if observation_ids is None else {"observation_ids": observation_ids}
         )
-        return self._post(f"/workflow-runs/{run_id}/replay", json=payload)
+        return _decode_replay_report(self._post(f"/workflow-runs/{run_id}/replay", json=payload))
 
     def events(self, run_id: str, **params: Any) -> Any:
         """The run's event tail. ``params`` may carry ``after``/``limit``
@@ -365,12 +440,12 @@ class WorkflowRunsAPI(Resource):
         ``params`` may carry ``after``/``limit``."""
         return self._get(f"/workflow-runs/{run_id}/checkpoints", params=params or None)
 
-    def approvals(self, run_id: str) -> Any:
+    def approvals(self, run_id: str) -> _List[WorkflowRuntimeApproval]:
         """Human Approval checkpoints this run has raised, pending or
         decided."""
-        return self._get(f"/workflow-runs/{run_id}/approvals")
+        return decode_list(WorkflowRuntimeApproval, self._get(f"/workflow-runs/{run_id}/approvals"))
 
-    def approval(self, run_id: str, approval_id: str) -> Any:
+    def approval(self, run_id: str, approval_id: str) -> WorkflowApprovalView:
         """The approver's view of one approval request: what is being decided and what the
         caller may do (B06.5). Read-only. For a request bound to an effect proposal it carries
         the pins (``intent_hash``, evidence and policy digests, expiry, requester), the effect's
@@ -379,16 +454,102 @@ class WorkflowRunsAPI(Resource):
         principal may ``approve`` or ``reject`` now and why not. A run you cannot read, an
         approval of another run and an unknown id are the same
         :class:`~caliber_sdk.CaliberNotFoundError`."""
-        return self._get(f"/workflow-runs/{run_id}/approvals/{approval_id}")
+        return _decode_approval_view(self._get(f"/workflow-runs/{run_id}/approvals/{approval_id}"))
 
-    def approve(self, run_id: str, **payload: Any) -> Any:
+    def approval_proposal(self, run_id: str, approval_id: str) -> ApprovalProposal | None:
+        """Return the proposal shown by a run-scoped approval view.
+
+        The server has no standalone proposal route.  This helper follows the
+        existing approval view and returns its nested proposal, so callers do
+        not have to reconstruct a parallel ``ProposalsAPI`` abstraction.
+        ``None`` is an honest result for a legacy node-level approval or a
+        caller that is not allowed to see proposal details.
+        """
+        return self.approval(run_id, approval_id).proposal
+
+    def decide(
+        self,
+        run_id: str,
+        *,
+        runtime_approval_id: str,
+        decision: Literal["approve", "reject"],
+        reason: str | None = None,
+    ) -> WorkflowRun | RuntimeApprovalAck:
+        """Record an explicit decision on a proposal-bound run approval.
+
+        ``run_id`` and ``runtime_approval_id`` are both required because the
+        server scopes an approval to its run.  Only the two server routes are
+        supported; ``request_changes`` is approval metadata, not a decision
+        endpoint.  The server may return a partial-quorum acknowledgement for
+        ``approve`` or the typed run after a terminal decision.
+        """
+        if not runtime_approval_id.strip():
+            raise ValueError("runtime_approval_id must not be empty")
+        path_action = {"approve": "approve", "reject": "reject"}.get(decision)
+        if path_action is None:  # defensive runtime validation for non-typed callers
+            raise ValueError("decision must be 'approve' or 'reject'")
+        body: dict[str, Any] = {"runtime_approval_id": runtime_approval_id}
+        if reason is not None:
+            body["reason"] = reason
+        return _decode_decision_response(
+            self._post(f"/workflow-runs/{run_id}/approval/{path_action}", json=body)
+        )
+
+    def approve(
+        self,
+        run_id: str,
+        *,
+        runtime_approval_id: str | None = None,
+        reason: str | None = None,
+        **legacy_payload: Any,
+    ) -> WorkflowRun | RuntimeApprovalAck:
         """Approve a pending Human Approval checkpoint. The run does not
-        resume automatically -- call :meth:`resume` after."""
-        return self._post(f"/workflow-runs/{run_id}/approval/approve", json=payload)
+        resume automatically -- call :meth:`resume` after.
 
-    def reject(self, run_id: str, **payload: Any) -> Any:
-        """Reject a pending Human Approval checkpoint."""
-        return self._post(f"/workflow-runs/{run_id}/approval/reject", json=payload)
+        Proposal-bound callers should pass ``runtime_approval_id``.  The
+        optional payload is retained for older node-level approval examples;
+        :meth:`decide` is the strict exact-intent contract.
+        """
+        if runtime_approval_id is None:
+            body = dict(legacy_payload)
+            if reason is not None:
+                body["reason"] = reason
+            return _decode_decision_response(
+                self._post(f"/workflow-runs/{run_id}/approval/approve", json=body)
+            )
+        return self.decide(
+            run_id,
+            runtime_approval_id=runtime_approval_id,
+            decision="approve",
+            reason=reason,
+        )
+
+    def reject(
+        self,
+        run_id: str,
+        *,
+        runtime_approval_id: str | None = None,
+        reason: str | None = None,
+        **legacy_payload: Any,
+    ) -> WorkflowRun | RuntimeApprovalAck:
+        """Reject a pending Human Approval checkpoint.
+
+        See :meth:`approve` for the compatibility behavior of the optional
+        legacy payload; proposal-bound callers should use the explicit id.
+        """
+        if runtime_approval_id is None:
+            body = dict(legacy_payload)
+            if reason is not None:
+                body["reason"] = reason
+            return _decode_decision_response(
+                self._post(f"/workflow-runs/{run_id}/approval/reject", json=body)
+            )
+        return self.decide(
+            run_id,
+            runtime_approval_id=runtime_approval_id,
+            decision="reject",
+            reason=reason,
+        )
 
     def withdraw_approval(self, run_id: str, approval_id: str, **payload: Any) -> Any:
         """Withdraw an approved approval request that dispatch has not consumed yet.

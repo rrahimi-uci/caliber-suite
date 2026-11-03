@@ -45,6 +45,20 @@ examples.
 
 ## Offline replay recovery check
 
+For the installed Beta governed evidence-review journey, the run-scoped SDK
+and CLI calls are `submit` -> `approvals`/`approval` -> `decide` -> `resume`
+-> `evidence` -> `replay`. The proposal is nested in the approval view; the
+server has no standalone proposal resource. The maintained installed example
+is `examples/cookbooks/cookbook_22_governed_evidence_review.py` and the
+operator replay command is:
+
+```bash
+caliberctl workflow run replay RUN_ID
+```
+
+The command preserves the server's `matches_original` field and fails when it
+is false. It never treats `request_changes` metadata as an executable route.
+
 For a run that already has a B09.3 observation set and an immutable admission
 manifest, an operator can perform the bounded B09.4 comparison with the same
 project-scoped credentials. This route is deliberately a raw HTTP example:

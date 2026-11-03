@@ -74,6 +74,36 @@ if job.awaits_human:
     caliber.jobs.apply(job.job_id)     # the decision, made explicitly
 ```
 
+## Governed workflow runs: proposals, approvals, evidence and replay
+
+The Beta governed-effect path is one run-scoped API surface. A proposal is
+read from the `WorkflowApprovalView` returned by
+`client.workflows.runs.approval(run_id, runtime_approval_id)` or from the
+typed `CausalEffect` entries in `causal_links`; there is no standalone
+`ProposalsAPI`. Approval decisions name both the run and its
+`runtime_approval_id`:
+
+```python
+view = caliber.workflows.runs.approval(run_id, runtime_approval_id)
+proposal = view.proposal
+decision = caliber.workflows.runs.decide(
+    run_id,
+    runtime_approval_id=runtime_approval_id,
+    decision="approve",  # or "reject"
+    reason="the exact proposal matches the review request",
+)
+caliber.workflows.runs.resume(run_id)
+archive = caliber.workflows.runs.evidence(run_id)
+replay = caliber.workflows.runs.replay(run_id)
+assert replay.matches_original
+```
+
+`request_changes` may appear in the server's `allowed_responses` metadata,
+but it is not a runtime decision route and the SDK does not invent one.
+Evidence remains raw archive bytes for server-free verification. Replay is
+bounded and non-mutating; its authoritative result is
+`matches_original`, not a renamed `matched` status.
+
 ## Workspace release governance
 
 > **Disabled by default.** Workspace releases are off by default; enable with

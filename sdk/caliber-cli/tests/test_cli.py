@@ -159,6 +159,44 @@ def test_a_run_still_in_progress_exits_timeout_rather_than_failure(stub: Any) ->
     assert run(["workflow", "status", "RUN-1"]) == exits.TIMEOUT
 
 
+def test_run_replay_returns_success_only_for_matches_original(stub: Any) -> None:
+    run = stub(
+        {
+            "POST /workflow-runs/RUN-1/replay": {
+                "schema_version": "v1",
+                "workflow_run_id": "RUN-1",
+                "manifest_id": "MF-1",
+                "manifest_digest": "d" * 64,
+                "observation_count": 1,
+                "observation_ids": ["OBS-1"],
+                "criteria_version": "harborlight-v1",
+                "decisions": [],
+                "matches_original": True,
+            }
+        }
+    )
+    assert run(["workflow", "run", "replay", "RUN-1"]) == exits.OK
+
+
+def test_run_replay_reports_a_changed_result_as_failure(stub: Any) -> None:
+    run = stub(
+        {
+            "POST /workflow-runs/RUN-1/replay": {
+                "schema_version": "v1",
+                "workflow_run_id": "RUN-1",
+                "manifest_id": "MF-1",
+                "manifest_digest": "d" * 64,
+                "observation_count": 1,
+                "observation_ids": ["OBS-1"],
+                "criteria_version": "harborlight-v1",
+                "decisions": [],
+                "matches_original": False,
+            }
+        }
+    )
+    assert run(["workflow", "run", "replay", "RUN-1"]) == exits.FAILURE
+
+
 def test_an_api_failure_exits_failure_and_prints_the_servers_detail(
     stub: Any, capsys: pytest.CaptureFixture[str]
 ) -> None:
