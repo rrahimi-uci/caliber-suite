@@ -44,6 +44,11 @@ window.DOCS_DATA = {
           "href": "m-63-alpha-feature-coverage-matrix.html",
           "label": "Alpha feature coverage matrix",
           "newtab": false
+        },
+        {
+          "href": "m-68-beta-feature-coverage-matrix.html",
+          "label": "Beta feature coverage matrix",
+          "newtab": false
         }
       ]
     },
@@ -216,6 +221,11 @@ window.DOCS_DATA = {
         {
           "href": "m-65-recovery-runbook.html",
           "label": "Reference profile recovery runbook",
+          "newtab": false
+        },
+        {
+          "href": "m-67-beta-intervention-guide.html",
+          "label": "Beta intervention guide",
           "newtab": false
         },
         {
@@ -1302,6 +1312,36 @@ window.DOCS_DATA = {
       "nav_hidden": false
     },
     {
+      "href": "m-67-beta-intervention-guide.html",
+      "label": "Beta intervention guide",
+      "section": "Operate CALIBER",
+      "section_id": "operate",
+      "summary": "Operator steps for a governed Beta run: inspect the exact proposal, reject stale intent, approve as a distinct person, resume, export evidence, and replay without another mutation.",
+      "audience": [
+        "operator",
+        "developer",
+        "evaluator"
+      ],
+      "doc_type": "runbook",
+      "prerequisites": [
+        "A reference-profile deployment with PostgreSQL and the background owner loop",
+        "An operator token scoped to the project containing the run",
+        "The Beta scope and reference-profile pages"
+      ],
+      "stability": "beta",
+      "reviewed_on": "2026-11-03",
+      "version_applicability": "current main branch docs contract",
+      "tags": [
+        "beta",
+        "intervention",
+        "approvals",
+        "evidence",
+        "recovery"
+      ],
+      "newtab": false,
+      "nav_hidden": false
+    },
+    {
       "href": "m-62-releasing.html",
       "label": "Releasing",
       "section": "Operate CALIBER",
@@ -1349,6 +1389,37 @@ window.DOCS_DATA = {
         "alpha",
         "coverage",
         "cookbooks"
+      ],
+      "newtab": false,
+      "nav_hidden": false
+    },
+    {
+      "href": "m-68-beta-feature-coverage-matrix.html",
+      "label": "Beta feature coverage matrix",
+      "section": "Start here",
+      "section_id": "start",
+      "summary": "Traceable Beta coverage for the governed vertical slice, its refusal boundaries, installed artifacts and known gaps.",
+      "audience": [
+        "decision-maker",
+        "developer",
+        "operator",
+        "evaluator"
+      ],
+      "doc_type": "reference",
+      "prerequisites": [
+        "docs/start/beta-scope.md",
+        "docs/operate/reference-profile.md",
+        "docs/operate/intervention-guide.md",
+        "docs/planning/BETA_MVP_EXECUTION_PLAN.md"
+      ],
+      "stability": "beta",
+      "reviewed_on": "2026-11-03",
+      "version_applicability": "current main branch docs contract",
+      "tags": [
+        "beta",
+        "coverage",
+        "evidence",
+        "release"
       ],
       "newtab": false,
       "nav_hidden": false

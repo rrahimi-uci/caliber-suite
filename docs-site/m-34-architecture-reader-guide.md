@@ -59,3 +59,19 @@ Start with:
 - [Observability](m-09-observability.md)
 - [Operations runbook](m-19-runbook.md)
 - [Local bring-up](m-32-local-bring-up.md)
+
+## 6. For the Beta control spine
+
+The Beta release boundary is a single governed vertical slice, not a claim that every connector or autonomy mode is
+supported. Read these pages together:
+
+- [Beta scope](m-66-beta-scope.md) for supported, preview and refused surfaces, evidence tiers and non-claims.
+- [Beta feature coverage matrix](m-68-beta-feature-coverage-matrix.md) for implementation, scenario, installed
+  artifact and external-gate traceability.
+- [Beta intervention guide](m-67-beta-intervention-guide.md) for the UI, HTTP, SDK and CLI steps from a waiting approval
+  through evidence export and read-only replay.
+
+The control path is: server-derived project/run admission → exact-intent proposal → distinct human decision → operator
+resume → one verified downstream effect → acceptance and causal links → scope-bound evidence export →
+`matches_original` replay. The public SDK follows the existing run-scoped routes; it does not create parallel
+`ProposalsAPI` or `ApprovalsAPI` resources. Protected paths without an authoritative verifier refuse closed.
