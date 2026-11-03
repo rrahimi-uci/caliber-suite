@@ -2103,6 +2103,7 @@ class CaliberWorkflowRun(Base):
         Index("ix_workflow_runs_queue_claim", "status", "priority", "queued_at"),
         Index("ix_workflow_runs_lease", "status", "lease_expires_at"),
         Index("ix_workflow_runs_project", "project_id"),
+        Index("ix_workflow_runs_counterfactual_source", "source_run_id"),
         Index(
             "ix_workflow_runs_idempotency",
             "workflow_id",
@@ -2142,6 +2143,21 @@ class CaliberWorkflowRun(Base):
     last_heartbeat_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     attempt_number: Mapped[int] = mapped_column(Integer, default=1)
     parent_run_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    # A counterfactual is a separately authorized run, not a retry.  Keep its
+    # source link distinct from ``parent_run_id`` so retry lineage consumers do
+    # not accidentally treat an evaluation as a resumable execution.
+    source_run_id: Mapped[str | None] = mapped_column(
+        String(64),
+        ForeignKey(
+            "caliber_workflow_runs.workflow_run_id",
+            name="fk_workflow_runs_counterfactual_source",
+        ),
+        nullable=True,
+    )
+    # Immutable fork admission metadata: changed pins, adapter identity and
+    # the independent budget/protected-write policy.  The runner owns the
+    # write; readers must treat it as a contract, not as executable input.
+    counterfactual_spec: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
     cancel_requested_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     cancel_requested_by: Mapped[str | None] = mapped_column(String(256), nullable=True)
     cancel_reason: Mapped[str | None] = mapped_column(Text, nullable=True)

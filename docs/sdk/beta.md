@@ -259,6 +259,16 @@ over-bound evidence refuses with a stable `409` detail such as
 `observation_integrity: an observation failed its storage integrity check`; malformed request syntax is `400`. Treat
 these as recovery signals to restore/select the exact B09.3 evidence, never as permission to retry a live workflow.
 
+### Counterfactual forks (B09.5)
+
+Counterfactual evaluation is intentionally not exposed as a typed SDK or HTTP route in this slice. The controlled service
+entry point is `caliber.replay.runner.fork_counterfactual`, which requires an explicit authorization principal, a separate
+source-evidence principal, changed admission pins and an independent bounded budget. Its default
+`ScriptedCandidateAdapter` is deterministic and offline; live adapters require explicit live-evaluation authorization.
+The call creates a new run identity linked by `source_run_id`, stores candidate observations in the configured
+`StorageBackend`, and disables protected writes. Missing source evidence, unchanged/unsupported pins, over-bound budgets,
+malformed adapters and unauthorized live adapters are stable refusals; none falls back to a live workflow execution.
+
 ## Cookbooks
 
 > **Disabled by default.** Cookbooks are a preview area and are off by default; enable with

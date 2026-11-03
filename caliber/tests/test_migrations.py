@@ -50,7 +50,6 @@ from caliber.db.models import (
     CaliberRefinementJob,
     CaliberStepTokenReservation,
     CaliberWorkflow,
-    CaliberWorkflowRun,
 )
 from tests.dialect_helpers import DIALECTS, dialect_database_url
 
@@ -418,15 +417,20 @@ def _seed_run_0133(engine: sa.engine.Engine) -> None:
             [
                 CaliberProject(project_id="PRJ-0133", name="P", owner="@t"),
                 CaliberWorkflow(workflow_id="wf-0133", project_id="PRJ-0133", name="W", owner="@t"),
-                CaliberWorkflowRun(
-                    workflow_run_id="RUN-0133",
-                    workflow_id="wf-0133",
-                    project_id="PRJ-0133",
-                    status="running",
-                ),
             ]
         )
         session.commit()
+    # This helper seeds a database at migration 0132/0134, before the current
+    # ORM model's B09.5 columns exist. Keep the historical fixture independent
+    # of columns introduced after the revision under test.
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                "INSERT INTO caliber_workflow_runs "
+                "(workflow_run_id, workflow_id, project_id, tenant_id, status, source, attempt_number) "
+                "VALUES ('RUN-0133', 'wf-0133', 'PRJ-0133', 'local', 'running', 'manual', 1)"
+            )
+        )
 
 
 @pytest.mark.slow
@@ -706,6 +710,46 @@ def test_0135_downgrade_drops_the_table_and_its_function_and_upgrade_runs_again(
                     ).scalar_one()
                     == 0
                 )
+        finally:
+            engine.dispose()
+            os.environ.pop("CALIBER_DATABASE_URL", None)
+
+
+@pytest.mark.slow
+@pytest.mark.parametrize("dialect", DIALECTS)
+def test_0137_adds_counterfactual_fork_fields_and_reverses(
+    dialect: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """B09.5: source linkage/spec storage is additive, indexed, self-referencing, and reversible."""
+    with dialect_database_url(dialect, tmp_path, "counterfactual_forks") as db_url:
+        monkeypatch.setenv("CALIBER_DATABASE_URL", db_url)
+        monkeypatch.chdir(PROJECT_ROOT)
+        cfg = Config(str(ALEMBIC_INI))
+        command.upgrade(cfg, "0136")
+        engine = create_engine(db_url)
+        try:
+            command.upgrade(cfg, "0137")
+            inspector = inspect(engine)
+            columns = {column["name"] for column in inspector.get_columns("caliber_workflow_runs")}
+            assert {"source_run_id", "counterfactual_spec"}.issubset(columns)
+            assert any(
+                index["name"] == "ix_workflow_runs_counterfactual_source"
+                and index["column_names"] == ["source_run_id"]
+                for index in inspector.get_indexes("caliber_workflow_runs")
+            )
+            assert any(
+                foreign_key["name"] == "fk_workflow_runs_counterfactual_source"
+                and foreign_key["constrained_columns"] == ["source_run_id"]
+                and foreign_key["referred_table"] == "caliber_workflow_runs"
+                for foreign_key in inspector.get_foreign_keys("caliber_workflow_runs")
+            )
+
+            command.downgrade(cfg, "0136")
+            columns = {
+                column["name"] for column in inspect(engine).get_columns("caliber_workflow_runs")
+            }
+            assert "source_run_id" not in columns
+            assert "counterfactual_spec" not in columns
         finally:
             engine.dispose()
             os.environ.pop("CALIBER_DATABASE_URL", None)

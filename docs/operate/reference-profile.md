@@ -990,6 +990,50 @@ over-bound observations, missing/tampered pins, and an un-replayable decision se
 starts a new run or invokes a live dependency. This is a bounded comparison surface, not the B14 evidence package and
 not a second storage contract: replay consumes B09.3 rows and the existing run-manifest and acceptance contracts only.
 
+**Isolated counterfactual fork (B09.5, #812).** A counterfactual is a new, separately authorized run, never a mutation or retry
+of the historical source. The service-level entry point is
+`caliber.replay.runner.fork_counterfactual(session, backend, ...)`; it reads the source's verified observations and governed
+proposals, then writes only the new run's manifest, `counterfactual_spec`, candidate observations and acceptance decisions.
+The new `caliber_workflow_runs.source_run_id` is deliberately separate from `parent_run_id`, which remains retry lineage.
+
+The required call supplies a non-empty `changed_pins` object and an independent budget. The default
+`ScriptedCandidateAdapter` is deterministic and provider-free; a live adapter must declare
+`requires_live_authorization` and the caller must pass `authorize_live_evaluation=True`. The adapter receives only a copied,
+verified case record and immutable pins: it receives no SQL session, provider, dispatcher or protected-effect handle. Protected
+writes are recorded as `disabled` in the fork specification and no effect proposal or receipt is dispatched. The fork records
+one `read` observation per distinct candidate case in `StorageBackend` and decisions use `cf-` candidate ids, so source
+decisions and observation bytes remain untouched.
+
+```python
+from caliber.replay.runner import ScriptedCandidateAdapter, fork_counterfactual
+
+report = fork_counterfactual(
+    session,
+    storage_backend,
+    run=source_run,
+    project_id="project-a",
+    principal="operator_a",             # authorization actor
+    source_principal="editor_a",        # source evidence scope
+    changed_pins={"model_routes": ["fake/counterfactual"]},
+    candidate_adapter=ScriptedCandidateAdapter(
+        {"MORT-1": {"case_id": "MORT-1", "document_requests": []}}
+    ),
+)
+session.commit()  # the caller owns the transaction boundary
+```
+
+Refusals are stable and fail closed: `counterfactual_source_invalid` for an unscoped or incomplete source,
+`counterfactual_pins_invalid` for an empty/unchanged/unsupported pin set, `counterfactual_budget_exceeded` for either bound,
+`counterfactual_adapter_refused` for a malformed or failed adapter, and
+`counterfactual_authorization_required` for an unauthorized live adapter. Recovery is to correct the authority, pins, budget,
+or scripted fixture and submit a new fork; the source is never retried or rewritten.
+
+Migration `0137` adds the nullable `source_run_id` and `counterfactual_spec` columns plus a source index. It is readers-first:
+apply it before deploying a writer, and do not backfill existing runs. Rolling back drops only the new columns and index;
+counterfactual rows should be retained or explicitly removed under the deployment's evidence-retention policy before that
+rollback. No configuration default or public HTTP/SDK route is added by B09.5; a future public surface must preserve this
+authorization and storage contract rather than calling a provider directly.
+
 **What it never returns.** No prompt, argument, intent body, `resource` of a proposal, resource version, downstream request
 id, manifest or context body, `requested_by` / `decided_by` / `subject_user_id`, decision prose or policy purpose. The
 queries select only the columns above, and the response schema (`CausalLinksSchema`) forbids any other field, so a column
