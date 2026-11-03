@@ -118,6 +118,27 @@ def test_an_idempotency_key_is_passed_through() -> None:
     assert sent["idempotency_key"] == "abc"
 
 
+def test_historical_replay_posts_recorded_observation_selection() -> None:
+    """Replay is a bounded read-only report over a run's persisted evidence."""
+    import json as jsonlib
+
+    seen: dict[str, Any] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["path"] = request.url.path.rsplit("/caliber", 1)[-1]
+        seen["body"] = jsonlib.loads(request.content)
+        return envelope({"workflow_run_id": "WR-1", "status": "replayed"})
+
+    with client_with(handler) as caliber:
+        report = caliber.workflows.runs.replay("WR-1", observation_ids=["OBS-1"])
+
+    assert report == {"workflow_run_id": "WR-1", "status": "replayed"}
+    assert seen == {
+        "path": "/workflow-runs/WR-1/replay",
+        "body": {"observation_ids": ["OBS-1"]},
+    }
+
+
 def test_run_terminal_and_success_are_distinct() -> None:
     """A cancelled run is terminal but did not succeed."""
     assert decode(WorkflowRun, {"status": "succeeded"}).succeeded

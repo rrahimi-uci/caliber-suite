@@ -5646,6 +5646,27 @@ from the start.
 - [`CaliberAPIError`](#caliberapierror)
 - [`CaliberTransportError`](#calibertransporterror)
 
+###### `replay(run_id: str, *, observation_ids: list[str] | None = None) -> Any`
+
+Replay a run from its recorded observations without live execution.
+
+Historical replay is bounded and read-only on the server. When
+``observation_ids`` is omitted, the server replays all visible
+observations up to its configured bound; supplying ids narrows the
+report to a specific recorded subset.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `run_id` | positional-or-keyword | `str` | `—` |
+| `observation_ids` | keyword-only | `list[str] | None` | `None` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
 ###### `events(run_id: str, **params) -> Any`
 
 The run's event tail. ``params`` may carry ``after``/``limit``
