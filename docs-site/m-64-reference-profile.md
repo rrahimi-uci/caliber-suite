@@ -5807,6 +5807,26 @@ causal chain and the evidence package is B14 (#818, #826), which resolves the ca
 nullable `acceptance` field. Rolling back is reverting the code; the
 decision rows and the `acceptance` entries already written remain (the summary is a JSON column) and are ignored by older code.
 
+## Evidence package contract (B14.1, #818)
+
+`evidence_package` v1 is the strict contract for a later authorized assembler. It is not an endpoint or a backfill: B14.2 will select and
+join the persisted records, and the verifier will consume the package only after that work is complete. The package's `view.authorization`
+must be `authorized`; `view.redaction` records whether policy redaction was applied, so a caller cannot silently widen the evidence scope.
+
+The package contains the complete selected membership, each member's registered record kind, payload and metadata digests, parent ids,
+explicit `missing_links`, and evaluator provenance (including criteria, provider/simulation, input/result, and optional observation digests).
+Member ids are unique. A parent id must name another package member or an `expected_member_id` explicitly declared as missing. A member's
+`metadata_sha256` is the SHA-256 of its canonical metadata object; `package_sha256` is the SHA-256 of the canonical package manifest,
+including the authorized view, membership, parent links, missing-link declarations, and evaluator provenance, but excluding itself and
+optional `signatures`. Members and parent ids are normalized before hashing, so presentation order cannot change the package identity.
+
+**Refusal and recovery.** Unknown schema versions, unknown fields, unregistered member kinds, duplicate members, altered metadata, broken
+parent links, and a missing or mismatched package digest are refused as `evidence_package is invalid: ...`. Preserve the original control
+records, correct the assembler's selected view or explicit missing-link declaration, recompute the affected member/package digests, and
+revalidate before publishing a package. Do not infer a missing record, accept an altered linkage, or treat a signature as repairing a bad
+package digest. There is no migration or deployment setting in B14.1; rolling back the schema registration removes package validation but
+does not rewrite existing records.
+
 ## Not enforced yet
 
 ADR 0001 describes the whole reference shape; this table is what the *process* checks today. Not checked:

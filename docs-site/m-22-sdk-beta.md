@@ -255,6 +255,18 @@ The call creates a new run identity linked by `source_run_id`, stores candidate 
 `StorageBackend`, and disables protected writes. Missing source evidence, unchanged/unsupported pins, over-bound budgets,
 malformed adapters and unauthorized live adapters are stable refusals; none falls back to a live workflow execution.
 
+### Evidence packages (B14.1)
+
+The `evidence_package` v1 record is the contract-only foundation for authorized evidence assembly. It is not yet a typed SDK model or
+HTTP route. A later beta slice will assemble it from the server's authorized view; clients must not construct a broader view from individual
+run records. The record includes complete membership, parent links, explicit missing-link statuses, evaluator provenance, and a canonical
+`package_sha256` that covers the selected view and linkage but excludes the self-field and optional signatures. Member and parent ordering is
+normalized before hashing.
+
+Unknown versions or fields, unregistered members, altered metadata or linkage, and a mismatched digest are stable contract refusals. Recovery
+is to retain the original records, repair the authorized selection or explicit missing-link declaration, and revalidate; a signature does not
+make an invalid package valid. The schema-only slice adds no migration, setting, route, or deployment step.
+
 ## Cookbooks
 
 > **Disabled by default.** Cookbooks are a preview area and are off by default; enable with

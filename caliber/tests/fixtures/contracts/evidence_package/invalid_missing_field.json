@@ -1,0 +1,42 @@
+{
+  "schema_version": "v1",
+  "package_id": "ep-0001",
+  "workflow_run_id": "run-0001",
+  "tenant_id": "local",
+  "region": "local",
+  "project_id": "project-1",
+  "view": {
+    "authorization": "authorized",
+    "redaction": "redacted"
+  },
+  "members": [
+    {
+      "member_id": "mf-0001",
+      "kind": "run_manifest",
+      "payload_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "metadata_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "parent_ids": [],
+      "metadata": {}
+    }
+  ],
+  "missing_links": [],
+  "evaluator_provenance": [
+    {
+      "evaluator_id": "harborlight-v1",
+      "criteria_version": "harborlight-v1",
+      "provider": "caliber.acceptance",
+      "simulated": false,
+      "input_sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+      "result_sha256": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+      "evaluated_at": "2026-11-03T09:00:01Z"
+    }
+  ],
+  "signatures": [
+    {
+      "algorithm": "ed25519",
+      "key_id": "key-1",
+      "signature": "base64-signature"
+    }
+  ],
+  "created_at": "2026-11-03T09:00:02Z"
+}

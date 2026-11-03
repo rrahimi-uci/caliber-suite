@@ -1,0 +1,279 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://caliber.dev/schemas/evidence_package.v1.json",
+  "title": "EvidencePackage: a canonical, scope-authorized join of a run's control records",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "package_id",
+    "workflow_run_id",
+    "tenant_id",
+    "region",
+    "project_id",
+    "view",
+    "members",
+    "missing_links",
+    "evaluator_provenance",
+    "package_sha256",
+    "created_at"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "v1"
+    },
+    "package_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^(?=[\\s\\S]*[^\\s])[^\\x00-\\x1f\\x7f-\\x9f\\ud800-\\udfff]+\\Z"
+    },
+    "workflow_run_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64,
+      "pattern": "^(?=[\\s\\S]*[^\\s])[^\\x00-\\x1f\\x7f-\\x9f\\ud800-\\udfff]+\\Z"
+    },
+    "tenant_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^(?=[\\s\\S]*[^\\s])[^\\x00-\\x1f\\x7f-\\x9f\\ud800-\\udfff]+\\Z"
+    },
+    "region": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^(?=[\\s\\S]*[^\\s])[^\\x00-\\x1f\\x7f-\\x9f\\ud800-\\udfff]+\\Z"
+    },
+    "project_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^(?=[\\s\\S]*[^\\s])[^\\x00-\\x1f\\x7f-\\x9f\\ud800-\\udfff]+\\Z"
+    },
+    "view": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "authorization",
+        "redaction"
+      ],
+      "properties": {
+        "authorization": {
+          "const": "authorized",
+          "description": "The view is selected by the server after authorization; callers cannot request a wider view."
+        },
+        "redaction": {
+          "type": "string",
+          "enum": [
+            "none",
+            "redacted"
+          ],
+          "description": "Whether policy redaction was applied before payload digests and the package digest were computed."
+        }
+      }
+    },
+    "members": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "member_id",
+          "kind",
+          "payload_sha256",
+          "metadata_sha256",
+          "parent_ids",
+          "metadata"
+        ],
+        "properties": {
+          "member_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^(?=[\\s\\S]*[^\\s])[^\\x00-\\x1f\\x7f-\\x9f\\ud800-\\udfff]+\\Z"
+          },
+          "kind": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "pattern": "^[a-z][a-z0-9_]*\\Z",
+            "description": "The registered record kind, for example run_manifest, proposal, receipt, or acceptance_decision."
+          },
+          "payload_sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}\\Z",
+            "description": "SHA-256 of the selected authorized payload bytes, not an unredacted or caller-supplied payload."
+          },
+          "metadata_sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}\\Z",
+            "description": "SHA-256 of this member's canonical metadata object; parent_ids are covered by package_sha256."
+          },
+          "parent_ids": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "pattern": "^(?=[\\s\\S]*[^\\s])[^\\x00-\\x1f\\x7f-\\x9f\\ud800-\\udfff]+\\Z"
+            }
+          },
+          "metadata": {
+            "type": "object",
+            "description": "Canonical, non-payload metadata for this member. Its exact JSON bytes are covered by metadata_sha256 and package_sha256."
+          }
+        }
+      },
+      "description": "The complete membership of the package. Assemblers and verifiers sort members by member_id and parent_ids before hashing."
+    },
+    "missing_links": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "link",
+          "status",
+          "code"
+        ],
+        "properties": {
+          "link": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "pattern": "^[a-z][a-z0-9_]*\\Z"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "missing",
+              "unrecorded",
+              "pending",
+              "not_required"
+            ]
+          },
+          "code": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 96,
+            "pattern": "^[a-z][a-z0-9_.-]*\\Z"
+          },
+          "expected_member_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^(?=[\\s\\S]*[^\\s])[^\\x00-\\x1f\\x7f-\\x9f\\ud800-\\udfff]+\\Z"
+          }
+        }
+      },
+      "description": "Explicit absence or non-linkage; an assembler must not infer a healthy link from neighbouring records."
+    },
+    "evaluator_provenance": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "evaluator_id",
+          "criteria_version",
+          "provider",
+          "simulated",
+          "input_sha256",
+          "result_sha256",
+          "evaluated_at"
+        ],
+        "properties": {
+          "evaluator_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^(?=[\\s\\S]*[^\\s])[^\\x00-\\x1f\\x7f-\\x9f\\ud800-\\udfff]+\\Z"
+          },
+          "criteria_version": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^(?=[\\s\\S]*[^\\s])[^\\x00-\\x1f\\x7f-\\x9f\\ud800-\\udfff]+\\Z"
+          },
+          "provider": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^(?=[\\s\\S]*[^\\s])[^\\x00-\\x1f\\x7f-\\x9f\\ud800-\\udfff]+\\Z"
+          },
+          "simulated": {
+            "type": "boolean"
+          },
+          "input_sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}\\Z"
+          },
+          "result_sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}\\Z"
+          },
+          "evaluated_at": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^\\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\\d|3[01])T([01]\\d|2[0-3]):[0-5]\\d:([0-5]\\d|60)(\\.\\d+)?(Z|[+-]([01]\\d|2[0-3]):[0-5]\\d)\\Z"
+          },
+          "observation_sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}\\Z"
+          }
+        }
+      },
+      "description": "The evaluator inputs, criteria and provider/simulation provenance that produced the recorded result."
+    },
+    "package_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}\\Z",
+      "description": "SHA-256 of the canonical package manifest with package_sha256 and later signatures excluded."
+    },
+    "signatures": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "algorithm",
+          "key_id",
+          "signature"
+        ],
+        "properties": {
+          "algorithm": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "pattern": "^[a-z][a-z0-9_.-]*\\Z"
+          },
+          "key_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^(?=[\\s\\S]*[^\\s])[^\\x00-\\x1f\\x7f-\\x9f\\ud800-\\udfff]+\\Z"
+          },
+          "signature": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4096
+          }
+        }
+      },
+      "description": "Optional attestations are appended after package_sha256 and are never part of its digest input."
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^\\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\\d|3[01])T([01]\\d|2[0-3]):[0-5]\\d:([0-5]\\d|60)(\\.\\d+)?(Z|[+-]([01]\\d|2[0-3]):[0-5]\\d)\\Z"
+    }
+  }
+}
