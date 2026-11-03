@@ -57,13 +57,20 @@ def _seed_run(factory: Any, run_id: str = "RUN-ep") -> str:
             [
                 CaliberProject(project_id="PRJ-ep", name="Ep", owner="@test"),
                 CaliberWorkflow(workflow_id="wf-ep", project_id="PRJ-ep", name="Ep", owner="@test"),
-                CaliberWorkflowRun(
-                    workflow_run_id=run_id,
-                    workflow_id="wf-ep",
-                    project_id="PRJ-ep",
-                    status="running",
-                ),
             ]
+        )
+        session.commit()
+        # Some migration-parity tests intentionally stop before the current
+        # workflow-run schema.  Seed the stable historical columns directly
+        # so this shared fixture does not ask an older database to accept
+        # columns introduced by a later migration.
+        session.execute(
+            text(
+                "INSERT INTO caliber_workflow_runs "
+                "(workflow_run_id, workflow_id, project_id, tenant_id, status, source, attempt_number) "
+                "VALUES (:run_id, 'wf-ep', 'PRJ-ep', 'local', 'running', 'manual', 1)"
+            ),
+            {"run_id": run_id},
         )
         session.commit()
     return run_id
