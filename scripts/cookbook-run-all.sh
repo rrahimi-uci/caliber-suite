@@ -16,7 +16,7 @@
 #   scripts/cookbook-run-all.sh [--labs 01,02,...] [--tier simulated|standin]
 #                               [--api-only | --ui-only] [--keep] [--journey]
 #
-#   --labs LIST    comma list of lab numbers (default: 01-16, 18, 19 and 20). Always run in lab order.
+#   --labs LIST    comma list of lab numbers (default: 01-16, 18, 19, 20, 21 and 22). Always run in lab order.
 #   --tier T       simulated (default): the shipped simulated LLM and evaluator, which every lab
 #                  is written for. standin: labs 01 and 10 only, behind their scripted
 #                  OpenAI-compatible stand-in model servers (the other labs have no such tier).
@@ -61,7 +61,7 @@ ENVSH="$REPO_ROOT/scripts/cookbook-env.sh"
 COOKBOOKS="$REPO_ROOT/docs-site/cookbooks"
 RUN_ROOT="$REPO_ROOT/.tmp/cookbook-run-all"
 ENV_ROOT="$REPO_ROOT/.tmp/cookbook-env"
-ALL_LABS="01 02 03 04 05 06 07 08 09 10 11 12 13 14 15 16 18 19 20 21"
+ALL_LABS="01 02 03 04 05 06 07 08 09 10 11 12 13 14 15 16 18 19 20 21 22"
 JOURNEY_LABS="18 01 02 03 07 16"
 API_TIMEOUT="${COOKBOOK_RUN_ALL_API_TIMEOUT:-1800}"
 UI_TIMEOUT="${COOKBOOK_RUN_ALL_UI_TIMEOUT:-2400}"
@@ -300,6 +300,11 @@ lab_config() {
         LAB_UP_ENV=(CALIBER_OPERATOR_USERS=admin,lab21-reviewer)
         LAB_API_CWD="sdk/caliber-sdk"; LAB_API_ARGV=(-m examples.cookbooks.cookbook_21_workspace_source_to_release)
         LAB_UI="" ;;   # no UI exists for this surface in the alpha; the lab is API-first
+    22) LAB_TITLE="governed evidence review"; LAB_FLAGS="cookbooks"
+        LAB_UP_ENV=(CALIBER_PROFILE=reference CALIBER_OPERATOR_USERS=admin,lab22-approver
+                    CALIBER_APPROVER_USERS=admin,lab22-approver)
+        LAB_API_CWD="sdk/caliber-sdk"; LAB_API_ARGV=(-m examples.cookbooks.cookbook_22_governed_evidence_review)
+        LAB_UI="" ;;   # B15.3b supplies the browser journey; keep API registration independently selectable
     *) die "no configuration for lab $n" ;;
   esac
   LAB_STACK="ra-lab$n"; [[ $TIER == standin ]] && LAB_STACK="ra-lab${n}m"

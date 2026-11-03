@@ -111,10 +111,11 @@ from `caliber/caliber-ui`). The lab README holds the exact commands and the expe
 | 19 | `CALIBER_FEATURE_INTEGRATIONS` (plus `CALIBER_EGRESS_ALLOWED_HOSTS=127.0.0.1` and the lab's stand-in ticket API on port 8781) | an OpenAPI spec in two versions served by the lab's own Ticket API | No model anywhere. Import, preview and reimport are real outbound calls to a stand-in upstream; its own request log proves what a refusal stopped. |
 | 20 | none (needs `--real-llm`, routed at the lab's stand-in gateway on port 8791) | a flat-bill stand-in gateway and one metered workflow | The model is the stand-in gateway (a flat 1000 + 1000 tokens per call), so cost is exact; no real provider is called. |
 | 21 | `CALIBER_FEATURE_RELEASE_CANDIDATES` | none by design: the lab creates a prompt, a test set, revisions, a change request and a release live | No model. API/SDK only: this surface has no UI in the alpha, so the lab has no Playwright spec. |
+| 22 | reference profile; `CALIBER_OPERATOR_USERS` and `CALIBER_APPROVER_USERS` for the distinct approver | the provenance-pinned synthetic Harborlight case in `caliber/tests/fixtures/egi` | Scripted/local only. The package documents the V01, browser and installed SDK/CLI contracts; those dependent artifacts land in B15.2, B15.3b and B15.4. |
 
 ## Folder contract
 
-Every `cookbooks/<scenario>/` folder for scenarios 01–15 and 18–21 contains:
+Every `cookbooks/<scenario>/` folder for scenarios 01–15 and 18–22 contains:
 
 - `scenario.yaml`: goal, persona, prerequisites, demo profile
 - `README.md`: **executable recipe** — what the lab demonstrates, what is simulated,
@@ -130,7 +131,10 @@ Every `cookbooks/<scenario>/` folder for scenarios 01–15 and 18–21 contains:
 
 Scenarios 01 to 16 and 18 to 21 each have a runnable SDK example that drives the lab and asserts the outcomes
 (scenario 18's data files, `assets/dataset/team-roster.csv`, `role-matrix.csv` and `failure-scenarios.json`, are read and asserted by it).
-Every one of them except 21 also has a Playwright spec (21's surface has no UI in the alpha, so its `assets/` holds only a README: the lab creates everything live).
+Lab 22 is the documentation and registration package for the governed evidence-review path: it reuses the
+provenance-pinned fixture and existing D1 downstream, while B15.2 supplies the V01 scenario, B15.3b the
+Playwright journey and B15.4 the installed SDK/CLI artifacts. Labs 01–16 and 18–20 have Playwright specs;
+lab 21 is API-only in the alpha and lab 22's browser path is a dependent Beta artifact.
 Lab 17 is not a lab folder: it is the standalone script `sdk/caliber-sdk/examples/cookbooks/cookbook_17_financial_analysis.py`.
 
 Scenario 16 (`16-observability-triage`) is README-only: it has a `README.md`
@@ -161,6 +165,7 @@ Scenario 16 (`16-observability-triage`) is README-only: it has a `README.md`
 | 19 | `19-openapi-integration-governance-lab` | Governed OpenAPI Tool | Gate |
 | 20 | `20-llm-gateway-cost-guardrails-lab` | Metered LLM Gateway | Operate |
 | 21 | `21-workspace-source-to-release-lab` | Workspace Source-to-Release | Operate |
+| 22 | `22-governed-evidence-review-lab` | Governed Evidence Review | Govern |
 
 **Lab 17, the standalone script.** `sdk/caliber-sdk/examples/cookbooks/cookbook_17_financial_analysis.py` has no README, catalog entry or folder here. It uses only the SDK to
 create a workspace, put a CSV in an object-store bucket, run a prompt over it on a **real model**, and persist and release the result. It refuses to start on a simulated

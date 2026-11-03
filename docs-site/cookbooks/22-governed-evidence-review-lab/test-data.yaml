@@ -1,0 +1,32 @@
+fixture:
+  path: caliber/tests/fixtures/egi/case_000184.json
+  source_of_truth: caliber/tests/fixtures/egi/SOURCE.md
+  synthetic_only: true
+  forbidden_use: credit_decisions
+case:
+  id: MORT-2026-000184
+  version: 1
+  missing_document: pay_statement
+proposal:
+  connector: document-request
+  connector_version: "1"
+  effect_class: irreversible_write
+  resource: cases/MORT-2026-000184/document-requests
+  expected_resource_version: "1"
+  args:
+    document_type: pay_statement
+downstream_contract:
+  first_commit:
+    status: 201
+    mutation_count: 1
+  same_key_replay:
+    status: 200
+    mutation_count: 1
+  stale_if_match:
+    status: 412
+    mutation_count: 1
+negative_paths:
+  - editor_approval: 403
+  - project_b_read: 404
+  - unknown_run: 404
+  - missing_verifier: no_authoritative_verifier
