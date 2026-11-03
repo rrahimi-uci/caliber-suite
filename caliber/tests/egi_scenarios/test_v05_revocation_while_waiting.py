@@ -36,6 +36,17 @@ from tests.egi_scenarios.conftest import (
     ReferenceApp,
     Workspaces,
 )
+from tests.egi_scenarios.test_b05_governed_worker_wiring import (
+    Owner,
+    decide,
+    park,
+    proposals,
+    resume,
+    run_row,
+)
+from tests.egi_scenarios.test_b05_governed_worker_wiring import (
+    world as governed_world,  # noqa: F401
+)
 from tests.egi_scenarios.test_v04_stale_approval import (
     EVIDENCE,
     T0,
@@ -225,6 +236,40 @@ def test_revoked_run_grant_is_not_replaced_by_the_approver(
                 now=T0 + timedelta(minutes=3),
             )
         assert refused.value.code == "role_revoked"
+
+
+def test_public_resume_after_run_grant_revocation_has_zero_effect(
+    governed_world: tuple[ReferenceApp, Any],  # noqa: F811
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A resumed public run rechecks the current grant before dispatching its approved proposal."""
+    app, downstream = governed_world
+    owner = Owner(app)
+    owner.take()
+    run_id, request_id, worker = park(app, downstream, monkeypatch, owner)
+    assert decide(app, run_id, "approve", request_id).status_code == 200
+    with app.session_factory() as session:
+        grant = session.execute(
+            select(CaliberRunGrant).where(CaliberRunGrant.workflow_run_id == run_id)
+        ).scalar_one()
+        grants.revoke_grant(
+            session,
+            run_id=run_id,
+            grant_id=grant.grant_id,
+            by="owner",
+            reason="policy revoked while waiting",
+            now=T0 + timedelta(minutes=2),
+        )
+        session.commit()
+
+    assert resume(app, run_id).status_code == 202
+    worker._tick()
+
+    run = run_row(app, run_id)
+    assert run.status == "failed" and "grant_revoked" in str(run.error_summary)
+    assert downstream.mutations() == 0
+    (proposal,) = proposals(app)
+    assert proposal.dispatched_at is None and proposal.owner_id is None
 
 
 @pytest.mark.parametrize(

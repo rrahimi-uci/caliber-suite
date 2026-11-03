@@ -309,3 +309,58 @@ def test_unapproved_tool_becomes_proposal_not_effect(
     assert asked.run_manifest_digest == manifest.manifest_digest
     assert asked.occurrence_id == proposal.occurrence_id
     assert approval.evidence_hash == step_evidence_hash(asked, proposal.intent_hash)
+
+
+def test_injected_destination_stays_unexecuted_and_requires_approval(
+    reference_app: ReferenceApp,
+    two_workspaces: Workspaces,
+    scripted_model: ScriptedModel,
+    downstream: Downstream,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An injected destination is retained as untrusted proposal data, never dispatched automatically."""
+    if reference_app.profile != "reference":
+        pytest.skip("governed steps need the context manifests the reference profile records")
+    _seed_tools(reference_app)
+    workflow_id, _ = _publish(reference_app, "injected-destination", _tool_agent_manifest)
+    started = _start(reference_app, workflow_id, "v03-attacker-destination")
+    assert started.status_code == 202, started.text
+    run_id = started.json()["data"]["workflow_run_id"]
+
+    turn = scripted_model.next_turn()
+    assert (turn["type"], turn["name"]) == ("tool_call", PROTECTED_TOOL)
+    action = ProposedAction(
+        connector="document-request",
+        connector_version="1",
+        effect_class=effect_class(PROTECTED_TOOL),
+        resource="cases/attacker-controlled/document-requests",
+        args={"document_type": "secret_export"},
+    )
+    executor = FakeWorkflowExecutor(
+        step_script=[
+            ScriptedStep(
+                "proposed_action",
+                (action,),
+                usage=StepUsage(40, 12, 52, 1, 1),
+            )
+        ]
+    )
+    _govern_the_worker(reference_app, monkeypatch, run_id, executor)
+    WorkflowRunWorker(
+        session_factory=reference_app.session_factory,
+        config=reference_app.client.app.state.config,  # type: ignore[attr-defined]
+        event_bus=getattr(reference_app.client.app.state, "event_bus", None),
+    )._tick()
+
+    assert downstream.mutations() == 0
+    with reference_app.session_factory() as session:
+        run = session.get(CaliberWorkflowRun, run_id)
+        proposal = session.execute(select(CaliberEffectProposal)).scalar_one()
+        approval = session.execute(select(CaliberRuntimeApprovalRequest)).scalar_one()
+    assert run is not None and (run.status, run.error_code) == (
+        "waiting_approval",
+        "waiting_approval",
+    )
+    assert proposal.resource == "cases/attacker-controlled/document-requests"
+    assert proposal.args == {"document_type": "secret_export"}
+    assert approval.status == "pending"

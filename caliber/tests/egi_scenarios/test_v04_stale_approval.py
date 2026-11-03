@@ -298,6 +298,39 @@ def test_an_approved_but_unconsumed_approval_is_superseded_by_a_newer_request(
     assert _snapshot(app, run_id) == before
 
 
+def test_approved_destination_change_requires_a_new_decision(
+    approver: ReferenceApp,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Changing the destination after approval makes the old decision unusable."""
+    app = approver
+    run_id = _waiting_run(app)
+    _clock(monkeypatch, T0 + timedelta(minutes=1))
+    old_id, _ = _request(
+        app,
+        run_id,
+        "occ-destination-old",
+        resource="cases/original/document-requests",
+        args={"document_type": "pay_statement", "case_id": "original"},
+    )
+    approved = _decide(app, run_id, "approve", old_id)
+    assert approved.status_code == 200, approved.text
+
+    new_id, _ = _request(
+        app,
+        run_id,
+        "occ-destination-new",
+        now=T0 + timedelta(minutes=1),
+        resource="cases/attacker-controlled/document-requests",
+        args={"document_type": "secret_export", "case_id": "attacker-controlled"},
+    )
+    snapshot = _snapshot(app, run_id)
+    assert snapshot["requests"][old_id]["status"] == SUPERSEDED
+    assert snapshot["requests"][old_id]["superseded_by"] == new_id
+    _assert_refused(_decide(app, run_id, "approve", old_id), SUPERSEDED, old_id, new_id)
+    assert snapshot["requests"][new_id]["status"] == "pending"
+
+
 def test_superseded_is_reported_before_expired(
     approver: ReferenceApp, monkeypatch: pytest.MonkeyPatch
 ) -> None:

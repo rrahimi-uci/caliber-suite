@@ -13,6 +13,7 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
+from sqlalchemy import select
 
 import caliber.orchestrator.workflow_run_worker as worker_module
 import caliber.workflows.promoter as promoter_module
@@ -20,12 +21,15 @@ from caliber.context.sources import approve_source
 from caliber.db.models import (
     CaliberKnowledgeBase,
     CaliberKnowledgeBaseVersion,
+    CaliberRunGrant,
     CaliberSkill,
     CaliberToolRegistry,
     CaliberWorkflowRun,
 )
 from caliber.ids import new_tool_id
 from caliber.orchestrator.workflow_run_worker import WorkflowRunWorker
+from caliber.policy import grants
+from caliber.policy.decisions import REFERENCE_POLICY_V1, Policy, decide
 from caliber.workflows import deployment_bundle
 from caliber.workflows.builtin_tools import register_builtin_tools
 from caliber.workflows.ir import IRAgent, IRKnowledgeQuery
@@ -348,3 +352,35 @@ def test_alias_change_after_admission_is_ignored(
     ):  # the knowledge query has no backend here; what it would query is what is asserted
         assert run.status == "completed", (run.error_code, run.error_summary)
     _assert_unchanged(kind, captured.plans[-1])
+
+
+def test_policy_version_change_after_admission_denies_the_old_grant(
+    reference_app: ReferenceApp,
+    two_workspaces: Workspaces,
+) -> None:
+    """A policy mutation cannot silently reuse the grant issued under the old policy version."""
+    workflow_id, _, run_id = _admit(reference_app, "model_route", {})
+    changed = Policy(
+        version="policy-v2",
+        action_risk=REFERENCE_POLICY_V1.action_risk,
+        risk_ceiling=REFERENCE_POLICY_V1.risk_ceiling,
+    )
+    with reference_app.session_factory() as session:
+        row = session.execute(
+            select(CaliberRunGrant).where(CaliberRunGrant.workflow_run_id == run_id)
+        ).scalar_one()
+        grant = grants.load_grant(session, run_id=run_id, grant_id=row.grant_id)
+        decision = decide(
+            session,
+            run_id=run_id,
+            grant_id=grant.grant_id,
+            subject=grant.subject,
+            workload=grant.workload,
+            action="resource.execute",
+            resource=f"workflow:{workflow_id}",
+            purpose="workflow_run:api",
+            policy=changed,
+        )
+        session.commit()
+    assert decision.allowed is False
+    assert decision.reason_codes == ("policy_version_mismatch",)
