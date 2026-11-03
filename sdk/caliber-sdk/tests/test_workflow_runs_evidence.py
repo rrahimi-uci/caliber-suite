@@ -10,7 +10,7 @@ import json
 import stat
 import warnings
 import zipfile
-from typing import Any
+from typing import Any, cast
 
 import httpx
 import pytest
@@ -59,7 +59,7 @@ def _archive() -> bytes:
 
 def _manifest() -> dict[str, Any]:
     with zipfile.ZipFile(io.BytesIO(ARCHIVE)) as archive:
-        return json.loads(archive.read("manifest.json"))
+        return cast(dict[str, Any], json.loads(archive.read("manifest.json")))
 
 
 def _archive_for(
@@ -209,10 +209,9 @@ def test_verifier_rejects_tampered_payload_and_unsafe_member() -> None:
 def test_verifier_manifest_refusals(mutation: Any, code: str) -> None:
     manifest = _manifest()
     result = mutation(manifest)
-    if isinstance(result, list):
-        manifest = result
+    candidate: object = result if isinstance(result, list) else manifest
     with pytest.raises(EvidenceVerificationError) as error:
-        evidence_module._validate_manifest(manifest)
+        evidence_module._validate_manifest(candidate)
     assert error.value.code == code
 
 
