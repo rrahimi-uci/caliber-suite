@@ -5827,6 +5827,26 @@ revalidate before publishing a package. Do not infer a missing record, accept an
 package digest. There is no migration or deployment setting in B14.1; rolling back the schema registration removes package validation but
 does not rewrite existing records.
 
+## Authorized evidence-package assembly (B14.2, #826)
+
+`caliber.evidence.assemble(session, run_id=..., identity=...)` is the server-side, read-only producer for the v1 contract. It first
+authorizes the persisted run through the same project visibility boundary as run reads, then derives tenant, region, project, selected
+membership and the redaction marker from server state. The caller supplies neither a project nor a view selector. A projectless or
+otherwise unrepresentable run is refused explicitly; the assembler never invents a default project or broadens a legacy visibility scope.
+
+The returned package is a digest-only authorized projection. It joins only rows belonging to the requested run, records payload digests
+without copying intent, context, receipt or other payload bytes, and emits parent links for manifest, context, proposal, receipt, policy
+decision and approval records. Missing receipts, approvals, decisions, manifests and acceptance decisions remain explicit
+`missing_links` or `not_required`/`pending`/`unrecorded` entries. When no persisted acceptance decision exists, `evaluator_provenance` is
+empty rather than fabricated from unrelated run fields; the acceptance missing link is authoritative. If an acceptance decision exists,
+its stable criteria and observation digest are carried as the available provenance.
+
+The package digest is computed by the public contract canonicalizer shared with validation: every field except `package_sha256` and
+optional signatures is covered, member and parent ordering is normalized, and the complete record is validated before bytes are returned.
+This slice adds no HTTP export, storage retention, signature, verifier or SDK model; those consumers must use the same canonical manifest
+and must not read foreign payloads to fill an absent link. There is no migration or deployment setting for B14.2; rollback is reverting
+the assembler and its tests while leaving the already-registered contract unchanged.
+
 ## Not enforced yet
 
 ADR 0001 describes the whole reference shape; this table is what the *process* checks today. Not checked:

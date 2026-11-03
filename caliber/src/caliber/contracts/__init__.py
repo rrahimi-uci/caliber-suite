@@ -11,6 +11,7 @@ from caliber.contracts.registry import (
     ContractValidationError,
     UnknownContractKind,
     UnsupportedSchemaVersion,
+    evidence_package_digest,
     load_schema,
     validate_record,
 )
@@ -21,6 +22,7 @@ __all__ = [
     "ContractValidationError",
     "UnknownContractKind",
     "UnsupportedSchemaVersion",
+    "evidence_package_digest",
     "load_schema",
     "validate_record",
 ]

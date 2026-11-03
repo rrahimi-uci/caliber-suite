@@ -215,12 +215,12 @@ def _evidence_package_errors(record: dict[str, Any]) -> list[str]:
                 errors.append(
                     f"members/{index}/parent_ids/{parent_index}: does not name a package member"
                 )
-    if record["package_sha256"] != _evidence_package_digest(record):
+    if record["package_sha256"] != evidence_package_digest(record):
         errors.append("package_sha256: does not match the canonical package manifest")
     return errors
 
 
-def _evidence_package_digest(record: dict[str, Any]) -> str:
+def evidence_package_digest(record: dict[str, Any]) -> str:
     """Return the digest of the canonical authorized package view.
 
     ``members`` and each member's ``parent_ids`` are sets for package purposes,

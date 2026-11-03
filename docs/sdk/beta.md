@@ -281,6 +281,17 @@ Unknown versions or fields, unregistered members, altered metadata or linkage, a
 is to retain the original records, repair the authorized selection or explicit missing-link declaration, and revalidate; a signature does not
 make an invalid package valid. The schema-only slice adds no migration, setting, route, or deployment step.
 
+### Authorized evidence-package assembly (B14.2)
+
+The server-side `caliber.evidence.assemble` operation now produces an `evidence_package` v1 record for an authorized,
+project-scoped workflow run. It derives the project and view from persisted server state; callers cannot select a broader project or
+visibility tier. The result contains member and payload digests, safe lifecycle metadata, canonical parent links, and explicit missing-link
+statuses. It does not copy intent, context, receipt, or other payload bytes and it refuses projectless runs that v1 cannot represent.
+
+The package is validated with the same canonical digest helper used by the contract registry. No HTTP route, export endpoint, verifier,
+retention policy, or typed SDK model is added in this slice. When no acceptance decision is persisted, evaluator provenance is empty and
+the package records `acceptance_record_not_available`; consumers must not infer evaluator/provider data from unrelated run fields.
+
 ## Cookbooks
 
 > **Disabled by default.** Cookbooks are a preview area and are off by default; enable with
