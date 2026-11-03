@@ -108,6 +108,10 @@
 <h2 id="5-for-operations-and-recovery">5. For operations and recovery<a class="anchor" href="#5-for-operations-and-recovery" aria-hidden="true" tabindex="-1">#</a></h2>
 <p>Start with:</p>
 <ul><li><a href="m-09-observability.html">Observability</a></li><li><a href="m-19-runbook.html">Operations runbook</a></li><li><a href="m-32-local-bring-up.html">Local bring-up</a></li></ul>
+<h2 id="6-for-the-beta-control-spine">6. For the Beta control spine<a class="anchor" href="#6-for-the-beta-control-spine" aria-hidden="true" tabindex="-1">#</a></h2>
+<p>The Beta release boundary is a single governed vertical slice, not a claim that every connector or autonomy mode is supported. Read these pages together:</p>
+<ul><li><a href="m-66-beta-scope.html">Beta scope</a> for supported, preview and refused surfaces, evidence tiers and non-claims.</li><li><a href="m-68-beta-feature-coverage-matrix.html">Beta feature coverage matrix</a> for implementation, scenario, installed artifact and external-gate traceability.</li><li><a href="m-67-beta-intervention-guide.html">Beta intervention guide</a> for the UI, HTTP, SDK and CLI steps from a waiting approval through evidence export and read-only replay.</li></ul>
+<p>The control path is: server-derived project/run admission → exact-intent proposal → distinct human decision → operator resume → one verified downstream effect → acceptance and causal links → scope-bound evidence export → <code>matches_original</code> replay. The public SDK follows the existing run-scoped routes; it does not create parallel <code>ProposalsAPI</code> or <code>ApprovalsAPI</code> resources. Protected paths without an authoritative verifier refuse closed.</p>
         <footer>
           <p>
             CALIBER : Contextual Adaptive Lifecycle for Intelligent Build, Evaluation, and Refinement —

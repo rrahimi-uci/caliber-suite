@@ -23,8 +23,8 @@ tags:
 > **What this page is.** It says which parts of CALIBER the Beta work supports, which it does not, and which scenario
 > tests the support claim rests on. It describes `main`; it does not announce a release, and the Beta release gate
 > (#613) is a separate decision. The [alpha scope](alpha-scope.md) and [alpha install](alpha-install.md) pages stay
-> as the record of the `0.1.0a1` alpha and are not rewritten here. The consolidated Beta scope table (#877) will
-> extend this page; until it does, this page covers the supported profile and the adapter capabilities only.
+> as the record of the `0.1.0a1` alpha and are not rewritten here. The claims below separate deterministic synthetic
+> evidence from real-provider quality evidence and keep preview or unsupported surfaces explicit.
 
 ## What "supported" means here
 
@@ -84,6 +84,62 @@ the operator also sets:
 A deployment can therefore report `document_request_connector` as `supported` and still send nothing, because no tool is
 mapped or no connector is bound. Read the [worker's trusted inputs](../operate/reference-profile.md#the-worker-binds-the-governed-path-1051)
 before relying on it.
+
+## The Beta vertical slice
+
+The Beta claim is deliberately narrow: an admitted run may propose one protected synthetic document request; a person
+decides the exact proposal; the operator resumes the run; the dispatcher commits at most one downstream mutation; the
+platform reads the result back, records acceptance, exports scope-bound evidence and replays that evidence without a
+live provider or another write. The maintained proof is V01 in
+[`caliber/tests/egi_scenarios/test_v01_governed_effect.py`](../../caliber/tests/egi_scenarios/test_v01_governed_effect.py)
+and the installed identity of the journey is Cookbook 22.
+
+The surfaces are the same contract, viewed by different callers:
+
+| Surface | Beta path | Evidence boundary |
+| --- | --- | --- |
+| HTTP/API | `POST /workflow-runs`, run-scoped approval reads and `/workflow-runs/{run_id}/approval/{approve,reject}`, `resume`, `evidence`, and `replay` | Run and project scope are derived by the server; a caller cannot supply a broader evidence view. |
+| Python SDK | `WorkflowRunsAPI.approvals()`, `approval()`, `decide()`, `resume()`, `evidence()`, and `replay()` | The proposal is nested in `WorkflowApprovalView`; replay exposes the server's `matches_original` field. |
+| CLI | `caliberctl workflow run replay RUN_ID` | The command is read-only and exits nonzero when `matches_original` is false. |
+| UI | Cookbook installation, run/approval surfaces and the corresponding browser journey | UI coverage must use the installed Cookbook 22 artifact; it must not seed a parallel manifest or downstream. |
+
+There is no standalone `ProposalsAPI` or `ApprovalsAPI` on the current server. `request_changes` may be present in an
+approval view's `allowed_responses` metadata, but it is not a decision route. Documentation, SDK examples and browser
+tests must not invent either surface.
+
+## Evidence tiers and non-claims
+
+| Tier | What it establishes | What it does not establish |
+| --- | --- | --- |
+| Deterministic synthetic | Control flow, refusal semantics, project isolation, idempotency, receipt linkage, acceptance and offline replay for the Harborlight fixture | Customer credit quality, provider quality, availability, or general-purpose connector support |
+| Bounded real-provider | Quality measurements on a domain-approved held-out corpus, with provider/version, threshold, cost cap and abort rule recorded | A replacement for the governed-effect safety proof or an authorization to broaden scope |
+| Independent review | A reviewer not involved in implementation examines the Beta boundary, injection/refusal behavior and evidence integrity | A fact that can be substituted by CI, self-review, or an agent's own test run |
+
+The repository's ordinary CI is deterministic and offline. A passing synthetic scenario is required engineering evidence,
+but it is not a real-provider result and does not close the independent-review or staffing dependencies in #608 and #851.
+The release decision remains #613; until its required evidence and review are recorded, this page is a scope contract,
+not a release announcement.
+
+## Supported, preview and unsupported behavior
+
+Supported in the reference profile means the exact V01 control path is exercised and the required refusal and identity
+checks remain green. Preview means an API or UI surface may exist but the Beta support evidence does not cover it.
+Unsupported means the reference profile refuses it before an effect is claimed. In particular:
+
+- `document_request` is the supported protected connector for the synthetic vertical slice when its tool and project
+  binding are configured.
+- Listed HTTP verifiers may settle their own bounded connector path; this does not promote generic HTTP to a supported
+  Beta adapter.
+- Protected registered-tool, OpenAPI and MCP effects without an authoritative verifier refuse closed with
+  `no_authoritative_verifier`. Read-class operations remain subject to their own read policy.
+- Runnable exports, ungoverned Python/host-file effects, unlisted plugins, unconfined file roots and MCP entries in the
+  reference profile remain refused. A workflow that cannot provide an execution-owner lease and governed context does
+  not silently fall back to an unreviewed write.
+
+The [reference profile](../operate/reference-profile.md), [intervention guide](../operate/intervention-guide.md), and
+[Beta feature coverage matrix](../reports/beta-feature-coverage-matrix.md) are the operational, recovery and traceability
+companions to this scope page. This consolidated scope package is the deliverable tracked by **#877** and remains
+subject to the release decision in **#613**.
 
 ## The support matrix
 
