@@ -1,70 +1,188 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Browser, type Page } from "@playwright/test";
 
+import { expectRunStatus } from "../../helpers";
 import { CaliberUi, uiOnlySlug } from "../ui-only-driver";
 
 /**
  * Cookbook 22, "Run it through the UI": the governed evidence-review journey.
  *
- * This is intentionally a blocked acceptance scaffold on the current main baseline. The
- * dependency named by issue #869, #863 (the Lab 22 package), is not merged, and #857 (the V01
- * governed-effect scenario that supplies the deterministic Harborlight run) is also not merged.
- * Current main therefore has no Lab 22 catalog entry or browser-visible fixture that can submit
- * the run. It would be incorrect to seed a synthetic run here or to invent a second route/API.
- *
- * The existing UI seams that this spec must use after those dependencies land are deliberately
- * recorded below: `/caliber/cookbooks` and the generic workflow-run/approval surfaces. The
- * evidence download and historical replay are currently backend routes only; they have no
- * browser controls or UI API methods on this baseline. The implementation must add or consume
- * those producer seams before this fixme is removed.
+ * The API cookbook path runs first on the same reference stack and installs the deterministic
+ * Harborlight tool binding. This browser path uses the normal operator UI to install, publish and
+ * run the same catalog recipe, then uses a second browser identity for the exact approval.
  *
  * Required journey, from the Lab 22 README and issue #869:
  *   1. editor submits the Harborlight evidence-review run and sees the exact proposal diff;
  *   2. the editor cannot approve it; a distinct approver approves the proposal;
  *   3. the operator resumes the run and it reaches `accepted`;
  *   4. evidence export downloads the scope-bound archive;
- *   5. replay of that captured evidence reports `matched` without a second mutation;
- *   6. where the installed harness exposes the downstream, project isolation and stale `412`
- *      behavior are checked without creating a parallel downstream route.
+ *   5. replay of that captured evidence reports `matches_original` without a second mutation.
+ *
+ * The API example owns the Harborlight downstream assertions and project-isolation matrix. This
+ * browser test owns the installed-artifact/public-UI journey and the evidence/replay controls;
+ * it does not create a second downstream route or bypass a browser action with raw API calls.
  */
 const LAB22_ID = "22";
 const LAB22_TITLE = "Governed Evidence Review";
-const DEPENDENCY_BLOCKER =
-  "Blocked until #863 and #857 are merged: the current main baseline has no Lab 22 catalog/workflow fixture, and the browser lacks evidence-export/replay controls. Do not fabricate runtime APIs or seed a parallel run.";
+const APPROVER = {
+  user: "lab22-approver",
+  password: "cookbook22-approver-passphrase",
+};
+
+async function signedInAs(
+  browser: Browser,
+  baseURL: string,
+  workspace: string,
+): Promise<Page> {
+  const context = await browser.newContext({ baseURL });
+  const page = await context.newPage();
+  await new CaliberUi(page).signIn(APPROVER.user, APPROVER.password);
+  await page.getByLabel("Active workspace").selectOption({ label: workspace });
+  return page;
+}
+
+async function ensureApproverAccount(page: Page): Promise<void> {
+  await page.goto("/caliber/administration");
+  const accounts = page.getByLabel("Accounts");
+  const existing = accounts.getByRole("cell", {
+    name: APPROVER.user,
+    exact: true,
+  });
+  if ((await existing.count()) === 0) {
+    await page.getByLabel("User ID").first().fill(APPROVER.user);
+    await page.getByLabel("Password").first().fill(APPROVER.password);
+    await page.getByRole("button", { name: "Create account" }).click();
+    await expect(existing).toBeVisible();
+  }
+}
 
 test.describe(`Cookbook ${LAB22_ID}: governed evidence review`, () => {
-  test.fixme(true, DEPENDENCY_BLOCKER);
-
-  test("editor submits, approver reviews and approves, then evidence replays as matched", async ({
-    page,
-  }) => {
-    test.setTimeout(600_000);
+  test("editor submits, approver reviews and approves, then evidence replays as matching", async ({
+    page: editorPage,
+    browser,
+  }, testInfo) => {
+    test.setTimeout(900_000);
+    const suffix = uiOnlySlug("lab22").replace("lab22-", "");
+    const workspace = `lab22-ui-${suffix}`;
     const workflowName = `cookbook-22-${uiOnlySlug("harborlight")}`;
-    const ui = new CaliberUi(page);
+    const ui = new CaliberUi(editorPage);
 
-    // This is the first real seam available after the Lab 22 producer is merged. Keep the
-    // catalog assertion here so a future implementation cannot silently fall back to another
-    // cookbook or a hand-built manifest.
-    // Use the harness' existing default account until the Lab 22 package defines the exact
-    // editor/approver provisioning contract. Do not invent user ids or passwords here.
-    await ui.signIn();
-    await page.goto("/caliber/cookbooks");
+    await ui.signIn("admin", "admin");
+    await ensureApproverAccount(editorPage);
+
+    await editorPage.getByRole("button", { name: "Create workspace" }).click();
+    await editorPage.getByPlaceholder("Document automation").fill(workspace);
+    await editorPage.getByRole("button", { name: "Create and select" }).click();
+    await expect(editorPage.getByLabel("Active workspace")).toContainText(
+      workspace,
+    );
+    const projectId = await editorPage
+      .getByLabel("Active workspace")
+      .inputValue();
+
+    await editorPage.goto("/caliber/administration");
+    const access = editorPage.locator("#project-access-heading").locator("..");
+    await access
+      .getByLabel("Project for access management")
+      .selectOption(projectId);
+    await access.getByRole("textbox").fill(APPROVER.user);
+    await access.getByRole("combobox").selectOption({ label: "Reviewer" });
+    await access.getByRole("button", { name: "Add member" }).click();
     await expect(
-      page.getByRole("heading", { name: "Cookbooks" }),
+      access.getByText(`Added ${APPROVER.user} to ${workspace}.`),
     ).toBeVisible();
-    const card = page.getByTestId(`cookbook-card-${LAB22_ID}`);
+
+    await editorPage.goto("/caliber/cookbooks");
+    await expect(
+      editorPage.getByRole("heading", { name: "Cookbooks" }),
+    ).toBeVisible();
+    const card = editorPage.getByTestId(`cookbook-card-${LAB22_ID}`);
     await expect(card).toBeVisible();
     await expect(card).toContainText(LAB22_TITLE);
-    await page.getByTestId(`install-cookbook-${LAB22_ID}`).click();
-    await page.getByTestId("cookbook-install-name").fill(workflowName);
-    const acknowledgement = page.getByTestId("cookbook-prerequisites-ack");
+    await editorPage.getByTestId(`install-cookbook-${LAB22_ID}`).click();
+    await editorPage.getByTestId("cookbook-install-name").fill(workflowName);
+    const acknowledgement = editorPage.getByTestId(
+      "cookbook-prerequisites-ack",
+    );
     if (await acknowledgement.isVisible()) await acknowledgement.check();
-    await page.getByTestId("confirm-cookbook-install").click();
+    await editorPage.getByTestId("confirm-cookbook-install").click();
 
-    // The remaining steps are intentionally not guessed until #857/#863 provide the exact
-    // workflow manifest, identity setup, and evidence/replay UI contract. This assertion keeps
-    // the scaffold tied to the existing install seam while the dependency is outstanding.
-    await expect(page).toHaveURL(
+    await expect(editorPage).toHaveURL(
       /\/caliber\/workflows\/WF-[^/]+\/editor\/WFV-/,
     );
+    const editorUrl = editorPage.url();
+
+    await editorPage.getByTestId("editor-validate").click();
+    await expect(editorPage.getByTestId("editor-message")).toContainText(
+      "Valid.",
+    );
+    await editorPage.getByTestId("editor-publish").click();
+    await editorPage.getByTestId("publish-run-validate").click();
+    await editorPage.getByTestId("publish-next-1").click();
+    await editorPage.getByTestId("publish-next-2").click();
+    await editorPage.getByTestId("publish-confirm").click();
+
+    await editorPage.getByTestId("editor-run-monitor").click();
+    await editorPage
+      .getByTestId("run-input")
+      .fill(`request pay_statement for MORT-2026-000184 at version 1`);
+    await editorPage.getByTestId("run-execute").click();
+    const runLink = editorPage.getByTestId("run-active-open-link");
+    await expect(runLink).toBeVisible({ timeout: 120_000 });
+    const runHref = (await runLink.getAttribute("href")) ?? "";
+    const runId = runHref.split("/").pop() ?? "";
+    expect(runId).toMatch(/^WR-/);
+    await expectRunStatus(editorPage, "waiting_approval", { timeout: 180_000 });
+
+    // The initiator may see the proposal but cannot authorize their own protected effect.
+    await expect(
+      editorPage.getByTestId("run-bound-approval-note"),
+    ).toBeVisible();
+    await expect(editorPage.getByTestId("run-approve")).toHaveCount(0);
+
+    const approverPage = await signedInAs(
+      browser,
+      String(testInfo.project.use.baseURL),
+      workspace,
+    );
+    try {
+      await approverPage.goto(editorUrl);
+      await approverPage.getByTestId("editor-run-monitor").click();
+      await approverPage.getByTestId(`run-history-select-${runId}`).click();
+      const approvalPanel = approverPage.getByTestId("approval-decision-panel");
+      await expect(approvalPanel).toBeVisible({ timeout: 120_000 });
+      await expect(approvalPanel).toContainText(
+        "cases/MORT-2026-000184/document-requests",
+      );
+      await approvalPanel.getByTestId("approval-approve").click();
+      await expect(approvalPanel).toContainText(/approved|recorded/i);
+    } finally {
+      await approverPage.context().close();
+    }
+
+    await expect(editorPage.getByTestId("run-resume")).toBeEnabled({
+      timeout: 120_000,
+    });
+    await editorPage.getByTestId("run-resume").click();
+    await expectRunStatus(editorPage, "completed", { timeout: 180_000 });
+
+    await editorPage.goto(runHref);
+    await expect(
+      editorPage.getByTestId("selected-run-acceptance"),
+    ).toContainText("Acceptance: accepted", { timeout: 120_000 });
+
+    const evidencePanel = editorPage.getByTestId("workflow-run-evidence-panel");
+    await expect(evidencePanel).toBeVisible();
+    const download = editorPage.waitForEvent("download");
+    await evidencePanel.getByTestId("workflow-run-evidence-download").click();
+    const archive = await download;
+    expect(archive.suggestedFilename()).toBe(`caliber-evidence-${runId}.zip`);
+    await expect(
+      evidencePanel.getByTestId("workflow-run-evidence-status"),
+    ).toContainText("Evidence archive downloaded.");
+
+    await evidencePanel.getByTestId("workflow-run-historical-replay").click();
+    await expect(
+      editorPage.getByTestId("workflow-run-replay-result"),
+    ).toContainText("matches_original: true", { timeout: 120_000 });
   });
 });

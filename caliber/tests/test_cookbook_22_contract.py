@@ -100,7 +100,7 @@ def test_lab22_readme_pins_beta_install_and_observable_refusal_contracts() -> No
     assert "does not create another route" in text
 
 
-def test_lab22_runner_registration_is_selectable_without_a_ui_claim() -> None:
+def test_lab22_runner_registration_is_selectable_with_the_beta_ui_journey() -> None:
     text = RUNNER.read_text(encoding="utf-8")
     assert re.search(
         r'ALL_LABS="01 02 03 04 05 06 07 08 09 10 11 12 13 14 15 16 18 19 20 21 22"',
@@ -110,7 +110,7 @@ def test_lab22_runner_registration_is_selectable_without_a_ui_claim() -> None:
         r"\b22\) LAB_TITLE=\"governed evidence review\"; LAB_FLAGS=\"cookbooks\"", text
     )
     assert "LAB_API_ARGV=(-m examples.cookbooks.cookbook_22_governed_evidence_review)" in text
-    assert 'LAB_UI=""' in text[text.index("22) LAB_TITLE=") :]
+    assert 'LAB_UI="22-governed-evidence-review.spec.ts"' in text[text.index("22) LAB_TITLE=") :]
 
 
 def test_lab22_is_registered_in_docs_builder_and_generated_nav() -> None:

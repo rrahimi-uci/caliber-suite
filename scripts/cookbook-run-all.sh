@@ -304,7 +304,7 @@ lab_config() {
         LAB_UP_ENV=(CALIBER_PROFILE=reference CALIBER_OPERATOR_USERS=admin,lab22-approver
                     CALIBER_APPROVER_USERS=admin,lab22-approver)
         LAB_API_CWD="sdk/caliber-sdk"; LAB_API_ARGV=(-m examples.cookbooks.cookbook_22_governed_evidence_review)
-        LAB_UI="" ;;   # B15.3b supplies the browser journey; keep API registration independently selectable
+        LAB_UI="22-governed-evidence-review.spec.ts" ;;
     *) die "no configuration for lab $n" ;;
   esac
   LAB_STACK="ra-lab$n"; [[ $TIER == standin ]] && LAB_STACK="ra-lab${n}m"
