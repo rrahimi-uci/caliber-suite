@@ -67,8 +67,8 @@ def _seed_run(factory: Any, run_id: str = "RUN-ep") -> str:
         session.execute(
             text(
                 "INSERT INTO caliber_workflow_runs "
-                "(workflow_run_id, workflow_id, project_id, tenant_id, status, source, attempt_number) "
-                "VALUES (:run_id, 'wf-ep', 'PRJ-ep', 'local', 'running', 'manual', 1)"
+                "(workflow_run_id, workflow_id, project_id, tenant_id, status, source, priority, attempt_number) "
+                "VALUES (:run_id, 'wf-ep', 'PRJ-ep', 'local', 'running', 'manual', 0, 1)"
             ),
             {"run_id": run_id},
         )
