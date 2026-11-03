@@ -286,8 +286,19 @@ derives identity, project visibility and raw-payload permission on the server; i
 
 If raw payload access is not permitted, the server redacts payloads, metadata and evaluator provenance before computing member, package,
 archive and storage-key digests. Raw-authorized and redacted views are separately cached by authorization-scope digest and stored through
-the project's `StorageBackend`, with `caliber_evidence_archives` retaining the locator and integrity metadata. This slice does not add
-typed SDK/CLI download helpers, verification signatures, expiry, deletion, tombstones or HTTP-410 behavior; those remain #840/#845.
+the project's `StorageBackend`, with `caliber_evidence_archives` retaining the locator and integrity metadata. B14.3a itself does not add
+verification signatures, expiry, deletion, tombstones or HTTP-410 behavior; those remain #845.
+
+### Evidence archive verification (B14.3b)
+
+The SDK adds typed synchronous and asynchronous evidence downloads, and both the SDK and CLI can verify an archive entirely offline
+before exposing or writing its contents. Verification is fail-closed: it checks ZIP safety and resource limits, the canonical manifest,
+package and member digests, exact membership, declared schema versions, payload hashes, and parent/missing-link declarations without
+extracting files. Invalid archives return stable failure codes and the CLI refuses accidental overwrite unless `--force` is supplied.
+
+The verifier proves archive and package integrity only. Beta archives are unsigned, so `origin_verified` remains false; verification does
+not prove server origin, authorization, freshness, retention, deletion, or provenance. The SDK verifier is deliberately server-free and
+shares the wire-contract rules with the server verifier so installed clients do not need server dependencies.
 
 ## Cookbooks
 

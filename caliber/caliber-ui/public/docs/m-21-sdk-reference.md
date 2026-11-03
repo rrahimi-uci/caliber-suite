@@ -32,7 +32,7 @@ The reference tables below are generated directly from the current SDK source. B
 
 | Group | Modules |
 | --- | --- |
-| Package index | [`caliber_sdk`](#module-caliber_sdk), [`caliber_sdk.client`](#module-caliber_sdkclient), [`caliber_sdk.auth`](#module-caliber_sdkauth), [`caliber_sdk.transport`](#module-caliber_sdktransport), [`caliber_sdk.errors`](#module-caliber_sdkerrors), [`caliber_sdk.waiters`](#module-caliber_sdkwaiters) |
+| Package index | [`caliber_sdk`](#module-caliber_sdk), [`caliber_sdk.client`](#module-caliber_sdkclient), [`caliber_sdk.auth`](#module-caliber_sdkauth), [`caliber_sdk.transport`](#module-caliber_sdktransport), [`caliber_sdk.errors`](#module-caliber_sdkerrors), [`caliber_sdk.evidence`](#module-caliber_sdkevidence), [`caliber_sdk.waiters`](#module-caliber_sdkwaiters) |
 | Resource modules | [`caliber_sdk.resources`](#module-caliber_sdkresources), [`caliber_sdk.resources.auth`](#module-caliber_sdkresourcesauth), [`caliber_sdk.resources.system`](#module-caliber_sdkresourcessystem), [`caliber_sdk.resources.projects`](#module-caliber_sdkresourcesprojects), [`caliber_sdk.resources.assets`](#module-caliber_sdkresourcesassets), [`caliber_sdk.resources.workflows`](#module-caliber_sdkresourcesworkflows), [`caliber_sdk.resources.quality`](#module-caliber_sdkresourcesquality), [`caliber_sdk.resources.integrations`](#module-caliber_sdkresourcesintegrations), [`caliber_sdk.resources.operations`](#module-caliber_sdkresourcesoperations), [`caliber_sdk.resources.raw`](#module-caliber_sdkresourcesraw) |
 | Model modules | [`caliber_sdk.models`](#module-caliber_sdkmodels), [`caliber_sdk.models.common`](#module-caliber_sdkmodelscommon), [`caliber_sdk.models.core`](#module-caliber_sdkmodelscore), [`caliber_sdk.models.assets`](#module-caliber_sdkmodelsassets), [`caliber_sdk.models.quality`](#module-caliber_sdkmodelsquality), [`caliber_sdk.models.integrations`](#module-caliber_sdkmodelsintegrations), [`caliber_sdk.models.operations`](#module-caliber_sdkmodelsoperations), [`caliber_sdk.models.workflows`](#module-caliber_sdkmodelsworkflows), [`caliber_sdk.models.workspace`](#module-caliber_sdkmodelsworkspace), [`caliber_sdk.models.errors`](#module-caliber_sdkmodelserrors) |
 | Async client | [`caliber_sdk.aio`](#module-caliber_sdkaio), [`caliber_sdk.aio.client`](#module-caliber_sdkaioclient), [`caliber_sdk.aio.projects`](#module-caliber_sdkaioprojects), [`caliber_sdk.aio.transport`](#module-caliber_sdkaiotransport), [`caliber_sdk.aio.waiters`](#module-caliber_sdkaiowaiters) |
@@ -117,6 +117,8 @@ Every documented class and module-level function, with the module that defines i
 | [`Evaluation`](#evaluation) | [`caliber_sdk.models.quality`](#module-caliber_sdkmodelsquality) |
 | [`EvaluationsAPI`](#evaluationsapi) | [`caliber_sdk.resources.quality`](#module-caliber_sdkresourcesquality) |
 | [`EventsAPI`](#eventsapi) | [`caliber_sdk.resources.operations`](#module-caliber_sdkresourcesoperations) |
+| [`EvidenceVerification`](#evidenceverification) | [`caliber_sdk.evidence`](#module-caliber_sdkevidence) |
+| [`EvidenceVerificationError`](#evidenceverificationerror) | [`caliber_sdk.evidence`](#module-caliber_sdkevidence) |
 | [`Extensibility`](#extensibility) | [`caliber_sdk.models.core`](#module-caliber_sdkmodelscore) |
 
 **F**
@@ -275,7 +277,9 @@ Every documented class and module-level function, with the module that defines i
 | --- | --- |
 | [`VerificationBatchResult`](#verificationbatchresult) | [`caliber_sdk.models.quality`](#module-caliber_sdkmodelsquality) |
 | [`VerificationItem`](#verificationitem) | [`caliber_sdk.models.quality`](#module-caliber_sdkmodelsquality) |
+| [`VerificationLimits`](#verificationlimits) | [`caliber_sdk.evidence`](#module-caliber_sdkevidence) |
 | [`VerificationQueueAPI`](#verificationqueueapi) | [`caliber_sdk.resources.quality`](#module-caliber_sdkresourcesquality) |
+| [`verify_archive`](#verify_archivearchive_bytes-bytes-limits-verificationlimits-default_limits-evidenceverification) | [`caliber_sdk.evidence`](#module-caliber_sdkevidence) |
 
 **W**
 
@@ -337,7 +341,7 @@ sdk/caliber-sdk/examples/quickstart.py#quickstart
 
 **Public exports**
 
-`API_PREFIX`, `ENV_BASE_URL`, `ENV_PROJECT`, `ENV_TOKEN`, `ENV_USER`, `FAILURE_STATES`, `TERMINAL_STATES`, `UNSET_PROJECT`, `AuthProvider`, `CaliberAPIError`, `CaliberAuthenticationError`, `CaliberClient`, `CaliberConfigError`, `CaliberConflictError`, `CaliberDecodeError`, `CaliberError`, `CaliberNotFoundError`, `CaliberPermissionError`, `CaliberPreconditionError`, `CaliberRateLimitError`, `CaliberServerError`, `CaliberTransportError`, `CaliberValidationError`, `ErrorBody`, `FieldError`, `NoAuth`, `Page`, `RawAPI`, `Response`, `Stability`, `TokenAuth`, `Transport`, `TrustedHeaderAuth`, `UnsetProjectType`, `WaitFailed`, `WaitTimeout`, `WorkflowRunFailed`, `__version__`, `wait_for`, `wait_for_terminal_state`
+`API_PREFIX`, `DEFAULT_LIMITS`, `ENV_BASE_URL`, `ENV_PROJECT`, `ENV_TOKEN`, `ENV_USER`, `FAILURE_STATES`, `TERMINAL_STATES`, `UNSET_PROJECT`, `AuthProvider`, `CaliberAPIError`, `CaliberAuthenticationError`, `CaliberClient`, `CaliberConfigError`, `CaliberConflictError`, `CaliberDecodeError`, `CaliberError`, `CaliberNotFoundError`, `CaliberPermissionError`, `CaliberPreconditionError`, `CaliberRateLimitError`, `CaliberServerError`, `CaliberTransportError`, `CaliberValidationError`, `ErrorBody`, `EvidenceVerification`, `EvidenceVerificationError`, `FieldError`, `NoAuth`, `Page`, `RawAPI`, `Response`, `Stability`, `TokenAuth`, `Transport`, `TrustedHeaderAuth`, `UnsetProjectType`, `VerificationLimits`, `WaitFailed`, `WaitTimeout`, `WorkflowRunFailed`, `__version__`, `verify_archive`, `verify_evidence_archive`, `wait_for`, `wait_for_terminal_state`
 
 **Module constants**
 
@@ -1450,6 +1454,110 @@ Operate on the caliber validation error surface with the supplied arguments and 
 **Bases:** [`CaliberAPIError`](#caliberapierror)
 
 5xx — the server failed. Usually worth retrying; never worth assuming.
+
+### Module `caliber_sdk.evidence`
+
+Server-free verification for CALIBER evidence archives.
+
+**Tested example**
+
+```python-example
+sdk/caliber-sdk/examples/quickstart.py#quickstart
+```
+
+**Public exports**
+
+`DEFAULT_LIMITS`, `EvidenceVerification`, `EvidenceVerificationError`, `VerificationLimits`, `verify_archive`, `verify_evidence_archive`
+
+#### Functions
+
+###### `verify_archive(archive_bytes: bytes, *, limits: VerificationLimits = DEFAULT_LIMITS) -> EvidenceVerification`
+
+Verify an evidence ZIP without extracting it or contacting a server.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `archive_bytes` | positional-or-keyword | `bytes` | `—` |
+| `limits` | keyword-only | `VerificationLimits` | `DEFAULT_LIMITS` |
+
+**Returns:** `EvidenceVerification`
+
+**Raises:**
+
+- `_fail`
+
+#### Classes
+
+##### `VerificationLimits`
+
+`class VerificationLimits()`
+
+Resource limits applied before archive members are materialized.
+
+**Dataclass fields**
+
+| Field | Type | Default |
+| --- | --- | --- |
+| `max_archive_bytes` | `int` | `64 * 1024 * 1024` |
+| `max_manifest_bytes` | `int` | `1 * 1024 * 1024` |
+| `max_member_bytes` | `int` | `16 * 1024 * 1024` |
+| `max_total_uncompressed_bytes` | `int` | `64 * 1024 * 1024` |
+| `max_entries` | `int` | `512` |
+| `max_compression_ratio` | `int` | `1000` |
+
+##### `EvidenceVerificationError`
+
+`class EvidenceVerificationError(code: str, message: str)`
+
+**Bases:** `ValueError`
+
+The archive is malformed, unsafe, or fails an integrity check.
+
+**Constructor**
+
+###### `__init__(code: str, message: str) -> None`
+
+Operate on the evidence verification error surface with the supplied arguments and return the server response.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `code` | positional-or-keyword | `str` | `—` |
+| `message` | positional-or-keyword | `str` | `—` |
+
+**Returns:** `None`
+
+**Attributes**
+
+| Attribute | Type | Notes |
+| --- | --- | --- |
+| `code` | `Any` | — |
+
+##### `EvidenceVerification`
+
+`class EvidenceVerification()`
+
+The bounded result of verifying one archive.
+
+**Dataclass fields**
+
+| Field | Type | Default |
+| --- | --- | --- |
+| `archive_sha256` | `str` | `—` |
+| `package_sha256` | `str` | `—` |
+| `workflow_run_id` | `str` | `—` |
+| `member_ids` | `tuple[str, ...]` | `—` |
+| `redaction` | `str` | `—` |
+| `origin_verified` | `bool` | `False` |
+
+**Properties**
+
+###### `valid() -> bool`
+
+Operate on the evidence verification surface with the supplied arguments and return the server response.
+
+This callable takes no public parameters.
+
+**Returns:** `bool`
 
 ### Module `caliber_sdk.waiters`
 
@@ -5952,6 +6060,26 @@ Download a run file's raw bytes.
 | --- | --- | --- | --- |
 | `run_id` | positional-or-keyword | `str` | `—` |
 | `file_id` | positional-or-keyword | `str` | `—` |
+
+**Returns:** `bytes`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `evidence(run_id: str) -> bytes`
+
+Download the scope-authorized evidence archive for one run.
+
+The bytes are intentionally returned without decoding.  Callers that
+need an integrity result can pass them to
+:func:`caliber_sdk.verify_archive`; the SDK never claims that the
+unsigned Beta archive proves origin.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `run_id` | positional-or-keyword | `str` | `—` |
 
 **Returns:** `bytes`
 
@@ -13957,6 +14085,24 @@ Poll until the targeted run or job reaches a terminal state, then return the fin
 - [`WaitFailed`](#waitfailed)
 - [`WaitTimeout`](#waittimeout)
 - [`WorkflowRunFailed`](#workflowrunfailed)
+
+###### `evidence(run_id: str) -> bytes`
+
+Download one run's scope-authorized evidence archive.
+
+The async method mirrors ``client.workflows.runs.evidence`` and leaves
+verification to the server-free :func:`caliber_sdk.verify_archive`.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `run_id` | positional-or-keyword | `str` | `—` |
+
+**Returns:** `bytes`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
 
 ##### `AsyncJobsAPI`
 

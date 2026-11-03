@@ -5876,9 +5876,23 @@ and digest verification prevent a concurrent exporter or a storage-key collision
 
 Archive bytes are written through the project's configured `StorageBackend` and indexed by `caliber_evidence_archives`, including the
 package digest, authorization-scope digest, member ids, storage locator and archive digest. Generic workflow-run pruning retains runs
-with an archive. The expiry, deletion, tombstone/HTTP-410 behavior, verifier, signatures and typed SDK/CLI remain later slices (#840,
-#845); this export is an integrity-checked archive, not proof of origin or a consumer verifier. Migration `0138` is required; rollback
-removes the archive table and export route but does not delete already-written storage objects.
+with an archive. The expiry, deletion, tombstone/HTTP-410 behavior and signatures remain later slice #845; this export is an
+integrity-checked archive, not proof of origin. Migration `0138` is required; rollback removes the archive table and export route but
+does not delete already-written storage objects.
+
+## Evidence archive verification (B14.3b, #840)
+
+The server verifier and the server-free SDK/CLI verifier both fail closed before extraction. They reject duplicate or unsafe ZIP paths,
+directories and symlinks, encrypted or unsupported entries, malformed or CRC-invalid members, archive/member/total-size and compression-
+ratio violations, a non-canonical manifest, unknown or mismatched package/member digests, exact-membership changes, unsupported declared
+schema versions, and broken parent or explicit-missing-link declarations. Verification reads members through bounded ZIP streams and never
+calls `extractall`.
+
+The SDK exposes synchronous and asynchronous evidence download methods; the CLI's `workflow evidence` command verifies before optional
+output and refuses an existing path unless `--force` is explicit. These checks establish archive and package integrity only. Beta archives
+have no signature, so `origin_verified` is false and verification does not establish server origin, authorization, freshness, retention,
+deletion, or provenance. The standalone SDK/CLI verifier intentionally uses only their installed standard-library dependencies rather than
+importing the server package.
 
 ## Not enforced yet
 

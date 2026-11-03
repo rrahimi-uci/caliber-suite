@@ -6,6 +6,9 @@ import hashlib
 import importlib
 import io
 import json
+import stat
+import warnings
+import zipfile
 from datetime import datetime, timezone
 from types import SimpleNamespace
 from zipfile import ZipFile
@@ -37,7 +40,9 @@ from caliber.evidence import (
     assemble,
     export_archive,
     payload_bytes_for_package,
+    verify_archive,
 )
+from caliber.evidence.verify import EvidenceVerificationError, VerificationLimits
 from caliber.redaction import IDENTITY_REDACTOR, Redactor
 from caliber.storage import LocalStorageBackend, StorageConflictError, StorageError
 from tests.workflow_helpers import PREFIX
@@ -142,6 +147,57 @@ def _seed_run(
     session.commit()
 
 
+def _minimal_verification_archive(
+    *,
+    payload: bytes = b"{}",
+    manifest: dict[str, object] | None = None,
+    manifest_bytes: bytes | None = None,
+    include_member: bool = True,
+    extra_entries: tuple[str, ...] = (),
+    compression: int = zipfile.ZIP_STORED,
+) -> bytes:
+    member_id = "run_manifest:verify"
+    metadata = {"schema_version": "v1"}
+    record = manifest or {
+        "schema_version": "v1",
+        "package_id": "ep-verify",
+        "workflow_run_id": "run-verify",
+        "tenant_id": "tenant-verify",
+        "region": "local",
+        "project_id": "project-verify",
+        "view": {"authorization": "authorized", "redaction": "none"},
+        "members": [
+            {
+                "member_id": member_id,
+                "kind": "run_manifest",
+                "payload_sha256": hashlib.sha256(payload).hexdigest(),
+                "metadata_sha256": hashlib.sha256(
+                    json.dumps(metadata, sort_keys=True, separators=(",", ":")).encode()
+                ).hexdigest(),
+                "parent_ids": [],
+                "metadata": metadata,
+            }
+        ],
+        "missing_links": [],
+        "evaluator_provenance": [],
+        "package_sha256": "0" * 64,
+        "created_at": "2026-11-03T09:00:00Z",
+    }
+    if manifest is None:
+        record["package_sha256"] = evidence_package_digest(record)
+    output = io.BytesIO()
+    with ZipFile(output, "w", compression=compression) as archive:
+        archive.writestr(
+            "manifest.json",
+            manifest_bytes or json.dumps(record, sort_keys=True, separators=(",", ":")).encode(),
+        )
+        if include_member:
+            archive.writestr(archive_member_name(member_id), payload)
+        for name in extra_entries:
+            archive.writestr(name, b"extra")
+    return output.getvalue()
+
+
 def test_export_archive_shape_and_idempotent_scope_cache(
     db_session: Session, tmp_path: object
 ) -> None:
@@ -192,6 +248,284 @@ def test_export_archive_shape_and_idempotent_scope_cache(
     assert again.archive_id == result.archive_id
     assert again.archive_bytes == result.archive_bytes
     assert db_session.execute(select(CaliberEvidenceArchive)).scalars().all() == [row]
+
+
+def test_verify_detects_tamper(db_session: Session, tmp_path: object) -> None:
+    _seed_run(db_session)
+    exported = export_archive(
+        db_session,
+        run_id=RUN_ID,
+        identity=IDENTITY,
+        backend=LocalStorageBackend(str(tmp_path)),
+        actor=OWNER,
+    )
+
+    verified = verify_archive(exported.archive_bytes)
+
+    assert verified.valid
+    assert verified.archive_sha256 == exported.archive_sha256
+    assert verified.package_sha256 == exported.package_sha256
+    assert verified.workflow_run_id == RUN_ID
+    assert verified.origin_verified is False
+    assert verified.redaction == "none"
+    assert set(verified.member_ids) == {
+        member["member_id"] for member in exported.manifest["members"]
+    }
+
+    tampered = bytearray(exported.archive_bytes)
+    tampered[0] ^= 0x01
+    with pytest.raises(EvidenceVerificationError) as error:
+        verify_archive(bytes(tampered))
+    assert error.value.code in {"malformed_zip", "member_read_failed"}
+
+
+def test_verify_rejects_duplicate_unsafe_and_symlink_members() -> None:
+    manifest = {
+        "schema_version": "v1",
+        "package_id": "ep-test",
+        "workflow_run_id": "run-test",
+        "tenant_id": "tenant-test",
+        "region": "local",
+        "project_id": "project-test",
+        "view": {"authorization": "authorized", "redaction": "none"},
+        "members": [
+            {
+                "member_id": "run_manifest:run-test",
+                "kind": "run_manifest",
+                "payload_sha256": hashlib.sha256(b"{}").hexdigest(),
+                "metadata_sha256": hashlib.sha256(b'{"schema_version":"v1"}').hexdigest(),
+                "parent_ids": [],
+                "metadata": {"schema_version": "v1"},
+            }
+        ],
+        "missing_links": [],
+        "evaluator_provenance": [],
+        "package_sha256": "0" * 64,
+        "created_at": "2026-11-03T09:00:00Z",
+    }
+    manifest["package_sha256"] = evidence_package_digest(manifest)
+
+    def make_archive(entries: list[tuple[str, bytes, int | None]]):
+        output = io.BytesIO()
+        with ZipFile(output, "w") as archive:
+            for name, data, mode in entries:
+                info = zipfile.ZipInfo(name)
+                if mode is not None:
+                    info.create_system = 3
+                    info.external_attr = mode << 16
+                archive.writestr(info, data)
+        return output.getvalue()
+
+    valid = make_archive(
+        [
+            (
+                "manifest.json",
+                json.dumps(manifest, sort_keys=True, separators=(",", ":")).encode(),
+                None,
+            ),
+            (archive_member_name("run_manifest:run-test"), b"{}", None),
+        ]
+    )
+    assert verify_archive(valid).package_sha256 == manifest["package_sha256"]
+
+    duplicate = io.BytesIO()
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", UserWarning)
+        with ZipFile(duplicate, "w") as archive:
+            archive.writestr("manifest.json", b"{}")
+            archive.writestr("manifest.json", b"{}")
+    with pytest.raises(EvidenceVerificationError, match="duplicate"):
+        verify_archive(duplicate.getvalue())
+
+    unsafe = make_archive([("../manifest.json", b"{}", None)])
+    with pytest.raises(EvidenceVerificationError, match="unsafe member path"):
+        verify_archive(unsafe)
+
+    symlink = make_archive([("manifest.json", b"{}", stat.S_IFLNK | 0o777)])
+    with pytest.raises(EvidenceVerificationError, match="symlink"):
+        verify_archive(symlink)
+
+
+def test_verify_enforces_archive_and_compression_limits(
+    db_session: Session, tmp_path: object
+) -> None:
+    _seed_run(db_session)
+    exported = export_archive(
+        db_session,
+        run_id=RUN_ID,
+        identity=IDENTITY,
+        backend=LocalStorageBackend(str(tmp_path)),
+        actor=OWNER,
+    )
+    with pytest.raises(EvidenceVerificationError, match="archive exceeds"):
+        verify_archive(
+            exported.archive_bytes,
+            limits=VerificationLimits(max_archive_bytes=len(exported.archive_bytes) - 1),
+        )
+    with pytest.raises(EvidenceVerificationError, match="member exceeds"):
+        verify_archive(
+            exported.archive_bytes,
+            limits=VerificationLimits(max_manifest_bytes=1, max_member_bytes=1),
+        )
+
+
+@pytest.mark.parametrize(
+    "limits",
+    [
+        VerificationLimits(max_archive_bytes=0),
+        VerificationLimits(max_manifest_bytes=0),
+        VerificationLimits(max_member_bytes=0),
+        VerificationLimits(max_total_uncompressed_bytes=0),
+        VerificationLimits(max_entries=0),
+        VerificationLimits(max_compression_ratio=0),
+        VerificationLimits(max_manifest_bytes=2, max_member_bytes=1),
+    ],
+)
+def test_verify_rejects_invalid_limits(limits: VerificationLimits) -> None:
+    with pytest.raises(EvidenceVerificationError, match="limit"):
+        verify_archive(b"", limits=limits)
+
+
+@pytest.mark.parametrize(
+    "name, file_size, compress_size, flags, method, external_attr, code",
+    [
+        ("", 1, 1, 0, zipfile.ZIP_STORED, 0, "unsafe_member_path"),
+        ("folder", 1, 1, 0, zipfile.ZIP_STORED, 0, "unexpected_directory"),
+        ("member", 1, 1, 0, zipfile.ZIP_STORED, stat.S_IFLNK | 0o777, "symlink_member"),
+        ("member", 1, 1, 1, zipfile.ZIP_STORED, 0, "encrypted_member"),
+        ("member", 1, 1, 0, 99, 0, "unsupported_compression"),
+        ("member", -1, 1, 0, zipfile.ZIP_STORED, 0, "invalid_member_size"),
+        ("member", 1, -1, 0, zipfile.ZIP_STORED, 0, "invalid_member_size"),
+        ("member", 100, 1, 0, zipfile.ZIP_STORED, 0, "compression_ratio_limit"),
+    ],
+)
+def test_verify_rejects_unsafe_zip_entry_metadata(
+    name: str,
+    file_size: int,
+    compress_size: int,
+    flags: int,
+    method: int,
+    external_attr: int,
+    code: str,
+) -> None:
+    if code == "unexpected_directory":
+        info = SimpleNamespace(
+            filename=name,
+            file_size=file_size,
+            compress_size=compress_size,
+            flag_bits=flags,
+            compress_type=method,
+            external_attr=external_attr << 16,
+            is_dir=lambda: True,
+        )
+    else:
+        info = zipfile.ZipInfo(name)
+        info.file_size = file_size
+        info.compress_size = compress_size
+        info.flag_bits = flags
+        info.compress_type = method
+        info.external_attr = external_attr << 16
+    verify_module = importlib.import_module("caliber.evidence.verify")
+    with pytest.raises(EvidenceVerificationError) as error:
+        verify_module._check_entry(info, VerificationLimits(max_compression_ratio=10))
+    assert error.value.code == code
+
+
+def test_verify_rejects_archive_structure_and_manifest_failures(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    with pytest.raises(EvidenceVerificationError, match="bytes"):
+        verify_archive("not-bytes")  # type: ignore[arg-type]
+    with pytest.raises(EvidenceVerificationError, match="valid ZIP"):
+        verify_archive(b"not-a-zip")
+    with pytest.raises(EvidenceVerificationError, match="too many"):
+        verify_archive(_minimal_verification_archive(), limits=VerificationLimits(max_entries=1))
+    with pytest.raises(EvidenceVerificationError, match="total uncompressed"):
+        verify_archive(
+            _minimal_verification_archive(),
+            limits=VerificationLimits(max_total_uncompressed_bytes=1),
+        )
+    empty_archive = io.BytesIO()
+    with ZipFile(empty_archive, "w"):
+        pass
+    with pytest.raises(EvidenceVerificationError, match="no manifest"):
+        verify_archive(empty_archive.getvalue())
+
+    with pytest.raises(EvidenceVerificationError, match="valid JSON"):
+        verify_archive(_minimal_verification_archive(manifest_bytes=b"not-json"))
+    with pytest.raises(EvidenceVerificationError, match="not an object"):
+        verify_archive(_minimal_verification_archive(manifest_bytes=b"[]"))
+    record = json.loads(ZipFile(io.BytesIO(_minimal_verification_archive())).read("manifest.json"))
+    with pytest.raises(EvidenceVerificationError, match="canonical"):
+        verify_archive(_minimal_verification_archive(manifest_bytes=json.dumps(record).encode()))
+    record["schema_version"] = "v2"
+    invalid_contract = _minimal_verification_archive(
+        manifest=record,
+        manifest_bytes=json.dumps(record, sort_keys=True, separators=(",", ":")).encode(),
+    )
+    with pytest.raises(EvidenceVerificationError, match="contract"):
+        verify_archive(invalid_contract)
+
+    with pytest.raises(EvidenceVerificationError, match="match the manifest"):
+        verify_archive(_minimal_verification_archive(extra_entries=("members/extra.json",)))
+
+    read_failure_archive = _minimal_verification_archive(compression=zipfile.ZIP_DEFLATED)
+    with pytest.raises(EvidenceVerificationError, match="could not be read"):
+        with monkeypatch.context() as patch:
+            patch.setattr(
+                ZipFile,
+                "open",
+                lambda *args, **kwargs: (_ for _ in ()).throw(OSError()),
+            )
+            verify_archive(read_failure_archive)
+
+    valid_manifest = json.loads(
+        ZipFile(io.BytesIO(_minimal_verification_archive())).read("manifest.json")
+    )
+    valid_manifest["members"][0]["metadata"]["schema_version"] = "v2"
+    valid_manifest["members"][0]["metadata_sha256"] = hashlib.sha256(
+        json.dumps(
+            valid_manifest["members"][0]["metadata"],
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode()
+    ).hexdigest()
+    valid_manifest["package_sha256"] = evidence_package_digest(valid_manifest)
+    unsupported_member_schema = _minimal_verification_archive(
+        manifest=valid_manifest,
+        manifest_bytes=json.dumps(valid_manifest, sort_keys=True, separators=(",", ":")).encode(),
+    )
+    with pytest.raises(EvidenceVerificationError, match="unsupported schema"):
+        verify_archive(unsupported_member_schema)
+
+    payload_manifest = json.loads(
+        ZipFile(io.BytesIO(_minimal_verification_archive(payload=b"changed"))).read("manifest.json")
+    )
+    payload_mismatch = _minimal_verification_archive(
+        payload=b"tampered",
+        manifest=payload_manifest,
+        manifest_bytes=json.dumps(payload_manifest, sort_keys=True, separators=(",", ":")).encode(),
+    )
+    with pytest.raises(EvidenceVerificationError, match="payload"):
+        verify_archive(payload_mismatch)
+
+
+def test_verify_checks_metadata_digest_after_contract_validation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    verify_module = importlib.import_module("caliber.evidence.verify")
+    original = verify_module.validate_record
+    monkeypatch.setattr(verify_module, "validate_record", lambda *args, **kwargs: None)
+    record = json.loads(ZipFile(io.BytesIO(_minimal_verification_archive())).read("manifest.json"))
+    record["members"][0]["metadata"]["extra"] = "tampered"
+    record["package_sha256"] = evidence_package_digest(record)
+    archive = _minimal_verification_archive(
+        manifest=record,
+        manifest_bytes=json.dumps(record, sort_keys=True, separators=(",", ":")).encode(),
+    )
+    with pytest.raises(EvidenceVerificationError, match="metadata"):
+        verify_archive(archive)
+    monkeypatch.setattr(verify_module, "validate_record", original)
 
 
 def test_redaction_changes_payload_view_digest_and_object_key(

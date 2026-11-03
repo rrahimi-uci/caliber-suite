@@ -166,7 +166,7 @@ Use the typed SDK where it exists. When a family is marked `Raw only`, the curre
 | Agents (`agents`) | `ga` | `9` | Typed SDK | `client.agents` | The agent record that verification items, refinement jobs, approvals and rollback checkpoints hang off. |
 | Workflows (`workflows`) | `ga` | `28` | Typed SDK | `client.workflows` | Workflow CRUD plus the umbrella entry point for versions, runs, and services. |
 | Workflow Versions (`workflow-versions`) | `ga` | `16` | Typed SDK | `client.workflows.versions` | Create, validate, compile, and publish immutable workflow versions. |
-| Workflow Runs (`workflow-runs`) | `ga` | `26` | Partial (25/26) | `client.workflows.runs` | Submit, inspect, cancel, and wait on workflow executions. |
+| Workflow Runs (`workflow-runs`) | `ga` | `26` | Typed SDK | `client.workflows.runs` | Submit, inspect, cancel, and wait on workflow executions. |
 | Workflow Components (`workflow-components`) | `ga` | `1` | Typed SDK | `client.workflows.components()` | The workflow node catalog, with each component's runtime requirements. |
 | Workflow Templates (`workflow-templates`) | `ga` | `1` | Typed SDK | `client.workflows.templates()` | Starter workflow templates. |
 | Workflow Files (`workflow-files`) | `ga` | `1` | Typed SDK | `client.workflows.upload_staging_file()` | Staging uploads for workflow inputs. |
