@@ -10,9 +10,7 @@ from caliber.workflows.manifest import parse_manifest
 
 
 def test_lab22_is_a_versioned_catalog_recipe_with_guided_steps() -> None:
-    recipe = next(
-        item for item in build_cookbook_catalog()["recipes"] if item["id"] == "22"
-    )
+    recipe = next(item for item in build_cookbook_catalog()["recipes"] if item["id"] == "22")
 
     assert recipe["slug"] == "governed-evidence-review"
     assert recipe["activation_requires_review"] is True

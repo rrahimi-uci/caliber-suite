@@ -94,7 +94,9 @@ def main() -> None:  # noqa: PLR0912, PLR0915 - linear disposable fixture bootst
                         )
                     )
                 else:
-                    _require_identity(f"member {member_id}.project_id", member.project_id, PROJECT_ID)
+                    _require_identity(
+                        f"member {member_id}.project_id", member.project_id, PROJECT_ID
+                    )
                     _require_identity(f"member {member_id}.user_id", member.user_id, user_id)
                     member.role = role
                     member.status = "active"
@@ -153,7 +155,9 @@ def main() -> None:  # noqa: PLR0912, PLR0915 - linear disposable fixture bootst
                 _require_identity("revision.project_id", revision.project_id, PROJECT_ID)
                 _require_identity("revision.revision_number", revision.revision_number, 1)
                 _require_identity("revision.source_kind", revision.source_kind, "managed")
-                _require_identity("revision.source_attestation", revision.source_attestation, "fixture")
+                _require_identity(
+                    "revision.source_attestation", revision.source_attestation, "fixture"
+                )
                 _require_identity("revision.revision_sha256", revision.revision_sha256, "1" * 64)
                 _require_identity("revision.status", revision.status, "ready")
 
