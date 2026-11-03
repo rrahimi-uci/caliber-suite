@@ -639,8 +639,8 @@ def _fork_budget(value: CounterfactualBudget | Mapping[str, Any] | None) -> Coun
         if set(value) != allowed:
             raise _fork_refuse(FORK_BUDGET, "the counterfactual budget has unsupported fields")
         result = CounterfactualBudget(
-            max_cases=value["max_cases"],  # type: ignore[arg-type]
-            max_adapter_calls=value["max_adapter_calls"],  # type: ignore[arg-type]
+            max_cases=value["max_cases"],
+            max_adapter_calls=value["max_adapter_calls"],
         )
     else:
         raise _fork_refuse(FORK_BUDGET, "the counterfactual budget is malformed")
