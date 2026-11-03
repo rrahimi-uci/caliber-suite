@@ -21,7 +21,7 @@ from typing import Any
 import pytest
 from alembic import command
 from alembic.config import Config
-from sqlalchemy import create_engine, func, inspect, select, text
+from sqlalchemy import MetaData, Table, create_engine, func, inspect, select, text
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -139,6 +139,36 @@ def _proposal(session: Session, **intent: Any) -> CaliberEffectProposal:
     proposal = session.get(CaliberEffectProposal, recorded.proposal_id)
     assert proposal is not None
     return proposal
+
+
+def _insert_historical_proposal(factory: sessionmaker[Session]) -> str:
+    """Seed a proposal without asking the current ORM model to read a 0133 database."""
+    proposal_id = "prop-historical"
+    with factory() as session:
+        table = Table("caliber_effect_proposals", MetaData(), autoload_with=session.get_bind())
+        session.execute(
+            table.insert().values(
+                proposal_id=proposal_id,
+                tenant_id="local",
+                workflow_run_id="RUN-ep",
+                node_id="gate",
+                occurrence_id="occ-historical",
+                logical_key="a" * 64,
+                connector="document-request",
+                connector_version="1.0.0",
+                effect_class="read",
+                resource="cases/MORT-1/document-requests",
+                args={},
+                expected_resource_version="7",
+                intent_algorithm="intent-v1",
+                intent_bytes=b"{}",
+                intent_hash="sha256:" + hashlib.sha256(b"{}").hexdigest(),
+                state="proposed",
+                version=1,
+            )
+        )
+        session.commit()
+    return proposal_id
 
 
 def _create(session: Session, proposal: CaliberEffectProposal, **overrides: Any) -> Any:
@@ -1410,9 +1440,7 @@ def test_migration_0134_adds_the_commit_decision_without_backfill_and_reverses(
             assert "commit_decision_id" not in _columns(factory)
             assert _triggers(factory, dialect) == {binding_trigger}
             _seed_run(factory)
-            with factory() as session:
-                proposal_id = _proposal(session).proposal_id
-                session.commit()
+            proposal_id = _insert_historical_proposal(factory)
             # raw rows: the ORM model already names the column this database does not have yet
             consumed_id, live_id = "RAP-consumed", "RAP-live"
             with factory() as session:
