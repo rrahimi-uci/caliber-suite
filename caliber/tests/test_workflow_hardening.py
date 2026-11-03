@@ -14,7 +14,7 @@ from datetime import datetime, timedelta, timezone
 import pytest
 from pydantic import ValidationError
 
-from caliber.db.models import CaliberWorkflowRun
+from caliber.db.models import CaliberEvidenceArchive, CaliberProject, CaliberWorkflowRun
 from caliber.ids import new_workflow_run_id
 from caliber.workflows.compiler import (
     CompileError,
@@ -309,3 +309,45 @@ def test_prune_workflow_runs_prunes_null_started_at_rows(db_session) -> None:
     db_session.commit()
     assert deleted == 1  # before the fix this was 0 (NULL started_at never matched)
     assert db_session.query(CaliberWorkflowRun).count() == 1
+
+
+def test_prune_workflow_runs_keeps_a_run_with_an_evidence_archive(db_session) -> None:
+    """An exported archive must not be orphaned by the generic run janitor."""
+    now = datetime(2026, 6, 1, tzinfo=timezone.utc)
+    project_id = "project-archive-retention"
+    run_id = "run-archive-retention"
+    db_session.add(
+        CaliberProject(project_id=project_id, name="Archive retention", storage_backend="local")
+    )
+    db_session.add(
+        CaliberWorkflowRun(
+            workflow_run_id=run_id,
+            workflow_id="wf-archive-retention",
+            project_id=project_id,
+            tenant_id="tenant-archive-retention",
+            status="completed",
+            started_at=now - timedelta(days=30),
+        )
+    )
+    db_session.add(
+        CaliberEvidenceArchive(
+            archive_id="archive-retention",
+            workflow_run_id=run_id,
+            tenant_id="tenant-archive-retention",
+            project_id=project_id,
+            package_id="ep-archive-retention",
+            package_sha256="a" * 64,
+            authorization_scope_digest="b" * 64,
+            member_ids_json=[],
+            storage_backend="local",
+            storage_uri="file:///tmp/archive-retention.zip",
+            object_key="tenant/tenant-archive-retention/archive.zip",
+            archive_sha256="c" * 64,
+            size_bytes=1,
+            exported_by="@retention-test",
+        )
+    )
+    db_session.commit()
+
+    assert prune_workflow_runs(db_session, retention_days=7, now=now) == 0
+    assert db_session.get(CaliberWorkflowRun, run_id) is not None

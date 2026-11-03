@@ -12,7 +12,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
@@ -94,6 +93,12 @@ def _digest(value: object) -> str:
 
 def _bytes_digest(value: bytes | bytearray | memoryview) -> str:
     return hashlib.sha256(bytes(value)).hexdigest()
+
+
+def archive_member_name(member_id: str) -> str:
+    """Return the stable, non-disclosing path for one archive member."""
+
+    return f"members/{hashlib.sha256(member_id.encode('utf-8')).hexdigest()}.json"
 
 
 def _timestamp(value: datetime | None) -> str | None:
@@ -556,7 +561,11 @@ def assemble(  # noqa: PLR0912, PLR0915
     missing_links.sort(key=lambda link: (link["link"], link["status"], link["code"]))
     package: dict[str, Any] = {
         "schema_version": "v1",
-        "package_id": f"ep-{uuid.uuid4().hex}",
+        # The package is a view of the immutable run records, so its identity
+        # must remain stable across repeated assembly/export requests.  A
+        # random id or wall-clock timestamp would defeat conditional object
+        # creation and make the archive cache impossible to use safely.
+        "package_id": f"ep-{run_id}",
         "workflow_run_id": run_id,
         "tenant_id": run.tenant_id or FIXED_TENANT_ID,
         "region": FIXED_REGION,
@@ -566,9 +575,8 @@ def assemble(  # noqa: PLR0912, PLR0915
         "missing_links": missing_links,
         "evaluator_provenance": _acceptance_provenance(acceptance),
         "package_sha256": "0" * 64,
-        "created_at": datetime.now(timezone.utc)
-        .isoformat(timespec="microseconds")
-        .replace("+00:00", "Z"),
+        "created_at": _timestamp(run.completed_at or run.started_at or run.queued_at)
+        or "1970-01-01T00:00:00Z",
     }
     package["package_sha256"] = evidence_package_digest(package)
     validate_record("evidence_package", package)
@@ -580,10 +588,114 @@ def assemble(  # noqa: PLR0912, PLR0915
     )
 
 
+def payload_bytes_for_package(session: Session, package: EvidencePackage) -> dict[str, bytes]:
+    """Load only the selected run's payload bytes for an export.
+
+    ``assemble`` intentionally returns a digest-only projection.  The archive
+    writer is the one consumer allowed to materialize those bytes, and it
+    re-queries by the package's run id rather than trusting caller-provided
+    references.  Every returned byte string is checked against the already
+    assembled member digest before a caller can serialize it.
+    """
+
+    run = session.get(CaliberWorkflowRun, package.workflow_run_id)
+    if run is None:
+        raise EvidencePackageError("workflow run disappeared while exporting evidence")
+
+    manifest = session.execute(
+        select(CaliberRunManifest).where(
+            CaliberRunManifest.workflow_run_id == package.workflow_run_id
+        )
+    ).scalar_one_or_none()
+    contexts = list(
+        session.execute(
+            select(CaliberContextManifest).where(
+                CaliberContextManifest.workflow_run_id == package.workflow_run_id
+            )
+        ).scalars()
+    )
+    proposals = list(
+        session.execute(
+            select(CaliberEffectProposal).where(
+                CaliberEffectProposal.workflow_run_id == package.workflow_run_id
+            )
+        ).scalars()
+    )
+    receipts = list(
+        session.execute(
+            select(CaliberEffectReceipt)
+            .join(
+                CaliberEffectProposal,
+                CaliberEffectProposal.proposal_id == CaliberEffectReceipt.proposal_id,
+            )
+            .where(CaliberEffectProposal.workflow_run_id == package.workflow_run_id)
+        ).scalars()
+    )
+    approvals = list(
+        session.execute(
+            select(CaliberRuntimeApprovalRequest).where(
+                CaliberRuntimeApprovalRequest.workflow_run_id == package.workflow_run_id,
+                CaliberRuntimeApprovalRequest.proposal_id.is_not(None),
+            )
+        ).scalars()
+    )
+    decisions = list(
+        session.execute(
+            select(CaliberPolicyDecision).where(
+                CaliberPolicyDecision.workflow_run_id == package.workflow_run_id
+            )
+        ).scalars()
+    )
+
+    payloads: dict[str, bytes] = {}
+    if manifest is not None:
+        payloads[f"run_manifest:{manifest.manifest_id}"] = bytes(manifest.manifest_bytes)
+    payloads.update(
+        {
+            f"context_manifest:{row.context_manifest_id}": bytes(row.manifest_bytes)
+            for row in contexts
+        }
+    )
+    payloads.update({f"proposal:{row.proposal_id}": bytes(row.intent_bytes) for row in proposals})
+    payloads.update({f"receipt:{row.receipt_id}": bytes(row.receipt_bytes) for row in receipts})
+    payloads.update(
+        {
+            f"policy_decision:{row.decision_id}": _canonical_bytes(_policy_payload(row))
+            for row in decisions
+        }
+    )
+    for row in approvals:
+        request_id = f"approval_request:{row.runtime_approval_id}"
+        payloads[request_id] = _canonical_bytes(_approval_payload(row))
+        if row.decided_at is not None and row.decided_by:
+            payloads[f"approval_decision:{row.runtime_approval_id}"] = _canonical_bytes(
+                _approval_decision_payload(row)
+            )
+
+    expected = {
+        str(member["member_id"]): str(member["payload_sha256"])
+        for member in package.record["members"]
+    }
+    selected: dict[str, bytes] = {}
+    for member_id, digest in expected.items():
+        payload = payloads.get(member_id)
+        if payload is None:
+            raise EvidencePackageError(
+                f"evidence member {member_id!r} has no payload in its selected run"
+            )
+        actual = _bytes_digest(payload)
+        if actual != digest:
+            raise EvidencePackageError(f"evidence member {member_id!r} changed after assembly")
+        selected[member_id] = payload
+    return selected
+
+
 __all__ = [
     "EvidencePackage",
     "EvidencePackageAuthorizationError",
     "EvidencePackageError",
     "EvidencePackageNotFoundError",
+    "archive_member_name",
     "assemble",
+    "payload_bytes_for_package",
 ]

@@ -166,7 +166,7 @@ Use the typed SDK where it exists. When a family is marked `Raw only`, the curre
 | Agents (`agents`) | `ga` | `9` | Typed SDK | `client.agents` | The agent record that verification items, refinement jobs, approvals and rollback checkpoints hang off. |
 | Workflows (`workflows`) | `ga` | `28` | Typed SDK | `client.workflows` | Workflow CRUD plus the umbrella entry point for versions, runs, and services. |
 | Workflow Versions (`workflow-versions`) | `ga` | `16` | Typed SDK | `client.workflows.versions` | Create, validate, compile, and publish immutable workflow versions. |
-| Workflow Runs (`workflow-runs`) | `ga` | `25` | Typed SDK | `client.workflows.runs` | Submit, inspect, cancel, and wait on workflow executions. |
+| Workflow Runs (`workflow-runs`) | `ga` | `26` | Partial (25/26) | `client.workflows.runs` | Submit, inspect, cancel, and wait on workflow executions. |
 | Workflow Components (`workflow-components`) | `ga` | `1` | Typed SDK | `client.workflows.components()` | The workflow node catalog, with each component's runtime requirements. |
 | Workflow Templates (`workflow-templates`) | `ga` | `1` | Typed SDK | `client.workflows.templates()` | Starter workflow templates. |
 | Workflow Files (`workflow-files`) | `ga` | `1` | Typed SDK | `client.workflows.upload_staging_file()` | Staging uploads for workflow inputs. |
@@ -219,8 +219,8 @@ The served contract is route-table grounded and body-complete: paths and methods
 
 | Field | Value |
 | --- | --- |
-| Route paths | `397` |
-| Operations | `483` |
+| Route paths | `398` |
+| Operations | `484` |
 | Path coverage | `complete` |
 | Request bodies | `complete` |
 | GA families | `23` |
@@ -255,7 +255,7 @@ Use these quick jumps when you already know the CALIBER subsystem and want the d
 | [Agents (`agents`)](#agents-agents) | `9` | `6` |
 | [Workflows (`workflows`)](#workflows-workflows) | `28` | `20` |
 | [Workflow Versions (`workflow-versions`)](#workflow-versions-workflow-versions) | `16` | `15` |
-| [Workflow Runs (`workflow-runs`)](#workflow-runs-workflow-runs) | `25` | `24` |
+| [Workflow Runs (`workflow-runs`)](#workflow-runs-workflow-runs) | `26` | `25` |
 | [Workflow Components (`workflow-components`)](#workflow-components-workflow-components) | `1` | `1` |
 | [Workflow Templates (`workflow-templates`)](#workflow-templates-workflow-templates) | `1` | `1` |
 | [Workflow Files (`workflow-files`)](#workflow-files-workflow-files) | `1` | `1` |
@@ -619,7 +619,7 @@ Supported management routes that belong to the stable public automation surface.
 
 #### Workflow Runs (`workflow-runs`)
 
-25 operation(s) across 24 route path(s).
+26 operation(s) across 25 route path(s).
 
 | Method | Path | Required scope | Parameters | Responses | Details |
 | --- | --- | --- | --- | --- | --- |
@@ -638,6 +638,7 @@ Supported management routes that belong to the stable public automation surface.
 | `GET` | `/ajax-api/2.0/mlflow/caliber/workflow-runs/{run_id}/causal-links` | project role (`read`) | `run_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_workflow_runs_run_id_causal_links` |
 | `GET` | `/ajax-api/2.0/mlflow/caliber/workflow-runs/{run_id}/checkpoints` | any authenticated user | `run_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_workflow_runs_run_id_checkpoints` |
 | `GET` | `/ajax-api/2.0/mlflow/caliber/workflow-runs/{run_id}/events` | any authenticated user | `run_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_workflow_runs_run_id_events` |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/workflow-runs/{run_id}/evidence` | any authenticated user | `run_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_workflow_runs_run_id_evidence` |
 | `GET` | `/ajax-api/2.0/mlflow/caliber/workflow-runs/{run_id}/files` | any authenticated user | `run_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_workflow_runs_run_id_files` |
 | `POST` | `/ajax-api/2.0/mlflow/caliber/workflow-runs/{run_id}/files` | `caliber.operator` | `run_id` | `201`, `400`, `401`, `403`, `404` | `operationId`: `post_workflow_runs_run_id_files` |
 | `GET` | `/ajax-api/2.0/mlflow/caliber/workflow-runs/{run_id}/files/{file_id}` | any authenticated user | `file_id`, `run_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_workflow_runs_run_id_files_file_id` |

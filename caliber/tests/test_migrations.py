@@ -756,6 +756,55 @@ def test_0137_adds_counterfactual_fork_fields_and_reverses(
 
 
 @pytest.mark.slow
+@pytest.mark.parametrize("dialect", DIALECTS)
+def test_0138_adds_evidence_archive_locator_and_reverses(
+    dialect: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """B14.3a: archive metadata is additive, indexed and downgrade-safe."""
+    with dialect_database_url(dialect, tmp_path, "evidence_archives") as db_url:
+        monkeypatch.setenv("CALIBER_DATABASE_URL", db_url)
+        monkeypatch.chdir(PROJECT_ROOT)
+        cfg = Config(str(ALEMBIC_INI))
+        command.upgrade(cfg, "0137")
+        engine = create_engine(db_url)
+        try:
+            command.upgrade(cfg, "0138")
+            inspector = inspect(engine)
+            columns = {
+                column["name"] for column in inspector.get_columns("caliber_evidence_archives")
+            }
+            assert {
+                "archive_id",
+                "workflow_run_id",
+                "project_id",
+                "package_sha256",
+                "authorization_scope_digest",
+                "member_ids_json",
+                "bucket",
+                "object_key",
+                "expires_at",
+                "deleted_at",
+                "tombstone_json",
+            }.issubset(columns)
+            assert any(
+                index["name"] == "ix_evidence_archives_run"
+                and index["column_names"] == ["workflow_run_id", "exported_at"]
+                for index in inspector.get_indexes("caliber_evidence_archives")
+            )
+            assert any(
+                foreign_key["name"] == "fk_evidence_archives_run"
+                and foreign_key["referred_table"] == "caliber_workflow_runs"
+                for foreign_key in inspector.get_foreign_keys("caliber_evidence_archives")
+            )
+
+            command.downgrade(cfg, "0137")
+            assert "caliber_evidence_archives" not in inspect(engine).get_table_names()
+        finally:
+            engine.dispose()
+            os.environ.pop("CALIBER_DATABASE_URL", None)
+
+
+@pytest.mark.slow
 def test_open_incident_index_migration_refuses_ambiguous_history(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

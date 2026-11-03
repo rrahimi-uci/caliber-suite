@@ -18,7 +18,7 @@ from sqlalchemy.orm import Session
 from starlette.applications import Starlette
 from starlette.exceptions import HTTPException
 from starlette.requests import Request
-from starlette.responses import JSONResponse
+from starlette.responses import JSONResponse, Response
 from starlette.routing import Route
 
 from caliber.audit import record as audit_record
@@ -46,6 +46,12 @@ from caliber.effects.run_settlement import (
     RUN_CANCELLED_REASON,
     settle_run_effects,
 )
+from caliber.evidence import (
+    EvidencePackageAuthorizationError,
+    EvidencePackageError,
+    EvidencePackageNotFoundError,
+)
+from caliber.evidence.export import EvidenceExportError, export_archive
 from caliber.ids import new_workflow_run_id
 from caliber.mcp_policy import deployment_blockers
 from caliber.observability import causal_links
@@ -155,6 +161,7 @@ MANIFEST_PATH = DETAIL_PATH + "/manifest"
 ADMISSION_MANIFEST_PATH = DETAIL_PATH + "/admission-manifest"
 REPLAY_PATH = DETAIL_PATH + "/replay"
 CAUSAL_LINKS_PATH = DETAIL_PATH + "/causal-links"
+EVIDENCE_PATH = DETAIL_PATH + "/evidence"
 EVENTS_PATH = DETAIL_PATH + "/events"
 TRACE_PATH = DETAIL_PATH + "/trace"
 CHECKPOINTS_PATH = DETAIL_PATH + "/checkpoints"
@@ -1415,6 +1422,74 @@ async def get_workflow_run_manifest(request: Request) -> JSONResponse:
             manifest=manifest,
         )
     return envelope_response(data)
+
+
+async def get_workflow_run_evidence(request: Request) -> Response:
+    """Download the caller's scope-bound evidence archive for one run.
+
+    Run visibility and project read access are enforced by the assembler.  A
+    viewer who can see the run but cannot read payloads receives a separately
+    hashed redacted archive; there is no query parameter that can widen that
+    choice.
+    """
+
+    actor = require_user(request)
+    identity = resolve_identity(request)
+    run_id = request.path_params["run_id"]
+    service = get_working_dir_service(request)
+    factory = get_session_factory(request)
+    with factory() as session:
+        run = _get_run_or_404(session, run_id, request=request)
+        project = session.get(CaliberProject, run.project_id) if run.project_id else None
+        if project is None:
+            raise HTTPException(status_code=404, detail=f"workflow run {run_id!r} not found")
+        payloads_allowed = can_read_run_payloads(
+            session,
+            identity,
+            project_id=run.project_id,
+            created_by=run.created_by,
+        )
+        try:
+            archive = export_archive(
+                session,
+                run_id=run_id,
+                identity=identity,
+                backend=service.for_backend(project.storage_backend).backend,
+                actor=actor,
+                redact=not payloads_allowed,
+            )
+        except (EvidencePackageNotFoundError, EvidencePackageAuthorizationError) as exc:
+            raise HTTPException(
+                status_code=404, detail=f"workflow run {run_id!r} not found"
+            ) from exc
+        except EvidencePackageError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        except EvidenceExportError as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+        audit_record(
+            session,
+            actor=actor,
+            action="export_evidence",
+            entity_type="evidence_archive",
+            entity_id=archive.archive_id,
+            details={
+                "workflow_run_id": run_id,
+                "package_sha256": archive.package_sha256,
+                "authorization_scope_digest": archive.authorization_scope_digest,
+            },
+        )
+        session.commit()
+    return Response(
+        content=archive.archive_bytes,
+        media_type="application/zip",
+        headers={
+            "Content-Disposition": f'attachment; filename="evidence-{run_id}.zip"',
+            "X-Content-Type-Options": "nosniff",
+            "ETag": f'"{archive.archive_sha256}"',
+            "X-Caliber-Evidence-Digest": archive.package_sha256,
+            "X-Caliber-Evidence-Scope": archive.authorization_scope_digest,
+        },
+    )
 
 
 async def replay_workflow_run(request: Request) -> JSONResponse:
@@ -3367,6 +3442,7 @@ def register(app: Starlette) -> None:
     app.routes.append(Route(DETAIL_PATH, get_workflow_run, methods=["GET"]))
     app.routes.append(Route(LINEAGE_PATH, get_workflow_run_lineage, methods=["GET"]))
     app.routes.append(Route(MANIFEST_PATH, get_workflow_run_manifest, methods=["GET"]))
+    app.routes.append(Route(EVIDENCE_PATH, get_workflow_run_evidence, methods=["GET"]))
     app.routes.append(
         Route(ADMISSION_MANIFEST_PATH, get_workflow_run_admission_manifest, methods=["GET"])
     )

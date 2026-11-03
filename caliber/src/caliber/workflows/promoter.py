@@ -47,6 +47,7 @@ from caliber.db.models import (
     CaliberEffectProposal,
     CaliberEvalDataset,
     CaliberEvalDatasetExample,
+    CaliberEvidenceArchive,
     CaliberRunManifest,
     CaliberSkill,
     CaliberToolRegistry,
@@ -1551,7 +1552,8 @@ def prune_workflow_runs(
     Returns the number of rows deleted. The janitor calls this each sweep so the
     ``caliber_workflow_runs`` index doesn't grow without bound (plan §26.3 sets
     a 7-day default for preview traces). ``retention_days <= 0`` disables pruning.
-    Runs that have an immutable manifest, an effect proposal or an acceptance decision are never pruned.
+    Runs that have an immutable manifest, effect proposal, acceptance decision,
+    or evidence archive are never pruned.
     """
     if retention_days <= 0:
         return 0
@@ -1585,10 +1587,18 @@ def prune_workflow_runs(
         .where(CaliberAcceptanceDecision.workflow_run_id == CaliberWorkflowRun.workflow_run_id)
         .exists()
     )
+    # An exported archive is durable evidence even when the source run has no
+    # manifest/proposal/acceptance row. Keep the source run until the archive's
+    # own retention controller can tombstone it safely.
+    has_archive = (
+        select(CaliberEvidenceArchive.archive_id)
+        .where(CaliberEvidenceArchive.workflow_run_id == CaliberWorkflowRun.workflow_run_id)
+        .exists()
+    )
     rows = (
         session.execute(
             select(CaliberWorkflowRun).where(
-                age_ts < cutoff, ~has_manifest, ~has_proposal, ~has_decision
+                age_ts < cutoff, ~has_manifest, ~has_proposal, ~has_decision, ~has_archive
             )
         )
         .scalars()
