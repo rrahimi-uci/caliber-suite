@@ -82,7 +82,10 @@ jobs:
     steps:
       - uses: actions/checkout@v5
         with:
-          fetch-depth: 0
+          # Pull-request path filtering uses the GitHub API; a shallow checkout is enough there
+          # and avoids cloning the repository's full generated-document history. Pushes to main
+          # still retain the full history required for the before/after diff.
+          fetch-depth: ${{ github.event_name == 'pull_request' && 2 || 0 }}
       - uses: dorny/paths-filter@v4
         id: filter
         with:
