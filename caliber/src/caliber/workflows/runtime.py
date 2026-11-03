@@ -2565,6 +2565,8 @@ class RuntimePlan:
     knowledge_build_runner: Callable[[dict[str, Any]], dict[str, Any]] | None = None
     #: Called with each agent step's context before the provider sees any of it (B07.3b); raising refuses the step.
     context_recorder: Callable[[AgentContextAssembly], str | None] | None = None
+    #: Called after each provider turn with the model result and observable read results for durable replay.
+    observation_recorder: Callable[[Mapping[str, Any]], Any] | None = None
     #: Authorizes a run-scoped session-memory reference before the memory store loads it.
     memory_read_authorizer: Callable[[str], str] | None = None
     #: Provenance is carried out-of-band so transformed values retain authority without changing their business shape.
@@ -5184,6 +5186,87 @@ def _context_provider_material(
     return tuple(dict(spec) for spec in specs), suffix
 
 
+def _record_step_observations(
+    plan: RuntimePlan,
+    *,
+    executor: WorkflowExecutor,
+    agent: IRAgent,
+    input_text: str,
+    history: list[HistoryMessage],
+    tool_specs: tuple[dict[str, Any], ...],
+    structured_suffix: str,
+    occurrence_id: str,
+    attempt: int,
+    result: AgentTurnResult,
+) -> None:
+    """Send the provider result and each returned tool/read result to the optional replay recorder.
+
+    The callback is deliberately optional and outside the runtime's persistence layer. Normal execution remains
+    unchanged, while a replay-enabled caller can bind one recorder to the run and receive one durable model record
+    plus one record for every observable tool result. The request includes the provider-facing material, not merely
+    the user input, so a later replay can prove which call an observation belongs to.
+    """
+
+    recorder = plan.observation_recorder
+    if recorder is None:
+        return
+    provider = type(executor).__name__
+    # ``prompt_version`` identifies the resolved prompt, not the executor
+    # implementation. Keep the provider release marker stable and carry the
+    # prompt version in the request/content payload below.
+    provider_version = "runtime-v1"
+    request = {
+        "node_id": agent.node_id,
+        "occurrence_id": occurrence_id,
+        "attempt": attempt,
+        "input": _json_compatible(input_text),
+        "history": _json_compatible(history),
+        "instructions": _json_compatible(_base_instruction_text(agent)),
+        "tool_specs": _json_compatible(tool_specs),
+        "structured_output_suffix": structured_suffix,
+        "provider": provider,
+        "provider_version": provider_version,
+    }
+    recorder(
+        {
+            "node_id": agent.node_id,
+            "occurrence_id": occurrence_id,
+            "attempt": attempt,
+            "observation_kind": "model",
+            "request": request,
+            "content": {
+                "final_output": _json_compatible(result.final_output),
+                "structured_output": _json_compatible(result.structured_output),
+                "tool_calls": _json_compatible(result.tool_calls),
+                "model": result.model,
+                "prompt_version": result.prompt_version,
+            },
+            "provider": provider,
+            "provider_version": provider_version,
+        }
+    )
+    for index, item in enumerate(result.tool_calls):
+        if not isinstance(item, dict):
+            continue
+        tool_name = str(item.get("tool") or "unknown")
+        recorder(
+            {
+                "node_id": agent.node_id,
+                "occurrence_id": f"{occurrence_id}:read:{index}",
+                "attempt": attempt,
+                "observation_kind": "read",
+                "request": {
+                    "tool": tool_name,
+                    "input": _json_compatible(input_text),
+                    "parent_occurrence_id": occurrence_id,
+                },
+                "content": _json_compatible(item.get("result")),
+                "provider": tool_name,
+                "provider_version": "runtime-v1",
+            }
+        )
+
+
 def _run_agent_with_history(
     plan: RuntimePlan,
     executor: WorkflowExecutor,
@@ -5277,6 +5360,18 @@ def _run_agent_with_history(
         handoff_agents=handoff_agents,
         tool_callables=tool_callables,
         preview=preview,
+    )
+    _record_step_observations(
+        plan,
+        executor=executor,
+        agent=agent,
+        input_text=input_text,
+        history=history,
+        tool_specs=tool_specs,
+        structured_suffix=structured_suffix,
+        occurrence_id=occurrence_id,
+        attempt=attempt,
+        result=result,
     )
     if plan.context_recorder is not None and root_step_request_id and root_assembly is not None:
         tool_results = tuple(item for item in result.tool_calls if isinstance(item, dict))
