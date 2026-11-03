@@ -10,6 +10,7 @@ import pytest
 from sqlalchemy import select
 
 from caliber.db.models import (
+    CaliberWorkspaceRelease,
     CaliberWorkspaceReleaseEvaluation,
     CaliberWorkspaceReleaseEvaluationAttempt,
 )
@@ -23,11 +24,56 @@ from caliber.workspace_release_service import (
     complete_workspace_release_evaluation,
     record_workspace_release_evaluation_attempt_runs,
 )
+from tests.egi_scenarios.conftest import EDITOR_A, PROJECT_A, ReferenceApp, Workspaces, seed_release
+from tests.egi_scenarios.test_b02_admission import _call
 from tests.test_workspace_release_evaluation_execution import _factory, _seed
 
 
 def _now() -> datetime:
     return datetime.now(timezone.utc)
+
+
+def test_public_evaluation_api_queues_and_lists_an_attempt(
+    reference_app: ReferenceApp,
+    two_workspaces: Workspaces,
+) -> None:
+    """The public release-evaluation API records one queued, project-scoped attempt."""
+    coordinates = seed_release(reference_app, PROJECT_A, name="v13-public")
+    reference_app.client.app.state.config = reference_app.client.app.state.config.model_copy(  # type: ignore[attr-defined]
+        update={"feature_release_candidates_enabled": True}
+    )
+    with reference_app.session_factory() as session:
+        release = session.get(CaliberWorkspaceRelease, coordinates["workspace_release_id"])
+        assert release is not None
+        release.status = "draft"
+        session.commit()
+
+    prefix = f"/projects/{PROJECT_A}/releases/{coordinates['workspace_release_id']}"
+    evaluated = _call(
+        reference_app,
+        "POST",
+        EDITOR_A,
+        PROJECT_A,
+        f"{prefix}/evaluate",
+        {
+            "idempotency_key": "v13-public-evaluation",
+            "evaluation_plan_sha256": "a" * 64,
+            "input_sha256": "b" * 64,
+        },
+    )
+    assert evaluated.status_code == 202, evaluated.text
+    evaluation_id = evaluated.json()["data"]["evaluation_id"]
+    assert evaluated.json()["data"]["status"] == "queued"
+
+    listed = _call(
+        reference_app,
+        "GET",
+        EDITOR_A,
+        PROJECT_A,
+        f"{prefix}/evaluations",
+    )
+    assert listed.status_code == 200, listed.text
+    assert [row["evaluation_id"] for row in listed.json()["data"]] == [evaluation_id]
 
 
 def test_worker_records_provider_run_before_completion_crash(tmp_path: Any) -> None:

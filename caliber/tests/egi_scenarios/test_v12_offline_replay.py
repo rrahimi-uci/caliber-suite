@@ -19,6 +19,7 @@ from caliber.replay.runner import (
     OBSERVATION_LIMIT,
     OBSERVATION_MALFORMED,
     ReplayError,
+    _fork_pins,
     _validate_ids,
 )
 from tests.egi_scenarios.conftest import EDITOR_A, PROJECT_A, Downstream, ReferenceApp
@@ -202,3 +203,18 @@ def test_observation_id_contract_is_bounded_and_fail_closed() -> None:
     with pytest.raises(ReplayError) as over_bound:
         _validate_ids([f"OBS-{index:08x}" for index in range(257)])
     assert over_bound.value.code == OBSERVATION_LIMIT
+
+
+def test_changed_pin_replay_is_explicitly_counterfactual() -> None:
+    """A changed model route is recorded separately from the historical pin set."""
+    source = {"model_routes": ["fake/model"], "policy_version": "policy-v1"}
+    merged, changed = _fork_pins(
+        source,
+        {"model_routes": ["fake/counterfactual"]},
+    )
+    assert source == {"model_routes": ["fake/model"], "policy_version": "policy-v1"}
+    assert merged == {
+        "model_routes": ["fake/counterfactual"],
+        "policy_version": "policy-v1",
+    }
+    assert changed == {"model_routes": ["fake/counterfactual"]}

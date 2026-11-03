@@ -16,6 +16,7 @@ the real OpenAPI executor with the proposal's logical key, ``settle_dispatch`` f
 from __future__ import annotations
 
 import time
+from collections.abc import Iterator
 from typing import Any
 
 import pytest
@@ -29,6 +30,7 @@ from caliber.effects.connectors.document_request import submit_config, submit_in
 from caliber.effects.receipts import settle_dispatch
 from caliber.effects.reconcile import (
     RECONCILED_COMMITTED,
+    STILL_UNKNOWN,
     UnknownEffectError,
     effect_gate,
 )
@@ -46,6 +48,23 @@ from caliber.integrations.openapi.executor import OpenApiExecutionError, _send_r
 from caliber.ownership import acquire
 from caliber.workflows.runtime import FakeWorkflowExecutor, execute
 from tests.egi_scenarios.conftest import Downstream
+from tests.egi_scenarios.test_b05_governed_worker_wiring import (
+    Owner,
+    proposals,
+    run_row,
+)
+from tests.egi_scenarios.test_b05_governed_worker_wiring import (
+    world as governed_world,  # noqa: F401
+)
+from tests.egi_scenarios.test_b05_http_unknown_settlement import (
+    Hook,
+    _approve_and_resume,
+    _park,
+    _reference_only,
+)
+from tests.egi_scenarios.test_b05_http_unknown_settlement import (
+    _reconcile as http_reconcile,
+)
 from tests.egi_scenarios.test_v07_restart_exactly_once import (  # noqa: F401 - fixtures re-used here
     CASE,
     DOC,
@@ -172,6 +191,46 @@ def test_effect_timeout_leaves_unknown_never_second_mutation(
     assert downstream.mutations() == 1
     _assert_receipt_matches_the_downstream(factory, proposal_id, downstream)
     assert _workflow_result(factory).status == "completed"
+
+
+@pytest.fixture
+def v08_hook() -> Iterator[Hook]:
+    hook = Hook()
+    hook.start()
+    try:
+        yield hook
+    finally:
+        hook.stop()
+
+
+def test_worker_retry_with_hidden_lookup_stays_unknown_without_resending(
+    governed_world: tuple[Any, Downstream],  # noqa: F811
+    v08_hook: Hook,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A worker-layer retry cannot turn an unresolved effect into a second mutation."""
+    app, downstream = governed_world
+    _reference_only(app)
+    owner = Owner(app)
+    owner.take()
+    run_id, request_id, worker = _park(app, downstream, v08_hook, monkeypatch, owner)
+    _approve_and_resume(app, run_id, request_id)
+    v08_hook.stall = True
+    v08_hook.hide = True
+    worker._tick()
+    assert run_row(app, run_id).status == "failed"
+    v08_hook.stall = False
+
+    for _ in range(3):
+        results = http_reconcile(app, v08_hook, owner)
+        assert results[0].outcome == STILL_UNKNOWN
+        assert results[0].detail == "http_404"
+
+    assert proposals(app)[0].state == "unknown"
+    assert v08_hook.commits == 1
+    v08_hook.hide = False
+    assert http_reconcile(app, v08_hook, owner)[0].outcome == RECONCILED_COMMITTED
+    assert v08_hook.commits == 1
 
 
 # ----------------------------------------------------------------------------------------- the token budget (B08.4, #761)

@@ -5892,6 +5892,23 @@ After a tombstone exists, `GET /ajax-api/2.0/mlflow/caliber/workflow-runs/{run_i
 zero-day retention setting expires an archive immediately after export and is suitable for lifecycle tests; normal deployments should keep
 the 365-day default or choose an explicit non-negative window.
 
+## Beta fault matrix (B16.1, #881)
+
+The [Beta fault matrix](https://github.com/rrahimi-uci/caliber-suite/blob/main/docs/reports/egi/beta-fault-matrix.md) is the deterministic offline oracle for the fourteen V01–V14
+fault injections. Each row names the collected scenario case and remains `automated` only when that case is collected and passes;
+the matrix does not claim live-provider quality, production deployment, independent security review, or restore evidence.
+
+For a reproducible local check, run:
+
+```sh
+PYTHONPATH=caliber/src caliber/.venv/bin/python -m pytest caliber/tests/test_beta_fault_matrix_contract.py
+```
+
+When a run parks with an approval or an `unknown` effect, preserve the original run/release pins and use the owner/reconciler
+recovery path documented in the [reference-profile recovery runbook](m-65-recovery-runbook.md). Never retry an unknown external
+mutation by sending a second request; reconcile by its stable effect key and record the downstream evidence before marking it
+committed. A changed policy, destination, or approval identity requires a new decision and must not reuse the old grant.
+
 ## Not enforced yet
 
 ADR 0001 describes the whole reference shape; this table is what the *process* checks today. Not checked:

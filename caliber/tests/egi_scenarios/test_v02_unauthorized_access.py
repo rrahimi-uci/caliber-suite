@@ -231,3 +231,44 @@ def test_deny_writes_redacted_audit_row(
         assert (
             "hunter2" not in dumped and "078-05-1120" not in dumped and SECRET_INPUT not in dumped
         )
+
+
+def test_foreign_workspace_cannot_read_or_replay_any_run_surface(
+    reference_app: ReferenceApp,
+    two_workspaces: Workspaces,
+    built: list[Any],
+) -> None:
+    """A project boundary covers the run, evidence, causal-links, and replay surfaces."""
+    workflow_id = _published_workflow(reference_app)
+    started = _call(
+        reference_app,
+        "POST",
+        EDITOR_A,
+        PROJECT_A,
+        "/workflow-runs",
+        {
+            "workflow_id": workflow_id,
+            "alias": "manual",
+            "input": "boundary probe",
+            "idempotency_key": "boundary-probe",
+            **seed_release(reference_app, PROJECT_A),
+        },
+    )
+    assert started.status_code == 202, started.text
+    run_id = started.json()["data"]["workflow_run_id"]
+    for method, suffix, body in (
+        ("GET", "", None),
+        ("GET", "/evidence", None),
+        ("GET", "/causal-links", None),
+        ("POST", "/replay", {}),
+    ):
+        response = _call(
+            reference_app,
+            method,
+            EDITOR_B,
+            PROJECT_B,
+            f"/workflow-runs/{run_id}{suffix}",
+            body,
+        )
+        assert response.status_code in (403, 404), response.text
+    assert built == []

@@ -22,6 +22,13 @@
 # without rewriting shared PR history.
 b087200387d325942a5bb8a57f8a184c2398bcd4:sdk/caliber-sdk/tests/test_resources_source_connection.py:private-key:112
 
+# B16.1 (#881): the first fault-matrix commit used a test-only idempotency key
+# (`v02-foreign-surfaces`) that the generic-api-key heuristic classified as a
+# secret. The follow-up commit replaces it with `boundary-probe`; this exact
+# historical fingerprint remains ignored because the PR cannot rewrite its
+# already-pushed commit history.
+ea409ed0d262c80b085d1f1ef681bde3af8ad1a4:caliber/tests/egi_scenarios/test_v02_unauthorized_access.py:generic-api-key:253
+
 # B08.2 (#744): two test fixtures in the first commit of PR #1047 were flagged as generic API keys: a planted marker string that
 # asserts no model-supplied value reaches an error or log line, and an Idempotency-Key header *name* with a throwaway value sent to
 # the local downstream fixture. Neither is a credential. The follow-up commit marks the lines `gitleaks:allow`; this entry silences

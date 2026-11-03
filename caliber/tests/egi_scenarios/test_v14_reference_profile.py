@@ -116,6 +116,21 @@ def _wait_for_role(server: ServerProcess, role: str, timeout: float) -> float:
     raise AssertionError(f"the server never reported {role!r} in {timeout}s\n{server.log_tail()}")
 
 
+def test_fresh_migrated_install_serves_health_and_reports_profile(
+    reference_app: ReferenceApp,
+) -> None:
+    """The scenario fixture's clean migration is an explicit install/readiness contract."""
+    health = reference_app.client.get(HEALTH_PATH)
+    assert health.status_code == 200, health.text
+    assert health.json()["status"] == "ok"
+
+    readiness = reference_app.client.get(READINESS)
+    assert readiness.status_code in (200, 503), readiness.text
+    data = readiness.json()["data"]
+    assert data["profile"] == reference_app.profile
+    assert data["execution_role"] in {"owner", "secondary"}
+
+
 def _process_server(reference_app: ReferenceApp, tmp_path: Path, name: str) -> ServerProcess:
     env: dict[str, Any] = {
         **reference_app.env,
