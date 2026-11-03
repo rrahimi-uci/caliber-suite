@@ -6,7 +6,7 @@ from __future__ import annotations
 from typing import Any, cast
 
 import pytest
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 
 from caliber.acceptance import completion as completion_module
 from caliber.db.models import (
@@ -68,6 +68,17 @@ def _run_summary(app: ReferenceApp, run_id: str) -> tuple[dict[str, Any] | None,
         return run.summary, int(observations or 0), int(decisions or 0)
 
 
+def _observation_ids(app: ReferenceApp, run_id: str) -> list[str]:
+    with app.session_factory() as session:
+        return list(
+            session.scalars(
+                select(CaliberStepObservation.observation_id)
+                .where(CaliberStepObservation.workflow_run_id == run_id)
+                .order_by(CaliberStepObservation.observation_id)
+            )
+        )
+
+
 def test_replay_makes_no_live_calls(
     world: tuple[ReferenceApp, Downstream], monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -75,8 +86,7 @@ def test_replay_makes_no_live_calls(
 
     app, downstream = world
     run_id = drive(app, downstream, monkeypatch, Reading())
-    case = downstream.client.get(f"/cases/{CASE}").json()
-    observation_id = _record_case(app, run_id, case)
+    [observation_id] = _observation_ids(app, run_id)
     before = _run_summary(app, run_id)
     mutations = downstream.mutations()
 
@@ -105,6 +115,12 @@ def test_missing_observations_refuse_without_live_fallback(
     app, downstream = world
     run_id = drive(app, downstream, monkeypatch, Reading())
 
+    with app.session_factory() as session:
+        session.execute(
+            delete(CaliberStepObservation).where(CaliberStepObservation.workflow_run_id == run_id)
+        )
+        session.commit()
+
     response = _call(app, "POST", EDITOR_A, PROJECT_A, f"/workflow-runs/{run_id}/replay", {})
 
     assert response.status_code == 409
@@ -117,7 +133,7 @@ def test_tampered_observation_refuses_without_fallback(
 ) -> None:
     app, downstream = world
     run_id = drive(app, downstream, monkeypatch, Reading())
-    observation_id = _record_case(app, run_id, downstream.client.get(f"/cases/{CASE}").json())
+    [observation_id] = _observation_ids(app, run_id)
 
     with app.session_factory() as session:
         row = session.scalar(
@@ -186,9 +202,16 @@ def test_malformed_or_unsupported_observation_refuses_without_fallback(
 ) -> None:
     app, downstream = world
     run_id = drive(app, downstream, monkeypatch, Reading())
-    _record_case(app, run_id, content)
+    observation_id = _record_case(app, run_id, content)
 
-    response = _call(app, "POST", EDITOR_A, PROJECT_A, f"/workflow-runs/{run_id}/replay", {})
+    response = _call(
+        app,
+        "POST",
+        EDITOR_A,
+        PROJECT_A,
+        f"/workflow-runs/{run_id}/replay",
+        {"observation_ids": [observation_id]},
+    )
 
     assert response.status_code == 409
     assert response.json()["detail"].startswith(f"{code}:")
