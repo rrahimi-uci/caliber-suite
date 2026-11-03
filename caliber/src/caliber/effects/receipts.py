@@ -42,7 +42,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from caliber.contracts import validate_record
-from caliber.db.models import CaliberEffectProposal, CaliberEffectReceipt
+from caliber.db.models import CaliberEffectProposal, CaliberEffectReceipt, CaliberWorkflowRun
 from caliber.db.transactions import begin_sqlite_transaction
 from caliber.effects.connectors import Classified, TransportOutcome
 from caliber.effects.records import (
@@ -225,7 +225,8 @@ def record_receipt(
     :func:`settle_dispatch` (receipt and state move under the lease) is the owner's commit path. A receipt recorded on its
     own makes the proposal impossible to fail but does not commit it.
 
-    The write runs inside an ``effect.receipt.write`` span (B11.3a) carrying ``caliber.proposal_id`` and the
+    The write runs inside an ``effect.receipt.write`` span (B11.3a) carrying ``caliber.run_id`` when the proposal's
+    persisted ``CaliberWorkflowRun`` relationship is present, plus ``caliber.proposal_id`` and the
     proposal's recorded approval reference (``caliber.approval_id`` for an exact-intent approval,
     ``caliber.decision_id`` for a policy decision), all read from the proposal row, and ``caliber.effect_id``, the
     receipt's id, once the receipt is stored in the caller's transaction.  The span describes the *write*: if the caller
@@ -252,7 +253,9 @@ def _record_receipt(
     row = session.get(CaliberEffectProposal, proposal_id, populate_existing=True)
     if row is None:
         raise KeyError(proposal_id)
+    run = session.get(CaliberWorkflowRun, row.workflow_run_id)
     span.bind(
+        run_id=run.workflow_run_id if run is not None else None,
         proposal_id=row.proposal_id,
         approval_id=row.approval_ref if row.approval_kind == EXACT_INTENT_APPROVAL else None,
         decision_id=row.approval_ref if row.approval_kind == POLICY_DECISION else None,

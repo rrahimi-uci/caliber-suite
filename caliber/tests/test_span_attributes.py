@@ -18,6 +18,7 @@ from caliber.observability.span_attributes import (
     MAX_ID_LENGTH,
     REFUSAL_CODE_KEY,
     RESERVED_SPAN_KEYS,
+    RUN_ID_KEY,
     causal_attributes,
     governed_span,
     without_reserved_keys,
@@ -75,6 +76,7 @@ def test_exactly_the_four_causal_keys_are_emitted_in_the_documented_namespace() 
         )
         == ALL_FOUR
     )
+    assert RUN_ID_KEY not in CAUSAL_ATTRIBUTE_KEYS.values()
 
 
 def test_an_unknown_id_is_omitted_not_blanked() -> None:
@@ -202,18 +204,33 @@ def test_governed_span_sends_only_validated_ids_to_the_tracer() -> None:
     fake = FakeMlflow()
     set_tracer(Tracer(mlflow_module=fake))
     with governed_span(
-        "effect.x", span_type="TOOL", proposal_id=PROPOSAL, approval_id="no way!"
+        "effect.x",
+        span_type="TOOL",
+        run_id="WR-run-01",
+        proposal_id=PROPOSAL,
+        approval_id="no way!",
     ) as s:
         s.bind(decision_id=DECISION, effect_id="1-bad")
     (recorded,) = fake.spans
     assert recorded.name == "effect.x"
     assert recorded.span_type == "TOOL"
     assert recorded.attributes["caliber.proposal_id"] == PROPOSAL
+    assert recorded.attributes[RUN_ID_KEY] == "WR-run-01"
     assert recorded.attributes["caliber.decision_id"] == DECISION
     assert "caliber.approval_id" not in recorded.attributes
     assert "caliber.effect_id" not in recorded.attributes
     assert recorded.attributes["caliber.status"] == "completed"
     assert fake.span_exits == [("effect.x", None)]
+
+
+@pytest.mark.parametrize("run_id", [None, "", "bad value", 7, "9starts-with-a-number"])
+def test_governed_span_drops_missing_or_malformed_run_correlation(run_id: object) -> None:
+    fake = FakeMlflow()
+    set_tracer(Tracer(mlflow_module=fake))
+    with governed_span("effect.x", run_id=run_id):
+        pass
+    (recorded,) = fake.spans
+    assert RUN_ID_KEY not in recorded.attributes
 
 
 class _ForeignError(RuntimeError):

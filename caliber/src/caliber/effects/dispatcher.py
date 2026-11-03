@@ -968,6 +968,13 @@ def _claim_dispatch(
             raise EffectRefused("proposal_not_approved")
         view = proposal_view(session, proposal_id)
         intent_record = read_proposal(session, proposal_id)
+        run = session.get(CaliberWorkflowRun, intent_record["workflow_run_id"])
+        # The run id is trusted only after the immutable proposal has been
+        # validated and its referenced run row has been found.  It is a
+        # correlation tag, not one of the four B11.3b causal-link ids.
+        if run is None:
+            raise EffectRefused("run_not_found")
+        span.bind(run_id=run.workflow_run_id)
         if (
             view.connector != admitted.connector
             or view.connector_version != admitted.connector_version
@@ -1021,11 +1028,8 @@ def _claim_dispatch(
         # The same UPDATE records which commit-time decision authorised this effect (B11.3c, #1061); a trigger refuses any
         # other write of the column, and a rollback of this claim leaves neither it nor the consumption.
         approval_row.commit_decision_id = checked.decision_id
-        run = session.get(CaliberWorkflowRun, intent_record["workflow_run_id"])
         # The proposal reader is authoritative for intent.  The run lookup is
         # only for the outbox aggregate's project scope.
-        if run is None:
-            raise EffectRefused("run_not_found")
         enqueue(
             session,
             event_id=_event_id(proposal_id, dispatched.version),
