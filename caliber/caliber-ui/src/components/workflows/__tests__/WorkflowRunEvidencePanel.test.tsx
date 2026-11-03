@@ -44,7 +44,7 @@ describe("WorkflowRunEvidencePanel", () => {
         `${API_BASE}/workflow-runs/WR-1/evidence`,
         () =>
           new HttpResponse(
-            new Blob(["zip-bytes"], { type: "application/zip" }),
+            new TextEncoder().encode("zip-bytes"),
             {
               status: 200,
               headers: { "Content-Type": "application/zip" },
