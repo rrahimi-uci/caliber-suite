@@ -228,6 +228,7 @@ import type {
   WorkflowRunCheckpoint,
   WorkflowRunHistoryStats,
   WorkflowRunManifest,
+  WorkflowRunReplayReport,
   AdmissionManifest,
   WorkflowSessionMemoryClearResult,
   WorkflowSessionMemoryEntry,
@@ -3158,6 +3159,25 @@ export const caliberApi = {
     return request<WorkflowRun>(`/workflow-runs/${encodeURIComponent(runId)}`, {
       signal,
     });
+  },
+
+  /** GET /workflow-runs/{id}/evidence — authenticated evidence archive download. */
+  downloadWorkflowRunEvidence(runId: string): Promise<Blob> {
+    return downloadFile(
+      `/workflow-runs/${encodeURIComponent(runId)}/evidence`,
+      "application/zip",
+    );
+  },
+
+  /** POST /workflow-runs/{id}/replay — bounded, read-only historical replay. */
+  replayWorkflowRun(
+    runId: string,
+    payload: { observation_ids?: string[] } = {},
+  ): Promise<WorkflowRunReplayReport> {
+    return request<WorkflowRunReplayReport>(
+      `/workflow-runs/${encodeURIComponent(runId)}/replay`,
+      { method: "POST", body: payload },
+    );
   },
 
   /** GET /workflow-runs/{id}/lineage */
