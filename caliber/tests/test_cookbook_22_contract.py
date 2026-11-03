@@ -118,13 +118,13 @@ def test_lab22_runner_registration_is_selectable_with_the_beta_ui_journey() -> N
         in text
     )
     assert "CALIBER_EFFECT_CALLBACK_CONNECTORS=" in text
-    assert 'CALIBER_AGENT_STEP_TOOL_BACKENDS=' in text
+    assert "CALIBER_AGENT_STEP_TOOL_BACKENDS=" in text
     bootstrap = BOOTSTRAP.read_text(encoding="utf-8")
     assert 'TOOL_NAME = "request_missing_document"' in bootstrap
     assert 'TOOL_VERSION = "1.0"' in bootstrap
-    assert 'project_id=PROJECT_ID' in bootstrap
+    assert "project_id=PROJECT_ID" in bootstrap
     assert 'side_effect_level="external_action"' in bootstrap
-    assert 'requires_approval=True' in bootstrap
+    assert "requires_approval=True" in bootstrap
     assert "harborlight22) start_helper harborlight-22 8810" in text
     assert "scriptedllm22) start_helper scripted-llm-22 8792" in text
     assert BOOTSTRAP.is_file()

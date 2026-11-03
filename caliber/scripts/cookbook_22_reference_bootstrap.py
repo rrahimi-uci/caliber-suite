@@ -154,8 +154,12 @@ def main() -> None:  # noqa: PLR0912, PLR0915 - linear disposable fixture bootst
                     "tool.module_path", tool.module_path, "caliber.workflows.demo_tools"
                 )
                 _require_identity("tool.callable_name", tool.callable_name, "write_workdir_file")
-                _require_identity("tool.execution_backend", tool.execution_backend, "python_callable")
-                _require_identity("tool.side_effect_level", tool.side_effect_level, "external_action")
+                _require_identity(
+                    "tool.execution_backend", tool.execution_backend, "python_callable"
+                )
+                _require_identity(
+                    "tool.side_effect_level", tool.side_effect_level, "external_action"
+                )
                 _require_identity("tool.requires_approval", tool.requires_approval, True)
                 _require_identity("tool.allow_in_preview", tool.allow_in_preview, False)
                 _require_identity("tool.status", tool.status, "active")
