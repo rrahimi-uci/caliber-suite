@@ -530,15 +530,28 @@ def invoke_openapi_published_tool(
     tool_input: dict[str, Any],
     allowed_side_effect_levels: set[str] | None = None,
 ) -> dict[str, Any]:
-    """Run one published OpenAPI-backed tool through Aria's governed surface."""
+    """Run one published OpenAPI-backed tool through Aria's read-only surface.
+
+    EP-034 is deliberately a reference-profile refusal, not a run-less write
+    authority: Aria has no workflow run in which to record a proposal, lease,
+    approval and receipt.  The trusted registry row and the operation selected
+    by its own configuration are classified before input validation, secret
+    resolution or transport.  Read-class GET/HEAD/OPTIONS tools remain on the
+    public executor path.
+    """
 
     from sqlalchemy import select  # noqa: PLC0415
 
     from caliber.audit import record as audit_record  # noqa: PLC0415
     from caliber.db.models import CaliberToolRegistry  # noqa: PLC0415
     from caliber.db.scoping import apply_visibility_filter  # noqa: PLC0415
+    from caliber.effects.refusals import refuse_in_reference_profile  # noqa: PLC0415
     from caliber.egress import EgressPolicy  # noqa: PLC0415
-    from caliber.integrations.openapi.executor import execute_openapi_http_tool  # noqa: PLC0415
+    from caliber.integrations.openapi.executor import (  # noqa: PLC0415
+        READ_METHODS,
+        execute_openapi_http_tool,
+        openapi_operation_method,
+    )
 
     identity = ctx.identity()
     policy = EgressPolicy.from_config(ctx.config)
@@ -553,6 +566,17 @@ def invoke_openapi_published_tool(
         tool = session.execute(stmt).scalars().first()
         if tool is None or tool.execution_backend != "openapi_http":
             raise ValueError(f"published OpenAPI tool {tool_id!r} not found")
+        protected = str(tool.side_effect_level or "read") != "read"
+        if not protected:
+            try:
+                method = openapi_operation_method(dict(tool.backend_config or {}), tool_input)
+            except Exception:
+                # Let the public executor retain ownership of malformed or
+                # unresolved operation errors outside the profile refusal.
+                method = None
+            protected = method is not None and method not in READ_METHODS
+        if protected:
+            refuse_in_reference_profile("EP-034", ctx.config)
         if tool.requires_approval:
             raise ValueError(
                 f"tool {tool.name!r} requires approval and cannot be invoked through Aria"

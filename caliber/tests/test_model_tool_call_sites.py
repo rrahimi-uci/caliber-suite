@@ -12,7 +12,7 @@ Statuses:
   everything else is a proposal (B08.2, B04.6), so it cannot run a protected tool.
 * ``legacy``: not governed, and named so: the development profile with no governed context, a plan not wired to the registry
   (a standalone export, a caller-built plan). Documented in ``docs/operate/reference-profile.md``.
-* ``out-of-scope``: Aria, the assistant, which has no workflow run to propose into (inventory EP-034; owned by #1063).
+* ``out-of-scope``: Aria, the assistant, which remains a separate executor; EP-034 explicitly refuses protected published OpenAPI rows in the reference profile and keeps declared read methods available.
 """
 
 from __future__ import annotations
@@ -55,10 +55,10 @@ MODEL_TOOL_CALL_SITES: dict[str, tuple[frozenset[str], str, str]] = {
     ),
 }
 
-#: Aria's tool loops call ``dispatch`` on the assistant toolset: no workflow run, so nothing to propose into (EP-034, #1063).
+#: Aria's tool loops call ``dispatch`` on the assistant toolset: EP-034 refuses protected published OpenAPI rows in the reference profile; there is no run-less dispatcher authority.
 ASSISTANT_TOOL_CALL_SITES: dict[str, str] = {
-    "assistant/anthropic_engine.py": "out-of-scope: Aria's own tool loop (#1063)",
-    "assistant/openai_engine.py": "out-of-scope: Aria's own tool loop (#1063)",
+    "assistant/anthropic_engine.py": "out-of-scope: Aria's own tool loop; EP-034 refuses protected published OpenAPI rows in the reference profile",
+    "assistant/openai_engine.py": "out-of-scope: Aria's own tool loop; EP-034 refuses protected published OpenAPI rows in the reference profile",
 }
 
 STATUSES = {"gated", "governed-step", "legacy", "out-of-scope"}
@@ -152,7 +152,7 @@ _EXECUTORS = frozenset(
 
 
 def test_the_assistants_tool_loops_are_the_only_other_executors_and_are_pinned() -> None:
-    """Aria runs its own tools (EP-034, #1063): out of scope here, but named, and kept apart from the workflow executors."""
+    """Aria runs its own tools: EP-034 fences protected published OpenAPI calls, and the assistant remains apart from workflow executors."""
     dispatching: set[str] = set()
     defined: set[str] = set()
     for path in sorted((ROOT / "assistant").glob("*.py")):
@@ -175,7 +175,7 @@ def test_the_assistants_tool_loops_are_the_only_other_executors_and_are_pinned()
         assert not imported & _EXECUTORS, f"{relative} reaches a workflow tool executor"
         assert not _names_in(tree), f"{relative} names a workflow tool executor"
     assert dispatching == set(ASSISTANT_TOOL_CALL_SITES)
-    # the toolsets themselves, the only places Aria turns a model's call into a tool run: the agent toolset (EP-034, #1063) and the
+    # the toolsets themselves, the only places Aria turns a model's call into a tool run: the agent toolset (EP-034) and the
     # registry lookups of ``tools.py``, which are read-only by construction
     assert defined == {"assistant/agent_tools.py", "assistant/tools.py"}
 

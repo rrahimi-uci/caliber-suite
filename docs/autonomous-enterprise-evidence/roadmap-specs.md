@@ -122,7 +122,7 @@ Legend for "built": **Code** = exists on main and tested; **Spec** = specified i
 `AssistantApprovalMode` in `assistant/models.py:42` is the only code that lets a non-human principal hold a decision chair today. ADR 0004 maps it (`manual/auto_safe/auto_all` to L1, `agent_review` to L3, `full_autonomy` to L4/L5) and #862 will clamp it. Two facts matter:
 
 - `config.py:1283` requires the reviewer identity to be "distinct from the author and listed in `CALIBER_APPROVER_USERS` or `CALIBER_ADMIN_USERS`". The agent is a *human-shaped account holding a scope*, with no type, no pins, no effect ceiling.
-- `docs/architecture/protected-effect-paths.md` "Findings": "In the `auto_all` and `full_autonomy` Aria modes an agent can invoke write and external-action OpenAPI tools, run workflows, run draft source in the sandbox and publish drafts". So the live autonomous path is *more permissive* than the Beta's own refusal profile, and the repo documents that honestly. The risk is that Beta messaging ("L1 everywhere") is true of the governed path and false of Aria.
+- `docs/architecture/protected-effect-paths.md` now records EP-034 as a reference-profile refusal: `auto_all` and `full_autonomy` do not provide Aria a run-less OpenAPI write authority, while declared read `GET`/`HEAD`/`OPTIONS` remains available. Other Aria mutation paths still require their own scope decisions; the Beta claim is bounded to this OpenAPI path rather than generalized to every assistant action.
 
 ---
 

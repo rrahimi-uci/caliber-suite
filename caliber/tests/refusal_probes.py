@@ -790,6 +790,86 @@ def development_ep_080(env: ProbeEnv) -> None:
     assert UNSUPPORTED_IN_REFERENCE_PROFILE not in out["error"]
 
 
+# ---- EP-034: Aria's published OpenAPI tools -----------------------------------------------------------------------------
+
+
+def _aria_openapi_config(profile: str) -> CaliberConfig:
+    return CaliberConfig(
+        profile=profile,
+        egress_allowed_hosts="tickets.example.com",
+        egress_allow_unresolvable_hosts=True,
+    )
+
+
+def probe_ep_034(env: ProbeEnv) -> None:
+    """Reference Aria refuses a trusted protected row before input or transport handling."""
+    import httpx
+
+    from caliber.assistant.capabilities import invoke_openapi_published_tool
+    from tests.test_assistant_agent_tools import _mock_openapi, _openapi_tool, _session, _toolset
+
+    factory = env.fixture("session_factory")
+    service = _assistant(_aria_openapi_config("reference"))
+    _openapi_tool(
+        factory,
+        tool_id="TL-probe-ep034-write",
+        name="create_ticket",
+        side_effect_level="write",
+    )
+    sent: list[httpx.Request] = []
+    _mock_openapi(env.monkeypatch, lambda request: sent.append(request) or httpx.Response(201))
+    session_id = _session(service, factory)
+    ctx = _toolset(
+        service, factory, session_id, mode="build", approval="auto_all"
+    )._capability_context()
+
+    refused = expect_refused(
+        "EP-034",
+        lambda: invoke_openapi_published_tool(
+            ctx,
+            tool_id="TL-probe-ep034-write",
+            tool_input={"body": {"title": "PROBE-SECRET"}},
+            allowed_side_effect_levels={"write"},
+        ),
+    )
+    assert "PROBE-SECRET" not in str(refused)
+    assert sent == []
+
+
+def development_ep_034(env: ProbeEnv) -> None:
+    """The Aria read path remains available outside the reference refusal."""
+    import httpx
+
+    from caliber.assistant.capabilities import invoke_openapi_published_tool
+    from tests.test_assistant_agent_tools import _mock_openapi, _openapi_tool, _session, _toolset
+
+    factory = env.fixture("session_factory")
+    service = _assistant(_aria_openapi_config("development"))
+    _openapi_tool(
+        factory,
+        tool_id="TL-probe-ep034-read",
+        name="get_ticket",
+        side_effect_level="read",
+    )
+    _mock_openapi(
+        env.monkeypatch,
+        lambda request: httpx.Response(200, json={"ticket_id": "T-1", "status": "open"}),
+    )
+    session_id = _session(service, factory)
+    ctx = _toolset(
+        service, factory, session_id, mode="chat", approval="manual"
+    )._capability_context()
+
+    result = invoke_openapi_published_tool(
+        ctx,
+        tool_id="TL-probe-ep034-read",
+        tool_input={"path_params": {"ticket_id": "T-1"}},
+        allowed_side_effect_levels={"read"},
+    )
+    assert result["status_code"] == 200
+    assert result["json"]["status"] == "open"
+
+
 # ---- EP-114: the first-party database MCP server ------------------------------------------------------------------------
 
 

@@ -143,7 +143,7 @@ Direct consequences:
 - Tools: `CaliberToolRegistry` rows (name+version unique, owner, module/callable, backend, `side_effect_level`, `requires_approval`), OpenAPI integrations/operations/drafts, MCP servers with discovered-tool allowlist and mandatory explicit classification (`validate_tool_access` requires `allowed`, `side_effect_level`, `requires_approval`, optional rate limit), execution policy for stdio vs remote (`mcp_policy.py`). Identity of a tool is the registry row, not its name (#641, `workflows/builtin_tools.py::is_builtin_tool`).
 - A capability is not an object that attaches to a role. Tool access is attached to (a) the agent node's `tools` list in the manifest, (b) the tool's own policy, (c) the project role of whoever starts the run. There is no "role X is allowed capabilities {A,B}, whoever holds X". Tool policies are caller-independent.
 - MCP and OpenAPI tool calls do not go through the effect ledger (EP-007, 008, 030-037: current guard none or egress). OpenAPI executor calls and MCP calls from a workflow carry the workflow-owner identity.
-- Aria's tools in `auto_all`/`full_autonomy` can invoke write and external-action OpenAPI tools, run workflows, run draft source in the sandbox and publish drafts (`protected-effect-paths.md` findings; `assistant/agent_tools.py`).
+- Aria's tools in `auto_all`/`full_autonomy` do not acquire run-less OpenAPI write authority: EP-034 refuses declared `write`/`external_action` rows and non-read selected methods in the reference profile before transport, while declared read `GET`/`HEAD`/`OPTIONS` calls remain available. Other Aria mutation paths remain separately classified (`protected-effect-paths.md`; `assistant/agent_tools.py`).
 
 ### 2.9 Exception handling and escalation
 

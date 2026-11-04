@@ -32,6 +32,7 @@ from caliber.db.models import (
     CaliberWorkflowRun,
     CaliberWorkflowVersion,
 )
+from caliber.effects.dispatcher import UnsupportedEffectPath
 from caliber.ids import new_assistant_draft_id, new_eval_example_id
 from tests.workflow_helpers import make_manifest
 
@@ -112,7 +113,9 @@ def _openapi_tool(
     name: str,
     side_effect_level: str = "read",
     requires_approval: bool = False,
+    method: str | None = None,
 ) -> str:
+    resolved_method = method or ("GET" if side_effect_level == "read" else "POST")
     with factory() as db:
         db.add(
             CaliberToolRegistry(
@@ -125,7 +128,7 @@ def _openapi_tool(
                 execution_backend="openapi_http",
                 backend_config={
                     "kind": "openapi_http",
-                    "method": "GET" if side_effect_level == "read" else "POST",
+                    "method": resolved_method,
                     "path": "/tickets/{ticket_id}" if side_effect_level == "read" else "/tickets",
                     "server_url": "https://tickets.example.com",
                     "auth_binding": None,
@@ -466,6 +469,152 @@ class TestReadHandlers:
 
         assert "SECRET-TITLE" not in str(refused.value)
         assert sent == []
+
+    @pytest.mark.parametrize("side_effect_level", ["write", "external_action"])
+    def test_reference_profile_refuses_protected_openapi_tools_before_transport(
+        self, session_factory, monkeypatch, side_effect_level
+    ) -> None:
+        """EP-034: Aria has no run-less authority for an OpenAPI write or external action."""
+        from caliber.assistant.capabilities import invoke_openapi_published_tool
+
+        reference = AssistantService(
+            engine=FakeAssistantEngine(),
+            runtime_config=CaliberConfig(
+                profile="reference",
+                egress_allowed_hosts="tickets.example.com",
+                egress_allow_unresolvable_hosts=True,
+            ),
+        )
+        _openapi_tool(
+            session_factory,
+            tool_id=f"TL-openapi-{side_effect_level}",
+            name=f"{side_effect_level}_ticket",
+            side_effect_level=side_effect_level,
+        )
+        sent: list[httpx.Request] = []
+        _mock_openapi(monkeypatch, lambda request: sent.append(request) or httpx.Response(201))
+        sid = _session(reference, session_factory)
+        ctx = _toolset(
+            reference, session_factory, sid, mode="build", approval="auto_all"
+        )._capability_context()
+
+        with pytest.raises(UnsupportedEffectPath) as refused:
+            invoke_openapi_published_tool(
+                ctx,
+                tool_id=f"TL-openapi-{side_effect_level}",
+                tool_input={"body": {"title": "SECRET-TITLE"}},
+                allowed_side_effect_levels={side_effect_level},
+            )
+
+        assert refused.value.code == "unsupported_in_reference_profile"
+        assert "SECRET-TITLE" not in str(refused.value)
+        assert sent == []
+
+    def test_reference_profile_under_declared_post_is_refused_before_transport(
+        self, session_factory, monkeypatch
+    ) -> None:
+        """A trusted read row cannot smuggle a POST through Aria's read projection."""
+        _openapi_tool(
+            session_factory, tool_id="TL-openapi-liar-reference", name="get_ticket", method="POST"
+        )
+        with session_factory() as db:
+            row = db.get(CaliberToolRegistry, "TL-openapi-liar-reference")
+            row.backend_config = {**row.backend_config, "path": "/tickets"}
+            db.commit()
+        sent: list[httpx.Request] = []
+        _mock_openapi(monkeypatch, lambda request: sent.append(request) or httpx.Response(200))
+        reference = AssistantService(
+            engine=FakeAssistantEngine(),
+            runtime_config=CaliberConfig(
+                profile="reference",
+                egress_allowed_hosts="tickets.example.com",
+                egress_allow_unresolvable_hosts=True,
+            ),
+        )
+        sid = _session(reference, session_factory)
+        ts = _toolset(reference, session_factory, sid, mode="chat", approval="manual")
+        tool_name = next(name for name in _names(ts) if name.startswith("openapi_tool_get_ticket"))
+
+        out = json.loads(ts.dispatch(tool_name, {"body": {"title": "SECRET-TITLE"}}))
+
+        assert "unsupported_in_reference_profile" in out["error"]
+        assert "SECRET-TITLE" not in out["error"]
+        assert sent == []
+
+    def test_reference_profile_declared_write_get_is_refused(
+        self, session_factory, monkeypatch
+    ) -> None:
+        """A write declaration is protected even if its selected HTTP method is GET."""
+        from caliber.assistant.capabilities import invoke_openapi_published_tool
+
+        reference = AssistantService(
+            engine=FakeAssistantEngine(),
+            runtime_config=CaliberConfig(
+                profile="reference",
+                egress_allowed_hosts="tickets.example.com",
+                egress_allow_unresolvable_hosts=True,
+            ),
+        )
+        _openapi_tool(
+            session_factory,
+            tool_id="TL-openapi-declared-write-get",
+            name="declared_write_get",
+            side_effect_level="write",
+            method="GET",
+        )
+        sent: list[httpx.Request] = []
+        _mock_openapi(monkeypatch, lambda request: sent.append(request) or httpx.Response(200))
+        sid = _session(reference, session_factory)
+        ctx = _toolset(
+            reference, session_factory, sid, mode="build", approval="auto_all"
+        )._capability_context()
+
+        with pytest.raises(UnsupportedEffectPath) as refused:
+            invoke_openapi_published_tool(
+                ctx,
+                tool_id="TL-openapi-declared-write-get",
+                tool_input={"body": {"title": "SECRET-TITLE"}},
+                allowed_side_effect_levels={"write"},
+            )
+
+        assert refused.value.code == "unsupported_in_reference_profile"
+        assert sent == []
+
+    @pytest.mark.parametrize("method", ["GET", "HEAD", "OPTIONS"])
+    def test_reference_profile_read_openapi_methods_remain_available(
+        self, session_factory, monkeypatch, method
+    ) -> None:
+        _openapi_tool(
+            session_factory,
+            tool_id=f"TL-openapi-read-{method.lower()}",
+            name=f"read_{method.lower()}",
+            method=method,
+        )
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            assert request.method == method
+            assert request.url == "https://tickets.example.com/tickets/T-1"
+            return httpx.Response(200, json={"ticket_id": "T-1"})
+
+        _mock_openapi(monkeypatch, handler)
+        reference = AssistantService(
+            engine=FakeAssistantEngine(),
+            runtime_config=CaliberConfig(
+                profile="reference",
+                egress_allowed_hosts="tickets.example.com",
+                egress_allow_unresolvable_hosts=True,
+            ),
+        )
+        sid = _session(reference, session_factory)
+        ts = _toolset(reference, session_factory, sid, mode="chat", approval="manual")
+        tool_name = next(
+            name for name in _names(ts) if name.startswith(f"openapi_tool_read_{method.lower()}")
+        )
+
+        out = json.loads(ts.dispatch(tool_name, {"path_params": {"ticket_id": "T-1"}}))
+
+        assert out["ok"] is True
+        assert out["data"]["status_code"] == 200
 
     def test_an_under_declared_read_tool_that_posts_is_refused_not_sent(
         self, svc, session_factory, monkeypatch
