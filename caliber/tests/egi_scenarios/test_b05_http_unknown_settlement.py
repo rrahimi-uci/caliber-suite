@@ -99,10 +99,15 @@ class Hook:
         key = request.headers.get("idempotency-key")
         if not key:
             return JSONResponse({"detail": "an Idempotency-Key is required"}, status_code=400)
-        try:
-            body = await request.json()
-        except ValueError:
-            body = (await request.body()).decode()
+        raw_body = await request.body()
+        content_type = request.headers.get("content-type", "").split(";", 1)[0].strip().lower()
+        if content_type == "application/json" or content_type.endswith("+json"):
+            try:
+                body = json.loads(raw_body)
+            except (UnicodeDecodeError, ValueError):
+                body = raw_body.decode()
+        else:
+            body = raw_body.decode()
         with self.lock:
             if key not in self.stored:
                 self.commits += 1
