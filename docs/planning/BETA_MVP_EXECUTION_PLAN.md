@@ -7,6 +7,9 @@ This is the executable reconciliation of [map-gap.md](../../map-gap.md), the
 [EGI delivery plan](../CALIBER_EGI_DELIVERY_PLAN.md), current source and existing GitHub work.
 [Project #3](https://github.com/users/rrahimi-uci/projects/3) is the sole active delivery board.
 The [machine-readable manifest](beta-mvp-execution.json) records every epic/task, gap, dependency and validation oracle.
+The [proposed Alpha-to-MVP release train](PREVIEW_TO_MVP_RELEASE_TRAIN.md) maps those same epics and tasks to three
+three-week Previews, Beta, Pilot and MVP, with release outcomes and relative schedule; it does not alter task contracts
+or GitHub due dates.
 GitHub child issues contain the complete agent briefs. Repository changes in this planning PR remain proposed until owner merge;
 GitHub issue/project metadata has been applied separately. No Beta/MVP feature is implemented by this plan.
 
@@ -30,8 +33,9 @@ OIDC/SCIM, regional cells, Hub, memory, federation, catalog and autonomy are ret
 
 | Gate | Required outcome | Not a claim of |
 | --- | --- | --- |
-| Beta, D1–D5 | Minimal governed reference architecture; one supported connector; human approval; pinned admission/context; fenced effects and unknown recovery; acceptance/replay; evaluated release; joined evidence; public SDK/UI/CLI; install/upgrade/restore smoke and independent boundary review | Full autonomy, arbitrary executable trust, general connector safety, shared hosting or full enterprise MVP |
-| Core proof, D6–D9 | Leased credentials, signed promotion, protected audit, isolated execution, knowledge lifecycle, durable budgets, second connector/use case, conformance and independently measured operations | A separate MVP release or completion of D10–D15 |
+| Preview 1–3, D1–D4 | Three staged evaluation cuts: pinned admission/authority, one governed action and safe recovery, then verified outcome/replay/evaluation. Each has two development weeks and one QA/release week | Beta support or an inherited PASS from closed issues |
+| Beta, D5 | Minimal governed reference architecture; one supported connector; human approval; pinned admission/context; fenced effects and unknown recovery; acceptance/replay; evaluated release; joined evidence; public SDK/UI/CLI; install/upgrade/restore smoke and independent boundary review | Full autonomy, arbitrary executable trust, general connector safety, shared hosting or full enterprise MVP |
+| Pilot, D6–D9 | Leased credentials, signed promotion, protected audit, isolated execution, knowledge lifecycle, durable budgets, second connector/use case, conformance and independently measured operations with an independent pilot operator | Full enterprise MVP or completion of D10–D15 |
 | Full retained MVP, D10–D15 | Governance/autonomy, routing/contracts/channel, enterprise identity, residency cells, Hub, memory/federation, certified ecosystem, companion traceability and final independent security/release evidence | Unqualified book completeness or shared-customer tenancy certification |
 
 V01–V35 remain the scenario framework. **V28-identity is required**: OIDC/SCIM, project and isolated-installation

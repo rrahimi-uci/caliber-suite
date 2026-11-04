@@ -8,6 +8,11 @@
 > pending the staffing, external-review and scope reforecast in [#608](https://github.com/rrahimi-uci/caliber-suite/issues/608).
 > D5 is Beta, D9 is core proof (not a release), D15 is the full retained MVP. No feature is implemented here.
 
+> **Proposed release regrouping (November 2026):** the [Alpha → Preview 1 → Preview 2 → Preview 3 → Beta → Pilot → MVP release train](planning/PREVIEW_TO_MVP_RELEASE_TRAIN.md)
+> maps the existing D1–D15 epics and tasks to smaller release gates. It proposes D9 as the Pilot decision while this
+> document's dates and older D9 label remain historical. No GitHub due date or issue dependency changes until the
+> [#608](https://github.com/rrahimi-uci/caliber-suite/issues/608) reforecast is accepted.
+
 > **Controlling delivery plan as of 2026-10-24.** It supersedes the
 > [five-person D1–D9 plan](CALIBER_FIVE_PERSON_DELIVERY_PLAN.md) for staffing, scope and calendar, and the monthly
 > M2–M6 train in the [roadmap](roadmap.md) as the definition of the MVP. Package definitions and acceptance tests

@@ -1,0 +1,60 @@
+# CALIBER release train: Alpha → Preview 1 → Preview 2 → Preview 3 → Beta → Pilot → MVP
+
+This is a proposed release schedule over the [canonical execution plan](BETA_MVP_EXECUTION_PLAN.md) and its [task/dependency manifest](beta-mvp-execution.json), reviewed against GitHub issues on 4 November 2026 at `main` `06e2c672be57f07b68b97262e22d0845369ccdb0`. It changes the **release grouping**, not task scope, native blocked-by edges, issue states, or GitHub due dates. The D1–D15 identifiers remain stable traceability and acceptance controls; every child task follows its listed epic. The [canonical epic/child index](BETA_MVP_EXECUTION_PLAN.md#traceability-index) gives every task number and its full brief. Existing blocked-by edges take precedence over a calendar slot.
+
+The three-person model is the historical planning assumption, not confirmed staffing: at most two implementation streams, one integration/review stream, about 2.25 effective person-weeks per calendar week and no more than 1.8 planned base person-weeks. [#608](https://github.com/rrahimi-uci/caliber-suite/issues/608) must replace this with named availability, quality thresholds, external bookings and a measured reforecast before due dates become commitments. Week 1 starts after kickoff and those inputs are available; dates below are **relative**, so holidays or missing reviewers move the calendar. A missed gate moves the release rather than waiving its criteria.
+
+## Release schedule and outcomes
+
+| Release | Relative window | Delivery goal | Evidence and exit decision |
+| --- | --- | --- | --- |
+| Alpha | Shipped baseline | Retain the installable `0.1.0a1` and its regression/upgrade source. | Verify tag, package and migration provenance before using it as an upgrade fixture; do not infer Preview/Beta support from Alpha. |
+| Preview 1 | Weeks 1–3 | Pinned admission and authority foundations on one reference installation. | D1/D2 controls accepted; immutable manifest and exact grants, authorized context, owner fencing, trace scope and reference-profile refusals proven through installed API/worker paths. |
+| Preview 2 | Weeks 4–6 | One governed external action, exact approval and safe recovery from an unknown outcome. | D3 control accepted; deny and retry paths prove no unapproved or duplicate downstream mutation across restart/lease handoff. |
+| Preview 3 | Weeks 7–9 | Verified outcome, replay and release evaluation through a joined evidence path. | D4 control accepted; domain observation, side-effect-free historical replay, candidate evaluation gate and reference-profile refusal tests pass. |
+| Beta | Target weeks 10–17; planning range 6–10 weeks after Preview 3 | One supported, documented, installable governed workflow across UI/API/SDK/CLI. | D5 [#613](https://github.com/rrahimi-uci/caliber-suite/issues/613) decides PASS from one candidate SHA, artifact hashes, complete required checks, Alpha upgrade and restore, fault matrix, bounded real-provider trial and independent security review. |
+| Pilot | Target 40 weeks after Beta; planning range 36–44 | Operate the strengthened single-installation platform with two controlled use cases and a second supported connector under an independent operator. | D6–D9 controls accepted; credential leases, signed promotion, protected audit, isolation, knowledge lifecycle, budgets, recovery drills, conformance, restore and measured limits demonstrated. D9 becomes the Pilot release decision. |
+| MVP | Target 84 weeks after Pilot; planning range 72–96 | Complete the retained single-tenant enterprise reference implementation. | D10–D15 controls accepted; V25–V35 including V28-identity pass, with OIDC/SCIM, regions, Hub, memory, federation, catalog, autonomy, companion traceability and independent final security/release review. |
+
+Each Preview is **three weeks exactly**: weeks 1–2 develop, integrate and freeze the intended cut; week 3 is QA, bug bash, fixes, documentation, installed-journey and release validation. Preview 2 uses weeks 4–5/6 and Preview 3 uses weeks 7–8/9 in the same pattern. Reserve the QA week; spill unfinished work into the next cycle only if the earlier Preview still meets its own defined exit. A Preview is a limited evaluation build, with unsupported capabilities explicitly refused. Its gate is not a Beta support claim.
+
+The Beta estimate is an **8-week target** after the three Previews, including roughly five development/integration weeks and three validation, review and repair weeks. The historical D5 slice is 7 base person-weeks, but open D1–D4 controls, integration follow-ups and external evidence make a one-cycle Beta promise unreliable. The Pilot estimate uses the historical M01–M15 midpoint of 53.5 base person-weeks: about 30 development weeks at 1.8 base person-weeks/week, then about 10 weeks for staged integration, QA, operator trial and risk. The MVP estimate uses the historical 108.5 base person-weeks for the retained M16–M27 breadth: about 61 development weeks plus about 23 weeks for integration, enterprise identity/regional testing, independent review and reserve. These are planning ranges, **not** approved dates or a claim that all work is still unimplemented; re-estimate remaining work from live issue state and measured velocity at every release.
+
+## Epic and task assignment
+
+Every epic below includes **all** of its child tasks in the canonical manifest. This assigns all **58 epics and 291 tasks** exactly once: Preview 1 has 6 epics/35 tasks, Preview 2 has 9/50, Preview 3 has 4/17, Beta has 5/23, Pilot has 22/93 and MVP has 12/73. D1 has completed foundation work and the separate staffing/control issues #608/#609; it has no epic/task row in the manifest. The corresponding control issues are named in the right column. A closed child task is implementation evidence, not automatic epic or release acceptance.
+
+| Release | Existing slice | Existing epic issues (all listed children follow) | Gate |
+| --- | --- | --- | --- |
+| Preview 1 | D1/D2: admission, grants, context, trace, profile, owner lease | B02 #517; B03 #518; B07 #524; B11 #530; B12 #533; B13 #536 | #609, #610 |
+| Preview 2 | D3: dispatcher, effects, approval, context, AgentStep, trace, profile, owner loop | B04 #520; B05 #522; B06 #523 and #589; B07 #525; B08 #526; B11 #531; B12 #534; B13 #537 | #611 |
+| Preview 3 | D4: acceptance/replay, release evaluation, profile refusals, evidence assembly | B09 #527; B10 #528; B12 #535; B14 #538 | #612 |
+| Beta | D5: evidence export, public journey, fault matrix, Alpha upgrade, supported-surface declaration | B14 #539; B15 #540 and #595; B16 #542 and #594 | #613 |
+| Pilot | D6: credentials, signed promotion, audit, approvals, evaluation | M01 #543; M02 #544; M05 #547; M06 #548; M09 #551 | #614 |
+| Pilot | D7: knowledge, isolated worker, evaluation, feedback, upgrade, conformance | M04 #546; M07 #549; M09 #552; M10 #553 and #592; M11 #555; M14 #560 | #615 |
+| Pilot | D8: second connector, budgets, restore, child task, second use case | M03 #545; M08 #550; M11 #556; M13 #559; M15 #562 | #616 |
+| Pilot | D9: release evaluation, restore, limits, conformance, independent pilot | M10 #554; M11 #557; M12 #558; M14 #561; M15 #563 | #617 |
+| MVP | D10: governance, routing, platform contracts, autonomy | M23 #604; M24 #605; M25 #606; M27 #632 | #618 |
+| MVP | D11: enterprise identity and deprovisioning | M17 #598 | #619 |
+| MVP | D12: regional cells and residency | M18 #599 | #620 |
+| MVP | D13: governed Knowledge Hub | M21 #602 | #621 |
+| MVP | D14: federation and durable memory | M19 #600; M20 #601 | #622 |
+| MVP | D15: catalog, companion case, final security/release | M16 #564; M22 #603; M26 #607 | #623 |
+
+This is a release overlay; retain the manifest's exact issue numbers, native parents, contract briefs and dependency edges. D1–D15 issue milestones and Project #3 fields should be changed only in a separate owner-accepted migration after #608 reforecast; changing them now would misrepresent accepted dates and break the live plan validator. The Preview/Pilot labels may be added to the board as a separate, reviewed scheduling change without changing issue prerequisites.
+
+## Dependencies and release cutlines
+
+1. **Preview 1 → Preview 2:** B03 exact principal/grant/policy plus B07 bundle loader feed B02 admission; B13 leases/outbox and B11/B12 scope/refusals precede B05/B06/B04 effect dispatch. Complete the existing D2 gate before claiming the protected effect journey.
+2. **Preview 2 → Preview 3:** B05 proposal/receipt and B06 approval validator feed B04 dispatcher; the owner loop and B08 protected AgentStep feed B09 acceptance/replay and B10 evaluation. #1051's remaining governed-context surfaces and D3 follow-ups [#1086](https://github.com/rrahimi-uci/caliber-suite/issues/1086), [#1087](https://github.com/rrahimi-uci/caliber-suite/issues/1087), [#1088](https://github.com/rrahimi-uci/caliber-suite/issues/1088) need explicit closure or a fail-closed scope decision before Preview 2 acceptance.
+3. **Preview 3 → Beta:** B09/B10 and B14 evidence assembly feed B14 export/verifier, B15 public UI/SDK/CLI journey and B16 fault/restore evidence. #594 proves `0.1.0a1` upgrade; #595 names the supported capabilities. [#890](https://github.com/rrahimi-uci/caliber-suite/issues/890) supplies the SHA-bound manifest to the sole D5 report owner #613.
+4. **Beta → Pilot:** Beta's exact supported profile and operator/fault evidence precede M01/M02/M05/M06/M09; knowledge, isolation and conformance can proceed in parallel after their own producing contracts. M03/M08/M13/M15 then prove a second connector/use case and durable budgets; M11/M12 lead independent install/restore and measured operation at D9.
+5. **Pilot → MVP:** D9 proof feeds D10 governance/contracts/routing/autonomy. M17 identity is prerequisite for M18 regional cells, M21 Hub and M20 memory; M19 federation also needs child-task and evidence contracts. M22 catalog and M26 companion case consume conformance and contract results before M16 final review. Preserve the single-tenant boundary: one organization per installation, multiple projects/users; shared-customer tenancy is excluded.
+
+## Acceptance and status rules
+
+Each Preview QA week runs applicable unit, PostgreSQL integration, end-to-end, browser, SDK/CLI, contract, docs, lint/type/build and security checks on an exact SHA, with fault/denial cases for its own path. It records the install method, artifacts, known limitations, critical defects and a PASS/HOLD decision in the relevant D-control report. Every affected behavioral change retains meaningful tests and measured coverage above 95% per the execution plan. A skipped required check is unexecuted. Beta adds the full B01–B16 and V01–V14 matrix; Pilot adds the M01–M15 and operator evidence; MVP adds V25–V35 and independent final review. No release inherits a PASS from closed issues or earlier SHA runs.
+
+At the 4 November 2026 snapshot, all 35 D2, 50 D3 and 17 D4 manifest child tasks were closed, as were 22 of 23 D5 children. The D1–D5 control issues, several D3/D4/D5 parent epics, #608 and #890 remained open. The merged [D5 report](../reports/egi/D5-acceptance.md) said **HOLD**; fresh `main` CI was queued. These facts support integration planning only. Recheck issue state, main CI, review evidence and owner inputs at kickoff and at each release cut.
+
+Only after a control report records PASS on the final exact SHA should the release owner tag/publish that stage. The Beta-to-Pilot and Pilot-to-MVP windows above are reforecast checkpoints, not authorization to silently drop OIDC/SCIM, regions, Hub, memory, federation, catalog or autonomy. If the organization needs a shorter target, propose a separately named reduced-scope release and update acceptance contracts before committing a date.
