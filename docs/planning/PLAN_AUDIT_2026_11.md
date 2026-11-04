@@ -30,6 +30,8 @@ The review covered every manifest task's scope, files, tests, acceptance and dep
 
 The bounded SCIM contract uses the protocol's discovery, resource operations, errors and filtering concepts from [RFC 7644](https://www.rfc-editor.org/rfc/rfc7644.html) and resource schema rules from [RFC 7643](https://www.rfc-editor.org/rfc/rfc7643.html). These references do not imply that every optional feature or every identity provider is supported; the declared profile and actual selected connector must be tested.
 
+Subsequent cadence update: the [product roadmap](PRODUCT_ROADMAP.md) extends the three-week preview pattern through Pilot and MVP. The duration ranges below record the audit baseline; the new cadence requires a fresh capacity calculation and does not inherit those dates.
+
 ## Scope, sequencing and timeline critique
 
 Keep Alpha → Preview 1 → Preview 2 → Preview 3 → Beta → Pilot → MVP. Each Preview has two development weeks plus one QA/bug-bash/fix/release week. At the unconfirmed historical 1.8 planned person-weeks per week, a Preview has about 3.6 base person-weeks of development capacity. Issue count is not an estimate. Existing closed work reduces implementation demand but still needs joined acceptance on the release candidate; the new D3 follow-ups and route/refuse decision can consume a cycle. Do not compress the QA week to hide unfinished work.

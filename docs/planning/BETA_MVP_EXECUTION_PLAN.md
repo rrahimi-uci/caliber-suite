@@ -18,6 +18,8 @@ contradictory child pseudocode and acceptance oracles. Corrected briefs now cove
 offline negative tests protect the reviewed contracts, while live checks compare every brief field.
 Neither validator substitutes for source review or future feature validation.
 
+See the [product roadmap](PRODUCT_ROADMAP.md) for user outcomes, Pilot/MVP Preview naming and the repeated three-week delivery cadence. Earlier long-range duration estimates are historical pending the cadence reforecast.
+
 ## Release boundary and source precedence
 
 1. Owner's single-tenant decision: one configured organization per installation, multiple projects/users.

@@ -22641,7 +22641,7 @@
         "D8",
         "D9"
       ],
-      "window": "36\u201344 weeks after Beta including a 4\u20136 week controlled operator trial",
+      "window": "Rolling three-week Pilot Previews (two development weeks + one QA week), then a controlled 4\u20136 week operator trial; cycle count and dates require H01/H16 reforecast",
       "gate": 617
     },
     {
@@ -22654,7 +22654,7 @@
         "D14",
         "D15"
       ],
-      "window": "72\u201396 weeks after Pilot for retained enterprise scope; target 84",
+      "window": "Rolling three-week MVP Previews (two development weeks + one QA week); retained enterprise scope, cycle count and dates require H01/H16 reforecast",
       "gate": 623
     }
   ],
@@ -22870,7 +22870,7 @@
     {
       "id": "H16",
       "owner": "Product and release owner",
-      "question": "Before committing post-Beta dates, explicitly fund the retained enterprise Pilot/MVP scope or approve a separately specified reduced-scope product release. Do not call the retained 72\u201396 week enterprise program a minimum product or silently remove features.",
+      "question": "Before committing post-Beta dates, explicitly fund the retained enterprise Pilot/MVP scope or approve a separately specified reduced-scope product release. Do not call the retained enterprise program a minimum product or silently remove features.",
       "needed_by": "D5 reforecast; does not block Beta feature acceptance",
       "status": "pending",
       "evidence": null,

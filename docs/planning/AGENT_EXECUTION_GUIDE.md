@@ -9,6 +9,8 @@ The [manifest](beta-mvp-execution.json) is the versioned contract. Each GitHub t
 3. Render the complete handoff locally: `node docs/planning/render-task-brief.mjs 796` (replace 796 with the assigned issue). Check expected outcome, dependencies, files, ordered work units, test targets, commands, evidence path and human inputs before editing.
 4. `Needs input` blocks coding for the named start decision. An `acceptance` input permits deterministic fixtures and contract implementation, but blocks the real trial, owner-specific configuration or certification it governs. Never invent issuer URLs, mappings, thresholds, budgets, corpus approval or independent reviews. Record exact missing input in #608. Role names are not confirmed assignees.
 
+Use the [product roadmap](PRODUCT_ROADMAP.md) to distinguish the destination Release from the three-week Delivery cycle. A blank cycle is unscheduled; a cycle assignment never overrides dependencies or human inputs.
+
 ## Implement within the boundary
 
 Use each ordered work unit as a reviewable PR slice. A broad issue remains the acceptance container, not a direction to implement every layer in one patch. Do not close it until all units and acceptance evidence are complete. If a unit still exceeds roughly two development days after inspecting its producers, first split its concrete interfaces/tests into subissues and update the parent; this sizing rule is a planning heuristic, not permission to drop scope. Unknown interface behavior is a blocker to resolve with its producer, not an invitation to invent a second service.
