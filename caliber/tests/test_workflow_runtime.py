@@ -327,6 +327,7 @@ def test_subworkflow_approval_checkpoint_parks_the_parent_node() -> None:
     assert step.checkpoint_state == {
         **checkpoint,
         "node_id": "child",
+        "approval_node_id": "child_effect",
         "reason": "effect_proposal_awaiting_approval",
         "resume_policy": "same_run_same_occurrence",
     }

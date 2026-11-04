@@ -2794,10 +2794,13 @@ def _resume_checkpoint_kind_matches_node(
     if checkpoint_kind == "runtime_approval":
         # A gated tool node, a governed agent step parked behind the approval of its proposed action (B08.2) or a governed
         # workflow effect parked behind its exact approval (#1051): an agent node resumes from this kind only when the plan
-        # governs it, and a webhook, API or tool node only in a plan that has a governed effect context.
+        # governs it, and a webhook, API, tool or parent subworkflow node only in a plan that has a governed effect context.
         return (
             (isinstance(node, IRAgent) and governed_agent_steps)
-            or (governed_effects and isinstance(node, IRWebhook | IRApiRequest | IRTool))
+            or (
+                governed_effects
+                and isinstance(node, IRWebhook | IRApiRequest | IRTool | IRSubworkflow)
+            )
             or (
                 isinstance(node, IRTool)
                 and node.binding is not None
@@ -4446,21 +4449,28 @@ def _interpret(  # noqa: PLR0911, PLR0912, PLR0915 - graph interpreter dispatch
                 guardrail_results=guardrail_results,
             )
         input_by_port = dict(exc.blocked_inputs or {})
+        checkpoint_state: dict[str, Any] = {
+            "kind": "runtime_approval",
+            "node_id": node_id,
+            "proposal_id": exc.proposal_id,
+            "approval_request_id": exc.approval_request_id,
+            "intent_hash": exc.intent_hash,
+            "reason": "effect_proposal_awaiting_approval",
+            "resume_policy": "same_run_same_occurrence",
+        }
+        if (
+            isinstance(exc.approval_node_id, str)
+            and exc.approval_node_id
+            and exc.approval_node_id != node_id
+        ):
+            checkpoint_state["approval_node_id"] = exc.approval_node_id
         step = NodeStep(
             node_id=node_id,
             node_type=node.node_type.value,
             status="blocked",
             detail=f"waiting_approval:{node_id}",
             input_by_port=input_by_port,
-            checkpoint_state={
-                "kind": "runtime_approval",
-                "node_id": node_id,
-                "proposal_id": exc.proposal_id,
-                "approval_request_id": exc.approval_request_id,
-                "intent_hash": exc.intent_hash,
-                "reason": "effect_proposal_awaiting_approval",
-                "resume_policy": "same_run_same_occurrence",
-            },
+            checkpoint_state=checkpoint_state,
         )
         return _finalize_step(
             nid=node_id,
@@ -7979,6 +7989,7 @@ def _run_node(  # noqa: PLR0911, PLR0912, PLR0915 - per-node-type dispatch
                     proposal_id = checkpoint.get("proposal_id")
                     approval_request_id = checkpoint.get("approval_request_id")
                     intent_hash = checkpoint.get("intent_hash")
+                    approval_node_id = checkpoint.get("node_id")
                     if (
                         isinstance(proposal_id, str)
                         and proposal_id
@@ -7986,11 +7997,14 @@ def _run_node(  # noqa: PLR0911, PLR0912, PLR0915 - per-node-type dispatch
                         and approval_request_id
                         and isinstance(intent_hash, str)
                         and intent_hash
+                        and isinstance(approval_node_id, str)
+                        and approval_node_id
                     ):
                         raise _step_proposal.EffectApprovalPending(
                             proposal_id=proposal_id,
                             approval_request_id=approval_request_id,
                             intent_hash=intent_hash,
+                            approval_node_id=approval_node_id,
                         )
                     raise ToolExecutionError(
                         "subworkflow returned a malformed runtime approval checkpoint"
