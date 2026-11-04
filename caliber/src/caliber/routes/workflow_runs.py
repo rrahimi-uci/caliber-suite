@@ -2282,10 +2282,8 @@ def _select_pending_runtime_approval(
             )
             checkpoint = _resume_checkpoint_row(session, run)
             approval_node_id = run.current_node_id
-            if checkpoint is not None and isinstance(checkpoint.state_blob, dict):
-                nested_node_id = checkpoint.state_blob.get("approval_node_id")
-                if isinstance(nested_node_id, str) and nested_node_id:
-                    approval_node_id = nested_node_id
+            if checkpoint is not None:
+                approval_node_id = _runtime_approval_node_id(run, checkpoint)
             _refuse_undecidable_bound(
                 row,
                 run=run,
@@ -2813,6 +2811,29 @@ def _resume_checkpoint_row(
     return checkpoint
 
 
+def _runtime_approval_node_id(
+    run: CaliberWorkflowRun,
+    checkpoint: CaliberWorkflowRunCheckpoint,
+) -> str | None:
+    """Return the approval row's node identity for a runtime checkpoint.
+
+    A nested subworkflow parks the parent run at its child invocation node while
+    the runtime approval belongs to the concrete child effect node. The optional
+    checkpoint field is the durable binding for that distinction; malformed
+    values deliberately fall back to the parent node and are rejected by the
+    checkpoint validation that follows.
+    """
+    approval_node_id = run.current_node_id
+    if (
+        isinstance(checkpoint.state_blob, dict)
+        and checkpoint.state_blob.get("kind") == "runtime_approval"
+    ):
+        nested_node_id = checkpoint.state_blob.get("approval_node_id")
+        if isinstance(nested_node_id, str) and nested_node_id:
+            approval_node_id = nested_node_id
+    return approval_node_id
+
+
 def _resume_event_inputs(
     *,
     expected_event_name: str | None,
@@ -3091,7 +3112,7 @@ async def resume_workflow_run(request: Request) -> JSONResponse:  # noqa: PLR091
                 detail="workflow run has no resume checkpoint",
             )
         if run.status == RUN_STATUS_WAITING_APPROVAL:
-            node_id = run.current_node_id
+            node_id = _runtime_approval_node_id(run, checkpoint)
             filters = [CaliberRuntimeApprovalRequest.workflow_run_id == run.workflow_run_id]
             if node_id:
                 filters.append(CaliberRuntimeApprovalRequest.node_id == node_id)
