@@ -63,7 +63,9 @@ from caliber.workflows.runtime import (
     _select_input,
     _set_mlflow_tags,
     current_run_context,
+    current_step_occurrence,
     execute,
+    nested_effect_occurrence_prefix,
     run_tags,
     run_with_caliber_context,
     workflow_model,
@@ -258,7 +260,6 @@ def test_subworkflow_nodes_publish_child_workflow_diagnostics() -> None:
             False,
         )
     ]
-
     subflow_step = next(step for step in result.steps if step.node_id == "child_workflow")
     assert subflow_step.input_by_port == {"input": "Escalate the refund exception."}
     assert subflow_step.output_by_port is not None
@@ -267,6 +268,198 @@ def test_subworkflow_nodes_publish_child_workflow_diagnostics() -> None:
     assert payload["workflow_id"] == "WF-child"
     assert payload["alias"] == "prod"
     assert payload["steps"] == ["child_start", "child_review", "child_final"]
+
+
+def _subworkflow_checkpoint_manifest(workflow_id: str) -> dict[str, object]:
+    manifest = make_manifest(workflow_id)
+    manifest["nodes"] = {
+        "start": {
+            "id": "start",
+            "type": "start",
+            "outputs": {"msg": {"type": "string"}},
+        },
+        "child": {
+            "id": "child",
+            "type": "subworkflow",
+            "workflow_id": "WF-child",
+            "alias": "prod",
+            "inputs": {"input": {"type": "string"}},
+            "outputs": {"output": {"type": "string"}, "result": {"type": "structured"}},
+        },
+        "final": {
+            "id": "final",
+            "type": "output",
+            "inputs": {"response": {"type": "string"}},
+        },
+    }
+    manifest["edges"] = [
+        {"id": "e1", "from": "start", "to": "child", "map": {"msg": "input"}},
+        {"id": "e2", "from": "child", "to": "final", "map": {"output": "response"}},
+    ]
+    return manifest
+
+
+def test_subworkflow_approval_checkpoint_parks_the_parent_node() -> None:
+    checkpoint = {
+        "kind": "runtime_approval",
+        "node_id": "child_effect",
+        "proposal_id": "prop-child",
+        "approval_request_id": "approval-child",
+        "intent_hash": "sha256:child",
+    }
+
+    def runner(*_args: object) -> dict[str, object]:
+        return {
+            "status": "blocked",
+            "error": "waiting_approval:child_effect",
+            "checkpoint_state": checkpoint,
+        }
+
+    result = execute(
+        _plan(_subworkflow_checkpoint_manifest("nested-approval"), subworkflow_runner=runner),
+        "hello",
+        executor=FakeWorkflowExecutor(),
+    )
+
+    assert result.status == "blocked"
+    assert result.error == "waiting_approval:child"
+    step = next(item for item in result.steps if item.node_id == "child")
+    assert step.checkpoint_state == {
+        **checkpoint,
+        "node_id": "child",
+        "reason": "effect_proposal_awaiting_approval",
+        "resume_policy": "same_run_same_occurrence",
+    }
+    assert step.input_by_port == {"input": "hello"}
+
+
+def test_subworkflow_effect_checkpoint_parks_the_parent_with_child_identity() -> None:
+    checkpoint = {
+        "kind": "effect_reconciliation",
+        "node_id": "child_effect",
+        "effects": [
+            {
+                "proposal_id": "prop-child",
+                "node_id": "child_effect",
+                "state": "unknown",
+                "logical_key": "sha256:logical-child",
+                "intent_hash": "sha256:intent-child",
+            }
+        ],
+    }
+
+    def runner(*_args: object) -> dict[str, object]:
+        return {
+            "status": "blocked",
+            "error": "waiting_effect:child_effect",
+            "checkpoint_state": checkpoint,
+        }
+
+    result = execute(
+        _plan(_subworkflow_checkpoint_manifest("nested-effect"), subworkflow_runner=runner),
+        "hello",
+        executor=FakeWorkflowExecutor(),
+    )
+
+    assert result.status == "blocked"
+    assert result.error == "waiting_effect:child"
+    step = next(item for item in result.steps if item.node_id == "child")
+    assert step.checkpoint_state["node_id"] == "child"
+    assert step.checkpoint_state["effects"] == checkpoint["effects"]
+
+
+@pytest.mark.parametrize(
+    ("checkpoint", "message"),
+    [
+        (
+            {
+                "kind": "runtime_approval",
+                "proposal_id": "",
+                "approval_request_id": "approval-child",
+                "intent_hash": "sha256:child",
+            },
+            "malformed runtime approval checkpoint",
+        ),
+        ({"kind": "effect_reconciliation", "effects": []}, "malformed effect checkpoint"),
+        (
+            {
+                "kind": "effect_reconciliation",
+                "effects": [{"proposal_id": "prop-child", "node_id": "child_effect"}],
+            },
+            "malformed effect checkpoint",
+        ),
+    ],
+)
+def test_subworkflow_malformed_checkpoint_fails_closed(
+    checkpoint: dict[str, object], message: str
+) -> None:
+    def runner(*_args: object) -> dict[str, object]:
+        return {
+            "status": "blocked",
+            "error": "child checkpoint is malformed",
+            "checkpoint_state": checkpoint,
+        }
+
+    result = execute(
+        _plan(_subworkflow_checkpoint_manifest("nested-malformed"), subworkflow_runner=runner),
+        "hello",
+        executor=FakeWorkflowExecutor(),
+    )
+
+    assert result.status == "error"
+    assert message in (result.error or "")
+
+
+def test_nested_subworkflow_occurrences_separate_duplicate_child_nodes() -> None:
+    occurrences: list[str | None] = []
+
+    def runner(
+        workflow_id: str,
+        alias: str,
+        input_text: str,
+        timeout_seconds: float,
+        depth: int,
+        executor: object,
+        preview: bool,
+    ) -> dict[str, object]:
+        del workflow_id, alias, input_text, timeout_seconds, depth, executor, preview
+        occurrences.append(current_step_occurrence())
+        return {"status": "completed", "output": "ok", "tokens": 0}
+
+    manifest = _subworkflow_checkpoint_manifest("nested-duplicate")
+    nodes = manifest["nodes"]
+    assert isinstance(nodes, dict)
+    nodes["second_child"] = {
+        "id": "second_child",
+        "type": "subworkflow",
+        "workflow_id": "WF-child",
+        "alias": "prod",
+        "inputs": {"input": {"type": "string"}},
+        "outputs": {"output": {"type": "string"}, "result": {"type": "structured"}},
+    }
+    manifest["edges"] = [
+        {"id": "e1", "from": "start", "to": "child", "map": {"msg": "input"}},
+        {"id": "e2", "from": "child", "to": "second_child", "map": {"output": "input"}},
+        {"id": "e3", "from": "second_child", "to": "final", "map": {"output": "response"}},
+    ]
+
+    result = execute(
+        _plan(
+            manifest,
+            subworkflow_runner=runner,
+            effect_occurrence_prefix="parent-prefix",
+        ),
+        "hello",
+        executor=FakeWorkflowExecutor(),
+    )
+
+    assert result.status == "completed"
+    assert len(occurrences) == 2 and len(set(occurrences)) == 2
+    prefixes = {
+        nested_effect_occurrence_prefix(occurrence, "WF-child", "child-v1")
+        for occurrence in occurrences
+    }
+    assert len(prefixes) == 2
 
 
 def test_subworkflow_node_reports_missing_runner_at_workflow_runtime() -> None:

@@ -235,6 +235,131 @@ def _admit(app: ReferenceApp, downstream: Downstream, hook: Hook, *, key: str) -
     return run_id
 
 
+def _parent_manifest(workflow_id: str, child_id: str, child_version_id: str) -> dict[str, Any]:
+    return {
+        "schema_version": 1,
+        "workflow_id": workflow_id,
+        "name": "EGI nested HTTP parent",
+        "runtime": {
+            "sdk": "openai-agents-python",
+            "sdk_version_policy": "runtime-pinned",
+            "compiler_version": "caliber-workflow-compiler-v1",
+            "default_model_ref": "CALIBER_WORKFLOW_DEFAULT_MODEL",
+            "session": {"type": "none"},
+        },
+        "nodes": {
+            "start": {
+                "id": "start",
+                "type": "start",
+                "outputs": {"message": {"type": "string"}},
+            },
+            "child": {
+                "id": "child",
+                "type": "subworkflow",
+                "workflow_id": child_id,
+                "alias": "manual",
+                "version_id": child_version_id,
+                "inputs": {"input": {"type": "string"}},
+                "outputs": {
+                    "output": {"type": "string"},
+                    "result": {"type": "structured"},
+                },
+            },
+            "final": {
+                "id": "final",
+                "type": "output",
+                "inputs": {"response": {"type": "string"}},
+            },
+        },
+        "edges": [
+            {"id": "e1", "from": "start", "to": "child", "map": {"message": "input"}},
+            {"id": "e2", "from": "child", "to": "final", "map": {"output": "response"}},
+        ],
+        "tools": {},
+    }
+
+
+def _admit_nested(
+    app: ReferenceApp,
+    downstream: Downstream,
+    hook: Hook,
+    *,
+    key: str,
+    duplicate_children: bool = False,
+) -> str:
+    """Publish an HTTP child and a parent that invokes it through the public workflow API."""
+    _routes_config(app, downstream)
+    child_created = _call(
+        app, "POST", EDITOR_A, PROJECT_A, "/workflows", {"name": "EGI nested HTTP child"}
+    )
+    assert child_created.status_code == 201, child_created.text
+    child_id = child_created.json()["data"]["workflow_id"]
+    child_manifest = webhook_manifest(hook.url)
+    child_manifest["workflow_id"] = child_id
+    child_manifest["nodes"]["hook"]["timeout_seconds"] = SEND_TIMEOUT_SECONDS
+    child_draft = _call(
+        app,
+        "POST",
+        EDITOR_A,
+        PROJECT_A,
+        f"/workflows/{child_id}/versions",
+        {"manifest": child_manifest},
+    )
+    assert child_draft.status_code == 201, child_draft.text
+    child_version_id = child_draft.json()["data"]["version_id"]
+    published = _call(
+        app, "POST", EDITOR_A, PROJECT_A, f"/workflow-versions/{child_version_id}/publish"
+    )
+    assert published.status_code == 200, published.text
+
+    parent_created = _call(
+        app, "POST", EDITOR_A, PROJECT_A, "/workflows", {"name": "EGI nested HTTP parent"}
+    )
+    assert parent_created.status_code == 201, parent_created.text
+    parent_id = parent_created.json()["data"]["workflow_id"]
+    manifest = _parent_manifest(parent_id, child_id, child_version_id)
+    if duplicate_children:
+        nodes = manifest["nodes"]
+        assert isinstance(nodes, dict)
+        nodes["second_child"] = dict(nodes["child"])
+        nodes["second_child"]["id"] = "second_child"
+        manifest["edges"] = [
+            {"id": "e1", "from": "start", "to": "child", "map": {"message": "input"}},
+            {"id": "e2", "from": "child", "to": "second_child", "map": {"output": "input"}},
+            {"id": "e3", "from": "second_child", "to": "final", "map": {"output": "response"}},
+        ]
+    parent_draft = _call(
+        app,
+        "POST",
+        EDITOR_A,
+        PROJECT_A,
+        f"/workflows/{parent_id}/versions",
+        {"manifest": manifest},
+    )
+    assert parent_draft.status_code == 201, parent_draft.text
+    parent_version_id = parent_draft.json()["data"]["version_id"]
+    published = _call(
+        app, "POST", EDITOR_A, PROJECT_A, f"/workflow-versions/{parent_version_id}/publish"
+    )
+    assert published.status_code == 200, published.text
+    started = _call(
+        app,
+        "POST",
+        EDITOR_A,
+        PROJECT_A,
+        "/workflow-runs",
+        {
+            "workflow_id": parent_id,
+            "alias": "manual",
+            "input": "tell the nested downstream",
+            "idempotency_key": key,
+            **seed_release(app, PROJECT_A),
+        },
+    )
+    assert started.status_code == 202, started.text
+    return str(started.json()["data"]["workflow_run_id"])
+
+
 def _park(
     app: ReferenceApp,
     downstream: Downstream,
@@ -248,6 +373,36 @@ def _park(
     run_id = _admit(app, downstream, hook, key="egi-b05-http")
     worker = build_worker(
         app, downstream, monkeypatch, lease_provider=owner.provider, **_changes(hook, listed=listed)
+    )
+    worker._tick()
+    run = run_row(app, run_id)
+    assert (run.status, run.error_code) == ("waiting_approval", "waiting_approval"), (
+        run.error_code,
+        run.error_summary,
+    )
+    (request,) = bound_requests(app)
+    return run_id, request.runtime_approval_id, worker
+
+
+def _park_nested(
+    app: ReferenceApp,
+    downstream: Downstream,
+    hook: Hook,
+    monkeypatch: pytest.MonkeyPatch,
+    owner: Owner,
+    *,
+    key: str,
+    duplicate_children: bool = False,
+) -> tuple[str, str, Any]:
+    run_id = _admit_nested(
+        app,
+        downstream,
+        hook,
+        key=key,
+        duplicate_children=duplicate_children,
+    )
+    worker = build_worker(
+        app, downstream, monkeypatch, lease_provider=owner.provider, **_changes(hook)
     )
     worker._tick()
     run = run_row(app, run_id)
@@ -310,6 +465,128 @@ def test_a_listed_webhook_is_sent_once_and_its_2xx_is_confirmed_by_the_lookup(
         assert receipt.downstream_request_id == receipt_request_id(hook.url, "HOOK-1")
     worker._tick()
     assert hook.commits == 1, "another pass sends nothing"
+
+
+def test_a_listed_nested_webhook_parks_resumes_and_mutates_downstream_once(
+    world: tuple[ReferenceApp, Downstream], hook: Hook, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    app, downstream = world
+    _reference_only(app)
+    owner = Owner(app)
+    owner.take()
+    run_id, request_id, worker = _park_nested(
+        app, downstream, hook, monkeypatch, owner, key="egi-b05-nested-approval"
+    )
+
+    assert run_row(app, run_id).current_node_id == "child"
+    (proposal,) = proposals(app)
+    assert proposal.node_id == "hook"
+    assert proposal.occurrence_id != "hook", (
+        "the child effect is namespaced under its parent invocation"
+    )
+    assert hook.commits == 0
+
+    _approve_and_resume(app, run_id, request_id)
+    worker._tick()
+
+    run = run_row(app, run_id)
+    assert (run.status, run.error_code) == ("completed", None), (
+        run.error_code,
+        run.error_summary,
+    )
+    assert hook.commits == 1
+    assert proposals(app)[0].state == "committed"
+    worker._tick()
+    assert hook.commits == 1, "a later pass does not resend the nested effect"
+
+
+def test_nested_unknown_effect_recovery_parks_the_parent_and_never_resends(
+    world: tuple[ReferenceApp, Downstream], hook: Hook, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    app, downstream = world
+    _reference_only(app)
+    owner = Owner(app)
+    owner.take()
+    run_id, request_id, _worker = _park_nested(
+        app, downstream, hook, monkeypatch, owner, key="egi-b05-nested-unknown"
+    )
+    _approve_and_resume(app, run_id, request_id)
+    owner.give_up()
+
+    killed = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "tests.egi_scenarios.harness.worker_child",
+            "--owner-id",
+            "egi-nested-child-owner",
+        ],
+        cwd=CALIBER_DIR,
+        env=_child_env(app, downstream, hook, "after_downstream_commit"),
+        capture_output=True,
+        timeout=120,
+        check=False,
+    )
+    assert killed.returncode == 137, killed.stderr.decode()[-2000:]
+    assert hook.commits == 1
+    assert proposals(app)[0].state == "dispatched"
+
+    with app.session_factory() as session:
+        old = current_lease(session)
+        assert old is not None
+        release(session, old)
+        session.commit()
+        session.execute(
+            update(CaliberWorkflowRun)
+            .where(CaliberWorkflowRun.workflow_run_id == run_id)
+            .values(lease_expires_at=None, status="queued", claimed_by=None)
+        )
+        session.commit()
+    new_owner = Owner(app, "egi-nested-recovery-owner")
+    new_owner.take()
+    worker = build_worker(
+        app, downstream, monkeypatch, lease_provider=new_owner.provider, **_changes(hook)
+    )
+    worker._tick()
+    assert run_row(app, run_id).status == "waiting_effect"
+    assert hook.commits == 1, "the recovered parent does not resend before reconciliation"
+
+    assert [item.outcome for item in _reconcile(app, hook, new_owner)] == [RECONCILED_COMMITTED]
+    assert run_row(app, run_id).status == "queued"
+    worker._tick()
+    assert hook.commits == 1, "reconciliation reads by key and never sends a second mutation"
+
+
+def test_duplicate_nested_child_node_ids_get_distinct_effect_occurrences(
+    world: tuple[ReferenceApp, Downstream], hook: Hook, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    app, downstream = world
+    _reference_only(app)
+    owner = Owner(app)
+    owner.take()
+    run_id, request_id, worker = _park_nested(
+        app,
+        downstream,
+        hook,
+        monkeypatch,
+        owner,
+        key="egi-b05-nested-duplicate",
+        duplicate_children=True,
+    )
+    _approve_and_resume(app, run_id, request_id)
+    worker._tick()
+    assert run_row(app, run_id).status == "waiting_approval"
+    pending = [request for request in bound_requests(app) if request.status == "pending"]
+    assert len(pending) == 1
+    _approve_and_resume(app, run_id, pending[0].runtime_approval_id)
+    worker._tick()
+
+    run = run_row(app, run_id)
+    assert (run.status, run.error_code) == ("completed", None), run.error_summary
+    rows = proposals(app)
+    assert len(rows) == 2 and {row.node_id for row in rows} == {"hook"}
+    assert len({row.occurrence_id for row in rows}) == 2
+    assert hook.commits == 2
 
 
 def test_a_timeout_after_the_send_fails_the_run_and_the_reconciler_settles_it_without_a_second_send(

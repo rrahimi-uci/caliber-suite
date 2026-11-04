@@ -47,9 +47,14 @@ from caliber.workflows.promoter import (
     run_preview,
 )
 from caliber.workflows.runtime import (
+    FakeWorkflowExecutor,
     OpenAIAgentsWorkflowExecutor,
     OpenAIChatWorkflowExecutor,
     OpenAIResponsesWorkflowExecutor,
+    nested_effect_occurrence_prefix,
+)
+from caliber.workflows.runtime import (
+    execute as execute_workflow,
 )
 from tests.workflow_helpers import fake_resolver, make_manifest
 
@@ -73,6 +78,104 @@ def _version(
         manifest=manifest or make_manifest("wf"),
         manifest_hash=f"hash-{version_id}",
     )
+
+
+@pytest.mark.parametrize(("preview", "inherits"), [(False, True), (True, False)])
+def test_nested_worker_context_is_inherited_only_for_non_preview_runs(
+    db_session: Session,
+    monkeypatch: pytest.MonkeyPatch,
+    preview: bool,
+    inherits: bool,
+) -> None:
+    _seed_workflow(db_session)
+    db_session.flush()
+    parent_workflow = db_session.get(CaliberWorkflow, "wf")
+    assert parent_workflow is not None
+    parent_workflow.visibility = "user"
+    db_session.add(
+        CaliberWorkflow(
+            workflow_id="wf-child",
+            name="Child",
+            owner="@test",
+            visibility="user",
+        )
+    )
+    db_session.add(
+        CaliberWorkflowVersion(
+            version_id="wfv-child",
+            workflow_id="wf-child",
+            version_number=1,
+            status="published",
+            manifest=make_manifest("wf-child"),
+            manifest_hash="hash-wfv-child",
+        )
+    )
+    parent_manifest = make_manifest("wf")
+    parent_manifest["nodes"] = {
+        "start": {
+            "id": "start",
+            "type": "start",
+            "outputs": {"msg": {"type": "string"}},
+        },
+        "child": {
+            "id": "child",
+            "type": "subworkflow",
+            "workflow_id": "wf-child",
+            "alias": "manual",
+            "version_id": "wfv-child",
+            "inputs": {"input": {"type": "string"}},
+            "outputs": {"output": {"type": "string"}, "result": {"type": "structured"}},
+        },
+        "final": {"id": "final", "type": "output", "inputs": {"response": {"type": "string"}}},
+    }
+    parent_manifest["edges"] = [
+        {"id": "e1", "from": "start", "to": "child", "map": {"msg": "input"}},
+        {"id": "e2", "from": "child", "to": "final", "map": {"output": "response"}},
+    ]
+    db_session.add(_version(version_id="wfv-parent", manifest=parent_manifest))
+    db_session.commit()
+    parent_version = db_session.get(CaliberWorkflowVersion, "wfv-parent")
+    assert parent_version is not None
+
+    captured: dict[str, object] = {}
+
+    def capture_execute(plan, input_text: str, **kwargs):
+        captured["plan"] = plan
+        return execute_workflow(plan, input_text, **kwargs)
+
+    monkeypatch.setattr(promoter, "execute", capture_execute)
+    parent_plan = promoter.build_plan(
+        db_session,
+        parent_version,
+        resolver=fake_resolver(),
+        config=CaliberConfig(profile="reference"),
+    )
+    governed_context = object()
+    parent_plan.governed_effects = governed_context  # type: ignore[assignment]
+    parent_plan.effect_gate = lambda _node_ids: None
+    assert parent_plan.subworkflow_runner is not None
+
+    payload = parent_plan.subworkflow_runner(
+        "wf-child",
+        "manual",
+        "hello",
+        120.0,
+        1,
+        FakeWorkflowExecutor(),
+        preview,
+    )
+
+    assert payload["status"] == "completed"
+    child_plan = captured["plan"]
+    assert child_plan.governed_effects is (governed_context if inherits else None)
+    if inherits:
+        assert child_plan.effect_gate is parent_plan.effect_gate
+        assert child_plan.effect_occurrence_prefix == nested_effect_occurrence_prefix(
+            None, "wf-child", "wfv-child"
+        )
+    else:
+        assert child_plan.effect_gate is None
+        assert child_plan.effect_occurrence_prefix == ""
 
 
 def test_run_preview_reads_hash_verified_managed_project_file(
