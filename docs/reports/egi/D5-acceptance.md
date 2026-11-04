@@ -9,9 +9,9 @@
 
 | Field | Recorded value |
 |---|---|
-| Candidate implementation SHA | `e795c9cb298288d1d969c857e143a4817b2bac9f` |
+| Candidate implementation SHA | `0ec50bdb4ac16f2531fa762da493a4a46db3c8b7` |
 | Candidate parent | `47e02fc4a0c4e7dfb8aa51f0718659a3aa2bdebc` (`origin/main` when this slice started) |
-| Candidate change | Make the Sidebar capability-loading regression test deterministic; no production UI behavior change |
+| Candidate change | Make the Sidebar capability-loading and lazy-route regression tests deterministic; no production UI behavior change |
 | Package/tag | None; no Beta artifact was built or published |
 | Artifact digest | None; artifact production is correctly withheld while this gate is on hold |
 | Evidence report commit | This document is added after the implementation SHA above and is not part of the release candidate identity |
@@ -39,19 +39,25 @@ for the PostgreSQL CI job or an independent review.
 
 ## Current CI and skipped-check record
 
-The latest observed `main` CI run before this candidate was run `41770734549` at
-SHA `47e02fc4a0c4e7dfb8aa51f0718659a3aa2bdebc`. Its EGI PostgreSQL job passed, but
-the UI test-and-build job failed one capability-loading test. The candidate fixes
-that test and must still obtain a fresh green CI result on its PR.
-
-That run also had path-filtered suites marked **skipped**, including SDK, Plugin
-SDK, CLI, full backend, compatibility, integration, and cookbook UI-only checks.
-Skipped checks are recorded as unexecuted and do not support a Beta release claim.
+Fresh PR CI run `41841382247` completed successfully for candidate SHA
+`0ec50bdb4ac16f2531fa762da493a4a46db3c8b7`. UI, docs, typecheck, lint, security,
+wheel, alpha install/journey, beta journey, PostgreSQL EGI, migration parity,
+backend API/SDK/core, backend smoke, Compose validation, and the gate execution
+ledger all passed. Path-filtered suites including SDK, Plugin SDK, CLI, full
+backend, compatibility, integration, and cookbook UI-only checks were **skipped**
+and remain unexecuted; skipped checks do not support a Beta release claim.
 
 The nested governed-context PR [#1130](https://github.com/rrahimi-uci/caliber-suite/pull/1130)
-has a follow-up commit for the concrete resume-preflight defect found in its
-PostgreSQL scenarios. Its fresh CI run is pending; it is not represented as a
-passed check in this report.
+has a follow-up commit for the concrete resume-preflight and fixture-decoding
+defects found in its PostgreSQL scenarios. Fresh CI run `41845102471` completed
+successfully for the required backend/API/SDK/EGI/migration/UI/docs/security
+slices. Its broader cookbook run `41845102451` is still in progress and the PR
+remains open; neither state is treated as a merge or release approval.
+
+The reference-response safety PR [#1133](https://github.com/rrahimi-uci/caliber-suite/pull/1133)
+has passed its focused local route and inventory suites. Its fresh CI run
+`41845857385` remains in progress on the PostgreSQL EGI job with no failure
+observed at report time; it is not counted as complete until GitHub closes it.
 
 ## Gate ledger
 
