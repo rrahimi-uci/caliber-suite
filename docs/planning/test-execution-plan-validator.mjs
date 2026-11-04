@@ -16,6 +16,8 @@ test("every execution brief renders its scope, outcomes and dependency links", (
   for (const task of baseline.tasks) {
     const body = renderTask(baseline, task);
     for (const text of [task.scope, task.acceptance, task.files, task.tests, task.execution.evidence_path, markerStart, markerEnd]) assert(body.includes(text));
+    assert.match(body, /follow AGENTS\.md's quality and review gates before any agent merges through the PR/);
+    assert.doesNotMatch(body, /owner's final review\/merge/);
     for (const n of task.blocked_by) assert(body.includes(`[#${n}]`));
     assert.equal(body.split(markerStart).length, 2);
   }
