@@ -1,4 +1,11 @@
 {
+  "archive": {
+    "status": "archived",
+    "retired_on": "2026-11-04",
+    "current_planning_authority": "https://github.com/users/rrahimi-uci/projects/3",
+    "usage": "Historical provenance and offline archive validation only. Do not use to overwrite GitHub Issues or Project fields, choose current work, or certify a release.",
+    "migration_notes": "docs/planning/PLANNING_ARCHIVE.md"
+  },
   "schema_version": "v1",
   "planning_baseline": "5b2fb2a408fad887f1c8704e311b46b09da0f15f",
   "report": "map-gap.md",

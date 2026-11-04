@@ -1,5 +1,11 @@
 # CALIBER release execution plan
 
+> **Archived planning record — retired 4 November 2026.** [GitHub Project #3](https://github.com/users/rrahimi-uci/projects/3) and its linked Issues are the sole current planning authority for scope, milestones, dependencies, priorities, acceptance criteria and progress.
+> Everything below records historical planning and architectural rationale, including statements that formerly called this document or its manifest canonical. Those statements are no longer operational instructions. Preserve evidence and issue links; do not synchronize this archive back to GitHub or infer current readiness from it.
+> Use the repository agent entry points and canonical `.agents/` workflows for current work. See [archive tooling and migration notes](PLANNING_ARCHIVE.md).
+
+## Historical record
+
 Historical planning baseline: 26 October 2026. Current plan audit: 4 November 2026, main `189e1113a121e73555df15badd61e415d9796ab0`. These identify review inputs, not a release certification. See [findings and decisions](PLAN_AUDIT_2026_11.md) for the current corrections and [agent execution guide](AGENT_EXECUTION_GUIDE.md) for task handoff.
 
 This is the executable reconciliation of [map-gap.md](../../map-gap.md), the

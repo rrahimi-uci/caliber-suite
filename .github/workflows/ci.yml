@@ -858,7 +858,10 @@ jobs:
           CALIBER_DOCS_PYTHON: python
           CALIBER_DOCS_STRICT: "1"
         run: node caliber/caliber-ui/scripts/sync-docs.mjs
-      - name: Validate execution-plan graph and reviewed contract regressions offline
+      - name: Validate repository engineering framework offline
+        working-directory: ${{ github.workspace }}
+        run: node .agents/bin/check.mjs
+      - name: Validate planning archive integrity and reviewed contract regressions offline
         working-directory: ${{ github.workspace }}
         run: |
           node docs/planning/validate-execution-plan.mjs

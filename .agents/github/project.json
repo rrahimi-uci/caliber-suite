@@ -1,0 +1,60 @@
+{
+  "repository": "rrahimi-uci/caliber-suite",
+  "project": {
+    "owner": "rrahimi-uci",
+    "number": 3
+  },
+  "fields": {
+    "status": "Status",
+    "readiness": "Readiness",
+    "release": "Release",
+    "cycle": "Delivery cycle",
+    "priority": "Priority",
+    "kind": "Item type",
+    "humanInput": "Human input"
+  },
+  "statuses": {
+    "todo": "Todo",
+    "active": "In Progress",
+    "done": "Done"
+  },
+  "labels": {
+    "task": "task",
+    "epic": "epic",
+    "priorities": {
+      "P0": "priority-p0",
+      "P1": "priority-p1",
+      "P2": "priority-p2",
+      "P3": "priority-p3"
+    },
+    "releases": {
+      "Alpha": [
+        "release:alpha"
+      ],
+      "Preview 1": [
+        "release:preview-1",
+        "stage:beta"
+      ],
+      "Preview 2": [
+        "release:preview-2",
+        "stage:beta"
+      ],
+      "Preview 3": [
+        "release:preview-3",
+        "stage:beta"
+      ],
+      "Beta": [
+        "release:beta",
+        "stage:beta"
+      ],
+      "Pilot": [
+        "release:pilot",
+        "stage:mvp"
+      ],
+      "MVP": [
+        "release:mvp",
+        "stage:mvp"
+      ]
+    }
+  }
+}

@@ -2352,7 +2352,7 @@ window.DOCS_DATA = {
       "label": "Roadmap",
       "section": "Strategy",
       "section_id": "strategy",
-      "summary": "Monthly release train and one- or two-day implementation backlog for the current CALIBER codebase.",
+      "summary": "Archived alpha-era planning provenance. GitHub Project 3 and linked Issues own all current planning.",
       "audience": [
         "architect",
         "decision-maker",
@@ -2365,7 +2365,7 @@ window.DOCS_DATA = {
       ],
       "stability": "ga",
       "reviewed_on": "2026-10-24",
-      "version_applicability": "current main branch (the GitHub Project #2 it cites no longer exists)",
+      "version_applicability": "historical alpha-era snapshot; not current planning authority",
       "tags": [
         "roadmap",
         "monthly-release",

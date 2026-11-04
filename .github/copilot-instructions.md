@@ -1,10 +1,11 @@
-# GitHub Copilot repository instructions
+# GitHub Copilot review instructions
 
-- Follow the repository-wide [AGENTS.md](../AGENTS.md) and [agent contribution playbook](../docs/planning/AGENT_CONTRIBUTION_PLAYBOOK.md). You may claim a Ready task, create a branch and PR, and merge your own PR only when every applicable quality and review gate in `AGENTS.md` is satisfied. Never push directly to `main` or represent your own review as independent human approval.
-- Before opening or marking a pull request ready for human review, understand the issue acceptance criteria, implement the smallest complete change, and add or update tests for changed behavior.
-- Every behavioral change must include tests that verify correctness, edge cases and regressions. For documentation-only changes, explain why behavioral tests do not apply and run relevant link, formatting and documentation checks.
-- Read `.github/workflows/ci.yml` and run the CI-equivalent checks for every affected area. At minimum run the applicable backend, SDK, plugin SDK, CLI, UI, docs, and compose checks described there; use `./test-all.sh` when the change spans components. Also run `git diff --check` and inspect generated docs/assets and migration state.
-- Keep validation deterministic and offline. Do not require credentials, network services, model calls, or uncommitted local data for ordinary tests.
-- Do not submit a PR as ready if a required test, lint check, type check, build, browser journey, or contract check fails. If validation is blocked, keep the PR draft and state the exact blocker and command output in the PR body.
-- The PR body must list changed behavior, tests added or updated, every validation command and result, limitations, risks, and deployment or documentation implications. If a change is documentation-only, explain which documentation/link/build checks replaced unit tests.
-- During code review, identify correctness, security, test-coverage, and maintainability issues. Resolve every material finding before merge. Do not count your own review as independent approval; respect any branch-protection requirement for a separate reviewer.
+Copilot may be requested as a PR reviewer. The supported development environments are
+OpenAI Codex and Claude Code; their shared engineering framework is [.agents/](../.agents/README.md).
+This file does not define another development workflow or command implementation.
+
+For review, read the [canonical engineering policy](../.agents/engineering-policy.md),
+linked issue acceptance criteria, complete diff, and actual validation evidence. Flag
+correctness, security, compatibility, concurrency, regression and test-quality problems
+with actionable file/line evidence. Do not treat an agent's self-review as independent
+approval, and do not recommend bypassing required checks or repository protections.

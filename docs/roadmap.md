@@ -6,12 +6,12 @@ audience:
 doc_type: strategy
 product_area: strategy
 stability: ga
-summary: Monthly release train and one- or two-day implementation backlog for the current CALIBER codebase.
+summary: Archived alpha-era planning provenance. GitHub Project 3 and linked Issues own all current planning.
 prerequisites:
   - Current-main capability matrix and first-mile evidence
   - A named single-tenant deployment owner and supported MLflow provider profile
 reviewed_on: 2026-10-24
-version_applicability: current main branch (the GitHub Project #2 it cites no longer exists)
+version_applicability: historical alpha-era snapshot; not current planning authority
 tags:
   - roadmap
   - monthly-release
@@ -21,14 +21,9 @@ tags:
 
 # CALIBER roadmap
 
-> **Superseded as the MVP plan on 2026-10-24.** The repository owner made the reference-architecture (EGI) program
-> the MVP, with three people, and made CALIBER the reference implementation of *Building Enterprise General
-> Intelligence*. The [single-tenant Beta/MVP execution plan](https://github.com/rrahimi-uci/caliber-suite/blob/main/docs/planning/BETA_MVP_EXECUTION_PLAN.md) now owns
-> executable scope and dependencies, tracked in [Project #3](https://github.com/users/rrahimi-uci/projects/3)
-> and milestones D1–D15. D5 is Beta; D9 is core proof; D15 is the retained full MVP. Dates are uncommitted pending
-> #608; the former 122-week calendar is historical, not a revised estimate. Monthly milestones M1–M6 and
-> Post-v1 plus Project #4 are retired/closed, with history retained. This
-> page stays as the record of the alpha-era plan.
+> **Archived planning record — retired 4 November 2026.** [GitHub Project #3](https://github.com/users/rrahimi-uci/projects/3) and its linked Issues are the sole current planning authority for scope, milestones, dependencies, priorities, acceptance criteria and progress.
+> Everything below records historical planning and architectural rationale, including statements that formerly called this document or its manifest canonical. Those statements are no longer operational instructions. Preserve evidence and issue links; do not synchronize this archive back to GitHub or infer current readiness from it.
+> Use the repository agent entry points and canonical `.agents/` workflows for current work. See [archive tooling and migration notes](https://github.com/rrahimi-uci/caliber-suite/blob/main/docs/planning/PLANNING_ARCHIVE.md).
 
 The historical text below was the execution roadmap for CALIBER and its (since removed) GitHub
 Project #2. The

@@ -409,6 +409,7 @@ job_cookbook_ui_only() {
 job_docs_validation() {
   require_cmd node "Install Node.js (see 'engines' in caliber/caliber-ui/package.json)." || return 1
   cd "$REPO_ROOT" || return 1
+  node .agents/bin/check.mjs || return 1
   CALIBER_DOCS_PYTHON="$VENV_PY" CALIBER_DOCS_STRICT=1 node caliber/caliber-ui/scripts/sync-docs.mjs \
     || return 1
   "$VENV_PY" -m pytest \

@@ -4,9 +4,10 @@ Thanks for your interest in contributing to **caliber-suite**.
 
 This page is the short entry point. The detailed engineering guide (coding standards, the CI-parity
 script, what makes a good PR) is [caliber/CONTRIBUTING.md](caliber/CONTRIBUTING.md).
-Coding agents and people delegating work to them should also read the
-[agent contribution playbook](docs/planning/AGENT_CONTRIBUTION_PLAYBOOK.md) and
-[AGENTS.md](AGENTS.md). Tasks live in [Project #3](https://github.com/users/rrahimi-uci/projects/3).
+Coding agents and people delegating work to them must read the shared
+[engineering framework](.agents/README.md) and [engineering policy](.agents/engineering-policy.md).
+[AGENTS.md](AGENTS.md) and [CLAUDE.md](CLAUDE.md) provide the Codex and Claude Code entry points.
+Tasks and execution state live in [Project #3](https://github.com/users/rrahimi-uci/projects/3).
 
 ## Dev setup
 
@@ -36,6 +37,9 @@ second when you run those scripts.
   check the three Python packages under `sdk/`, and `make test-all` (or [test-all.sh](test-all.sh)) adds the
   Playwright end-to-end suite. `scripts/ci-local.sh` mirrors every executable job in
   [.github/workflows/ci.yml](.github/workflows/ci.yml).
+- For engineering framework changes, use Node.js 20 or newer and run
+  `node .agents/bin/check.mjs` from the repository root. The deterministic, offline framework
+  checks and coverage gate also run in the CI **Docs validation** job; they require no model API keys.
 - Run `git diff --check`.
 - Keep [ARCHITECTURE.md](ARCHITECTURE.md) and `docs/` in sync with code changes. The files under
   `docs-site/` (except `docs-site/cookbooks/`) and `caliber/caliber-ui/public/docs/` are generated from
