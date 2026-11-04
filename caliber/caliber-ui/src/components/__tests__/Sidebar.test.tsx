@@ -11,7 +11,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { delay, http, HttpResponse } from "msw";
+import { http, HttpResponse } from "msw";
 import { MemoryRouter, useLocation } from "react-router-dom";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 
@@ -469,9 +469,14 @@ describe("alpha_navigation_regression", () => {
   });
 
   it("shows nothing, and no chip, while capabilities load", async () => {
+    let resolveCapabilities!: () => void;
+    const capabilitiesLoaded = new Promise<void>((resolve) => {
+      resolveCapabilities = resolve;
+    });
+    // Keep the request pending explicitly so this assertion does not depend on CI timing.
     server.use(
       http.get(`${API_BASE}/capabilities`, async () => {
-        await delay(80);
+        await capabilitiesLoaded;
         return HttpResponse.json(capabilitiesBody(ALL_ON, referenceAdapters()));
       }),
       http.get(`${API_BASE}/aria/plans`, () => HttpResponse.json({ data: [] })),
@@ -493,6 +498,7 @@ describe("alpha_navigation_regression", () => {
       expect(within(row).queryByTestId("adapter-support-chip")).not.toBeInTheDocument();
     }
     // ...and the answer arrives.
+    resolveCapabilities();
     expect(await within(nav).findByText("Release candidates")).toBeInTheDocument();
     await waitFor(() =>
       expect(within(list).getByTestId("adapter-support-release_evaluation")).toHaveAttribute(
