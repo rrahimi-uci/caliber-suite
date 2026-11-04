@@ -44,9 +44,18 @@ export const contractRules = [
   [771, "tests", "preview_label_retained"],
   [739, "tests", "forged_body_creator_ignored"],
   [852, "tests", "existing_workflow_creation_unchanged"],
+  [772, "tests", "exact_fixture_assignments"],
+  [796, "scope", "snapshot is display-only and cannot authorize admission"],
+  [796, "tests", "concurrent_last_slot_postgres"],
+  [809, "scope", "never retry attempt_scope"],
+  [809, "tests", "retry_attempt_does_not_create_child"],
+  [904, "scope", "verified|contradicted|insufficient"],
+  [908, "scope", "no release on missing ontology or approval"],
+  [933, "scope", "do not rebuild after validation"],
 ];
 
-export const prerequisiteRules = [[676, 726], [684, 683], [777, 686], [777, 812]];
+export const prerequisiteRules = [[676, 726], [684, 683], [777, 686], [777, 812],
+  [823, 837], [837, 814], [843, 847], [860, 843], [883, 686], [908, 910], [918, 895]];
 
 export function validateReviewedContracts(plan) {
   const tasks = new Map(plan.tasks.map((task) => [task.number, task]));
