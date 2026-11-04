@@ -170,6 +170,7 @@ PROJECT_B = "egi-project-b"
 EDITOR_A = "editor_a"
 APPROVER_A = "approver_a"
 EDITOR_B = "editor_b"
+VIEWER_B = "viewer_b"
 
 
 def reference_environment(database_url: str, profile: str, workdir: Path) -> dict[str, str]:
@@ -305,6 +306,7 @@ class Workspaces:
     editor_a: str
     approver_a: str
     editor_b: str
+    viewer_b: str
 
 
 @pytest.fixture
@@ -318,22 +320,23 @@ def two_workspaces(reference_app: ReferenceApp) -> Workspaces:
             ]
         )
         session.flush()
-        for member, user, project in (
-            ("egi-m-editor-a", EDITOR_A, PROJECT_A),
-            ("egi-m-approver-a", APPROVER_A, PROJECT_A),
-            ("egi-m-editor-b", EDITOR_B, PROJECT_B),
+        for member, user, project, role in (
+            ("egi-m-editor-a", EDITOR_A, PROJECT_A, "editor"),
+            ("egi-m-approver-a", APPROVER_A, PROJECT_A, "editor"),
+            ("egi-m-editor-b", EDITOR_B, PROJECT_B, "editor"),
+            ("egi-m-viewer-b", VIEWER_B, PROJECT_B, "viewer"),
         ):
             session.add(
                 CaliberProjectMember(
                     member_id=member,
                     project_id=project,
                     user_id=user,
-                    role="editor",
+                    role=role,
                     created_by="@egi",
                 )
             )
         session.commit()
-    return Workspaces(PROJECT_A, PROJECT_B, EDITOR_A, APPROVER_A, EDITOR_B)
+    return Workspaces(PROJECT_A, PROJECT_B, EDITOR_A, APPROVER_A, EDITOR_B, VIEWER_B)
 
 
 def seed_release(app: ReferenceApp, project_id: str, name: str = "egi") -> dict[str, str]:

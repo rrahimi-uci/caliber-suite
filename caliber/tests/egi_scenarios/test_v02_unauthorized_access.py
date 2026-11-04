@@ -27,10 +27,12 @@ from caliber.orchestrator.workflow_run_worker import WorkflowRunWorker
 from caliber.policy import grants
 from caliber.policy.decisions import decide
 from tests.egi_scenarios.conftest import (
+    APPROVER_A,
     EDITOR_A,
     EDITOR_B,
     PROJECT_A,
     PROJECT_B,
+    VIEWER_B,
     ReferenceApp,
     Workspaces,
     seed_release,
@@ -94,6 +96,64 @@ def test_foreign_workspace_denied_before_dispatch(
     assert _stored(reference_app) == before, "nothing was stored for the foreign caller"
     _work(reference_app)
     assert built == [], "and nothing was dispatched"
+
+
+@pytest.mark.parametrize(
+    ("label", "user", "active_project", "csrf_project"),
+    [
+        ("editor_a-to-B", EDITOR_A, PROJECT_B, PROJECT_B),
+        ("approver_a-to-B", APPROVER_A, PROJECT_B, PROJECT_B),
+        ("viewer_b-to-A", VIEWER_B, PROJECT_A, PROJECT_A),
+        ("token-of-A-on-B", EDITOR_A, PROJECT_B, PROJECT_A),
+    ],
+)
+@pytest.mark.parametrize("surface", ["", "/trace", "/causal-links", "/evidence"])
+def test_foreign_role_workspace_matrix_denies_all_run_surfaces(
+    reference_app: ReferenceApp,
+    two_workspaces: Workspaces,
+    label: str,
+    user: str,
+    active_project: str,
+    csrf_project: str,
+    surface: str,
+) -> None:
+    """Every role/workspace mismatch is an indistinguishable missing resource.
+
+    The four rows are deliberately different: a project-A editor or approver presented in B,
+    a project-B viewer presented in A, and a valid project-A CSRF token replayed with B. The
+    same foreign run id is exercised through its detail, trace, causal-proposal, and evidence
+    surfaces so a guard added to only one representation cannot reopen the boundary.
+    """
+    workflow_id = _published_workflow(reference_app)
+    started = _call(
+        reference_app,
+        "POST",
+        EDITOR_A,
+        PROJECT_A,
+        "/workflow-runs",
+        {
+            "workflow_id": workflow_id,
+            "alias": "manual",
+            "input": "private run",
+            "idempotency_key": f"v02-matrix-{label}",
+            **seed_release(reference_app, PROJECT_A),
+        },
+    )
+    assert started.status_code == 202, started.text
+    run_id = started.json()["data"]["workflow_run_id"]
+
+    headers = reference_app.headers(user, active_project)
+    csrf = reference_app.client.get(
+        f"{PREFIX}/csrf", headers=reference_app.headers(user, csrf_project)
+    ).json()["data"]["token"]
+    response = reference_app.client.get(
+        f"{PREFIX}/workflow-runs/{run_id}{surface}",
+        headers={**headers, "X-CALIBER-CSRF": csrf},
+    )
+
+    assert response.status_code == 404, f"{label} GET {surface or '/'} -> {response.text}"
+    assert PROJECT_A not in response.text
+    assert "private run" not in response.text
 
 
 def test_forged_user_header_without_proxy_secret_denied(
