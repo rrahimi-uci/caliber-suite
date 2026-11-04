@@ -16,7 +16,7 @@ already run.**
 [![Python](https://img.shields.io/badge/Python-3.10%20–%203.12-3776AB?logo=python&logoColor=white)](./caliber/README.md)
 [![MLflow](https://img.shields.io/badge/MLflow-≥3.15-0194E2?logo=mlflow&logoColor=white)](https://mlflow.org)
 
-**[Quickstart](#quickstart)** · **[First workflow](#your-first-workflow)** · **[Cookbooks](#cookbooks)** · **[Architecture](#architecture)** · **[Configuration](#configuration)** · **[Troubleshooting](#troubleshooting)** · **[Docs](#documentation)**
+**[Quickstart](#quickstart)** · **[First workflow](#your-first-workflow)** · **[Cookbooks](#cookbooks)** · **[Architecture](#architecture)** · **[Configuration](#configuration)** · **[Troubleshooting](#troubleshooting)** · **[Docs](#documentation)** · **[Contribute](CONTRIBUTING.md)**
 
 </div>
 

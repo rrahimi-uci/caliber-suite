@@ -1,10 +1,10 @@
 # GitHub Copilot repository instructions
 
-- You may work on assigned issues and development tasks, create a branch, and open a pull request. You must never merge a pull request, approve a pull request, push to `main`, or represent your review as human approval.
+- Follow the repository-wide [AGENTS.md](../AGENTS.md) and [agent contribution playbook](../docs/planning/AGENT_CONTRIBUTION_PLAYBOOK.md). You may claim a Ready task, create a branch and PR, and merge your own PR only when every applicable quality and review gate in `AGENTS.md` is satisfied. Never push directly to `main` or represent your own review as independent human approval.
 - Before opening or marking a pull request ready for human review, understand the issue acceptance criteria, implement the smallest complete change, and add or update tests for changed behavior.
-- Every PR must include tests that verify the correctness and completeness of the change: cover the new/changed behavior, the edge cases it introduces, and any regression the change fixes. A PR without adequate test coverage is not ready for review.
+- Every behavioral change must include tests that verify correctness, edge cases and regressions. For documentation-only changes, explain why behavioral tests do not apply and run relevant link, formatting and documentation checks.
 - Read `.github/workflows/ci.yml` and run the CI-equivalent checks for every affected area. At minimum run the applicable backend, SDK, plugin SDK, CLI, UI, docs, and compose checks described there; use `./test-all.sh` when the change spans components. Also run `git diff --check` and inspect generated docs/assets and migration state.
 - Keep validation deterministic and offline. Do not require credentials, network services, model calls, or uncommitted local data for ordinary tests.
 - Do not submit a PR as ready if a required test, lint check, type check, build, browser journey, or contract check fails. If validation is blocked, keep the PR draft and state the exact blocker and command output in the PR body.
 - The PR body must list changed behavior, tests added or updated, every validation command and result, limitations, risks, and deployment or documentation implications. If a change is documentation-only, explain which documentation/link/build checks replaced unit tests.
-- During code review, identify correctness, security, test-coverage, and maintainability issues and leave comments. Never approve or merge the PR.
+- During code review, identify correctness, security, test-coverage, and maintainability issues. Resolve every material finding before merge. Do not count your own review as independent approval; respect any branch-protection requirement for a separate reviewer.

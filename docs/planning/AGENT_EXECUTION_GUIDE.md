@@ -29,7 +29,7 @@ Every behavioral change needs a meaningful positive case, refusal/error cases an
 
 ## Complete the handoff
 
-Record the exact SHA, commands/results, measured coverage, artifact hashes where relevant, review findings and unresolved inputs at the task's evidence path. No required skipped/failed check can be called passing. Report known baseline/environment failures precisely. Use the full PR template, link the task and control, and resolve material findings. Under the supplied stricter merge policy, leave the PR open for the owner's final review and merge; never push directly to `main` or use auto-merge.
+Record the exact SHA, commands/results, measured coverage, artifact hashes where relevant, review findings and unresolved inputs at the task's evidence path. No required skipped/failed check can be called passing. Report known baseline/environment failures precisely. Use the full PR template, link the task and control, and resolve material findings. Follow the [repository agent instructions](../../AGENTS.md) for the objective merge gate. After all applicable checks and review issues are resolved, the authorized agent may merge through the PR; never push directly to `main` or bypass branch protection.
 
 After integration, reconcile issue state and Project #3 readiness with live evidence. Control acceptance is cumulative and uses one exact candidate. Earlier closed tasks and reports from another SHA do not automatically confer PASS. Reserve each Preview's third week for QA, bug bash, fixes and release validation. Missing required evidence means HOLD and moves the release date.
 

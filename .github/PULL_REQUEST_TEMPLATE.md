@@ -17,5 +17,5 @@ Validation commands and results:
 
 ## Copilot handoff
 
-- [ ] This PR is ready for human review only after all applicable validation passes.
-- [ ] Copilot did not approve or merge this PR.
+- [ ] This PR is ready for review only after all applicable validation passes; merge requires the gates in `AGENTS.md`.
+- [ ] Reviewer status is reported accurately; self-review is not represented as independent approval.
