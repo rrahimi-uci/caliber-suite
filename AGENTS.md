@@ -1,4 +1,18 @@
-Codex Repository Instructions
+CALIBER Repository Agent Instructions
+
+These instructions apply to every coding agent contributing to this repository. Start with the
+[agent contribution playbook](docs/planning/AGENT_CONTRIBUTION_PLAYBOOK.md), the
+[repository contribution guide](CONTRIBUTING.md), and the specific issue's current execution brief.
+The issue, release plan and tests define the default work. Reconcile any explicit requester change
+with the issue and PR so subsequent contributors see the current contract. Follow directory-specific
+instructions when they apply.
+
+Task Selection and Claiming
+
+* Use [Project #3](https://github.com/users/rrahimi-uci/projects/3) and select an open task marked Ready or one explicitly assigned by the coordinator. Recheck native blockers, pending start decisions, assignee, linked PRs and the latest `main` before coding. The board is a snapshot, not an atomic claim service.
+* Record an accountable implementation owner and mark the item In Progress before substantial work. Contributors without project-edit permission can record the claim on the issue and link their branch/PR; a maintainer then updates the board. Agents using a shared GitHub identity need a coordinator to assign tasks; do not treat a shared account as proof that only one agent owns a task.
+* If another contributor already owns the work or a PR covers it, coordinate on that PR or choose another task. Divide large tasks into reviewable slices without silently changing their acceptance criteria.
+* The [execution guide](docs/planning/AGENT_EXECUTION_GUIDE.md) explains how to use the generated brief, task evidence, release controls and human-input phases. Ask for a missing product decision only when the issue marks it as a start gate or safe implementation requires it.
 
 Autonomy and Merge Authority
 
@@ -8,7 +22,7 @@ Autonomy and Merge Authority
 * Do not stop merely because you have implemented the code, committed changes, pushed a branch, or opened a pull request. For autonomous assignments, continue through validation, PR creation, CI verification, merge, post-merge verification, and subsequent assigned work.
 * Never push or commit directly to main. All code changes must reach main through a pull request.
 * Never bypass branch protection, required status checks, security controls, repository policies, or other enforced safeguards in order to merge.
-* Never merge a PR containing a failing, skipped, incomplete, unresolved, or intentionally bypassed required check.
+* Never merge while an applicable required check is failing, skipped, incomplete, unresolved, or intentionally bypassed. A path-filtered job for an unaffected component is not a required check for that PR; document the distinction.
 * Never represent your own review as approval from another engineer or claim that a human reviewed or approved work when they did not.
 
 Repository and Task Discovery

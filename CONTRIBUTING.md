@@ -4,6 +4,9 @@ Thanks for your interest in contributing to **caliber-suite**.
 
 This page is the short entry point. The detailed engineering guide (coding standards, the CI-parity
 script, what makes a good PR) is [caliber/CONTRIBUTING.md](caliber/CONTRIBUTING.md).
+Coding agents and people delegating work to them should also read the
+[agent contribution playbook](docs/planning/AGENT_CONTRIBUTION_PLAYBOOK.md) and
+[AGENTS.md](AGENTS.md). Tasks live in [Project #3](https://github.com/users/rrahimi-uci/projects/3).
 
 ## Dev setup
 

@@ -67,8 +67,8 @@ only if you explicitly need the legacy shared-file behavior.
 | **Conventional Commits** | `feat:`, `fix:`, `docs:`, `refactor:`, `test:`, `chore:` prefixes, with an optional scope such as `fix(aria):`. |
 | **A hand-written changelog** | User-visible changes get an entry in [CHANGELOG.md](CHANGELOG.md) under `[Unreleased]`, in the [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) format. |
 | **SemVer** | `MAJOR.MINOR.PATCH`, with pre-release suffixes during the alpha. Pre-1.0 minor bumps may include breaking changes (documented in the changelog). |
-| **Reviewable history** | Keep each PR to one reviewable change; the maintainers merge it. |
-| **CI must pass** | The parity script and the CI jobs (lint, type check, coverage tests, compatibility, integration, UI, Compose, package, security) must be green, or an explicit skip must be resolved. No `--no-verify`. |
+| **Reviewable history** | Keep each PR to one reviewable change; an authorized agent or maintainer merges through the PR after the applicable quality and review gates pass. |
+| **CI must pass** | Every applicable required job (lint, type check, coverage tests, compatibility, integration, UI, Compose, package, security) must pass. Resolve any skipped required job. Path-filtered jobs for unaffected components are not required for that PR. No `--no-verify`. |
 | **Eval-driven changes** | Changes to optimizers or scorers ship with evaluation data showing the change is an improvement, not just a refactor. |
 
 ## What makes a good PR
@@ -107,7 +107,7 @@ Integration tests cover:
 
 ## What to work on
 
-- Browse the open issues, especially ones labeled `good first issue`.
+- Start with an open, unclaimed Ready task in [Project #3](https://github.com/users/rrahimi-uci/projects/3), or an issue assigned to you by the coordinator. Read its current execution brief and check its producing dependencies before editing.
 - Read the [roadmap](../docs/roadmap.md) and [Alpha scope and known limitations](../docs/start/alpha-scope.md).
 - Read the [guided walkthrough](../docs-site/walkthrough.html) for the user-visible end-to-end behavior.
 

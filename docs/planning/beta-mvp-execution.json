@@ -844,7 +844,7 @@
       "gaps": [
         "G19"
       ],
-      "decision": "Full MVP remains single-tenant, including identity, regional cells, Hub, memory, federation, catalog and autonomy. All applicable required checks must run and pass on exact rebuilt artifacts; no skipped-required-check waiver. Critical/high security findings are resolved before release, not accepted by an author waiver. Residual lower severity findings require explicit independent review. Owner performs final PR review/merge; do not merge automatically.",
+      "decision": "Full MVP remains single-tenant, including identity, regional cells, Hub, memory, federation, catalog and autonomy. All applicable required checks must run and pass on exact rebuilt artifacts; no skipped-required-check waiver. Critical/high security findings are resolved before release, not accepted by an author waiver. Residual lower severity findings require explicit independent review. Authorized agent may merge a PR only after all applicable quality and review gates pass; do not bypass branch protection.",
       "children": [
         930,
         931,

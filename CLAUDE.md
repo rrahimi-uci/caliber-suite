@@ -1,5 +1,11 @@
 Claude Repository Instructions
 
+These tool-specific instructions supplement the repository-wide [AGENTS.md](AGENTS.md) and
+[agent contribution playbook](docs/planning/AGENT_CONTRIBUTION_PLAYBOOK.md). Start with an
+unclaimed Ready task or a coordinator assignment, record ownership, and use the current issue
+execution brief. If wording differs, follow the stricter applicable quality gate and reconcile
+the instructions in a PR.
+
 Autonomy and Merge Authority
 
 * You are explicitly authorized to independently implement assigned work, create branches, commit and push changes, open pull requests, review your work, and merge your own pull requests into main without waiting for human approval, provided every requirement and validation gate in these instructions is satisfied.
@@ -7,7 +13,7 @@ Autonomy and Merge Authority
 * Do not stop merely because a PR has been opened or is awaiting review. Unless there is a genuine blocker that requires human input, continue through validation, merge the PR yourself, synchronize with main, and proceed with the remaining work.
 * Never push or commit directly to main. All code changes must reach main through a pull request.
 * Never bypass branch protection, required checks, repository security controls, or other enforced safeguards in order to merge.
-* Never merge a PR with a failing, skipped, incomplete, or unresolved required validation check.
+* Never merge while an applicable required check is failing, skipped, incomplete, or unresolved. A job omitted by a documented path filter for an unaffected component is not required for that PR.
 * Never represent your own review as approval from another person or claim that a human reviewed or approved work when they did not.
 
 Implementation Standard

@@ -9,7 +9,7 @@ The [machine-readable manifest](beta-mvp-execution.json) records every epic/task
 The [Alpha-to-MVP release train](PREVIEW_TO_MVP_RELEASE_TRAIN.md) maps those same epics and tasks to three
 three-week Previews, Beta, Pilot and MVP, with release outcomes and relative schedule. The November audit also corrects task contracts and native dependency edges;
 GitHub due dates remain unset.
-GitHub child issues contain the complete agent briefs. Repository changes in this planning PR remain proposed until owner merge;
+GitHub child issues contain the complete agent briefs. Repository changes remain proposed until their quality gates pass and the corresponding PR is merged;
 GitHub issue/project metadata has been applied separately. No Beta/MVP feature is implemented by this plan.
 
 Post-merge contract correction: [review findings and resolutions](EXECUTION_CONTRACT_CORRECTIONS.md)
@@ -126,7 +126,7 @@ Documentation-only/coordination work records why runtime coverage is not applica
 The milestone control alone owns `docs/reports/egi/Dk-acceptance.md`. Tasks supply evidence fragments with exact SHA,
 artifact hashes, test IDs/results, scope exceptions and unresolved blockers. No competing report writers or fabricated dates.
 All repository changes use focused branches/PRs and the existing full template. Request owner/Copilot review where supported;
-GitHub inability to request self-review is recorded, not disguised as approval. **Only the owner merges PRs.**
+GitHub inability to request self-review is recorded, not disguised as approval. **An authorized agent may merge through the PR only after every applicable quality and review gate passes.**
 
 ## Calendar and genuine external inputs
 

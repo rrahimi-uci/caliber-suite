@@ -150,7 +150,7 @@ ${bullets(e.stop_conditions)}
 
 ${task.documentation}
 
-Supply \`${e.evidence_path}\` with candidate SHA, changed interfaces, exact commands/results, measured affected-code coverage, artifact hashes where relevant, and unresolved inputs. Only control ${issueLink(608 + Number(task.milestone.slice(1)))} owns \`docs/reports/egi/${task.milestone}-acceptance.md\`; a child supplies a fragment. Use the PR template, resolve review findings, and leave the PR for the owner's final review/merge under the supplied merge policy. Do not close from a checkbox, simulated external review, or a skipped required check.
+Supply \`${e.evidence_path}\` with candidate SHA, changed interfaces, exact commands/results, measured affected-code coverage, artifact hashes where relevant, and unresolved inputs. Only control ${issueLink(608 + Number(task.milestone.slice(1)))} owns \`docs/reports/egi/${task.milestone}-acceptance.md\`; a child supplies a fragment. Use the PR template, resolve review findings, and follow AGENTS.md's quality and review gates before any agent merges through the PR. Do not close from a checkbox, simulated external review, or a skipped required check.
 ${markerEnd}`;
 }
 
