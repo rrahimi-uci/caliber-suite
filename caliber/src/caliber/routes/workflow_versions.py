@@ -155,6 +155,26 @@ def _clone_manifest(manifest: dict[str, Any]) -> dict[str, Any]:
     return cast(dict[str, Any], json.loads(json.dumps(manifest)))
 
 
+def _strip_generated_python(value: Any) -> Any:
+    """Remove executable source from a reference-profile response without mutating storage."""
+    if isinstance(value, dict):
+        return {
+            key: _strip_generated_python(item)
+            for key, item in value.items()
+            if key != "generated_python"
+        }
+    if isinstance(value, list):
+        return [_strip_generated_python(item) for item in value]
+    return value
+
+
+def _profile_safe_model_response(request: Request, data: Any) -> JSONResponse:
+    """Serialize workflow-version data while keeping executable source out of reference responses."""
+    if getattr(request.app.state.config, "profile", None) != "reference":
+        return envelope_response(data)
+    return envelope_response_dict(_strip_generated_python(data.model_dump(mode="json")))
+
+
 def _manifest_summary_metadata(
     version: CaliberWorkflowVersion,
     manifest: dict[str, Any] | None,
@@ -670,7 +690,7 @@ async def get_version(request: Request) -> JSONResponse:
     with factory() as session:
         version = _get_version_or_404(session, version_id, request=request)
         data = WorkflowVersionSchema.model_validate(version)
-    return envelope_response(data)
+    return _profile_safe_model_response(request, data)
 
 
 async def update_version(request: Request) -> JSONResponse:
@@ -769,7 +789,7 @@ async def compile_version_route(request: Request) -> JSONResponse:
             "compile_ms": result.compile_ms,
             "cached": result.cached,
         }
-    return envelope_response(WorkflowCompileSchema.model_validate(payload))
+    return _profile_safe_model_response(request, WorkflowCompileSchema.model_validate(payload))
 
 
 async def publish_version_route(request: Request) -> JSONResponse:
@@ -796,7 +816,7 @@ async def publish_version_route(request: Request) -> JSONResponse:
             )
         session.commit()
         data = WorkflowVersionSchema.model_validate(version)
-    return envelope_response(data)
+    return _profile_safe_model_response(request, data)
 
 
 async def preview_run_route(request: Request) -> JSONResponse:

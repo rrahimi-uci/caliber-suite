@@ -436,6 +436,40 @@ def test_compile_valid(client: TestClient) -> None:
     assert isinstance(data["cached"], bool)
 
 
+def test_reference_profile_hides_generated_python_from_version_responses(client: TestClient) -> None:
+    _wid, vid, _ = _support_workflow(client)
+    client.app.state.config = client.app.state.config.model_copy(update={"profile": "reference"})
+
+    compiled = client.post(f"{PREFIX}/workflow-versions/{vid}/compile")
+    assert compiled.status_code == 200, compiled.text
+    assert "generated_python" not in compiled.json()["data"]
+    assert "generated_python" not in compiled.text
+
+    detail = client.get(f"{PREFIX}/workflow-versions/{vid}")
+    assert detail.status_code == 200, detail.text
+    assert "generated_python" not in detail.text
+
+    published = client.post(f"{PREFIX}/workflow-versions/{vid}/publish")
+    assert published.status_code == 200, published.text
+    assert "generated_python" not in published.text
+
+
+def test_development_profile_keeps_generated_python_in_version_responses(client: TestClient) -> None:
+    _wid, vid, _ = _support_workflow(client)
+
+    compiled = client.post(f"{PREFIX}/workflow-versions/{vid}/compile")
+    assert compiled.status_code == 200, compiled.text
+    assert "generated_python" in compiled.json()["data"]
+
+    detail = client.get(f"{PREFIX}/workflow-versions/{vid}")
+    assert detail.status_code == 200, detail.text
+    assert "generated_python" in detail.text
+
+    published = client.post(f"{PREFIX}/workflow-versions/{vid}/publish")
+    assert published.status_code == 200, published.text
+    assert "generated_python" in published.text
+
+
 def test_compile_invalid_400(client: TestClient) -> None:
     wid = create_workflow(client)
     vid, _ = create_draft(client, wid, make_support_manifest(wid))  # tools not registered
