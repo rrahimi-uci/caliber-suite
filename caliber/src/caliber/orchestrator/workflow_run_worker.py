@@ -274,6 +274,11 @@ def _resume_checkpoint_preflight_error(  # noqa: PLR0911 - explicit fail-closed 
             node_type in {"webhook", "api_request", "tool"}
             and getattr(plan, "governed_effects", None) is not None
         )
+        # A nested governed effect parks its parent subworkflow node while the
+        # checkpoint retains the child effect node in ``approval_node_id``.
+        # The bound-request check below validates that child identity before
+        # execution resumes.
+        or (node_type == "subworkflow" and getattr(plan, "governed_effects", None) is not None)
     ):
         return (
             f"kind {checkpoint_kind!r} does not match current node "
@@ -2621,8 +2626,9 @@ class WorkflowRunWorker:
         """Whether the approval request a governed step names is a live one bound to this run, node and proposal.
 
         A checkpoint without a bound request is the legacy node-level kind and needs no check. The runtime created the request
-        in this process moments ago; this refuses to park a run behind one that is not the run's, not the node's, not bound to
-        the proposal the step names, or already decided or replaced, which no approver could answer.
+        in this process moments ago; this refuses to park a run behind one that is not the run's, not the resume node's (or the
+        nested approval node's), not bound to the proposal the step names, or already decided or replaced, which no approver
+        could answer.
         """
         request_id = state_blob.get("approval_request_id")
         if request_id is None:
@@ -2632,10 +2638,13 @@ class WorkflowRunWorker:
             if isinstance(request_id, str)
             else None
         )
+        approval_node_id = state_blob.get("approval_node_id", node_id)
+        if not isinstance(approval_node_id, str) or not approval_node_id:
+            return False
         return (
             row is not None
             and row.workflow_run_id == run.workflow_run_id
-            and row.node_id == node_id
+            and row.node_id == approval_node_id
             and row.proposal_id == state_blob.get("proposal_id")
             and row.intent_hash == state_blob.get("intent_hash")
             and row.status in ("pending", "approved")

@@ -116,7 +116,9 @@ from caliber.workflows.runtime import (
     WorkflowExecutor,
     WorkflowRunResult,
     current_run_context,
+    current_step_occurrence,
     execute,
+    nested_effect_occurrence_prefix,
 )
 from caliber.workflows.sandbox import TokenBudget
 from caliber.workflows.session_memory import (
@@ -958,6 +960,7 @@ def build_plan(  # noqa: PLR0915 - central workflow plan assembler
         session_memory_store = SqlWorkflowSessionMemoryStore(
             session_factory=runtime_session_factory,
         )
+    plan_holder: list[RuntimePlan | None] = [None]
 
     def _normalize_retrieval_modes(value: Any) -> list[str] | None:
         if value is None:
@@ -1098,6 +1101,13 @@ def build_plan(  # noqa: PLR0915 - central workflow plan assembler
                 "error_code": REFUSAL_CODE,
                 "tokens": 0,
             }
+        parent_plan = plan_holder[0]
+        if not preview and parent_plan is not None and parent_plan.governed_effects is not None:
+            sub_plan.governed_effects = parent_plan.governed_effects
+            sub_plan.effect_gate = parent_plan.effect_gate
+            sub_plan.effect_occurrence_prefix = nested_effect_occurrence_prefix(
+                current_step_occurrence(), workflow_id, target_version.version_id
+            )
         run_ctx = current_run_context()
         execution_result = execute(
             sub_plan,
@@ -1117,6 +1127,14 @@ def build_plan(  # noqa: PLR0915 - central workflow plan assembler
             "error_code": execution_result.error_code,
             "tokens": execution_result.tokens,
             "steps": [step.node_id for step in execution_result.steps],
+            "checkpoint_state": next(
+                (
+                    dict(step.checkpoint_state)
+                    for step in reversed(execution_result.steps)
+                    if step.status == "blocked" and isinstance(step.checkpoint_state, dict)
+                ),
+                None,
+            ),
         }
 
     def _record_knowledge_model_context(details: dict[str, Any]) -> None:
@@ -1373,7 +1391,7 @@ def build_plan(  # noqa: PLR0915 - central workflow plan assembler
             runtime_session.commit()
             return result_payload
 
-    return RuntimePlan(
+    plan = RuntimePlan(
         ir=result.ir,
         resolver=resolver,
         mcp_identity=workflow_identity,
@@ -1428,6 +1446,8 @@ def build_plan(  # noqa: PLR0915 - central workflow plan assembler
         # policy, so a builder that threads no config still constrains egress.
         egress_policy=EgressPolicy.from_config(config),
     )
+    plan_holder[0] = plan
+    return plan
 
 
 # ---------------------------------------------------------------------------

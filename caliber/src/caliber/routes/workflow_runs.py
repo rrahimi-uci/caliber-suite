@@ -2205,7 +2205,11 @@ def _require_bound_authority(
 
 
 def _refuse_undecidable_bound(
-    row: CaliberRuntimeApprovalRequest, *, run: CaliberWorkflowRun, now: datetime
+    row: CaliberRuntimeApprovalRequest,
+    *,
+    run: CaliberWorkflowRun,
+    now: datetime,
+    current_node_id: str | None = None,
 ) -> None:
     """The stable ``409`` for a bound request that is final or not for this run's step; see the selector for the order."""
     if row.consumed_at is not None:
@@ -2218,7 +2222,7 @@ def _refuse_undecidable_bound(
     )
     if refusal is not None:
         raise _bound_refusal(refusal)
-    if row.node_id != run.current_node_id:
+    if row.node_id != (current_node_id or run.current_node_id):
         raise _bound_refusal(APPROVAL_NOT_CURRENT)
     if row.status != "pending":
         raise _bound_refusal(APPROVAL_ALREADY_DECIDED)
@@ -2276,7 +2280,16 @@ def _select_pending_runtime_approval(
             _require_bound_authority(
                 row, actor=actor, scopes=scopes, enforce_requester=enforce_requester
             )
-            _refuse_undecidable_bound(row, run=run, now=now)
+            checkpoint = _resume_checkpoint_row(session, run)
+            approval_node_id = run.current_node_id
+            if checkpoint is not None:
+                approval_node_id = _runtime_approval_node_id(run, checkpoint)
+            _refuse_undecidable_bound(
+                row,
+                run=run,
+                now=now,
+                current_node_id=approval_node_id,
+            )
         elif row.consumed_at is not None:
             raise _bound_refusal(REFUSAL_ALREADY_CONSUMED)
         if row.status != "pending":
@@ -2798,6 +2811,29 @@ def _resume_checkpoint_row(
     return checkpoint
 
 
+def _runtime_approval_node_id(
+    run: CaliberWorkflowRun,
+    checkpoint: CaliberWorkflowRunCheckpoint,
+) -> str | None:
+    """Return the approval row's node identity for a runtime checkpoint.
+
+    A nested subworkflow parks the parent run at its child invocation node while
+    the runtime approval belongs to the concrete child effect node. The optional
+    checkpoint field is the durable binding for that distinction; malformed
+    values deliberately fall back to the parent node and are rejected by the
+    checkpoint validation that follows.
+    """
+    approval_node_id = run.current_node_id
+    if (
+        isinstance(checkpoint.state_blob, dict)
+        and checkpoint.state_blob.get("kind") == "runtime_approval"
+    ):
+        nested_node_id = checkpoint.state_blob.get("approval_node_id")
+        if isinstance(nested_node_id, str) and nested_node_id:
+            approval_node_id = nested_node_id
+    return approval_node_id
+
+
 def _resume_event_inputs(
     *,
     expected_event_name: str | None,
@@ -2861,7 +2897,14 @@ def _approval_checkpoint_kind_invalid(checkpoint: CaliberWorkflowRunCheckpoint) 
     state_blob = checkpoint.state_blob if isinstance(checkpoint.state_blob, dict) else None
     if state_blob is None:
         return False
-    return state_blob.get("kind") not in {"human_approval", "runtime_approval"}
+    kind = state_blob.get("kind")
+    if kind not in {"human_approval", "runtime_approval"}:
+        return True
+    if kind == "runtime_approval" and "approval_node_id" in state_blob:
+        approval_node_id = state_blob.get("approval_node_id")
+        if not isinstance(approval_node_id, str) or not approval_node_id:
+            return True
+    return False
 
 
 def _checkpoint_node_id_missing(checkpoint: CaliberWorkflowRunCheckpoint) -> bool:
@@ -3069,7 +3112,7 @@ async def resume_workflow_run(request: Request) -> JSONResponse:  # noqa: PLR091
                 detail="workflow run has no resume checkpoint",
             )
         if run.status == RUN_STATUS_WAITING_APPROVAL:
-            node_id = run.current_node_id
+            node_id = _runtime_approval_node_id(run, checkpoint)
             filters = [CaliberRuntimeApprovalRequest.workflow_run_id == run.workflow_run_id]
             if node_id:
                 filters.append(CaliberRuntimeApprovalRequest.node_id == node_id)

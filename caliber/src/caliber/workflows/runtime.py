@@ -79,7 +79,7 @@ from caliber.effects.model_tool_calls import (
     ToolProposalBinder,
     refusal_marker,
 )
-from caliber.effects.reconcile import UnknownEffectError
+from caliber.effects.reconcile import EffectDependency, UnknownEffectError
 from caliber.effects.records import RecordedProposal
 from caliber.effects.refusals import (
     refuse_in_reference_profile,
@@ -301,6 +301,28 @@ _MANAGED_FILE_RESOLVER: contextvars.ContextVar[ManagedFileResolver | None] = con
 
 def current_run_context() -> CaliberRunContext | None:
     return _RUN_CONTEXT.get()
+
+
+def current_step_occurrence() -> str | None:
+    """Return the occurrence currently executing, for nested runtime callbacks."""
+    return _STEP_OCCURRENCE.get()
+
+
+def nested_effect_occurrence_prefix(
+    parent_occurrence: str | None,
+    workflow_id: str,
+    workflow_version_id: str,
+) -> str:
+    """Build a stable namespace for effects emitted by one nested workflow invocation."""
+    material = "\x00".join(((parent_occurrence or "<root>"), workflow_id, workflow_version_id))
+    return "subworkflow:" + hashlib.sha256(material.encode("utf-8")).hexdigest()
+
+
+def _effect_occurrence(plan: RuntimePlan, occurrence_id: str | None, node_id: str) -> str:
+    base = occurrence_id or node_id
+    if not plan.effect_occurrence_prefix:
+        return base
+    return hashlib.sha256(f"{plan.effect_occurrence_prefix}\x00{base}".encode()).hexdigest()
 
 
 @contextlib.contextmanager
@@ -2585,6 +2607,8 @@ class RuntimePlan:
     session_memory_store: WorkflowSessionMemoryStore | None = None
     subworkflow_max_depth: int = 3
     subworkflow_depth: int = 0
+    #: Stable namespace for effect occurrences emitted by an inherited nested-workflow context.
+    effect_occurrence_prefix: str = ""
     # Output cap for python_code-node sandboxes, sourced from
     # ``config.tool_sandbox_max_output_bytes`` by ``build_plan``. ``None`` means
     # "use the sandbox class default" (preview/eval replay paths that don't
@@ -2770,10 +2794,13 @@ def _resume_checkpoint_kind_matches_node(
     if checkpoint_kind == "runtime_approval":
         # A gated tool node, a governed agent step parked behind the approval of its proposed action (B08.2) or a governed
         # workflow effect parked behind its exact approval (#1051): an agent node resumes from this kind only when the plan
-        # governs it, and a webhook, API or tool node only in a plan that has a governed effect context.
+        # governs it, and a webhook, API, tool or parent subworkflow node only in a plan that has a governed effect context.
         return (
             (isinstance(node, IRAgent) and governed_agent_steps)
-            or (governed_effects and isinstance(node, IRWebhook | IRApiRequest | IRTool))
+            or (
+                governed_effects
+                and isinstance(node, IRWebhook | IRApiRequest | IRTool | IRSubworkflow)
+            )
             or (
                 isinstance(node, IRTool)
                 and node.binding is not None
@@ -4422,21 +4449,28 @@ def _interpret(  # noqa: PLR0911, PLR0912, PLR0915 - graph interpreter dispatch
                 guardrail_results=guardrail_results,
             )
         input_by_port = dict(exc.blocked_inputs or {})
+        checkpoint_state: dict[str, Any] = {
+            "kind": "runtime_approval",
+            "node_id": node_id,
+            "proposal_id": exc.proposal_id,
+            "approval_request_id": exc.approval_request_id,
+            "intent_hash": exc.intent_hash,
+            "reason": "effect_proposal_awaiting_approval",
+            "resume_policy": "same_run_same_occurrence",
+        }
+        if (
+            isinstance(exc.approval_node_id, str)
+            and exc.approval_node_id
+            and exc.approval_node_id != node_id
+        ):
+            checkpoint_state["approval_node_id"] = exc.approval_node_id
         step = NodeStep(
             node_id=node_id,
             node_type=node.node_type.value,
             status="blocked",
             detail=f"waiting_approval:{node_id}",
             input_by_port=input_by_port,
-            checkpoint_state={
-                "kind": "runtime_approval",
-                "node_id": node_id,
-                "proposal_id": exc.proposal_id,
-                "approval_request_id": exc.approval_request_id,
-                "intent_hash": exc.intent_hash,
-                "reason": "effect_proposal_awaiting_approval",
-                "resume_policy": "same_run_same_occurrence",
-            },
+            checkpoint_state=checkpoint_state,
         )
         return _finalize_step(
             nid=node_id,
@@ -7948,6 +7982,67 @@ def _run_node(  # noqa: PLR0911, PLR0912, PLR0915 - per-node-type dispatch
         payload.setdefault("alias", node.alias)
         status = str(payload.get("status", "error"))
         if status != "completed":
+            checkpoint = payload.get("checkpoint_state")
+            if isinstance(checkpoint, dict):
+                kind = checkpoint.get("kind")
+                if kind == "runtime_approval":
+                    proposal_id = checkpoint.get("proposal_id")
+                    approval_request_id = checkpoint.get("approval_request_id")
+                    intent_hash = checkpoint.get("intent_hash")
+                    approval_node_id = checkpoint.get("node_id")
+                    if (
+                        isinstance(proposal_id, str)
+                        and proposal_id
+                        and isinstance(approval_request_id, str)
+                        and approval_request_id
+                        and isinstance(intent_hash, str)
+                        and intent_hash
+                        and isinstance(approval_node_id, str)
+                        and approval_node_id
+                    ):
+                        raise _step_proposal.EffectApprovalPending(
+                            proposal_id=proposal_id,
+                            approval_request_id=approval_request_id,
+                            intent_hash=intent_hash,
+                            approval_node_id=approval_node_id,
+                        )
+                    raise ToolExecutionError(
+                        "subworkflow returned a malformed runtime approval checkpoint"
+                    )
+                if kind == "effect_reconciliation":
+                    raw_effects = checkpoint.get("effects")
+                    if not isinstance(raw_effects, list) or not raw_effects:
+                        raise ToolExecutionError(
+                            "subworkflow returned a malformed effect checkpoint"
+                        )
+                    details: list[EffectDependency] = []
+                    for effect in raw_effects:
+                        if not isinstance(effect, dict) or not all(
+                            isinstance(effect.get(key), str) and effect[key]
+                            for key in (
+                                "proposal_id",
+                                "node_id",
+                                "state",
+                                "logical_key",
+                                "intent_hash",
+                            )
+                        ):
+                            raise ToolExecutionError(
+                                "subworkflow returned a malformed effect checkpoint"
+                            )
+                        details.append(
+                            EffectDependency(
+                                proposal_id=effect["proposal_id"],
+                                node_id=effect["node_id"],
+                                state=effect["state"],
+                                logical_key=effect["logical_key"],
+                                intent_hash=effect["intent_hash"],
+                            )
+                        )
+                    raise UnknownEffectError(
+                        [(item.proposal_id, item.node_id, item.state) for item in details],
+                        effect_details=details,
+                    )
             message = (
                 f"subworkflow {node.workflow_id!r}@{node.alias!r} failed: "
                 f"{payload.get('error', 'unknown error')}"
@@ -9665,7 +9760,9 @@ def _run_node_with_policy(  # noqa: PLR0912, PLR0915 - policy execution has expl
     last_exc: Exception | None = None
     ledger = plan.effect_ledger
     for attempt in range(attempts):
-        occurrence_token = _STEP_OCCURRENCE.set(occurrence_id or node.node_id)
+        occurrence_token = _STEP_OCCURRENCE.set(
+            _effect_occurrence(plan, occurrence_id, node.node_id)
+        )
         attempt_token = _STEP_ATTEMPT.set(attempt + 1)
         provenance_token = _STEP_PROVENANCE.set(
             inherited_provenance or _input_context_provenance(plan, ir, node, inputs, port_values)
@@ -10586,7 +10683,9 @@ __all__ = [
     "WorkflowExecutor",
     "WorkflowRunResult",
     "current_run_context",
+    "current_step_occurrence",
     "execute",
+    "nested_effect_occurrence_prefix",
     "run_tags",
     "run_with_caliber_context",
     "workflow_model",

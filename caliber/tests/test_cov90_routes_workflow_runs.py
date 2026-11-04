@@ -163,6 +163,8 @@ def _seed_waiting_approval_run(
     node_id: str = "human_gate",
     with_checkpoint: bool = True,
     approval_status: str | None = None,
+    checkpoint_kind: str = "human_approval",
+    approval_node_id: str | None = None,
 ) -> None:
     run = db_session.get(CaliberWorkflowRun, run_id)
     assert run is not None
@@ -177,11 +179,16 @@ def _seed_waiting_approval_run(
                 sequence=1,
                 node_id=node_id,
                 state_blob={
-                    "kind": "human_approval",
+                    "kind": checkpoint_kind,
                     "node_id": node_id,
                     "output": "approved output",
                     "output_by_port": {"request": "approved output"},
                     "input_by_port": {"request": "hello"},
+                    **(
+                        {"approval_node_id": approval_node_id}
+                        if approval_node_id is not None
+                        else {}
+                    ),
                 },
             )
         )
@@ -193,7 +200,7 @@ def _seed_waiting_approval_run(
             CaliberRuntimeApprovalRequest(
                 runtime_approval_id=new_runtime_approval_id(),
                 workflow_run_id=run_id,
-                node_id=node_id,
+                node_id=approval_node_id or node_id,
                 status=approval_status,
             )
         )
@@ -1491,6 +1498,29 @@ def test_resume_requires_an_approved_decision_when_none_exists(
     r = client.post(f"{PREFIX}/workflow-runs/{run_id}/resume", json={})
     assert r.status_code == 409
     assert "no approved runtime approval decision" in r.json()["detail"]
+
+
+def test_resume_uses_nested_runtime_approval_node_identity(
+    client: TestClient, db_session: Session
+) -> None:
+    _enable_queue_and_checkpointing(client)
+    _wid, _vid, run_id = _create_queued_run(client)
+    _seed_waiting_approval_run(
+        db_session,
+        run_id,
+        node_id="child",
+        approval_status="approved",
+        checkpoint_kind="runtime_approval",
+        approval_node_id="hook",
+    )
+
+    resumed = client.post(f"{PREFIX}/workflow-runs/{run_id}/resume", json={})
+
+    assert resumed.status_code == 202, resumed.text
+    db_session.expire_all()
+    run = db_session.get(CaliberWorkflowRun, run_id)
+    assert run is not None
+    assert run.status == "queued"
 
 
 def test_resume_rejects_mismatched_event_name(client: TestClient, db_session: Session) -> None:

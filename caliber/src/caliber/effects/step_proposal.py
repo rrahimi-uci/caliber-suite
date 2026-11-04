@@ -339,11 +339,22 @@ class EffectApprovalPending(Exception):  # noqa: N818 - control flow, not an err
     by the interpreter into a ``waiting_approval`` park behind that request. Carries identifiers only, never the effect's arguments.
     """
 
-    def __init__(self, *, proposal_id: str, approval_request_id: str, intent_hash: str) -> None:
+    def __init__(
+        self,
+        *,
+        proposal_id: str,
+        approval_request_id: str,
+        intent_hash: str,
+        approval_node_id: str | None = None,
+    ) -> None:
         super().__init__("a governed effect is waiting for its approval")
         self.proposal_id = proposal_id
         self.approval_request_id = approval_request_id
         self.intent_hash = intent_hash
+        # A nested workflow parks its parent subworkflow node, while the
+        # approval request remains bound to the child effect node that created
+        # the proposal. Keep both identities for worker validation.
+        self.approval_node_id = approval_node_id
         self.blocked_node_id: str | None = None
         self.blocked_inputs: dict[str, object] | None = None
 
