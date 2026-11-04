@@ -41,7 +41,7 @@ Every epic below includes **all** of its child tasks in the canonical manifest. 
 | MVP | D14: federation and durable memory | M19 #600; M20 #601 | #622 |
 | MVP | D15: catalog, companion case, final security/release | M16 #564; M22 #603; M26 #607 | #623 |
 
-This is a release overlay; retain the manifest's exact issue numbers, native parents, contract briefs and dependency edges. D1–D15 issue milestones and Project #3 fields should be changed only in a separate owner-accepted migration after #608 reforecast; changing them now would misrepresent accepted dates and break the live plan validator. The Preview/Pilot labels may be added to the board as a separate, reviewed scheduling change without changing issue prerequisites.
+This is a release overlay; retain the manifest's exact issue numbers, native parents, contract briefs and dependency edges. [Project #3](https://github.com/users/rrahimi-uci/projects/3) now groups all 382 canonical execution items by its `Release` field and matching `release:*` issue labels; its Preview, Beta, Pilot and MVP views filter the open issues for each release. The three open D3 follow-ups #1086–#1088 are also tracked as Preview 2 B04 children, separately from the canonical task manifest. D1–D15 milestone descriptions identify their release, while milestone titles, issue prerequisites and due dates remain unchanged. The older `Stage` field and `stage:beta`/`stage:mvp` labels remain for the live plan validator and describe broad execution phases, not release decisions. #608 still has to reforecast dates before any calendar commitment.
 
 ## Dependencies and release cutlines
 
