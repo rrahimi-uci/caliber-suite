@@ -1,54 +1,75 @@
 # Contributing to CALIBER with a coding agent
 
-This guide applies to any human or coding agent working on CALIBER, regardless of editor or model. [AGENTS.md](../../AGENTS.md) defines repository-wide quality and merge rules; the [contribution guide](../../CONTRIBUTING.md) covers setup. [Project #3](https://github.com/users/rrahimi-uci/projects/3) tracks work, and every canonical task has a current execution brief. Read these before accepting a task. A tool-specific instruction file should point back here instead of creating a competing policy.
+This guide applies to people and coding agents using any editor or model, across every CALIBER development cycle. [AGENTS.md](../../AGENTS.md) is the repository-wide quality and merge contract; the [contribution guide](../../CONTRIBUTING.md) covers setup. [Project #3](https://github.com/users/rrahimi-uci/projects/3) tracks planned work. A tool-specific instruction file should point here rather than define a competing policy.
 
-## 1. Choose and claim a task
+## 1. Establish the assigned scope and current state
 
-1. Start with an open task in Project #3's **Ready tasks** view, or one explicitly assigned by the coordinator. The `Release` and `Delivery cycle` fields describe destination and scheduling. `Readiness=Ready` only says the recorded producing issues are closed and no start decision is pending. Inspect those producers on current `main`; do not infer release acceptance from a closed issue.
-2. Read the parent epic, current execution brief, native blocked-by edges, pending human inputs, and linked PRs. Render a local copy with `node docs/planning/render-task-brief.mjs <issue-number>`. Check the files and public consumers before changing a shared interface. A planned test path is a deliverable, not evidence that it exists.
-3. Check the issue assignee, Project **Status**, linked branches/PRs and active worktrees. A project view does not atomically reserve work. Record one accountable owner and set Status to **In Progress** before substantial edits. A contributor without project-edit permission can record the claim on the issue with their branch/PR; a maintainer updates the board. If several agents share credentials, the coordinator must assign disjoint tasks and record branch/PR ownership. Recheck before pushing. If someone else owns the task, coordinate on the existing PR or choose another task.
-4. If a product decision is marked `start`, stop coding the dependent task until the named owner supplies it. An `acceptance` decision permits independent deterministic implementation but does not authorize a live trial or release signoff. Keep the unresolved decision in [#608](https://github.com/rrahimi-uci/caliber-suite/issues/608). Do not invent approval, dates, thresholds, credentials, customer data or reviewer conclusions.
+An assignment can be one issue, several linked tasks, an epic, or a whole milestone. Deliver **that assigned scope** through its acceptance and PR lifecycle. A task assignment does not silently authorize unrelated milestone work; a milestone assignment is not complete after its first task or PR. The requester, current issue/specification, release plan and `AGENTS.md` define the boundaries. Record a material change to those boundaries in the issue and PR so the next contributor sees the same contract.
 
-## 2. Prepare a reviewable slice
+1. Start with an open, unclaimed Ready task in Project #3, or work explicitly assigned by a coordinator. Check the issue, parent epic when present, acceptance criteria, producing dependencies, native blocked-by edges, human-input phase, linked PRs, assignee and current `main`. `Readiness=Ready` records that known producers are closed and no start decision is pending; verify their merged contracts. A board status is a planning signal, not proof that code or release evidence exists.
+2. Compare the relevant code, tests, public contracts and generated artifacts with the issue. Classify the assigned work as complete, partial, missing, obsolete, duplicated or incorrectly tracked **using evidence**. For a multi-task or milestone assignment, inspect the whole assigned plan and its critical path; for a focused issue, inspect affected components and downstream consumers rather than unrelated modules.
+3. Read applicable repository and directory instructions, architecture, analogous implementations and [.github/workflows/ci.yml](../../.github/workflows/ci.yml). For a canonical planning task, follow the [execution guide](AGENT_EXECUTION_GUIDE.md) and use `node docs/planning/render-task-brief.mjs <issue-number>` to render its current brief. Other issues use their own issue/specification contract. A planned test path is a deliverable, not evidence that the test exists.
+4. Check Project **Status**, issue assignee, linked branches/PRs and active worktrees. Record one accountable implementation owner and set **In Progress** before substantial edits. Without project-edit permission, record the claim and branch/PR on the issue and ask a maintainer to update the board. A board view is not an atomic claim service; agents sharing a GitHub identity need a coordinator to assign disjoint work. Recheck ownership before pushing.
+5. Resolve a named `start` decision before coding dependent behavior. An `acceptance` decision may allow deterministic implementation but cannot be inferred as approval for a trial or release. Use the decision tracker named by the relevant issue or release plan. Do not invent dates, thresholds, customer consent, credentials or reviewer conclusions.
 
-Create a dedicated branch or isolated worktree from current `origin/main`. Never edit `main` directly. Confirm the task's expected outcome, exact boundaries, dependencies, acceptance criteria, tests, documentation and evidence owner. A broad task can be split into focused PRs; keep its parent open until every required unit is complete. Coordinate changes to shared migrations, runtime, models, API contracts and generated clients before parallel implementation. Preserve an existing supported consumer until replacement compatibility is proven.
+## 2. Plan and coordinate independent work
 
-Use a brief handoff to another agent or collaborator:
+For a broad assignment, map required outcomes to reviewable slices. Record producing tasks, critical-path work, shared files and interfaces, integration order, required tests, evidence owners and release controls. Plan enough to avoid conflicting implementations, then implement. Re-evaluate the map whenever a producer merges or new evidence changes readiness.
+
+Use parallel agents when independent work and available tools make it worthwhile. Backend, UI, API, migrations, SDK, infrastructure, security review, tests and documentation can be separate lanes **when their contracts and ownership are clear**. A coordinator owns the dependency map, task allocation, shared interface decisions, integration, conflict resolution and final verification. Delegation does not transfer accountability for the assigned outcome.
+
+Give each contributor a written handoff:
 
 ```text
-Issue and release/cycle:
-Outcome users will observe:
-Producing issues and exact merged contracts:
-Files/interfaces owned; neighboring owners to coordinate with:
-Implementation boundaries and exclusions:
-Positive, denial, failure, race/restart and compatibility tests:
-Required CI jobs, documentation and evidence fragment:
-Pending start or acceptance decisions:
-Branch/PR and accountable integrator:
+Issue(s), assigned scope and target cycle/milestone:
+User-visible outcome and acceptance criteria:
+Producing issues, exact merged contracts and current main SHA:
+Owned files/interfaces and neighboring owners:
+Implementation boundaries, compatibility and excluded work:
+Positive, denial, failure, race/restart and regression tests:
+Required local/PR CI jobs, coverage, docs and evidence path:
+Pending start or acceptance decisions and accountable decision maker:
+Branch/PR, review owner and integration owner:
 ```
 
-This handoff references the current issue brief instead of copying an older chat plan. If actual code contradicts the issue, record the concrete mismatch and correct the issue/consumers through the same PR; do not silently substitute another architecture.
+Establish a shared interface before parallel changes depend on it. Do not give two agents overlapping ownership of a migration, schema, generated client or shared runtime path without an explicit integrator and serialization plan. An independent reviewer or test agent can inspect a separate workstream, but its findings need verification and resolution; a review agent's report is not an approval unless GitHub records the required review. When a dependency merges, recheck newly unblocked work and dispatch an independent slice if it reduces elapsed time without increasing integration risk.
 
-## 3. Implement, test and report evidence
+## 3. Implement production-quality changes continuously
 
-Implement the smallest complete behavior for the slice. Add meaningful tests for the intended result and material negative paths. Use deterministic fixtures for ordinary tests and real PostgreSQL/service or installed browser checks where the task requires them. Measure the affected code's coverage as required by `AGENTS.md`; a focused `--no-cov` run is not coverage evidence. Follow [the execution guide](AGENT_EXECUTION_GUIDE.md) and the exact commands in the task brief. Read [.github/workflows/ci.yml](../../.github/workflows/ci.yml) for affected jobs, run `git diff --check`, and inspect generated documentation, migrations and compatibility artifacts when touched.
+Create a dedicated branch or isolated worktree from current `origin/main`; never edit `main` directly. For each slice, inspect the surrounding implementation and existing tests, implement the smallest complete solution, add meaningful tests, run focused validation, investigate failures, fix root causes and review the final diff. Keep the PR independently understandable. Preserve supported readers and consumers before changing writers or public contracts.
 
-Record commands **and their results**, test IDs, measured coverage, candidate SHA, relevant artifact hashes and known limitations in the task's evidence fragment. A required check that did not run is unexecuted. Label a failure as implementation, baseline, environment or external dependency only after investigation. Fix failures caused by the PR and rerun the affected check. Do not weaken assertions or mark a required test skipped to obtain green CI.
+Required behavior must not be represented by a placeholder, temporary hack, commented-out path, unresolved task-critical TODO or test fake used as a runtime substitute. Mocks and fakes are appropriate for deterministic tests when they exercise the real contract. Evaluate correctness, edge and refusal paths, error handling, authorization, privacy, security, performance, concurrency, compatibility, observability, maintainability and user experience where affected. Update documentation and configuration examples when behavior or developer workflows change.
 
-## 4. PR, review, merge and handoff
+If code contradicts the issue, record the concrete mismatch and reconcile the issue or consumers through a reviewable change. Do not silently narrow acceptance criteria or invent a replacement architecture. A large issue may use several focused PRs; keep the issue open until all required units and evidence are complete.
 
-Commit and push the task branch. Open a focused PR using the repository's [exact template](../../.github/PULL_REQUEST_TEMPLATE.md), with the goal, changed behavior, design decisions, validation commands/results, coverage, risks, compatibility, migration/deployment/docs implications, and linked issue/control. Request the owner and Copilot reviewers when GitHub permits; if author/reviewer identity prevents a request, record the actual API result rather than claiming review. Self-review the complete diff, address material comments on the same PR, and keep its description current.
+## 4. Test, validate and record evidence
 
-The agent may merge **through the PR** only when the task's acceptance criteria, meaningful tests and required coverage pass; all applicable local and PR CI checks have run successfully; the PR is conflict free; review findings are resolved; and branch protection and any required independent review are satisfied. A job omitted by a documented path filter for an unaffected component is outside that PR's required suite. A skipped, failing or unfinished **required** job blocks merge. An agent's self-review is never an independent person's approval. If a genuine blocker remains, leave the PR open or draft with the exact reason and next required action.
+Test during implementation, after material fixes and after integration, not only at the end. Run the affected unit, integration, end-to-end/browser, regression, contract, migration, lint, formatting, type, static-analysis, build, packaging, security, docs and Compose checks defined by the issue and CI workflow. Use `./test-all.sh` when the change spans components and that is the repository's comprehensive path. Always run `git diff --check`. Inspect generated docs/source, lockfiles, schemas, migrations, fixtures and snapshots when touched.
 
-After merge, verify `origin/main` includes the change, sync the local worktree, check integration health where relevant, and update the issue/project status and evidence. Close a task only when its entire acceptance contract is met. For a larger assignment, continue independent slices while another PR is under review; dependent work starts from the newly integrated `main` once its producer merges.
+Every behavioral change needs tests for its acceptance criteria and material negative paths. Measure affected-code coverage using established tooling and meet the threshold in `AGENTS.md`; a focused `--no-cov` run is not coverage evidence. Keep ordinary tests deterministic and offline. Use actual PostgreSQL, services, installed packages or browser journeys when the task or CI requires those integration gates. Existing tests passing is insufficient if the changed behavior is untested.
 
-## 5. When to write an agent skill
+Record the candidate SHA, commands **and results**, test IDs, measured coverage, relevant artifact hashes, known limitations and unresolved inputs at the issue's evidence path. Distinguish local-only, PR-CI passed, merged, deployed and live-verified states. A required check that did not run is unexecuted; a path-filtered job for an unaffected component is outside that PR's required suite. Investigate failures as implementation, baseline, environment or external dependency, fix change-caused failures and rerun affected and broader checks as appropriate. Never weaken assertions, suppress errors or skip a required check to get a green badge.
 
-The repository instructions, issue brief and tests are the durable contract. A reusable **contributor skill** is useful when the same specialized workflow recurs across tasks and has stable inputs, commands and outputs. Examples could be migration parity, installed SDK compatibility, or release evidence assembly. First prove the workflow on real PRs; then use the [workflow recipe template](AGENT_WORKFLOW_RECIPE_TEMPLATE.md) for a reviewed, versioned procedure with prerequisites, exact steps, failure handling, tests and one example. Keep any Codex, Copilot or other tool wrapper thin and refer it back to this repository guidance. A skill cannot grant merge authority, relax CI, approve a security finding or change product scope.
+## 5. Review, integrate and merge through PRs
 
-CALIBER also has **product skills** exposed to its users. Those are runtime artifacts governed by the product's own versioning, evaluation and release rules. They are distinct from contributor instructions and must follow the relevant feature task and tests.
+Open a focused PR using the repository's [exact template](../../.github/PULL_REQUEST_TEMPLATE.md). Explain goal, changed behavior, design decisions, tests and command results, coverage, risks, compatibility, migrations, deployment and docs implications, and linked issue/control. Request owner and Copilot review when GitHub permits; if the author identity prevents a request, record the actual result. Keep the PR body current as work changes.
 
-## What still needs an orchestrator
+The coordinator reviews a delegated diff and tests against the acceptance contract rather than trusting an agent's completion claim. Check compatibility with other workstreams, security/privacy, failure handling, data migration and conflict resolution. Resolve every material finding on the same PR, rerun affected validation and verify the **exact head SHA**. Self-review is required but is not independent approval.
 
-These documents make tasks executable and handoffs consistent; they do not atomically assign tasks or judge every PR. To run several agents unattended, use a coordinator that selects tasks from live readiness, records one owner per task, serializes shared-file work, checks PR/CI/review state, and reconciles Project #3 after merges. Start with the documented human-visible claims and evidence, then automate those transitions only after the workflow is reliable. Do not treat the number of agents as a capacity estimate or move a release gate from HOLD to PASS from issue state alone.
+An authorized agent may merge **through the PR** when the assigned slice is complete, meaningful tests and required coverage pass, every applicable local and PR CI job is green, the PR is conflict free, review findings are resolved, and branch protection and any required independent review are satisfied. A skipped, failing or unfinished **required** job blocks merge. Do not push to `main`, bypass protections or treat a simulated review as approval. If a genuine blocker remains, leave the PR open or draft with the exact reason and next required action.
+
+After merge, verify `origin/main` contains the expected commit, synchronize the local worktree, run appropriate post-merge validation and check main health. Update issue/project status and evidence. Close a task only after its entire acceptance contract is met. Build dependent work from integrated `main`, not a stale producer branch. For a broader assignment, re-evaluate the remaining critical path and newly unblocked independent tasks, then repeat the cycle until its assigned scope is complete.
+
+## 6. Keep GitHub and release evidence truthful
+
+Keep the issue, linked PR, dependencies, assignee, Project fields and milestone control aligned with observed state. Record newly discovered required work before calling a scope complete. Mark an issue obsolete, duplicate or already complete only after checking code and evidence; preserve the links explaining that decision. Distinguish a task merged to `main` from a release gate passing. A closed issue or old report from another SHA does not establish acceptance for a new candidate.
+
+When the assignment is a **milestone or release**, finish with a fresh audit on one exact integrated candidate. Verify every required outcome and issue, end-to-end user journey, service integration, migration and configuration, error and refusal path, security/reliability finding, build/package, CI result, documentation, and release evidence. Inspect task-critical TODOs and placeholders. Use independent review or test agents where useful, resolve their material findings, and rerun affected validation. Record actual required approvals, trial results and artifact hashes; unresolved gates mean HOLD and must not be reported as release-ready. A release is complete only when its declared acceptance control passes and the validated changes are on healthy `main`.
+
+## 7. Add reusable agent workflows selectively
+
+The repository instructions, issue brief and tests remain the durable contract. A contributor skill is useful when a specialized workflow recurs with stable inputs, commands and outputs, such as migration parity, installed SDK compatibility or release evidence assembly. First prove it on real PRs; then use the [workflow recipe template](AGENT_WORKFLOW_RECIPE_TEMPLATE.md) for a reviewed, versioned procedure with prerequisites, exact steps, failure handling, tests and a worked example. Keep Codex, Copilot or other tool wrappers thin and pointed at this repository guidance. A skill cannot grant merge authority, relax CI, approve a security finding or change product scope.
+
+CALIBER also has **product skills** exposed to its users. Those are runtime artifacts governed by the product's own versioning, evaluation and release rules; they are separate from contributor instructions.
+
+Documents alone do not atomically assign work or judge PRs. Unattended multi-agent operation needs a coordinator that selects tasks from live readiness, records one owner per task, serializes shared-file work, checks PR/CI/review state and reconciles Project #3 after merges. Automate those transitions only after the documented, human-visible workflow is reliable.

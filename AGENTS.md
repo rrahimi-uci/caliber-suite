@@ -14,6 +14,14 @@ Task Selection and Claiming
 * If another contributor already owns the work or a PR covers it, coordinate on that PR or choose another task. Divide large tasks into reviewable slices without silently changing their acceptance criteria.
 * The [execution guide](docs/planning/AGENT_EXECUTION_GUIDE.md) explains how to use the generated brief, task evidence, release controls and human-input phases. Ask for a missing product decision only when the issue marks it as a start gate or safe implementation requires it.
 
+Assigned Scope and Parallel Execution
+
+* Determine whether the assignment is one issue, several tasks, an epic, or a complete milestone/release. Complete the assigned scope and its acceptance gates; do not treat one merged slice as completion of a broader assignment or silently expand a focused task to an entire release.
+* For a broad assignment, compare the relevant plan and GitHub state with actual code and tests. Identify the critical path, producing dependencies, independent work, shared interfaces, integration order and evidence owners. Revisit the map after each merge or material discovery.
+* Use parallel agents when independent work and available tools make that safe and useful. Give each agent a bounded outcome, owned files/contracts, dependencies, acceptance criteria, tests, evidence and branch/PR handoff. Establish shared contracts before parallel implementation and serialize conflicting migrations, schemas and shared runtime edits.
+* The coordinating agent remains responsible for architecture, dependency tracking, reviewing delegated diffs, integration, conflict resolution and verification. Do not accept an agent's completion claim without checking code, tests and the exact PR head. Independent review findings require resolution; they are not automatically an approval.
+* After each integration, recheck newly unblocked work and assign independent slices when useful. A release-wide assignment ends only after a fresh audit of all required outcomes on one integrated candidate and the declared acceptance control passes. The [playbook](docs/planning/AGENT_CONTRIBUTION_PLAYBOOK.md) gives the detailed handoff, validation and audit procedure.
+
 Autonomy and Merge Authority
 
 * You are explicitly authorized to independently execute assigned issues, specifications, implementation plans, and development tasks from start to completion.
@@ -49,10 +57,13 @@ Do not:
 * introduce unrelated refactors;
 * rewrite working components without a task-driven reason;
 * leave temporary implementations presented as complete;
+* present placeholders, commented-out paths, test fakes or unresolved task-critical TODOs as implemented runtime behavior;
 * suppress errors instead of addressing their cause;
 * weaken existing safeguards merely to make validation pass.
 
 Prefer existing repository patterns and abstractions over introducing unnecessary new ones.
+
+Consider affected correctness, edge and failure paths, security and privacy, performance, concurrency, compatibility, observability, maintainability and user experience. Use mocks and fakes for deterministic tests where appropriate, not as substitutes for required production behavior.
 
 When the task naturally consists of multiple independently reviewable units, divide it into focused slices and complete each through the full PR lifecycle before proceeding when doing so reduces integration risk.
 
