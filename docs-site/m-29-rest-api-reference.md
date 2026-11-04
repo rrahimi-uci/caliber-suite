@@ -600,9 +600,9 @@ Supported management routes that belong to the stable public automation surface.
 
 | Method | Path | Required scope | Parameters | Responses | Details |
 | --- | --- | --- | --- | --- | --- |
-| `GET` | `/ajax-api/2.0/mlflow/caliber/workflow-versions/{version_id}` | any authenticated user | `version_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_workflow_versions_version_id` |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/workflow-versions/{version_id}` | any authenticated user | `version_id` | `400`, `401`, `403`, `404` | `operationId`: `get_workflow_versions_version_id` |
 | `PATCH` | `/ajax-api/2.0/mlflow/caliber/workflow-versions/{version_id}` | `caliber.operator` | `version_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `patch_workflow_versions_version_id`; request body documented in OpenAPI |
-| `POST` | `/ajax-api/2.0/mlflow/caliber/workflow-versions/{version_id}/compile` | `caliber.operator` | `version_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_workflow_versions_version_id_compile` |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/workflow-versions/{version_id}/compile` | `caliber.operator` | `version_id` | `400`, `401`, `403`, `404` | `operationId`: `post_workflow_versions_version_id_compile` |
 | `POST` | `/ajax-api/2.0/mlflow/caliber/workflow-versions/{version_id}/copilot-edit` | `caliber.operator` | `version_id` | `400`, `401`, `403`, `404` | `operationId`: `post_workflow_versions_version_id_copilot_edit`; request body documented in OpenAPI |
 | `GET` | `/ajax-api/2.0/mlflow/caliber/workflow-versions/{version_id}/deployment-bundle/status` | any authenticated user | `version_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_workflow_versions_version_id_deployment_bundle_status` |
 | `GET` | `/ajax-api/2.0/mlflow/caliber/workflow-versions/{version_id}/diff/{other_version_id}` | any authenticated user | `other_version_id`, `version_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_workflow_versions_version_id_diff_other_version_id` |
@@ -612,7 +612,7 @@ Supported management routes that belong to the stable public automation surface.
 | `POST` | `/ajax-api/2.0/mlflow/caliber/workflow-versions/{version_id}/plan-build` | `caliber.operator` | `version_id` | `400`, `401`, `403`, `404` | `operationId`: `post_workflow_versions_version_id_plan_build`; request body documented in OpenAPI |
 | `POST` | `/ajax-api/2.0/mlflow/caliber/workflow-versions/{version_id}/preview-run` | `caliber.operator` | `version_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_workflow_versions_version_id_preview_run`; request body documented in OpenAPI |
 | `POST` | `/ajax-api/2.0/mlflow/caliber/workflow-versions/{version_id}/propose-patch` | `caliber.operator` | `version_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_workflow_versions_version_id_propose_patch`; request body documented in OpenAPI |
-| `POST` | `/ajax-api/2.0/mlflow/caliber/workflow-versions/{version_id}/publish` | `caliber.operator` | `version_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_workflow_versions_version_id_publish`; request body documented in OpenAPI |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/workflow-versions/{version_id}/publish` | `caliber.operator` | `version_id` | `400`, `401`, `403`, `404` | `operationId`: `post_workflow_versions_version_id_publish`; request body documented in OpenAPI |
 | `POST` | `/ajax-api/2.0/mlflow/caliber/workflow-versions/{version_id}/restore` | `caliber.operator` | `version_id` | `201`, `400`, `401`, `403`, `404` | `operationId`: `post_workflow_versions_version_id_restore` |
 | `POST` | `/ajax-api/2.0/mlflow/caliber/workflow-versions/{version_id}/run` | `caliber.operator` | `version_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_workflow_versions_version_id_run`; request body documented in OpenAPI |
 | `POST` | `/ajax-api/2.0/mlflow/caliber/workflow-versions/{version_id}/validate` | any authenticated user | `version_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_workflow_versions_version_id_validate` |
