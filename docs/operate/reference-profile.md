@@ -365,14 +365,16 @@ settles the proposal `failed` with the reason `not_sent`; the dispatch's interna
 approval is already consumed**: ask for a new proposal (run the node again after fixing the cause).
 
 **Not routed through the dispatcher, and what they can do now (B04.4b).** Model-chosen tool calls inside an agent step (refused or
-proposed before they reach the entry, see [Model-selected tool calls](#model-selected-tool-calls-b046-768)), the Aria assistant's published-tool call (inventory EP-034: there is no workflow run to propose into; owned by #1063),
+proposed before they reach the entry, see [Model-selected tool calls](#model-selected-tool-calls-b046-768)), the Aria assistant's published-tool call (EP-034: protected rows are explicitly refused in the reference profile because there is no workflow run to propose into),
 standalone exports and plans a caller builds itself (#1051: `build_plan` binds the registry reader but no governed context, so a
 in the
 reference profile a deployed workflow's **protected** OpenAPI nodes are refused (the worker's context has no verifier for the connector yet, #1055, #1051), and outside it they run
 inline through a named legacy entry, see [Profiles and a missing governed context](#profiles-and-a-missing-governed-context-1068);
 read-class `GET` nodes always run) all reach
-the **public** entry, which refuses a protected method with `unsupported_effect_path`. So none of them can perform an OpenAPI
-write any more: they can read, and a write needs the governed route above. This is a behavior change for an Aria deployment in
+the **public** entry, which refuses a protected method with `unsupported_effect_path`. For Aria specifically, the reference-profile
+entry refuses a declared `write` or `external_action` row, and a declared `read` row whose selected method is not `GET`, `HEAD` or
+`OPTIONS`, with `unsupported_in_reference_profile` before input validation or transport. Declared read-class `GET`/`HEAD`/`OPTIONS`
+remains available; a workflow write needs the governed route above. This is a behavior change for an Aria deployment in
 `build` mode with `auto_all` or `full_autonomy` approval, which no longer offers a write or external-action tool to the model
 (it could only fail), for a tool declared `read` whose operation is a `POST` (refused rather than sent), and for a standalone
 export whose tool writes. The operator's draft preview route (EP-033) is **read-only in the reference profile** (#1072): it
@@ -712,9 +714,10 @@ proposals.
 route still applies in both: the built-ins the inventory refuses (EP-055 host-file tools, `sandbox_python`:
 `unsupported_effect_path`), a binding that is not its registry row, an unreadable registry, a tool with no readable OpenAPI row,
 an OpenAPI call replaced by an injected callable once governed, egress policy, and the preflight checks. A **model-chosen**
-OpenAPI call and Aria's published-tool call are not tool nodes, so they never take the legacy entry: in both profiles they use
-the public executor entry, which refuses a protected method (`unsupported_effect_path`); in a `build_plan` plan of the reference profile the
-loop gate refuses a protected call earlier, with a typed code ([Model-selected tool calls](#model-selected-tool-calls-b046-768)). Calibration and refinement build
+OpenAPI call and Aria's published-tool call are not tool nodes, so they never take the legacy entry. Model-chosen calls use the public
+executor entry, which refuses a protected method (`unsupported_effect_path`); Aria's published-tool entry additionally applies the
+EP-034 reference-profile refusal to the trusted row and selected method (`unsupported_in_reference_profile`). In a `build_plan` plan of
+the reference profile the loop gate refuses a protected call earlier, with a typed code ([Model-selected tool calls](#model-selected-tool-calls-b046-768)). Calibration and refinement build
 `RuntimePlan` directly, so their flag is `False` and a candidate manifest's protected tools are refused there. The evaluation
 route (`routes/evaluations.py`) calls `build_plan`, so in the development profile its plan carries the flag; that is harmless,
 because a preview blocks HTTP nodes and the governed tool routes return `None` in a preview (a replay does not reach the
@@ -4095,8 +4098,9 @@ a protected tool **node** was already refused there, and a protected tool a **mo
 
 The call sites are pinned by `tests/test_model_tool_call_sites.py` (every module that executes a model-chosen call, with its status:
 `gated`, `governed-step`, `legacy` or `out-of-scope`; and a structural check that every function that resolves an agent's callables
-also gates them), as `RAW_OPENAPI_CALLERS` and `RAW_MCP_CALLERS` pin the transports. **Aria's own tool loops are out of scope** (inventory
-EP-034: there is no workflow run to propose into; #1063) and are listed there as `out-of-scope`.
+also gates them), as `RAW_OPENAPI_CALLERS` and `RAW_MCP_CALLERS` pin the transports. **Aria's own tool loops remain a separate
+assistant executor**: EP-034 explicitly refuses protected published OpenAPI rows in the reference profile and preserves declared
+read-method calls; they do not share a workflow run or acquire run-less dispatcher authority.
 
 **A governed agent step proposes.** With `RuntimePlan.governed_agent_steps` bound, the adapter is handed only the callables the platform
 classified `read` and a protected call is one proposed action (see [Governed agent steps](#governed-agent-steps-a-protected-action-is-a-proposal-b082-744)).
@@ -4153,7 +4157,9 @@ Each is a run error `governed agent step proposal refused: <code>`, with no valu
   the row's declared level for a built-in, as a node does.
 - **Handoffs, inline targets and parallel branches stay refused in a governed plan** (B08.2); in an ungoverned loop a handoff target's tools are
   gated like the root's.
-- **Aria** (#1063), the development profile's legacy calls, an export and a caller-built plan are not governed (table above).
+- **Aria** remains a separate assistant executor: EP-034 (#1063) refuses protected published OpenAPI rows in the reference profile,
+  while declared read methods remain available; it does not acquire run-less dispatcher authority. The development profile's legacy
+  calls, an export and a caller-built plan are also not governed (table above).
 
 **A latent defect fixed on the way.** `submit_proposal` rebuilt an intent from a `ProposedAction`'s read-only view of its arguments, which
 `_plain_json` refuses when they contain a nested object; B08.2 only ever proposed flat arguments. It now reads the plain copy
@@ -5158,11 +5164,11 @@ the registry name resolves to a demo stub, not to the module function, and routi
 `tests/test_effect_path_matrix.py::test_inventory_rows_have_matrix_cases` fails on a row without a case, a case for no row, an outcome
 that is not the row's disposition, and a claim with nothing behind it (a `routed` or `refused` case must name a test that exists).
 `test_refused_paths_raise_in_reference_profile` runs one probe per `refuse` row through its real entry point. **Not every `dispatch`
-row is routed through the dispatcher yet**: 15 of them (EP-009, EP-010, EP-013, EP-017, EP-034, EP-051, EP-059, EP-070 to EP-072,
+row is routed through the dispatcher yet**: 14 of them (EP-009, EP-010, EP-013, EP-017, EP-051, EP-059, EP-070 to EP-072,
 EP-075 to EP-077, EP-081 and EP-090) have no connector, no B04 child routes them, and the matrix records them as `unrouted` (pinned in
-`UNROUTED_DISPATCH_ROWS`, with an owner note) instead of claiming `dispatched`. Routing them is follow-up work; this change does not
-make them refuse, because they are release, knowledge-build, object-store and GitHub paths whose reference-profile behaviour has not
-been decided.
+`UNROUTED_DISPATCH_ROWS`, with an owner note) instead of claiming `dispatched`. EP-034 is no longer in that set: its reference-profile
+refusal and development read-path counterpart are covered by `tests/refusal_probes.py::probe_ep_034` and
+`::development_ep_034`. Routing it would require a separate run-less authority decision and is outside the Beta scope.
 
 **Configuration, migration and rollback.** No new setting, no route and no migration, and the packaged inventory is the same file as
 `docs/architecture/protected-effect-paths.md`. A reference deployment that ran any of the paths above stops being able to: that is the

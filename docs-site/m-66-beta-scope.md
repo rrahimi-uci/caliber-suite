@@ -367,7 +367,7 @@ These are true of `main` today and are deliberate; each one that has an owner na
   could not be read, is `failed` (`acceptance_rejected`). An effect of another connector has no criteria set, so a run with
   only such effects carries no acceptance information, and runs that finished before this are not relabelled. A document
   request must carry the case version it was proposed against, or its run is rejected.
-- **Fifteen protected-effect rows are not routed.** The inventory marks them `dispatch`, but no connector routes them yet,
+- **Fourteen protected-effect rows are not routed.** The inventory marks them `dispatch`, but no connector routes them yet,
   and the matrix records them as `unrouted` instead of claiming otherwise. They are not refused in the reference profile
   either, because their reference-profile behaviour has not been decided:
 
@@ -376,7 +376,9 @@ These are true of `main` today and are deliberate; each one that has an owner na
 | EP-009, EP-010, EP-013, EP-051, EP-059 | knowledge-build runs, review-queue enqueue (a platform-database write), output-bucket and object-store writes | #1086 |
 | EP-070, EP-071, EP-072, EP-075, EP-076, EP-077 | prompt and release publishing | #1087 |
 | EP-017, EP-081, EP-090 | the synchronous run route, Aria's `run_workflow` tool, and a path with no production caller | #1088 |
-| EP-034 | Aria's published-tool call | #1063 |
+
+EP-034 (#1063) is not in this unresolved table: the reference profile now refuses Aria's protected published OpenAPI writes and
+non-read operations before transport, while declared read `GET`/`HEAD`/`OPTIONS` remains available.
 
 - **Generated Python can still reach a client.** The runnable export routes answer `409` in the reference profile, but the
   generated text is sealed into the compiled bundle and can leave through compile, get and publish. That is part of #1088;

@@ -411,7 +411,7 @@ def test_openapi_non_get_requires_proposal(factory: sessionmaker[Session]) -> No
 #: routed through the dispatcher or deliberately pinned here with its reason.
 RAW_OPENAPI_CALLERS = {
     "acceptance/completion.py": "the platform's own read of the downstream's case record when it judges a completing run (B09.2b, #791): a GET that carries no effect",
-    "assistant/capabilities.py": "Aria's published-tool call (EP-034): reads only, a protected method is refused by the entry; its governed write route is #1063",
+    "assistant/capabilities.py": "Aria's published-tool call (EP-034): reference profile refuses declared protected levels and non-read methods before the public executor; declared read GET/HEAD/OPTIONS remains available; no run-less write authority is introduced",
     "effects/reconcile.py": "the reconciler's lookup by key: a GET that carries no effect",
     "integrations/openapi/executor.py": "the executor itself",
     "routes/openapi_integrations.py": "the operator's draft preview (EP-033) in the reference profile: reads only, a protected method is refused by the entry (#1072)",
@@ -1081,7 +1081,6 @@ UNROUTED_DISPATCH_ROWS = frozenset(
         "EP-010",
         "EP-013",
         "EP-017",
-        "EP-034",
         "EP-051",
         "EP-059",
         "EP-070",

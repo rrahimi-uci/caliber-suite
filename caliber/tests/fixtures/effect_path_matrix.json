@@ -151,9 +151,8 @@
       "evidence": "inventory"
     },
     "EP-034": {
-      "outcome": "dispatched",
-      "status": "unrouted",
-      "owner": "#1063: Aria's published-tool call has no workflow run to propose into"
+      "outcome": "refused",
+      "evidence": "caliber/tests/refusal_probes.py::probe_ep_034"
     },
     "EP-035": {
       "outcome": "dispatched",
