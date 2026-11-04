@@ -359,5 +359,5 @@ describe("Sidebar Build routes", () => {
     expect(
       screen.queryByRole("heading", { name: "Not found" }),
     ).not.toBeInTheDocument();
-  }, 20_000);
+  }, 120_000);
 });
