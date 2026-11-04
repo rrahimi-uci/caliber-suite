@@ -39,7 +39,9 @@ make new architecture choices or weaken a settled contract.
 - #777 uses AgentStepAdapter, schema validation and installed plugin discovery, not the obsolete adapter name
   or string searches for provider objects.
 
-## Execution order and scope
+## Historical execution order and scope
+
+The counts and D9 naming below describe the October review snapshot. The [November audit](PLAN_AUDIT_2026_11.md) supersedes them: 296 tasks and D9 Pilot.
 
 The loader move adds a safe independent D2 starting task; it does not move governed context integration ahead
 of authority. Native parent/dependency links, milestone and board fields must match the manifest after this move.
