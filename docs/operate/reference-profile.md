@@ -41,6 +41,31 @@ value that was configured.
 An unknown profile name is a configuration error. `GET /ajax-api/2.0/mlflow/caliber/readiness` carries a
 `profile` field, so an operator can see which rules the running process was started under.
 
+## Required Beta journey for Cookbook 22
+
+The maintained Beta browser journey runs against this profile with a disposable PostgreSQL database,
+CSRF enabled, the effect reconciler enabled, and the project-scoped Harborlight connector binding. From
+the repository root, the CI-equivalent runner is:
+
+```bash
+CALIBER_LAB22_DATABASE_URL=postgresql+psycopg://caliber:caliber@127.0.0.1:5432/caliber \
+  scripts/cookbook-run-all.sh --labs 22
+```
+
+The required `Beta journey (browser)` gate installs the Cookbook 22 artifact through the public UI,
+checks exact two-person approval, injects a committed-but-unreadable downstream response, and recovers
+the resulting `unknown` proposal through the public effects routes. It then verifies accepted completion,
+the redacted evidence export, historical replay, and that reconciliation did not send a second mutation.
+The browser-only configuration is `caliber/caliber-ui/playwright.beta.config.ts`; it requires
+`CALIBER_LAB_BASE_URL` and never starts or reuses a server itself.
+
+For an operator-triggered recovery, list the proposal for the affected run with
+`GET /ajax-api/2.0/mlflow/caliber/system/effects?source=proposal&proposal_state=unknown&workflow_run_id=WR-...`,
+then submit only an operational reason to
+`POST /ajax-api/2.0/mlflow/caliber/system/effects/proposals/{proposal_id}/reconcile`.
+The route asks the configured downstream for authoritative evidence; it does not accept an operator
+assertion that the effect happened and it never resends the effect.
+
 ## What it requires
 
 | violation code | setting | environment variable | required | why |

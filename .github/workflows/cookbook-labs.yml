@@ -35,7 +35,7 @@ on:
       - "docs-site/cookbooks/**"
       - "sdk/caliber-sdk/examples/cookbooks/**"
       - "caliber/caliber-ui/e2e/cookbooks/labs/**"
-      - "caliber/caliber-ui/playwright.labs.config.ts"
+      - "caliber/caliber-ui/playwright.beta.config.ts"
       - "scripts/cookbook-*"
       - ".github/workflows/cookbook-labs.yml"
       # The code the labs execute: what runs a workflow node, the effect dispatcher and its
@@ -56,7 +56,7 @@ on:
       - "docs-site/cookbooks/**"
       - "sdk/caliber-sdk/examples/cookbooks/**"
       - "caliber/caliber-ui/e2e/cookbooks/labs/**"
-      - "caliber/caliber-ui/playwright.labs.config.ts"
+      - "caliber/caliber-ui/playwright.beta.config.ts"
       - "scripts/cookbook-*"
       - ".github/workflows/cookbook-labs.yml"
       # The code the labs execute: what runs a workflow node, the effect dispatcher and its

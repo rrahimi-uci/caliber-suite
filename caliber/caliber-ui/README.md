@@ -103,7 +103,7 @@ root `.env` that points at PostgreSQL makes it use that database; the alpha and 
 | `playwright.alpha.config.ts` | `npm run test:e2e:alpha` | 5170 (`CALIBER_ALPHA_E2E_PORT`) | The alpha journeys with the shipped flag defaults. CI runs this. |
 | `playwright.cookbooks.config.ts` | `npm run test:e2e:cookbooks` | 5160 (`CALIBER_COOKBOOK_E2E_PORT`) | The cookbook journeys, driven only through the UI. CI runs this. |
 | `playwright.config.ts` | `npm run test:e2e` | 5150 (`MLFLOW_PORT`) | Every spec except the flag-default and per-lab specs, with all four feature flags on. Some specs expect the Docker stack's MinIO. |
-| `playwright.labs.config.ts` | `npx playwright test --config=playwright.labs.config.ts` | your server | One spec per cookbook lab, against a server you start with `scripts/cookbook-env.sh`; see [`e2e/cookbooks/labs/README.md`](e2e/cookbooks/labs/README.md). |
+| `playwright.beta.config.ts` | `npx playwright test --config=playwright.beta.config.ts` | your server | One spec per cookbook lab, against a server you start with `scripts/cookbook-env.sh`; see [`e2e/cookbooks/labs/README.md`](e2e/cookbooks/labs/README.md). |
 
 To run specs against a backend you already started, set `CALIBER_E2E_USE_EXISTING_SERVER=1` and
 `CALIBER_E2E_BASE_URL` (default `http://127.0.0.1:5150/caliber`). `test:e2e:docs` and `test:e2e:age` do this for

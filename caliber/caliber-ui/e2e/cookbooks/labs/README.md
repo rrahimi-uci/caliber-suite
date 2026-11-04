@@ -10,14 +10,14 @@ create.
 ## Run them
 
 The specs need a server with the labs' feature flags on, and they start none themselves
-(`playwright.labs.config.ts` requires `CALIBER_LAB_BASE_URL`). From the repository root, with
+(`playwright.beta.config.ts` requires `CALIBER_LAB_BASE_URL`). From the repository root, with
 `caliber/.venv` created by `make install`:
 
 ```bash
 scripts/cookbook-env.sh up labs --flags all     # disposable stack, every flag on; builds the web app if needed
 source .tmp/cookbook-env/labs/env.sh            # exports CALIBER_URL and friends
 cd caliber/caliber-ui
-CALIBER_LAB_BASE_URL="$CALIBER_URL/caliber" npx playwright test --config=playwright.labs.config.ts
+CALIBER_LAB_BASE_URL="$CALIBER_URL/caliber" npx playwright test --config=playwright.beta.config.ts
 cd ../..
 scripts/cookbook-env.sh down labs               # when you are done
 ```

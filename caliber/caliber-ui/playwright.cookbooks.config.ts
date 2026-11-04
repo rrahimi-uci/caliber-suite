@@ -10,7 +10,7 @@ const FEATURE_FLAGS = { CALIBER_FEATURE_COOKBOOKS: "true" };
 
 export default defineConfig({
   testDir: "./e2e/cookbooks",
-  // The lab specs run against a server started by scripts/cookbook-env.sh (playwright.labs.config.ts).
+  // The lab specs run against a server started by scripts/cookbook-env.sh (playwright.beta.config.ts).
   testIgnore: ["labs/**"],
   fullyParallel: false,
   workers: 1,

@@ -11,7 +11,7 @@ import { CaliberUi } from "../ui-only-driver";
  * Run the script first (see "Cookbook 17" in docs/sdk), then pass the run key it used:
  *
  *   COOKBOOK_17_RUN_KEY=my-run CALIBER_LAB_BASE_URL="$CALIBER_URL/caliber" \
- *     npx playwright test --config=playwright.labs.config.ts e2e/cookbooks/labs/17-sdk-financial-analysis.spec.ts
+ *     npx playwright test --config=playwright.beta.config.ts e2e/cookbooks/labs/17-sdk-financial-analysis.spec.ts
  *
  * Skipped when `COOKBOOK_17_RUN_KEY` is not set. Nothing here calls the API.
  */

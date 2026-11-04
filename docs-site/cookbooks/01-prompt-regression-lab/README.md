@@ -490,7 +490,7 @@ case it verifies the rejection and stops):
 ```bash
 cd caliber/caliber-ui
 COOKBOOK_01_MAX_REGRESSION=0.25 CALIBER_LAB_BASE_URL="$CALIBER_URL/caliber" \
-  npx playwright test --config=playwright.labs.config.ts e2e/cookbooks/labs/01-prompt-release-loop.spec.ts
+  npx playwright test --config=playwright.beta.config.ts e2e/cookbooks/labs/01-prompt-release-loop.spec.ts
 ```
 
 #### Results on the hosted model (real; will vary)
@@ -606,7 +606,7 @@ The browser path is the same spec as the simulated tier; it reads the provider b
 ```bash
 cd caliber/caliber-ui
 COOKBOOK_01_MIN_SCORE=0.3 COOKBOOK_01_MAX_REGRESSION=0.25 CALIBER_LAB_BASE_URL="$CALIBER_URL/caliber" \
-  npx playwright test --config=playwright.labs.config.ts e2e/cookbooks/labs/01-prompt-release-loop.spec.ts
+  npx playwright test --config=playwright.beta.config.ts e2e/cookbooks/labs/01-prompt-release-loop.spec.ts
 ```
 
 What differs from the simulated tier is asserted as **invariants**: both evaluations `completed` on all 44 examples, at least 90% of v1's answers parse as the contract, scores are in `0..1`,
@@ -690,7 +690,7 @@ It is automated by `caliber/caliber-ui/e2e/cookbooks/labs/01-prompt-release-loop
 | Who applied it | live board `by`, timeline `actor`, audit `actor` | your user (`admin`) |
 | Rolled back | same registry read after `POST .../rollback` | `version: "1"` |
 | Everything at once | the one-command script | exit `0`; `26/26 checks passed` (simulated), `30/30` (real model: hosted 4 min 46 s, local about 7 minutes), `17/17` with `--skip-release --expect-regression` (stand-in); on a real model whose gate says no, `--accept-rejection` ends `exit 0` with the rejection verified |
-| Browser path | `CALIBER_LAB_BASE_URL="$CALIBER_URL/caliber" npx playwright test --config=playwright.labs.config.ts e2e/cookbooks/labs/01-prompt-release-loop.spec.ts` (from `caliber/caliber-ui`; follows the simulated or the real branch by itself) | `1 passed` (about 12 s simulated, 4 minutes hosted, about 7 minutes on a local 7B model) |
+| Browser path | `CALIBER_LAB_BASE_URL="$CALIBER_URL/caliber" npx playwright test --config=playwright.beta.config.ts e2e/cookbooks/labs/01-prompt-release-loop.spec.ts` (from `caliber/caliber-ui`; follows the simulated or the real branch by itself) | `1 passed` (about 12 s simulated, 4 minutes hosted, about 7 minutes on a local 7B model) |
 | Evaluation failure is readable | a run against an unreachable model | `status: failed`, `error_message: "Connection error."`; the Evaluations page says `This run failed: Connection error.` |
 
 ## Common errors and troubleshooting
@@ -724,7 +724,7 @@ scripts/cookbook-env.sh up lab01ha --flags cookbooks,aria --real-llm      # both
 source .tmp/cookbook-env/lab01ha/env.sh
 cd caliber/caliber-ui
 CALIBER_LAB_BASE_URL="$CALIBER_URL/caliber" \
-  npx playwright test --config=playwright.labs.config.ts e2e/cookbooks/labs/01c-aria-appendix.spec.ts      # 1 passed, 1.7 to 2.1 minutes
+  npx playwright test --config=playwright.beta.config.ts e2e/cookbooks/labs/01c-aria-appendix.spec.ts      # 1 passed, 1.7 to 2.1 minutes
 ```
 
 By hand, on a prompt `cookbook-01-aria-...` made as in step 1 of the UI recipe (the spec creates its own, with a timestamp suffix):

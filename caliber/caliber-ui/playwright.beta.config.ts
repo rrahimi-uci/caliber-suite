@@ -11,7 +11,7 @@ import { defineConfig, devices } from "@playwright/test";
  *     source .tmp/cookbook-env/labs/env.sh
  *     cd caliber/caliber-ui
  *     CALIBER_LAB_BASE_URL="$CALIBER_URL/caliber" \
- *       npx playwright test --config=playwright.labs.config.ts
+ *       npx playwright test --config=playwright.beta.config.ts
  *
  * No server is started here, so a run can never reuse (or disturb) another one.
  */

@@ -86,7 +86,7 @@ README lists exactly which. Sign in as `admin` / `admin`.
 Each lab's folder has a runnable SDK example, `sdk/caliber-sdk/examples/cookbooks/cookbook_NN_*.py` (it performs every step through
 the typed SDK, prints one `ok` line per verified outcome and exits 0 only if all of them held), and a Playwright spec,
 `caliber/caliber-ui/e2e/cookbooks/labs/NN-*.spec.ts` (the lab's "Run it through the UI" steps, run with
-`CALIBER_LAB_BASE_URL="$CALIBER_URL/caliber" npx playwright test --config=playwright.labs.config.ts e2e/cookbooks/labs/NN-*.spec.ts`
+`CALIBER_LAB_BASE_URL="$CALIBER_URL/caliber" npx playwright test --config=playwright.beta.config.ts e2e/cookbooks/labs/NN-*.spec.ts`
 from `caliber/caliber-ui`). The lab README holds the exact commands and the expected output.
 
 | # | Flags (besides Cookbooks) | Dataset | Simulated or real |
@@ -204,7 +204,7 @@ language model, so it needs a stack like `OPENAI_API_KEY=... scripts/cookbook-en
 
 `scripts/cookbook-run-all.sh` runs the labs one after another, each from a clean state, doing only what that lab's
 README documents: a fresh stack (`scripts/cookbook-env.sh up ...` with the README's variables, flags and `--s3`), the
-token the README mints, the lab's SDK example script (API path), the lab's Playwright spec (UI path, `playwright.labs.config.ts`),
+token the README mints, the lab's SDK example script (API path), the lab's Playwright spec (UI path, `playwright.beta.config.ts`),
 then teardown. It prints a table (lab, API, UI, seconds) and exits non-zero if any step failed.
 
 ```bash

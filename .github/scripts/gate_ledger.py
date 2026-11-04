@@ -53,6 +53,7 @@ REQUIRED_GATES = (
     "Wheel build (with bundled SPA)",
     "Alpha install (wheels, no checkout)",
     "Alpha journey (browser)",
+    "Beta journey (browser)",
     "Security scan",
 )
 

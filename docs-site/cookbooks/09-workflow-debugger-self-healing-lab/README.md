@@ -138,7 +138,7 @@ Run the spec (the server must already be up, with the stand-in service running):
 ```bash
 cd caliber/caliber-ui
 CALIBER_LAB_BASE_URL="$CALIBER_URL/caliber" \
-  npx playwright test --config=playwright.labs.config.ts e2e/cookbooks/labs/09-workflow-debugger.spec.ts
+  npx playwright test --config=playwright.beta.config.ts e2e/cookbooks/labs/09-workflow-debugger.spec.ts
 ```
 
 ## Verify it worked

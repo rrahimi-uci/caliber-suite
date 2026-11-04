@@ -203,7 +203,7 @@ source .tmp/cookbook-env/lab06h/env.sh
 curl -s $CALIBER_API/readiness | jq -c '.data|{ready,simulated}'      # {"ready":true,"simulated":[]}
 # token as in "Run it through the API", then the same script:
 PYTHONPATH=sdk/caliber-sdk caliber/.venv/bin/python -u -m examples.cookbooks.cookbook_06_grounded_knowledge_assistant
-# UI: cd caliber/caliber-ui && CALIBER_LAB06_MODEL=real CALIBER_LAB_BASE_URL="$CALIBER_URL/caliber" npx playwright test --config=playwright.labs.config.ts e2e/cookbooks/labs/06-knowledge-retrieval.spec.ts
+# UI: cd caliber/caliber-ui && CALIBER_LAB06_MODEL=real CALIBER_LAB_BASE_URL="$CALIBER_URL/caliber" npx playwright test --config=playwright.beta.config.ts e2e/cookbooks/labs/06-knowledge-retrieval.spec.ts
 ```
 
 The script detects the stack from `/readiness` and asserts what a real model can honestly be held to: ranges, orderings and rules, never a generated sentence or an exact score.

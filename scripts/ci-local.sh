@@ -56,7 +56,7 @@ VENV_PY="$CALIBER_DIR/.venv/bin/python"
 # shellcheck disable=SC2034  # read by tests/test_ci_local_parity.py, and the install target to use
 CI_EXTRAS="dev,postgres,ingest,ocr,llm,knowledge,dspy,knowledge-local,memory"
 
-ALL_JOBS=(lint type-check test-smoke backend-core backend-core-api backend-core-sdk migration-parity-postgres egi-scenarios-postgres test compatibility integration docs-validation ui cookbook-ui-only compose package alpha-install alpha-journey security sdk plugin-sdk cli)
+ALL_JOBS=(lint type-check test-smoke backend-core backend-core-api backend-core-sdk migration-parity-postgres egi-scenarios-postgres test compatibility integration docs-validation ui cookbook-ui-only compose package alpha-install alpha-journey beta-journey security sdk plugin-sdk cli)
 FAST_SKIP=(test compatibility integration cookbook-ui-only package alpha-install alpha-journey)
 
 bold() { printf '\033[1m%s\033[0m\n' "$*"; }
@@ -455,6 +455,22 @@ job_alpha_journey() {
   return "$status"
 }
 
+# The required Beta journey uses the installed Cookbook 22 artifact and the same isolated
+# PostgreSQL/reference-profile runner as CI. Set CALIBER_LAB22_DATABASE_URL to a disposable
+# PostgreSQL database before invoking this local job; unlike the optional broad cookbook sweep,
+# a missing database is a real setup failure rather than a silent skip.
+job_beta_journey() {
+  require_cmd npx "Install Node.js and npm (see 'engines' in caliber/caliber-ui/package.json)." || return 1
+  require_cmd docker "Install Docker Desktop or Docker Engine for the disposable PostgreSQL service." || return 1
+  [ -n "${CALIBER_LAB22_DATABASE_URL:-}" ] || {
+    red "CALIBER_LAB22_DATABASE_URL is required for beta-journey (use a disposable PostgreSQL database)."
+    return 1
+  }
+  cd "$REPO_ROOT" || return 1
+  (cd "$UI_DIR" && npx playwright install chromium) || return 1
+  CALIBER_LAB22_DATABASE_URL="$CALIBER_LAB22_DATABASE_URL" scripts/cookbook-run-all.sh --labs 22
+}
+
 # Executes docs/start/alpha-install.md against freshly built wheels in a scratch directory,
 # then the one-command installer (scripts/install.sh) the same way.
 job_alpha_install() {
@@ -754,6 +770,7 @@ main() {
       package) run_job package job_package ;;
       alpha-install) run_job alpha-install job_alpha_install ;;
       alpha-journey) run_job alpha-journey job_alpha_journey ;;
+      beta-journey) run_job beta-journey job_beta_journey ;;
       security) run_job security job_security ;;
       sdk) run_job sdk job_sdk ;;
       plugin-sdk) run_job plugin-sdk job_plugin_sdk ;;
