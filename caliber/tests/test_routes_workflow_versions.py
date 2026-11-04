@@ -436,7 +436,9 @@ def test_compile_valid(client: TestClient) -> None:
     assert isinstance(data["cached"], bool)
 
 
-def test_reference_profile_hides_generated_python_from_version_responses(client: TestClient) -> None:
+def test_reference_profile_hides_generated_python_from_version_responses(
+    client: TestClient,
+) -> None:
     _wid, vid, _ = _support_workflow(client)
     client.app.state.config = client.app.state.config.model_copy(update={"profile": "reference"})
 
@@ -454,7 +456,9 @@ def test_reference_profile_hides_generated_python_from_version_responses(client:
     assert "generated_python" not in published.text
 
 
-def test_development_profile_keeps_generated_python_in_version_responses(client: TestClient) -> None:
+def test_development_profile_keeps_generated_python_in_version_responses(
+    client: TestClient,
+) -> None:
     _wid, vid, _ = _support_workflow(client)
 
     compiled = client.post(f"{PREFIX}/workflow-versions/{vid}/compile")
