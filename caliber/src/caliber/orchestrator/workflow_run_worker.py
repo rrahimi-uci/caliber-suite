@@ -274,6 +274,11 @@ def _resume_checkpoint_preflight_error(  # noqa: PLR0911 - explicit fail-closed 
             node_type in {"webhook", "api_request", "tool"}
             and getattr(plan, "governed_effects", None) is not None
         )
+        # A nested governed effect parks its parent subworkflow node while the
+        # checkpoint retains the child effect node in ``approval_node_id``.
+        # The bound-request check below validates that child identity before
+        # execution resumes.
+        or (node_type == "subworkflow" and getattr(plan, "governed_effects", None) is not None)
     ):
         return (
             f"kind {checkpoint_kind!r} does not match current node "

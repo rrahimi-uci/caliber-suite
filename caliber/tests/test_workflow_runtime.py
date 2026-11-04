@@ -10,6 +10,7 @@ import threading
 import time
 import types
 from copy import deepcopy
+from dataclasses import replace
 
 import pytest
 from sqlalchemy import create_engine
@@ -332,6 +333,24 @@ def test_subworkflow_approval_checkpoint_parks_the_parent_node() -> None:
         "resume_policy": "same_run_same_occurrence",
     }
     assert step.input_by_port == {"input": "hello"}
+
+
+def test_governed_subworkflow_can_resume_from_nested_runtime_approval_checkpoint() -> None:
+    from caliber.orchestrator.workflow_run_worker import _resume_checkpoint_preflight_error
+
+    plan = _plan(
+        _subworkflow_checkpoint_manifest("nested-approval-resume"),
+        subworkflow_runner=lambda *_args: {"status": "completed", "output": "done"},
+    )
+    plan = replace(plan, governed_effects=object())
+    checkpoint = RuntimeResumeCheckpoint(
+        node_id="child",
+        checkpoint_kind="runtime_approval",
+        input_by_port={"input": "hello"},
+        replay_output=False,
+    )
+
+    assert _resume_checkpoint_preflight_error(plan, checkpoint) is None
 
 
 def test_subworkflow_effect_checkpoint_parks_the_parent_with_child_identity() -> None:
