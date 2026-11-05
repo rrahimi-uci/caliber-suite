@@ -313,7 +313,7 @@ Use distinct maintenance states to avoid a drain deadlock. **Draining** rejects 
 | Schedule misfires and time zones | Persist UTC occurrences; do not silently select backfill policy. | Product owner chooses per-schedule default, lateness and DST behavior. |
 | Capacity and cost | Numeric envelope must be approved before acceptance measurement; no fixed pod count is a capacity promise. | Domain and operations owners, #847. |
 | Infrastructure and upgrades | Select managed/external database/object storage, identity and backup ownership; maintenance upgrades until compatibility is proven. | Operations/security; infrastructure availability and budget. |
-| Regional cells/sharding | Later optimization only; preserve the existing [regional-cell decision task #896](https://github.com/rrahimi-uci/caliber-suite/issues/896). | Architecture/product after the single-region envelope is measured. |
+| Additional cross-region capacity sharding | Later optimization only, after a measured bottleneck. The retained MVP [D12 regional/residency-cell work #896](https://github.com/rrahimi-uci/caliber-suite/issues/896) is a separate product requirement and is not deferred by this single-region scaling proposal. | Architecture/product after the single-region envelope is measured; D12 has its own acceptance control. |
 
 The [implementation plan](../planning/scalability-plan.md) turns G01–G12 into dependency-ordered work and explicit acceptance evidence. This proposal does not certify the current repository as safe for unrestricted horizontal execution.
 
