@@ -1,6 +1,8 @@
 # Development workflow
 
-Lead: [Developer](../roles/developer.md); a coordinator owns integration and delegates Reviewer/QA.
+Lead: [Developer](../roles/developer.md); the [Coordinator](../roles/coordinator.md) owns integration
+and delegates Reviewer/QA. Use the [role contracts](../roles/README.md) for decision rights and
+handoff quality; the sequence below remains the canonical execution procedure.
 
 Read the [engineering policy](../engineering-policy.md) and
 [GitHub integration contract](../github/project-integration.md). Honor explicit assignment limits.
