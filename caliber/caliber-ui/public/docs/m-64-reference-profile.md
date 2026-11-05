@@ -5106,7 +5106,7 @@ refuse its name: `grok_parse` and the other shipped built-ins that are bound to 
 what a registry row or a manifest says decides nothing: a tool called `grok_parse` in an administrator's module, or a callable of
 CALIBER's module that the seed does not list, is not shipped.
 
-**What refusing the export routes does not stop.** EP-044 and EP-045 refuse the two routes that serve the runnable export. The generated Python text (EP-043, exempt) is still sealed into the compiled bundle, so it can leave through `POST /workflow-versions/{id}/compile`, `GET /workflow-versions/{id}` and `POST /workflow-versions/{id}/publish` in the reference profile. Closing that is tracked in #1088; until then, do not treat the two `409`s as a guarantee that no generated Python reaches a client.
+**What refusing the export routes does not stop.** EP-044 and EP-045 refuse the two routes that serve the runnable export. The generated Python text (EP-043, exempt) remains sealed in the compiled bundle for the platform, but reference-profile responses from `POST /workflow-versions/{id}/compile`, `GET /workflow-versions/{id}` and `POST /workflow-versions/{id}/publish` recursively remove the `generated_python` field and its source bytes. The PostgreSQL public-path acceptance and source-retention boundary are tracked in #1088.
 
 **What an operator sees.** Each of these is the refusal for the row named:
 
