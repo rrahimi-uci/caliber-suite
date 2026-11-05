@@ -60,12 +60,12 @@ single-tenant topology is hardened, operated, recovered, and accepted. A
 controlled-pilot tag is not a v1 release; it is evidence for the remaining v1
 work.
 
-`docs/two-week-alpha-plan.md` proposed a lighter, earlier checkpoint alongside
+`docs/planning/archive/two-week-alpha-plan.md` proposed a lighter, earlier checkpoint alongside
 this milestone; its Days 1–9 executed against current `main`, with Day 10
 (cutting the actual release tag) left to the repo owner (see
-`docs/reports/two-week-alpha-day10-decision.md`). That work has since been
+`docs/reports/alpha/two-week-alpha-day10-decision.md`). That work has since been
 generalised into the `0.1.0a1` alpha (gap list in
-[`docs/caliber-alpha-gaps.md`](https://github.com/rrahimi-uci/caliber-suite/blob/main/docs/caliber-alpha-gaps.md), boundary in
+[`docs/reports/alpha/caliber-alpha-gaps.md`](https://github.com/rrahimi-uci/caliber-suite/blob/main/docs/reports/alpha/caliber-alpha-gaps.md), boundary in
 [Alpha scope and limitations](m-61-alpha-scope.md)); the tag and prerelease
 are still unpublished. Per that plan's own
 "Relationship to the existing roadmap" section, this is evidence feeding M1's
@@ -281,8 +281,8 @@ finding; it does not absorb the implementation fix.
 
 ## Sources and current limitations
 
-The [product completeness report](https://github.com/rrahimi-uci/caliber-suite/blob/main/docs/reports/product-completeness-report.md),
-the [pilot fixture pack](https://github.com/rrahimi-uci/caliber-suite/blob/main/docs/reports/first-milestone-pilot-fixture-pack.md), the
+The [product completeness report](https://github.com/rrahimi-uci/caliber-suite/blob/main/docs/reports/product/product-completeness-report.md),
+the [pilot fixture pack](https://github.com/rrahimi-uci/caliber-suite/blob/main/docs/reports/product/first-milestone-pilot-fixture-pack.md), the
 package manifests, CI workflows, and the linked GitHub issues are the evidence
 sources for this roadmap. Known limitations remain explicit: current-main is
 alpha; the v1 target is a bounded single-tenant deployment, not a claim of

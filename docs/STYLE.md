@@ -1,5 +1,10 @@
 # CALIBER documentation style guide
 
+Use the [documentation index](README.md) for folder ownership and placement rules.
+This style contract governs published pages; repository indexes and historical evidence
+keep their own purpose and provenance. Source moves must preserve published output names,
+update incoming and outgoing links, and update any generator or test that reads the source.
+
 This is the contract every published architecture module follows, plus the diagram
 conventions the generator (`docs-site/build-docs.mjs`) and the shared client
 (`docs-site/docs.js`) understand. Most module sources live under

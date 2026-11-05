@@ -30,7 +30,7 @@ review or apply only where the product supports it.
 | understand whether calibration exists for an asset | check the per-asset model | [Calibration architecture](../15-calibration/architecture.md) |
 | generate better candidates | launch the asset-specific loop | [Calibration architecture](../15-calibration/architecture.md) |
 | inspect evidence and targets | connect back to evaluation and release | [Evaluation and test sets](../use/evaluation-and-test-sets.md), [Review and release flows](../use/review-and-release-flows.md) |
-| recover a lost or stuck job | use the operator runbook | [Operations runbook](../runbook.md) |
+| recover a lost or stuck job | use the operator runbook | [Operations runbook](../operate/runbook.md) |
 
 ## 1. What calibration is for
 

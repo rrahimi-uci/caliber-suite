@@ -10,7 +10,7 @@
 
 CALIBER `0.1.0a1` is an alpha. This page says what it does, what it does not do, and what to
 watch for, so you judge it against what it claims. It is the short version of the
-[alpha gap analysis](https://github.com/rrahimi-uci/caliber-suite/blob/main/docs/caliber-alpha-gaps.md), which has the evidence and the reasoning.
+[alpha gap analysis](https://github.com/rrahimi-uci/caliber-suite/blob/main/docs/reports/alpha/caliber-alpha-gaps.md), which has the evidence and the reasoning.
 
 ## What the alpha does
 

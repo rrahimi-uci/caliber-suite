@@ -8,8 +8,8 @@
 
 Historical planning baseline: 26 October 2026. Current plan audit: 4 November 2026, main `189e1113a121e73555df15badd61e415d9796ab0`. These identify review inputs, not a release certification. See [findings and decisions](PLAN_AUDIT_2026_11.md) for the current corrections and [agent execution guide](AGENT_EXECUTION_GUIDE.md) for task handoff.
 
-This is the executable reconciliation of [map-gap.md](../../map-gap.md), the
-[EGI delivery plan](../CALIBER_EGI_DELIVERY_PLAN.md), current source and existing GitHub work.
+This is the executable reconciliation of [map-gap.md](../reports/architecture/map-gap.md), the
+[EGI delivery plan](archive/CALIBER_EGI_DELIVERY_PLAN.md), current source and existing GitHub work.
 [Project #3](https://github.com/users/rrahimi-uci/projects/3) is the sole active delivery board.
 The [machine-readable manifest](beta-mvp-execution.json) records every epic/task, gap, dependency and validation oracle.
 The [Alpha-to-MVP release train](PREVIEW_TO_MVP_RELEASE_TRAIN.md) maps those same epics and tasks to three
@@ -33,7 +33,7 @@ See the [product roadmap](PRODUCT_ROADMAP.md) for user outcomes, Pilot/MVP Previ
 3. ADRs 0001–0004 and existing implementation: preserve supported behavior; evolve contracts readers-first.
 4. Historical gap/delivery documents: rationale, scenario inventory and estimate provenance, not conflicting execution instructions.
 
-The `G01`–`G22` namespace here is **map-gap.md**, not the older analysis's `G01`–`G12`.
+The `G01`–`G22` namespace here is **docs/reports/architecture/map-gap.md**, not the older analysis's `G01`–`G12`.
 Required new organization/project/region/residency fields remain. Shared-customer tenant routing, universal legacy
 tenant-column retrofit, per-customer shared-hosting key separation and cross-tenant quotas are excluded.
 OIDC/SCIM, regional cells, Hub, memory, federation, catalog and autonomy are retained, not optional scope reductions.

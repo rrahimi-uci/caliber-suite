@@ -3,7 +3,7 @@
 A range is a promise about what a *clean* install may resolve to, and CI is the
 only place that promise is tested — developer virtualenvs hold whatever they
 installed months ago. That asymmetry has now produced the same outage four times
-(see §12.3 of `docs/reports/product-completeness-report.md`): green locally,
+(see §12.3 of `docs/reports/product/product-completeness-report.md`): green locally,
 broken on the remote, with a diff that mentions nothing related.
 
 These tests read the declaration rather than the environment, so they fail in the

@@ -326,13 +326,16 @@ Read these before relying on the alpha; the full list is in [Alpha scope](docs/s
 
 ## Documentation
 
+Use the [documentation index and folder guide](docs/README.md) to find source documents,
+research, dated reports and planning archives, or to choose a home for new documentation.
+
 | | |
 | --- | --- |
 | **Start here** | [Alpha scope](docs/start/alpha-scope.md) · [Alpha install](docs/start/alpha-install.md) · [5-minute quickstart](docs/start/five-minute-quickstart.md) · [Choose your path](docs/start/choose-your-path.md) |
 | **Use it** | [Prompts](docs/use/prompts.md) · [Skills](docs/use/skills.md) · [Tools](docs/use/tools.md) · [Workflows](docs/use/workflows.md) · [Knowledge bases](docs/use/knowledge-bases.md) · [Aria](docs/use/aria-assistant.md) |
 | **Integrate** | [SDK guide](docs/sdk/guide.md) · [REST API](docs/api/overview.md) · [CLI](docs/sdk/cli.md) |
 | **Operate** | [Local bring-up](docs/operate/local-bring-up.md) · [Configuration](docs/operate/configuration-and-provider-setup.md) · [Health and readiness](docs/operate/health-and-readiness.md) · [Releasing](docs/operate/releasing.md) |
-| **Understand** | [`ARCHITECTURE.md`](ARCHITECTURE.md) · [Alpha feature coverage matrix](docs/reports/alpha-feature-coverage-matrix.md) · [Release notes](docs/reports/release-0.1.0a1-notes.md) · [Changelog](caliber/CHANGELOG.md) |
+| **Understand** | [`ARCHITECTURE.md`](ARCHITECTURE.md) · [Alpha feature coverage matrix](docs/reports/alpha/alpha-feature-coverage-matrix.md) · [Release notes](docs/reports/alpha/release-0.1.0a1-notes.md) · [Changelog](caliber/CHANGELOG.md) |
 | **Browse** | the [documentation site](docs-site/index.html) (also served in the app at `/caliber/docs/`) · published at [rrahimi-uci.github.io/caliber-suite](https://rrahimi-uci.github.io/caliber-suite/) |
 
 ## Design principles

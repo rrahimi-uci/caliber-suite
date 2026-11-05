@@ -30,8 +30,8 @@ author, evaluate, calibrate, release, or recover.
 | Edit a prompt safely | create or update a prompt revision | [Prompts architecture](../02-prompts/architecture.md) |
 | Measure prompt quality | run evaluation against a test set | [Evaluation](../14-evaluation/architecture.md) |
 | Generate better candidates | launch prompt calibration | [Calibration](../15-calibration/architecture.md) |
-| Make a candidate live | use the explicit release/apply path | [The refinement loop](../refinement-loop.md) |
-| Recover from release trouble | use the runbook | [Operations runbook](../runbook.md) |
+| Make a candidate live | use the explicit release/apply path | [The refinement loop](../architecture/refinement-loop.md) |
+| Recover from release trouble | use the runbook | [Operations runbook](../operate/runbook.md) |
 
 ## 1. What prompts are for in CALIBER
 

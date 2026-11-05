@@ -230,7 +230,7 @@ workflow-specific stage and reuses the durable job and apply machinery. Other
 families implement only the positions their own evidence and release idiom support.
 
 The seven terms below are **concepts, not a stage count**. In the concrete prompt
-loop documented in [The Refinement Loop](docs/refinement-loop.md), production
+loop documented in [The Refinement Loop](docs/architecture/refinement-loop.md), production
 trace/feedback supplies the incoming signal, evidence assembly is folded into the
 transition from `Verify` toward `Diagnose`, the six numbered stages run from
 `Verify` through `Promote`, and the next production trace closes the loop after
@@ -681,7 +681,7 @@ touching the substrate.
 | An **architect** evaluating fit | §5 topologies, §6 execution, §7 state ownership, §8 trust — then [docs/01-caliber/architecture.md](docs/01-caliber/architecture.md) |
 | A **builder** joining the codebase | §2 the chain, §9 the seams — then [CONTRIBUTING.md](CONTRIBUTING.md) and [server.py](caliber/src/caliber/server.py) |
 | An **operator** bringing it up | [Alpha install](docs/start/alpha-install.md), [Local bring-up](docs/operate/local-bring-up.md), the [walkthrough runbook](docs-site/walkthrough.html) and [deploy/README.md](deploy/README.md) |
-| Anyone asking **"what is actually built?"** | [docs/reports/product-completeness-report.md](docs/reports/product-completeness-report.md) — the dated implementation and validation record; use the latest `main` CI run for current release evidence |
+| Anyone asking **"what is actually built?"** | [docs/reports/product/product-completeness-report.md](docs/reports/product/product-completeness-report.md) — the dated implementation and validation record; use the latest `main` CI run for current release evidence |
 
 The deeper architecture specs, operator runbooks, integration guides, and audit
 reports live under [docs/](docs/) and are rendered at [docs-site/](docs-site/).

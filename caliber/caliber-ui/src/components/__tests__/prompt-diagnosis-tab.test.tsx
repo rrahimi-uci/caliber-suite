@@ -2,7 +2,7 @@
  * PromptDiagnosisTab — the per-prompt Workspace surface that lets an
  * operator open a flagged verification-queue item, see why it was flagged,
  * and follow the linked refinement job's pipeline progress into Calibration
- * (`docs/two-week-alpha-plan.md`'s journey, step 1-2). Covers: the empty
+ * (`docs/planning/archive/two-week-alpha-plan.md`'s journey, step 1-2). Covers: the empty
  * state, rendering a flagged item's reason/severity/status, the linked-job
  * pipeline summary (with and without a match), the no-job fallback, the
  * pending-item Verify/Dismiss actions, and the load-error path.

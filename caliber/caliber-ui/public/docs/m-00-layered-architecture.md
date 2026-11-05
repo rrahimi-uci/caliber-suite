@@ -678,7 +678,7 @@ touching the substrate.
 | An **architect** evaluating fit | §5 topologies, §6 execution, §7 state ownership, §8 trust — then [docs/01-caliber/architecture.md](m-01-platform.md) |
 | A **builder** joining the codebase | §2 the chain, §9 the seams — then [CONTRIBUTING.md](https://github.com/rrahimi-uci/caliber-suite/blob/main/CONTRIBUTING.md) and [server.py](https://github.com/rrahimi-uci/caliber-suite/blob/main/caliber/src/caliber/server.py) |
 | An **operator** bringing it up | [Alpha install](m-60-alpha-install.md), [Local bring-up](m-32-local-bring-up.md), the [walkthrough runbook](walkthrough.html) and [deploy/README.md](https://github.com/rrahimi-uci/caliber-suite/blob/main/deploy/README.md) |
-| Anyone asking **"what is actually built?"** | [docs/reports/product-completeness-report.md](https://github.com/rrahimi-uci/caliber-suite/blob/main/docs/reports/product-completeness-report.md) — the dated implementation and validation record; use the latest `main` CI run for current release evidence |
+| Anyone asking **"what is actually built?"** | [docs/reports/product/product-completeness-report.md](https://github.com/rrahimi-uci/caliber-suite/blob/main/docs/reports/product/product-completeness-report.md) — the dated implementation and validation record; use the latest `main` CI run for current release evidence |
 
 The deeper architecture specs, operator runbooks, integration guides, and audit
 reports live under [docs/](https://github.com/rrahimi-uci/caliber-suite/tree/main/docs) and are rendered at [docs-site/](index.html).

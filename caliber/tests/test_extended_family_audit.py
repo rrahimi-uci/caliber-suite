@@ -1,6 +1,6 @@
 """Every content-changing action of the extended families leaves an audit row (alpha gap P1-24).
 
-``docs/caliber-alpha-gaps.md`` asks that each extended family's create, publish or promote,
+``docs/reports/alpha/caliber-alpha-gaps.md`` asks that each extended family's create, publish or promote,
 and rollback actions write an audit row. Prompts already do (P1-02). This file drives the
 real routes for skills, tools, workflows and knowledge bases as the project's owner and
 reads ``caliber_audit_log`` back: the row must exist, name the actor and carry the entity

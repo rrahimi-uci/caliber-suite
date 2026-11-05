@@ -417,7 +417,7 @@ run_owner_bootstrap() {
   # Seed the two-week-alpha journey's fixture (a flagged trace + the
   # intake-classifier prompt at a real, candidate_ready refinement job -- see
   # scripts/two_week_alpha_e2e_seed.py and
-  # docs/reports/two-week-alpha-day9-decision.md) here, BEFORE the dev server
+  # docs/reports/alpha/two-week-alpha-day9-decision.md) here, BEFORE the dev server
   # (./scripts/run-dev.sh) is spawned below -- not after it reports healthy.
   # An earlier version seeded via HTTP once the server's health endpoint was
   # already green, which raced Playwright's own independent poll of that same
@@ -628,7 +628,7 @@ export MLFLOW_ARTIFACT_ROOT="${MLFLOW_ARTIFACT_ROOT:-s3://mlflow/mlruns}"
 # through this server would never exercise the real intent-first release
 # state machine (commit "applying" before the provider call, settle
 # "applied"/"reconcile_required" after) the two-week-alpha journey's Apply
-# step exists to prove -- see docs/reports/two-week-alpha-day4-5-decision.md
+# step exists to prove -- see docs/reports/alpha/two-week-alpha-day4-5-decision.md
 # and -day9-decision.md. ``mlflow`` drives that state machine for real,
 # against this same disposable local backend store (no live server, no
 # network) -- exactly like every prompt-creation call in this E2E suite

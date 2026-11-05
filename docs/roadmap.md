@@ -27,7 +27,7 @@ tags:
 
 The historical text below was the execution roadmap for CALIBER and its (since removed) GitHub
 Project #2. The
-[v1.0.0 product requirements document](./prd.md) defines the product boundary,
+[v1.0.0 product requirements document](product/prd.md) defines the product boundary,
 requirements, and requirement-to-ticket trace; this document owns the delivery
 sequence, dates, capacity, and release gates. It uses a
 monthly release train and assumes **1.5 developers**: one primary engineering
@@ -78,12 +78,12 @@ single-tenant topology is hardened, operated, recovered, and accepted. A
 controlled-pilot tag is not a v1 release; it is evidence for the remaining v1
 work.
 
-`docs/two-week-alpha-plan.md` proposed a lighter, earlier checkpoint alongside
+`docs/planning/archive/two-week-alpha-plan.md` proposed a lighter, earlier checkpoint alongside
 this milestone; its Days 1–9 executed against current `main`, with Day 10
 (cutting the actual release tag) left to the repo owner (see
-`docs/reports/two-week-alpha-day10-decision.md`). That work has since been
+`docs/reports/alpha/two-week-alpha-day10-decision.md`). That work has since been
 generalised into the `0.1.0a1` alpha (gap list in
-[`docs/caliber-alpha-gaps.md`](caliber-alpha-gaps.md), boundary in
+[`docs/reports/alpha/caliber-alpha-gaps.md`](reports/alpha/caliber-alpha-gaps.md), boundary in
 [Alpha scope and limitations](start/alpha-scope.md)); the tag and prerelease
 are still unpublished. Per that plan's own
 "Relationship to the existing roadmap" section, this is evidence feeding M1's
@@ -97,12 +97,12 @@ discovery exit criterion below — it does not replace or shorten M1–M6.
   `#nn` references are historical identifiers until the tickets are recreated
   or the references removed.
 - **Gates.** The repository records no M1 exit decision: the
-  [PRD](./prd.md) is still "draft for approval", and no controlled-pilot
+  [PRD](product/prd.md) is still "draft for approval", and no controlled-pilot
   (M4) or v1 (M6) decision exists. The only release work in the tree is the
   `0.1.0a1` alpha prerelease, which is prepared but not published and is not
   the M4 `caliber-v0.1.0` gate.
 - **What the code proves per requirement.** See the PRD's
-  [Implementation status against current main](./prd.md#implementation-status-against-current-main).
+  [Implementation status against current main](product/prd.md#implementation-status-against-current-main).
   In short: the durable prompt release state machine, the project-role
   boundary on mutating routes, a CI-proven offline prompt journey and a wheel
   that installs and boots without a checkout are built, and the unsupported
@@ -299,8 +299,8 @@ finding; it does not absorb the implementation fix.
 
 ## Sources and current limitations
 
-The [product completeness report](./reports/product-completeness-report.md),
-the [pilot fixture pack](./reports/first-milestone-pilot-fixture-pack.md), the
+The [product completeness report](reports/product/product-completeness-report.md),
+the [pilot fixture pack](reports/product/first-milestone-pilot-fixture-pack.md), the
 package manifests, CI workflows, and the linked GitHub issues are the evidence
 sources for this roadmap. Known limitations remain explicit: current-main is
 alpha; the v1 target is a bounded single-tenant deployment, not a claim of

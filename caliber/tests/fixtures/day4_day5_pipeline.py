@@ -1,8 +1,8 @@
 """Days 4-5 of the two-week alpha plan: Apply -> release -> the three
 outcomes (``applied`` / ``failed`` / ``reconcile_required``) and rollback.
 
-See ``docs/two-week-alpha-plan.md`` (Week 1, Days 4-5) and
-``docs/reports/two-week-alpha-day4-5-decision.md`` for the acceptance this
+See ``docs/planning/archive/two-week-alpha-plan.md`` (Week 1, Days 4-5) and
+``docs/reports/alpha/two-week-alpha-day4-5-decision.md`` for the acceptance this
 module satisfies and the design rationale below. Days 1 and 2-3 delivered a
 committed seed fixture and a real, DSPy-driven pipeline that lands a
 ``CaliberRefinementJob`` at ``candidate_ready`` with genuine candidate

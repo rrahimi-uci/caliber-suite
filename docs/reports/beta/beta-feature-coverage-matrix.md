@@ -1,0 +1,81 @@
+---
+audience:
+  - decision-maker
+  - developer
+  - operator
+  - evaluator
+doc_type: reference
+product_area: release
+stability: beta
+summary: Traceable Beta coverage for the governed vertical slice, its refusal boundaries, installed artifacts and known gaps.
+prerequisites:
+  - docs/start/beta-scope.md
+  - docs/operate/reference-profile.md
+  - docs/operate/intervention-guide.md
+  - docs/planning/BETA_MVP_EXECUTION_PLAN.md
+reviewed_on: 2026-11-03
+version_applicability: current main branch docs contract
+tags:
+  - beta
+  - coverage
+  - evidence
+  - release
+---
+
+# Beta feature coverage matrix
+
+This matrix is the Beta companion to the [scope contract](../../start/beta-scope.md). It distinguishes implemented code,
+tested behavior, installed artifact journeys, and external release evidence. A green automated test is not an
+independent review, a real-provider quality result, or a release decision.
+
+## Control-spine coverage
+
+| Beta capability | Implementation | Deterministic evidence | Installed/UI/CLI evidence | Status and boundary |
+| --- | --- | --- | --- | --- |
+| Project-scoped admission and run identity | `caliber/src/caliber/routes/workflow_runs.py`, run manifests and project visibility checks | V01; admission/idempotency scenarios | Cookbook 22 SDK example; workflow run UI | **Implemented and tested** for the supported single-tenant/project-scoped shape; shared-customer hosting is out of scope. |
+| Exact-intent protected proposal | `caliber/src/caliber/effects/`, governed worker wiring and document-request connector | V01 proposal, refusal and causal-link assertions | Cookbook 22 installed fixture | **Implemented and tested** for the documented connector; generic protected connectors without verifiers refuse closed. |
+| Distinct human decision | run-scoped approval routes and approval binding | V01 self-approval refusal and approver decision | `WorkflowRunsAPI.approvals()`, `approval()`, `decide()`; approval UI journey | **Implemented and tested**; approval is for the exact run and runtime approval id. |
+| Controlled effect and downstream idempotency | document-request dispatcher, receipt verifier and Harborlight fixture | V01 plus connector `201`/`200`/`412` assertions | Cookbook 22 installed example | **Implemented and tested** against the synthetic downstream; no customer system is implied. |
+| Acceptance and causal evidence | completion predicate, causal links and B14 evidence package/export | V01 acceptance, causal-link and archive assertions | SDK `evidence()` and intervention guide | **Implemented and tested** for the authorized run view; archive retention/expiry is separately documented. |
+| Historical replay | run-scoped replay route and typed SDK report | V12 offline replay plus B15.4 fake-server tests | `caliberctl workflow run replay RUN_ID`; SDK `replay()` | **Implemented and tested** as bounded, read-only comparison; result is `matches_original`, not a fabricated `matched` status. |
+| Access, redaction and retention | B14 evidence authorization, archive verifier and janitor | B14.1–B14.4 contract/regression suites | Evidence download and retention runbook | **Implemented and tested** for configured retention; archive origin signatures and external review remain non-claims. |
+
+## Scenario and artifact coverage
+
+| Scenario/artifact | What it proves | Current evidence | Release interpretation |
+| --- | --- | --- | --- |
+| V01 governed effect | One admitted synthetic request, distinct approval, one receipt/mutation, acceptance, causal IDs, project isolation and replay | `caliber/tests/egi_scenarios/test_v01_governed_effect.py` | Required Beta control-spine proof; not a customer or model-quality result. |
+| V02 unauthorized access | Foreign-project reads and role/header refusals | `caliber/tests/egi_scenarios/test_v02_unauthorized_access.py`; expanded matrix is B16.3 | Partial until all role × workspace surfaces named by B16.3 are present. |
+| V03 context injection | Refusal of unsafe instruction/tool paths | `caliber/tests/egi_scenarios/test_v03_context_injection.py`; exact attacker-address fixture is B16.3 | Partial until the public-path injection case asserts zero proposals. |
+| V04/V05 stale approval and revocation | Expiry, supersession and grant checks | `test_v04_stale_approval.py`, `test_v05_revocation_while_waiting.py` | Partial until destination mutation and public resume zero-effect cases are in B16.1. |
+| V06/V07 admission and restart | Idempotency, owner fencing, kill points and exactly-once behavior | `test_v06_admission_idempotency.py`, `test_v07_restart_exactly_once.py` | Automated deterministic evidence. |
+| V08/V09 timeout and delivery | Retry/budget behavior and outbox/inbox crash/replay handling | `test_v08_timeout_retry.py`, `test_v09_outbox_inbox.py` | Partial for worker-layer timeout until B16.1 adds the orphan case. |
+| V10/V11 pins and false success | Immutable pins and downstream-state acceptance | `test_v10_pins_unchanged.py`, `test_v11_false_success.py` | Partial for policy-pin mutation until B16.1 adds it. |
+| V12/V13 replay and release evaluation | Offline replay and evaluator recovery | `test_v12_offline_replay.py`, `test_v13_release_evaluation.py` | Partial until counterfactual/public/stale-evidence cases are collected by B16.1. |
+| V14 reference profile | Owner safety and unsafe configuration refusal | `test_v14_reference_profile.py` | Partial until fresh-install success is explicit in B16.1. |
+| Cookbook 22 | Installed UI/API/SDK/CLI identity of the governed evidence review | `docs-site/cookbooks/22-governed-evidence-review-lab/`, SDK example and B15.3b Playwright spec | Synthetic installed journey; full browser runner and evidence controls must pass before claiming complete UI coverage. |
+
+## External evidence required for the Beta decision
+
+The following are intentionally not inferred from repository tests:
+
+| Requirement | Owner/issue | Required record | Current boundary |
+| --- | --- | --- | --- |
+| Named staffing, reviewer, operator, adapter author, thresholds and budget | #608 | Dated readiness/reforecast record | Open coordination dependency; no names or bookings are fabricated. |
+| Independent Beta boundary security review | #851 | Threat model, attack evidence, independent findings and rerun results | Required for #613; self-review and Copilot do not satisfy independence. |
+| Restore smoke after an unknown external write | #886 | SHA-bound backup/restore evidence with preserved pins and one reconciled mutation | Required for #613. |
+| Bounded real-provider quality evidence | #613 / #608 | Authorized held-out corpus, provider/version, thresholds, spend cap and abort rule | Synthetic CI does not satisfy this requirement. |
+| Consolidated Beta acceptance report and release decision | #613 | `docs/reports/egi/D5-acceptance.md` on one exact candidate SHA | The control remains open until all B01–B16 evidence and external gates are recorded. |
+
+## How to read status
+
+- **Implemented** means the code exists on the candidate branch or `main` after its PR merge.
+- **Automated** means a named deterministic test is collected and passed; a skipped job is not a pass.
+- **Installed** means the SDK/CLI artifact or UI journey was built from the candidate SHA and exercised.
+- **Externally evidenced** means the required independent reviewer, domain owner or real-provider protocol supplied a
+  dated record. It cannot be created by this matrix.
+- **Ready for release** is only the decision recorded by #613 after the complete candidate matrix, not a label this page
+  assigns to a partial implementation.
+
+The [intervention guide](../../operate/intervention-guide.md) gives the operator steps for the run-scoped journey. The
+[architecture reader guide](../../architecture/index.md) links the Beta control spine to the deeper subsystem contracts.

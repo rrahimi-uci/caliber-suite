@@ -31,7 +31,7 @@ and event backend.
 | Migrations | `caliber-migrate` (reads `CALIBER_DATABASE_URL`) | [Alpha install](../start/alpha-install.md) |
 | Roles and first login | `CALIBER_ADMIN_USERS`, `CALIBER_OPERATOR_USERS`, `CALIBER_APPROVER_USERS`, `CALIBER_AUTH_BOOTSTRAP_*` | [Alpha install](../start/alpha-install.md) |
 | LLM provider and gateway | `CALIBER_LLM_PROVIDER`, `CALIBER_LLM_BASE_URL` | [Gateways](../10-gateways/architecture.md) |
-| Release path (promoter, artifact store) | `CALIBER_PROMOTER_PROVIDER`, `CALIBER_ARTIFACT_STORE_PROVIDER`, `CALIBER_ALLOW_SIMULATED_PROVIDERS` | [Refinement loop](../refinement-loop.md) |
+| Release path (promoter, artifact store) | `CALIBER_PROMOTER_PROVIDER`, `CALIBER_ARTIFACT_STORE_PROVIDER`, `CALIBER_ALLOW_SIMULATED_PROVIDERS` | [Refinement loop](../architecture/refinement-loop.md) |
 | Object store (connection only) | `CALIBER_OBJECT_STORE_ENDPOINT_URL`, `_REGION`, `_ACCESS_KEY_SOURCE`, `_SECRET_KEY_SOURCE`, `_FORCE_PATH_STYLE` | [Object store](../07-object-store/architecture.md) |
 | Workflow file storage | `CALIBER_WORKFLOW_STORAGE_*` | [Storage and state](../operate/storage-and-state.md) |
 | Event backend | `CALIBER_WORKFLOW_RUN_EVENT_BACKEND` (`in_process` by default; `database`, `nats` or `redis`; the Compose stack sets `nats` and `./start.sh` rejects `redis`) | [Workflows architecture](../06-workflows/architecture.md) |

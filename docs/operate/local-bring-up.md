@@ -28,7 +28,7 @@ that the runtime is healthy before you use deeper feature or architecture docs.
 | Full suite | You want the complete local stack around CALIBER | `make setup`, `make start` |
 | Standalone dev | You want the shortest supported CALIBER edit/test loop inside `caliber/` | `docker compose ... --profile app up -d mlflow`, then `caliber-migrate`, then `uvicorn caliber.server:create_app --factory --reload --port 5001` |
 | Readiness check | You want to confirm dependency posture after boot | `GET /ajax-api/2.0/mlflow/caliber/readiness` |
-| Recovery path | You need failure handling, not first boot | [Operations runbook](../runbook.md) |
+| Recovery path | You need failure handling, not first boot | [Operations runbook](runbook.md) |
 
 ## 1. Full suite path
 
@@ -151,7 +151,7 @@ bootstrap defaults before exposing the deployment beyond the local machine.
 For the deeper trust boundary and scope model, use:
 
 - [Platform](../01-caliber/architecture.md)
-- [Operations runbook](../runbook.md)
+- [Operations runbook](runbook.md)
 
 ## 5. After boot
 
@@ -159,5 +159,5 @@ Once the system is up, the next doc depends on your job:
 
 - using the product: [Choose your CALIBER path](../start/choose-your-path.md)
 - integrating programmatically: [Auth and project scoping](../build/auth-and-project-scoping.md)
-- operating and recovering: [Operator troubleshooting](../operate/troubleshooting.md), [Operations runbook](../runbook.md)
+- operating and recovering: [Operator troubleshooting](../operate/troubleshooting.md), [Operations runbook](runbook.md)
 - validating trust and governance: [Trust and governance](../use/trust-and-governance.md)

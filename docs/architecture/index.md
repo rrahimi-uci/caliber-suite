@@ -28,10 +28,10 @@ you need the right deep page quickly instead of reading the full sidebar tree.
 | --- | --- |
 | What is the overall platform shape? | [Layered architecture](../../ARCHITECTURE.md) |
 | How is the server assembled and deployed? | [Platform](../01-caliber/architecture.md) |
-| How does governed change move from evidence to apply? | [The refinement loop](../refinement-loop.md) |
+| How does governed change move from evidence to apply? | [The refinement loop](refinement-loop.md) |
 | How do workflows execute? | [Workflows](../06-workflows/architecture.md) |
 | How does trust and quality work? | [Evaluation](../14-evaluation/architecture.md), [Calibration](../15-calibration/architecture.md), [QA plan](../13-qa-plan/architecture.md) |
-| How does runtime evidence and recovery work? | [Observability](../09-observability/architecture.md), [Operations runbook](../runbook.md) |
+| How does runtime evidence and recovery work? | [Observability](../09-observability/architecture.md), [Operations runbook](../operate/runbook.md) |
 
 ## 1. Read in layers, not alphabetically
 
@@ -63,7 +63,7 @@ Start with:
 
 Start with:
 
-- [The refinement loop](../refinement-loop.md)
+- [The refinement loop](refinement-loop.md)
 - [Evaluation](../14-evaluation/architecture.md)
 - [Calibration](../15-calibration/architecture.md)
 - [QA plan](../13-qa-plan/architecture.md)
@@ -73,7 +73,7 @@ Start with:
 Start with:
 
 - [Observability](../09-observability/architecture.md)
-- [Operations runbook](../runbook.md)
+- [Operations runbook](../operate/runbook.md)
 - [Local bring-up](../operate/local-bring-up.md)
 
 ## 6. For the Beta control spine
@@ -82,7 +82,7 @@ The Beta release boundary is a single governed vertical slice, not a claim that 
 supported. Read these pages together:
 
 - [Beta scope](../start/beta-scope.md) for supported, preview and refused surfaces, evidence tiers and non-claims.
-- [Beta feature coverage matrix](../reports/beta-feature-coverage-matrix.md) for implementation, scenario, installed
+- [Beta feature coverage matrix](../reports/beta/beta-feature-coverage-matrix.md) for implementation, scenario, installed
   artifact and external-gate traceability.
 - [Beta intervention guide](../operate/intervention-guide.md) for the UI, HTTP, SDK and CLI steps from a waiting approval
   through evidence export and read-only replay.

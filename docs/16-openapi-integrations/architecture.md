@@ -99,7 +99,7 @@ It deliberately does **not**:
   detection auto-wires or feeds the operator-review queue;
 - replace the workflow `api_request` node — that remains the low-level,
   one-off escape hatch; this module is for a *reusable, versioned, curated*
-  external capability (see [§4.4.1 of the integration proposal](../reports/openapi-integration-proposal.md#441-relation-to-the-existing-api-request-node)).
+  external capability (see [§4.4.1 of the integration proposal](../reports/architecture/openapi-integration-proposal.md#441-relation-to-the-existing-api-request-node)).
 
 ## 2. Module boundaries
 

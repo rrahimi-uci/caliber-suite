@@ -3,7 +3,7 @@ import { expect, test } from "@playwright/test";
 import { signIn } from "./helpers";
 
 /**
- * Day 9 of `docs/two-week-alpha-plan.md` (Week 2): "One end-to-end regression
+ * Day 9 of `docs/planning/archive/two-week-alpha-plan.md` (Week 2): "One end-to-end regression
  * test (a single Playwright journey, or one API-level integration test) that
  * runs the seed fixture through to Apply and asserts the outcome." Acceptance:
  * "Test passes on a clean checkout; it is the one piece of 'proof this still
@@ -14,7 +14,7 @@ import { signIn } from "./helpers";
  * `candidate_ready` refinement job (real DSPy candidate content, real eval
  * evidence) -> the Calibration tab's Apply flow -> a genuine live-version
  * change -> rollback via the Author tab's version history, restoring the
- * prior live version. See `docs/reports/two-week-alpha-day9-decision.md` for
+ * prior live version. See `docs/reports/alpha/two-week-alpha-day9-decision.md` for
  * the full design rationale, including why this is a real Playwright journey
  * rather than an API-level fallback, and how the fixture (a flagged
  * verification item + a `candidate_ready` `CaliberRefinementJob`, both
@@ -37,7 +37,7 @@ import { signIn } from "./helpers";
  * uncommitted write transaction while MLflow registered the new prompt version
  * through its own engine on the same file, deadlocking against itself. Apply
  * now commits its claim before the provider call. See the correction in
- * `docs/reports/two-week-alpha-day9-decision.md` and
+ * `docs/reports/alpha/two-week-alpha-day9-decision.md` and
  * `tests/test_apply_shared_sqlite_store.py`, which reproduces the shape.
  */
 const PROMPT_NAME = "intake-classifier-day1-seed";

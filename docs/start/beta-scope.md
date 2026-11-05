@@ -137,7 +137,7 @@ Unsupported means the reference profile refuses it before an effect is claimed. 
   not silently fall back to an unreviewed write.
 
 The [reference profile](../operate/reference-profile.md), [intervention guide](../operate/intervention-guide.md), and
-[Beta feature coverage matrix](../reports/beta-feature-coverage-matrix.md) are the operational, recovery and traceability
+[Beta feature coverage matrix](../reports/beta/beta-feature-coverage-matrix.md) are the operational, recovery and traceability
 companions to this scope page. This consolidated scope package is the deliverable tracked by **#877** and remains
 subject to the release decision in **#613**.
 

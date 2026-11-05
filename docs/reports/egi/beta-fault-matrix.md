@@ -1,7 +1,7 @@
 # Beta fault matrix contract
 
 This is the B16.1 contract for the fourteen fault injections defined in §13 of
-the [reference-architecture gap analysis](../../CALIBER_REFERENCE_ARCHITECTURE_GAP_ANALYSIS.md).
+the [reference-architecture gap analysis](../architecture/CALIBER_REFERENCE_ARCHITECTURE_GAP_ANALYSIS.md).
 The `status` column is deliberately `automated` only when the named deterministic
 offline pytest case is collected and passes. It means “the bounded seam is
 automated”; it does not claim that a live provider, production deployment, or

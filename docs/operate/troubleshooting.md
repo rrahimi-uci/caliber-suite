@@ -19,14 +19,14 @@ tags:
 # Operator troubleshooting
 
 Use this page for first-pass diagnosis. If the failure is already severe or
-indeterminate, jump straight to the [Operations runbook](../runbook.md).
+indeterminate, jump straight to the [Operations runbook](runbook.md).
 
 ## At a glance
 
 | Symptom | First thing to check | Escalate to |
 | --- | --- | --- |
 | UI loads but product behavior is degraded | readiness, dependency posture | [Health and readiness](../operate/health-and-readiness.md) |
-| Workflow runs are not draining | event backend and worker state | [Operations runbook](../runbook.md) |
+| Workflow runs are not draining | event backend and worker state | [Operations runbook](runbook.md) |
 | `/readiness` is 503 and the blocker names `schema` | the database was never migrated or is behind this release | run `caliber-migrate` with the same `CALIBER_DATABASE_URL` ([Health and readiness](../operate/health-and-readiness.md)) |
 | `/readiness` is 503 on `workflow_queue` after a worker was killed or restarted | no worker is reporting (a stale row beside a live worker does not block) | start the worker; its predecessor's row is removed after about five minutes ([Health and readiness](../operate/health-and-readiness.md)) |
 | File upload or extraction fails | object-store and workflow-storage config | [Storage and state](../operate/storage-and-state.md) |
@@ -93,4 +93,4 @@ indeterminate external effects, use the runbook immediately.
 - [Configuration and provider setup](../operate/configuration-and-provider-setup.md)
 - [Storage and state](../operate/storage-and-state.md)
 - [Gateways](../10-gateways/architecture.md)
-- [Operations runbook](../runbook.md)
+- [Operations runbook](runbook.md)

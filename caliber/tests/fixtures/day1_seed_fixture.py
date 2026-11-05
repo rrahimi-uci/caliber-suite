@@ -1,8 +1,8 @@
 """The two-week alpha plan's Day 1 seed fixture: one flagged trace, one
 prompt, one eval set.
 
-See ``docs/two-week-alpha-plan.md`` (Week 1, Day 1) and
-``docs/reports/two-week-alpha-day1-decision.md`` for the plan and the
+See ``docs/planning/archive/two-week-alpha-plan.md`` (Week 1, Day 1) and
+``docs/reports/alpha/two-week-alpha-day1-decision.md`` for the plan and the
 path/provider decisions this fixture implements. In short: this is the
 *one* fixed scenario the two-week alpha journey (trace -> diagnose ->
 candidate -> evaluate -> apply -> release/rollback) will be driven through,
