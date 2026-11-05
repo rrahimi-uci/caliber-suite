@@ -268,6 +268,7 @@ def scoped_child_or_404(
     parent_pk: Any,
     parent_id_attr: str = "workflow_id",
     action: str | None = None,
+    redact_hidden_id: bool = False,
 ) -> Any:
     """Fetch ``child`` by id, but only if its **parent** is visible to the caller.
 
@@ -303,7 +304,12 @@ def scoped_child_or_404(
     identity = resolve_identity(request)
     parent = get_visible(session, parent_model, parent_pk, parent_id, identity)
     if parent is None:
-        raise HTTPException(status_code=404, detail=f"{child_label} {child_id!r} not found")
+        detail = (
+            f"{child_label} not found"
+            if redact_hidden_id
+            else f"{child_label} {child_id!r} not found"
+        )
+        raise HTTPException(status_code=404, detail=detail)
     if action is not None:
         from caliber.resource_access import require_project_access_if_scoped  # noqa: PLC0415
 

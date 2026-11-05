@@ -79,7 +79,7 @@
     "EP-017": {
       "outcome": "dispatched",
       "status": "unrouted",
-      "owner": "#1088: the synchronous run route (covered by scenario 2 of #1051)"
+      "owner": "#1051: caller matrix and governed authority/refusal for the synchronous run route"
     },
     "EP-018": {
       "outcome": "exempt",
@@ -357,7 +357,7 @@
     "EP-081": {
       "outcome": "dispatched",
       "status": "unrouted",
-      "owner": "#1088: Aria's run_workflow tool (the #1063 problem class: no workflow run to propose into)"
+      "owner": "#1051: caller matrix and governed authority/refusal for Aria's run_workflow tool"
     },
     "EP-082": {
       "outcome": "exempt",

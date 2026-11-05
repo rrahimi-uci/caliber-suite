@@ -485,6 +485,7 @@ def _get_version_or_404(
         parent_model=CaliberWorkflow,
         parent_pk=CaliberWorkflow.workflow_id,
         action=action,
+        redact_hidden_id=True,
     )
     return version
 
