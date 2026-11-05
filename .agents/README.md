@@ -26,6 +26,15 @@ native slash commands. If the client does not accept `/develop <target>`, ask it
 `.claude/commands/` prompt adapters. Both read these same command/workflow/role files. No separate
 model prompts or alternative workflow implementations belong in tool adapters.
 
+## Role definitions and handoffs
+
+Read the [role contracts and responsibility matrix](roles/README.md), then the selected role's
+detailed definition. Each role specifies its entry inputs, responsibilities, decision limits,
+required outputs, handoffs, exit criteria and worked example. The
+[Coordinator](roles/coordinator.md) defines assignment and integration ownership within existing
+workflows; it is not an additional command. Use the shared handoff envelope to pass concrete
+scope, candidate identity, validation evidence and unresolved decisions between roles.
+
 ## Lifecycle and boundaries
 
 ```mermaid
