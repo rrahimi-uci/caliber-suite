@@ -11,19 +11,30 @@ import { markerStart, markerEnd, releaseFor, pendingInputs, readiness, inputStat
 const source = fs.readFileSync(new URL("validate-execution-plan.mjs", import.meta.url));
 const baseline = JSON.parse(fs.readFileSync(new URL("beta-mvp-execution.json", import.meta.url)));
 
-test("every execution brief renders its scope, outcomes and dependency links", () => {
+test("every archived brief retains scope, outcomes and dependency links with a warning", () => {
   validateBriefs(baseline);
   for (const task of baseline.tasks) {
-    const body = renderTask(baseline, task);
+    const body = renderTask(baseline, task, { archive: true });
     for (const text of [task.scope, task.acceptance, task.files, task.tests, task.execution.evidence_path, markerStart, markerEnd]) assert(body.includes(text));
     assert.match(body, /follow AGENTS\.md's quality and review gates before any agent merges through the PR/);
     assert.doesNotMatch(body, /owner's final review\/merge/);
     for (const n of task.blocked_by) assert(body.includes(`[#${n}]`));
     assert.equal(body.split(markerStart).length, 2);
+    assert.match(body, /^> ARCHIVE ONLY/);
+    assert.doesNotMatch(body, /This block is authoritative|## Current|caliber-agent-brief:v2/);
   }
-  for (const epic of baseline.epics) assert(renderEpic(baseline, epic).includes(epic.decision));
-  for (const control of baseline.controls) assert(renderControl(baseline, control).includes(control.outcome));
-  assert(renderDecisions(baseline).includes("H16"));
+  for (const epic of baseline.epics) {
+    const body = renderEpic(baseline, epic, { archive: true });
+    assert(body.includes(epic.decision));
+    assert.match(body, /^> ARCHIVE ONLY/);
+  }
+  for (const control of baseline.controls) {
+    const body = renderControl(baseline, control, { archive: true });
+    assert(body.includes(control.outcome));
+    assert.match(body, /^> ARCHIVE ONLY/);
+  }
+  assert.match(renderDecisions(baseline, { archive: true }), /^> ARCHIVE ONLY/);
+  assert(renderDecisions(baseline, { archive: true }).includes("H16"));
 });
 
 test("readiness distinguishes producing blockers, start input and acceptance input", () => {
@@ -44,19 +55,24 @@ test("readiness distinguishes producing blockers, start input and acceptance inp
   assert.equal(pendingInputs(p, task).length, 1, "status without evidence is not approval");
   d.evidence = "Owner decision at recorded SHA";
   assert.equal(inputStatus(p, task), "None pending");
-  assert(renderTask(p, { ...task, blocked_by: [] }).includes(d.evidence));
+  assert(renderTask(p, { ...task, blocked_by: [] }, { archive: true }).includes(d.evidence));
 });
 
-test("managed updates preserve progress text and are idempotent", () => {
-  const old = "Completed migration; remaining review is pending.";
-  const brief = renderTask(baseline, baseline.tasks[0]);
-  const once = managedBody(old, brief);
-  assert(once.includes(old));
-  assert.equal(managedBody(once, brief), once);
-  const changed = managedBody(once, `${markerStart}\nnew contract\n${markerEnd}`);
-  assert(changed.includes(old));
-  assert(!changed.includes(baseline.tasks[0].scope));
-  assert.throws(() => managedBody(`${markerStart} broken`, brief), /unterminated/);
+test("legacy synchronization and implicit current rendering fail without altering evidence", () => {
+  const previous = "Completed migration; remaining review is pending.";
+  for (const options of [undefined, {}, { archive: false }]) {
+    for (const render of [
+      () => renderTask(baseline, baseline.tasks[0], options),
+      () => renderEpic(baseline, baseline.epics[0], options),
+      () => renderControl(baseline, baseline.controls[0], options),
+      () => renderDecisions(baseline, options),
+    ]) assert.throws(render, /Retired current-brief renderer/);
+  }
+  const brief = renderTask(baseline, baseline.tasks[0], { archive: true });
+  for (const body of [previous, `<!-- caliber-agent-brief:v2 -->${previous}<!-- /caliber-agent-brief:v2 -->`]) {
+    assert.throws(() => managedBody(body, brief), /Retired manifest-to-issue synchronization/);
+    assert(body.includes(previous));
+  }
 });
 
 for (const [name, mutate, expected] of [
@@ -81,82 +97,52 @@ test("release lookup and input lookup fail explicitly; empty optional input is s
   const p = structuredClone(baseline);
   p.decisions[0].evidence = "named owner decision";
   p.decisions[0].start_tasks = [1086];
-  assert(renderDecisions(p).includes("named owner decision"));
+  assert(renderDecisions(p, { archive: true }).includes("named owner decision"));
   const control = { ...p.controls[0], blocked_by: [], human_inputs: [] };
-  assert(renderControl(p, control).includes("near-term kickoff"));
+  assert(renderControl(p, control, { archive: true }).includes("near-term kickoff"));
 });
 
-test("task CLI returns the exact handoff and rejects absent/unknown/extra arguments", () => {
+test("archive CLI requires explicit intent and rejects absent/unknown/extra arguments", () => {
   const cli = new URL("render-task-brief.mjs", import.meta.url).pathname;
   const task = baseline.tasks[0];
-  const result = spawnSync(process.execPath, [cli, String(task.number)], { encoding: "utf8" });
+  const result = spawnSync(process.execPath, [cli, "--archive", String(task.number)], { encoding: "utf8" });
   assert.equal(result.status, 0);
-  assert.equal(result.stdout.trim(), renderTask(baseline, task));
-  for (const args of [[], ["999999"], [String(task.number), "extra"]]) {
+  assert.equal(result.stdout.trim(), renderTask(baseline, task, { archive: true }));
+  for (const args of [[], [String(task.number)], ["--archive"], ["--archive", "999999"],
+    ["--archive", "-1"], ["--archive", "no"], ["--archive", String(task.number), "extra"]]) {
     const result = spawnSync(process.execPath, [cli, ...args], { encoding: "utf8" });
-    assert.equal(result.status, 2); assert.match(result.stderr, /Usage:/);
+    assert.equal(result.status, 2);
+    assert.equal(result.stdout, "");
+    assert.match(result.stderr, /historical|archive/);
+    assert.match(result.stderr, /GitHub Project/);
   }
 });
 
-function liveFixture() {
-  const connection = (numbers) => ({ nodes: numbers.map((number) => ({ number })), pageInfo: { hasNextPage: false } });
-  const issue = (number, data, body, kind) => ({ number, title: data.title, state: "OPEN", body,
-    milestone: { title: `${data.milestone} — fixture` }, parent: null,
-    labels: { nodes: [kind, `priority-${(data.priority || "P0").toLowerCase()}`,
-      `stage:${Number(data.milestone.slice(1)) <= 5 ? "beta" : "mvp"}`,
-      `release:${data.release.toLowerCase().replaceAll(" ", "-")}`].map((name) => ({ name })) },
-    blockedBy: connection(data.blocked_by || []), subIssues: connection(data.children || []) });
-  const issues = baseline.tasks.map((t) => ({ ...issue(t.number, t, renderTask(baseline, t), "task"), parent: { number: t.parent } }));
-  issues.push(...baseline.epics.map((e) => ({ ...issue(e.number, e, renderEpic(baseline, e), "epic"),
-    parent: { number: ({ 589: 523, 592: 553, 594: 542, 595: 540 })[e.number] || 608 + Number(e.milestone.slice(1)) } })));
-  issues.push(...baseline.controls.map((c) => issue(c.issue, c, renderControl(baseline, c), "control")));
-  issues.push(issue(608, { milestone: "D1", release: "Preview 1" }, renderDecisions(baseline), "coordination"));
-  const live = new Map(issues.map((i) => [i.number, i]));
-  const items = baseline.tasks.map((t) => ({ content: { number: t.number }, stage: t.stage, release: t.release,
-    "human input": inputStatus(baseline, t), priority: t.priority, lane: t.lane, "item type": "Task",
-    "execution order": t.execution_order, "gap IDs": t.gaps.join(", "), readiness: readiness(baseline, t, live) }));
-  items.push(...baseline.epics.map((e) => ({ content: { number: e.number }, release: e.release })),
-    ...baseline.controls.map((c) => ({ content: { number: c.issue }, release: c.release })));
-  return { issues, board: { items }, milestones: [...baseline.controls.map((c) => ({ title: `${c.milestone} — fixture`, due_on: null })), { title: "retired", state: "closed" }] };
-}
-
-async function inspectFixture(snapshot, mode = "snapshot") {
-  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "caliber-live-plan-fixture-"));
+test("retired parity modes fail before reading snapshots or invoking GitHub", () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "caliber-retired-plan-"));
   try {
-    const file = path.join(directory, "snapshot.json");
-    fs.writeFileSync(file, JSON.stringify(snapshot));
-    if (mode === "live") {
-      // An isolated fake GitHub executable exercises pagination/CLI parsing without network access.
-      const stub = `#!${process.execPath}\nconst fs=require('node:fs');const s=JSON.parse(fs.readFileSync(${JSON.stringify(file)},'utf8'));const a=process.argv.slice(2);let r;if(a[0]==='project')r=s.board;else if(a.includes('graphql')){const q=JSON.parse(fs.readFileSync(0,'utf8'));const start=q.variables.cursor?200:0;const nodes=s.issues.slice(start,start+200);r={data:{repository:{issues:{nodes,pageInfo:{hasNextPage:start===0,endCursor:'page2'}}}}};}else r=[s.milestones];process.stdout.write(JSON.stringify(r));\n`;
-      fs.writeFileSync(path.join(directory, "gh"), stub, { mode: 0o755 });
+    const called = path.join(directory, "gh-called");
+    fs.writeFileSync(path.join(directory, "gh"), `#!${process.execPath}\nrequire('node:fs').writeFileSync(${JSON.stringify(called)}, 'called');\nprocess.exit(1);\n`, { mode: 0o755 });
+    const cli = new URL("validate-execution-plan.mjs", import.meta.url).pathname;
+    for (const args of [["--live"], ["--snapshot"], ["--snapshot", "/missing/snapshot.json"], ["--live", "--snapshot", "/missing"], ["--unexpected"]]) {
+      const result = spawnSync(process.execPath, [cli, ...args], {
+        encoding: "utf8", env: { ...process.env, PATH: directory },
+      });
+      assert.equal(result.status, 2, result.stderr);
+      assert.equal(result.stdout, "");
+      assert.match(result.stderr, /Retired planning parity interface/);
+      assert.match(result.stderr, /GitHub Project/);
+      assert(!fs.existsSync(called), "retired command must not contact GitHub");
     }
-    const args = mode === "live" ? ["--live"] : mode === "offline" ? [] : ["--snapshot", file];
-    const result = spawnSync(process.execPath, [new URL("validate-execution-plan.mjs", import.meta.url).pathname, ...args], {
-      encoding: "utf8", env: { ...process.env, PATH: `${directory}${path.delimiter}${process.env.PATH}` },
+    const offline = spawnSync(process.execPath, [cli], {
+      encoding: "utf8", env: { ...process.env, PATH: directory },
     });
-    if (result.status !== 0) throw new Error(result.stderr);
+    assert.equal(offline.status, 0, offline.stderr);
+    assert.match(offline.stdout, /Archive only/);
+    assert(!fs.existsSync(called));
   } finally {
     fs.rmSync(directory, { recursive: true });
   }
-}
-
-test("live plan checks accept a complete offline fixture through snapshot and paginated CLI", async () => {
-  await inspectFixture(liveFixture(), "offline");
-  await inspectFixture(liveFixture());
-  await inspectFixture(liveFixture(), "live");
-});
-
-for (const [name, mutate, error] of [
-  ["missing native blocker", (s) => { s.issues.find((i) => i.number === 823).blockedBy.nodes = []; }, /native blockers/],
-  ["unexpected gate blocker", (s) => { s.issues.find((i) => i.number === 609).blockedBy.nodes.push({ number: 608 }); }, /gate #609/],
-  ["stale brief", (s) => { s.issues[0].body = "old scope"; }, /brief drift/],
-  ["wrong epic release", (s) => { s.board.items.find((i) => i.content.number === 517).release = "MVP"; }, /board release/],
-  ["conflicting label", (s) => { s.issues[0].labels.nodes.push({ name: "release:mvp" }); }, /release labels/],
-  ["missing human flag", (s) => { s.board.items.find((i) => i.content.number === 1086)["human input"] = "None pending"; }, /human input/],
-  ["invented ready state", (s) => { s.board.items.find((i) => i.content.number === 1086).readiness = "Ready"; }, /readiness/],
-  ["unapproved due date", (s) => { s.milestones[0].due_on = "2026-12-01"; }, /unapproved date/],
-]) test(`live checks reject ${name} offline`, async () => {
-  const snapshot = liveFixture(); mutate(snapshot); await assert.rejects(inspectFixture(snapshot), error);
 });
 
 function run(change) {
@@ -175,7 +161,7 @@ function run(change) {
   }
 }
 
-test("reviewed contracts accept the current plan", () => validateReviewedContracts(baseline));
+test("reviewed contracts accept the archived plan", () => validateReviewedContracts(baseline));
 test("human-readable gap and epic index matches the manifest", () => {
   const doc = fs.readFileSync(new URL("BETA_MVP_EXECUTION_PLAN.md", import.meta.url), "utf8");
   const gapRows = doc.split("\n").filter((line) => /^\| G\d{2} /.test(line));
@@ -217,7 +203,7 @@ for (const [name, mutate, pattern] of [
   });
 }
 
-test("current plan passes without network access", () => {
+test("archive passes without network access", () => {
   const result = run(() => {});
   assert.equal(result.status, 0, result.stderr);
   assert.match(result.stdout, /22 gaps; full task\/epic\/gate DAG passes/);

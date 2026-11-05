@@ -1,5 +1,11 @@
 # CALIBER plan audit — 4 November 2026
 
+> **Archived planning record — retired 4 November 2026.** [GitHub Project #3](https://github.com/users/rrahimi-uci/projects/3) and its linked Issues are the sole current planning authority for scope, milestones, dependencies, priorities, acceptance criteria and progress.
+> Everything below records historical planning and architectural rationale, including statements that formerly called this document or its manifest canonical. Those statements are no longer operational instructions. Preserve evidence and issue links; do not synchronize this archive back to GitHub or infer current readiness from it.
+> Use the repository agent entry points and canonical `.agents/` workflows for current work. See [archive tooling and migration notes](PLANNING_ARCHIVE.md).
+
+## Historical record
+
 The release sequence is useful, but the previous plan mixed implementation completion, release acceptance, future product decisions and calendar promises. The corrected [manifest](beta-mvp-execution.json) contains 58 epics, 296 tasks, 15 D-controls and 22 gap categories. Five already-open GitHub tasks are now canonical: #1051, #1086–#1088 and #1110. The first four belong to Preview 2; #1110 is Beta CI maintenance and cannot block release when the complete required suite already passes. No feature was silently dropped and no issue was closed by this audit.
 
 The review covered every manifest task's scope, files, tests, acceptance and dependencies, every epic decision, control and current GitHub relationship. Source/test inspection checked the risky integration boundaries listed below against main `189e1113a121e73555df15badd61e415d9796ab0`. This is a planning and contract audit, not an independent security review or a certification that all existing implementations meet revised requirements. Closed delivery history remains closed; any newly demonstrated runtime gap needs an explicit regression issue or reopening decision.

@@ -1,5 +1,11 @@
 # CALIBER product roadmap
 
+> **Archived planning record — retired 4 November 2026.** [GitHub Project #3](https://github.com/users/rrahimi-uci/projects/3) and its linked Issues are the sole current planning authority for scope, milestones, dependencies, priorities, acceptance criteria and progress.
+> Everything below records historical planning and architectural rationale, including statements that formerly called this document or its manifest canonical. Those statements are no longer operational instructions. Preserve evidence and issue links; do not synchronize this archive back to GitHub or infer current readiness from it.
+> Use the repository agent entry points and canonical `.agents/` workflows for current work. See [archive tooling and migration notes](PLANNING_ARCHIVE.md).
+
+## Historical record
+
 CALIBER helps teams turn AI workflows into controlled, observable work: people can approve consequential actions, understand results, and recover safely when something fails. The product grows from a narrow evaluation experience to repeatable operation by a customer team.
 
 This roadmap is published in [Project #3](https://github.com/users/rrahimi-uci/projects/3). The repository copy is reviewed through PRs; the project README is the product-facing entry point. The [execution plan](BETA_MVP_EXECUTION_PLAN.md), [release mapping](PREVIEW_TO_MVP_RELEASE_TRAIN.md) and task briefs provide the engineering detail. These are delivery goals, not claims that the releases have shipped.

@@ -1,5 +1,11 @@
 # CALIBER release train: Alpha → Preview 1 → Preview 2 → Preview 3 → Beta → Pilot → MVP
 
+> **Archived planning record — retired 4 November 2026.** [GitHub Project #3](https://github.com/users/rrahimi-uci/projects/3) and its linked Issues are the sole current planning authority for scope, milestones, dependencies, priorities, acceptance criteria and progress.
+> Everything below records historical planning and architectural rationale, including statements that formerly called this document or its manifest canonical. Those statements are no longer operational instructions. Preserve evidence and issue links; do not synchronize this archive back to GitHub or infer current readiness from it.
+> Use the repository agent entry points and canonical `.agents/` workflows for current work. See [archive tooling and migration notes](PLANNING_ARCHIVE.md).
+
+## Historical record
+
 This is a conditional release schedule over the [canonical execution plan](BETA_MVP_EXECUTION_PLAN.md) and its [task/dependency manifest](beta-mvp-execution.json), audited on 4 November 2026 against main `189e1113a121e73555df15badd61e415d9796ab0`. The [audit](PLAN_AUDIT_2026_11.md) corrects task scope, acceptance contracts and native dependency edges in addition to the release grouping. Issue states and GitHub due dates are not changed by the audit. D1–D15 remain stable traceability and acceptance controls. The [epic/child index](BETA_MVP_EXECUTION_PLAN.md#traceability-index) gives every task number; producing dependencies and release gates take precedence over calendar slots.
 
 The three-person model is the historical planning assumption, not confirmed staffing: at most two implementation streams, one integration/review stream, about 2.25 effective person-weeks per calendar week and no more than 1.8 planned base person-weeks. [#608](https://github.com/rrahimi-uci/caliber-suite/issues/608) must replace this with named availability, quality thresholds, external bookings and a measured reforecast before due dates become commitments. Week 1 starts after kickoff and those inputs are available; dates below are **relative**, so holidays or missing reviewers move the calendar. A missed gate moves the release rather than waiving its criteria.

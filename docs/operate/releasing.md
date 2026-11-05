@@ -21,10 +21,15 @@ How a CALIBER release is cut. It is manual on purpose: there is no tag-triggered
 ships a handful of wheels to a handful of testers and a person should look at the commit before it goes out.
 Automating it is on the post-alpha backlog.
 
-Future release scope follows the [single-tenant execution plan](https://github.com/rrahimi-uci/caliber-suite/blob/main/docs/planning/BETA_MVP_EXECUTION_PLAN.md):
-D5 is the Beta gate, D9 is core operating proof without a release decision, and D15 is the full retained MVP.
-No new release/tag is created by roadmap planning. All applicable required checks must execute and pass on
-the exact artifacts; independent review and owner PR merge remain separate from author self-review.
+Current release scope and acceptance are owned by [GitHub Project #3](https://github.com/users/rrahimi-uci/projects/3)
+and its linked control issues: [D5 / Beta](https://github.com/rrahimi-uci/caliber-suite/issues/613),
+[D9 / Pilot](https://github.com/rrahimi-uci/caliber-suite/issues/617), and
+[D15 / MVP](https://github.com/rrahimi-uci/caliber-suite/issues/623). Repository planning snapshots are historical.
+No release/tag is created by planning or a readiness verdict. All applicable required checks must execute
+and pass on the exact candidate and artifacts, with actual independent reviews and decisions required by
+the control. PR merge follows the [shared engineering policy](https://github.com/rrahimi-uci/caliber-suite/blob/main/.agents/engineering-policy.md)
+and explicit assignment limits; author self-review is not independent approval. Publishing a release
+remains a separate explicitly authorized operation.
 
 A release is **four wheels and their sdists, plus one named bundle and a checksum file, attached to a GitHub
 prerelease, on a tag**. Nothing is published to PyPI; the install page tells testers to install from the

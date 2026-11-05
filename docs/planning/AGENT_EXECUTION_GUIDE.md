@@ -1,12 +1,18 @@
 # Executing one CALIBER development task
 
+> **Archived planning record — retired 4 November 2026.** [GitHub Project #3](https://github.com/users/rrahimi-uci/projects/3) and its linked Issues are the sole current planning authority for scope, milestones, dependencies, priorities, acceptance criteria and progress.
+> Everything below records historical planning and architectural rationale, including statements that formerly called this document or its manifest canonical. Those statements are no longer operational instructions. Preserve evidence and issue links; do not synchronize this archive back to GitHub or infer current readiness from it.
+> Use the repository agent entry points and canonical `.agents/` workflows for current work. See [archive tooling and migration notes](PLANNING_ARCHIVE.md).
+
+## Historical record
+
 The [manifest](beta-mvp-execution.json) is the versioned contract. Each GitHub task has a generated **Current execution brief**; collapsed earlier text preserves implementation history. The [audit](PLAN_AUDIT_2026_11.md) explains corrected requirements. Do not combine conflicting historical and current instructions.
 
 ## Select and establish the task
 
 1. Select an open task from Project #3's Ready tasks view. `Ready` means its producing issues are closed and no start decision is pending; verify their commits and contracts are actually present on current `main`. It is not release approval. `Done` follows closed issue state; this audit does not recertify completed work.
 2. Read repository/directory `AGENTS.md`, the task, parent decision, producer issues, applicable workflows and existing implementation/tests. Start a dedicated branch/worktree from current `main`. Preserve unrelated working changes.
-3. Render the complete handoff locally: `node docs/planning/render-task-brief.mjs 796` (replace 796 with the assigned issue). Check expected outcome, dependencies, files, ordered work units, test targets, commands, evidence path and human inputs before editing.
+3. Historical handoffs can now be inspected only as archives: `node docs/planning/render-task-brief.mjs --archive 796` (replace 796 with the assigned issue). Check expected outcome, dependencies, files, ordered work units, test targets, commands, evidence path and human inputs before editing.
 4. `Needs input` blocks coding for the named start decision. An `acceptance` input permits deterministic fixtures and contract implementation, but blocks the real trial, owner-specific configuration or certification it governs. Never invent issuer URLs, mappings, thresholds, budgets, corpus approval or independent reviews. Record exact missing input in #608. Role names are not confirmed assignees.
 
 Use the [product roadmap](PRODUCT_ROADMAP.md) to distinguish the destination Release from the three-week Delivery cycle. A blank cycle is unscheduled; a cycle assignment never overrides dependencies or human inputs.
@@ -35,7 +41,7 @@ After integration, reconcile issue state and Project #3 readiness with live evid
 
 ## Maintaining this plan
 
-Edit the canonical manifest through a PR. Update the epic/child index and audit where scope changes. Run:
+The former manifest-to-GitHub maintenance workflow is retired. Change current planning in GitHub Project + Issues. The following commands validate the preserved archive only:
 
 ```sh
 node docs/planning/validate-execution-plan.mjs
@@ -43,4 +49,4 @@ node --test docs/planning/test-execution-plan-validator.mjs
 git diff --check
 ```
 
-Synchronize issue briefs, native relationships, labels and project fields, preserving historical progress text. Then run `node docs/planning/validate-execution-plan.mjs --live`. A snapshot check is a point-in-time consistency check, not current feature or release verification. Never silently resolve a human-input record: a resolution requires named authority, date, exact decision and evidence.
+Live synchronization and manifest parity validation are retired. `--live` and `--snapshot` now fail explicitly. Read current task scope and evidence directly from GitHub; never overwrite it from this archive.

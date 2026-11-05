@@ -1,5 +1,11 @@
 # Execution-contract correction record
 
+> **Archived planning record — retired 4 November 2026.** [GitHub Project #3](https://github.com/users/rrahimi-uci/projects/3) and its linked Issues are the sole current planning authority for scope, milestones, dependencies, priorities, acceptance criteria and progress.
+> Everything below records historical planning and architectural rationale, including statements that formerly called this document or its manifest canonical. Those statements are no longer operational instructions. Preserve evidence and issue links; do not synchronize this archive back to GitHub or infer current readiness from it.
+> Use the repository agent entry points and canonical `.agents/` workflows for current work. See [archive tooling and migration notes](PLANNING_ARCHIVE.md).
+
+## Historical record
+
 Reviewed baseline: main `9687bc99e19f47c0f9ac19af0da238323cf4848e` (PR #935).
 Scope: repair implementation briefs, validation oracles and producer/consumer order.
 This is **planning**, not implementation of Beta/MVP features or independent release approval.
@@ -56,13 +62,12 @@ Run from the repository root:
 ```sh
 node docs/planning/validate-execution-plan.mjs
 node --test --experimental-test-coverage docs/planning/test-execution-plan-validator.mjs
-node docs/planning/validate-execution-plan.mjs --live
 git diff --check
 ```
 
 The offline tests include negative mutations for the reviewed task instructions/oracles and missing producer
-edges; CI runs them without GitHub credentials. Live validation additionally compares scope, files, tests,
-acceptance, documentation and native relationships/board fields. The correction rules have measured unit-test
+edges; CI runs them without GitHub credentials. The retired live validator formerly compared scope, files, tests,
+acceptance, documentation and native relationships/board fields; it is no longer available. The correction rules have measured unit-test
 coverage; this is not runtime-feature coverage. Phrase assertions prevent the known regressions, but cannot
 prove arbitrary prose correct, certify every future implementation or replace architectural review.
 

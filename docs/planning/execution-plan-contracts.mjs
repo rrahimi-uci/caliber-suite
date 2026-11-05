@@ -1,4 +1,4 @@
-// Regression checks for reviewed planning contracts, not proof of feature implementation.
+// Offline regression checks for archived planning contracts; not current scope or proof of feature implementation.
 import assert from "node:assert/strict";
 
 // Each rule checks both the prescribed behavior and its observable test/acceptance oracle.
