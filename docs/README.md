@@ -10,7 +10,7 @@ The [repository README](../README.md) introduces CALIBER; the
 | --- | --- | --- |
 | New user | [Choose your path](start/choose-your-path.md) | [Five-minute quickstart](start/five-minute-quickstart.md), [user guides](use/) |
 | Decision-maker / product reviewer | [Product overview](start/decision-maker-overview.md) | [PRD](product/prd.md), [competitive analysis](product/competitive-analysis.md) |
-| Architect | [Architecture overview](../ARCHITECTURE.md) | [Reader guide](architecture/index.md), [refinement loop](architecture/refinement-loop.md) |
+| Architect | [Architecture overview](../ARCHITECTURE.md) | [Reader guide](architecture/index.md), [refinement loop](architecture/refinement-loop.md), [scalability assessment and proposal](architecture/scalability-arch.md) |
 | Developer / integrator | [SDK or REST API](build/sdk-vs-rest-api.md) | [SDK guide](sdk/guide.md), [API overview](api/overview.md), [cookbooks](../docs-site/cookbooks/README.md) |
 | Operator | [Local bring-up](operate/local-bring-up.md) | [Runbook](operate/runbook.md), [recovery runbook](operate/recovery-runbook.md) |
 | UX contributor | [UX analysis](ux/ux-analysis-report.md) | [Version-management specification](ux/version-management-ux-spec.md), [UX evidence](ux/) |
@@ -97,6 +97,11 @@ Older standalone plans are grouped under `planning/archive/`:
 
 Do not update archived schedules to mirror GitHub or treat archive validation
 as evidence of current readiness.
+
+The [scalability implementation proposal](planning/scalability-plan.md) accompanies
+the [architecture assessment](architecture/scalability-arch.md). It is a requested
+engineering-review breakdown, not a live execution tracker or a revision of the
+frozen release plans. Its phases must be mapped to the live Project before execution.
 
 ## Sources and files that stay in place
 
