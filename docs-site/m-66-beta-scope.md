@@ -375,7 +375,8 @@ These are true of `main` today and are deliberate; each one that has an owner na
 | --- | --- | --- |
 | EP-009, EP-010, EP-013, EP-051, EP-059 | knowledge-build runs, review-queue enqueue (a platform-database write), output-bucket and object-store writes | #1086 |
 | EP-070, EP-071, EP-072, EP-075, EP-076, EP-077 | prompt and release publishing | #1087 |
-| EP-017, EP-081, EP-090 | the synchronous run route, Aria's `run_workflow` tool, and a path with no production caller | #1088 |
+| EP-017, EP-081 | the synchronous run route and Aria's `run_workflow` enqueue boundary; caller authority/refusal is verified by the #1051 matrix | #1051 |
+| EP-090 | a path with no production caller; retained as an inventory call-site ratchet | #1088 |
 
 EP-034 (#1063) is not in this unresolved table: the reference profile now refuses Aria's protected published OpenAPI writes and
 non-read operations before transport, while declared read `GET`/`HEAD`/`OPTIONS` remains available.
