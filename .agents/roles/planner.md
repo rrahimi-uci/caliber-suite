@@ -160,7 +160,10 @@ Continue independent planning only where its inputs and authority are establishe
 Illustrative only: a target requests a new workflow-run response field across supported clients.
 The planner asks the architect to define its meaning, error behavior and compatibility contract.
 Task A produces the API contract and implementation; dependent SDK/CLI work names that contract explicitly.
-A UI task may proceed separately only after its shared interface is stable and ownership is disjoint.
+A UI task may proceed only after its declared dependencies are completed, its producer contracts
+are verified on integrated main, and ownership is disjoint; interface agreement alone is not readiness.
+Early preparation needs a separate eligible task with its own satisfied prerequisites and bounded
+output, rather than bypassing the UI task's native blockers.
 An integration task verifies equivalent public behavior, including unavailable/denied cases where required.
 Documentation and installed-client checks are included rather than deferred as unspecified follow-up.
 Unconfirmed capacity leaves the Delivery cycle blank; an unresolved field meaning keeps consumers Planned.

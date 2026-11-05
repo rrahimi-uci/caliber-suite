@@ -48,8 +48,10 @@ when the coordinator gathers evidence; coordination does not manufacture a pass.
 
 ### Maintain integration correctness
 
-- Verify producer changes and consumer assumptions at each handoff. A consumer may develop
-  against an agreed interface, but cannot claim integrated acceptance before the producer lands.
+- Verify producer changes and consumer assumptions at each handoff. An agreed interface does not
+  satisfy an incomplete native dependency. Consumer implementation remains blocked until its
+  declared producers complete and their merged contracts are verified. Early preparation is
+  permitted only as a separately scoped, eligible task whose own prerequisites are satisfied.
 - Review delegated diffs, relevant tests, exact command results and candidate identity. Resolve
   missing work with its owner rather than repeating the task or trusting a summary.
 - Reconcile conflicts with both owners. A clean Git merge is insufficient when behavior, schema
@@ -128,8 +130,10 @@ include attempted recovery and continue unrelated eligible work.
 
 Illustrative assignment: add an API response field and expose it in the SDK and UI. Get an agreed
 response/error contract from Architect, assign server and consumer owners, and serialize generated
-client/schema updates. Consumers can prepare tests against the contract in separate worktrees.
-Their handoff remains incomplete until integration tests exercise the actual server producer.
+client/schema updates. Consumer tasks stay blocked by their declared API producer. If useful,
+the planner can define a separate preparation task with satisfied prerequisites and a bounded
+output, such as a test-case specification. That task cannot claim downstream implementation or
+integration acceptance. Integration tests must eventually exercise the actual server producer.
 If UI changes land after the initial QA run, supply the new candidate and affected tests to QA;
 the old pass is not silently transferred. When merge is reserved to the owner, PRs remain open
 for owner action despite green local checks.
