@@ -1,6 +1,6 @@
 """Proves the two-week alpha plan's Day 1 seed fixture is well-formed.
 
-This is Day 1 of ``docs/two-week-alpha-plan.md``'s Week 1 table: "write the
+This is Day 1 of ``docs/planning/archive/two-week-alpha-plan.md``'s Week 1 table: "write the
 one fixed seed fixture (trace + prompt + eval set)". Day 1's own acceptance
 is just "fixture committed" -- it does not require the full pipeline (a real
 LLM diagnosis/candidate/eval run) to work yet, that's Day 2-3. What this

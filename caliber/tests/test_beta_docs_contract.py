@@ -20,7 +20,7 @@ def test_beta_pages_are_registered_with_unique_outputs() -> None:
     site_map = json.loads(SITE_MAP.read_text(encoding="utf-8"))
     expected = {
         "operate/intervention-guide.md": "m-67-beta-intervention-guide.html",
-        "reports/beta-feature-coverage-matrix.md": "m-68-beta-feature-coverage-matrix.html",
+        "reports/beta/beta-feature-coverage-matrix.md": "m-68-beta-feature-coverage-matrix.html",
     }
     for source, output in expected.items():
         assert f'md: "{source}", out: "{output}"' in build
@@ -52,7 +52,7 @@ def test_intervention_guide_names_each_supported_caller_and_failure_boundary() -
 
 def test_beta_scope_and_matrix_preserve_non_claims() -> None:
     scope = _read("start/beta-scope.md")
-    matrix = _read("reports/beta-feature-coverage-matrix.md")
+    matrix = _read("reports/beta/beta-feature-coverage-matrix.md")
     for text in (scope, matrix):
         assert "synthetic" in text.lower()
         assert "real-provider" in text
@@ -67,6 +67,6 @@ def test_architecture_guide_links_the_beta_package() -> None:
     text = _read("architecture/index.md")
     assert "## 6. For the Beta control spine" in text
     assert "../start/beta-scope.md" in text
-    assert "../reports/beta-feature-coverage-matrix.md" in text
+    assert "../reports/beta/beta-feature-coverage-matrix.md" in text
     assert "../operate/intervention-guide.md" in text
     assert "ProposalsAPI" in text and "ApprovalsAPI" in text

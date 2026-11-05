@@ -432,7 +432,7 @@ def test_the_manifest_and_the_published_site_are_in_bijection() -> None:
 
     This replaced two count assertions --- ``len(modules) == 21`` and
     ``len(expected) == 67``. A count detects that something moved without saying
-    what: adding ``docs/runbook.md`` to the manifest produced ``assert 21 == 20``,
+    what: adding ``docs/operate/runbook.md`` to the manifest produced ``assert 21 == 20``,
     which names neither the file nor which side changed, and both numbers then had
     to be bumped by hand. It is also satisfiable for the wrong reason, since one
     addition and one removal cancel.
@@ -907,7 +907,7 @@ def test_topology_b_is_sole_supported_topology() -> None:
         REPO_ROOT / "caliber" / "README.md",
         REPO_ROOT / "docs" / "start" / "decision-maker-overview.md",
         REPO_ROOT / "docs" / "01-caliber" / "architecture.md",
-        REPO_ROOT / "docs" / "competitive-analysis.md",
+        REPO_ROOT / "docs" / "product" / "competitive-analysis.md",
         REPO_ROOT / "overview-video" / "narration_script.md",
         REPO_ROOT / "docs" / "01-caliber" / "assets" / "platform-overview.svg",
     ]

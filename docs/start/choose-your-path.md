@@ -29,11 +29,11 @@ before dropping into deep reference or architecture pages.
 | Reader | Start here | Then go to |
 | --- | --- | --- |
 | Developer / integrator | [SDK guide](../sdk/guide.md) | [Auth and project scoping](../build/auth-and-project-scoping.md), [SDK vs REST API](../build/sdk-vs-rest-api.md), [Developer troubleshooting](../build/developer-troubleshooting.md) |
-| Operator / admin | [Local bring-up guide](../operate/local-bring-up.md) | [Alpha install](alpha-install.md), [Configuration and provider setup](../operate/configuration-and-provider-setup.md), [Health and readiness](../operate/health-and-readiness.md), [Operations runbook](../runbook.md) |
+| Operator / admin | [Local bring-up guide](../operate/local-bring-up.md) | [Alpha install](alpha-install.md), [Configuration and provider setup](../operate/configuration-and-provider-setup.md), [Health and readiness](../operate/health-and-readiness.md), [Operations runbook](../operate/runbook.md) |
 | System user | [Workflows](../use/workflows.md) | [Prompts](../use/prompts.md), [Knowledge bases](../use/knowledge-bases.md), [Aria assistant](../use/aria-assistant.md) (preview; on by default, disable with `CALIBER_FEATURE_ARIA=false`) |
 | Evaluator / governance user | [Trust and governance guide](../use/trust-and-governance.md) | [Evaluation](../14-evaluation/architecture.md), [Calibration](../15-calibration/architecture.md), [QA plan](../13-qa-plan/architecture.md) |
-| Architect | [Architecture reader guide](../architecture/index.md) | [Layered architecture](../../ARCHITECTURE.md), [Platform](../01-caliber/architecture.md), [Refinement loop](../refinement-loop.md) |
-| Decision-maker | [Decision-maker overview](../start/decision-maker-overview.md) | [Alpha scope and limitations](alpha-scope.md), [Competitive analysis](../competitive-analysis.md), [Roadmap](../roadmap.md) |
+| Architect | [Architecture reader guide](../architecture/index.md) | [Layered architecture](../../ARCHITECTURE.md), [Platform](../01-caliber/architecture.md), [Refinement loop](../architecture/refinement-loop.md) |
+| Decision-maker | [Decision-maker overview](../start/decision-maker-overview.md) | [Alpha scope and limitations](alpha-scope.md), [Competitive analysis](../product/competitive-analysis.md), [Roadmap](../roadmap.md) |
 
 > **Preview areas sit behind server-side flags.** Aria and plans (`CALIBER_FEATURE_ARIA`, **on** by default),
 > MCP servers and OpenAPI integrations (`CALIBER_FEATURE_INTEGRATIONS`), cookbooks (`CALIBER_FEATURE_COOKBOOKS`),
@@ -70,7 +70,7 @@ Recommended path:
 2. [Configuration and provider setup](../operate/configuration-and-provider-setup.md)
 3. [Health and readiness](../operate/health-and-readiness.md)
 4. [Operator troubleshooting](../operate/troubleshooting.md)
-5. [Operations runbook](../runbook.md)
+5. [Operations runbook](../operate/runbook.md)
 
 ## 3. If you are evaluating trust, governance, or release posture
 
@@ -103,5 +103,5 @@ Recommended path:
 
 1. [Decision-maker overview](../start/decision-maker-overview.md)
 2. [Alpha scope and limitations](alpha-scope.md)
-3. [Competitive analysis](../competitive-analysis.md)
+3. [Competitive analysis](../product/competitive-analysis.md)
 4. [Roadmap](../roadmap.md)

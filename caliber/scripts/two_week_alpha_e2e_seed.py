@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Seeds the two-week-alpha journey's fixture data for the Playwright E2E server.
 
-See ``docs/two-week-alpha-plan.md`` (Week 2, Day 9) and
-``docs/reports/two-week-alpha-day9-decision.md`` for the full rationale.
+See ``docs/planning/archive/two-week-alpha-plan.md`` (Week 2, Day 9) and
+``docs/reports/alpha/two-week-alpha-day9-decision.md`` for the full rationale.
 Days 1-8 built the fixture (a flagged trace, the ``intake-classifier``
 prompt, a 12-case eval set -- ``tests/fixtures/day1_seed_fixture.py``), the
 real diagnose -> candidate -> evaluate pipeline

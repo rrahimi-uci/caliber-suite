@@ -31,7 +31,7 @@ problems it solves, and where to go next for technical proof.
 | Release status | Alpha. `0.1.0a1` is prepared on `main` but its tag and release assets are not published yet; see [Alpha scope and limitations](alpha-scope.md) |
 | Evidence on shipped defaults | The default language model and evaluator are simulated, so calibration scores are canned and are labelled as such. Real evidence needs a real model and evaluator |
 | Best technical proof | [Layered architecture](../../ARCHITECTURE.md) |
-| Market context | [Competitive analysis](../competitive-analysis.md) |
+| Market context | [Competitive analysis](../product/competitive-analysis.md) |
 | Forward plan | [Roadmap](../roadmap.md) |
 
 ## 1. What CALIBER is
@@ -72,7 +72,7 @@ In practical terms, that means:
 For the full trust model, use:
 
 - [Trust and governance](../use/trust-and-governance.md)
-- [The refinement loop](../refinement-loop.md)
+- [The refinement loop](../architecture/refinement-loop.md)
 
 ## 5. Recommended next reads
 
@@ -81,5 +81,5 @@ For the full trust model, use:
 | the technical proof | [Layered architecture](../../ARCHITECTURE.md) |
 | the architecture entry path | [Architecture reader guide](../architecture/index.md) |
 | the product/user journey | [Choose your CALIBER path](choose-your-path.md) |
-| market position | [Competitive analysis](../competitive-analysis.md) |
+| market position | [Competitive analysis](../product/competitive-analysis.md) |
 | roadmap and execution direction | [Roadmap](../roadmap.md) |

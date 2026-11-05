@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Days 2-3 of ``docs/two-week-alpha-plan.md``: diagnose -> candidate -> evaluate.
+"""Days 2-3 of ``docs/planning/archive/two-week-alpha-plan.md``: diagnose -> candidate -> evaluate.
 
 Human-facing demo script for the plan's own Week 1 acceptance criterion:
 

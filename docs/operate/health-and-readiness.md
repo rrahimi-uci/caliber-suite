@@ -86,11 +86,11 @@ Use the deeper evidence surfaces:
 
 - [Observability](../09-observability/architecture.md)
 - [Operator troubleshooting](../operate/troubleshooting.md)
-- [Operations runbook](../runbook.md)
+- [Operations runbook](runbook.md)
 
 ## 4. Related docs
 
 - [Local bring-up](../operate/local-bring-up.md)
 - [Operator troubleshooting](../operate/troubleshooting.md)
 - [Observability](../09-observability/architecture.md)
-- [Operations runbook](../runbook.md)
+- [Operations runbook](runbook.md)

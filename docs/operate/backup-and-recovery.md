@@ -122,8 +122,8 @@ release (the bundled CALIBER container runs `alembic upgrade head` each time it 
 - [Storage and state](../operate/storage-and-state.md)
 - [Health and readiness](../operate/health-and-readiness.md)
 - [Alpha scope and limitations](../start/alpha-scope.md)
-- [Operations runbook](../runbook.md)
-- [The refinement loop](../refinement-loop.md)
+- [Operations runbook](runbook.md)
+- [The refinement loop](../architecture/refinement-loop.md)
 
 ## Restore smoke
 

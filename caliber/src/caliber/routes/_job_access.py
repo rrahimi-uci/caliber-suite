@@ -11,7 +11,7 @@ Before this module existed, ``/jobs`` list, detail, targets, Apply,
 request-changes and ``/quality-reviews`` checked only a global scope. An
 operator who was not a member of project A could read A's candidate text and
 diagnosis and could Apply A's candidate to production, and a viewer-role member
-of A could do the same (see ``docs/caliber-alpha-gaps.md``, P0-1).
+of A could do the same (see ``docs/reports/alpha/caliber-alpha-gaps.md``, P0-1).
 
 An out-of-scope job answers 404, never 403, so the response does not reveal
 that the id exists. A visible job whose project role is too weak answers 403,

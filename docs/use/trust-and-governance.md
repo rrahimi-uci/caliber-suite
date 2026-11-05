@@ -65,7 +65,7 @@ the evidence loop available for that asset family.
 Use the deep references when you need the exact execution model:
 
 - [Calibration](../15-calibration/architecture.md)
-- [Refinement loop](../refinement-loop.md)
+- [Refinement loop](../architecture/refinement-loop.md)
 
 ## Simulated evidence is labelled
 

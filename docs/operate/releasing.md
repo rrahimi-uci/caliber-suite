@@ -65,11 +65,11 @@ M4 and M6 gates and are a different thing.
    SPA)`. The full backend suite (it runs after merge, not on PRs) and the `Docker stack smoke` workflow are
    green too; run the latter by hand if the last run is more than a week old:
    `gh workflow run stack-smoke.yml --ref main`.
-4. **The gap list is closed or its deferrals are written down.** `docs/caliber-alpha-gaps.md` section 8 is the
+4. **The gap list is closed or its deferrals are written down.** `docs/reports/alpha/caliber-alpha-gaps.md` section 8 is the
    checklist. Anything left open is named in the release notes, not left for a tester to find.
 5. **The licence is one licence.** `LICENSE`, `caliber/LICENSE`, the packages' metadata and the README must
    name the same one before a public tag.
-6. **The release notes are written** (`docs/reports/release-0.1.0a1-notes.md`): what is in it, what is not,
+6. **The release notes are written** (`docs/reports/alpha/release-0.1.0a1-notes.md`): what is in it, what is not,
    what was verified and how, and the known limitations.
 
 ## Upgrading from 0.1.0a1
@@ -165,7 +165,7 @@ Publish the prerelease. `--latest=false` is explicit because a prerelease must n
 ```bash
 gh release create caliber-v0.1.0a1 --prerelease --latest=false \
   --title "caliber-suite-alpha: CALIBER Suite Alpha 0.1.0a1" \
-  --notes-file docs/reports/release-0.1.0a1-notes.md \
+  --notes-file docs/reports/alpha/release-0.1.0a1-notes.md \
   dist/*
 ```
 

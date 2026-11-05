@@ -1,4 +1,4 @@
-"""Days 2-3 of ``docs/two-week-alpha-plan.md``: diagnose -> candidate -> evaluate.
+"""Days 2-3 of ``docs/planning/archive/two-week-alpha-plan.md``: diagnose -> candidate -> evaluate.
 
 This is the CI-enforced proof behind the plan's own Day 2-3 acceptance
 criterion: "Running one script against a clean checkout produces a scored

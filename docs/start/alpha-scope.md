@@ -25,7 +25,7 @@ tags:
 
 CALIBER `0.1.0a1` is an alpha. This page says what it does, what it does not do, and what to
 watch for, so you judge it against what it claims. It is the short version of the
-[alpha gap analysis](../caliber-alpha-gaps.md), which has the evidence and the reasoning.
+[alpha gap analysis](../reports/alpha/caliber-alpha-gaps.md), which has the evidence and the reasoning.
 
 ## What the alpha does
 
@@ -204,4 +204,4 @@ These are real and deliberate for the alpha. Read them before you rely on the pr
 - [Alpha install](alpha-install.md)
 - [Backup and recovery](../operate/backup-and-recovery.md)
 - [Health and readiness](../operate/health-and-readiness.md)
-- [The refinement loop](../refinement-loop.md)
+- [The refinement loop](../architecture/refinement-loop.md)

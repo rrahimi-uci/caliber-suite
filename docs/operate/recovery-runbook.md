@@ -28,7 +28,7 @@ tell, what is safe to do, and what is never safe.
 It collects what [Reference profile](reference-profile.md) and [ADR 0002](../architecture/adr/0002-execution-ownership.md)
 explain in pieces, and it adds no behavior: every state, code and endpoint below is the one the code uses, and the
 scenarios V07 (a dispatcher killed at any moment), V08 (a timeout) and V09 (outbox and inbox) in
-`caliber/tests/egi_scenarios/` exercise the effect and event paths end to end. The older [Operations runbook](../runbook.md)
+`caliber/tests/egi_scenarios/` exercise the effect and event paths end to end. The older [Operations runbook](runbook.md)
 covers recoveries that do not depend on the lease (releases, queues, rollbacks) and is still the page for those.
 
 All HTTP paths are relative to `/ajax-api/2.0/mlflow/caliber`; this page writes them as `/caliber/...`.
@@ -154,7 +154,7 @@ losing the lease fails closed.
    | Webhooks accepted but not delivered | become dead letters of kind `shutdown`; replay them (below) | when their accept lease lapses (at least 60 s) |
    | Outbox rows claimed by the dead publisher | delivered again by the new publisher; the consumer's inbox drops a repeat | at lease expiry (30 s) |
    | A refinement job `running` | marked `failed` by the janitor, **not** requeued | heartbeat older than `CALIBER_JANITOR_STALE_THRESHOLD_SECONDS` (300 s) |
-   | A calibration job `running` | nothing, on purpose: abandon it or submit a new linked job | see [P4](../runbook.md#p4-a-refinement-or-calibration-job-vanished) |
+   | A calibration job `running` | nothing, on purpose: abandon it or submit a new linked job | see [P4](runbook.md#p4-a-refinement-or-calibration-job-vanished) |
    | A workspace import `running` | moved to `reconcile_required` (not retryable; queue a new import job for the same content, which is safe by digest) | after `CALIBER_WORKSPACE_IMPORT_LEASE_SECONDS` (300 s) |
    | An effect `dispatched` under the old lease | becomes **abandoned**; see the next section | once the new owner holds a higher token |
 
@@ -567,5 +567,5 @@ Do not hand-edit rows to reconcile them with the downstream; use the sections ab
   operator view and the receipt callback, with every code.
 - [ADR 0002: execution ownership](../architecture/adr/0002-execution-ownership.md): who may run each loop and what each
   loop leaves behind when its owner dies.
-- [Operations runbook](../runbook.md): releases, queues, rollbacks and SLO incidents.
+- [Operations runbook](runbook.md): releases, queues, rollbacks and SLO incidents.
 - [Backup and recovery](backup-and-recovery.md) and [Health and readiness](health-and-readiness.md).

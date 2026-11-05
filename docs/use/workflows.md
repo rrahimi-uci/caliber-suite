@@ -31,7 +31,7 @@ underlying implementation model.
 | look up available nodes | inspect the component catalog | [Workflow components](../06-workflows/components.md) |
 | run or deploy a workflow | use preview, run, and deployment surfaces | [Workflows architecture](../06-workflows/architecture.md) |
 | debug a failing step | inspect runtime evidence and queue state | [Observability](../09-observability/architecture.md) |
-| recover a stuck or unsafe run | use the operator recovery docs | [Operations runbook](../runbook.md) |
+| recover a stuck or unsafe run | use the operator recovery docs | [Operations runbook](../operate/runbook.md) |
 
 ## What each node needs
 

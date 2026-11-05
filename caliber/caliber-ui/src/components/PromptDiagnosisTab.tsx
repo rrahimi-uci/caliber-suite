@@ -1,6 +1,6 @@
 /**
  * Prompt Diagnosis tab — the per-prompt Workspace surface for "operator opens
- * a flagged item, sees why it was flagged" (`docs/two-week-alpha-plan.md`'s
+ * a flagged item, sees why it was flagged" (`docs/planning/archive/two-week-alpha-plan.md`'s
  * journey, step 1-2).
  *
  * The verification queue (`GET /verification-queue`) and the refinement-job

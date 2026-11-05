@@ -1,7 +1,7 @@
 """Days 2-3 of the two-week alpha plan: diagnose -> candidate -> evaluate.
 
-See ``docs/two-week-alpha-plan.md`` (Week 1, Days 2-3) and
-``docs/reports/two-week-alpha-day1-decision.md`` for the fixture, path, and
+See ``docs/planning/archive/two-week-alpha-plan.md`` (Week 1, Days 2-3) and
+``docs/reports/alpha/two-week-alpha-day1-decision.md`` for the fixture, path, and
 provider decisions this module builds on. Day 1 delivered a committed,
 loadable fixture (``tests/fixtures/day1_seed_fixture.py``); this module wires
 that fixture through the real orchestrator stages -- evidence -> diagnosis ->

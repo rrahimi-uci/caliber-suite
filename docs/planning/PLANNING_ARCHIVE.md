@@ -39,6 +39,14 @@ Negative tests preserve historical safety-contract and dependency checks and ver
 
 ## Existing references and integration
 
+Older standalone delivery plans are grouped under [archive/](archive/): the
+[EGI plan](archive/CALIBER_EGI_DELIVERY_PLAN.md),
+[five-person plan](archive/CALIBER_FIVE_PERSON_DELIVERY_PLAN.md) and
+[two-week alpha plan](archive/two-week-alpha-plan.md). The gap report is now under
+[architecture reports](../reports/architecture/map-gap.md). This folder reorganization
+updates only the manifest's top-level report locator; archived task, epic, control,
+decision and dependency records retain their original content and baseline references.
+
 Existing architecture, release, PRD, gap and report documents link to these stable archive paths. Follow the archive notice to the live Project before treating an old reference as work to execute. Historical reports and acceptance evidence retain their original provenance and claims; current release readiness requires fresh evidence for the actual candidate.
 
 Callers and contributor instructions must stop describing the local renderer as the current handoff or requesting manifest synchronization. Use live Issue content, Project fields and native dependency links instead. The shared contribution playbook and repository agent entry points are maintained with the canonical `.agents/` framework; this migration does not duplicate their workflow definitions. The CI step may retain its old display name, but its unchanged no-argument command now verifies archive integrity only.

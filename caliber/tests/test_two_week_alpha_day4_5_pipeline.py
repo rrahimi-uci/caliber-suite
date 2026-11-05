@@ -1,4 +1,4 @@
-"""Days 4-5 of ``docs/two-week-alpha-plan.md``: Apply -> release -> the
+"""Days 4-5 of ``docs/planning/archive/two-week-alpha-plan.md``: Apply -> release -> the
 three outcomes (``applied`` / ``failed`` / ``reconcile_required``) and
 rollback.
 
@@ -18,7 +18,7 @@ under test, not a promoter that bypasses it.
 See ``tests/fixtures/day4_day5_pipeline.py``'s module docstring for why a
 stateful fake registry (rather than this repo's existing static
 ``load_refs``-dict stub convention) is what this slice specifically needs,
-and ``docs/reports/two-week-alpha-day4-5-decision.md`` for the full
+and ``docs/reports/alpha/two-week-alpha-day4-5-decision.md`` for the full
 rationale.
 """
 

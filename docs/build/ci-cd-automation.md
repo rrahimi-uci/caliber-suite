@@ -111,4 +111,4 @@ intentional product controls.
 - [Developer troubleshooting](../build/developer-troubleshooting.md)
 - [Error handling and retries](../build/error-handling-and-retries.md)
 - [SDK recipes](../sdk/cookbooks.md)
-- [Operations runbook](../runbook.md)
+- [Operations runbook](../operate/runbook.md)

@@ -4,7 +4,7 @@
 nor a working directory for the ``alembic`` command, which resolves its scripts from a
 relative path inside the source checkout. A first native install therefore started with
 no tables and failed every login with ``no such table: caliber_user_accounts``
-(see ``docs/caliber-alpha-gaps.md``, P0-5).
+(see ``docs/reports/alpha/caliber-alpha-gaps.md``, P0-5).
 
 This command builds the Alembic configuration from the installed package instead, so
 it works from any directory:

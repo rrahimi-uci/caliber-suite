@@ -28,7 +28,7 @@ Deliberately out of the sweep, with the reason:
 
 * ``/gate-verdicts`` keys a verdict by a free-form ``version_key`` that names no artifact
   (the prompt promote stores ``str(version)``), so no project can be derived from it. See
-  the P2 backlog in ``docs/caliber-alpha-gaps.md``.
+  the P2 backlog in ``docs/reports/alpha/caliber-alpha-gaps.md``.
 * ``/mcp-servers``: not one of the four extended families; admin-only and already
   visibility- and role-checked.
 * Read-shaped POSTs (``test-render``, ``test-selection``, ``validate``, import preview):

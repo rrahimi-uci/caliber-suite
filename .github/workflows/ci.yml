@@ -1226,7 +1226,7 @@ jobs:
     timeout-minutes: 30
     # Runs on every PR and on main. The journey is the alpha's one promise (calibrate, review,
     # apply, roll back), and P0-1 through P0-4 each shipped while CI stayed green because
-    # nothing exercised that path. See docs/caliber-alpha-gaps.md, P0-6.
+    # nothing exercised that path. See docs/reports/alpha/caliber-alpha-gaps.md, P0-6.
     steps:
       - uses: actions/checkout@v5
       - uses: astral-sh/setup-uv@v10.3.3
