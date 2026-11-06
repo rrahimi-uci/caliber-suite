@@ -122,7 +122,8 @@ jobs:
           actor=$(gh api user --jq '.login')
           echo "Project-token actor: $actor"
           test "$actor" = rrahimi-uci || { echo 'Project token is not owned by rrahimi-uci'; exit 1; }
-          gh project view 3 --owner @me --format json --jq '.id' >/dev/null
+          project_id=$(gh api graphql -f "query=query(\$login:String!,\$number:Int!){user(login:\$login){projectV2(number:\$number){id closed owner{... on User{login}}}}}" -F login=rrahimi-uci -F number=3 --jq '.data.user.projectV2 | select(.owner.login == "rrahimi-uci" and .closed == false) | .id')
+          test -n "$project_id" || { echo 'Project #3 is unavailable to the scoped token'; exit 1; }
           gh auth setup-git --hostname github.com
           python -m autocd.cli plan
       - name: Start and monitor workflow

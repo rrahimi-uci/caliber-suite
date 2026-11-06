@@ -23,18 +23,10 @@ export class GitHub {
   }
   async snapshot(config) {
     // Project read is deliberately first; an unavailable project must not fall back to a local plan.
-    let project;
-    try {
-      project = this.gh(['project', 'view', String(config.project.number), '--owner', config.project.owner, '--format', 'json']);
-    } catch (error) {
-      // gh resolves an explicit owner by querying both users and organizations. A token
-      // for a user-owned Project can read @me even when that lookup is unavailable.
-      const actor = this.gh(['api', 'user']);
-      if (actor?.login !== config.project.owner) throw error;
-      project = this.gh(['project', 'view', String(config.project.number), '--owner', '@me', '--format', 'json']);
-      if (project?.owner?.login !== config.project.owner) throw new Error('Configured GitHub Project owner does not match authenticated user');
-    }
-    if (!project?.id || project.closed) throw new Error('Configured GitHub Project is unavailable or closed');
+    // gh project view overfetches fields/items and can require unrelated read:org and
+    // read:discussion scopes. Query only the configured user Project metadata here.
+    const project = this.graphql(`query($login:String!,$number:Int!){user(login:$login){projectV2(number:$number){id number title url closed public readme shortDescription owner{... on User{login} ... on Organization{login}}}}}`, { login: config.project.owner, number: config.project.number }).user?.projectV2;
+    if (!project?.id || project.closed || project.owner?.login !== config.project.owner) throw new Error('Configured GitHub Project is unavailable, closed, or owned by another account');
     const fields = [];
     let cursor = null;
     do {

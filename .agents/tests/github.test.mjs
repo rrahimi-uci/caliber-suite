@@ -20,7 +20,7 @@ const issue = () => ({
 // Every subprocess command must match a fixture; accidental live calls fail.
 function harness(change = () => {}) {
   const state = {
-    project: { id: 'proj-17', number: 17, title: 'Engineering', url: 'https://example.test/projects/17', readme: 'Policy', closed: false },
+    project: { id: 'proj-17', number: 17, title: 'Engineering', url: 'https://example.test/projects/17', readme: 'Policy', closed: false, owner: { login: 'acme' } },
     fields: [connection([{ id: 'status-8', name: 'Status', dataType: 'SINGLE_SELECT', options: [{ id: 'todo-3', name: 'Todo' }] }], true, 'field-page-2'), connection([{ id: 'cycle-9', name: 'Cycle', dataType: 'TEXT' }])],
     repository: { nameWithOwner: 'acme/engine', url: 'https://example.test/acme/engine', defaultBranchRef: { name: 'trunk', target: { oid: 'head-abc' } } },
     milestones: [[{ node_id: 'mile-2', number: 2, title: 'Release window', state: 'open', description: 'Goal' }], [{ node_id: 'mile-3', number: 3, title: 'Next window', state: 'closed', description: null }]],
@@ -36,9 +36,13 @@ function harness(change = () => {}) {
     assert.equal(command, 'gh');
     const payload = options.input === undefined ? undefined : JSON.parse(options.input);
     calls.push({ args, payload, options });
-    if (args[0] === 'project') return JSON.stringify(state.project);
     if (args.includes('--slurp') && args.at(-1).includes('/milestones?')) return JSON.stringify(state.milestones);
     assert.deepEqual(args, ['api', 'graphql', '--input', '-']);
+    if (payload.query.includes('projectV2(number:')) {
+      assert.deepEqual(payload.variables, { login: 'acme', number: 17 });
+      assert.ok(!payload.query.includes('items('), 'initial Project lookup must not overfetch items');
+      return JSON.stringify({ data: { user: { projectV2: state.project } } });
+    }
     if (payload.query.includes('fields(first:')) {
       assert.deepEqual(payload.variables, { id: 'proj-17', after: fieldPage ? 'field-page-2' : null });
       return JSON.stringify({ data: { node: { fields: state.fields[fieldPage++] } } });
@@ -96,7 +100,7 @@ test('graphql forwards variables and rejects server errors or missing data', () 
 test('snapshot reads project first, follows field/item cursors and normalizes live data', async () => {
   const { adapter, calls } = harness();
   const snapshot = await adapter.snapshot(config);
-  assert.deepEqual(calls[0].args, ['project', 'view', '17', '--owner', 'acme', '--format', 'json']);
+  assert.deepEqual(calls[0].args, ['api', 'graphql', '--input', '-']);
   assert.equal(calls.length, 7);
   assert.ok(Number.isFinite(Date.parse(snapshot.capturedAt)));
   assert.deepEqual(snapshot.repository, { nameWithOwner: 'acme/engine', url: 'https://example.test/acme/engine', defaultBranch: 'trunk', headOid: 'head-abc' });
@@ -115,52 +119,16 @@ test('snapshot reads project first, follows field/item cursors and normalizes li
   assert.equal(snapshot.items[2].isArchived, true);
 });
 
-test('missing/closed project halts before reading any repository data', async () => {
-  for (const project of [null, {}, { id: 'proj-17', closed: true }]) {
+test('missing, closed, or mismatched Project halts before reading repository data', async () => {
+  for (const project of [null, {}, { id: 'proj-17', closed: true }, { id: 'proj-17', closed: false, owner: { login: 'other' } }]) {
     const { adapter, calls } = harness(s => { s.project = project; });
-    await assert.rejects(adapter.snapshot(config), /Project is unavailable or closed/);
+    await assert.rejects(adapter.snapshot(config), /Project is unavailable, closed, or owned by another account/);
     assert.equal(calls.length, 1);
   }
   const calls = [];
   const adapter = new GitHub((command, args) => { calls.push(args); throw new Error('denied'); });
   await assert.rejects(adapter.snapshot(config), /GitHub command failed/);
-  assert.deepEqual(calls.map(args => args.slice(0, 2)), [['project', 'view'], ['api', 'user']]);
-});
-
-test('user-owned Project retries with @me only for the configured token owner', async () => {
-  const { adapter, state } = harness();
-  const originalRun = adapter.run;
-  const ownerCalls = [];
-  adapter.run = (command, args, options) => {
-    if (args[0] === 'project' || (args[0] === 'api' && args[1] === 'user')) {
-      ownerCalls.push(args);
-      if (args[0] === 'api') return JSON.stringify({ login: 'acme' });
-      if (args.includes('acme')) throw Object.assign(new Error('unknown owner type'), { status: 1 });
-      return JSON.stringify({ ...state.project, owner: { login: 'acme' } });
-    }
-    return originalRun(command, args, options);
-  };
-  assert.equal((await adapter.snapshot(config)).project.id, 'proj-17');
-  assert.deepEqual(ownerCalls, [
-    ['project', 'view', '17', '--owner', 'acme', '--format', 'json'],
-    ['api', 'user'],
-    ['project', 'view', '17', '--owner', '@me', '--format', 'json'],
-  ]);
-});
-
-test('Project fallback fails closed for another token owner or unexpected Project owner', async () => {
-  for (const [actor, projectOwner] of [['other', 'acme'], ['acme', 'other']]) {
-    const calls = [];
-    const adapter = new GitHub((command, args) => {
-      calls.push(args);
-      if (args[0] === 'api') return JSON.stringify({ login: actor });
-      if (args.includes('acme')) throw Object.assign(new Error('unknown owner type'), { status: 1 });
-      return JSON.stringify({ id: 'proj-17', owner: { login: projectOwner } });
-    });
-    await assert.rejects(adapter.snapshot(config), /GitHub command failed|owner does not match/);
-    assert.equal(calls.some(args => args.includes('@me')), actor === 'acme');
-    assert.equal(calls.some(args => args[0] === 'api' && args[1] === 'graphql'), false);
-  }
+  assert.deepEqual(calls.map(args => args.slice(0, 2)), [['api', 'graphql']]);
 });
 
 test('missing repository or default branch cannot produce a snapshot', async () => {

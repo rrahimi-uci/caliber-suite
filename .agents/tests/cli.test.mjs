@@ -118,11 +118,11 @@ test('executable runs schema through a real subprocess adapter with a fake gh, w
 const fs = require('node:fs');
 const args = process.argv.slice(2);
 let result;
-if(args[0]==='project') result={id:'live-project',number:3};
-else if(args.includes('--slurp')) result=[[]];
+if(args.includes('--slurp')) result=[[]];
 else {
  const {query}=JSON.parse(fs.readFileSync(0,'utf8'));
- if(query.includes('fields(first:')) result={data:{node:{fields:{nodes:${JSON.stringify(snapshot.fields)},pageInfo:{hasNextPage:false}}}}};
+ if(query.includes('projectV2(number:')) result={data:{user:{projectV2:{id:'live-project',number:3,closed:false,owner:{login:${JSON.stringify(config.project.owner)}}}}}};
+ else if(query.includes('fields(first:')) result={data:{node:{fields:{nodes:${JSON.stringify(snapshot.fields)},pageInfo:{hasNextPage:false}}}}};
  else if(query.includes('defaultBranchRef')) result={data:{repository:{nameWithOwner:${JSON.stringify(config.repository)},defaultBranchRef:{name:'main',target:{oid:'abc'}}}}};
  else result={data:{node:{items:{nodes:[],pageInfo:{hasNextPage:false}}}}};
 }
