@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
@@ -369,6 +370,7 @@ class Engine:
                         "QA commands changed the candidate; rerun development and review"
                     )
                 reviewed_patch = candidate_patch
+                review_view = self._review_view(worktree, changed, reviewed_patch)
                 review = agent.run(
                     "reviewer",
                     json.dumps(
@@ -376,10 +378,10 @@ class Engine:
                             "issue": task.issue,
                             "contract": task.body,
                             "changed": changed,
-                            "diff": reviewed_patch,
+                            **review_view,
                             "commands": evidence,
                             "cycle": cycle,
-                            "instruction": "Review the complete diff, relevant runtime paths, tests, and local CI evidence.",
+                            "instruction": "Review the full source diff, relevant runtime paths, tests, and local CI evidence. Generated artifacts omitted from the inline diff are listed with exact hashes and sizes; inspect their paths with Read when needed and verify their generator and QA evidence.",
                         }
                     ),
                     worktree,
@@ -475,9 +477,57 @@ class Engine:
         patch = command(
             ["git", "diff", "--binary", f"origin/{self.settings.base_branch}"], worktree
         )
-        if len(patch) > 250_000:
-            raise RuntimeError("Diff exceeds reviewer context limit; split task before review")
+        if len(patch) > 64_000_000:
+            raise RuntimeError("Candidate diff exceeds integrity comparison limit; split task")
         return patch
+
+    def _review_view(self, worktree: Path, changed: list[str], patch: str) -> dict:
+        """Keep the reviewer prompt bounded without weakening exact-patch checks."""
+        digest = hashlib.sha256(patch.encode()).hexdigest()
+        generated = [path for path in changed if self._generated_docs_path(path)]
+        if len(patch) <= 250_000:
+            source_patch = patch
+        else:
+            if not generated:
+                raise RuntimeError("Source diff exceeds reviewer context limit; split task")
+            source = [path for path in changed if path not in generated]
+            source_patch = (
+                command(
+                    [
+                        "git",
+                        "diff",
+                        "--binary",
+                        f"origin/{self.settings.base_branch}",
+                        "--",
+                        *source,
+                    ],
+                    worktree,
+                )
+                if source
+                else ""
+            )
+            if len(source_patch) > 250_000:
+                raise RuntimeError("Source diff exceeds reviewer context limit; split task")
+        artifacts = []
+        for path in generated:
+            target = worktree / path
+            if target.is_symlink():
+                raise RuntimeError("Generated artifact is a symlink; refuse review")
+            if target.is_file():
+                with target.open("rb") as stream:
+                    artifact_digest = hashlib.file_digest(stream, "sha256").hexdigest()
+                artifacts.append(
+                    {"path": path, "bytes": target.stat().st_size, "sha256": artifact_digest}
+                )
+            elif target.exists():
+                raise RuntimeError("Generated artifact is not a regular file; refuse review")
+            else:
+                artifacts.append({"path": path, "deleted": True})
+        return {
+            "diff": source_patch,
+            "candidate_diff_sha256": digest,
+            "generated_artifacts": artifacts,
+        }
 
     @staticmethod
     def _in_owned_paths(path: str, owned: frozenset[str]) -> bool:

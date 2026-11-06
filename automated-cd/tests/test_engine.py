@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import subprocess
 import sys
@@ -211,7 +212,15 @@ def test_docs_sync_is_included_before_qa_and_review(settings, snapshot, monkeypa
     class ApprovingAgent(FakeAgent):
         def run(self, role, prompt, cwd, editable=False):
             if role == "reviewer":
-                assert "docs-site/m-29-rest-api-reference.html" in json.loads(prompt)["changed"]
+                review = json.loads(prompt)
+                assert "docs-site/m-29-rest-api-reference.html" in review["changed"]
+                assert review["generated_artifacts"] == [
+                    {
+                        "path": "docs-site/m-29-rest-api-reference.html",
+                        "bytes": 10,
+                        "sha256": hashlib.sha256(b"generated\n").hexdigest(),
+                    }
+                ]
                 return {"approved": True, "findings": []}
             return super().run(role, prompt, cwd, editable)
 
@@ -220,6 +229,9 @@ def test_docs_sync_is_included_before_qa_and_review(settings, snapshot, monkeypa
     def sync(worktree, store, run, issue):
         nonlocal generated
         generated = True
+        target = worktree / "docs-site/m-29-rest-api-reference.html"
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text("generated\n")
 
     monkeypatch.setattr(engine, "_sync_generated_docs", sync)
     monkeypatch.setattr(engine, "_diff", lambda worktree: "reviewed generated diff")
@@ -1289,9 +1301,72 @@ def test_diff_includes_new_file_and_rejects_large_patch(settings, tmp_path: Path
     engine = Engine(settings, github=github)
     assert "print('new')" in engine._diff(worktree)
     (worktree / "huge.py").write_text("# x\n" * 70_000)
+    patch = engine._diff(worktree)
     try:
-        engine._diff(worktree)
+        engine._review_view(worktree, ["new file.py", "huge.py"], patch)
     except RuntimeError as error:
-        assert "exceeds" in str(error)
+        assert "Source diff exceeds reviewer context limit" in str(error)
     else:
-        raise AssertionError("Large diff must be refused")
+        raise AssertionError("Large source diff must be refused")
+
+
+def test_large_generated_diff_uses_hashed_review_manifest(settings, tmp_path: Path):
+    worktree = tmp_path / "worktree"
+    worktree.mkdir()
+
+    def git(*args):
+        return subprocess.run(
+            ["git", *args], cwd=worktree, check=True, capture_output=True, text=True
+        ).stdout.strip()
+
+    git("init", "-q")
+    git("config", "user.name", "Test")
+    git("config", "user.email", "test@example.com")
+    (worktree / "README.md").write_text("base\n")
+    git("add", "--all")
+    git("commit", "-qm", "base")
+    git("update-ref", "refs/remotes/origin/main", git("rev-parse", "HEAD"))
+    (worktree / "README.md").write_text("reviewed source\n")
+    generated = worktree / "docs-site/search-index.json"
+    generated.parent.mkdir()
+    generated.write_text("generated content\n" * 20_000)
+    engine = Engine(settings, github=FakeGitHub(settings, {"items": []}))
+    patch = engine._diff(worktree)
+    assert len(patch) > 250_000
+    view = engine._review_view(worktree, ["README.md", "docs-site/search-index.json"], patch)
+    assert "reviewed source" in view["diff"]
+    assert "generated content" not in view["diff"]
+    assert view["candidate_diff_sha256"] == hashlib.sha256(patch.encode()).hexdigest()
+    assert view["generated_artifacts"] == [
+        {
+            "path": "docs-site/search-index.json",
+            "bytes": generated.stat().st_size,
+            "sha256": hashlib.sha256(generated.read_bytes()).hexdigest(),
+        }
+    ]
+    (worktree / "README.md").write_text("source change\n" * 20_000)
+    with pytest.raises(RuntimeError, match="Source diff exceeds reviewer context limit"):
+        engine._review_view(
+            worktree, ["README.md", "docs-site/search-index.json"], engine._diff(worktree)
+        )
+    (worktree / "README.md").write_text("base\n")
+    generated_only = engine._review_view(
+        worktree, ["docs-site/search-index.json"], engine._diff(worktree)
+    )
+    assert generated_only["diff"] == ""
+
+
+def test_generated_review_manifest_rejects_symlink_and_directory(settings, tmp_path: Path):
+    engine = Engine(settings, github=FakeGitHub(settings, {"items": []}))
+    generated = tmp_path / "docs-site/search-index.json"
+    generated.parent.mkdir()
+    generated.symlink_to(tmp_path / "outside.json")
+    with pytest.raises(RuntimeError, match="symlink"):
+        engine._review_view(tmp_path, ["docs-site/search-index.json"], "small diff")
+    generated.unlink()
+    generated.mkdir()
+    with pytest.raises(RuntimeError, match="not a regular file"):
+        engine._review_view(tmp_path, ["docs-site/search-index.json"], "small diff")
+    generated.rmdir()
+    view = engine._review_view(tmp_path, ["docs-site/search-index.json"], "small diff")
+    assert view["generated_artifacts"] == [{"path": "docs-site/search-index.json", "deleted": True}]

@@ -147,7 +147,13 @@ required so file tools remain inside the working directory. Docker-backed
 checks run as separate PR CI jobs without coordinator credentials.
 The Python coordinator alone runs Git and GitHub commands. Configured issue
 paths enforce ownership when supplied; tasks without explicit path ownership
-run serially. A large diff is refused instead of silently truncating review.
+run serially. The reviewer receives the complete source diff up to 250,000
+characters. If generated docs make the full patch larger, the reviewer receives their exact
+paths, byte sizes and SHA-256 hashes and can inspect the files with read-only
+tools; strict docs and UI checks validate generation. QA and staging still
+compare the complete candidate patch byte for byte. A source diff above
+250,000 characters or a total patch above 64 million characters is refused
+instead of silently truncating review.
 The coordinator never pushes `main` directly. Automatic merging uses
 `gh pr merge --squash --match-head-commit` without `--admin`; GitHub protection
 remains authoritative. If `main` advances beyond the reviewed PR head, the
