@@ -9,13 +9,13 @@ import subprocess
 import threading
 import uuid
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from .agents import ClaudeAgent
 from .config import Settings
-from .github import GitHub, command, pr_ready
+from .github import GitHub, audit_commands, command, pr_ready
 from .planner import Assignment, assign, eligible
 from .state import Store, exclusive
 
@@ -53,8 +53,9 @@ class Engine:
             run = uuid.uuid4().hex
             if not store.start(run, day):
                 return {"status": "already_started"}
-            snapshot = self.github.snapshot()
-            overview = self.github.overview()
+            with audit_commands(lambda kind, detail: store.event(run, None, kind, detail)):
+                snapshot = self.github.snapshot()
+                overview = self.github.overview()
             candidates = eligible(
                 snapshot, allowlist=self.settings.issue_allowlist, pathmap=self.settings.issue_paths
             )
@@ -123,7 +124,12 @@ class Engine:
         results = []
         for task in store.pending():
             if task["phase"] == "ci_wait" and task["pr"]:
-                results.append(self._check_pr(store, task["run_id"], task["issue"], task["pr"]))
+                with audit_commands(
+                    lambda kind, detail, run_id=task["run_id"], issue_id=task["issue"]: store.event(
+                        run_id, issue_id, kind, detail
+                    )
+                ):
+                    results.append(self._check_pr(store, task["run_id"], task["issue"], task["pr"]))
             else:
                 # A killed edit/commit may have left side effects. Retain its
                 # worktree and audit trail for reconciliation; do not replay it.
@@ -138,6 +144,10 @@ class Engine:
 
     def _task(self, run: str, task: Assignment) -> dict:
         store = Store(self.settings.state_dir)
+        with audit_commands(lambda kind, detail: store.event(run, task.issue, kind, detail)):
+            return self._task_with_store(run, task, store)
+
+    def _task_with_store(self, run: str, task: Assignment, store: Store) -> dict:
         branch = ""
         try:
             with self.mutation_lock:
@@ -469,7 +479,7 @@ QA verdict: {json.dumps(qa, sort_keys=True)}
 
 ## Risks and follow-up
 
-Risks and limitations: {developer.get("risks", "Owner review and exact-head required CI remain pending when this draft opens.")}
+Risks and limitations: {developer.get("risks", "Owner review and exact-head required CI remain pending when this PR opens.")}
 
 Compatibility: {developer.get("compatibility", "See issue contract.")}
 
@@ -532,6 +542,33 @@ The owner controls final merge.
                     )
                 store.phase(run, issue, "ready")
                 return {"issue": issue, "status": "ready_for_owner", "pr": state["url"]}
+            bad_checks = [row for row in checks if row["state"] in {"FAIL", "SKIPPING"}]
+            changes_requested = any(
+                review.get("state") == "CHANGES_REQUESTED"
+                for review in state.get("latestReviews", [])
+            )
+            started = store.phase_started(run, issue, "ci_wait")
+            stalled = bool(
+                started
+                and (datetime.now(UTC) - started).total_seconds() > self.settings.ci_timeout_seconds
+            )
+            if bad_checks or changes_requested or stalled:
+                reason = (
+                    f"PR #{pr} needs same-branch correction: failed/skipped checks="
+                    f"{[row['name'] for row in bad_checks]}, changes_requested={changes_requested}, "
+                    f"CI stalled={stalled}; exact head {expected}"
+                )
+                store.phase(run, issue, "blocked", failure=reason)
+                try:
+                    self.github.transition(task["target"], issue, "blocked", {"reason": reason})
+                except Exception as error:  # noqa: BLE001 - local block remains authoritative for this run
+                    store.event(run, issue, "remote_block_error", str(error)[:500])
+                return {
+                    "issue": issue,
+                    "status": "blocked_ci_or_review",
+                    "pr": state["url"],
+                    "reasons": reasons,
+                }
             return {
                 "issue": issue,
                 "status": "waiting_for_ci_or_review",

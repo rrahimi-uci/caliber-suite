@@ -24,6 +24,7 @@ class Settings:
     max_review_cycles: int
     agent_timeout_seconds: int
     stall_seconds: int
+    ci_timeout_seconds: int
     allow_overlapping_runs: bool
     issue_allowlist: tuple[int, ...]
     provider: str
@@ -81,6 +82,7 @@ def load(path: Path | None = None, *, environ: dict[str, str] | None = None) -> 
             value("agent_timeout_seconds", workflow["agent_timeout_seconds"])
         ),
         stall_seconds=int(value("stall_seconds", workflow["stall_seconds"])),
+        ci_timeout_seconds=int(value("ci_timeout_seconds", workflow["ci_timeout_seconds"])),
         allow_overlapping_runs=_bool(
             value("allow_overlapping_runs", workflow["allow_overlapping_runs"])
         ),
@@ -108,6 +110,8 @@ def load(path: Path | None = None, *, environ: dict[str, str] | None = None) -> 
         raise ValueError("worker, task and review limits must be positive")
     if settings.stall_seconds < 1 or settings.agent_timeout_seconds <= settings.stall_seconds:
         raise ValueError("agent timeout must exceed stall timeout")
+    if settings.ci_timeout_seconds < 60:
+        raise ValueError("CI timeout must be at least one minute")
     if settings.provider != "claude_cli":
         raise ValueError("Only the claude_cli provider is currently implemented")
     if settings.reasoning not in {"low", "medium", "high", "xhigh", "max"}:

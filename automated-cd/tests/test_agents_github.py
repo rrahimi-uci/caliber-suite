@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 
 from autocd.agents import AgentError, ClaudeAgent, role_prompt
-from autocd.github import CommandError, GitHub, command
+from autocd.github import CommandError, GitHub, audit_commands, command
 
 
 def _fake_cli(tmp_path: Path, body: str) -> Path:
@@ -72,6 +72,22 @@ def test_command_reports_failure_without_shell(tmp_path: Path):
     assert command(["/bin/echo", "safe"], tmp_path).strip() == "safe"
     with pytest.raises(CommandError, match="exited 3"):
         command(["/bin/sh", "-c", "exit 3"], tmp_path)
+
+
+def test_command_audit_records_arguments_and_exit(tmp_path: Path):
+    events = []
+    with audit_commands(lambda kind, detail: events.append((kind, detail))):
+        assert command(["/bin/echo", "safe"], tmp_path).strip() == "safe"
+        with pytest.raises(OSError):
+            command(["/no/such/executable"], tmp_path)
+    assert [kind for kind, _ in events] == [
+        "command_started",
+        "command_completed",
+        "command_started",
+        "command_failed",
+    ]
+    assert events[1][1]["exit_code"] == 0
+    assert events[0][1]["argv"] == ["/bin/echo", "safe"]
 
 
 def test_project_snapshot_rejects_wrong_repo(settings, monkeypatch):

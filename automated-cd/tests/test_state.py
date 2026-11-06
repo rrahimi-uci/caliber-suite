@@ -16,6 +16,8 @@ def test_store_transitions_and_schedule_dedup(tmp_path: Path):
     store.pr("run1", 12, 99)
     store.head("run1", 12, "a" * 40)
     store.phase("run1", 12, "ci_wait")
+    assert store.phase_started("run1", 12, "ci_wait") is not None
+    assert store.phase_started("run1", 12, "nonexistent") is None
     assert [row["issue"] for row in store.pending()] == [12]
     store.phase("run1", 12, "ready")
     assert not store.pending()

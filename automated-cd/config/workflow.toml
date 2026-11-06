@@ -9,6 +9,7 @@ max_workers = 2
 max_review_cycles = 3
 agent_timeout_seconds = 3600
 stall_seconds = 900
+ci_timeout_seconds = 43200
 allow_overlapping_runs = false
 # Empty means any eligible Ready task. Set to issue numbers to restrict unattended work.
 issue_allowlist = []

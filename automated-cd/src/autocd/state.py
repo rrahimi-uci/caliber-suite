@@ -105,6 +105,16 @@ class Store:
             self.db.execute("SELECT * FROM tasks WHERE phase NOT IN ('ready','blocked','failed')")
         )
 
+    def phase_started(self, run: str, issue: int, phase: str) -> datetime | None:
+        rows = self.db.execute(
+            "SELECT at,detail FROM events WHERE run_id=? AND issue=? AND kind='phase' ORDER BY id DESC",
+            (run, issue),
+        )
+        for row in rows:
+            if json.loads(row["detail"]).get("phase") == phase:
+                return datetime.fromisoformat(row["at"])
+        return None
+
     def finish(self, run: str) -> None:
         self.db.execute(
             "UPDATE runs SET phase='finished', updated_at=? WHERE id=?", (self.now(), run)

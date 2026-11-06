@@ -6,6 +6,9 @@ import json
 import re
 import subprocess
 import tempfile
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
+from contextvars import ContextVar
 from pathlib import Path
 
 from .config import Settings
@@ -15,10 +18,34 @@ class CommandError(RuntimeError):
     pass
 
 
+_AUDIT: ContextVar[Callable[[str, dict], None] | None] = ContextVar(
+    "autocd_command_audit", default=None
+)
+
+
+@contextmanager
+def audit_commands(callback: Callable[[str, dict], None]) -> Iterator[None]:
+    token = _AUDIT.set(callback)
+    try:
+        yield
+    finally:
+        _AUDIT.reset(token)
+
+
 def command(args: list[str], cwd: Path, *, timeout: int = 120, check: bool = True) -> str:
-    result = subprocess.run(
-        args, cwd=cwd, text=True, capture_output=True, timeout=timeout, check=False
-    )
+    audit = _AUDIT.get()
+    if audit:
+        audit("command_started", {"argv": args, "cwd": str(cwd)})
+    try:
+        result = subprocess.run(
+            args, cwd=cwd, text=True, capture_output=True, timeout=timeout, check=False
+        )
+    except (OSError, subprocess.TimeoutExpired) as error:
+        if audit:
+            audit("command_failed", {"argv": args, "error": type(error).__name__})
+        raise
+    if audit:
+        audit("command_completed", {"argv": args, "exit_code": result.returncode})
     if check and result.returncode:
         # External output can contain private data; keep failure diagnostics bounded.
         raise CommandError(

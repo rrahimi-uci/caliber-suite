@@ -40,15 +40,16 @@ work runs concurrently.
 
 The Claude Code CLI is the implemented provider. `model` and `reasoning`
 are configurable; the default Sonnet alias uses the host's current Sonnet.
-Pin a verified `claude-sonnet-5-5` model identifier on hosts where that model
-is available. The CLI exposes a per-invocation budget; it does not expose
+Pin Sonnet 5.5's official model identifier on hosts where that model becomes
+available and the account can use it. The CLI exposes a per-invocation budget; it does not expose
 stable temperature or output-token limits, so non-default values for those
 settings fail configuration validation. This prevents a false claim of
 enforced controls. Provider expansion must add a tested adapter rather than
 silently ignoring controls.
 
 The implementation deliberately does not auto-fix failing CI on an already
-published PR. It records the exact failure and leaves the PR open for the
-developer to address in the same branch. A subsequent version can add a
+published PR. It marks the task blocked in Project with the exact failed or
+skipped checks, requested changes, or CI timeout, and leaves the PR open for
+the developer to address in the same branch. A subsequent version can add a
 guarded PR revision loop with explicit head and review invalidation checks.
 No release or production action is part of this workflow.

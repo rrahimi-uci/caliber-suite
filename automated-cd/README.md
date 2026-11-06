@@ -112,6 +112,10 @@ model self-review.
   worktree solely because a process exited.
 - For `waiting_for_ci_or_review`, rerun `tick` or `run` after CI finishes. A
   required skipped, pending or failed check is not a pass.
+- A failed or skipped required check, requested changes, or CI wait exceeding
+  `ci_timeout_seconds` blocks the task and records a Project blocker when
+  GitHub is available. Correct it on the same PR branch, rerun review/QA and
+  update the PR; the coordinator will not replay an uncertain edit itself.
 - If Project access fails, fix `gh` authentication or Project permissions;
   there is no local-backlog fallback.
 - If the owner cannot be requested because they authored the PR, final owner

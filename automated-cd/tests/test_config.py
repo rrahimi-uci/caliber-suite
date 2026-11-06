@@ -26,6 +26,7 @@ def test_defaults_and_environment(settings):
         {"AUTOCD_MAX_OUTPUT_TOKENS": "100"},
         {"AUTOCD_MAX_WORKERS": "0"},
         {"AUTOCD_STALL_SECONDS": "999999"},
+        {"AUTOCD_CI_TIMEOUT_SECONDS": "2"},
     ],
 )
 def test_invalid_settings_fail_closed(env):

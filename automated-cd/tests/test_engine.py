@@ -524,6 +524,40 @@ def test_pr_check_error_keeps_wait_state(settings, snapshot):
     assert store.task("run", 12)["phase"] == "ci_wait"
 
 
+def test_failed_ci_escalates_to_project_without_merging(settings, snapshot):
+    data, _ = snapshot
+    github = FakeGitHub(settings, data)
+    github.required_checks = lambda pr, state: [{"name": "Gate execution ledger", "state": "FAIL"}]
+    engine = Engine(settings, github=github)
+    store = Store(settings.state_dir)
+    store.start("run")
+    store.add_task("run", 12, "release:Beta", "branch", settings.state_dir / "w")
+    store.head("run", 12, "f" * 40)
+    store.pr("run", 12, 88)
+    store.phase("run", 12, "ci_wait")
+    result = engine._check_pr(store, "run", 12, 88)
+    assert result["status"] == "blocked_ci_or_review"
+    assert store.task("run", 12)["phase"] == "blocked"
+    assert github.transitions[-1][1] == "blocked"
+
+
+def test_stalled_ci_escalates(settings, snapshot, monkeypatch):
+    data, _ = snapshot
+    settings = replace(settings, ci_timeout_seconds=1)
+    github = FakeGitHub(settings, data)
+    engine = Engine(settings, github=github)
+    store = Store(settings.state_dir)
+    store.start("run")
+    store.add_task("run", 12, "release:Beta", "branch", settings.state_dir / "w")
+    store.head("run", 12, "f" * 40)
+    store.pr("run", 12, 88)
+    store.phase("run", 12, "ci_wait")
+    from datetime import timedelta
+
+    monkeypatch.setattr(store, "phase_started", lambda *a: datetime.now(UTC) - timedelta(seconds=2))
+    assert engine._check_pr(store, "run", 12, 88)["status"] == "blocked_ci_or_review"
+
+
 def test_diff_includes_new_file_and_rejects_large_patch(settings, tmp_path: Path, monkeypatch):
     worktree = tmp_path / "worktree"
     worktree.mkdir()
