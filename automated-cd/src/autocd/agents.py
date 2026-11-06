@@ -20,23 +20,34 @@ class AgentError(RuntimeError):
 def decode_result(role: str, raw: object) -> dict:
     """Accept one JSON object, optionally wrapped in a complete Markdown fence."""
     if isinstance(raw, dict):
-        return raw
-    if not isinstance(raw, str):
-        raise AgentError(f"{role} returned no JSON object")
-    payload = raw.strip()
-    lines = payload.splitlines()
-    if (
-        len(lines) >= 3
-        and lines[0].strip().lower() in {"```json", "```"}
-        and lines[-1].strip() == "```"
-    ):
-        payload = "\n".join(lines[1:-1]).strip()
-    try:
-        decoded = json.loads(payload)
-    except json.JSONDecodeError:
-        raise AgentError(f"{role} returned invalid JSON") from None
+        decoded = raw
+    else:
+        if not isinstance(raw, str):
+            raise AgentError(f"{role} returned no JSON object")
+        payload = raw.strip()
+        lines = payload.splitlines()
+        if (
+            len(lines) >= 3
+            and lines[0].strip().lower() in {"```json", "```"}
+            and lines[-1].strip() == "```"
+        ):
+            payload = "\n".join(lines[1:-1]).strip()
+        try:
+            decoded = json.loads(payload)
+        except json.JSONDecodeError:
+            raise AgentError(f"{role} returned invalid JSON") from None
     if not isinstance(decoded, dict):
         raise AgentError(f"{role} returned a non-object JSON value")
+    if role == "planner":
+        selected = decoded.get("selected")
+        reason = decoded.get("reason")
+        if (
+            not isinstance(selected, list)
+            or any(type(issue) is not int or issue <= 0 for issue in selected)
+            or not isinstance(reason, str)
+            or not reason.strip()
+        ):
+            raise AgentError("planner returned an invalid selection schema")
     return decoded
 
 

@@ -52,6 +52,22 @@ def test_claude_agent_rejects_non_json_and_partial_fences():
             decode_result("qa", raw)
 
 
+def test_planner_requires_explicit_selection_and_reason():
+    assert decode_result("planner", {"selected": [], "reason": "No safe task"}) == {
+        "selected": [],
+        "reason": "No safe task",
+    }
+    for raw in (
+        {},
+        {"selected": "821", "reason": "Ready"},
+        {"selected": [True], "reason": "Ready"},
+        {"selected": [0], "reason": "Ready"},
+        {"selected": [821], "reason": " "},
+    ):
+        with pytest.raises(AgentError, match="invalid selection schema"):
+            decode_result("planner", raw)
+
+
 def test_issue_text_is_a_user_prompt_not_a_system_instruction(
     settings, tmp_path: Path, monkeypatch
 ):
