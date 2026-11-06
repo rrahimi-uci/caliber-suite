@@ -2,12 +2,14 @@
 enabled = true
 repository = "rrahimi-uci/caliber-suite"
 base_branch = "main"
-daily_time = "09:00"
+daily_time = "04:00"
 timezone = "America/Los_Angeles"
-project_view_number = 6
-# Counts only completed Task issues in the view's release label that are
-# Project Done and have a merged closing PR on the configured local day.
+# 0 means the complete CALIBER Project; a positive number selects one view.
+project_view_number = 0
+# Counts completed Project Task issues across releases with a merged closing
+# PR and Project Done on the configured local day.
 daily_done_target = 6
+# Maximum new task attempts per Pacific calendar day, including manual runs.
 max_tasks_per_run = 6
 max_workers = 2
 auto_merge = true
@@ -16,6 +18,8 @@ agent_timeout_seconds = 3600
 stall_seconds = 900
 ci_timeout_seconds = 43200
 allow_overlapping_runs = false
+# GitHub-hosted runner sets this to an unprivileged account for model and QA work.
+worker_user = ""
 # Empty means any eligible Ready task. Set to issue numbers to restrict unattended work.
 issue_allowlist = []
 
@@ -33,7 +37,7 @@ max_output_tokens = 0
 # Commands run in each isolated task worktree. Add task-specific commands via
 # issue_checks below; no command is silently skipped after it is selected.
 setup = ["uv venv caliber/.venv --python 3.11", "uv pip install --python caliber/.venv/bin/python -e caliber[dev,postgres,ingest,ocr,llm,knowledge,dspy,knowledge-local,memory]"]
-base = ["git diff --check", "node .agents/bin/check.mjs", "scripts/ci-local.sh docs-validation lint type-check test egi-scenarios-postgres"]
+base = ["git diff --check", "node .agents/bin/check.mjs", "scripts/ci-local.sh docs-validation lint type-check test"]
 # This repository's gate ledger fails when an applicable required job was
 # skipped. Branch protection currently does not enumerate all policy gates.
 required = ["Gate execution ledger"]

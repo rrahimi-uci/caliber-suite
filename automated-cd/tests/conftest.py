@@ -55,6 +55,6 @@ def snapshot():
 
     return {
         "repository": {"nameWithOwner": "rrahimi-uci/caliber-suite", "defaultBranch": "main"},
-        "view": {"number": 6, "name": "Beta", "filter": "is:open label:release:beta"},
+        "view": {"number": 0, "name": "All Project Tasks", "filter": ""},
         "items": [item(12), item(13), item(14)],
     }, item

@@ -5,11 +5,13 @@ on:
     paths:
       - automated-cd/**
       - .github/workflows/automated-cd.yml
+      - .github/workflows/automated-cd-run.yml
   push:
     branches: [main]
     paths:
       - automated-cd/**
       - .github/workflows/automated-cd.yml
+      - .github/workflows/automated-cd-run.yml
 
 permissions:
   contents: read
@@ -31,6 +33,42 @@ jobs:
           ruff format --check automated-cd/src automated-cd/tests
       - name: Test orchestration
         run: python -m pytest automated-cd/tests --cov=autocd --cov-branch --cov-report=term-missing --cov-fail-under=95 -q
+      - name: Smoke test isolated Git worktree
+        env:
+          AUTOCD_REPO_ROOT: ${{ github.workspace }}
+          AUTOCD_STATE_DIR: ${{ runner.temp }}/private-autocd-state
+          AUTOCD_WORKTREE_DIR: /tmp/autocd-smoke-worktrees-${{ github.run_id }}
+          AUTOCD_WORKER_USER: autocdqa
+        run: |
+          sudo useradd --create-home --shell /bin/bash autocdqa
+          mkdir -p "$AUTOCD_STATE_DIR"
+          chmod 700 "$AUTOCD_STATE_DIR"
+          printf 'private\n' > "$AUTOCD_STATE_DIR/marker"
+          python - <<'PY'
+          from autocd.config import load
+          from autocd.github import GitHub
+          branch, path = GitHub(load()).prepare_worktree(999999, 'abcdef1234')
+          with open('/tmp/autocd-smoke-worktree', 'w') as out:
+              out.write(str(path))
+          PY
+          worktree=$(cat /tmp/autocd-smoke-worktree)
+          sudo -E -H -u autocdqa -- env PATH="$PATH" sh -c 'test "$HOME" = /home/autocdqa && test -w "$1" && git -C "$1" diff --check && printf "smoke\n" > "$1/worker-created.txt"' sh "$worktree"
+          git -C "$worktree" status --short | grep -q worker-created.txt
+          report_dir=$(mktemp -d)
+          chmod 733 "$report_dir"
+          sudo -E -H -u autocdqa -- env PATH="$PATH" sh -c '
+            cd "$1"
+            printf "value = 1\n" > smoke_module.py
+            printf "import smoke_module\ndef test_smoke(): assert smoke_module.value == 1\n" > test_smoke.py
+            python -m pytest test_smoke.py --cov=smoke_module --cov-report=json:"$2" -q
+          ' sh "$worktree" "$report_dir/coverage.json"
+          python -c 'import json,sys; assert json.load(open(sys.argv[1]))["totals"]["covered_lines"] > 0' "$report_dir/coverage.json"
+          if sudo -u autocdqa -- rm "$worktree/.git"; then
+            echo 'Worker replaced the Git marker'; exit 1
+          fi
+          if sudo -u autocdqa -- cat "$AUTOCD_STATE_DIR/marker"; then
+            echo 'Worker read private coordinator state'; exit 1
+          fi
       - name: Build and inspect wheel
         run: |
           python -m build automated-cd --outdir /tmp/autocd-dist

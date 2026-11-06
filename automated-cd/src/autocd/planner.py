@@ -26,10 +26,14 @@ def _target(item: dict) -> str | None:
     return None
 
 
-def view_label(snapshot: dict, number: int) -> str:
+def view_label(snapshot: dict, number: int) -> str | None:
     view = snapshot.get("view") or {}
     if view.get("number") != number:
         raise ValueError("Configured Project view does not match the live snapshot")
+    if number == 0:
+        if view.get("filter"):
+            raise ValueError("All-Project scope unexpectedly has a view filter")
+        return None
     parts = (view.get("filter") or "").split()
     labels = [part.removeprefix("label:") for part in parts if part.startswith("label:")]
     if (
@@ -45,7 +49,7 @@ def view_label(snapshot: dict, number: int) -> str:
 
 
 def completed_today(
-    snapshot: dict, closed_issues: list[dict], label: str, day: str, timezone: str
+    snapshot: dict, closed_issues: list[dict], label: str | None, day: str, timezone: str
 ) -> list[int]:
     closed = {row["number"]: row for row in closed_issues}
     done = []
@@ -59,7 +63,7 @@ def completed_today(
             continue
         fields = item["fields"]
         if (
-            label not in issue.get("labels", [])
+            (label is not None and label not in issue.get("labels", []))
             or fields.get("Item type") != "Task"
             or fields.get("Status") != "Done"
             or fields.get("Readiness") != "Done"

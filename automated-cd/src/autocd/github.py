@@ -85,7 +85,7 @@ class GitHub:
             raise CommandError("Configured Project view is unavailable or changed")
         return snapshot
 
-    def closed_issues_since(self, since: str, label: str) -> list[dict]:
+    def closed_issues_since(self, since: str, label: str | None) -> list[dict]:
         rows = json.loads(
             command(
                 [
@@ -97,7 +97,7 @@ class GitHub:
                     "--state",
                     "closed",
                     "--search",
-                    f"label:{label} closed:>={since}",
+                    f"{f'label:{label} ' if label else ''}closed:>={since}",
                     "--limit",
                     "1000",
                     "--json",
@@ -176,10 +176,14 @@ class GitHub:
 
     def prepare_worktree(self, issue: int, run: str) -> tuple[str, Path]:
         branch = f"autocd/issue-{issue}-{run[:8]}"
-        destination = self.settings.state_dir / "worktrees" / branch.replace("/", "-")
+        destination = self.settings.worktree_dir / branch.replace("/", "-")
         if destination.exists():
             raise CommandError(f"Worktree already exists: {destination}")
-        destination.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+        destination.parent.mkdir(
+            mode=0o755 if self.settings.worker_user else 0o700,
+            parents=True,
+            exist_ok=True,
+        )
         command(["git", "fetch", "origin", self.settings.base_branch], self.root, timeout=180)
         command(
             [
@@ -194,6 +198,45 @@ class GitHub:
             self.root,
             timeout=180,
         )
+        if self.settings.worker_user:
+            # The worktree root and its .git marker remain coordinator-owned.
+            # A sticky root lets the worker add top-level files without being
+            # able to replace .git before privileged Git commands run.
+            command(
+                [
+                    "sudo",
+                    "chown",
+                    "-R",
+                    f"{self.settings.worker_user}:{self.settings.worker_user}",
+                    *[str(child) for child in destination.iterdir() if child.name != ".git"],
+                ],
+                self.root,
+                timeout=180,
+            )
+            destination.chmod(0o1777)
+            marker = destination / ".git"
+            if not marker.is_file() or marker.is_symlink():
+                raise CommandError("Linked worktree Git marker is missing or unsafe")
+            marker.chmod(0o644)
+            command(
+                ["git", "config", "--global", "--add", "safe.directory", str(destination)],
+                self.root,
+            )
+            command(
+                [
+                    "sudo",
+                    "-u",
+                    self.settings.worker_user,
+                    "--",
+                    "git",
+                    "config",
+                    "--global",
+                    "--add",
+                    "safe.directory",
+                    str(destination),
+                ],
+                self.root,
+            )
         return branch, destination
 
     def changed(self, worktree: Path) -> list[str]:
@@ -368,10 +411,15 @@ class GitHub:
             timeout=180,
         )
 
-    def branch_up_to_date(self, head: str) -> bool:
+    def branch_up_to_date(self, head: str, branch: str) -> bool:
         if not re.fullmatch(r"[0-9a-f]{40}", head):
             raise CommandError("PR head is not a valid commit SHA")
+        if not re.fullmatch(r"autocd/issue-\d+-[0-9a-f]{8}", branch):
+            raise CommandError("PR branch is not a coordinator branch")
         command(["git", "fetch", "origin", self.settings.base_branch], self.root, timeout=180)
+        command(["git", "fetch", "origin", branch], self.root, timeout=180)
+        if command(["git", "rev-parse", "FETCH_HEAD"], self.root).strip() != head:
+            return False
         try:
             command(
                 ["git", "merge-base", "--is-ancestor", f"origin/{self.settings.base_branch}", head],

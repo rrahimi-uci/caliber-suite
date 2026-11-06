@@ -43,6 +43,8 @@ def test_milestone_target_and_priority(snapshot):
 
 def test_view_scope_filters_the_live_release(snapshot):
     data, item = snapshot
+    assert view_label(data, 0) is None
+    data["view"] = {"number": 6, "name": "Beta", "filter": "is:open label:release:beta"}
     label = view_label(data, 6)
     assert label == "release:beta"
     data["items"].append(item(27, issue={"labels": ["release:preview-1"]}))
@@ -89,6 +91,10 @@ def test_daily_done_requires_project_done_completed_issue_and_merged_pr(snapshot
     ]
     assert completed_today(data, closed, "release:beta", "2026-11-05", "America/Los_Angeles") == [
         30
+    ]
+    assert completed_today(data, closed, None, "2026-11-05", "America/Los_Angeles") == [
+        30,
+        33,
     ]
 
 

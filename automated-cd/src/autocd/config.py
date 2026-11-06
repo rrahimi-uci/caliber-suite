@@ -14,6 +14,7 @@ from zoneinfo import ZoneInfo
 class Settings:
     root: Path
     state_dir: Path
+    worktree_dir: Path
     enabled: bool
     repository: str
     base_branch: str
@@ -29,6 +30,7 @@ class Settings:
     stall_seconds: int
     ci_timeout_seconds: int
     allow_overlapping_runs: bool
+    worker_user: str
     issue_allowlist: tuple[int, ...]
     provider: str
     model: str
@@ -70,9 +72,11 @@ def load(path: Path | None = None, *, environ: dict[str, str] | None = None) -> 
         .expanduser()
         .resolve()
     )
+    worktree_dir = Path(value("worktree_dir", state_dir / "worktrees")).expanduser().resolve()
     settings = Settings(
         root=root,
         state_dir=state_dir,
+        worktree_dir=worktree_dir,
         enabled=_bool(value("enabled", workflow["enabled"])),
         repository=str(value("repository", workflow["repository"])),
         base_branch=str(value("base_branch", workflow["base_branch"])),
@@ -92,6 +96,7 @@ def load(path: Path | None = None, *, environ: dict[str, str] | None = None) -> 
         allow_overlapping_runs=_bool(
             value("allow_overlapping_runs", workflow["allow_overlapping_runs"])
         ),
+        worker_user=str(value("worker_user", workflow.get("worker_user", ""))),
         issue_allowlist=tuple(int(n) for n in workflow.get("issue_allowlist", [])),
         provider=str(value("provider", model["provider"])),
         model=str(value("model", model["name"])),
@@ -113,7 +118,7 @@ def load(path: Path | None = None, *, environ: dict[str, str] | None = None) -> 
         raise ValueError("daily_time must be HH:MM")
     ZoneInfo(settings.timezone)
     if (
-        settings.project_view_number < 1
+        settings.project_view_number < 0
         or settings.daily_done_target < 1
         or settings.max_workers < 1
         or settings.max_tasks_per_run < 1
@@ -133,4 +138,13 @@ def load(path: Path | None = None, *, environ: dict[str, str] | None = None) -> 
         raise ValueError("Claude CLI cannot enforce temperature or output-token limits")
     if settings.state_dir == settings.root or settings.root in settings.state_dir.parents:
         raise ValueError("state_dir must be outside the repository")
+    if settings.worktree_dir == settings.root or settings.root in settings.worktree_dir.parents:
+        raise ValueError("worktree_dir must be outside the repository")
+    if settings.worker_user and (
+        settings.worktree_dir == settings.state_dir
+        or settings.state_dir in settings.worktree_dir.parents
+    ):
+        raise ValueError("isolated worker worktrees must be outside the private state directory")
+    if settings.worker_user and not re.fullmatch(r"[a-z_][a-z0-9_-]{0,31}", settings.worker_user):
+        raise ValueError("invalid isolated worker user")
     return settings

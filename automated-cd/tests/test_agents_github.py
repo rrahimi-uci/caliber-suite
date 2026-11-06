@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from autocd.agents import AgentError, ClaudeAgent, role_prompt
+from autocd.agents import AgentError, ClaudeAgent, role_prompt, untrusted_env
 from autocd.github import CommandError, GitHub, audit_commands, command
 
 
@@ -51,6 +51,40 @@ def test_issue_text_is_a_user_prompt_not_a_system_instruction(
     system = args[args.index("--append-system-prompt") + 1]
     assert "Never merge" in system and "untrusted issue text" not in system
     assert args[-1] == "untrusted issue text"
+    assert "blockReadsOutsideWorkingDirectories" in args[args.index("--settings") + 1]
+
+
+def test_untrusted_subprocess_environments_strip_coordinator_credentials(monkeypatch):
+    monkeypatch.setenv("GH_TOKEN", "gh-secret")
+    monkeypatch.setenv("GITHUB_TOKEN", "job-secret")
+    monkeypatch.setenv("AUTOCD_GH_TOKEN", "project-secret")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "model-secret")
+    model = untrusted_env(model=True)
+    checks = untrusted_env()
+    assert model["ANTHROPIC_API_KEY"] == "model-secret"
+    assert "ANTHROPIC_API_KEY" not in checks
+    for key in ("GH_TOKEN", "GITHUB_TOKEN", "AUTOCD_GH_TOKEN"):
+        assert key not in model and key not in checks
+
+
+def test_model_uses_isolated_user_when_configured(settings, tmp_path: Path, monkeypatch):
+    import subprocess
+
+    _fake_cli(tmp_path, 'echo \'{"type":"result","result":{}}\'')
+    monkeypatch.setenv("PATH", str(tmp_path) + os.pathsep + os.environ["PATH"])
+    original = subprocess.Popen
+    seen = []
+
+    def capture(args, **kwargs):
+        seen.append(args[:8])
+        return original(args[8:], **kwargs)
+
+    monkeypatch.setattr("autocd.agents.subprocess.Popen", capture)
+    ClaudeAgent(replace(settings, worker_user="autocdqa"), lambda *a: None).run(
+        "qa", "test", tmp_path
+    )
+    assert seen[0][:7] == ["sudo", "-E", "-H", "-u", "autocdqa", "--", "env"]
+    assert seen[0][7].startswith("PATH=")
 
 
 def test_claude_agent_failure_and_stall(settings, tmp_path: Path, monkeypatch):
@@ -191,6 +225,20 @@ def test_project_snapshot_rejects_wrong_branch(settings, monkeypatch):
         github.snapshot()
 
 
+def test_project_snapshot_rejects_wrong_view(settings, monkeypatch):
+    monkeypatch.setattr(
+        "autocd.github.command",
+        lambda *a, **k: json.dumps(
+            {
+                "repository": {"nameWithOwner": settings.repository, "defaultBranch": "main"},
+                "view": {"number": 42},
+            }
+        ),
+    )
+    with pytest.raises(CommandError, match="view"):
+        GitHub(settings).snapshot()
+
+
 def test_transition_dry_run_before_apply(settings, monkeypatch):
     github = GitHub(settings)
     calls = []
@@ -229,7 +277,7 @@ def test_mark_ready_body_is_idempotent(settings, monkeypatch):
 
 
 def test_github_worktree_commit_pr_and_checks(settings, tmp_path: Path, monkeypatch):
-    github = GitHub(settings)
+    github = GitHub(replace(settings, worktree_dir=tmp_path / "worktrees"))
     calls = []
 
     def capture(args, cwd, **kwargs):
@@ -268,6 +316,49 @@ def test_github_worktree_commit_pr_and_checks(settings, tmp_path: Path, monkeypa
         github.prepare_worktree(12, "abcdef1234")
 
 
+def test_isolated_worktree_handoff_uses_separate_unprivileged_owner(
+    settings, monkeypatch, tmp_path
+):
+    settings = replace(settings, worker_user="autocdqa", worktree_dir=tmp_path / "worktrees")
+    calls = []
+    destination = settings.worktree_dir / "autocd-issue-12-abcdef12"
+
+    def capture(args, cwd, **kwargs):
+        calls.append(args)
+        if args[:3] == ["git", "worktree", "add"]:
+            destination.mkdir(parents=True)
+            (destination / ".git").write_text("gitdir: /trusted/metadata\n")
+            (destination / "README.md").write_text("worker file\n")
+        return ""
+
+    monkeypatch.setattr("autocd.github.command", capture)
+    GitHub(settings).prepare_worktree(12, "abcdef1234")
+    assert any(args[:4] == ["sudo", "chown", "-R", "autocdqa:autocdqa"] for args in calls)
+    chown = next(args for args in calls if args[:2] == ["sudo", "chown"])
+    assert str(destination / ".git") not in chown
+    assert destination.stat().st_mode & 0o7777 == 0o1777
+    assert (destination / ".git").stat().st_mode & 0o777 == 0o644
+    assert any(
+        args[:5] == ["git", "config", "--global", "--add", "safe.directory"] for args in calls
+    )
+    assert any(args[:6] == ["sudo", "-u", "autocdqa", "--", "git", "config"] for args in calls)
+
+
+def test_isolated_worktree_rejects_missing_git_marker(settings, monkeypatch, tmp_path):
+    settings = replace(settings, worker_user="autocdqa", worktree_dir=tmp_path / "worktrees")
+    destination = settings.worktree_dir / "autocd-issue-12-abcdef12"
+
+    def capture(args, cwd, **kwargs):
+        if args[:3] == ["git", "worktree", "add"]:
+            destination.mkdir(parents=True)
+            (destination / "README.md").write_text("worker file\n")
+        return ""
+
+    monkeypatch.setattr("autocd.github.command", capture)
+    with pytest.raises(CommandError, match="marker"):
+        GitHub(settings).prepare_worktree(12, "abcdef1234")
+
+
 def test_closed_issue_search_and_guarded_merge_commands(settings, monkeypatch):
     github = GitHub(settings)
     calls = []
@@ -281,8 +372,11 @@ def test_closed_issue_search_and_guarded_merge_commands(settings, monkeypatch):
     monkeypatch.setattr("autocd.github.command", capture)
     assert github.closed_issues_since("2026-11-05", "release:preview-1")[0]["number"] == 12
     assert "label:release:preview-1 closed:>=2026-11-05" in calls[0]
+    assert github.closed_issues_since("2026-11-05", None)[0]["number"] == 12
+    assert "closed:>=2026-11-05" in calls[1]
+    assert not any("label:" in arg for arg in calls[1])
     github.merge_pr(88, "a" * 40)
-    assert calls[1][-3:] == ["--squash", "--match-head-commit", "a" * 40]
+    assert calls[2][-3:] == ["--squash", "--match-head-commit", "a" * 40]
     github.verify_merged_on_main("b" * 40)
     assert calls[-1] == ["git", "merge-base", "--is-ancestor", "b" * 40, "origin/main"]
     github.close_issue(12)
@@ -300,21 +394,33 @@ def test_merge_base_guard_refuses_stale_or_invalid_head(settings, monkeypatch):
 
     def capture(args, cwd, **kwargs):
         calls.append(args)
+        if args[:3] == ["git", "rev-parse", "FETCH_HEAD"]:
+            return "a" * 40
         return ""
 
     monkeypatch.setattr("autocd.github.command", capture)
-    assert github.branch_up_to_date("a" * 40)
+    assert github.branch_up_to_date("a" * 40, "autocd/issue-12-abcdef12")
     assert calls[-1] == ["git", "merge-base", "--is-ancestor", "origin/main", "a" * 40]
     with pytest.raises(CommandError, match="valid commit SHA"):
-        github.branch_up_to_date("wrong")
+        github.branch_up_to_date("wrong", "autocd/issue-12-abcdef12")
+    with pytest.raises(CommandError, match="coordinator branch"):
+        github.branch_up_to_date("a" * 40, "untrusted")
 
     def behind(args, cwd, **kwargs):
         if args[:3] == ["git", "merge-base", "--is-ancestor"]:
             raise CommandError("behind")
-        return ""
+        return "a" * 40 if args[:3] == ["git", "rev-parse", "FETCH_HEAD"] else ""
 
     monkeypatch.setattr("autocd.github.command", behind)
-    assert not github.branch_up_to_date("a" * 40)
+    assert not github.branch_up_to_date("a" * 40, "autocd/issue-12-abcdef12")
+
+    monkeypatch.setattr(
+        "autocd.github.command",
+        lambda args, cwd, **kwargs: (
+            "b" * 40 if args[:3] == ["git", "rev-parse", "FETCH_HEAD"] else ""
+        ),
+    )
+    assert not github.branch_up_to_date("a" * 40, "autocd/issue-12-abcdef12")
 
 
 def test_pr_creation_and_empty_commit_fail(settings, tmp_path: Path, monkeypatch):
@@ -388,6 +494,8 @@ def test_reviewer_requests_use_observed_review_state(settings, tmp_path: Path, m
         "owner": "requested",
         "copilot": "reviewed",
     }
+    auto = github.request_reviewers(tmp_path, 88, None)
+    assert auto["owner"] == "not requested: automatic merge is enabled"
 
 
 def test_review_thread_pagination(settings, monkeypatch):

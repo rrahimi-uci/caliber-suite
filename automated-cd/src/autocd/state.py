@@ -18,6 +18,7 @@ class LockBusyError(RuntimeError):
 class Store:
     def __init__(self, directory: Path):
         directory.mkdir(mode=0o700, parents=True, exist_ok=True)
+        directory.chmod(0o700)
         self.path = directory / "workflow.sqlite3"
         self.db = sqlite3.connect(self.path)
         self.db.row_factory = sqlite3.Row
@@ -109,6 +110,26 @@ class Store:
             self.db.execute("SELECT * FROM tasks WHERE phase NOT IN ('done','blocked','failed')")
         )
 
+    def blocked_issues(self) -> frozenset[int]:
+        """Never replay an ambiguous or failed task merely because Project is Ready."""
+        return frozenset(
+            row[0]
+            for row in self.db.execute(
+                "SELECT DISTINCT issue FROM tasks WHERE phase IN ('blocked','failed')"
+            )
+        )
+
+    def attempted_since(self, instant: datetime) -> frozenset[int]:
+        """Count task attempts across scheduled and manual runs for a local day."""
+        return frozenset(
+            row[0]
+            for row in self.db.execute(
+                "SELECT DISTINCT tasks.issue FROM tasks JOIN runs ON runs.id=tasks.run_id "
+                "WHERE runs.created_at>=?",
+                (instant.astimezone(UTC).isoformat(),),
+            )
+        )
+
     def tasks(self, limit: int = 100) -> list[sqlite3.Row]:
         return list(self.db.execute("SELECT * FROM tasks ORDER BY rowid DESC LIMIT ?", (limit,)))
 
@@ -143,6 +164,7 @@ class Store:
 @contextlib.contextmanager
 def exclusive(directory: Path, allow_overlap: bool = False) -> Iterator[None]:
     directory.mkdir(mode=0o700, parents=True, exist_ok=True)
+    directory.chmod(0o700)
     file = (directory / "orchestrator.lock").open("a+")
     try:
         if not allow_overlap:

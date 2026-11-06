@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 import shlex
 import subprocess
@@ -14,7 +15,7 @@ from datetime import UTC, date, datetime, time
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-from .agents import ClaudeAgent
+from .agents import ClaudeAgent, untrusted_env, worker_args
 from .config import Settings
 from .github import GitHub, audit_commands, command, pr_ready
 from .planner import Assignment, assign, completed_today, eligible, view_label
@@ -40,15 +41,22 @@ class Engine:
             else None
         )
 
-    def run(self, *, scheduled: bool = False) -> dict:
+    def run(self, *, scheduled: bool = False, exclude_issues: frozenset[int] = frozenset()) -> dict:
         try:
-            return self._run_locked(scheduled=scheduled)
+            return self._run_locked(scheduled=scheduled, exclude_issues=exclude_issues)
         except LockBusyError:
             if scheduled:
                 return {"status": "busy"}
             raise
 
-    def _run_locked(self, *, scheduled: bool) -> dict:
+    def monitor(self) -> dict:
+        """Reconcile published PRs without starting another development run."""
+        with exclusive(self.settings.state_dir, self.settings.allow_overlapping_runs):
+            store = Store(self.settings.state_dir)
+            recovered = self._recover(store)
+            return {"recovered": recovered, "pending": len(store.pending())}
+
+    def _run_locked(self, *, scheduled: bool, exclude_issues: frozenset[int]) -> dict:
         with exclusive(self.settings.state_dir, self.settings.allow_overlapping_runs):
             store = Store(self.settings.state_dir)
             if scheduled and not self.settings.enabled:
@@ -56,6 +64,8 @@ class Engine:
             # Reconcile existing PRs on every minute-level tick, even after
             # today's scheduled development run has already started.
             recovered = self._recover(store)
+            if store.pending():
+                return {"status": "waiting_on_published_prs", "recovered": recovered}
             schedule_day = self.due_date() if scheduled else None
             if scheduled and (schedule_day is None or store.scheduled(schedule_day)):
                 return {"status": "not_due_or_already_started", "recovered": recovered}
@@ -63,13 +73,18 @@ class Engine:
             if not store.start(run, schedule_day):
                 return {"status": "already_started"}
             try:
-                return self._execute_run(store, run, schedule_day, recovered)
+                return self._execute_run(store, run, schedule_day, recovered, exclude_issues)
             except Exception as error:
                 store.fail(run, str(error)[:500])
                 raise
 
     def _execute_run(
-        self, store: Store, run: str, schedule_day: str | None, recovered: list[dict]
+        self,
+        store: Store,
+        run: str,
+        schedule_day: str | None,
+        recovered: list[dict],
+        exclude_issues: frozenset[int],
     ) -> dict:
         with audit_commands(lambda kind, detail: store.event(run, None, kind, detail)):
             snapshot = self.github.snapshot()
@@ -77,20 +92,27 @@ class Engine:
             label = view_label(snapshot, self.settings.project_view_number)
             day = schedule_day or datetime.now(ZoneInfo(self.settings.timezone)).date().isoformat()
             done = self._daily_done(snapshot, label, day)
+        midnight = datetime.combine(
+            date.fromisoformat(day), time.min, ZoneInfo(self.settings.timezone)
+        )
+        attempted_today = store.attempted_since(midnight)
         candidates = eligible(
             snapshot,
             allowlist=self.settings.issue_allowlist,
             pathmap=self.settings.issue_paths,
             scope_label=label,
         )
-        # Only run tasks with an explicit, reviewed test command. Unconfigured
-        # backlog remains visible to planning but cannot be silently certified.
+        excluded = exclude_issues | store.blocked_issues() | attempted_today
+        candidates = [task for task in candidates if task.issue not in excluded]
+        # Explicit commands augment the repository gate. The fallback runs the
+        # full backend suite with coverage for every changed production file.
         configured = [task for task in candidates if task.issue in self.settings.issue_checks]
         remaining = max(0, self.settings.daily_done_target - len(done))
+        remaining_attempts = max(0, self.settings.max_tasks_per_run - len(attempted_today))
         selected = assign(
-            configured,
+            candidates,
             self.settings.max_workers,
-            min(self.settings.max_tasks_per_run, remaining),
+            min(remaining_attempts, remaining),
         )
         if selected:
             agent = self.agent_factory(
@@ -108,7 +130,7 @@ class Engine:
                                 "paths": sorted(t.paths),
                                 "target": t.target,
                             }
-                            for t in configured
+                            for t in candidates
                         ],
                         "selected_by_conflict_rules": [t.issue for t in selected],
                         "repository": snapshot["repository"],
@@ -147,6 +169,7 @@ class Engine:
             "results": results,
             "eligible": len(candidates),
             "configured": len(configured),
+            "selected": [task.issue for task in selected],
             "view": snapshot["view"],
             "daily_done_target": self.settings.daily_done_target,
             "done_today": done,
@@ -268,6 +291,12 @@ class Engine:
                 changed = self.github.changed(worktree)
                 if not changed:
                     raise RuntimeError("Developer produced no changed files")
+                protected = [path for path in changed if self._protected_path(path)]
+                if protected and self.settings.auto_merge:
+                    raise RuntimeError(
+                        "Unattended merge cannot change workflow or policy files: "
+                        + ", ".join(protected)
+                    )
                 if task.paths and any(
                     not self._in_owned_paths(path, task.paths) for path in changed
                 ):
@@ -388,16 +417,47 @@ class Engine:
     def _in_owned_paths(path: str, owned: frozenset[str]) -> bool:
         return any(path == item or path.startswith(item.rstrip("/") + "/") for item in owned)
 
+    @staticmethod
+    def _protected_path(path: str) -> bool:
+        return path in {
+            "AGENTS.md",
+            "scripts/ci-local.sh",
+            ".pre-commit-config.yaml",
+        } or path.startswith((".github/", ".agents/", "automated-cd/"))
+
+    @staticmethod
+    def _standard_check_path(path: str) -> bool:
+        if path in {"README.md", "CONTRIBUTING.md"}:
+            return True
+        if path.startswith(("docs/", "caliber/docs/")) and path.endswith((".md", ".rst")):
+            return True
+        return path.startswith(("caliber/src/", "caliber/tests/")) and path.endswith(".py")
+
     def _checks(self, issue: int, worktree: Path, changed: list[str]) -> list[dict]:
-        commands = [*self.settings.base_checks, *self.settings.issue_checks[issue]]
-        if not any(self._coverage_command(item) for item in self.settings.issue_checks[issue]):
+        issue_commands = self.settings.issue_checks.get(issue, ())
+        unsupported = [path for path in changed if not self._standard_check_path(path)]
+        if unsupported and not issue_commands:
             return [
                 {
-                    "command": "coverage",
+                    "command": "affected-component checks",
                     "passed": False,
-                    "output": "Issue-specific pytest coverage command with --cov-fail-under=95 or higher is required",
+                    "output": "Issue-specific QA commands are required for: "
+                    + ", ".join(unsupported),
                 }
             ]
+        commands = [*self.settings.base_checks, *issue_commands]
+        changed_python = any(
+            path.endswith(".py")
+            and "tests" not in Path(path).parts
+            and not Path(path).name.startswith("test_")
+            and (worktree / path).is_file()
+            for path in changed
+        )
+        automatic_coverage = (
+            "caliber/.venv/bin/python -m pytest caliber/tests --cov=caliber --cov-branch -q"
+        )
+        if changed_python and not any(self._coverage_command(item) for item in issue_commands):
+            commands.append(automatic_coverage)
         results = []
         for item in commands:
             args = shlex.split(item)
@@ -406,18 +466,21 @@ class Engine:
                 break
             try:
                 with tempfile.TemporaryDirectory(prefix="autocd-coverage-") as directory:
+                    if self.settings.worker_user:
+                        os.chmod(directory, 0o733)
                     coverage_path = Path(directory) / "coverage.json"
-                    coverage_check = self._coverage_command(item)
+                    coverage_check = self._coverage_command(item) or item == automatic_coverage
                     invocation = (
                         [*args, f"--cov-report=json:{coverage_path}"] if coverage_check else args
                     )
                     proc = subprocess.run(
-                        invocation,
+                        self._as_worker(invocation),
                         cwd=worktree,
                         text=True,
                         capture_output=True,
                         check=False,
                         timeout=3600,
+                        env=untrusted_env(),
                     )
                     coverage = (
                         self._coverage_evidence(coverage_path, worktree, changed)
@@ -465,10 +528,7 @@ class Engine:
             ]
             measured = {path: files[path] for path in affected}
             totals = data["totals"]
-            coverage_rows = {
-                "TOTAL": totals,
-                **{str(path.relative_to(worktree)): row for path, row in measured.items()},
-            }
+            coverage_rows = {str(path.relative_to(worktree)): row for path, row in measured.items()}
             for name, row in coverage_rows.items():
                 denominator = row["num_statements"] + row.get("num_branches", 0)
                 numerator = row["covered_lines"] + row.get("covered_branches", 0)
@@ -482,7 +542,7 @@ class Engine:
                 "passed": True,
                 "summary": ", ".join(
                     f"{name}={100 * (row['covered_lines'] + row.get('covered_branches', 0)) / (row['num_statements'] + row.get('num_branches', 0)):.2f}%"
-                    for name, row in coverage_rows.items()
+                    for name, row in {"TOTAL": totals, **coverage_rows}.items()
                 ),
                 "reason": "",
             }
@@ -499,7 +559,13 @@ class Engine:
             if not args or any(token in {";", "&&", "|", ">"} for token in args):
                 raise RuntimeError(f"Invalid setup command: {item}")
             proc = subprocess.run(
-                args, cwd=worktree, text=True, capture_output=True, check=False, timeout=3600
+                self._as_worker(args),
+                cwd=worktree,
+                text=True,
+                capture_output=True,
+                check=False,
+                timeout=3600,
+                env=untrusted_env(),
             )
             store.event(
                 run,
@@ -513,6 +579,11 @@ class Engine:
             )
             if proc.returncode:
                 raise RuntimeError(f"Setup failed: {item} (exit {proc.returncode})")
+
+    def _as_worker(self, args: list[str]) -> list[str]:
+        if not self.settings.worker_user:
+            return args
+        return worker_args(self.settings.worker_user, args)
 
     @staticmethod
     def _coverage_command(item: str) -> bool:
@@ -703,18 +774,26 @@ The coordinator verifies the exact head, branch protection, merge commit on main
                             "pr": state["url"],
                             "reasons": merge_reasons,
                         }
-                    if not self.github.branch_up_to_date(expected):
+                    if not self.github.branch_up_to_date(expected, task["branch"]):
+                        reason = "Base branch advanced; same-branch rebase and full review/QA are required"
                         store.event(
                             run,
                             issue,
                             "base_moved",
                             {"head": expected, "base": self.settings.base_branch},
                         )
+                        store.phase(run, issue, "blocked", failure=reason)
+                        try:
+                            self.github.transition(
+                                task["target"], issue, "blocked", {"reason": reason}
+                            )
+                        except Exception as error:  # noqa: BLE001 - local block remains durable
+                            store.event(run, issue, "remote_block_error", str(error)[:500])
                         return {
                             "issue": issue,
-                            "status": "waiting_for_revalidation",
+                            "status": "blocked_base_moved",
                             "pr": state["url"],
-                            "reasons": ["base branch advanced; rebase and rerun review/QA"],
+                            "reasons": [reason],
                         }
                     self.github.merge_pr(pr, expected)
                 merged = self.github.pr_state(pr)

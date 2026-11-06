@@ -17,6 +17,21 @@ class AgentError(RuntimeError):
     pass
 
 
+def untrusted_env(*, model: bool = False) -> dict[str, str]:
+    """Keep coordinator credentials out of model and repository test subprocesses."""
+    env = os.environ.copy()
+    for key in ("GH_TOKEN", "GITHUB_TOKEN", "AUTOCD_GH_TOKEN", "GIT_ASKPASS"):
+        env.pop(key, None)
+    if not model:
+        env.pop("ANTHROPIC_API_KEY", None)
+    return env
+
+
+def worker_args(user: str, args: list[str]) -> list[str]:
+    """Preserve the tested toolchain PATH past sudoers secure_path."""
+    return ["sudo", "-E", "-H", "-u", user, "--", "env", f"PATH={os.environ['PATH']}", *args]
+
+
 class ClaudeAgent:
     def __init__(self, settings: Settings, event):
         self.settings = settings
@@ -32,6 +47,8 @@ class ClaudeAgent:
             "--verbose",
             "--permission-mode",
             "dontAsk",
+            "--settings",
+            '{"permissions":{"blockReadsOutsideWorkingDirectories":true,"blockWritesOutsideWorkingDirectories":true}}',
             "--allowedTools",
             tools,
             "--model",
@@ -44,9 +61,16 @@ class ClaudeAgent:
             role_prompt(role),
             prompt,
         ]
+        if self.settings.worker_user:
+            args = worker_args(self.settings.worker_user, args)
         self.event("agent_started", {"role": role, "model": self.settings.model, "cwd": str(cwd)})
         process = subprocess.Popen(
-            args, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, bufsize=0
+            args,
+            cwd=cwd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            bufsize=0,
+            env=untrusted_env(model=True),
         )
         selector = selectors.DefaultSelector()
         assert process.stdout and process.stderr

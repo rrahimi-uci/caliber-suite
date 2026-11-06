@@ -104,7 +104,7 @@ class FakeGitHub:
         self.merges.append((pr, head))
         self.pr_status = "MERGED"
 
-    def branch_up_to_date(self, head):
+    def branch_up_to_date(self, head, branch):
         return self.up_to_date
 
     def verify_merged_on_main(self, merge_oid):
@@ -189,6 +189,21 @@ def test_engine_review_qa_pr_lifecycle(settings, snapshot, monkeypatch):
     assert len(list(store.db.execute("SELECT * FROM events WHERE kind='review_cycle'"))) == 2
 
 
+def test_unattended_task_cannot_publish_policy_changes(settings, snapshot, monkeypatch):
+    data, _ = snapshot
+    settings = replace(settings, auto_merge=True)
+    github = FakeGitHub(settings, data)
+    github.changed = lambda worktree: [".github/workflows/ci.yml"]
+    FakeAgent.calls = []
+    engine = Engine(settings, github=github, agent_factory=FakeAgent)
+    monkeypatch.setattr(engine, "_checks", lambda *args: pytest.fail("QA must not run"))
+    result = engine.run()
+    assert result["results"][0]["status"] == "blocked"
+    assert "Unattended merge" in result["results"][0]["error"]
+    assert github.created == []
+    assert [role for role, _ in FakeAgent.calls] == ["planner", "developer"]
+
+
 def test_interrupted_edit_blocks_but_ci_wait_resumes(settings, snapshot):
     data, _ = snapshot
     github = FakeGitHub(settings, data)
@@ -211,17 +226,50 @@ def test_interrupted_edit_blocks_but_ci_wait_resumes(settings, snapshot):
 
 def test_due_date_uses_configured_timezone(settings):
     engine = Engine(settings)
-    assert engine.due_date(datetime(2026, 11, 5, 16, 59, tzinfo=UTC)) is None
-    assert engine.due_date(datetime(2026, 11, 5, 17, 0, tzinfo=UTC)) == "2026-11-05"
+    assert engine.due_date(datetime(2026, 11, 5, 11, 59, tzinfo=UTC)) is None
+    assert engine.due_date(datetime(2026, 11, 5, 12, 0, tzinfo=UTC)) == "2026-11-05"
 
 
-def test_unconfigured_task_is_not_executed(settings, snapshot):
+def test_ready_task_uses_standard_checks_without_issue_override(settings, snapshot):
     data, _ = snapshot
     settings = replace(settings, issue_checks={})
     engine = Engine(settings, github=FakeGitHub(settings, data), agent_factory=FakeAgent)
+    engine._task = lambda run, task: {"issue": task.issue, "status": "queued"}
     result = engine.run()
     assert result["eligible"] == 3 and result["configured"] == 0
-    assert result["results"] == []
+    assert result["selected"] == [12]
+    assert result["results"] == [{"issue": 12, "status": "queued"}]
+
+
+def test_prior_blocked_issue_is_excluded_from_future_run(settings, snapshot):
+    data, _ = snapshot
+    store = Store(settings.state_dir)
+    assert store.start("prior")
+    store.add_task("prior", 12, "release:Beta", "old-branch", settings.state_dir / "old")
+    store.phase("prior", 12, "blocked", failure="interrupted before PR")
+
+    class PlanNext(FakeAgent):
+        def run(self, role, prompt, cwd, editable=False):
+            assert role == "planner"
+            assert 12 not in [row["issue"] for row in json.loads(prompt)["eligible"]]
+            return {"selected": [13], "reason": "next safe task"}
+
+    engine = Engine(settings, github=FakeGitHub(settings, data), agent_factory=PlanNext)
+    engine._task = lambda run, task: {"issue": task.issue, "status": "queued"}
+    result = engine.run()
+    assert result["selected"] == [13]
+
+
+def test_daily_attempt_cap_includes_prior_manual_runs(settings, snapshot):
+    data, _ = snapshot
+    settings = replace(settings, max_tasks_per_run=1)
+    store = Store(settings.state_dir)
+    assert store.start("prior")
+    store.add_task("prior", 12, "release:Beta", "old-branch", settings.state_dir / "old")
+    store.phase("prior", 12, "blocked", failure="QA failed")
+    engine = Engine(settings, github=FakeGitHub(settings, data))
+    result = engine.run()
+    assert result["selected"] == []
 
 
 def test_daily_target_caps_new_tasks_by_actual_merged_done_count(settings, snapshot, monkeypatch):
@@ -274,6 +322,31 @@ def test_owned_path_guard(settings):
     assert Engine._in_owned_paths("src/task.py", frozenset({"src/task.py"}))
     assert Engine._in_owned_paths("src/sub/a.py", frozenset({"src"}))
     assert not Engine._in_owned_paths("src-other/a.py", frozenset({"src"}))
+    for path in (
+        ".github/workflows/ci.yml",
+        ".agents/engineering-policy.md",
+        "automated-cd/config/workflow.toml",
+        "AGENTS.md",
+        "scripts/ci-local.sh",
+    ):
+        assert Engine._protected_path(path)
+    assert not Engine._protected_path("caliber/src/caliber/agent.py")
+
+
+def test_hosted_untrusted_commands_run_as_isolated_user(settings):
+    isolated = Engine(replace(settings, worker_user="autocdqa"))
+    worker = isolated._as_worker(["pytest", "tests"])
+    assert worker[:7] == [
+        "sudo",
+        "-E",
+        "-H",
+        "-u",
+        "autocdqa",
+        "--",
+        "env",
+    ]
+    assert worker[7].startswith("PATH=") and worker[8:] == ["pytest", "tests"]
+    assert Engine(settings)._as_worker(["pytest", "tests"]) == ["pytest", "tests"]
 
 
 def test_pr_readiness_rejects_gaps():
@@ -382,11 +455,56 @@ def test_coverage_requires_each_changed_production_file_over_95_percent(tmp_path
     assert Engine._coverage_evidence(report, tmp_path, ["src/changed.py"])["passed"]
 
 
-def test_checks_fail_without_coverage_or_missing_executable(settings, tmp_path: Path):
+def test_checks_use_standard_fallback_or_fail_missing_executable(settings, tmp_path: Path):
     no_cov = replace(settings, base_checks=(), issue_checks={12: ("echo hello",)})
-    assert Engine(no_cov)._checks(12, tmp_path, [])[0]["command"] == "coverage"
+    assert Engine(no_cov)._checks(12, tmp_path, [])[0]["command"] == "echo hello"
     missing = replace(settings, base_checks=("does-not-exist",))
     assert not Engine(missing)._checks(12, tmp_path, [])[0]["passed"]
+    unsupported = Engine(replace(settings, base_checks=(), issue_checks={}))._checks(
+        821, tmp_path, ["caliber/ui/src/App.tsx"]
+    )
+    assert not unsupported[0]["passed"] and "Issue-specific" in unsupported[0]["output"]
+    assert Engine._standard_check_path("docs/guide.md")
+    assert not Engine._standard_check_path("sdk/python/client.py")
+
+
+def test_standard_coverage_fallback_measures_changed_python(settings, tmp_path, monkeypatch):
+    path = tmp_path / "caliber/src/caliber/example.py"
+    path.parent.mkdir(parents=True)
+    path.write_text("answer = 42\n")
+    seen = []
+
+    class Proc:
+        returncode = 0
+        stdout = "1 passed"
+        stderr = ""
+
+    def run(args, **kwargs):
+        seen.append(args)
+        report = next(
+            arg.split("json:", 1)[1] for arg in args if arg.startswith("--cov-report=json:")
+        )
+        Path(report).write_text(
+            json.dumps(
+                {
+                    "totals": {"num_statements": 100, "covered_lines": 20},
+                    "files": {
+                        "caliber/src/caliber/example.py": {
+                            "num_statements": 1,
+                            "covered_lines": 1,
+                        }
+                    },
+                }
+            )
+        )
+        return Proc()
+
+    monkeypatch.setattr("autocd.engine.subprocess.run", run)
+    engine = Engine(replace(settings, base_checks=(), issue_checks={}))
+    rows = engine._checks(821, tmp_path, ["caliber/src/caliber/example.py"])
+    assert len(rows) == 1 and rows[0]["passed"]
+    assert "caliber/tests" in seen[0]
+    assert "caliber/src/caliber/example.py=100.00%" in rows[0]["coverage"]
 
 
 def test_setup_verifies_even_existing_venv_and_records_failure(
@@ -461,12 +579,30 @@ def test_scheduled_disabled_and_deduplicated(settings, snapshot, monkeypatch):
     github = FakeGitHub(settings, data)
     assert Engine(settings, github=github).run(scheduled=True) == {"status": "disabled"}
     enabled = replace(settings, enabled=True, issue_checks={})
-    engine = Engine(enabled, github=github)
+    engine = Engine(enabled, github=github, agent_factory=FakeAgent)
+    monkeypatch.setattr(engine, "_task", lambda run, task: {"issue": task.issue})
     monkeypatch.setattr(engine, "due_date", lambda: "2026-11-05")
-    assert engine.run(scheduled=True)["results"] == []
+    assert engine.run(scheduled=True)["results"] == [{"issue": 12}]
     assert engine.run(scheduled=True)["status"] == "not_due_or_already_started"
     monkeypatch.setattr(engine, "due_date", lambda: None)
     assert engine.run(scheduled=True)["status"] == "not_due_or_already_started"
+
+
+def test_hosted_monitor_reconciles_without_starting_conflicting_work(settings, snapshot):
+    data, _ = snapshot
+    enabled = replace(settings, enabled=True)
+    github = FakeGitHub(enabled, data)
+    github.current_branch = "branch"
+    engine = Engine(enabled, github=github)
+    store = Store(settings.state_dir)
+    store.start("old")
+    store.add_task("old", 12, "release:Beta", "branch", settings.state_dir / "old-worktree")
+    store.head("old", 12, "f" * 40)
+    store.pr("old", 12, 88)
+    store.phase("old", 12, "ci_wait")
+    assert engine.run(scheduled=True)["status"] == "waiting_on_published_prs"
+    assert engine.monitor()["pending"] == 1
+    assert not store.db.execute("SELECT 1 FROM runs WHERE schedule_date IS NOT NULL").fetchone()
 
 
 def test_cron_tick_reports_busy_during_active_run(settings, snapshot):
@@ -493,14 +629,15 @@ def test_failed_project_read_releases_daily_reservation(settings, snapshot, monk
         return original()
 
     github.snapshot = intermittent_snapshot
-    engine = Engine(settings, github=github)
+    engine = Engine(settings, github=github, agent_factory=FakeAgent)
+    monkeypatch.setattr(engine, "_task", lambda run, task: {"issue": task.issue})
     monkeypatch.setattr(engine, "due_date", lambda: "2026-11-05")
     with pytest.raises(RuntimeError, match="Project unavailable"):
         engine.run(scheduled=True)
     store = Store(settings.state_dir)
     assert not store.scheduled("2026-11-05")
     assert store.db.execute("SELECT phase FROM runs").fetchone()["phase"] == "failed"
-    assert engine.run(scheduled=True)["results"] == []
+    assert engine.run(scheduled=True)["results"] == [{"issue": 12}]
     assert store.scheduled("2026-11-05")
 
 
@@ -785,7 +922,8 @@ def test_automatic_merge_refuses_missing_review_or_changed_candidate(settings, s
     assert not github.merges
     github.pr_state = first
     github.up_to_date = False
-    assert engine._check_pr(store, "run", 12, 88)["status"] == "waiting_for_revalidation"
+    assert engine._check_pr(store, "run", 12, 88)["status"] == "blocked_base_moved"
+    assert store.task("run", 12)["phase"] == "blocked"
     assert store.db.execute("SELECT 1 FROM events WHERE kind='base_moved'").fetchone()
     assert not github.merges
 

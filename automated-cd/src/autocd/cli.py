@@ -1,4 +1,4 @@
-"""Manual run, cron tick, and read-only status interface."""
+"""Manual run, scheduled tick, PR monitor, and read-only status interface."""
 
 from __future__ import annotations
 
@@ -15,7 +15,7 @@ from .state import Store
 
 def main() -> None:
     parser = argparse.ArgumentParser(prog="caliber-autocd")
-    parser.add_argument("action", choices=["plan", "run", "tick", "status"])
+    parser.add_argument("action", choices=["plan", "run", "tick", "monitor", "status"])
     parser.add_argument("--config", type=Path)
     args = parser.parse_args()
     settings = load(args.config)
@@ -39,7 +39,7 @@ def main() -> None:
         configured = [task for task in candidates if task.issue in settings.issue_checks]
         remaining = max(0, settings.daily_done_target - len(done))
         selected = assign(
-            configured, settings.max_workers, min(settings.max_tasks_per_run, remaining)
+            candidates, settings.max_workers, min(settings.max_tasks_per_run, remaining)
         )
         result = {
             "view": snapshot["view"],
@@ -50,6 +50,8 @@ def main() -> None:
             "configured": [task.issue for task in configured],
             "selected": [task.issue for task in selected],
         }
+    elif args.action == "monitor":
+        result = Engine(settings).monitor()
     else:
         result = Engine(settings).run(scheduled=args.action == "tick")
     print(json.dumps(result, indent=2, sort_keys=True))
