@@ -41,9 +41,21 @@ class Engine:
             else None
         )
 
-    def run(self, *, scheduled: bool = False, exclude_issues: frozenset[int] = frozenset()) -> dict:
+    def run(
+        self,
+        *,
+        scheduled: bool = False,
+        exclude_issues: frozenset[int] = frozenset(),
+        retry_issue: int | None = None,
+    ) -> dict:
+        if retry_issue is not None and (
+            scheduled or type(retry_issue) is not int or retry_issue <= 0
+        ):
+            raise ValueError("A retry issue must be a positive number in a manual run")
         try:
-            return self._run_locked(scheduled=scheduled, exclude_issues=exclude_issues)
+            return self._run_locked(
+                scheduled=scheduled, exclude_issues=exclude_issues, retry_issue=retry_issue
+            )
         except LockBusyError:
             if scheduled:
                 return {"status": "busy"}
@@ -56,7 +68,9 @@ class Engine:
             recovered = self._recover(store)
             return {"recovered": recovered, "pending": len(store.pending())}
 
-    def _run_locked(self, *, scheduled: bool, exclude_issues: frozenset[int]) -> dict:
+    def _run_locked(
+        self, *, scheduled: bool, exclude_issues: frozenset[int], retry_issue: int | None
+    ) -> dict:
         with exclusive(self.settings.state_dir, self.settings.allow_overlapping_runs):
             store = Store(self.settings.state_dir)
             if scheduled and not self.settings.enabled:
@@ -65,6 +79,10 @@ class Engine:
             # today's scheduled development run has already started.
             recovered = self._recover(store)
             if store.pending():
+                if retry_issue is not None:
+                    raise RuntimeError(
+                        "Cannot retry while a published PR is pending reconciliation"
+                    )
                 return {"status": "waiting_on_published_prs", "recovered": recovered}
             schedule_day = self.due_date() if scheduled else None
             if scheduled and (schedule_day is None or store.scheduled(schedule_day)):
@@ -73,7 +91,9 @@ class Engine:
             if not store.start(run, schedule_day):
                 return {"status": "already_started"}
             try:
-                return self._execute_run(store, run, schedule_day, recovered, exclude_issues)
+                return self._execute_run(
+                    store, run, schedule_day, recovered, exclude_issues, retry_issue
+                )
             except Exception as error:
                 store.fail(run, str(error)[:500])
                 raise
@@ -85,6 +105,7 @@ class Engine:
         schedule_day: str | None,
         recovered: list[dict],
         exclude_issues: frozenset[int],
+        retry_issue: int | None,
     ) -> dict:
         with audit_commands(lambda kind, detail: store.event(run, None, kind, detail)):
             snapshot = self.github.snapshot()
@@ -102,13 +123,33 @@ class Engine:
             pathmap=self.settings.issue_paths,
             scope_label=label,
         )
-        excluded = exclude_issues | store.blocked_issues() | attempted_today
+        if retry_issue is not None:
+            previous = store.latest_task(retry_issue)
+            branches = {branch["name"] for page in overview["branches"] for branch in page}
+            if (
+                previous is None
+                or previous["phase"] not in {"blocked", "failed"}
+                or previous["pr"] is not None
+                or previous["head"] is not None
+                or not previous["branch"]
+                or previous["branch"] in branches
+                or retry_issue not in {task.issue for task in candidates}
+            ):
+                raise RuntimeError(
+                    "Retry requires a blocked pre-PR attempt, absent remote branch, and a freshly Ready unclaimed Project task"
+                )
+            candidates = [task for task in candidates if task.issue == retry_issue]
+            store.event(run, retry_issue, "retry_authorized", {"prior_run": previous["run_id"]})
+        retry = {retry_issue} if retry_issue is not None else set()
+        excluded = exclude_issues | (store.blocked_issues() - retry) | (attempted_today - retry)
         candidates = [task for task in candidates if task.issue not in excluded]
         # Explicit commands augment the repository gate. The fallback runs the
         # full backend suite with coverage for every changed production file.
         configured = [task for task in candidates if task.issue in self.settings.issue_checks]
         remaining = max(0, self.settings.daily_done_target - len(done))
-        remaining_attempts = max(0, self.settings.max_tasks_per_run - len(attempted_today))
+        remaining_attempts = max(
+            0, self.settings.max_tasks_per_run - store.attempt_count_since(midnight)
+        )
         selected = assign(
             candidates,
             self.settings.max_workers,
@@ -153,9 +194,19 @@ class Engine:
                     "reason": str(plan.get("reason", ""))[:1000],
                 },
             )
+        if retry_issue is not None and not selected:
+            raise RuntimeError("Explicit retry was not selected by planner or daily attempt cap")
         results = []
         with ThreadPoolExecutor(max_workers=self.settings.max_workers) as pool:
-            futures = [pool.submit(self._task, run, task) for task in selected]
+            futures = [
+                pool.submit(
+                    self._task,
+                    run,
+                    task,
+                    *([previous["branch"]] if retry_issue == task.issue else []),
+                )
+                for task in selected
+            ]
             for future in as_completed(futures):
                 results.append(future.result())
         if results:
@@ -211,15 +262,19 @@ class Engine:
                 results.append({"issue": task["issue"], "status": "blocked_after_interruption"})
         return results
 
-    def _task(self, run: str, task: Assignment) -> dict:
+    def _task(self, run: str, task: Assignment, retry_branch: str | None = None) -> dict:
         store = Store(self.settings.state_dir)
         with audit_commands(lambda kind, detail: store.event(run, task.issue, kind, detail)):
-            return self._task_with_store(run, task, store)
+            return self._task_with_store(run, task, store, retry_branch)
 
-    def _task_with_store(self, run: str, task: Assignment, store: Store) -> dict:
+    def _task_with_store(
+        self, run: str, task: Assignment, store: Store, retry_branch: str | None = None
+    ) -> dict:
         branch = ""
         try:
             with self.mutation_lock:
+                if retry_branch and self.github.remote_branch_exists(retry_branch):
+                    raise RuntimeError("Previously blocked branch appeared remotely before retry")
                 branch, worktree = self.github.prepare_worktree(task.issue, run)
                 store.add_task(run, task.issue, task.target, branch, worktree)
                 claim_actor = self.github.login()

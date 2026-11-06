@@ -5,6 +5,11 @@ on:
     - cron: '0 4 * * *'
       timezone: America/Los_Angeles
   workflow_dispatch:
+    inputs:
+      retry_issue:
+        description: 'Blocked issue number after Project claim and remote branch reconciliation'
+        required: false
+        type: string
 
 permissions:
   actions: read
@@ -142,6 +147,7 @@ jobs:
           GH_TOKEN: ${{ secrets.AUTOCD_GH_TOKEN }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           AUTOCD_RUN_MODE: ${{ github.event_name == 'schedule' && 'schedule' || 'manual' }}
+          AUTOCD_RETRY_ISSUE: ${{ inputs.retry_issue || '' }}
         run: timeout --signal=TERM --kill-after=2m 300m python -m autocd.hosted
       - name: Encrypt coordinator state
         if: always()
