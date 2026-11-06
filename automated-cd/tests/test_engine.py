@@ -736,6 +736,8 @@ def test_standard_coverage_fallback_measures_changed_python(settings, tmp_path, 
     rows = engine._checks(821, tmp_path, ["caliber/src/caliber/example.py"])
     assert len(rows) == 1 and rows[0]["passed"]
     assert "caliber/tests" in seen[0]
+    assert seen[0][seen[0].index("-n") + 1] == "4"
+    assert seen[0][seen[0].index("--dist") + 1] == "loadgroup"
     assert "caliber/src/caliber/example.py=100.00%" in rows[0]["coverage"]
 
 

@@ -71,7 +71,9 @@ Example issue configuration:
 Use an actual issue contract and executable checks. The base checks run the
 repository's docs, lint, type and backend smoke CI parity as an isolated task
 user. Changed production Python also triggers the full backend suite with
-measured coverage unless an issue-specific coverage command is configured.
+measured coverage unless an issue-specific coverage command is configured. The
+fallback uses four pytest-xdist workers and the repository's load-group
+serialization, matching the full-suite CI topology with a bounded worker count.
 The selected local checks, including full backend coverage for changed
 production Python, must pass before a PR is published. The coordinator verifies
 the candidate snapshot remains unchanged when it publishes the PR. Required

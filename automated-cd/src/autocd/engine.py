@@ -639,7 +639,8 @@ class Engine:
         ):
             commands.append("scripts/ci-local.sh test")
         automatic_coverage = (
-            "caliber/.venv/bin/python -m pytest caliber/tests --cov=caliber --cov-branch -q"
+            "caliber/.venv/bin/python -m pytest caliber/tests -n 4 --dist loadgroup "
+            "--cov=caliber --cov-branch -q"
         )
         if changed_python and not any(self._coverage_command(item) for item in issue_commands):
             commands.append(automatic_coverage)
