@@ -23,7 +23,17 @@ export class GitHub {
   }
   async snapshot(config) {
     // Project read is deliberately first; an unavailable project must not fall back to a local plan.
-    const project = this.gh(['project', 'view', String(config.project.number), '--owner', config.project.owner, '--format', 'json']);
+    let project;
+    try {
+      project = this.gh(['project', 'view', String(config.project.number), '--owner', config.project.owner, '--format', 'json']);
+    } catch (error) {
+      // gh resolves an explicit owner by querying both users and organizations. A token
+      // for a user-owned Project can read @me even when that lookup is unavailable.
+      const actor = this.gh(['api', 'user']);
+      if (actor?.login !== config.project.owner) throw error;
+      project = this.gh(['project', 'view', String(config.project.number), '--owner', '@me', '--format', 'json']);
+      if (project?.owner?.login !== config.project.owner) throw new Error('Configured GitHub Project owner does not match authenticated user');
+    }
     if (!project?.id || project.closed) throw new Error('Configured GitHub Project is unavailable or closed');
     const fields = [];
     let cursor = null;

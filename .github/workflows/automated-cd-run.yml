@@ -119,8 +119,10 @@ jobs:
           print('Scoped Project token verified')
           PY
           test "$(gh api "repos/${GITHUB_REPOSITORY}" --jq '.permissions.push')" = true
-          echo "Project-token actor: $(gh api user --jq '.login')"
-          gh project view 3 --owner rrahimi-uci --format json --jq '.id' >/dev/null
+          actor=$(gh api user --jq '.login')
+          echo "Project-token actor: $actor"
+          test "$actor" = rrahimi-uci || { echo 'Project token is not owned by rrahimi-uci'; exit 1; }
+          gh project view 3 --owner @me --format json --jq '.id' >/dev/null
           gh auth setup-git --hostname github.com
           python -m autocd.cli plan
       - name: Start and monitor workflow

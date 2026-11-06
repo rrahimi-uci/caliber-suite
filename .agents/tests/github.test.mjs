@@ -123,7 +123,44 @@ test('missing/closed project halts before reading any repository data', async ()
   }
   const calls = [];
   const adapter = new GitHub((command, args) => { calls.push(args); throw new Error('denied'); });
-  await assert.rejects(adapter.snapshot(config), /GitHub command failed/); assert.equal(calls.length, 1);
+  await assert.rejects(adapter.snapshot(config), /GitHub command failed/);
+  assert.deepEqual(calls.map(args => args.slice(0, 2)), [['project', 'view'], ['api', 'user']]);
+});
+
+test('user-owned Project retries with @me only for the configured token owner', async () => {
+  const { adapter, state } = harness();
+  const originalRun = adapter.run;
+  const ownerCalls = [];
+  adapter.run = (command, args, options) => {
+    if (args[0] === 'project' || (args[0] === 'api' && args[1] === 'user')) {
+      ownerCalls.push(args);
+      if (args[0] === 'api') return JSON.stringify({ login: 'acme' });
+      if (args.includes('acme')) throw Object.assign(new Error('unknown owner type'), { status: 1 });
+      return JSON.stringify({ ...state.project, owner: { login: 'acme' } });
+    }
+    return originalRun(command, args, options);
+  };
+  assert.equal((await adapter.snapshot(config)).project.id, 'proj-17');
+  assert.deepEqual(ownerCalls, [
+    ['project', 'view', '17', '--owner', 'acme', '--format', 'json'],
+    ['api', 'user'],
+    ['project', 'view', '17', '--owner', '@me', '--format', 'json'],
+  ]);
+});
+
+test('Project fallback fails closed for another token owner or unexpected Project owner', async () => {
+  for (const [actor, projectOwner] of [['other', 'acme'], ['acme', 'other']]) {
+    const calls = [];
+    const adapter = new GitHub((command, args) => {
+      calls.push(args);
+      if (args[0] === 'api') return JSON.stringify({ login: actor });
+      if (args.includes('acme')) throw Object.assign(new Error('unknown owner type'), { status: 1 });
+      return JSON.stringify({ id: 'proj-17', owner: { login: projectOwner } });
+    });
+    await assert.rejects(adapter.snapshot(config), /GitHub command failed|owner does not match/);
+    assert.equal(calls.some(args => args.includes('@me')), actor === 'acme');
+    assert.equal(calls.some(args => args[0] === 'api' && args[1] === 'graphql'), false);
+  }
 });
 
 test('missing repository or default branch cannot produce a snapshot', async () => {

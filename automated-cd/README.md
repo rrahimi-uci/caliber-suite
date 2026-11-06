@@ -26,9 +26,13 @@ make no model or GitHub calls.
 ## Setup
 
 1. Add repository Actions secrets `ANTHROPIC_API_KEY` and `AUTOCD_GH_TOKEN`.
-   The latter must be a scoped token with read/write access to this repository
-   and user Project #3; the default `GITHUB_TOKEN` cannot access user Projects.
-   Do not commit either secret or use an admin-wide token.
+   The latter must be a classic token owned by `rrahimi-uci` with `project`
+   and `public_repo` scopes (GitHub may also report `read:project`). It needs
+   write access to this repository and user Project #3. The runner verifies
+   the token owner, scopes, repository push permission, and Project read
+   before dispatching work. The default
+   `GITHUB_TOKEN` cannot access user Projects. Do not commit either secret or
+   use an admin-wide token.
 2. Review `config/workflow.toml`. Project scope `0` covers the whole Project;
    a positive `project_view_number` restricts work to one supported release-label
    view. The checked-in schedule is 4:00 AM Pacific and the daily Done target is six.
