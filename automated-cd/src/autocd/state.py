@@ -11,6 +11,10 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 
+class LockBusyError(RuntimeError):
+    """Another local coordinator invocation owns the worktree/state lock."""
+
+
 class Store:
     def __init__(self, directory: Path):
         directory.mkdir(mode=0o700, parents=True, exist_ok=True)
@@ -102,7 +106,7 @@ class Store:
 
     def pending(self) -> list[sqlite3.Row]:
         return list(
-            self.db.execute("SELECT * FROM tasks WHERE phase NOT IN ('ready','blocked','failed')")
+            self.db.execute("SELECT * FROM tasks WHERE phase NOT IN ('done','blocked','failed')")
         )
 
     def tasks(self, limit: int = 100) -> list[sqlite3.Row]:
@@ -125,6 +129,16 @@ class Store:
         self.db.commit()
         self.event(run, None, "run_finished", {})
 
+    def fail(self, run: str, reason: str) -> None:
+        # Release the one-per-day reservation so the next tick can retry.
+        # Claimed tasks retain their own state for reconciliation.
+        self.db.execute(
+            "UPDATE runs SET phase='failed', schedule_date=NULL, updated_at=? WHERE id=?",
+            (self.now(), run),
+        )
+        self.db.commit()
+        self.event(run, None, "run_failed", {"reason": reason})
+
 
 @contextlib.contextmanager
 def exclusive(directory: Path, allow_overlap: bool = False) -> Iterator[None]:
@@ -135,7 +149,7 @@ def exclusive(directory: Path, allow_overlap: bool = False) -> Iterator[None]:
             try:
                 fcntl.flock(file, fcntl.LOCK_EX | fcntl.LOCK_NB)
             except BlockingIOError as error:
-                raise RuntimeError("Another workflow run holds the local lock") from error
+                raise LockBusyError("Another workflow run holds the local lock") from error
         yield
     finally:
         if not allow_overlap:

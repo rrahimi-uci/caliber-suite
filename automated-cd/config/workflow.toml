@@ -1,11 +1,16 @@
 [workflow]
-enabled = false
+enabled = true
 repository = "rrahimi-uci/caliber-suite"
 base_branch = "main"
 daily_time = "09:00"
 timezone = "America/Los_Angeles"
-max_tasks_per_run = 1
+project_view_number = 6
+# Counts only completed Task issues in the view's release label that are
+# Project Done and have a merged closing PR on the configured local day.
+daily_done_target = 6
+max_tasks_per_run = 6
 max_workers = 2
+auto_merge = true
 max_review_cycles = 3
 agent_timeout_seconds = 3600
 stall_seconds = 900

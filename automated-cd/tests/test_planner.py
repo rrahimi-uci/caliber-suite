@@ -1,4 +1,6 @@
-from autocd.planner import Assignment, assign, eligible
+import pytest
+
+from autocd.planner import Assignment, assign, completed_today, eligible, view_label
 
 
 def test_ready_eligibility_and_dependency_policy(snapshot):
@@ -30,10 +32,81 @@ def test_assign_serializes_unknown_and_overlapping_paths():
     candidates = [task(1, {"src/a.py"}), task(2, {"src/b.py"}), task(3, {"src"}), task(4, set())]
     assert [t.issue for t in assign(candidates, 4, 4)] == [1, 2]
     assert [t.issue for t in assign([task(4, set()), *candidates], 4, 4)] == [4]
-    assert [t.issue for t in assign(candidates, 1, 4)] == [1]
+    assert [t.issue for t in assign(candidates, 1, 4)] == [1, 2]
 
 
 def test_milestone_target_and_priority(snapshot):
     data, item = snapshot
     data["items"] = [item(7, fields={"Release": "", "Priority": "P0"})]
     assert eligible(data)[0].target == "milestone:#4"
+
+
+def test_view_scope_filters_the_live_release(snapshot):
+    data, item = snapshot
+    label = view_label(data, 6)
+    assert label == "release:beta"
+    data["items"].append(item(27, issue={"labels": ["release:preview-1"]}))
+    assert [task.issue for task in eligible(data, scope_label=label)] == [12, 13, 14]
+    with pytest.raises(ValueError, match="does not match"):
+        view_label(data, 7)
+    data["view"]["filter"] = "is:open label:release:beta priority:high"
+    with pytest.raises(ValueError, match="filter changed"):
+        view_label(data, 6)
+
+
+def test_daily_done_requires_project_done_completed_issue_and_merged_pr(snapshot):
+    data, item = snapshot
+
+    def done(number, **overrides):
+        issue = {
+            "state": "CLOSED",
+            "stateReason": "COMPLETED",
+            "prs": [{"state": "MERGED", "mergedAt": "2026-11-05T08:00:00Z"}],
+        }
+        issue.update(overrides.pop("issue", {}))
+        return item(
+            number,
+            fields={"Status": "Done", "Readiness": "Done", **overrides.pop("fields", {})},
+            issue=issue,
+        )
+
+    data["items"] = [
+        done(30),
+        done(31, issue={"prs": [{"state": "MERGED", "mergedAt": "2026-11-05T07:59:59Z"}]}),
+        done(32, issue={"prs": []}),
+        done(33, issue={"labels": ["release:other"]}),
+        done(34, fields={"Item type": "Epic"}),
+        done(35, fields={"Readiness": "In Review"}),
+        done(36, issue={"stateReason": "NOT_PLANNED"}),
+    ]
+    closed = [
+        {"number": 30, "closedAt": "2026-11-05T08:00:00Z", "stateReason": "COMPLETED"},
+        {"number": 31, "closedAt": "2026-11-05T07:59:59Z", "stateReason": "COMPLETED"},
+        *(
+            {"number": n, "closedAt": "2026-11-05T12:00:00Z", "stateReason": "COMPLETED"}
+            for n in range(32, 37)
+        ),
+    ]
+    assert completed_today(data, closed, "release:beta", "2026-11-05", "America/Los_Angeles") == [
+        30
+    ]
+
+
+def test_daily_done_uses_later_of_merge_and_issue_completion(snapshot):
+    data, item = snapshot
+    data["items"] = [
+        item(
+            30,
+            fields={"Status": "Done", "Readiness": "Done"},
+            issue={
+                "state": "CLOSED",
+                "stateReason": "COMPLETED",
+                "prs": [{"state": "MERGED", "mergedAt": "2026-11-05T08:01:00Z"}],
+            },
+        )
+    ]
+    closed = [{"number": 30, "closedAt": "2026-11-05T07:59:00Z", "stateReason": "COMPLETED"}]
+    assert completed_today(data, closed, "release:beta", "2026-11-04", "America/Los_Angeles") == []
+    assert completed_today(data, closed, "release:beta", "2026-11-05", "America/Los_Angeles") == [
+        30
+    ]

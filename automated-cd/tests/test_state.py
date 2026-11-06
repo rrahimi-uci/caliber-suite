@@ -20,6 +20,8 @@ def test_store_transitions_and_schedule_dedup(tmp_path: Path):
     assert store.phase_started("run1", 12, "nonexistent") is None
     assert [row["issue"] for row in store.pending()] == [12]
     store.phase("run1", 12, "ready")
+    assert [row["issue"] for row in store.pending()] == [12]
+    store.phase("run1", 12, "done")
     assert not store.pending()
     assert [row["issue"] for row in store.tasks()] == [12]
     assert not store.tasks(limit=0)
@@ -30,6 +32,7 @@ def test_store_transitions_and_schedule_dedup(tmp_path: Path):
         "task_claimed",
         "pr_opened",
         "commit_pushed",
+        "phase",
         "phase",
         "phase",
         "run_finished",
@@ -46,3 +49,13 @@ def test_local_lock_rejects_overlap(tmp_path: Path):
 def test_missing_task_is_error(tmp_path: Path):
     with pytest.raises(KeyError):
         Store(tmp_path).task("none", 1)
+
+
+def test_failed_run_releases_schedule_without_erasing_task(tmp_path: Path):
+    store = Store(tmp_path)
+    assert store.start("run", "2026-11-05")
+    store.add_task("run", 12, "release:Beta", "branch", tmp_path / "w")
+    store.fail("run", "Project unavailable")
+    assert not store.scheduled("2026-11-05")
+    assert store.task("run", 12)["phase"] == "claimed"
+    assert store.start("retry", "2026-11-05")

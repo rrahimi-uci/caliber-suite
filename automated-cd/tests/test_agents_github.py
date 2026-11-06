@@ -32,6 +32,27 @@ def test_claude_agent_read_only_and_json_result(settings, tmp_path: Path, monkey
         role_prompt("merge")
 
 
+def test_issue_text_is_a_user_prompt_not_a_system_instruction(
+    settings, tmp_path: Path, monkeypatch
+):
+    cli = tmp_path / "claude"
+    args_file = tmp_path / "arguments.json"
+    cli.write_text(
+        "#!/usr/bin/env python3\nimport json,sys\n"
+        f"open({str(args_file)!r}, 'w').write(json.dumps(sys.argv[1:]))\n"
+        'print(\'{"type":"result","result":{}}\')\n'
+    )
+    cli.chmod(0o700)
+    monkeypatch.setenv("PATH", str(tmp_path) + os.pathsep + os.environ["PATH"])
+    ClaudeAgent(settings, lambda *a: None).run(
+        "developer", "untrusted issue text", tmp_path, editable=True
+    )
+    args = json.loads(args_file.read_text())
+    system = args[args.index("--append-system-prompt") + 1]
+    assert "Never merge" in system and "untrusted issue text" not in system
+    assert args[-1] == "untrusted issue text"
+
+
 def test_claude_agent_failure_and_stall(settings, tmp_path: Path, monkeypatch):
     _fake_cli(tmp_path, "echo bad >&2; exit 2")
     monkeypatch.setenv("PATH", str(tmp_path) + os.pathsep + os.environ["PATH"])
@@ -42,6 +63,11 @@ def test_claude_agent_failure_and_stall(settings, tmp_path: Path, monkeypatch):
     with pytest.raises(AgentError, match="stalled"):
         ClaudeAgent(
             replace(settings, stall_seconds=1, agent_timeout_seconds=3), lambda kind, detail: None
+        ).run("qa", "test", tmp_path)
+    _fake_cli(tmp_path, "printf partial; sleep 2")
+    with pytest.raises(AgentError, match="stalled"):
+        ClaudeAgent(
+            replace(settings, stall_seconds=1, agent_timeout_seconds=3), lambda *a: None
         ).run("qa", "test", tmp_path)
 
 
@@ -73,6 +99,8 @@ def test_claude_agent_stream_variants_and_timeout(settings, tmp_path: Path, monk
     )
     _fake_cli(tmp_path, 'echo \'{"type":"result","result":{"ok":true}}\'')
     assert ClaudeAgent(settings, lambda *a: None).run("qa", "test", tmp_path) == {"ok": True}
+    _fake_cli(tmp_path, 'printf \'{"type":"result","result":{"ok":true}}\'')
+    assert ClaudeAgent(settings, lambda *a: None).run("qa", "test", tmp_path) == {"ok": True}
     _fake_cli(tmp_path, 'echo \'{"type":"result","is_error":true}\'')
     with pytest.raises(AgentError, match="returned an error"):
         ClaudeAgent(settings, lambda *a: None).run("qa", "test", tmp_path)
@@ -87,6 +115,7 @@ def test_command_reports_failure_without_shell(tmp_path: Path):
     assert command(["/bin/echo", "safe"], tmp_path).strip() == "safe"
     with pytest.raises(CommandError, match="exited 3"):
         command(["/bin/sh", "-c", "exit 3"], tmp_path)
+    assert command(["/bin/sh", "-c", "exit 8"], tmp_path, allowed_exit_codes=(0, 8)) == ""
 
 
 def test_command_audit_records_arguments_and_exit(tmp_path: Path):
@@ -129,7 +158,8 @@ def test_project_snapshot_and_overview(settings, monkeypatch):
                     "repository": {
                         "nameWithOwner": settings.repository,
                         "defaultBranch": settings.base_branch,
-                    }
+                    },
+                    "view": {"number": settings.project_view_number},
                 }
             )
         if args[:3] == ["gh", "api", "user"]:
@@ -223,6 +253,7 @@ def test_github_worktree_commit_pr_and_checks(settings, tmp_path: Path, monkeypa
     assert github.changed(tmp_path) == ["src/task.py", "tests/test_task.py"]
     assert github.commit_and_push(tmp_path, branch, 12) == "a" * 40
     assert github.create_pr(tmp_path, "descriptive title", "## Summary\ntext") == 88
+    assert any(args[:3] == ["gh", "pr", "create"] and "--draft" in args for args in calls)
     assert github.pr_state(88)["headRefOid"] == "a" * 40
     assert github.required_checks(88, {"statusCheckRollup": []}) == [
         {"name": "CI", "state": "PASS"},
@@ -232,6 +263,55 @@ def test_github_worktree_commit_pr_and_checks(settings, tmp_path: Path, monkeypa
     worktree.mkdir(parents=True)
     with pytest.raises(CommandError, match="already exists"):
         github.prepare_worktree(12, "abcdef1234")
+
+
+def test_closed_issue_search_and_guarded_merge_commands(settings, monkeypatch):
+    github = GitHub(settings)
+    calls = []
+
+    def capture(args, cwd, **kwargs):
+        calls.append(args)
+        if args[:3] == ["gh", "issue", "list"]:
+            return '[{"number":12,"closedAt":"2026-11-05T08:00:00Z","stateReason":"COMPLETED"}]'
+        return ""
+
+    monkeypatch.setattr("autocd.github.command", capture)
+    assert github.closed_issues_since("2026-11-05", "release:preview-1")[0]["number"] == 12
+    assert "label:release:preview-1 closed:>=2026-11-05" in calls[0]
+    github.merge_pr(88, "a" * 40)
+    assert calls[1][-3:] == ["--squash", "--match-head-commit", "a" * 40]
+    github.verify_merged_on_main("b" * 40)
+    assert calls[-1] == ["git", "merge-base", "--is-ancestor", "b" * 40, "origin/main"]
+    github.close_issue(12)
+    assert calls[-1][-2:] == ["--reason", "completed"]
+    with pytest.raises(CommandError, match="valid merge commit"):
+        github.verify_merged_on_main("invalid")
+    monkeypatch.setattr("autocd.github.command", lambda *a, **k: json.dumps([{}] * 1000))
+    with pytest.raises(CommandError, match="CLI limit"):
+        github.closed_issues_since("2026-11-05", "release:preview-1")
+
+
+def test_merge_base_guard_refuses_stale_or_invalid_head(settings, monkeypatch):
+    github = GitHub(settings)
+    calls = []
+
+    def capture(args, cwd, **kwargs):
+        calls.append(args)
+        return ""
+
+    monkeypatch.setattr("autocd.github.command", capture)
+    assert github.branch_up_to_date("a" * 40)
+    assert calls[-1] == ["git", "merge-base", "--is-ancestor", "origin/main", "a" * 40]
+    with pytest.raises(CommandError, match="valid commit SHA"):
+        github.branch_up_to_date("wrong")
+
+    def behind(args, cwd, **kwargs):
+        if args[:3] == ["git", "merge-base", "--is-ancestor"]:
+            raise CommandError("behind")
+        return ""
+
+    monkeypatch.setattr("autocd.github.command", behind)
+    assert not github.branch_up_to_date("a" * 40)
 
 
 def test_pr_creation_and_empty_commit_fail(settings, tmp_path: Path, monkeypatch):
@@ -337,7 +417,7 @@ def test_required_check_rollup_fails_missing_skipped_and_pending(settings, monke
         settings, required_checks=("ledger", "security", "pending", "skipped", "missing")
     )
     github = GitHub(settings)
-    monkeypatch.setattr("autocd.github.command", lambda *a, **k: "")
+    monkeypatch.setattr("autocd.github.command", lambda *a, **k: "[]")
     checks = github.required_checks(
         88,
         {
@@ -360,3 +440,6 @@ def test_required_check_rollup_fails_missing_skipped_and_pending(settings, monke
         88, {"files": [{"path": "automated-cd/src/autocd/engine.py"}], "statusCheckRollup": []}
     )
     assert any(row == {"name": "Automated CD tests", "state": "MISSING"} for row in own_change)
+    monkeypatch.setattr("autocd.github.command", lambda *a, **k: "")
+    with pytest.raises(CommandError, match="no JSON"):
+        github.required_checks(88, {"statusCheckRollup": []})

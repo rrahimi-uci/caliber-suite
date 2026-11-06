@@ -1,1 +1,1 @@
-"""CALIBER engineering workflow. The owner alone merges pull requests."""
+"""CALIBER engineering workflow with guarded automatic merge."""

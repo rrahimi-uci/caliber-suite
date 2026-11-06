@@ -7,6 +7,10 @@ from autocd.config import load
 
 
 def test_defaults_and_environment(settings):
+    assert load().project_view_number == 6
+    assert load().daily_done_target == 6
+    assert load().max_tasks_per_run == 6
+    assert load().auto_merge is True
     assert settings.provider == "claude_cli"
     assert settings.max_workers == 2
     changed = load(environ={"AUTOCD_ENABLED": "true", "AUTOCD_DAILY_TIME": "23:30"})
@@ -25,6 +29,9 @@ def test_defaults_and_environment(settings):
         {"AUTOCD_TEMPERATURE": "0.2"},
         {"AUTOCD_MAX_OUTPUT_TOKENS": "100"},
         {"AUTOCD_MAX_WORKERS": "0"},
+        {"AUTOCD_PROJECT_VIEW_NUMBER": "0"},
+        {"AUTOCD_DAILY_DONE_TARGET": "0"},
+        {"AUTOCD_AUTO_MERGE": "maybe"},
         {"AUTOCD_STALL_SECONDS": "999999"},
         {"AUTOCD_CI_TIMEOUT_SECONDS": "2"},
     ],

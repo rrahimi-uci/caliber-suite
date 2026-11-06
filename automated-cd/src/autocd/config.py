@@ -19,8 +19,11 @@ class Settings:
     base_branch: str
     daily_time: str
     timezone: str
+    project_view_number: int
+    daily_done_target: int
     max_tasks_per_run: int
     max_workers: int
+    auto_merge: bool
     max_review_cycles: int
     agent_timeout_seconds: int
     stall_seconds: int
@@ -75,8 +78,11 @@ def load(path: Path | None = None, *, environ: dict[str, str] | None = None) -> 
         base_branch=str(value("base_branch", workflow["base_branch"])),
         daily_time=str(value("daily_time", workflow["daily_time"])),
         timezone=str(value("timezone", workflow["timezone"])),
+        project_view_number=int(value("project_view_number", workflow["project_view_number"])),
+        daily_done_target=int(value("daily_done_target", workflow["daily_done_target"])),
         max_tasks_per_run=int(value("max_tasks_per_run", workflow["max_tasks_per_run"])),
         max_workers=int(value("max_workers", workflow["max_workers"])),
+        auto_merge=_bool(value("auto_merge", workflow["auto_merge"])),
         max_review_cycles=int(value("max_review_cycles", workflow["max_review_cycles"])),
         agent_timeout_seconds=int(
             value("agent_timeout_seconds", workflow["agent_timeout_seconds"])
@@ -106,7 +112,13 @@ def load(path: Path | None = None, *, environ: dict[str, str] | None = None) -> 
     if not re.fullmatch(r"(?:[01]\d|2[0-3]):[0-5]\d", settings.daily_time):
         raise ValueError("daily_time must be HH:MM")
     ZoneInfo(settings.timezone)
-    if settings.max_workers < 1 or settings.max_tasks_per_run < 1 or settings.max_review_cycles < 1:
+    if (
+        settings.project_view_number < 1
+        or settings.daily_done_target < 1
+        or settings.max_workers < 1
+        or settings.max_tasks_per_run < 1
+        or settings.max_review_cycles < 1
+    ):
         raise ValueError("worker, task and review limits must be positive")
     if settings.stall_seconds < 1 or settings.agent_timeout_seconds <= settings.stall_seconds:
         raise ValueError("agent timeout must exceed stall timeout")

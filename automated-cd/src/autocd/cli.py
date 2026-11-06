@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import argparse
 import json
+from datetime import datetime
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 from .config import load
 from .engine import Engine
@@ -21,15 +23,29 @@ def main() -> None:
         store = Store(settings.state_dir)
         result = [dict(row) for row in store.tasks()]
     elif args.action == "plan":
-        from .planner import assign, eligible
+        from .planner import assign, eligible, view_label
 
-        snapshot = Engine(settings).github.snapshot()
+        engine = Engine(settings)
+        snapshot = engine.github.snapshot()
+        label = view_label(snapshot, settings.project_view_number)
+        day = datetime.now(ZoneInfo(settings.timezone)).date().isoformat()
+        done = engine._daily_done(snapshot, label, day)
         candidates = eligible(
-            snapshot, allowlist=settings.issue_allowlist, pathmap=settings.issue_paths
+            snapshot,
+            allowlist=settings.issue_allowlist,
+            pathmap=settings.issue_paths,
+            scope_label=label,
         )
         configured = [task for task in candidates if task.issue in settings.issue_checks]
-        selected = assign(configured, settings.max_workers, settings.max_tasks_per_run)
+        remaining = max(0, settings.daily_done_target - len(done))
+        selected = assign(
+            configured, settings.max_workers, min(settings.max_tasks_per_run, remaining)
+        )
         result = {
+            "view": snapshot["view"],
+            "daily_done_target": settings.daily_done_target,
+            "done_today": done,
+            "remaining_to_target": remaining,
             "eligible": [task.issue for task in candidates],
             "configured": [task.issue for task in configured],
             "selected": [task.issue for task in selected],

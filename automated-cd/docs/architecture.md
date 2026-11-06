@@ -12,22 +12,27 @@ flowchart LR
   Snapshot --> Plan[eligibility, path conflicts, Planner]
   Plan --> Claim[isolated worktree and Project claim]
   Claim --> Dev[Developer]
-  Dev --> Review[read-only Reviewer]
+  Dev --> Local[local tests and CI parity]
+  Local --> Review[read-only Reviewer with evidence]
   Review -->|findings| Dev
   Review --> QA[configured commands and QA]
   QA -->|gaps| Dev
-  QA --> PR[open PR and reviewer requests]
-  PR --> Checks[exact-head CI and thread reconciliation]
-  Checks -->|ready| Owner[owner reviews and merges]
+  QA --> PR[draft PR and Copilot request]
+  PR --> Checks[exact-head CI, review and thread checks]
+  Checks -->|clean and current base| Merge[guarded GitHub merge]
+  Merge --> Done[verify main, close issue, Project Done]
 ```
 
 Task phases are `claimed`, `developing`, `reviewing`, `qa`, `pr_open`,
-`ci_wait`, `ready`, and `blocked`. Every transition writes an event. Only
-`ci_wait` is automatically replayed after process loss; other phases may have
+`ci_wait`, `ready`, `merged_unreconciled`, `done`, and `blocked`. Every transition
+writes an event. `ci_wait`, `ready` and `merged_unreconciled` are checked again
+after process loss; other phases may have
 unobserved file, branch or remote writes and therefore require reconciliation.
 Read-only Project snapshots and checks may be retried by the operator. The
-scheduled date has a unique SQLite constraint, preventing two scheduled runs
-for one local day on one state database. It is not a cross-host lock.
+scheduled date has a unique SQLite constraint, preventing two successful
+scheduled dispatch runs for one local day on one state database. A failed
+planning read releases that reservation for the next tick. It is not a
+cross-host lock.
 
 Eligibility requires an open Task, Todo/Ready, resolved start decisions,
 completed native blockers, no existing owner or open closing PR, and a
@@ -52,4 +57,7 @@ published PR. It marks the task blocked in Project with the exact failed or
 skipped checks, requested changes, or CI timeout, and leaves the PR open for
 the developer to address in the same branch. A subsequent version can add a
 guarded PR revision loop with explicit head and review invalidation checks.
-No release or production action is part of this workflow.
+The daily six-Task target is measured from verified merged/Done issues, and
+selection is limited by Ready work, issue-specific QA configuration, path
+ownership and current-base checks. No release or production action is part of
+this workflow.

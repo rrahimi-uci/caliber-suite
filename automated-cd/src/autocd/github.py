@@ -32,7 +32,14 @@ def audit_commands(callback: Callable[[str, dict], None]) -> Iterator[None]:
         _AUDIT.reset(token)
 
 
-def command(args: list[str], cwd: Path, *, timeout: int = 120, check: bool = True) -> str:
+def command(
+    args: list[str],
+    cwd: Path,
+    *,
+    timeout: int = 120,
+    check: bool = True,
+    allowed_exit_codes: tuple[int, ...] = (0,),
+) -> str:
     audit = _AUDIT.get()
     if audit:
         audit("command_started", {"argv": args, "cwd": str(cwd)})
@@ -46,7 +53,7 @@ def command(args: list[str], cwd: Path, *, timeout: int = 120, check: bool = Tru
         raise
     if audit:
         audit("command_completed", {"argv": args, "exit_code": result.returncode})
-    if check and result.returncode:
+    if check and result.returncode not in allowed_exit_codes:
         # External output can contain private data; keep failure diagnostics bounded.
         raise CommandError(
             f"{' '.join(args[:3])} exited {result.returncode}: {result.stderr[-500:]}"
@@ -61,14 +68,49 @@ class GitHub:
 
     def snapshot(self) -> dict:
         data = command(
-            ["node", "automated-cd/scripts/project_snapshot.mjs"], self.root, timeout=180
+            [
+                "node",
+                "automated-cd/scripts/project_snapshot.mjs",
+                str(self.settings.project_view_number),
+            ],
+            self.root,
+            timeout=180,
         )
         snapshot = json.loads(data)
         if snapshot["repository"]["nameWithOwner"] != self.settings.repository:
             raise CommandError("Configured repository does not match the authoritative Project")
         if snapshot["repository"]["defaultBranch"] != self.settings.base_branch:
             raise CommandError("Configured base branch does not match the repository default")
+        if snapshot.get("view", {}).get("number") != self.settings.project_view_number:
+            raise CommandError("Configured Project view is unavailable or changed")
         return snapshot
+
+    def closed_issues_since(self, since: str, label: str) -> list[dict]:
+        rows = json.loads(
+            command(
+                [
+                    "gh",
+                    "issue",
+                    "list",
+                    "--repo",
+                    self.settings.repository,
+                    "--state",
+                    "closed",
+                    "--search",
+                    f"label:{label} closed:>={since}",
+                    "--limit",
+                    "1000",
+                    "--json",
+                    "number,closedAt,stateReason",
+                ],
+                self.root,
+            )
+        )
+        if len(rows) >= 1000:
+            raise CommandError(
+                "Daily closure search reached the CLI limit; paginate before counting"
+            )
+        return rows
 
     def overview(self) -> dict:
         repo = self.settings.repository
@@ -186,6 +228,7 @@ class GitHub:
                     title,
                     "--body-file",
                     file.name,
+                    "--draft",
                 ],
                 worktree,
                 timeout=180,
@@ -195,12 +238,12 @@ class GitHub:
             raise CommandError("Could not identify created PR")
         return int(match.group(1))
 
-    def request_reviewers(self, worktree: Path, pr: int, owner: str) -> dict[str, str]:
+    def request_reviewers(self, worktree: Path, pr: int, owner: str | None) -> dict[str, str]:
         status = {}
-        for label, reviewer in (
-            ("owner", owner),
-            ("copilot", "@copilot"),
-        ):
+        reviewers = ([("owner", owner)] if owner else []) + [("copilot", "@copilot")]
+        if not owner:
+            status["owner"] = "not requested: automatic merge is enabled"
+        for label, reviewer in reviewers:
             try:
                 command(
                     [
@@ -223,11 +266,11 @@ class GitHub:
         reviews = {
             entry.get("author", {}).get("login", "") for entry in observed.get("latestReviews", [])
         }
-        if observed.get("author", {}).get("login") == owner:
+        if owner and observed.get("author", {}).get("login") == owner:
             status["owner"] = "unavailable: GitHub does not allow author self-review requests"
-        elif owner in reviews:
+        elif owner and owner in reviews:
             status["owner"] = "reviewed"
-        elif owner not in requests and status["owner"] == "requested":
+        elif owner and owner not in requests and status["owner"] == "requested":
             status["owner"] = "not confirmed by GitHub"
         if any("copilot" in login.lower() for login in reviews):
             status["copilot"] = "reviewed"
@@ -283,10 +326,70 @@ class GitHub:
                     "--repo",
                     self.settings.repository,
                     "--json",
-                    "number,url,headRefOid,headRefName,baseRefName,mergeable,isDraft,reviewRequests,reviewDecision,statusCheckRollup,latestReviews,author,files",
+                    "number,url,state,mergedAt,mergeCommit,headRefOid,headRefName,baseRefName,baseRefOid,mergeable,mergeStateStatus,isDraft,reviewRequests,reviewDecision,statusCheckRollup,latestReviews,author,files",
                 ],
                 self.root,
             )
+        )
+
+    def merge_pr(self, pr: int, head: str) -> None:
+        command(
+            [
+                "gh",
+                "pr",
+                "merge",
+                str(pr),
+                "--repo",
+                self.settings.repository,
+                "--squash",
+                "--match-head-commit",
+                head,
+            ],
+            self.root,
+            timeout=180,
+        )
+
+    def branch_up_to_date(self, head: str) -> bool:
+        if not re.fullmatch(r"[0-9a-f]{40}", head):
+            raise CommandError("PR head is not a valid commit SHA")
+        command(["git", "fetch", "origin", self.settings.base_branch], self.root, timeout=180)
+        try:
+            command(
+                ["git", "merge-base", "--is-ancestor", f"origin/{self.settings.base_branch}", head],
+                self.root,
+            )
+        except CommandError:
+            return False
+        return True
+
+    def verify_merged_on_main(self, merge_oid: str) -> None:
+        if not re.fullmatch(r"[0-9a-f]{40}", merge_oid):
+            raise CommandError("Merged PR has no valid merge commit")
+        command(["git", "fetch", "origin", self.settings.base_branch], self.root, timeout=180)
+        command(
+            [
+                "git",
+                "merge-base",
+                "--is-ancestor",
+                merge_oid,
+                f"origin/{self.settings.base_branch}",
+            ],
+            self.root,
+        )
+
+    def close_issue(self, issue: int) -> None:
+        command(
+            [
+                "gh",
+                "issue",
+                "close",
+                str(issue),
+                "--repo",
+                self.settings.repository,
+                "--reason",
+                "completed",
+            ],
+            self.root,
         )
 
     def mark_ready_body(self, pr: int, checks: list[dict]) -> None:
@@ -339,9 +442,11 @@ class GitHub:
                 "name,state",
             ],
             self.root,
-            check=False,
+            allowed_exit_codes=(0, 8),  # gh pr checks uses 8 while checks are pending.
         )
-        branch_required = json.loads(output) if output.strip() else []
+        if not output.strip():
+            raise CommandError("Required-check inventory returned no JSON")
+        branch_required = json.loads(output)
         rollup = {}
         for entry in state.get("statusCheckRollup", []):
             name = entry.get("name") or entry.get("context")
@@ -402,11 +507,21 @@ class GitHub:
 
 
 def pr_ready(
-    state: dict, checks: list[dict], unresolved: int, owner: str, author: str
+    state: dict,
+    checks: list[dict],
+    unresolved: int,
+    owner: str,
+    author: str,
+    *,
+    require_owner: bool = True,
 ) -> tuple[bool, list[str]]:
     reasons = []
     if state["mergeable"] != "MERGEABLE":
         reasons.append("PR is not mergeable")
+    if not state.get("isDraft") and state.get("mergeStateStatus") not in {None, "CLEAN"}:
+        reasons.append("GitHub reports merge blocked, behind, or not yet computed")
+    if state.get("reviewDecision") == "REVIEW_REQUIRED":
+        reasons.append("branch protection requires an independent review")
     if not checks or any(check["state"] not in {"SUCCESS", "PASS"} for check in checks):
         reasons.append("required CI checks are missing, pending, skipped, or failing")
     if unresolved:
@@ -415,7 +530,7 @@ def pr_ready(
     reviewed_by_owner = any(
         review.get("author", {}).get("login") == owner for review in state.get("latestReviews", [])
     )
-    if owner != author and owner not in requested and not reviewed_by_owner:
+    if require_owner and owner != author and owner not in requested and not reviewed_by_owner:
         reasons.append("owner review is not requested")
     if any(review.get("state") == "CHANGES_REQUESTED" for review in state.get("latestReviews", [])):
         reasons.append("changes requested")

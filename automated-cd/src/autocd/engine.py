@@ -1,4 +1,4 @@
-"""The owner-gated planning, development, review, QA and PR state machine."""
+"""The planning, development, review, QA, merge and Project Done state machine."""
 
 from __future__ import annotations
 
@@ -9,15 +9,15 @@ import subprocess
 import threading
 import uuid
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime, time
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from .agents import ClaudeAgent
 from .config import Settings
 from .github import GitHub, audit_commands, command, pr_ready
-from .planner import Assignment, assign, eligible
-from .state import Store, exclusive
+from .planner import Assignment, assign, completed_today, eligible, view_label
+from .state import LockBusyError, Store, exclusive
 
 
 class Engine:
@@ -40,6 +40,14 @@ class Engine:
         )
 
     def run(self, *, scheduled: bool = False) -> dict:
+        try:
+            return self._run_locked(scheduled=scheduled)
+        except LockBusyError:
+            if scheduled:
+                return {"status": "busy"}
+            raise
+
+    def _run_locked(self, *, scheduled: bool) -> dict:
         with exclusive(self.settings.state_dir, self.settings.allow_overlapping_runs):
             store = Store(self.settings.state_dir)
             if scheduled and not self.settings.enabled:
@@ -47,83 +55,120 @@ class Engine:
             # Reconcile existing PRs on every minute-level tick, even after
             # today's scheduled development run has already started.
             recovered = self._recover(store)
-            day = self.due_date() if scheduled else None
-            if scheduled and (day is None or store.scheduled(day)):
+            schedule_day = self.due_date() if scheduled else None
+            if scheduled and (schedule_day is None or store.scheduled(schedule_day)):
                 return {"status": "not_due_or_already_started", "recovered": recovered}
             run = uuid.uuid4().hex
-            if not store.start(run, day):
+            if not store.start(run, schedule_day):
                 return {"status": "already_started"}
-            with audit_commands(lambda kind, detail: store.event(run, None, kind, detail)):
-                snapshot = self.github.snapshot()
-                overview = self.github.overview()
-            candidates = eligible(
-                snapshot, allowlist=self.settings.issue_allowlist, pathmap=self.settings.issue_paths
+            try:
+                return self._execute_run(store, run, schedule_day, recovered)
+            except Exception as error:
+                store.fail(run, str(error)[:500])
+                raise
+
+    def _execute_run(
+        self, store: Store, run: str, schedule_day: str | None, recovered: list[dict]
+    ) -> dict:
+        with audit_commands(lambda kind, detail: store.event(run, None, kind, detail)):
+            snapshot = self.github.snapshot()
+            overview = self.github.overview()
+            label = view_label(snapshot, self.settings.project_view_number)
+            day = schedule_day or datetime.now(ZoneInfo(self.settings.timezone)).date().isoformat()
+            done = self._daily_done(snapshot, label, day)
+        candidates = eligible(
+            snapshot,
+            allowlist=self.settings.issue_allowlist,
+            pathmap=self.settings.issue_paths,
+            scope_label=label,
+        )
+        # Only run tasks with an explicit, reviewed test command. Unconfigured
+        # backlog remains visible to planning but cannot be silently certified.
+        configured = [task for task in candidates if task.issue in self.settings.issue_checks]
+        remaining = max(0, self.settings.daily_done_target - len(done))
+        selected = assign(
+            configured,
+            self.settings.max_workers,
+            min(self.settings.max_tasks_per_run, remaining),
+        )
+        if selected:
+            agent = self.agent_factory(
+                self.settings, lambda kind, detail: store.event(run, None, kind, detail)
             )
-            # Only run tasks with an explicit, reviewed test command. Unconfigured
-            # backlog remains visible to planning but cannot be silently certified.
-            configured = [task for task in candidates if task.issue in self.settings.issue_checks]
-            selected = assign(
-                configured, self.settings.max_workers, self.settings.max_tasks_per_run
-            )
-            if selected:
-                agent = self.agent_factory(
-                    self.settings, lambda kind, detail: store.event(run, None, kind, detail)
-                )
-                plan = agent.run(
-                    "planner",
-                    json.dumps(
-                        {
-                            "eligible": [
-                                {
-                                    "issue": t.issue,
-                                    "title": t.title,
-                                    "priority": t.priority,
-                                    "paths": sorted(t.paths),
-                                    "target": t.target,
-                                }
-                                for t in configured
-                            ],
-                            "selected_by_conflict_rules": [t.issue for t in selected],
-                            "repository": snapshot["repository"],
-                            "open_prs": overview["open_prs"],
-                            "recent_runs": overview["recent_runs"],
-                            "recent_commits": [
-                                {"sha": c["sha"]} for c in overview["recent_commits"]
-                            ],
-                            "branches": [b["name"] for page in overview["branches"] for b in page],
-                        }
-                    ),
-                    self.settings.root,
-                )
-                approved = set(plan.get("selected", []))
-                selected = [task for task in selected if task.issue in approved]
-                store.event(
-                    run,
-                    None,
-                    "plan",
+            plan = agent.run(
+                "planner",
+                json.dumps(
                     {
-                        "selected": [t.issue for t in selected],
-                        "reason": str(plan.get("reason", ""))[:1000],
-                    },
-                )
-            results = []
-            with ThreadPoolExecutor(max_workers=self.settings.max_workers) as pool:
-                futures = [pool.submit(self._task, run, task) for task in selected]
-                for future in as_completed(futures):
-                    results.append(future.result())
-            store.finish(run)
-            return {
-                "run": run,
-                "recovered": recovered,
-                "results": results,
-                "eligible": len(candidates),
-                "configured": len(configured),
-            }
+                        "eligible": [
+                            {
+                                "issue": t.issue,
+                                "title": t.title,
+                                "priority": t.priority,
+                                "paths": sorted(t.paths),
+                                "target": t.target,
+                            }
+                            for t in configured
+                        ],
+                        "selected_by_conflict_rules": [t.issue for t in selected],
+                        "repository": snapshot["repository"],
+                        "open_prs": overview["open_prs"],
+                        "recent_runs": overview["recent_runs"],
+                        "recent_commits": [{"sha": c["sha"]} for c in overview["recent_commits"]],
+                        "branches": [b["name"] for page in overview["branches"] for b in page],
+                    }
+                ),
+                self.settings.root,
+            )
+            approved = set(plan.get("selected", []))
+            selected = [task for task in selected if task.issue in approved]
+            store.event(
+                run,
+                None,
+                "plan",
+                {
+                    "selected": [t.issue for t in selected],
+                    "reason": str(plan.get("reason", ""))[:1000],
+                },
+            )
+        results = []
+        with ThreadPoolExecutor(max_workers=self.settings.max_workers) as pool:
+            futures = [pool.submit(self._task, run, task) for task in selected]
+            for future in as_completed(futures):
+                results.append(future.result())
+        if results:
+            with audit_commands(lambda kind, detail: store.event(run, None, kind, detail)):
+                done = self._daily_done(self.github.snapshot(), label, day)
+            remaining = max(0, self.settings.daily_done_target - len(done))
+        store.finish(run)
+        return {
+            "run": run,
+            "recovered": recovered,
+            "results": results,
+            "eligible": len(candidates),
+            "configured": len(configured),
+            "view": snapshot["view"],
+            "daily_done_target": self.settings.daily_done_target,
+            "done_today": done,
+            "remaining_to_target": remaining,
+        }
+
+    def _daily_done(self, snapshot: dict, label: str, day: str) -> list[int]:
+        midnight = datetime.combine(
+            date.fromisoformat(day), time.min, ZoneInfo(self.settings.timezone)
+        )
+        since = midnight.astimezone(UTC).date().isoformat()
+        return completed_today(
+            snapshot,
+            self.github.closed_issues_since(since, label),
+            label,
+            day,
+            self.settings.timezone,
+        )
 
     def _recover(self, store: Store) -> list[dict]:
         results = []
         for task in store.pending():
-            if task["phase"] == "ci_wait" and task["pr"]:
+            if task["phase"] in {"ci_wait", "ready", "merged_unreconciled"} and task["pr"]:
                 with audit_commands(
                     lambda kind, detail, run_id=task["run_id"], issue_id=task["issue"]: store.event(
                         run_id, issue_id, kind, detail
@@ -153,9 +198,9 @@ class Engine:
             with self.mutation_lock:
                 branch, worktree = self.github.prepare_worktree(task.issue, run)
                 store.add_task(run, task.issue, task.target, branch, worktree)
-                owner = self.github.login()
+                claim_actor = self.github.login()
                 self.github.transition(
-                    task.target, task.issue, "claim", {"owner": owner, "branch": branch}
+                    task.target, task.issue, "claim", {"owner": claim_actor, "branch": branch}
                 )
                 fresh = self.github.snapshot()
             claimed = next(
@@ -299,7 +344,10 @@ class Engine:
                             ]
                         },
                     )
-                    reviewers = self.github.request_reviewers(worktree, pr, owner)
+                    reviewer_owner = (
+                        None if self.settings.auto_merge else self.settings.repository.split("/")[0]
+                    )
+                    reviewers = self.github.request_reviewers(worktree, pr, reviewer_owner)
                     self.github.record_reviewers(pr, reviewers)
                 store.event(run, task.issue, "reviewer_requests", reviewers)
                 store.phase(run, task.issue, "ci_wait")
@@ -383,8 +431,6 @@ class Engine:
         return results
 
     def _setup(self, worktree: Path, store: Store, run: str, issue: int) -> None:
-        if (worktree / "caliber/.venv/bin/python").exists():
-            return
         for item in self.settings.setup_commands:
             args = shlex.split(item)
             if not args or any(token in {";", "&&", "|", ">"} for token in args):
@@ -450,7 +496,7 @@ class Engine:
         files = "\n".join(f"- `{path}`" for path in changed)
         return f"""## Summary
 
-Implements #{task.issue}: {task.title}. The live Project issue supplies the complete acceptance contract. This PR keeps the owner as final merger.
+Implements #{task.issue}: {task.title}. The live Project issue supplies the complete acceptance contract. The coordinator may merge this PR after all required gates pass.
 
 Goal and motivation: {task.title}
 
@@ -464,7 +510,7 @@ Changed files:
 
 Design decisions: {developer.get("decisions", "Followed the issue contract and repository policy.")}
 
-Candidate: `{head}`. Closes #{task.issue} after owner merge.
+Candidate: `{head}`. Closes #{task.issue} after a guarded merge.
 
 ## Tests and validation
 
@@ -495,7 +541,7 @@ Documentation: {developer.get("documentation", "See changed files.")}
 
 Deployment: {developer.get("deployment", "No deployment performed by this workflow.")}
 
-The owner controls final merge.
+The coordinator verifies the exact head, branch protection, merge commit on main, issue closure and Project Done state before recording completion.
 
 ## Copilot handoff
 
@@ -521,13 +567,24 @@ The owner controls final merge.
                     failure="PR head or branch changed after review/QA; revalidate the new candidate",
                 )
                 return {"issue": issue, "status": "blocked_changed_head", "pr": state["url"]}
-            if state.get("isDraft") is False and store.task(run, issue)["phase"] == "ready":
+            if state.get("state") == "MERGED":
+                return self._reconcile_merged(store, run, issue, pr, state)
+            if state.get("state") != "OPEN":
+                store.phase(run, issue, "blocked", failure="PR closed without a verified merge")
+                return {"issue": issue, "status": "blocked_closed_pr", "pr": state["url"]}
+            if (
+                not self.settings.auto_merge
+                and state.get("isDraft") is False
+                and store.task(run, issue)["phase"] == "ready"
+            ):
                 return {"issue": issue, "status": "ready", "pr": state["url"]}
             owner = self.settings.repository.split("/")[0]
             author = state.get("author", {}).get("login", "")
             checks = self.github.required_checks(pr, state)
             unresolved = self.github.unresolved_threads(pr)
-            ready, reasons = pr_ready(state, checks, unresolved, owner, author)
+            ready, reasons = pr_ready(
+                state, checks, unresolved, owner, author, require_owner=not self.settings.auto_merge
+            )
             store.event(
                 run,
                 issue,
@@ -546,8 +603,61 @@ The owner controls final merge.
                         ["gh", "pr", "ready", str(pr), "--repo", self.settings.repository],
                         self.settings.root,
                     )
-                store.phase(run, issue, "ready")
-                return {"issue": issue, "status": "ready_for_owner", "pr": state["url"]}
+                    if not self.settings.auto_merge:
+                        store.phase(run, issue, "ready")
+                        return {"issue": issue, "status": "ready_for_owner", "pr": state["url"]}
+                    return {"issue": issue, "status": "waiting_for_merge", "pr": state["url"]}
+                if not self.settings.auto_merge:
+                    store.phase(run, issue, "ready")
+                    return {"issue": issue, "status": "ready_for_owner", "pr": state["url"]}
+                with self.mutation_lock:
+                    fresh = self.github.pr_state(pr)
+                    if (
+                        fresh.get("state") != "OPEN"
+                        or fresh["headRefOid"] != expected
+                        or fresh["baseRefName"] != self.settings.base_branch
+                        or fresh["headRefName"] != task["branch"]
+                    ):
+                        return {
+                            "issue": issue,
+                            "status": "waiting_for_revalidation",
+                            "pr": state["url"],
+                        }
+                    fresh_checks = self.github.required_checks(pr, fresh)
+                    fresh_unresolved = self.github.unresolved_threads(pr)
+                    merge_ready, merge_reasons = pr_ready(
+                        fresh,
+                        fresh_checks,
+                        fresh_unresolved,
+                        owner,
+                        fresh.get("author", {}).get("login", ""),
+                        require_owner=False,
+                    )
+                    if not merge_ready or fresh.get("isDraft"):
+                        return {
+                            "issue": issue,
+                            "status": "waiting_for_revalidation",
+                            "pr": state["url"],
+                            "reasons": merge_reasons,
+                        }
+                    if not self.github.branch_up_to_date(expected):
+                        store.event(
+                            run,
+                            issue,
+                            "base_moved",
+                            {"head": expected, "base": self.settings.base_branch},
+                        )
+                        return {
+                            "issue": issue,
+                            "status": "waiting_for_revalidation",
+                            "pr": state["url"],
+                            "reasons": ["base branch advanced; rebase and rerun review/QA"],
+                        }
+                    self.github.merge_pr(pr, expected)
+                merged = self.github.pr_state(pr)
+                if merged.get("state") == "MERGED":
+                    return self._reconcile_merged(store, run, issue, pr, merged)
+                return {"issue": issue, "status": "waiting_for_merge_queue", "pr": state["url"]}
             bad_checks = [row for row in checks if row["state"] in {"FAIL", "SKIPPING"}]
             changes_requested = any(
                 review.get("state") == "CHANGES_REQUESTED"
@@ -584,3 +694,71 @@ The owner controls final merge.
         except Exception as error:  # noqa: BLE001 - preserve PR wait state and diagnostics
             store.event(run, issue, "pr_check_error", str(error)[:500])
             return {"issue": issue, "status": "pr_check_error", "error": str(error)[:500]}
+
+    def _reconcile_merged(self, store: Store, run: str, issue: int, pr: int, state: dict) -> dict:
+        task = store.task(run, issue)
+        store.phase(run, issue, "merged_unreconciled")
+        merge_oid = (state.get("mergeCommit") or {}).get("oid", "")
+        self.github.verify_merged_on_main(merge_oid)
+        snapshot = self.github.snapshot()
+        item = next(
+            (
+                row
+                for row in snapshot["items"]
+                if row.get("issue") and row["issue"]["number"] == issue
+            ),
+            None,
+        )
+        if not item:
+            raise RuntimeError("Merged issue is missing from Project")
+        if item["issue"]["state"] == "OPEN":
+            self.github.close_issue(issue)
+            snapshot = self.github.snapshot()
+            item = next(
+                (
+                    row
+                    for row in snapshot["items"]
+                    if row.get("issue") and row["issue"]["number"] == issue
+                ),
+                None,
+            )
+        if (
+            not item
+            or item["issue"]["state"] != "CLOSED"
+            or item["issue"].get("stateReason") != "COMPLETED"
+        ):
+            raise RuntimeError("Merged issue has not closed as COMPLETED")
+        if item["fields"].get("Status") != "Done" or item["fields"].get("Readiness") != "Done":
+            self.github.transition(
+                task["target"],
+                issue,
+                "done",
+                {
+                    "evidence": [
+                        f"PR #{pr} merged at {state.get('mergedAt')}; main commit {merge_oid}; required checks passed at head {task['head']}"
+                    ]
+                },
+            )
+            snapshot = self.github.snapshot()
+            item = next(
+                (
+                    row
+                    for row in snapshot["items"]
+                    if row.get("issue") and row["issue"]["number"] == issue
+                ),
+                None,
+            )
+        if (
+            not item
+            or item["fields"].get("Status") != "Done"
+            or item["fields"].get("Readiness") != "Done"
+        ):
+            raise RuntimeError("Project Done transition did not persist")
+        store.event(run, issue, "merged_done", {"pr": pr, "merge_commit": merge_oid})
+        store.phase(run, issue, "done")
+        return {
+            "issue": issue,
+            "status": "merged_done",
+            "pr": state["url"],
+            "merge_commit": merge_oid,
+        }
