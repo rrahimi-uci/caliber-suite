@@ -736,6 +736,8 @@ def test_standard_coverage_fallback_measures_changed_python(settings, tmp_path, 
     rows = engine._checks(821, tmp_path, ["caliber/src/caliber/example.py"])
     assert len(rows) == 1 and rows[0]["passed"]
     assert "caliber/tests" in seen[0]
+    assert seen[0][seen[0].index("-n") + 1] == "4"
+    assert seen[0][seen[0].index("--dist") + 1] == "loadgroup"
     assert "caliber/src/caliber/example.py=100.00%" in rows[0]["coverage"]
 
 
@@ -804,6 +806,36 @@ def test_ci_parity_skip_fails_qa(settings, tmp_path: Path, monkeypatch):
     monkeypatch.setattr("autocd.engine.subprocess.run", lambda *a, **k: Proc())
     row = Engine(settings2)._checks(12, tmp_path, [])[0]
     assert row["passed"] is False and "skipped" in row["output"]
+
+
+def test_qa_timeout_records_duration_without_worker_command_line(
+    settings, tmp_path: Path, monkeypatch
+):
+    def timeout(args, **kwargs):
+        assert kwargs["timeout"] == settings.qa_command_timeout_seconds
+        raise subprocess.TimeoutExpired(args, kwargs["timeout"])
+
+    monkeypatch.setattr("autocd.engine.subprocess.run", timeout)
+    engine = Engine(replace(settings, base_checks=("scripts/ci-local.sh test-smoke",)))
+    row = engine._checks(12, tmp_path, [])[0]
+    assert row == {
+        "command": "scripts/ci-local.sh test-smoke",
+        "passed": False,
+        "output": "QA command timed out after 7200 seconds",
+    }
+
+
+def test_test_only_backend_change_still_runs_full_suite(settings, tmp_path: Path, monkeypatch):
+    class Proc:
+        returncode = 0
+        stdout = "PASS  test\n"
+        stderr = ""
+
+    monkeypatch.setattr("autocd.engine.subprocess.run", lambda *args, **kwargs: Proc())
+    engine = Engine(replace(settings, base_checks=(), issue_checks={}))
+    result = engine._checks(12, tmp_path, ["caliber/tests/test_verification.py"])
+    assert [row["command"] for row in result] == ["scripts/ci-local.sh test"]
+    assert result[0]["passed"] is True
 
 
 def test_scheduled_disabled_and_deduplicated(settings, snapshot, monkeypatch):

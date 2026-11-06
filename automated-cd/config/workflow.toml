@@ -16,6 +16,8 @@ auto_merge = true
 max_review_cycles = 3
 agent_timeout_seconds = 3600
 stall_seconds = 900
+# The full changed-code coverage suite can exceed one hour on hosted runners.
+qa_command_timeout_seconds = 7200
 ci_timeout_seconds = 43200
 allow_overlapping_runs = false
 # GitHub-hosted runner sets this to an unprivileged account for model and QA work.
@@ -37,7 +39,7 @@ max_output_tokens = 0
 # Commands run in each isolated task worktree. Add task-specific commands via
 # issue_checks below; no command is silently skipped after it is selected.
 setup = ["uv venv --seed caliber/.venv --python 3.11", "caliber/.venv/bin/python -m pip --version", "uv pip install --python caliber/.venv/bin/python -e caliber[dev,postgres,ingest,ocr,llm,knowledge,dspy,knowledge-local,memory]"]
-base = ["git diff --check", "node .agents/bin/check.mjs", "scripts/ci-local.sh docs-validation lint type-check test"]
+base = ["git diff --check", "node .agents/bin/check.mjs", "scripts/ci-local.sh docs-validation lint type-check test-smoke"]
 # This repository's gate ledger fails when an applicable required job was
 # skipped. Branch protection currently does not enumerate all policy gates.
 required = ["Gate execution ledger"]
@@ -45,7 +47,7 @@ required = ["Gate execution ledger"]
 [issue_checks]
 # The verification provenance task adds an Alembic migration, which is outside
 # the standard source-path fallback. Full PostgreSQL parity runs in PR CI.
-"821" = ["scripts/ci-local.sh backend-core"]
+"821" = ["caliber/.venv/bin/python -m pytest caliber/tests/test_routes_verification_queue.py caliber/tests/test_migrations.py --no-cov -q", "scripts/ci-local.sh backend-core"]
 # "123" = ["python -m pytest path/to/affected/tests -q"]
 
 [issue_paths]

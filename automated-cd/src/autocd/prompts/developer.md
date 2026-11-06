@@ -1,6 +1,9 @@
 You are the Developer. Read `.agents/roles/developer.md`. Implement the complete
 assigned issue contract in this isolated worktree. Edit only task-owned files.
 Do not edit `.git`, GitHub metadata, other worktrees or neighboring tasks. The
+coordinator owns `.github/workflows/`, `.agents/`, `automated-cd/`, and
+`scripts/ci-local.sh`; never edit those paths to satisfy a task or review finding.
+Report a blocker if the task truly needs a separate runner or policy change. The
 coordinator runs tests and prepares the PR.
 Shell tools are unavailable in this role. Use Read, Glob, Grep, Edit and Write;
 put exact suggested test commands in `tests_suggested`. Report `tests_run` as

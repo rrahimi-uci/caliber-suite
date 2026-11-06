@@ -69,7 +69,16 @@ Example issue configuration:
 ```
 
 Use an actual issue contract and executable checks. The base checks run the
-repository's docs, lint, type and backend CI parity as an isolated task user.
+repository's docs, lint, type and backend smoke CI parity as an isolated task
+user. Changed production Python also triggers the full backend suite with
+measured coverage unless an issue-specific coverage command is configured. The
+fallback uses four pytest-xdist workers and the repository's load-group
+serialization, matching the full-suite CI topology with a bounded worker count.
+The selected local checks, including full backend coverage for changed
+production Python, must pass before a PR is published. The coordinator verifies
+the candidate snapshot remains unchanged when it publishes the PR. Required
+exact-head PR CI remains the merge gate. The full backend CI job runs after a
+main push; it is not a PR-head gate. A pending PR-only job is never a pass.
 PostgreSQL scenario and other container-backed gates run in PR CI without the
 coordinator secrets. Add SDK, UI, migration, packaging or other affected
 checks to the issue list when they can run without host Docker access.
@@ -83,9 +92,13 @@ Generated site files require UI parity as well as docs validation. The GitHub
 runner provides Docker/PostgreSQL to its separate PR CI jobs. A
 `ci-local.sh` SKIP is treated as an unexecuted required gate even if the
 script exits zero.
-Issue #821 also runs the backend core check because its migration is outside
-the coordinator's standard source-path fallback; PostgreSQL migration parity
-remains a required check on its PR.
+Issue #821 also runs its focused route/migration regressions and the backend
+core check because it changes verification contracts and a nonstandard
+changelog path. The PostgreSQL PR job will select #821's planned, named
+two-session verification transition test from `test_routes_verification_queue.py`.
+The default per-command local QA timeout is 7,200 seconds and is configurable
+with `AUTOCD_QA_COMMAND_TIMEOUT_SECONDS`; timeout evidence records the duration
+without exposing the isolated worker's command line.
 Each command executes with an argument vector, never through a shell; shell
 operators are rejected. For changed production Python files, the orchestrator
 uses a configured coverage command or runs the full backend suite with coverage.

@@ -16,7 +16,14 @@ def test_defaults_and_environment(settings):
     setup = load().setup_commands
     assert "--seed" in shlex.split(setup[0])
     assert shlex.split(setup[1]) == ["caliber/.venv/bin/python", "-m", "pip", "--version"]
-    assert load().issue_checks[821] == ("scripts/ci-local.sh backend-core",)
+    assert load().qa_command_timeout_seconds == 7200
+    assert (
+        load().base_checks[-1] == "scripts/ci-local.sh docs-validation lint type-check test-smoke"
+    )
+    assert load().issue_checks[821] == (
+        "caliber/.venv/bin/python -m pytest caliber/tests/test_routes_verification_queue.py caliber/tests/test_migrations.py --no-cov -q",
+        "scripts/ci-local.sh backend-core",
+    )
     assert settings.provider == "claude_cli"
     assert settings.max_workers == 2
     changed = load(environ={"AUTOCD_ENABLED": "true", "AUTOCD_DAILY_TIME": "23:30"})
@@ -43,6 +50,8 @@ def test_defaults_and_environment(settings):
         {"AUTOCD_WORKER_USER": "bad;user"},
         {"AUTOCD_STALL_SECONDS": "999999"},
         {"AUTOCD_CI_TIMEOUT_SECONDS": "2"},
+        {"AUTOCD_QA_COMMAND_TIMEOUT_SECONDS": "59"},
+        {"AUTOCD_QA_COMMAND_TIMEOUT_SECONDS": "14401"},
     ],
 )
 def test_invalid_settings_fail_closed(env):
