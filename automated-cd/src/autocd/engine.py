@@ -346,18 +346,11 @@ class Engine:
                 changed = self.github.changed(worktree)
                 if not changed:
                     raise RuntimeError("Developer produced no changed files")
-                protected = [path for path in changed if self._protected_path(path)]
-                if protected and self.settings.auto_merge:
-                    raise RuntimeError(
-                        "Unattended merge cannot change workflow or policy files: "
-                        + ", ".join(protected)
-                    )
-                if task.paths and any(
-                    not self._in_owned_paths(path, task.paths) for path in changed
-                ):
-                    raise RuntimeError(
-                        "Developer changed a path outside the reviewed task ownership"
-                    )
+                self._validate_task_paths(changed, task.paths)
+                if any(self._docs_source_path(path) for path in changed):
+                    self._sync_generated_docs(worktree, store, run, task.issue)
+                    changed = self.github.changed(worktree)
+                    self._validate_task_paths(changed, task.paths)
                 store.event(
                     run,
                     task.issue,
@@ -365,13 +358,17 @@ class Engine:
                     {"changed": changed, "summary": str(developer.get("summary", ""))[:1000]},
                 )
                 store.phase(run, task.issue, "reviewing")
+                candidate_patch = self._diff(worktree)
                 evidence = self._checks(task.issue, worktree, changed)
                 store.event(run, task.issue, "qa_commands", evidence)
-                if self.github.changed(worktree) != changed:
+                if (
+                    self.github.changed(worktree) != changed
+                    or self._diff(worktree) != candidate_patch
+                ):
                     raise RuntimeError(
                         "QA commands changed the candidate; rerun development and review"
                     )
-                reviewed_patch = self._diff(worktree)
+                reviewed_patch = candidate_patch
                 review = agent.run(
                     "reviewer",
                     json.dumps(
@@ -486,6 +483,15 @@ class Engine:
     def _in_owned_paths(path: str, owned: frozenset[str]) -> bool:
         return any(path == item or path.startswith(item.rstrip("/") + "/") for item in owned)
 
+    def _validate_task_paths(self, changed: list[str], owned: frozenset[str]) -> None:
+        protected = [path for path in changed if self._protected_path(path)]
+        if protected and self.settings.auto_merge:
+            raise RuntimeError(
+                "Unattended merge cannot change workflow or policy files: " + ", ".join(protected)
+            )
+        if owned and any(not self._in_owned_paths(path, owned) for path in changed):
+            raise RuntimeError("Developer changed a path outside the reviewed task ownership")
+
     @staticmethod
     def _protected_path(path: str) -> bool:
         return path in {
@@ -498,9 +504,56 @@ class Engine:
     def _standard_check_path(path: str) -> bool:
         if path in {"README.md", "CONTRIBUTING.md", "ARCHITECTURE.md"}:
             return True
+        if Engine._generated_docs_path(path):
+            return True
         if path.startswith(("docs/", "caliber/docs/")) and path.endswith((".md", ".rst")):
             return True
         return path.startswith(("caliber/src/", "caliber/tests/")) and path.endswith(".py")
+
+    @staticmethod
+    def _docs_source_path(path: str) -> bool:
+        return (
+            path == "ARCHITECTURE.md"
+            or (path.startswith("docs/") and path.endswith(".md"))
+            or (path.startswith("caliber/src/caliber/") and path.endswith(".py"))
+            or path.startswith(("sdk/caliber-sdk/", "docs-site/cookbooks/"))
+            or Engine._generated_docs_path(path)
+        )
+
+    @staticmethod
+    def _generated_docs_path(path: str) -> bool:
+        for prefix in ("docs-site/", "caliber/caliber-ui/public/docs/"):
+            if path.startswith(prefix):
+                name = path.removeprefix(prefix)
+                return "/" not in name and (
+                    (name.startswith("m-") and name.endswith((".html", ".md")))
+                    or name in {"docs-nav.js", "search-index.json", "llms.txt"}
+                )
+        return False
+
+    def _sync_generated_docs(self, worktree: Path, store: Store, run: str, issue: int) -> None:
+        """Generate canonical served docs before the candidate is reviewed."""
+        args = ["node", "caliber/caliber-ui/scripts/sync-docs.mjs"]
+        env = untrusted_env()
+        env["CALIBER_DOCS_PYTHON"] = str(worktree / "caliber/.venv/bin/python")
+        env["CALIBER_DOCS_STRICT"] = "1"
+        proc = subprocess.run(
+            self._as_worker(args),
+            cwd=worktree,
+            text=True,
+            capture_output=True,
+            check=False,
+            timeout=600,
+            env=env,
+        )
+        store.event(
+            run,
+            issue,
+            "docs_sync",
+            {"exit_code": proc.returncode, "output": (proc.stdout + proc.stderr)[-1000:]},
+        )
+        if proc.returncode:
+            raise RuntimeError(f"Documentation sync failed (exit {proc.returncode})")
 
     def _checks(self, issue: int, worktree: Path, changed: list[str]) -> list[dict]:
         issue_commands = self.settings.issue_checks.get(issue, ())
@@ -515,6 +568,10 @@ class Engine:
                 }
             ]
         commands = [*self.settings.base_checks, *issue_commands]
+        if any(self._generated_docs_path(path) for path in changed):
+            ui_check = "scripts/ci-local.sh ui"
+            if ui_check not in commands:
+                commands.append(ui_check)
         changed_python = any(
             path.endswith(".py")
             and "tests" not in Path(path).parts

@@ -194,6 +194,110 @@ def test_engine_review_qa_pr_lifecycle(settings, snapshot, monkeypatch):
     assert len(list(store.db.execute("SELECT * FROM events WHERE kind='review_cycle'"))) == 2
 
 
+def test_docs_sync_is_included_before_qa_and_review(settings, snapshot, monkeypatch):
+    data, _ = snapshot
+    settings = replace(settings, issue_paths={})
+    github = FakeGitHub(settings, data)
+    generated = False
+
+    def changed(worktree):
+        paths = ["docs/api/reference.md"]
+        if generated:
+            paths.append("docs-site/m-29-rest-api-reference.html")
+        return paths
+
+    github.changed = changed
+
+    class ApprovingAgent(FakeAgent):
+        def run(self, role, prompt, cwd, editable=False):
+            if role == "reviewer":
+                assert "docs-site/m-29-rest-api-reference.html" in json.loads(prompt)["changed"]
+                return {"approved": True, "findings": []}
+            return super().run(role, prompt, cwd, editable)
+
+    engine = Engine(settings, github=github, agent_factory=ApprovingAgent)
+
+    def sync(worktree, store, run, issue):
+        nonlocal generated
+        generated = True
+
+    monkeypatch.setattr(engine, "_sync_generated_docs", sync)
+    monkeypatch.setattr(engine, "_diff", lambda worktree: "reviewed generated diff")
+    monkeypatch.setattr(
+        engine,
+        "_checks",
+        lambda issue, worktree, paths: [
+            {"command": "docs and ui", "passed": "docs-site/m-29-rest-api-reference.html" in paths}
+        ],
+    )
+    result = engine.run()
+    assert result["results"][0]["status"] == "waiting_for_ci_or_review"
+    assert github.created
+
+
+def test_generated_docs_still_obey_reviewed_path_ownership(settings, snapshot, monkeypatch):
+    data, _ = snapshot
+    settings = replace(settings, issue_paths={12: frozenset({"docs/api/reference.md"})})
+    github = FakeGitHub(settings, data)
+    generated = False
+
+    def changed(worktree):
+        return ["docs/api/reference.md"] + (
+            ["docs-site/m-29-rest-api-reference.html"] if generated else []
+        )
+
+    github.changed = changed
+    engine = Engine(settings, github=github, agent_factory=FakeAgent)
+
+    def sync(worktree, store, run, issue):
+        nonlocal generated
+        generated = True
+
+    monkeypatch.setattr(engine, "_sync_generated_docs", sync)
+    monkeypatch.setattr(engine, "_checks", lambda *args: pytest.fail("QA must not run"))
+    result = engine.run()
+    assert result["results"][0]["status"] == "blocked"
+    assert "outside the reviewed task ownership" in result["results"][0]["error"]
+    assert github.created == []
+
+
+def test_qa_patch_mutation_blocks_before_review(settings, snapshot, monkeypatch):
+    data, _ = snapshot
+    github = FakeGitHub(settings, data)
+    engine = Engine(settings, github=github, agent_factory=FakeAgent)
+    patches = iter(("candidate before QA", "candidate after QA"))
+    monkeypatch.setattr(engine, "_diff", lambda worktree: next(patches))
+    monkeypatch.setattr(engine, "_checks", lambda *args: [{"command": "qa", "passed": True}])
+    result = engine.run()
+    assert result["results"][0]["status"] == "blocked"
+    assert "QA commands changed" in result["results"][0]["error"]
+    assert github.created == []
+
+
+def test_docs_sync_has_no_credentials_and_records_failure(settings, tmp_path, monkeypatch):
+    engine = Engine(settings)
+    store = Store(settings.state_dir)
+    assert store.start("run")
+    monkeypatch.setenv("GH_TOKEN", "private-project-token")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "private-model-key")
+    captured = []
+
+    def run(args, **kwargs):
+        captured.append((args, kwargs))
+        return subprocess.CompletedProcess(args, 1, "", "generation failed")
+
+    monkeypatch.setattr("autocd.engine.subprocess.run", run)
+    with pytest.raises(RuntimeError, match="Documentation sync failed"):
+        engine._sync_generated_docs(tmp_path, store, "run", 821)
+    args, kwargs = captured[0]
+    assert args == ["node", "caliber/caliber-ui/scripts/sync-docs.mjs"]
+    assert kwargs["env"]["CALIBER_DOCS_STRICT"] == "1"
+    assert kwargs["env"]["CALIBER_DOCS_PYTHON"] == str(tmp_path / "caliber/.venv/bin/python")
+    assert "GH_TOKEN" not in kwargs["env"]
+    assert "ANTHROPIC_API_KEY" not in kwargs["env"]
+    assert store.db.execute("SELECT detail FROM events WHERE kind='docs_sync'").fetchone()
+
+
 def test_unattended_task_cannot_publish_policy_changes(settings, snapshot, monkeypatch):
     data, _ = snapshot
     settings = replace(settings, auto_merge=True)
@@ -551,6 +655,37 @@ def test_checks_use_standard_fallback_or_fail_missing_executable(settings, tmp_p
         )
         assert not blocked[0]["passed"] and "Issue-specific" in blocked[0]["output"]
     assert not Engine._standard_check_path("sdk/python/client.py")
+    for path in (
+        "docs-site/m-29-rest-api-reference.html",
+        "docs-site/m-29-rest-api-reference.md",
+        "docs-site/docs-nav.js",
+        "docs-site/search-index.json",
+        "docs-site/llms.txt",
+        "caliber/caliber-ui/public/docs/m-29-rest-api-reference.html",
+    ):
+        assert Engine._generated_docs_path(path)
+        assert Engine._standard_check_path(path)
+    for path in ("docs-site/build-docs.mjs", "docs-site/index.html", "docs-site/cookbooks/a.md"):
+        assert not Engine._standard_check_path(path)
+    assert Engine._docs_source_path("sdk/caliber-sdk/src/caliber_sdk/client.py")
+    assert Engine._docs_source_path("sdk/caliber-sdk/coverage_allowlist.toml")
+    assert Engine._docs_source_path("docs-site/cookbooks/01-prompt-regression-lab/build.yaml")
+    assert not Engine._docs_source_path("sdk/caliber-plugin-sdk/src/plugin.py")
+
+
+def test_generated_docs_require_ui_parity(settings, tmp_path, monkeypatch):
+    called = []
+
+    def run(args, **kwargs):
+        called.append(args)
+        return subprocess.CompletedProcess(args, 0, "PASS ui", "")
+
+    monkeypatch.setattr("autocd.engine.subprocess.run", run)
+    engine = Engine(replace(settings, base_checks=(), issue_checks={}))
+    result = engine._checks(821, tmp_path, ["docs-site/m-29-rest-api-reference.html"])
+    assert [row["command"] for row in result] == ["scripts/ci-local.sh ui"]
+    assert result[0]["passed"]
+    assert called == [["scripts/ci-local.sh", "ui"]]
 
 
 def test_standard_coverage_fallback_measures_changed_python(settings, tmp_path, monkeypatch):
