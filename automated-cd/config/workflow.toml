@@ -43,6 +43,9 @@ base = ["git diff --check", "node .agents/bin/check.mjs", "scripts/ci-local.sh d
 required = ["Gate execution ledger"]
 
 [issue_checks]
+# The verification provenance task adds an Alembic migration, which is outside
+# the standard source-path fallback. Full PostgreSQL parity runs in PR CI.
+"821" = ["scripts/ci-local.sh backend-core"]
 # "123" = ["python -m pytest path/to/affected/tests -q"]
 
 [issue_paths]
