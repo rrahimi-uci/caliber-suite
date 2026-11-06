@@ -48,9 +48,11 @@ use fakes and make no model or GitHub calls.
    `automated-cd`, and other policy files stop before an unattended PR merge.
    UI, SDK, shell, configuration and other unsupported component changes
    require explicit issue-specific commands; the coordinator fails QA if they
-   are absent. The checked-in `max_tasks_per_run=6` also caps daily attempts
-   across scheduled and manual runs, so failed attempts reduce that day's
-   possible Done count.
+   are absent. Root `ARCHITECTURE.md` uses the standard docs checks; other root
+   Markdown files still require explicit checks unless already allowlisted.
+   The checked-in `max_tasks_per_run=6` also caps daily
+   attempts across scheduled and manual runs, so failed attempts reduce that
+   day's possible Done count.
 4. Run **Automated CD execution** with `workflow_dispatch` in GitHub Actions
    to start immediately, or let the daily schedule start it. The Actions log
    records the plan, task results and PR monitoring. Set `enabled=false` to
