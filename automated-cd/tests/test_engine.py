@@ -806,6 +806,36 @@ def test_ci_parity_skip_fails_qa(settings, tmp_path: Path, monkeypatch):
     assert row["passed"] is False and "skipped" in row["output"]
 
 
+def test_qa_timeout_records_duration_without_worker_command_line(
+    settings, tmp_path: Path, monkeypatch
+):
+    def timeout(args, **kwargs):
+        assert kwargs["timeout"] == settings.qa_command_timeout_seconds
+        raise subprocess.TimeoutExpired(args, kwargs["timeout"])
+
+    monkeypatch.setattr("autocd.engine.subprocess.run", timeout)
+    engine = Engine(replace(settings, base_checks=("scripts/ci-local.sh test-smoke",)))
+    row = engine._checks(12, tmp_path, [])[0]
+    assert row == {
+        "command": "scripts/ci-local.sh test-smoke",
+        "passed": False,
+        "output": "QA command timed out after 7200 seconds",
+    }
+
+
+def test_test_only_backend_change_still_runs_full_suite(settings, tmp_path: Path, monkeypatch):
+    class Proc:
+        returncode = 0
+        stdout = "PASS  test\n"
+        stderr = ""
+
+    monkeypatch.setattr("autocd.engine.subprocess.run", lambda *args, **kwargs: Proc())
+    engine = Engine(replace(settings, base_checks=(), issue_checks={}))
+    result = engine._checks(12, tmp_path, ["caliber/tests/test_verification.py"])
+    assert [row["command"] for row in result] == ["scripts/ci-local.sh test"]
+    assert result[0]["passed"] is True
+
+
 def test_scheduled_disabled_and_deduplicated(settings, snapshot, monkeypatch):
     data, _ = snapshot
     github = FakeGitHub(settings, data)

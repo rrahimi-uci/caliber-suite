@@ -629,6 +629,15 @@ class Engine:
             and (worktree / path).is_file()
             for path in changed
         )
+        changed_backend_tests = any(
+            path.startswith("caliber/tests/") and path.endswith(".py") for path in changed
+        )
+        if (
+            changed_backend_tests
+            and not changed_python
+            and "scripts/ci-local.sh test" not in commands
+        ):
+            commands.append("scripts/ci-local.sh test")
         automatic_coverage = (
             "caliber/.venv/bin/python -m pytest caliber/tests --cov=caliber --cov-branch -q"
         )
@@ -655,7 +664,7 @@ class Engine:
                         text=True,
                         capture_output=True,
                         check=False,
-                        timeout=3600,
+                        timeout=self.settings.qa_command_timeout_seconds,
                         env=untrusted_env(),
                     )
                     coverage = (
@@ -681,7 +690,18 @@ class Engine:
                     if not coverage["passed"]:
                         results[-1]["passed"] = False
                         results[-1]["output"] += "\n" + coverage["reason"]
-            except (OSError, subprocess.TimeoutExpired) as error:
+            except subprocess.TimeoutExpired:
+                results.append(
+                    {
+                        "command": item,
+                        "passed": False,
+                        "output": (
+                            "QA command timed out after "
+                            f"{self.settings.qa_command_timeout_seconds} seconds"
+                        ),
+                    }
+                )
+            except OSError as error:
                 results.append({"command": item, "passed": False, "output": str(error)[:500]})
             if not results[-1]["passed"]:
                 break
