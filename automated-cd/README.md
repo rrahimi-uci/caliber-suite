@@ -98,7 +98,16 @@ uploads the state database; a later run resumes PR reconciliation. After each
 completed PR, the runner selects another eligible task until the target, backlog
 or runner time limit is reached. Manual
 `workflow_dispatch` uses the same guarded engine. `caliber-autocd plan` is
-still available for read-only local diagnosis, but production starts in GitHub.
+still available for diagnosis without task or Project mutation, but production
+starts in GitHub.
+The preflight plan reads restored state: `eligible` and `selected` exclude
+prior blocked issues and today's attempted issues, and `remaining_attempts`
+reflects the daily cap. `requires_explicit_retry` identifies Ready issues that
+need a guarded manual dispatch with `retry_issue` after claim/branch/PR
+reconciliation. The plan never authorizes a retry by itself.
+If `pending_tasks` is nonzero, the plan conservatively selects nothing until
+the execution engine reconciles those tasks. The plan does not perform that
+recovery step.
 
 ## State and safety
 
