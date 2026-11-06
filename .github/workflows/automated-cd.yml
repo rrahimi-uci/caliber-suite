@@ -1,0 +1,46 @@
+name: Automated CD validation
+
+on:
+  pull_request:
+    paths:
+      - automated-cd/**
+      - .github/workflows/automated-cd.yml
+  push:
+    branches: [main]
+    paths:
+      - automated-cd/**
+      - .github/workflows/automated-cd.yml
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Automated CD tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.11'
+      - name: Install test dependencies
+        run: python -m pip install -e './automated-cd[test]'
+      - name: Lint and format
+        run: |
+          ruff check automated-cd/src automated-cd/tests
+          ruff format --check automated-cd/src automated-cd/tests
+      - name: Test orchestration
+        run: python -m pytest automated-cd/tests --cov=autocd --cov-branch --cov-report=term-missing --cov-fail-under=95 -q
+      - name: Build and inspect wheel
+        run: |
+          python -m build automated-cd --outdir /tmp/autocd-dist
+          python - <<'PY'
+          from pathlib import Path
+          from zipfile import ZipFile
+          wheel = next(Path('/tmp/autocd-dist').glob('*.whl'))
+          with ZipFile(wheel) as archive:
+              names = set(archive.namelist())
+          required = {f'autocd/prompts/{role}.md' for role in ('planner', 'developer', 'reviewer', 'qa')}
+          if not required.issubset(names):
+              raise SystemExit(f'wheel missing prompts: {sorted(required - names)}')
+          PY
