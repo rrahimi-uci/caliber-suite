@@ -1,0 +1,40 @@
+[workflow]
+enabled = false
+repository = "rrahimi-uci/caliber-suite"
+base_branch = "main"
+daily_time = "09:00"
+timezone = "America/Los_Angeles"
+max_tasks_per_run = 1
+max_workers = 2
+max_review_cycles = 3
+agent_timeout_seconds = 3600
+stall_seconds = 900
+allow_overlapping_runs = false
+# Empty means any eligible Ready task. Set to issue numbers to restrict unattended work.
+issue_allowlist = []
+
+[model]
+provider = "claude_cli"
+# The Sonnet alias selects the installed Claude Code CLI's current Sonnet. Pin a
+# specific model ID here after verifying that it is available in the host account.
+name = "sonnet"
+reasoning = "high"
+max_budget_usd = 10.0
+temperature = "default"
+max_output_tokens = 0
+
+[checks]
+# Commands run in each isolated task worktree. Add task-specific commands via
+# issue_checks below; no command is silently skipped after it is selected.
+setup = ["uv venv caliber/.venv --python 3.11", "uv pip install --python caliber/.venv/bin/python -e caliber[dev,postgres,ingest,ocr,llm,knowledge,dspy,knowledge-local,memory]"]
+base = ["git diff --check", "node .agents/bin/check.mjs", "scripts/ci-local.sh docs-validation lint type-check test egi-scenarios-postgres"]
+# This repository's gate ledger fails when an applicable required job was
+# skipped. Branch protection currently does not enumerate all policy gates.
+required = ["Gate execution ledger"]
+
+[issue_checks]
+# "123" = ["python -m pytest path/to/affected/tests -q"]
+
+[issue_paths]
+# Only reviewed, disjoint path ownership enables parallel execution.
+# "123" = ["caliber/src/caliber/example.py", "caliber/tests/test_example.py"]
