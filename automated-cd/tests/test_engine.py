@@ -32,6 +32,10 @@ class FakeGitHub:
         self.review_decision = ""
         self.up_to_date = True
         self.worktree = settings.state_dir / "fake-worktree"
+        self.remote_branches = set()
+
+    def remote_branch_exists(self, branch):
+        return branch in self.remote_branches
 
     def snapshot(self):
         return self.data
@@ -235,7 +239,7 @@ def test_ready_task_uses_standard_checks_without_issue_override(settings, snapsh
     data, _ = snapshot
     settings = replace(settings, issue_checks={})
     engine = Engine(settings, github=FakeGitHub(settings, data), agent_factory=FakeAgent)
-    engine._task = lambda run, task: {"issue": task.issue, "status": "queued"}
+    engine._task = lambda run, task, retry_branch=None: {"issue": task.issue, "status": "queued"}
     result = engine.run()
     assert result["eligible"] == 3 and result["configured"] == 0
     assert result["selected"] == [12]
@@ -259,6 +263,71 @@ def test_prior_blocked_issue_is_excluded_from_future_run(settings, snapshot):
     engine._task = lambda run, task: {"issue": task.issue, "status": "queued"}
     result = engine.run()
     assert result["selected"] == [13]
+
+
+def test_explicit_retry_requires_ready_unclaimed_issue_and_absent_remote_branch(settings, snapshot):
+    data, _ = snapshot
+    store = Store(settings.state_dir)
+    assert store.start("prior")
+    store.add_task("prior", 12, "release:Beta", "old-branch", settings.state_dir / "old")
+    store.phase("prior", 12, "blocked", failure="reviewer JSON")
+    github = FakeGitHub(settings, data)
+    engine = Engine(settings, github=github, agent_factory=FakeAgent)
+    engine._task = lambda run, task, retry_branch=None: {"issue": task.issue, "status": "queued"}
+    result = engine.run(retry_issue=12)
+    assert result["selected"] == [12]
+    assert result["results"] == [{"issue": 12, "status": "queued"}]
+    assert store.db.execute("SELECT kind FROM events WHERE kind='retry_authorized'").fetchone()
+
+    github.overview = lambda: {
+        "open_prs": [],
+        "recent_runs": [],
+        "recent_commits": [],
+        "branches": [[{"name": "old-branch"}]],
+    }
+    with pytest.raises(RuntimeError, match="absent remote branch"):
+        engine.run(retry_issue=12)
+    github.overview = FakeGitHub.overview.__get__(github)
+    data["items"][0]["fields"]["Readiness"] = "Blocked"
+    with pytest.raises(RuntimeError, match="freshly Ready"):
+        engine.run(retry_issue=12)
+    with pytest.raises(ValueError, match="manual run"):
+        engine.run(scheduled=True, retry_issue=12)
+
+
+def test_retry_respects_daily_attempt_cap(settings, snapshot):
+    data, _ = snapshot
+    settings = replace(settings, max_tasks_per_run=1)
+    store = Store(settings.state_dir)
+    assert store.start("prior")
+    store.add_task("prior", 12, "release:Beta", "old-branch", settings.state_dir / "old")
+    store.phase("prior", 12, "blocked", failure="reviewer JSON")
+    engine = Engine(settings, github=FakeGitHub(settings, data), agent_factory=FakeAgent)
+    with pytest.raises(RuntimeError, match="daily attempt cap"):
+        engine.run(retry_issue=12)
+
+
+def test_retry_rechecks_remote_branch_after_planning(settings, snapshot):
+    data, _ = snapshot
+    store = Store(settings.state_dir)
+    assert store.start("prior")
+    store.add_task("prior", 12, "release:Beta", "old-branch", settings.state_dir / "old")
+    store.phase("prior", 12, "blocked", failure="interrupted")
+    github = FakeGitHub(settings, data)
+    github.prepare_worktree = lambda *args: pytest.fail("retry must not create a worktree")
+
+    class PlannerWithRemoteRace(FakeAgent):
+        def run(self, role, prompt, cwd, editable=False):
+            if role == "planner":
+                github.remote_branches.add("old-branch")
+            return super().run(role, prompt, cwd, editable)
+
+    result = Engine(settings, github=github, agent_factory=PlannerWithRemoteRace).run(
+        retry_issue=12
+    )
+    assert result["results"][0]["status"] == "blocked"
+    assert "appeared remotely" in result["results"][0]["error"]
+    assert github.transitions == []
 
 
 def test_daily_attempt_cap_includes_prior_manual_runs(settings, snapshot):

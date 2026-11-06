@@ -157,6 +157,12 @@ Project Done after a verified merge.
   and any PR before restarting. The runner worktree is ephemeral. Blocked task
   IDs remain excluded from later runs until the state and Project are manually
   reconciled; rerunning the scheduler does not replay an ambiguous write.
+- After verifying the blocked attempt has no pushed head or PR and its branch
+  is absent remotely, clear the old claim and return the Project task to
+  unassigned Todo/Ready through a reviewed Project update. Then dispatch the
+  GitHub workflow with `retry_issue` set to that one issue number. The runner
+  checks the persisted blocked attempt, absent remote branch, and live Ready
+  eligibility before allowing the retry. Scheduled runs never override blocks.
 - For `waiting_for_ci_or_review` or `waiting_for_merge`, the hosted monitor or
   next scheduled/manual run rechecks the PR. A
   required skipped, pending or failed check is not a pass.

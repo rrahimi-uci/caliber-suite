@@ -1,3 +1,5 @@
+import sqlite3
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -59,3 +61,39 @@ def test_failed_run_releases_schedule_without_erasing_task(tmp_path: Path):
     assert not store.scheduled("2026-11-05")
     assert store.task("run", 12)["phase"] == "claimed"
     assert store.start("retry", "2026-11-05")
+
+
+def test_attempt_count_includes_retries_of_same_issue(tmp_path: Path):
+    store = Store(tmp_path)
+    for run in ("first", "retry"):
+        assert store.start(run)
+        store.add_task(run, 12, "release:Beta", f"branch-{run}", tmp_path / run)
+        store.phase(run, 12, "blocked", failure="QA failed")
+    since = datetime.now(UTC) - timedelta(minutes=1)
+    assert store.attempted_since(since) == frozenset({12})
+    assert store.attempt_count_since(since) == 2
+    assert store.latest_task(12)["run_id"] == "retry"
+
+
+def test_attempts_use_claim_time_across_midnight(tmp_path: Path):
+    store = Store(tmp_path)
+    assert store.start("late-run")
+    midnight = datetime.now(UTC) - timedelta(seconds=1)
+    store.db.execute("UPDATE runs SET created_at=? WHERE id='late-run'", (midnight.isoformat(),))
+    store.db.commit()
+    after_start = datetime.now(UTC)
+    store.add_task("late-run", 821, "release:Pilot", "branch", tmp_path / "work")
+    assert store.attempted_since(after_start) == frozenset({821})
+    assert store.attempt_count_since(after_start) == 1
+
+
+def test_task_and_claim_event_are_atomic(tmp_path: Path):
+    store = Store(tmp_path)
+    assert store.start("run")
+    store.db.execute(
+        "CREATE TRIGGER reject_claim BEFORE INSERT ON events "
+        "WHEN NEW.kind='task_claimed' BEGIN SELECT RAISE(ABORT, 'claim event failed'); END"
+    )
+    with pytest.raises(sqlite3.IntegrityError, match="claim event failed"):
+        store.add_task("run", 821, "release:Pilot", "branch", tmp_path / "work")
+    assert store.latest_task(821) is None

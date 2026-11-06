@@ -67,12 +67,21 @@ class Store:
         return bool(self.db.execute("SELECT 1 FROM runs WHERE schedule_date=?", (day,)).fetchone())
 
     def add_task(self, run: str, issue: int, target: str, branch: str, worktree: Path) -> None:
-        self.db.execute(
-            "INSERT INTO tasks(run_id,issue,target,phase,branch,worktree) VALUES(?,?,?,?,?,?)",
-            (run, issue, target, "claimed", branch, str(worktree)),
-        )
-        self.db.commit()
-        self.event(run, issue, "task_claimed", {"branch": branch, "worktree": str(worktree)})
+        with self.db:
+            self.db.execute(
+                "INSERT INTO tasks(run_id,issue,target,phase,branch,worktree) VALUES(?,?,?,?,?,?)",
+                (run, issue, target, "claimed", branch, str(worktree)),
+            )
+            self.db.execute(
+                "INSERT INTO events(run_id,issue,at,kind,detail) VALUES(?,?,?,?,?)",
+                (
+                    run,
+                    issue,
+                    self.now(),
+                    "task_claimed",
+                    json.dumps({"branch": branch, "worktree": str(worktree)}, sort_keys=True),
+                ),
+            )
 
     def phase(self, run: str, issue: int, phase: str, *, failure: str | None = None) -> None:
         self.db.execute(
@@ -105,6 +114,11 @@ class Store:
             raise KeyError((run, issue))
         return row
 
+    def latest_task(self, issue: int) -> sqlite3.Row | None:
+        return self.db.execute(
+            "SELECT * FROM tasks WHERE issue=? ORDER BY rowid DESC LIMIT 1", (issue,)
+        ).fetchone()
+
     def pending(self) -> list[sqlite3.Row]:
         return list(
             self.db.execute("SELECT * FROM tasks WHERE phase NOT IN ('done','blocked','failed')")
@@ -120,14 +134,22 @@ class Store:
         )
 
     def attempted_since(self, instant: datetime) -> frozenset[int]:
-        """Count task attempts across scheduled and manual runs for a local day."""
+        """Find tasks claimed since an instant, independent of run start time."""
         return frozenset(
             row[0]
             for row in self.db.execute(
-                "SELECT DISTINCT tasks.issue FROM tasks JOIN runs ON runs.id=tasks.run_id "
-                "WHERE runs.created_at>=?",
+                "SELECT DISTINCT issue FROM events WHERE kind='task_claimed' AND at>=?",
                 (instant.astimezone(UTC).isoformat(),),
             )
+        )
+
+    def attempt_count_since(self, instant: datetime) -> int:
+        """Count attempts, including an explicitly reconciled retry of one issue."""
+        return int(
+            self.db.execute(
+                "SELECT COUNT(*) FROM events WHERE kind='task_claimed' AND at>=?",
+                (instant.astimezone(UTC).isoformat(),),
+            ).fetchone()[0]
         )
 
     def tasks(self, limit: int = 100) -> list[sqlite3.Row]:

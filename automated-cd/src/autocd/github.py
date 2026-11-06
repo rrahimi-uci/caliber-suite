@@ -66,6 +66,14 @@ class GitHub:
         self.settings = settings
         self.root = settings.root
 
+    def remote_branch_exists(self, branch: str) -> bool:
+        return bool(
+            command(
+                ["git", "ls-remote", "--heads", "origin", f"refs/heads/{branch}"],
+                self.root,
+            ).strip()
+        )
+
     def snapshot(self) -> dict:
         data = command(
             [

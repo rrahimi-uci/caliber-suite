@@ -40,6 +40,10 @@ def _public_result(value: dict) -> dict:
 def run_hosted(mode: str, *, max_seconds: int = 18_000, poll_seconds: int = 60) -> None:
     if mode not in {"schedule", "manual"}:
         raise ValueError("AUTOCD_RUN_MODE must be schedule or manual")
+    retry_raw = os.environ.get("AUTOCD_RETRY_ISSUE", "").strip()
+    if retry_raw and (mode != "manual" or not retry_raw.isdecimal() or int(retry_raw) <= 0):
+        raise ValueError("AUTOCD_RETRY_ISSUE must be a positive issue number on a manual run")
+    retry_issue = int(retry_raw) if retry_raw else None
     engine = Engine(load())
     max_attempts = engine.settings.max_tasks_per_run
     deadline = time.monotonic() + max_seconds
@@ -65,11 +69,16 @@ def run_hosted(mode: str, *, max_seconds: int = 18_000, poll_seconds: int = 60) 
         if pr_errors:
             raise RuntimeError(f"Automated CD PR checks could not be verified: {sorted(pr_errors)}")
 
-    result = engine.run(scheduled=mode == "schedule")
+    initial_options = {"scheduled": mode == "schedule"}
+    if retry_issue is not None:
+        initial_options["retry_issue"] = retry_issue
+    result = engine.run(**initial_options)
     print(json.dumps({"start": _public_result(result)}, sort_keys=True), flush=True)
     record(result)
     attempted = set(result.get("selected", []))
-    can_refill = bool(attempted) or result.get("status") == "waiting_on_published_prs"
+    can_refill = retry_issue is None and (
+        bool(attempted) or result.get("status") == "waiting_on_published_prs"
+    )
     while True:
         status = engine.monitor()
         print(json.dumps({"monitor": _public_result(status)}, sort_keys=True), flush=True)

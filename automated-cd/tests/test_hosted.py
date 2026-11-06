@@ -210,3 +210,52 @@ def test_hosted_fails_when_pr_checks_remain_unverifiable(monkeypatch):
     monkeypatch.setattr(hosted.time, "monotonic", lambda: 0)
     with pytest.raises(RuntimeError, match="checks could not be verified"):
         hosted.run_hosted("schedule", max_seconds=10, poll_seconds=10)
+
+
+def test_hosted_manual_retry_passes_only_explicit_issue(monkeypatch):
+    seen = []
+
+    class FakeEngine:
+        def __init__(self, settings):
+            self.settings = settings
+
+        def run(self, *, scheduled, retry_issue=None):
+            seen.append((scheduled, retry_issue))
+            return {"selected": []}
+
+        def monitor(self):
+            return {"pending": 0}
+
+    monkeypatch.setattr(hosted, "load", lambda: type("Settings", (), {"max_tasks_per_run": 6})())
+    monkeypatch.setattr(hosted, "Engine", FakeEngine)
+    monkeypatch.setattr(hosted.time, "monotonic", lambda: 0)
+    monkeypatch.setenv("AUTOCD_RETRY_ISSUE", "821")
+    hosted.run_hosted("manual", max_seconds=120, poll_seconds=10)
+    assert seen == [(False, 821)]
+    with pytest.raises(ValueError, match="positive issue number"):
+        hosted.run_hosted("schedule", max_seconds=120, poll_seconds=10)
+    monkeypatch.setenv("AUTOCD_RETRY_ISSUE", "nonsense")
+    with pytest.raises(ValueError, match="positive issue number"):
+        hosted.run_hosted("manual", max_seconds=120, poll_seconds=10)
+
+
+def test_hosted_retry_never_refills_unrelated_tasks(monkeypatch):
+    calls = []
+
+    class FakeEngine:
+        def __init__(self, settings):
+            self.settings = settings
+
+        def run(self, *, scheduled, retry_issue=None):
+            calls.append((scheduled, retry_issue))
+            return {"selected": [821], "results": [{"issue": 821, "status": "done"}]}
+
+        def monitor(self):
+            return {"pending": 0}
+
+    monkeypatch.setattr(hosted, "load", lambda: type("Settings", (), {"max_tasks_per_run": 6})())
+    monkeypatch.setattr(hosted, "Engine", FakeEngine)
+    monkeypatch.setattr(hosted.time, "monotonic", lambda: 0)
+    monkeypatch.setenv("AUTOCD_RETRY_ISSUE", "821")
+    hosted.run_hosted("manual", max_seconds=120, poll_seconds=10)
+    assert calls == [(False, 821)]
