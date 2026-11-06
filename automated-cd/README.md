@@ -53,6 +53,9 @@ use fakes and make no model or GitHub calls.
    The checked-in `max_tasks_per_run=6` also caps daily
    attempts across scheduled and manual runs, so failed attempts reduce that
    day's possible Done count.
+   Claude calls currently have no per-call dollar cap for scheduled and manual
+   runs while task spend is being measured. This does not change the normal
+   task-attempt or five-hour execution bounds.
 4. Run **Automated CD execution** with `workflow_dispatch` in GitHub Actions
    to start immediately, or let the daily schedule start it. The Actions log
    records the plan, task results and PR monitoring. Set `enabled=false` to
@@ -121,6 +124,19 @@ or runner time limit is reached. Manual
 `workflow_dispatch` uses the same guarded engine. `caliber-autocd plan` is
 still available for diagnosis without task or Project mutation, but production
 starts in GitHub.
+For a measured owner-only manual trial, set `trial_tasks` from 1 through 5.
+This permits that many **additional attempts** even if the Pacific-day normal
+six-attempt cap was already used; it does not change the next scheduled run's
+cap or guarantee that the attempts finish as Done. Its temporary effective
+Done ceiling is derived from the live completed count so earlier completions
+cannot shorten the requested measurement. Set `retry_issue` as well
+to start with one reconciled blocked pre-PR task, then refill from the live
+Ready Project backlog. The workflow logs a bounded report of coordinator
+elapsed time, claimed and completed tasks, Claude call counts, and Claude's
+reported dollar estimate. A missing call cost makes the per-Done average
+unknown, rather than treating it as zero. The report includes failed attempts
+and planner spend; invoice charges may differ from Claude's estimate. No
+prompts, review findings, or raw model output are printed in the report.
 The preflight plan reads restored state: `eligible` and `selected` exclude
 prior blocked issues and today's attempted issues, and `remaining_attempts`
 reflects the daily cap. `requires_explicit_retry` identifies Ready issues that

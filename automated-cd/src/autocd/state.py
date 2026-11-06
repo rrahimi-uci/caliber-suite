@@ -5,6 +5,7 @@ from __future__ import annotations
 import contextlib
 import fcntl
 import json
+import os
 import sqlite3
 from collections.abc import Iterator
 from datetime import UTC, datetime
@@ -58,7 +59,16 @@ class Store:
                 (run, schedule_date, "running", self.now(), self.now()),
             )
             self.db.commit()
-            self.event(run, None, "run_started", {"schedule_date": schedule_date})
+            self.event(
+                run,
+                None,
+                "run_started",
+                {
+                    "schedule_date": schedule_date,
+                    "github_run_id": os.environ.get("GITHUB_RUN_ID"),
+                    "github_run_attempt": os.environ.get("GITHUB_RUN_ATTEMPT", "1"),
+                },
+            )
             return True
         except sqlite3.IntegrityError:
             return False

@@ -25,6 +25,7 @@ def test_defaults_and_environment(settings):
         "scripts/ci-local.sh backend-core",
     )
     assert settings.provider == "claude_cli"
+    assert settings.max_budget_usd == 0
     assert settings.max_workers == 2
     changed = load(environ={"AUTOCD_ENABLED": "true", "AUTOCD_DAILY_TIME": "23:30"})
     assert changed.enabled and changed.daily_time == "23:30"
@@ -43,6 +44,9 @@ def test_defaults_and_environment(settings):
         {"AUTOCD_EFFORT": "unsupported"},
         {"AUTOCD_TEMPERATURE": "0.2"},
         {"AUTOCD_MAX_OUTPUT_TOKENS": "100"},
+        {"AUTOCD_MAX_BUDGET_USD": "-1"},
+        {"AUTOCD_MAX_BUDGET_USD": "nan"},
+        {"AUTOCD_MAX_BUDGET_USD": "inf"},
         {"AUTOCD_MAX_WORKERS": "0"},
         {"AUTOCD_PROJECT_VIEW_NUMBER": "-1"},
         {"AUTOCD_DAILY_DONE_TARGET": "0"},

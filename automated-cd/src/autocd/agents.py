@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 import os
 import re
 import selectors
@@ -78,6 +79,11 @@ class ClaudeAgent:
 
     def run(self, role: str, prompt: str, cwd: Path, *, editable: bool = False) -> dict:
         tools = "Read,Glob,Grep,Edit,Write" if editable else "Read,Glob,Grep"
+        budget_args = (
+            ["--max-budget-usd", str(self.settings.max_budget_usd)]
+            if self.settings.max_budget_usd > 0
+            else []
+        )
         args = [
             "claude",
             "--print",
@@ -94,8 +100,7 @@ class ClaudeAgent:
             self.settings.model,
             "--effort",
             self.settings.reasoning,
-            "--max-budget-usd",
-            str(self.settings.max_budget_usd),
+            *budget_args,
             "--append-system-prompt",
             role_prompt(role),
             prompt,
@@ -152,6 +157,22 @@ class ClaudeAgent:
                         except (json.JSONDecodeError, UnicodeDecodeError):
                             continue
                         if message.get("type") == "result":
+                            reported_cost = message.get("total_cost_usd")
+                            cost = (
+                                float(reported_cost)
+                                if type(reported_cost) in {int, float}
+                                and math.isfinite(reported_cost)
+                                and reported_cost >= 0
+                                else None
+                            )
+                            self.event(
+                                "agent_usage",
+                                {
+                                    "role": role,
+                                    "cost_usd": cost,
+                                    "elapsed_seconds": round(time.monotonic() - started, 3),
+                                },
+                            )
                             raw = message.get("result")
                             if message.get("is_error"):
                                 raise AgentError(f"{role} returned an error")
