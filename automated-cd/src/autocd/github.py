@@ -197,15 +197,34 @@ class GitHub:
         return branch, destination
 
     def changed(self, worktree: Path) -> list[str]:
-        output = command(["git", "status", "--porcelain", "--untracked-files=all"], worktree)
-        return [line[3:] for line in output.splitlines() if line]
+        output = command(
+            ["git", "ls-files", "--modified", "--others", "--exclude-standard", "-z"],
+            worktree,
+        )
+        staged = command(["git", "diff", "--cached", "--name-only", "-z"], worktree)
+        return sorted(set(output.split("\0") + staged.split("\0")) - {""})
 
-    def commit_and_push(self, worktree: Path, branch: str, issue: int) -> str:
+    def commit_and_push(
+        self,
+        worktree: Path,
+        branch: str,
+        issue: int,
+        reviewed_patch: str,
+        reviewed_files: list[str],
+    ) -> str:
         if not self.changed(worktree):
             raise CommandError("Developer produced no changes")
         command(["git", "diff", "--check"], worktree)
         command(["git", "add", "--all"], worktree)
         command(["git", "diff", "--cached", "--check"], worktree)
+        if self.changed(worktree) != reviewed_files:
+            raise CommandError("Candidate file list changed after review/QA")
+        staged_patch = command(
+            ["git", "diff", "--cached", "--binary", f"origin/{self.settings.base_branch}"],
+            worktree,
+        )
+        if staged_patch != reviewed_patch:
+            raise CommandError("Staged candidate differs from reviewed patch; rerun review/QA")
         command(["git", "commit", "-m", f"feat(autocd): implement issue #{issue}"], worktree)
         head = command(["git", "rev-parse", "HEAD"], worktree).strip()
         command(["git", "push", "-u", "origin", branch], worktree, timeout=180)

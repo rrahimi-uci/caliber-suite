@@ -6,6 +6,7 @@ import json
 import re
 import shlex
 import subprocess
+import tempfile
 import threading
 import uuid
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -280,8 +281,13 @@ class Engine:
                     {"changed": changed, "summary": str(developer.get("summary", ""))[:1000]},
                 )
                 store.phase(run, task.issue, "reviewing")
-                evidence = self._checks(task.issue, worktree)
+                evidence = self._checks(task.issue, worktree, changed)
                 store.event(run, task.issue, "qa_commands", evidence)
+                if self.github.changed(worktree) != changed:
+                    raise RuntimeError(
+                        "QA commands changed the candidate; rerun development and review"
+                    )
+                reviewed_patch = self._diff(worktree)
                 review = agent.run(
                     "reviewer",
                     json.dumps(
@@ -289,7 +295,7 @@ class Engine:
                             "issue": task.issue,
                             "contract": task.body,
                             "changed": changed,
-                            "diff": self._diff(worktree),
+                            "diff": reviewed_patch,
                             "commands": evidence,
                             "cycle": cycle,
                             "instruction": "Review the complete diff, relevant runtime paths, tests, and local CI evidence.",
@@ -324,7 +330,9 @@ class Engine:
                     continue
                 store.phase(run, task.issue, "pr_open")
                 with self.mutation_lock:
-                    head = self.github.commit_and_push(worktree, branch, task.issue)
+                    head = self.github.commit_and_push(
+                        worktree, branch, task.issue, reviewed_patch, changed
+                    )
                     store.head(run, task.issue, head)
                     body = self._pr_body(
                         task, head, evidence, cycle, review, qa, developer, changed
@@ -366,13 +374,12 @@ class Engine:
             return {"issue": task.issue, "status": "blocked", "error": str(error)[:500]}
 
     def _diff(self, worktree: Path) -> str:
+        # Intent-to-add makes every untracked file visible to git diff while
+        # preserving the complete candidate for the later staging step.
+        command(["git", "add", "-N", "--all"], worktree)
         patch = command(
             ["git", "diff", "--binary", f"origin/{self.settings.base_branch}"], worktree
         )
-        for path in self.github.changed(worktree):
-            candidate = worktree / path
-            if candidate.is_file() and path not in patch and candidate.stat().st_size < 100_000:
-                patch += f"\nNew file {path}:\n" + candidate.read_text(errors="replace")
         if len(patch) > 250_000:
             raise RuntimeError("Diff exceeds reviewer context limit; split task before review")
         return patch
@@ -381,7 +388,7 @@ class Engine:
     def _in_owned_paths(path: str, owned: frozenset[str]) -> bool:
         return any(path == item or path.startswith(item.rstrip("/") + "/") for item in owned)
 
-    def _checks(self, issue: int, worktree: Path) -> list[dict]:
+    def _checks(self, issue: int, worktree: Path, changed: list[str]) -> list[dict]:
         commands = [*self.settings.base_checks, *self.settings.issue_checks[issue]]
         if not any(self._coverage_command(item) for item in self.settings.issue_checks[issue]):
             return [
@@ -398,9 +405,25 @@ class Engine:
                 results.append({"command": item, "passed": False, "output": "Invalid command"})
                 break
             try:
-                proc = subprocess.run(
-                    args, cwd=worktree, text=True, capture_output=True, check=False, timeout=3600
-                )
+                with tempfile.TemporaryDirectory(prefix="autocd-coverage-") as directory:
+                    coverage_path = Path(directory) / "coverage.json"
+                    coverage_check = self._coverage_command(item)
+                    invocation = (
+                        [*args, f"--cov-report=json:{coverage_path}"] if coverage_check else args
+                    )
+                    proc = subprocess.run(
+                        invocation,
+                        cwd=worktree,
+                        text=True,
+                        capture_output=True,
+                        check=False,
+                        timeout=3600,
+                    )
+                    coverage = (
+                        self._coverage_evidence(coverage_path, worktree, changed)
+                        if coverage_check
+                        else None
+                    )
                 results.append(
                     {
                         "command": item,
@@ -414,21 +437,61 @@ class Engine:
                 ):
                     results[-1]["passed"] = False
                     results[-1]["output"] += "\nRequired CI parity job was skipped"
-                if self._coverage_command(item):
-                    match = re.search(
-                        r"^TOTAL\s+.*?\s+(\d+(?:\.\d+)?%)\s*$",
-                        proc.stdout + proc.stderr,
-                        re.MULTILINE,
-                    )
-                    results[-1]["coverage"] = match.group(1) if match else None
-                    if not match:
+                if coverage_check:
+                    results[-1]["coverage"] = coverage["summary"]
+                    if not coverage["passed"]:
                         results[-1]["passed"] = False
-                        results[-1]["output"] += "\nCoverage summary missing"
+                        results[-1]["output"] += "\n" + coverage["reason"]
             except (OSError, subprocess.TimeoutExpired) as error:
                 results.append({"command": item, "passed": False, "output": str(error)[:500]})
             if not results[-1]["passed"]:
                 break
         return results
+
+    @staticmethod
+    def _coverage_evidence(report: Path, worktree: Path, changed: list[str]) -> dict:
+        if not report.is_file():
+            return {"passed": False, "summary": None, "reason": "Coverage JSON missing"}
+        try:
+            data = json.loads(report.read_text())
+            files = {(worktree / path).resolve(): row for path, row in data["files"].items()}
+            affected = [
+                (worktree / path).resolve()
+                for path in changed
+                if path.endswith(".py")
+                and "tests" not in Path(path).parts
+                and not Path(path).name.startswith("test_")
+                and (worktree / path).is_file()
+            ]
+            measured = {path: files[path] for path in affected}
+            totals = data["totals"]
+            coverage_rows = {
+                "TOTAL": totals,
+                **{str(path.relative_to(worktree)): row for path, row in measured.items()},
+            }
+            for name, row in coverage_rows.items():
+                denominator = row["num_statements"] + row.get("num_branches", 0)
+                numerator = row["covered_lines"] + row.get("covered_branches", 0)
+                if not denominator or numerator / denominator <= 0.95:
+                    return {
+                        "passed": False,
+                        "summary": None,
+                        "reason": f"Coverage for {name} is not greater than 95%",
+                    }
+            return {
+                "passed": True,
+                "summary": ", ".join(
+                    f"{name}={100 * (row['covered_lines'] + row.get('covered_branches', 0)) / (row['num_statements'] + row.get('num_branches', 0)):.2f}%"
+                    for name, row in coverage_rows.items()
+                ),
+                "reason": "",
+            }
+        except (KeyError, ValueError, TypeError, ZeroDivisionError, OSError) as error:
+            return {
+                "passed": False,
+                "summary": None,
+                "reason": f"Invalid coverage JSON: {type(error).__name__}",
+            }
 
     def _setup(self, worktree: Path, store: Store, run: str, issue: int) -> None:
         for item in self.settings.setup_commands:

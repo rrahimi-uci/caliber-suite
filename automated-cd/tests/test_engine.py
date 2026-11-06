@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import subprocess
 import sys
 from dataclasses import replace
 from datetime import UTC, datetime
@@ -58,7 +59,7 @@ class FakeGitHub:
     def changed(self, worktree):
         return ["src/task.py", "tests/test_task.py"]
 
-    def commit_and_push(self, worktree, branch, issue):
+    def commit_and_push(self, worktree, branch, issue, reviewed_patch, reviewed_files):
         return "f" * 40
 
     def create_pr(self, worktree, title, body):
@@ -161,7 +162,7 @@ def test_engine_review_qa_pr_lifecycle(settings, snapshot, monkeypatch):
     monkeypatch.setattr(
         engine,
         "_checks",
-        lambda issue, worktree: [
+        lambda issue, worktree, changed: [
             {"command": "pytest --cov=task", "passed": True, "output": "100%"}
         ],
     )
@@ -309,7 +310,7 @@ def test_checks_require_coverage_and_reject_shell(settings, tmp_path: Path, monk
     engine = Engine(settings)
     worktree = tmp_path / "worktree"
     worktree.mkdir()
-    assert not engine._checks(12, worktree)[0]["passed"]  # configured base command absent
+    assert not engine._checks(12, worktree, [])[0]["passed"]  # configured base command absent
     settings2 = replace(
         settings,
         base_checks=(f"{sys.executable} -c 'print(1)' | cat",),
@@ -317,7 +318,7 @@ def test_checks_require_coverage_and_reject_shell(settings, tmp_path: Path, monk
             12: (f"{sys.executable} -m pytest --cov=autocd --cov-fail-under=95 --version",)
         },
     )
-    assert engine.__class__(settings2)._checks(12, worktree)[0]["output"] == "Invalid command"
+    assert engine.__class__(settings2)._checks(12, worktree, [])[0]["output"] == "Invalid command"
     settings3 = replace(
         settings,
         base_checks=(f"{sys.executable} -c 'print(1)'",),
@@ -331,8 +332,18 @@ def test_checks_require_coverage_and_reject_shell(settings, tmp_path: Path, monk
         stdout = "TOTAL 10 0 100%\n"
         stderr = ""
 
-    monkeypatch.setattr("autocd.engine.subprocess.run", lambda *a, **k: Result())
-    assert all(item["passed"] for item in engine.__class__(settings3)._checks(12, worktree))
+    def run_with_coverage(args, **kwargs):
+        for arg in args:
+            if arg.startswith("--cov-report=json:"):
+                Path(arg.split(":", 1)[1]).write_text(
+                    json.dumps(
+                        {"totals": {"num_statements": 100, "covered_lines": 100}, "files": {}}
+                    )
+                )
+        return Result()
+
+    monkeypatch.setattr("autocd.engine.subprocess.run", run_with_coverage)
+    assert all(item["passed"] for item in engine.__class__(settings3)._checks(12, worktree, []))
 
 
 def test_coverage_command_rejects_weak_or_malformed_gates():
@@ -344,11 +355,38 @@ def test_coverage_command_rejects_weak_or_malformed_gates():
     assert not Engine._coverage_command("pytest 'unterminated")
 
 
+def test_coverage_requires_each_changed_production_file_over_95_percent(tmp_path: Path):
+    source = tmp_path / "src" / "changed.py"
+    source.parent.mkdir()
+    source.write_text("x = 1\n")
+    report = tmp_path / "coverage.json"
+    report.write_text(
+        json.dumps(
+            {
+                "totals": {"num_statements": 1000, "covered_lines": 990},
+                "files": {
+                    "src/changed.py": {"num_statements": 100, "covered_lines": 95},
+                    "src/unrelated.py": {"num_statements": 900, "covered_lines": 895},
+                },
+            }
+        )
+    )
+    evidence = Engine._coverage_evidence(report, tmp_path, ["src/changed.py"])
+    assert not evidence["passed"] and "changed.py" in evidence["reason"]
+    data = json.loads(report.read_text())
+    data["files"].pop("src/changed.py")
+    report.write_text(json.dumps(data))
+    assert not Engine._coverage_evidence(report, tmp_path, ["src/changed.py"])["passed"]
+    data["files"]["src/changed.py"] = {"num_statements": 100, "covered_lines": 96}
+    report.write_text(json.dumps(data))
+    assert Engine._coverage_evidence(report, tmp_path, ["src/changed.py"])["passed"]
+
+
 def test_checks_fail_without_coverage_or_missing_executable(settings, tmp_path: Path):
     no_cov = replace(settings, base_checks=(), issue_checks={12: ("echo hello",)})
-    assert Engine(no_cov)._checks(12, tmp_path)[0]["command"] == "coverage"
+    assert Engine(no_cov)._checks(12, tmp_path, [])[0]["command"] == "coverage"
     missing = replace(settings, base_checks=("does-not-exist",))
-    assert not Engine(missing)._checks(12, tmp_path)[0]["passed"]
+    assert not Engine(missing)._checks(12, tmp_path, [])[0]["passed"]
 
 
 def test_setup_verifies_even_existing_venv_and_records_failure(
@@ -414,7 +452,7 @@ def test_ci_parity_skip_fails_qa(settings, tmp_path: Path, monkeypatch):
         stderr = ""
 
     monkeypatch.setattr("autocd.engine.subprocess.run", lambda *a, **k: Proc())
-    row = Engine(settings2)._checks(12, tmp_path)[0]
+    row = Engine(settings2)._checks(12, tmp_path, [])[0]
     assert row["passed"] is False and "skipped" in row["output"]
 
 
@@ -847,16 +885,27 @@ def test_closed_unmerged_pr_blocks_and_manual_ready_is_monitored(settings, snaps
     assert store.task("run", 12)["phase"] == "blocked"
 
 
-def test_diff_includes_new_file_and_rejects_large_patch(settings, tmp_path: Path, monkeypatch):
+def test_diff_includes_new_file_and_rejects_large_patch(settings, tmp_path: Path):
     worktree = tmp_path / "worktree"
     worktree.mkdir()
-    (worktree / "new.py").write_text("print('new')")
+
+    def git(*args):
+        return subprocess.run(
+            ["git", *args], cwd=worktree, check=True, capture_output=True, text=True
+        ).stdout.strip()
+
+    git("init", "-q")
+    git("config", "user.name", "Test")
+    git("config", "user.email", "test@example.com")
+    (worktree / "README.md").write_text("base\n")
+    git("add", "--all")
+    git("commit", "-qm", "base")
+    git("update-ref", "refs/remotes/origin/main", git("rev-parse", "HEAD"))
+    (worktree / "new file.py").write_text("print('new')\n" + "# x\n" * 24_000)
     github = FakeGitHub(settings, {"items": []})
-    github.changed = lambda _: ["new.py"]
     engine = Engine(settings, github=github)
-    monkeypatch.setattr("autocd.engine.command", lambda *a, **k: "")
     assert "print('new')" in engine._diff(worktree)
-    monkeypatch.setattr("autocd.engine.command", lambda *a, **k: "x" * 250_001)
+    (worktree / "huge.py").write_text("# x\n" * 70_000)
     try:
         engine._diff(worktree)
     except RuntimeError as error:

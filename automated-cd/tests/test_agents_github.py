@@ -234,8 +234,8 @@ def test_github_worktree_commit_pr_and_checks(settings, tmp_path: Path, monkeypa
 
     def capture(args, cwd, **kwargs):
         calls.append(args)
-        if args[:3] == ["git", "status", "--porcelain"]:
-            return "?? src/task.py\n M tests/test_task.py\n"
+        if args[:3] == ["git", "ls-files", "--modified"]:
+            return "src/task.py\0tests/test_task.py\0"
         if args[:3] == ["git", "rev-parse", "HEAD"]:
             return "a" * 40 + "\n"
         if args[:3] == ["gh", "pr", "create"]:
@@ -251,7 +251,10 @@ def test_github_worktree_commit_pr_and_checks(settings, tmp_path: Path, monkeypa
     assert branch == "autocd/issue-12-abcdef12"
     assert worktree.exists() is False  # command is mocked
     assert github.changed(tmp_path) == ["src/task.py", "tests/test_task.py"]
-    assert github.commit_and_push(tmp_path, branch, 12) == "a" * 40
+    assert (
+        github.commit_and_push(tmp_path, branch, 12, "", ["src/task.py", "tests/test_task.py"])
+        == "a" * 40
+    )
     assert github.create_pr(tmp_path, "descriptive title", "## Summary\ntext") == 88
     assert any(args[:3] == ["gh", "pr", "create"] and "--draft" in args for args in calls)
     assert github.pr_state(88)["headRefOid"] == "a" * 40
@@ -318,10 +321,36 @@ def test_pr_creation_and_empty_commit_fail(settings, tmp_path: Path, monkeypatch
     github = GitHub(settings)
     monkeypatch.setattr(github, "changed", lambda _: [])
     with pytest.raises(CommandError, match="no changes"):
-        github.commit_and_push(tmp_path, "branch", 12)
+        github.commit_and_push(tmp_path, "branch", 12, "", [])
     monkeypatch.setattr("autocd.github.command", lambda *a, **k: "unparseable")
     with pytest.raises(CommandError, match="identify"):
         github.create_pr(tmp_path, "title", "body")
+
+
+def test_changed_handles_spaced_paths_and_commit_rejects_unreviewed_bytes(settings, tmp_path: Path):
+    import subprocess
+
+    def git(*args):
+        return subprocess.run(
+            ["git", *args], cwd=tmp_path, capture_output=True, text=True, check=True
+        ).stdout
+
+    git("init", "-q")
+    git("config", "user.name", "Test")
+    git("config", "user.email", "test@example.com")
+    (tmp_path / "README.md").write_text("base\n")
+    git("add", "--all")
+    git("commit", "-qm", "base")
+    git("update-ref", "refs/remotes/origin/main", git("rev-parse", "HEAD").strip())
+    candidate = tmp_path / "file with space.py"
+    candidate.write_text("first\n")
+    github = GitHub(settings)
+    assert github.changed(tmp_path) == ["file with space.py"]
+    git("add", "-N", "--all")
+    reviewed_patch = git("diff", "--binary", "origin/main")
+    candidate.write_text("second\n")
+    with pytest.raises(CommandError, match="differs from reviewed patch"):
+        github.commit_and_push(tmp_path, "test-branch", 12, reviewed_patch, ["file with space.py"])
 
 
 def test_reviewer_requests_record_unavailable(settings, tmp_path: Path, monkeypatch):

@@ -61,7 +61,10 @@ must provide Docker/PostgreSQL for required reference-profile checks. A
 script exits zero.
 Each command executes with an argument vector, never through a shell; shell
 operators are rejected. The orchestrator fails QA if no coverage command is
-configured. QA must also inspect the measured result and acceptance proof.
+configured. It emits a fresh coverage JSON report and requires greater than
+95% measured line-plus-branch coverage for each changed production Python
+file; a command covering only unrelated files fails. QA must also inspect
+the measured result and acceptance proof.
 
 ## Daily cron and manual runs
 
