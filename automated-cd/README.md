@@ -150,9 +150,13 @@ Project Done after a verified merge.
 
 ## Recovery and troubleshooting
 
-- The Actions log shows the plan and monitor results. Download the latest
-  `caliber-autocd-state` artifact and inspect its SQLite `events` table for
-  ordered decisions, commands, review cycles and errors.
+- The Actions log shows the plan and monitor results. For a blocked run, dispatch
+  the GitHub workflow with `diagnose_state=true` to print a bounded summary of
+  the latest task from the encrypted state. It reports a fixed failure code,
+  review/QA counts, and whether a PR or head was pushed; model text and command
+  output remain in the encrypted artifact. Diagnosis needs `AUTOCD_STATE_KEY`
+  but does not need the model or Project token. It does not claim tasks or upload
+  a new state artifact, and cannot be combined with `retry_issue`.
 - For `blocked_after_interruption`, inspect the Project claim, remote branch,
   and any PR before restarting. The runner worktree is ephemeral. Blocked task
   IDs remain excluded from later runs until the state and Project are manually
