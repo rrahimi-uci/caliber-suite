@@ -4,6 +4,7 @@ import json
 import os
 import shlex
 from dataclasses import replace
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
@@ -280,6 +281,47 @@ def test_project_snapshot_and_overview(settings, monkeypatch):
     assert github.overview()["branches"][0][0]["name"] == "main"
     assert github.login() == "worker"
     assert len(calls) == 6
+
+
+def test_ready_reconciliation_requires_owner_marker_after_block(settings, monkeypatch):
+    github = GitHub(settings)
+    blocked_at = datetime(2026, 11, 6, 18, 11, tzinfo=UTC)
+    comments = [
+        [
+            {
+                "user": {"login": "rrahimi-uci"},
+                "body": "Engineering workflow: **ready**\n\nold evidence",
+                "created_at": "2026-11-06T16:46:38Z",
+            },
+            {
+                "user": {"login": "foreign-user"},
+                "body": "Engineering workflow: **ready**\n\nspoofed evidence",
+                "created_at": "2026-11-06T20:03:06Z",
+            },
+        ]
+    ]
+    payload = {"pages": comments}
+    calls = []
+
+    def capture(args, cwd, **kwargs):
+        calls.append(args)
+        return json.dumps(payload["pages"])
+
+    monkeypatch.setattr("autocd.github.command", capture)
+    assert not github.has_ready_reconciliation(821, blocked_at)
+    comments[0].append(
+        {
+            "user": {"login": "rrahimi-uci"},
+            "body": "Engineering workflow: **ready**\n\nreviewed evidence",
+            "created_at": "2026-11-06T20:03:06Z",
+        }
+    )
+    assert github.has_ready_reconciliation(821, blocked_at)
+    assert calls[0][:4] == ["gh", "api", "--paginate", "--slurp"]
+    assert calls[0][-1].endswith("/issues/821/comments?per_page=100")
+    payload["pages"] = {"incomplete": True}
+    with pytest.raises(CommandError, match="incomplete"):
+        github.has_ready_reconciliation(821, blocked_at)
 
 
 def test_project_snapshot_rejects_wrong_branch(settings, monkeypatch):
