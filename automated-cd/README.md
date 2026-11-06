@@ -1,35 +1,51 @@
 # CALIBER automated engineering workflow
 
-This is an opt-in coordinator for Project #3 tasks. It reads the complete live
-Project through the repository's existing `.agents` GitHub adapter, selects
-eligible Ready tasks, claims them, runs bounded model roles in isolated Git
-worktrees, records review and QA cycles, and prepares an open pull request.
-**It never merges or deploys.** The repository owner performs final review and
-merge.
+This is a coordinator for the complete CALIBER Project #3, including Beta,
+Pilot and Preview work. It reads the live Project and selects eligible Ready tasks,
+claims them, runs bounded model roles in isolated Git worktrees, records review
+and QA cycles, and opens draft pull requests. After exact-head required CI,
+review, mergeability and current-base checks pass, it can merge the PR, verify
+the merge commit on `main`, close the issue as Completed, and reconcile Project
+Status/Readiness to Done. It never deploys or bypasses GitHub protection.
 
-The implementation is designed for a trusted, persistent coordinator host with
-Node.js 20+, Python 3.11+, Git, authenticated `gh`, and authenticated Claude
-Code CLI. It does not run on ephemeral GitHub hosted runners because interrupted
-state and worktrees must survive process restart. Ordinary tests use fakes and
+The initial `daily_done_target` is **6**. This measures merged, Completed Task
+issues in Project Done across releases on the configured local day;
+opened PRs and model approvals do not count. A target is not a guarantee: the
+2026-11-05 live Project has two open Ready Tasks. One proposes protected CI
+workflow edits and cannot auto-merge; the other requires migration and coverage
+evidence before it can merge. The Preview 1 view has no Ready Tasks. Counting uses
+the complete Project snapshot plus issue closure time and merged closing-PR evidence.
+
+GitHub Actions starts the workflow at 4:00 AM `America/Los_Angeles` on a hosted
+runner. A manual `workflow_dispatch` starts an extra run from GitHub. The runner
+saves SQLite state as an Actions artifact so published PRs can be reconciled
+on a later run. Worktrees do not persist across runners; an interrupted edit
+before PR creation is blocked for inspection. Ordinary tests use fakes and
 make no model or GitHub calls.
 
 ## Setup
 
-1. Install the Python package: `python3.11 -m pip install -e './automated-cd[test]'`.
-2. Authenticate `gh` with repository and Project read/write access, and
-   authenticate `claude` on the coordinator host. Keep credentials in the host
-   credential store; no token is stored in this directory.
-3. Copy `config/workflow.toml` to a private configuration file if needed. Set
-   `AUTOCD_CONFIG` to its absolute path and `AUTOCD_REPO_ROOT` to the checkout.
-   The cron entry also changes into that checkout before invoking Python.
-4. Set a persistent private `AUTOCD_STATE_DIR` outside the repository. Add the
-   exact issue numbers, reviewed path ownership, and task-specific CI and
-   coverage commands under `issue_checks` and `issue_paths`. Without
-   `issue_checks`, eligible work is visible to planning but is not executed.
-5. Run `caliber-autocd plan` for a read-only eligibility preview and
-   `caliber-autocd status` for current state. `caliber-autocd run` executes
-   configured tasks immediately even when `workflow.enabled=false`. Set
-   `enabled=true` for cron.
+1. Add repository Actions secrets `ANTHROPIC_API_KEY` and `AUTOCD_GH_TOKEN`.
+   The latter must be a scoped token with read/write access to this repository
+   and user Project #3; the default `GITHUB_TOKEN` cannot access user Projects.
+   Do not commit either secret or use an admin-wide token.
+2. Review `config/workflow.toml`. Project scope `0` covers the whole Project;
+   a positive `project_view_number` restricts work to one supported release-label
+   view. The checked-in schedule is 4:00 AM Pacific and the daily Done target is six.
+3. Add issue-specific commands under `issue_checks` when the issue requires
+   checks beyond the full backend suite and required PR CI. Add `issue_paths`
+   only for reviewed, disjoint ownership that permits parallel task execution.
+   Without path ownership, tasks run serially. Changes to `.github`, `.agents`,
+   `automated-cd`, and other policy files stop before an unattended PR merge.
+   UI, SDK, shell, configuration and other unsupported component changes
+   require explicit issue-specific commands; the coordinator fails QA if they
+   are absent. The checked-in `max_tasks_per_run=6` also caps daily attempts
+   across scheduled and manual runs, so failed attempts reduce that day's
+   possible Done count.
+4. Run **Automated CD execution** with `workflow_dispatch` in GitHub Actions
+   to start immediately, or let the daily schedule start it. The Actions log
+   records the plan, task results and PR monitoring. Set `enabled=false` to
+   pause scheduled dispatch while retaining read-only planning.
 
 Example issue configuration:
 
@@ -42,75 +58,92 @@ Example issue configuration:
 ```
 
 Use an actual issue contract and executable checks. The base checks run the
-repository's docs, lint, type, backend and PostgreSQL scenario CI parity. Add
-SDK, UI, migration, packaging or other affected checks to the issue list.
+repository's docs, lint, type and backend CI parity as an isolated task user.
+PostgreSQL scenario and other container-backed gates run in PR CI without the
+coordinator secrets. Add SDK, UI, migration, packaging or other affected
+checks to the issue list when they can run without host Docker access.
 The default `checks.setup` builds the full CALIBER test environment inside
-each new worktree; plan disk, network and install time accordingly. The host
-must provide Docker/PostgreSQL for required reference-profile checks. A
+each new worktree; plan runner time and install time accordingly. The GitHub
+runner provides Docker/PostgreSQL to its separate PR CI jobs. A
 `ci-local.sh` SKIP is treated as an unexecuted required gate even if the
 script exits zero.
 Each command executes with an argument vector, never through a shell; shell
-operators are rejected. The orchestrator fails QA if no coverage command is
-configured. QA must also inspect the measured result and acceptance proof.
+operators are rejected. For changed production Python files, the orchestrator
+uses a configured coverage command or runs the full backend suite with coverage.
+It emits a fresh coverage JSON report and requires greater than
+95% measured line-plus-branch coverage for each changed production Python
+file; a command covering only unrelated files fails. QA must also inspect
+the measured result and acceptance proof.
 
-## Daily cron and manual runs
+## GitHub schedule and manual runs
 
-The cron host calls a minute-level `tick`; the coordinator uses `daily_time`
-and IANA `timezone` to start at most one scheduled run per local calendar day.
-This handles daylight-saving skips and repeats without relying on `CRON_TZ`.
-Add this entry to the trusted host's crontab, replacing the paths:
-
-```cron
-* * * * * /absolute/path/to/caliber-suite/automated-cd/scripts/cron-entry.sh /absolute/path/to/caliber-suite /absolute/path/to/python >> /private/persistent/state/cron.log 2>&1
-```
-
-The Python path must point to the environment where `caliber-autocd` is
-installed. Export `AUTOCD_CONFIG` and `AUTOCD_STATE_DIR` in that cron
-environment. `caliber-autocd run` starts a manual run immediately; `tick`
-honors `enabled` and the daily schedule. The default is disabled. The single
-host lock rejects overlap unless `allow_overlapping_runs=true`; enabling
-overlap does not create a distributed lock and is unsafe with a shared GitHub
-identity unless another coordinator enforces exclusive claims.
+`.github/workflows/automated-cd-run.yml` owns the 4:00 AM Pacific schedule
+and manual dispatch. GitHub's timezone-aware schedule tracks daylight saving
+time; GitHub may delay a scheduled start during high load. No local cron job
+is installed or required. The coordinator allows one scheduled dispatch run
+per local date. An Actions concurrency group serializes scheduled and manual
+invocations. The runner monitors published PRs for up to five hours, then
+uploads the state database; a later run resumes PR reconciliation. After each
+completed PR, the runner selects another eligible task until the target, backlog
+or runner time limit is reached. Manual
+`workflow_dispatch` uses the same guarded engine. `caliber-autocd plan` is
+still available for read-only local diagnosis, but production starts in GitHub.
 
 ## State and safety
 
 `workflow.sqlite3` stores run/task phases and an append-only event history.
-Worktrees live under `AUTOCD_STATE_DIR/worktrees`, never inside `main`.
+It is uploaded as a 90-day Actions artifact after each run and restored by
+the next run. Worktrees live in a separate temporary worker directory,
+never inside `main` or the private state directory.
 Interruption during editing, review, QA or PR creation blocks that task for
 manual reconciliation; the coordinator does not replay an ambiguous write.
 An interrupted `ci_wait` phase rechecks the exact PR head, required checks,
-mergeability and unresolved review threads on the next invocation. The local
-lock and repository `.agents` transition lock serialize cooperating local
-writers; another clone or human remains a remote race. The coordinator rereads
+mergeability and unresolved review threads on the next invocation. The Actions
+concurrency group, runner-local lock, and repository `.agents` transition lock
+serialize cooperating writers; another clone or human remains a remote race. The coordinator rereads
 the Project after each claim and stops if the claim is not visible.
 
-The model roles receive no Bash tool. Developers may use file reading/editing
+The model roles receive no Bash tool. Untrusted issue/task text is passed as a
+user prompt, below the trusted role policy. Developers may use file reading/editing
 tools in their task worktree; Planner, Reviewer and QA receive read-only tools.
+The hosted runner creates an unprivileged Unix user for model, setup and local
+QA subprocesses. They run without the Project token and cannot read the
+coordinator user's process environment. Claude Code 2.1.314 or newer is
+required so file tools remain inside the working directory. Docker-backed
+checks run as separate PR CI jobs without coordinator credentials.
 The Python coordinator alone runs Git and GitHub commands. Configured issue
 paths enforce ownership when supplied; tasks without explicit path ownership
 run serially. A large diff is refused instead of silently truncating review.
-The coordinator never calls `gh pr merge` or pushes `main`.
+The coordinator never pushes `main` directly. Automatic merging uses
+`gh pr merge --squash --match-head-commit` without `--admin`; GitHub protection
+remains authoritative. If `main` advances beyond the reviewed PR head, the
+task waits for a new candidate and review/QA. This can reduce throughput below
+the target when several PRs overlap.
 
 ## PR handoff
 
 After review and QA pass, the coordinator commits and pushes the task branch,
-opens a PR using the repository's exact template headings, requests the
-owner and GitHub Copilot when GitHub permits, and waits for required CI.
-GitHub normally rejects requesting the PR author as a reviewer; that attempt
-is recorded as unavailable rather than claimed as a review. Copilot may also
-be unavailable. When required checks pass, the PR is mergeable, and no review
-thread is unresolved, the coordinator marks the PR ready for the owner's
-final review. It leaves the PR open. An owner approval is not fabricated by a
-model self-review.
+opens a draft PR using the repository's exact template headings, requests
+GitHub Copilot when available, and waits for required CI. With `auto_merge=true`,
+an owner review request is not required. GitHub branch protection can still
+require an eligible independent approval; the coordinator waits for it. Once
+all gates pass, the coordinator marks the PR ready, rereads the exact candidate
+and gates, and merges on a subsequent tick. A model self-review is never
+represented as an independent GitHub approval. Set `auto_merge=false` to keep
+the PR open for owner merge; the coordinator still observes it and reconciles
+Project Done after a verified merge.
 
 ## Recovery and troubleshooting
 
-- `caliber-autocd status` shows recent tasks, including blocked tasks. Inspect the SQLite `events`
-  table for ordered decisions, commands, review cycles and errors.
-- For `blocked_after_interruption`, inspect the retained worktree, branch,
-  Project claim and remote PR before restarting. Never delete the lock or
-  worktree solely because a process exited.
-- For `waiting_for_ci_or_review`, rerun `tick` or `run` after CI finishes. A
+- The Actions log shows the plan and monitor results. Download the latest
+  `caliber-autocd-state` artifact and inspect its SQLite `events` table for
+  ordered decisions, commands, review cycles and errors.
+- For `blocked_after_interruption`, inspect the Project claim, remote branch,
+  and any PR before restarting. The runner worktree is ephemeral. Blocked task
+  IDs remain excluded from later runs until the state and Project are manually
+  reconciled; rerunning the scheduler does not replay an ambiguous write.
+- For `waiting_for_ci_or_review` or `waiting_for_merge`, the hosted monitor or
+  next scheduled/manual run rechecks the PR. A
   required skipped, pending or failed check is not a pass.
 - A failed or skipped required check, requested changes, or CI wait exceeding
   `ci_timeout_seconds` blocks the task and records a Project blocker when
@@ -118,12 +151,15 @@ model self-review.
   update the PR; the coordinator will not replay an uncertain edit itself.
 - If Project access fails, fix `gh` authentication or Project permissions;
   there is no local-backlog fallback.
-- If the owner cannot be requested because they authored the PR, final owner
-  review occurs directly in GitHub. Any independent approval required by
-  branch protection still needs an eligible reviewer.
-- Model errors, stalls and timeouts retain worktrees for investigation. No
-  automatic replay of a mutating agent step occurs.
+- If GitHub blocks the merge because of a required independent review, the PR
+  remains open until an eligible reviewer approves it. The coordinator cannot
+  invent that approval or bypass protection.
+- After a merge, `merged_unreconciled` retains the task until the merge commit
+  is confirmed on `main`, the issue is closed as Completed, and Project fields
+  persist as Done. A failed Project read or update is retried on the next run.
+- Model errors, stalls and timeouts retain audit events and the remote branch.
+  No automatic replay of a mutating agent step occurs.
 
-The state database and worktrees may contain private issue content or source.
-Restrict directory access and back them up under the organization's policy.
+The state artifact may contain private issue content or source. Limit Actions
+artifact access under the repository's security policy.
 See [architecture and failure semantics](docs/architecture.md).

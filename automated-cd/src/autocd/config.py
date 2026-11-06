@@ -14,18 +14,23 @@ from zoneinfo import ZoneInfo
 class Settings:
     root: Path
     state_dir: Path
+    worktree_dir: Path
     enabled: bool
     repository: str
     base_branch: str
     daily_time: str
     timezone: str
+    project_view_number: int
+    daily_done_target: int
     max_tasks_per_run: int
     max_workers: int
+    auto_merge: bool
     max_review_cycles: int
     agent_timeout_seconds: int
     stall_seconds: int
     ci_timeout_seconds: int
     allow_overlapping_runs: bool
+    worker_user: str
     issue_allowlist: tuple[int, ...]
     provider: str
     model: str
@@ -67,16 +72,21 @@ def load(path: Path | None = None, *, environ: dict[str, str] | None = None) -> 
         .expanduser()
         .resolve()
     )
+    worktree_dir = Path(value("worktree_dir", state_dir / "worktrees")).expanduser().resolve()
     settings = Settings(
         root=root,
         state_dir=state_dir,
+        worktree_dir=worktree_dir,
         enabled=_bool(value("enabled", workflow["enabled"])),
         repository=str(value("repository", workflow["repository"])),
         base_branch=str(value("base_branch", workflow["base_branch"])),
         daily_time=str(value("daily_time", workflow["daily_time"])),
         timezone=str(value("timezone", workflow["timezone"])),
+        project_view_number=int(value("project_view_number", workflow["project_view_number"])),
+        daily_done_target=int(value("daily_done_target", workflow["daily_done_target"])),
         max_tasks_per_run=int(value("max_tasks_per_run", workflow["max_tasks_per_run"])),
         max_workers=int(value("max_workers", workflow["max_workers"])),
+        auto_merge=_bool(value("auto_merge", workflow["auto_merge"])),
         max_review_cycles=int(value("max_review_cycles", workflow["max_review_cycles"])),
         agent_timeout_seconds=int(
             value("agent_timeout_seconds", workflow["agent_timeout_seconds"])
@@ -86,6 +96,7 @@ def load(path: Path | None = None, *, environ: dict[str, str] | None = None) -> 
         allow_overlapping_runs=_bool(
             value("allow_overlapping_runs", workflow["allow_overlapping_runs"])
         ),
+        worker_user=str(value("worker_user", workflow.get("worker_user", ""))),
         issue_allowlist=tuple(int(n) for n in workflow.get("issue_allowlist", [])),
         provider=str(value("provider", model["provider"])),
         model=str(value("model", model["name"])),
@@ -106,7 +117,13 @@ def load(path: Path | None = None, *, environ: dict[str, str] | None = None) -> 
     if not re.fullmatch(r"(?:[01]\d|2[0-3]):[0-5]\d", settings.daily_time):
         raise ValueError("daily_time must be HH:MM")
     ZoneInfo(settings.timezone)
-    if settings.max_workers < 1 or settings.max_tasks_per_run < 1 or settings.max_review_cycles < 1:
+    if (
+        settings.project_view_number < 0
+        or settings.daily_done_target < 1
+        or settings.max_workers < 1
+        or settings.max_tasks_per_run < 1
+        or settings.max_review_cycles < 1
+    ):
         raise ValueError("worker, task and review limits must be positive")
     if settings.stall_seconds < 1 or settings.agent_timeout_seconds <= settings.stall_seconds:
         raise ValueError("agent timeout must exceed stall timeout")
@@ -121,4 +138,13 @@ def load(path: Path | None = None, *, environ: dict[str, str] | None = None) -> 
         raise ValueError("Claude CLI cannot enforce temperature or output-token limits")
     if settings.state_dir == settings.root or settings.root in settings.state_dir.parents:
         raise ValueError("state_dir must be outside the repository")
+    if settings.worktree_dir == settings.root or settings.root in settings.worktree_dir.parents:
+        raise ValueError("worktree_dir must be outside the repository")
+    if settings.worker_user and (
+        settings.worktree_dir == settings.state_dir
+        or settings.state_dir in settings.worktree_dir.parents
+    ):
+        raise ValueError("isolated worker worktrees must be outside the private state directory")
+    if settings.worker_user and not re.fullmatch(r"[a-z_][a-z0-9_-]{0,31}", settings.worker_user):
+        raise ValueError("invalid isolated worker user")
     return settings

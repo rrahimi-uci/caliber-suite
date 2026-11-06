@@ -18,6 +18,9 @@ def test_cli_plan_run_tick_status(settings, snapshot, monkeypatch, capsys):
         def snapshot(self):
             return data
 
+        def _daily_done(self, snapshot, label, day):
+            return []
+
         def run(self, *, scheduled):
             calls.append(scheduled)
             return {"scheduled": scheduled}

@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "caliber-automated-cd"
 version = "0.1.0"
-description = "Owner-gated engineering workflow for CALIBER"
+description = "Guarded automated engineering workflow for CALIBER"
 requires-python = ">=3.11"
 dependencies = []
 

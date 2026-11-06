@@ -1,0 +1,137 @@
+name: Automated CD execution
+
+on:
+  schedule:
+    - cron: '0 4 * * *'
+      timezone: America/Los_Angeles
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: read
+
+concurrency:
+  group: caliber-automated-cd-execution
+  cancel-in-progress: false
+
+jobs:
+  execute:
+    if: github.repository == 'rrahimi-uci/caliber-suite' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 330
+    env:
+      AUTOCD_REPO_ROOT: ${{ github.workspace }}
+      AUTOCD_STATE_DIR: /tmp/caliber-autocd-state-${{ github.run_id }}
+      AUTOCD_WORKTREE_DIR: /tmp/caliber-autocd-worktrees-${{ github.run_id }}
+      AUTOCD_DAILY_TIME: '04:00'
+      AUTOCD_TIMEZONE: America/Los_Angeles
+      AUTOCD_WORKER_USER: autocdqa
+      DISABLE_AUTOUPDATER: '1'
+    steps:
+      - name: Initialize durable state slot
+        run: |
+          install -d -m 700 "$AUTOCD_STATE_DIR"
+          umask 077
+          python3 -c 'import os,sqlite3; sqlite3.connect(os.path.join(os.environ["AUTOCD_STATE_DIR"], "workflow.sqlite3")).close()'
+      - name: Restore coordinator state
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          prior_run=$(gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts?name=caliber-autocd-state&per_page=100" --jq '[.artifacts[] | select(.expired == false)] | sort_by(.created_at) | last | .workflow_run.id // empty')
+          if [ -n "$prior_run" ]; then
+            rm "$AUTOCD_STATE_DIR/workflow.sqlite3"
+            gh run download "$prior_run" --repo "$GITHUB_REPOSITORY" --name caliber-autocd-state --dir "$AUTOCD_STATE_DIR"
+          else
+            previous=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow automated-cd-run.yml --branch main --limit 100 --json databaseId --jq "[.[] | select(.databaseId != $GITHUB_RUN_ID)] | length")
+            if [ "$previous" -gt 0 ]; then
+              echo 'Prior execution exists but no state artifact is available; manual reconciliation is required'
+              exit 1
+            fi
+          fi
+      - name: Require execution credentials
+        env:
+          AUTOCD_GH_TOKEN: ${{ secrets.AUTOCD_GH_TOKEN }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          test -n "$AUTOCD_GH_TOKEN" || { echo 'AUTOCD_GH_TOKEN secret is required'; exit 1; }
+          test -n "$ANTHROPIC_API_KEY" || { echo 'ANTHROPIC_API_KEY secret is required'; exit 1; }
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.11'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install coordinator and Claude Code
+        run: |
+          python -m pip install uv -e './automated-cd'
+          npm install --global @anthropic-ai/claude-code
+          python - <<'PY'
+          import re, subprocess
+          raw = subprocess.check_output(['claude', '--version'], text=True)
+          match = re.search(r'(\d+)\.(\d+)\.(\d+)', raw)
+          if not match or tuple(map(int, match.groups())) < (2, 1, 314):
+              raise SystemExit('Claude Code >=2.1.314 is required for working-directory file-tool restrictions')
+          PY
+      - name: Create isolated task user
+        run: |
+          sudo useradd --create-home --shell /bin/bash autocdqa
+          path="$GITHUB_WORKSPACE"
+          sudo chmod o+rx "$path"
+          while [ "$path" != / ]; do
+            path=$(dirname "$path")
+            sudo chmod o+x "$path"
+          done
+      - name: Verify worker isolation
+        run: |
+          mkdir -p "$AUTOCD_WORKTREE_DIR"
+          chmod 755 "$AUTOCD_WORKTREE_DIR"
+          sudo -u autocdqa -- test -x "$AUTOCD_WORKTREE_DIR"
+          if sudo -u autocdqa -- test -r "$AUTOCD_STATE_DIR/workflow.sqlite3"; then
+            echo 'Worker can read coordinator state'; exit 1
+          fi
+          sudo -u autocdqa -- test -d "$GITHUB_WORKSPACE"
+          mkdir "$AUTOCD_WORKTREE_DIR/smoke"
+          sudo chown autocdqa:autocdqa "$AUTOCD_WORKTREE_DIR/smoke"
+          sudo -E -H -u autocdqa -- env PATH="$PATH" sh -c '
+            test "$HOME" = /home/autocdqa
+            command -v uv && command -v claude && command -v python3.11
+            claude --version
+            uv venv "$1/venv" --python 3.11
+          ' sh "$AUTOCD_WORKTREE_DIR/smoke"
+      - name: Verify Project access
+        env:
+          GH_TOKEN: ${{ secrets.AUTOCD_GH_TOKEN }}
+        run: |
+          python - <<'PY'
+          import subprocess
+          response = subprocess.check_output(['gh', 'api', '-i', 'user'], text=True)
+          header = next((line for line in response.splitlines()
+                         if line.lower().startswith('x-oauth-scopes:')), '')
+          scopes = {scope.strip() for scope in header.partition(':')[2].split(',') if scope.strip()}
+          required = {'project', 'public_repo'}
+          allowed = required | {'read:project'}
+          if not required.issubset(scopes) or scopes - allowed:
+              raise SystemExit('AUTOCD_GH_TOKEN must have only project and public_repo scopes')
+          print('Scoped Project token verified')
+          PY
+          test "$(gh api "repos/${GITHUB_REPOSITORY}" --jq '.permissions.push')" = true
+          gh auth setup-git --hostname github.com
+          python -m autocd.cli plan
+      - name: Start and monitor workflow
+        env:
+          GH_TOKEN: ${{ secrets.AUTOCD_GH_TOKEN }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          AUTOCD_RUN_MODE: ${{ github.event_name == 'schedule' && 'schedule' || 'manual' }}
+        run: timeout --signal=TERM --kill-after=2m 300m python -m autocd.hosted
+      - name: Save coordinator state
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: caliber-autocd-state
+          path: /tmp/caliber-autocd-state-${{ github.run_id }}/workflow.sqlite3*
+          if-no-files-found: ignore
+          retention-days: 90

@@ -13,6 +13,8 @@ def settings(tmp_path: Path):
     return replace(
         load(),
         state_dir=tmp_path / "private-state",
+        enabled=False,
+        auto_merge=False,
         setup_commands=(),
         issue_checks={12: ("python -m pytest tests/test_task.py --cov=task --cov-fail-under=95",)},
         issue_paths={12: frozenset({"src/task.py", "tests/test_task.py"})},
@@ -29,6 +31,7 @@ def snapshot():
             "state": "OPEN",
             "repository": "rrahimi-uci/caliber-suite",
             "assignees": [],
+            "labels": ["release:beta"],
             "prs": [],
             "blockedBy": [],
             "milestone": {"number": 4},
@@ -52,5 +55,6 @@ def snapshot():
 
     return {
         "repository": {"nameWithOwner": "rrahimi-uci/caliber-suite", "defaultBranch": "main"},
+        "view": {"number": 0, "name": "All Project Tasks", "filter": ""},
         "items": [item(12), item(13), item(14)],
     }, item
