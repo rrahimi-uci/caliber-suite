@@ -21,7 +21,7 @@ jobs:
     timeout-minutes: 330
     env:
       AUTOCD_REPO_ROOT: ${{ github.workspace }}
-      AUTOCD_STATE_DIR: ${{ runner.temp }}/caliber-autocd-state
+      AUTOCD_STATE_DIR: /tmp/caliber-autocd-state-${{ github.run_id }}
       AUTOCD_WORKTREE_DIR: /tmp/caliber-autocd-worktrees-${{ github.run_id }}
       AUTOCD_DAILY_TIME: '04:00'
       AUTOCD_TIMEZONE: America/Los_Angeles
@@ -132,6 +132,6 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: caliber-autocd-state
-          path: ${{ runner.temp }}/caliber-autocd-state/workflow.sqlite3*
+          path: /tmp/caliber-autocd-state-${{ github.run_id }}/workflow.sqlite3*
           if-no-files-found: ignore
           retention-days: 90
