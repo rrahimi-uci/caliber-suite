@@ -157,6 +157,15 @@ Project Done after a verified merge.
   output remain in the encrypted artifact. Diagnosis needs `AUTOCD_STATE_KEY`
   but does not need the model or Project token. It does not claim tasks or upload
   a new state artifact, and cannot be combined with `retry_issue`.
+- For a private incident investigation, temporarily add repository secret
+  `AUTOCD_DIAG_KEY` containing a separate base64-encoded 32-byte key, then
+  dispatch with `diagnose_state=true`, `export_incident=true`, and
+  `incident_issue=<number>`. The runner
+  uploads a one-day `caliber-autocd-incident` artifact containing only an
+  AES-GCM encrypted bundle of that issue's latest attempt and up to 50 relevant evidence
+  events. Decrypt it with the locally retained temporary key, then delete the
+  artifact and secret. Never put review findings or command output in Actions
+  logs, issue comments, or an unencrypted artifact.
 - For `blocked_after_interruption`, inspect the Project claim, remote branch,
   and any PR before restarting. The runner worktree is ephemeral. Blocked task
   IDs remain excluded from later runs until the state and Project are manually

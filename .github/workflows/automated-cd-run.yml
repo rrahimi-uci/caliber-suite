@@ -15,6 +15,15 @@ on:
         required: false
         type: boolean
         default: false
+      export_incident:
+        description: 'With diagnosis, upload private evidence encrypted under the temporary incident key'
+        required: false
+        type: boolean
+        default: false
+      incident_issue:
+        description: 'Issue number whose latest attempt is exported when export_incident is true'
+        required: false
+        type: string
 
 permissions:
   actions: read
@@ -104,6 +113,11 @@ jobs:
               exit 1
             fi
           fi
+      - name: Reject incident export without diagnosis
+        if: ${{ inputs.export_incident == true && inputs.diagnose_state != true }}
+        run: |
+          echo 'Incident export requires diagnostic mode'
+          exit 1
       - name: Diagnose latest task safely
         if: ${{ inputs.diagnose_state == true }}
         env:
@@ -111,6 +125,20 @@ jobs:
         run: |
           test -z "$AUTOCD_RETRY_ISSUE" || { echo 'Diagnosis cannot retry an issue'; exit 1; }
           python -m autocd.diagnostics
+      - name: Export encrypted incident evidence
+        if: ${{ inputs.diagnose_state == true && inputs.export_incident == true }}
+        env:
+          AUTOCD_DIAG_KEY: ${{ secrets.AUTOCD_DIAG_KEY }}
+          AUTOCD_INCIDENT_ISSUE: ${{ inputs.incident_issue || '' }}
+        run: python -m autocd.incident
+      - name: Save encrypted incident evidence
+        if: ${{ inputs.diagnose_state == true && inputs.export_incident == true }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: caliber-autocd-incident
+          path: /tmp/caliber-autocd-state-${{ github.run_id }}/incident.enc
+          if-no-files-found: error
+          retention-days: 1
       - name: Create isolated task user
         if: ${{ inputs.diagnose_state != true }}
         run: |
@@ -173,12 +201,12 @@ jobs:
           AUTOCD_RETRY_ISSUE: ${{ inputs.retry_issue || '' }}
         run: timeout --signal=TERM --kill-after=2m 300m python -m autocd.hosted
       - name: Encrypt coordinator state
-        if: ${{ always() && inputs.diagnose_state != true }}
+        if: ${{ always() && inputs.diagnose_state != true && inputs.export_incident != true }}
         env:
           AUTOCD_STATE_KEY: ${{ secrets.AUTOCD_STATE_KEY }}
         run: python -m autocd.state_crypto seal "$AUTOCD_STATE_DIR/workflow.sqlite3" "$AUTOCD_STATE_DIR/workflow.state.enc"
       - name: Save coordinator state
-        if: ${{ always() && inputs.diagnose_state != true }}
+        if: ${{ always() && inputs.diagnose_state != true && inputs.export_incident != true }}
         uses: actions/upload-artifact@v4
         with:
           name: caliber-autocd-state
