@@ -222,9 +222,32 @@ def test_reviewer_requests_record_unavailable(settings, tmp_path: Path, monkeypa
         return ""
 
     monkeypatch.setattr("autocd.github.command", capture)
+    monkeypatch.setattr(
+        github,
+        "pr_state",
+        lambda pr: {"author": {"login": "owner"}, "reviewRequests": [], "latestReviews": []},
+    )
     status = github.request_reviewers(tmp_path, 88, "owner")
     assert status["owner"].startswith("unavailable")
-    assert status["copilot"] == "requested"
+    assert status["copilot"] == "not confirmed by GitHub"
+
+
+def test_reviewer_requests_use_observed_review_state(settings, tmp_path: Path, monkeypatch):
+    github = GitHub(settings)
+    monkeypatch.setattr("autocd.github.command", lambda *a, **k: "")
+    monkeypatch.setattr(
+        github,
+        "pr_state",
+        lambda pr: {
+            "author": {"login": "worker"},
+            "reviewRequests": [{"login": "owner"}],
+            "latestReviews": [{"author": {"login": "copilot-pull-request-reviewer[bot]"}}],
+        },
+    )
+    assert github.request_reviewers(tmp_path, 88, "owner") == {
+        "owner": "requested",
+        "copilot": "reviewed",
+    }
 
 
 def test_review_thread_pagination(settings, monkeypatch):

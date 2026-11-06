@@ -191,6 +191,24 @@ class GitHub:
                 status[label] = "requested"
             except CommandError as error:
                 status[label] = f"unavailable: {error}"
+        observed = self.pr_state(pr)
+        requests = {entry.get("login", "") for entry in observed.get("reviewRequests", [])}
+        reviews = {
+            entry.get("author", {}).get("login", "") for entry in observed.get("latestReviews", [])
+        }
+        if observed.get("author", {}).get("login") == owner:
+            status["owner"] = "unavailable: GitHub does not allow author self-review requests"
+        elif owner in reviews:
+            status["owner"] = "reviewed"
+        elif owner not in requests and status["owner"] == "requested":
+            status["owner"] = "not confirmed by GitHub"
+        if any("copilot" in login.lower() for login in reviews):
+            status["copilot"] = "reviewed"
+        elif (
+            not any("copilot" in login.lower() for login in requests)
+            and status["copilot"] == "requested"
+        ):
+            status["copilot"] = "not confirmed by GitHub"
         return status
 
     def record_reviewers(self, pr: int, status: dict[str, str]) -> None:
