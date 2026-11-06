@@ -1354,6 +1354,12 @@ def test_large_generated_diff_uses_hashed_review_manifest(settings, tmp_path: Pa
         worktree, ["docs-site/search-index.json"], engine._diff(worktree)
     )
     assert generated_only["diff"] == ""
+    magic = worktree / ":(exclude)*"
+    magic.write_text("magic source must be reviewed\n")
+    magic_view = engine._review_view(
+        worktree, [":(exclude)*", "docs-site/search-index.json"], engine._diff(worktree)
+    )
+    assert "magic source must be reviewed" in magic_view["diff"]
 
 
 def test_generated_review_manifest_rejects_symlink_and_directory(settings, tmp_path: Path):

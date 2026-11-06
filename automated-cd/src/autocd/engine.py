@@ -499,7 +499,7 @@ class Engine:
                         "--binary",
                         f"origin/{self.settings.base_branch}",
                         "--",
-                        *source,
+                        *(f":(literal){path}" for path in source),
                     ],
                     worktree,
                 )
