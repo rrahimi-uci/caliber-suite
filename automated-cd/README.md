@@ -20,13 +20,18 @@ GitHub Actions starts the workflow at 4:00 AM `America/Los_Angeles` on a hosted
 runner. A manual `workflow_dispatch` starts an extra run from GitHub. The runner
 saves SQLite state as an Actions artifact so published PRs can be reconciled
 on a later run. Worktrees do not persist across runners; an interrupted edit
-before PR creation is blocked for inspection. Ordinary tests use fakes and
-make no model or GitHub calls.
+before PR creation is blocked for inspection. The run reports a failed Actions
+status if any task blocks, while still uploading its state artifact. Unreviewed
+candidate source is not uploaded to public Actions artifacts. Ordinary tests
+use fakes and make no model or GitHub calls.
 
 ## Setup
 
-1. Add repository Actions secrets `ANTHROPIC_API_KEY` and `AUTOCD_GH_TOKEN`.
-   The latter must be a classic token owned by `rrahimi-uci` with `project`
+1. Add repository Actions secrets `ANTHROPIC_API_KEY`, `AUTOCD_GH_TOKEN`,
+   and `AUTOCD_STATE_KEY`. Generate `AUTOCD_STATE_KEY` as 32 random bytes
+   encoded in base64; retain it securely because rotation without migrating
+   the state makes the existing artifact unreadable.
+   `AUTOCD_GH_TOKEN` must be a classic token owned by `rrahimi-uci` with `project`
    and `public_repo` scopes (GitHub may also report `read:project`). It needs
    write access to this repository and user Project #3. The runner verifies
    the token owner, scopes, repository push permission, and Project read
@@ -96,9 +101,15 @@ still available for read-only local diagnosis, but production starts in GitHub.
 ## State and safety
 
 `workflow.sqlite3` stores run/task phases and an append-only event history.
-It is uploaded as a 90-day Actions artifact after each run and restored by
-the next run. Worktrees live in a separate temporary worker directory,
-never inside `main` or the private state directory.
+It can include model output and QA command excerpts. The runner encrypts it
+with an authenticated per-repository key before uploading the 90-day Actions
+artifact and decrypts it on the next run. Only one known pre-encryption run
+artifact is accepted for migration. Worktrees live in a separate temporary
+worker directory, never inside `main` or the private state directory.
+Blocked tasks are marked Blocked in the Project. Inspect the state artifact,
+issue claim and remote PR/branch before deciding whether to retry. An uncommitted
+candidate is lost when its runner ends; encrypted state artifacts contain
+audit data that may include sensitive snippets, not candidate patches.
 Interruption during editing, review, QA or PR creation blocks that task for
 manual reconciliation; the coordinator does not replay an ambiguous write.
 An interrupted `ci_wait` phase rechecks the exact PR head, required checks,

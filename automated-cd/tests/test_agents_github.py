@@ -20,13 +20,16 @@ def _fake_cli(tmp_path: Path, body: str) -> Path:
 
 
 def test_claude_agent_read_only_and_json_result(settings, tmp_path: Path, monkeypatch):
-    _fake_cli(tmp_path, 'printf \'%s\\n\' \'{"type":"result","result":"{\\"approved\\":true}"}\'')
+    _fake_cli(
+        tmp_path,
+        'printf \'%s\\n\' \'{"type":"result","result":"{\\"approved\\":true,\\"gaps\\":[]}"}\'',
+    )
     monkeypatch.setenv("PATH", str(tmp_path) + os.pathsep + os.environ["PATH"])
     events = []
     result = ClaudeAgent(settings, lambda kind, detail: events.append(kind)).run(
         "qa", "test", tmp_path
     )
-    assert result == {"approved": True}
+    assert result == {"approved": True, "gaps": []}
     assert events == ["agent_started", "agent_finished"]
     assert "Never merge" in role_prompt("qa")
     with pytest.raises(ValueError):
@@ -45,10 +48,30 @@ def test_claude_agent_accepts_complete_fenced_json_result(settings, tmp_path: Pa
 
 
 def test_claude_agent_rejects_non_json_and_partial_fences():
-    assert decode_result("qa", {"approved": True}) == {"approved": True}
-    assert decode_result("qa", '```\n{"approved":true}\n```') == {"approved": True}
+    assert decode_result("qa", {"approved": True, "gaps": []}) == {
+        "approved": True,
+        "gaps": [],
+    }
+    assert decode_result("qa", '```\n{"approved":true,"gaps":[]}\n```') == {
+        "approved": True,
+        "gaps": [],
+    }
+    assert decode_result(
+        "reviewer",
+        'Review is nearly done.\n\n```json\n{"approved":false,"findings":[{"title":"QA failed"}]}\n```',
+    ) == {"approved": False, "findings": [{"title": "QA failed"}]}
     for raw in (None, "plain text", '```json\n{"approved":true}\n``` trailing prose', "[1]"):
         with pytest.raises(AgentError, match="JSON"):
+            decode_result("qa", raw)
+    for raw in ({"approved": "true", "findings": []}, {"approved": True, "findings": "none"}):
+        with pytest.raises(AgentError, match="verdict schema"):
+            decode_result("reviewer", raw)
+    for raw in (
+        {"approved": "false", "gaps": []},
+        {"approved": True},
+        {"approved": True, "gaps": "none"},
+    ):
+        with pytest.raises(AgentError, match="verdict schema"):
             decode_result("qa", raw)
 
 
@@ -106,7 +129,7 @@ def test_untrusted_subprocess_environments_strip_coordinator_credentials(monkeyp
 def test_model_uses_isolated_user_when_configured(settings, tmp_path: Path, monkeypatch):
     import subprocess
 
-    _fake_cli(tmp_path, 'echo \'{"type":"result","result":{}}\'')
+    _fake_cli(tmp_path, 'echo \'{"type":"result","result":{"approved":true,"gaps":[]}}\'')
     monkeypatch.setenv("PATH", str(tmp_path) + os.pathsep + os.environ["PATH"])
     original = subprocess.Popen
     seen = []
@@ -159,7 +182,10 @@ def test_claude_agent_stream_variants_and_timeout(settings, tmp_path: Path, monk
         "message": {"content": [{"type": "text", "text": "Working on tests"}]},
     }
     _fake_cli(
-        tmp_path, "echo '" + json.dumps(message) + '\'; echo \'{"type":"result","result":{}}\''
+        tmp_path,
+        "echo '"
+        + json.dumps(message)
+        + '\'; echo \'{"type":"result","result":{"approved":true,"findings":[]}}\'',
     )
     ClaudeAgent(settings, lambda kind, detail: progress.append((kind, detail))).run(
         "reviewer", "test", tmp_path
@@ -168,10 +194,16 @@ def test_claude_agent_stream_variants_and_timeout(settings, tmp_path: Path, monk
         kind == "agent_progress" and detail["update"] == "Working on tests"
         for kind, detail in progress
     )
-    _fake_cli(tmp_path, 'echo \'{"type":"result","result":{"ok":true}}\'')
-    assert ClaudeAgent(settings, lambda *a: None).run("qa", "test", tmp_path) == {"ok": True}
-    _fake_cli(tmp_path, 'printf \'{"type":"result","result":{"ok":true}}\'')
-    assert ClaudeAgent(settings, lambda *a: None).run("qa", "test", tmp_path) == {"ok": True}
+    _fake_cli(tmp_path, 'echo \'{"type":"result","result":{"approved":true,"gaps":[]}}\'')
+    assert ClaudeAgent(settings, lambda *a: None).run("qa", "test", tmp_path) == {
+        "approved": True,
+        "gaps": [],
+    }
+    _fake_cli(tmp_path, 'printf \'{"type":"result","result":{"approved":true,"gaps":[]}}\'')
+    assert ClaudeAgent(settings, lambda *a: None).run("qa", "test", tmp_path) == {
+        "approved": True,
+        "gaps": [],
+    }
     _fake_cli(tmp_path, 'echo \'{"type":"result","is_error":true}\'')
     with pytest.raises(AgentError, match="returned an error"):
         ClaudeAgent(settings, lambda *a: None).run("qa", "test", tmp_path)

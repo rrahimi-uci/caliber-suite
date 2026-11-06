@@ -98,3 +98,115 @@ def test_hosted_module_entrypoint_uses_environment(monkeypatch):
     monkeypatch.setattr("autocd.engine.Engine", FakeEngine)
     monkeypatch.setenv("AUTOCD_RUN_MODE", "manual")
     runpy.run_module("autocd.hosted", run_name="__main__")
+
+
+def test_hosted_entrypoint_hides_uncaught_task_details(monkeypatch, capsys):
+    class FakeEngine:
+        def __init__(self, settings):
+            self.settings = settings
+
+        def run(self, *, scheduled):
+            raise RuntimeError("example-secret-from-command")
+
+    monkeypatch.setattr(
+        "autocd.config.load", lambda: type("Settings", (), {"max_tasks_per_run": 6})()
+    )
+    monkeypatch.setattr("autocd.engine.Engine", FakeEngine)
+    monkeypatch.setenv("AUTOCD_RUN_MODE", "manual")
+    with pytest.raises(SystemExit) as stopped:
+        runpy.run_module("autocd.hosted", run_name="__main__")
+    assert stopped.value.code == 1
+    assert "example-secret" not in capsys.readouterr().err
+
+
+def test_hosted_fails_after_blocked_task_but_still_monitors(monkeypatch):
+    calls = []
+
+    class FakeEngine:
+        def __init__(self, settings):
+            self.settings = settings
+
+        def run(self, *, scheduled, exclude_issues=frozenset()):
+            calls.append((scheduled, exclude_issues))
+            if scheduled:
+                return {"selected": [821], "results": [{"issue": 821, "status": "blocked"}]}
+            return {"selected": [], "results": []}
+
+        def monitor(self):
+            calls.append("monitor")
+            return {"pending": 0}
+
+    monkeypatch.setattr(hosted, "load", lambda: type("Settings", (), {"max_tasks_per_run": 6})())
+    monkeypatch.setattr(hosted, "Engine", FakeEngine)
+    monkeypatch.setattr(hosted.time, "monotonic", lambda: 0)
+    with pytest.raises(RuntimeError, match="blocked issues: \\[821\\]"):
+        hosted.run_hosted("schedule", max_seconds=120, poll_seconds=10)
+    assert calls == [(True, frozenset()), "monitor", (False, frozenset({821}))]
+
+
+def test_hosted_fails_on_blocked_recovery(monkeypatch):
+    class FakeEngine:
+        def __init__(self, settings):
+            self.settings = settings
+
+        def run(self, *, scheduled, exclude_issues=frozenset()):
+            if not scheduled:
+                return {"selected": []}
+            return {"status": "waiting_on_published_prs", "recovered": []}
+
+        def monitor(self):
+            return {"pending": 0, "recovered": [{"issue": 1110, "status": "blocked_ci_or_review"}]}
+
+    monkeypatch.setattr(hosted, "load", lambda: type("Settings", (), {"max_tasks_per_run": 6})())
+    monkeypatch.setattr(hosted, "Engine", FakeEngine)
+    monkeypatch.setattr(hosted.time, "monotonic", lambda: 0)
+    with pytest.raises(RuntimeError, match="blocked issues: \\[1110\\]"):
+        hosted.run_hosted("schedule", max_seconds=120, poll_seconds=10)
+
+
+def test_hosted_logs_hide_untrusted_errors(monkeypatch, capsys):
+    secret = "example-secret-from-review"
+
+    class FakeEngine:
+        def __init__(self, settings):
+            self.settings = settings
+
+        def run(self, *, scheduled, exclude_issues=frozenset()):
+            if scheduled:
+                return {
+                    "selected": [821],
+                    "results": [{"issue": 821, "status": "blocked", "error": secret}],
+                }
+            return {"selected": []}
+
+        def monitor(self):
+            return {"pending": 0}
+
+    monkeypatch.setattr(hosted, "load", lambda: type("Settings", (), {"max_tasks_per_run": 6})())
+    monkeypatch.setattr(hosted, "Engine", FakeEngine)
+    monkeypatch.setattr(hosted.time, "monotonic", lambda: 0)
+    with pytest.raises(RuntimeError, match="blocked issues"):
+        hosted.run_hosted("schedule", max_seconds=120, poll_seconds=10)
+    assert secret not in capsys.readouterr().out
+
+
+def test_hosted_fails_when_pr_checks_remain_unverifiable(monkeypatch):
+    class FakeEngine:
+        def __init__(self, settings):
+            self.settings = settings
+
+        def run(self, *, scheduled, exclude_issues=frozenset()):
+            return (
+                {"status": "waiting_on_published_prs", "recovered": []}
+                if scheduled
+                else {"selected": []}
+            )
+
+        def monitor(self):
+            return {"pending": 1, "recovered": [{"issue": 12, "status": "pr_check_error"}]}
+
+    monkeypatch.setattr(hosted, "load", lambda: type("Settings", (), {"max_tasks_per_run": 6})())
+    monkeypatch.setattr(hosted, "Engine", FakeEngine)
+    monkeypatch.setattr(hosted.time, "monotonic", lambda: 0)
+    with pytest.raises(RuntimeError, match="checks could not be verified"):
+        hosted.run_hosted("schedule", max_seconds=10, poll_seconds=10)
