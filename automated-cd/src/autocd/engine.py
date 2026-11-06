@@ -124,9 +124,10 @@ class Engine:
             pathmap=self.settings.issue_paths,
             scope_label=label,
         )
-        if retry_issue is not None:
-            previous = store.latest_task(retry_issue)
-            branches = {branch["name"] for page in overview["branches"] for branch in page}
+        branches = {branch["name"] for page in overview["branches"] for branch in page}
+
+        def retryable_previous(issue: int):
+            previous = store.latest_task(issue)
             if (
                 previous is None
                 or previous["phase"] not in {"blocked", "failed"}
@@ -134,15 +135,42 @@ class Engine:
                 or previous["head"] is not None
                 or not previous["branch"]
                 or previous["branch"] in branches
-                or retry_issue not in {task.issue for task in candidates}
             ):
+                return None
+            return previous
+
+        blocked = store.blocked_issues()
+        retry_branches: dict[int, str] = {}
+        scheduled_retries = {}
+        if retry_issue is not None:
+            previous = retryable_previous(retry_issue)
+            if previous is None or retry_issue not in {task.issue for task in candidates}:
                 raise RuntimeError(
                     "Retry requires a blocked pre-PR attempt, absent remote branch, and a freshly Ready unclaimed Project task"
                 )
             candidates = [task for task in candidates if task.issue == retry_issue]
+            retry_branches[retry_issue] = previous["branch"]
             store.event(run, retry_issue, "retry_authorized", {"prior_run": previous["run_id"]})
-        retry = {retry_issue} if retry_issue is not None else set()
-        excluded = exclude_issues | (store.blocked_issues() - retry) | (attempted_today - retry)
+        elif schedule_day is not None:
+            # A reviewed Todo/Ready Project transition can authorize a pre-PR
+            # blocked task on the next Pacific day. Never replay a same-day
+            # attempt, a published head/PR, or a branch that reappeared remotely.
+            for task in candidates:
+                if task.issue not in blocked or task.issue in attempted_today:
+                    continue
+                previous = retryable_previous(task.issue)
+                if previous is None or previous["phase"] != "blocked":
+                    continue
+                blocked_at = store.phase_started(previous["run_id"], task.issue, "blocked")
+                if blocked_at is not None and self.github.has_ready_reconciliation(
+                    task.issue, blocked_at
+                ):
+                    retry_branches[task.issue] = previous["branch"]
+                    scheduled_retries[task.issue] = previous["run_id"]
+        explicit_retry = {retry_issue} if retry_issue is not None else set()
+        excluded = (
+            exclude_issues | (blocked - retry_branches.keys()) | (attempted_today - explicit_retry)
+        )
         candidates = [task for task in candidates if task.issue not in excluded]
         # Explicit commands augment the repository gate. The fallback runs the
         # full backend suite with coverage for every changed production file.
@@ -195,6 +223,17 @@ class Engine:
                     "reason": str(plan.get("reason", ""))[:1000],
                 },
             )
+            for task in selected:
+                if task.issue in scheduled_retries:
+                    store.event(
+                        run,
+                        task.issue,
+                        "retry_authorized",
+                        {
+                            "prior_run": scheduled_retries[task.issue],
+                            "source": "scheduled_reconciled_ready",
+                        },
+                    )
         if retry_issue is not None and not selected:
             raise RuntimeError("Explicit retry was not selected by planner or daily attempt cap")
         results = []
@@ -204,7 +243,7 @@ class Engine:
                     self._task,
                     run,
                     task,
-                    *([previous["branch"]] if retry_issue == task.issue else []),
+                    *([retry_branches[task.issue]] if task.issue in retry_branches else []),
                 )
                 for task in selected
             ]

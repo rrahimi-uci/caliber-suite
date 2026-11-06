@@ -213,10 +213,16 @@ Project Done after a verified merge.
   reconciled; rerunning the scheduler does not replay an ambiguous write.
 - After verifying the blocked attempt has no pushed head or PR and its branch
   is absent remotely, clear the old claim and return the Project task to
-  unassigned Todo/Ready through a reviewed Project update. Then dispatch the
-  GitHub workflow with `retry_issue` set to that one issue number. The runner
-  checks the persisted blocked attempt, absent remote branch, and live Ready
-  eligibility before allowing the retry. Scheduled runs never override blocks.
+  unassigned Todo/Ready through a reviewed Project update. For an immediate
+  retry, dispatch the GitHub workflow with `retry_issue` set to that one issue
+  number; the Pacific-day attempt cap still applies. If the cap is exhausted,
+  the next 4:00 AM Pacific scheduled run may select the reconciled task after
+  the day resets. It requires the persisted blocked pre-PR attempt, no pushed
+  head or PR, an absent remote branch, a live Ready unclaimed Project task, an
+  owner-authored `Engineering workflow: **ready**` transition comment after the
+  blocked event, and no claim on the new day. The worker rechecks the old branch
+  before creating its worktree. A task left Blocked in Project, or a stale Ready
+  field left by failed claim/block writes, is never replayed automatically.
 - For `waiting_for_ci_or_review` or `waiting_for_merge`, the hosted monitor or
   next scheduled/manual run rechecks the PR. A
   required skipped, pending or failed check is not a pass.

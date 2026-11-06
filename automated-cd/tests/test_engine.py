@@ -2,12 +2,14 @@ from __future__ import annotations
 
 import hashlib
 import json
+import sqlite3
 import subprocess
 import sys
 from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import ClassVar
+from zoneinfo import ZoneInfo
 
 import pytest
 
@@ -34,6 +36,7 @@ class FakeGitHub:
         self.up_to_date = True
         self.worktree = settings.state_dir / "fake-worktree"
         self.remote_branches = set()
+        self.ready_reconciled = False
 
     def remote_branch_exists(self, branch):
         return branch in self.remote_branches
@@ -54,6 +57,10 @@ class FakeGitHub:
 
     def login(self):
         return "worker"
+
+    def has_ready_reconciliation(self, issue, blocked_at):
+        assert issue > 0 and blocked_at.tzinfo is not None
+        return self.ready_reconciled
 
     def transition(self, target, issue, phase, payload):
         self.transitions.append((issue, phase, payload))
@@ -379,6 +386,117 @@ def test_prior_blocked_issue_is_excluded_from_future_run(settings, snapshot):
     engine._task = lambda run, task: {"issue": task.issue, "status": "queued"}
     result = engine.run()
     assert result["selected"] == [13]
+
+
+def test_scheduled_run_resumes_reconciled_pre_pr_block_after_day_reset(
+    settings, snapshot, monkeypatch
+):
+    data, _ = snapshot
+    settings = replace(settings, enabled=True)
+    store = Store(settings.state_dir)
+    assert store.start("prior")
+    store.add_task("prior", 12, "release:Beta", "old-branch", settings.state_dir / "old")
+    store.phase("prior", 12, "blocked", failure="review gaps")
+    with sqlite3.connect(store.path) as db:
+        db.execute(
+            "UPDATE events SET at='2000-01-01T00:00:00+00:00' "
+            "WHERE run_id='prior' AND kind='task_claimed'"
+        )
+    github = FakeGitHub(settings, data)
+    github.ready_reconciled = True
+    engine = Engine(settings, github=github, agent_factory=FakeAgent)
+    today = datetime.now(ZoneInfo(settings.timezone)).date().isoformat()
+    monkeypatch.setattr(engine, "due_date", lambda: today)
+    launched = []
+    monkeypatch.setattr(
+        engine,
+        "_task",
+        lambda run, task, retry_branch=None: (
+            launched.append((task.issue, retry_branch)),
+            {"issue": task.issue, "status": "queued"},
+        )[1],
+    )
+    result = engine.run(scheduled=True)
+    assert result["selected"] == [12]
+    assert launched == [(12, "old-branch")]
+    authorization = store.db.execute(
+        "SELECT detail FROM events WHERE run_id=? AND issue=12 AND kind='retry_authorized'",
+        (result["run"],),
+    ).fetchone()
+    assert json.loads(authorization["detail"]) == {
+        "prior_run": "prior",
+        "source": "scheduled_reconciled_ready",
+    }
+
+
+def test_scheduled_retry_does_not_repeat_same_day(settings, snapshot, monkeypatch):
+    data, _ = snapshot
+    settings = replace(settings, enabled=True)
+    store = Store(settings.state_dir)
+    assert store.start("prior")
+    store.add_task("prior", 12, "release:Beta", "old-branch", settings.state_dir / "old")
+    store.phase("prior", 12, "blocked", failure="review gaps")
+    github = FakeGitHub(settings, data)
+    engine = Engine(settings, github=github, agent_factory=FakeAgent)
+    monkeypatch.setattr(
+        engine, "due_date", lambda: datetime.now(ZoneInfo(settings.timezone)).date().isoformat()
+    )
+    result = engine.run(scheduled=True)
+    assert 12 not in result["selected"]
+    assert not store.db.execute("SELECT 1 FROM events WHERE kind='retry_authorized'").fetchone()
+
+
+def test_scheduled_retry_refuses_stale_ready_after_failed_claim_and_block(
+    settings, snapshot, monkeypatch
+):
+    data, _ = snapshot  # Project stayed Todo/Ready when both transitions failed.
+    settings = replace(settings, enabled=True)
+    store = Store(settings.state_dir)
+    assert store.start("prior")
+    store.add_task("prior", 12, "release:Beta", "old-branch", settings.state_dir / "old")
+    store.phase("prior", 12, "blocked", failure="claim and block transitions failed")
+    with sqlite3.connect(store.path) as db:
+        db.execute(
+            "UPDATE events SET at='2000-01-01T00:00:00+00:00' "
+            "WHERE run_id='prior' AND kind='task_claimed'"
+        )
+    github = FakeGitHub(settings, data)  # No post-block Ready transition comment.
+    engine = Engine(settings, github=github, agent_factory=FakeAgent)
+    monkeypatch.setattr(
+        engine, "due_date", lambda: datetime.now(ZoneInfo(settings.timezone)).date().isoformat()
+    )
+    result = engine.run(scheduled=True)
+    assert 12 not in result["selected"]
+    assert github.transitions == []
+    assert not store.db.execute("SELECT 1 FROM events WHERE kind='retry_authorized'").fetchone()
+
+
+def test_scheduled_retry_rejects_remote_branch(settings, snapshot, monkeypatch):
+    data, _ = snapshot
+    settings = replace(settings, enabled=True)
+    store = Store(settings.state_dir)
+    assert store.start("prior")
+    store.add_task("prior", 12, "release:Beta", "old-branch", settings.state_dir / "old")
+    store.phase("prior", 12, "blocked", failure="review gaps")
+    with sqlite3.connect(store.path) as db:
+        db.execute(
+            "UPDATE events SET at='2000-01-01T00:00:00+00:00' "
+            "WHERE run_id='prior' AND kind='task_claimed'"
+        )
+    github = FakeGitHub(settings, data)
+    github.overview = lambda: {
+        "open_prs": [],
+        "recent_runs": [],
+        "recent_commits": [],
+        "branches": [[{"name": "old-branch"}]],
+    }
+    engine = Engine(settings, github=github, agent_factory=FakeAgent)
+    monkeypatch.setattr(
+        engine, "due_date", lambda: datetime.now(ZoneInfo(settings.timezone)).date().isoformat()
+    )
+    result = engine.run(scheduled=True)
+    assert 12 not in result["selected"]
+    assert not store.db.execute("SELECT 1 FROM events WHERE kind='retry_authorized'").fetchone()
 
 
 def test_explicit_retry_requires_ready_unclaimed_issue_and_absent_remote_branch(settings, snapshot):

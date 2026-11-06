@@ -9,6 +9,7 @@ import tempfile
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar
+from datetime import datetime
 from pathlib import Path
 
 from .config import Settings
@@ -164,6 +165,33 @@ class GitHub:
 
     def login(self) -> str:
         return command(["gh", "api", "user", "--jq", ".login"], self.root).strip()
+
+    def has_ready_reconciliation(self, issue: int, blocked_at: datetime) -> bool:
+        """Require an owner-authored Ready transition after a blocked attempt."""
+        pages = json.loads(
+            command(
+                [
+                    "gh",
+                    "api",
+                    "--paginate",
+                    "--slurp",
+                    f"repos/{self.settings.repository}/issues/{issue}/comments?per_page=100",
+                ],
+                self.root,
+                timeout=180,
+            )
+        )
+        if not isinstance(pages, list) or any(not isinstance(page, list) for page in pages):
+            raise CommandError("Issue comment inventory is incomplete")
+        owner = self.settings.repository.split("/", 1)[0]
+        return any(
+            isinstance(comment, dict)
+            and (comment.get("user") or {}).get("login") == owner
+            and str(comment.get("body", "")).startswith("Engineering workflow: **ready**\n\n")
+            and datetime.fromisoformat(str(comment.get("created_at", ""))) > blocked_at
+            for page in pages
+            for comment in page
+        )
 
     def transition(self, target: str, issue: int, phase: str, payload: dict) -> None:
         with tempfile.NamedTemporaryFile("w", suffix=".json", delete=True) as file:
