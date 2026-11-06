@@ -77,7 +77,14 @@ jobs:
               raise SystemExit('Claude Code >=2.1.314 is required for working-directory file-tool restrictions')
           PY
       - name: Create isolated task user
-        run: sudo useradd --create-home --shell /bin/bash autocdqa
+        run: |
+          sudo useradd --create-home --shell /bin/bash autocdqa
+          path="$GITHUB_WORKSPACE"
+          sudo chmod o+rx "$path"
+          while [ "$path" != / ]; do
+            path=$(dirname "$path")
+            sudo chmod o+x "$path"
+          done
       - name: Verify worker isolation
         run: |
           mkdir -p "$AUTOCD_WORKTREE_DIR"
@@ -99,6 +106,19 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.AUTOCD_GH_TOKEN }}
         run: |
+          python - <<'PY'
+          import subprocess
+          response = subprocess.check_output(['gh', 'api', '-i', 'user'], text=True)
+          header = next((line for line in response.splitlines()
+                         if line.lower().startswith('x-oauth-scopes:')), '')
+          scopes = {scope.strip() for scope in header.partition(':')[2].split(',') if scope.strip()}
+          required = {'project', 'public_repo'}
+          allowed = required | {'read:project'}
+          if not required.issubset(scopes) or scopes - allowed:
+              raise SystemExit('AUTOCD_GH_TOKEN must have only project and public_repo scopes')
+          print('Scoped Project token verified')
+          PY
+          test "$(gh api "repos/${GITHUB_REPOSITORY}" --jq '.permissions.push')" = true
           gh auth setup-git --hostname github.com
           python -m autocd.cli plan
       - name: Start and monitor workflow

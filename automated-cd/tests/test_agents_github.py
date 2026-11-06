@@ -341,7 +341,9 @@ def test_isolated_worktree_handoff_uses_separate_unprivileged_owner(
     assert any(
         args[:5] == ["git", "config", "--global", "--add", "safe.directory"] for args in calls
     )
-    assert any(args[:6] == ["sudo", "-u", "autocdqa", "--", "git", "config"] for args in calls)
+    assert any(
+        args[:7] == ["sudo", "-H", "-u", "autocdqa", "--", "git", "config"] for args in calls
+    )
 
 
 def test_isolated_worktree_rejects_missing_git_marker(settings, monkeypatch, tmp_path):

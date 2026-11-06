@@ -44,6 +44,13 @@ jobs:
           mkdir -p "$AUTOCD_STATE_DIR"
           chmod 700 "$AUTOCD_STATE_DIR"
           printf 'private\n' > "$AUTOCD_STATE_DIR/marker"
+          path="$GITHUB_WORKSPACE"
+          sudo chmod o+rx "$path"
+          while [ "$path" != / ]; do
+            path=$(dirname "$path")
+            sudo chmod o+x "$path"
+          done
+          sudo -u autocdqa -- test -r "$GITHUB_WORKSPACE/AGENTS.md"
           python - <<'PY'
           from autocd.config import load
           from autocd.github import GitHub

@@ -225,6 +225,7 @@ class GitHub:
             command(
                 [
                     "sudo",
+                    "-H",
                     "-u",
                     self.settings.worker_user,
                     "--",
@@ -235,7 +236,7 @@ class GitHub:
                     "safe.directory",
                     str(destination),
                 ],
-                self.root,
+                destination,
             )
         return branch, destination
 
