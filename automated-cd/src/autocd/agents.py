@@ -17,6 +17,40 @@ class AgentError(RuntimeError):
     pass
 
 
+def decode_result(role: str, raw: object) -> dict:
+    """Accept one JSON object, optionally wrapped in a complete Markdown fence."""
+    if isinstance(raw, dict):
+        decoded = raw
+    else:
+        if not isinstance(raw, str):
+            raise AgentError(f"{role} returned no JSON object")
+        payload = raw.strip()
+        lines = payload.splitlines()
+        if (
+            len(lines) >= 3
+            and lines[0].strip().lower() in {"```json", "```"}
+            and lines[-1].strip() == "```"
+        ):
+            payload = "\n".join(lines[1:-1]).strip()
+        try:
+            decoded = json.loads(payload)
+        except json.JSONDecodeError:
+            raise AgentError(f"{role} returned invalid JSON") from None
+    if not isinstance(decoded, dict):
+        raise AgentError(f"{role} returned a non-object JSON value")
+    if role == "planner":
+        selected = decoded.get("selected")
+        reason = decoded.get("reason")
+        if (
+            not isinstance(selected, list)
+            or any(type(issue) is not int or issue <= 0 for issue in selected)
+            or not isinstance(reason, str)
+            or not reason.strip()
+        ):
+            raise AgentError("planner returned an invalid selection schema")
+    return decoded
+
+
 def untrusted_env(*, model: bool = False) -> dict[str, str]:
     """Keep coordinator credentials out of model and repository test subprocesses."""
     env = os.environ.copy()
@@ -116,13 +150,7 @@ class ClaudeAgent:
                             raw = message.get("result")
                             if message.get("is_error"):
                                 raise AgentError(f"{role} returned an error")
-                            if isinstance(raw, str):
-                                try:
-                                    result = json.loads(raw)
-                                except json.JSONDecodeError:
-                                    result = {"text": raw}
-                            elif isinstance(raw, dict):
-                                result = raw
+                            result = decode_result(role, raw)
                         elif message.get("type") in {"assistant", "user"}:
                             blocks = message.get("message", {}).get("content", [])
                             update = " ".join(

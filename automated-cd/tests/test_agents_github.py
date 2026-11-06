@@ -2,12 +2,13 @@ from __future__ import annotations
 
 import json
 import os
+import shlex
 from dataclasses import replace
 from pathlib import Path
 
 import pytest
 
-from autocd.agents import AgentError, ClaudeAgent, role_prompt, untrusted_env
+from autocd.agents import AgentError, ClaudeAgent, decode_result, role_prompt, untrusted_env
 from autocd.github import CommandError, GitHub, audit_commands, command
 
 
@@ -30,6 +31,41 @@ def test_claude_agent_read_only_and_json_result(settings, tmp_path: Path, monkey
     assert "Never merge" in role_prompt("qa")
     with pytest.raises(ValueError):
         role_prompt("merge")
+
+
+def test_claude_agent_accepts_complete_fenced_json_result(settings, tmp_path: Path, monkeypatch):
+    fenced = '```json\n{"selected":[821],"reason":"Ready and unclaimed"}\n```'
+    message = json.dumps({"type": "result", "result": fenced})
+    _fake_cli(tmp_path, "printf '%s\\n' " + shlex.quote(message))
+    monkeypatch.setenv("PATH", str(tmp_path) + os.pathsep + os.environ["PATH"])
+    assert ClaudeAgent(settings, lambda *a: None).run("planner", "test", tmp_path) == {
+        "selected": [821],
+        "reason": "Ready and unclaimed",
+    }
+
+
+def test_claude_agent_rejects_non_json_and_partial_fences():
+    assert decode_result("qa", {"approved": True}) == {"approved": True}
+    assert decode_result("qa", '```\n{"approved":true}\n```') == {"approved": True}
+    for raw in (None, "plain text", '```json\n{"approved":true}\n``` trailing prose', "[1]"):
+        with pytest.raises(AgentError, match="JSON"):
+            decode_result("qa", raw)
+
+
+def test_planner_requires_explicit_selection_and_reason():
+    assert decode_result("planner", {"selected": [], "reason": "No safe task"}) == {
+        "selected": [],
+        "reason": "No safe task",
+    }
+    for raw in (
+        {},
+        {"selected": "821", "reason": "Ready"},
+        {"selected": [True], "reason": "Ready"},
+        {"selected": [0], "reason": "Ready"},
+        {"selected": [821], "reason": " "},
+    ):
+        with pytest.raises(AgentError, match="invalid selection schema"):
+            decode_result("planner", raw)
 
 
 def test_issue_text_is_a_user_prompt_not_a_system_instruction(
@@ -112,9 +148,10 @@ def test_claude_agent_stream_variants_and_timeout(settings, tmp_path: Path, monk
     )
     monkeypatch.setenv("PATH", str(tmp_path) + os.pathsep + os.environ["PATH"])
     events = []
-    assert ClaudeAgent(settings, lambda kind, detail: events.append(kind)).run(
-        "reviewer", "test", tmp_path
-    ) == {"text": "plain text"}
+    with pytest.raises(AgentError, match="invalid JSON"):
+        ClaudeAgent(settings, lambda kind, detail: events.append(kind)).run(
+            "reviewer", "test", tmp_path
+        )
     assert "agent_progress" in events
     progress = []
     message = {
