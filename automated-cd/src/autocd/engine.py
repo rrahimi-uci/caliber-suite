@@ -398,6 +398,20 @@ class Engine:
                     store.phase(run, task.issue, "blocked", failure=str(error)[:1000])
                 except KeyError:
                     store.event(run, task.issue, "unrecorded_failure", str(error)[:1000])
+                try:
+                    with self.mutation_lock:
+                        self.github.transition(
+                            task.target,
+                            task.issue,
+                            "blocked",
+                            {
+                                "reason": f"Automated CD run {run[:8]} blocked during development or QA. Inspect restricted state and claim before retry."
+                            },
+                        )
+                except Exception as transition_error:  # noqa: BLE001 - retain primary blocker
+                    store.event(
+                        run, task.issue, "blocked_transition_failed", str(transition_error)[:500]
+                    )
             else:
                 store.event(run, task.issue, "worktree_failure", str(error)[:1000])
             return {"issue": task.issue, "status": "blocked", "error": str(error)[:500]}

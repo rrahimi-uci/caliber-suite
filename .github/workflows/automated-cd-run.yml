@@ -33,28 +33,6 @@ jobs:
           install -d -m 700 "$AUTOCD_STATE_DIR"
           umask 077
           python3 -c 'import os,sqlite3; sqlite3.connect(os.path.join(os.environ["AUTOCD_STATE_DIR"], "workflow.sqlite3")).close()'
-      - name: Restore coordinator state
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          prior_run=$(gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts?name=caliber-autocd-state&per_page=100" --jq '[.artifacts[] | select(.expired == false)] | sort_by(.created_at) | last | .workflow_run.id // empty')
-          if [ -n "$prior_run" ]; then
-            rm "$AUTOCD_STATE_DIR/workflow.sqlite3"
-            gh run download "$prior_run" --repo "$GITHUB_REPOSITORY" --name caliber-autocd-state --dir "$AUTOCD_STATE_DIR"
-          else
-            previous=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow automated-cd-run.yml --branch main --limit 100 --json databaseId --jq "[.[] | select(.databaseId != $GITHUB_RUN_ID)] | length")
-            if [ "$previous" -gt 0 ]; then
-              echo 'Prior execution exists but no state artifact is available; manual reconciliation is required'
-              exit 1
-            fi
-          fi
-      - name: Require execution credentials
-        env:
-          AUTOCD_GH_TOKEN: ${{ secrets.AUTOCD_GH_TOKEN }}
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-        run: |
-          test -n "$AUTOCD_GH_TOKEN" || { echo 'AUTOCD_GH_TOKEN secret is required'; exit 1; }
-          test -n "$ANTHROPIC_API_KEY" || { echo 'ANTHROPIC_API_KEY secret is required'; exit 1; }
       - uses: actions/checkout@v5
         with:
           fetch-depth: 0
@@ -76,6 +54,39 @@ jobs:
           if not match or tuple(map(int, match.groups())) < (2, 1, 314):
               raise SystemExit('Claude Code >=2.1.314 is required for working-directory file-tool restrictions')
           PY
+      - name: Require execution credentials
+        env:
+          AUTOCD_GH_TOKEN: ${{ secrets.AUTOCD_GH_TOKEN }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          AUTOCD_STATE_KEY: ${{ secrets.AUTOCD_STATE_KEY }}
+        run: |
+          test -n "$AUTOCD_GH_TOKEN" || { echo 'AUTOCD_GH_TOKEN secret is required'; exit 1; }
+          test -n "$ANTHROPIC_API_KEY" || { echo 'ANTHROPIC_API_KEY secret is required'; exit 1; }
+          python -c 'from autocd.state_crypto import _key; _key()'
+      - name: Restore coordinator state
+        env:
+          GH_TOKEN: ${{ github.token }}
+          AUTOCD_STATE_KEY: ${{ secrets.AUTOCD_STATE_KEY }}
+        run: |
+          prior_run=$(gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts?name=caliber-autocd-state&per_page=100" --jq '[.artifacts[] | select(.expired == false)] | sort_by(.created_at) | last | .workflow_run.id // empty')
+          if [ -n "$prior_run" ]; then
+            mkdir "$AUTOCD_STATE_DIR/prior"
+            gh run download "$prior_run" --repo "$GITHUB_REPOSITORY" --name caliber-autocd-state --dir "$AUTOCD_STATE_DIR/prior"
+            if [ -f "$AUTOCD_STATE_DIR/prior/workflow.state.enc" ]; then
+              python -m autocd.state_crypto open "$AUTOCD_STATE_DIR/prior/workflow.state.enc" "$AUTOCD_STATE_DIR/workflow.sqlite3"
+            elif [ "$prior_run" = 42184186278 ] && [ -f "$AUTOCD_STATE_DIR/prior/workflow.sqlite3" ]; then
+              cp "$AUTOCD_STATE_DIR/prior/workflow.sqlite3" "$AUTOCD_STATE_DIR/workflow.sqlite3"
+              echo 'Restored known pre-encryption state artifact'
+            else
+              echo 'Prior state artifact is not encrypted or approved for one-time migration'; exit 1
+            fi
+          else
+            previous=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow automated-cd-run.yml --branch main --limit 100 --json databaseId --jq "[.[] | select(.databaseId != $GITHUB_RUN_ID)] | length")
+            if [ "$previous" -gt 0 ]; then
+              echo 'Prior execution exists but no state artifact is available; manual reconciliation is required'
+              exit 1
+            fi
+          fi
       - name: Create isolated task user
         run: |
           sudo useradd --create-home --shell /bin/bash autocdqa
@@ -132,11 +143,16 @@ jobs:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           AUTOCD_RUN_MODE: ${{ github.event_name == 'schedule' && 'schedule' || 'manual' }}
         run: timeout --signal=TERM --kill-after=2m 300m python -m autocd.hosted
+      - name: Encrypt coordinator state
+        if: always()
+        env:
+          AUTOCD_STATE_KEY: ${{ secrets.AUTOCD_STATE_KEY }}
+        run: python -m autocd.state_crypto seal "$AUTOCD_STATE_DIR/workflow.sqlite3" "$AUTOCD_STATE_DIR/workflow.state.enc"
       - name: Save coordinator state
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: caliber-autocd-state
-          path: /tmp/caliber-autocd-state-${{ github.run_id }}/workflow.sqlite3*
-          if-no-files-found: ignore
+          path: /tmp/caliber-autocd-state-${{ github.run_id }}/workflow.state.enc
+          if-no-files-found: error
           retention-days: 90

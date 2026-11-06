@@ -10,6 +10,7 @@ from typing import ClassVar
 
 import pytest
 
+from autocd.agents import decode_result
 from autocd.engine import Engine
 from autocd.github import pr_ready
 from autocd.planner import Assignment
@@ -670,6 +671,7 @@ def test_developer_blocker_and_path_violation(settings, snapshot, monkeypatch):
     task = Assignment(12, "Task 12", "contract", "release:Beta", frozenset({"src/task.py"}), 1)
     engine = Engine(settings, github=github, agent_factory=BlockerAgent)
     assert "missing producer" in engine._task("run", task)["error"]
+    assert "missing producer" not in str(github.transitions[-1][2])
     store.start("run2")
     data["items"][0]["fields"]["Readiness"] = "Ready"
     github.changed = lambda _: ["unowned/file.py"]
@@ -720,6 +722,7 @@ def test_review_qa_failure_exhaustion(settings, snapshot, monkeypatch):
         1,
     )
     assert "did not pass" in engine._task("run", task)["error"]
+    assert github.transitions[-1][1] == "blocked"
 
     class QARejectAgent(FakeAgent):
         def run(self, role, prompt, cwd, editable=False):
@@ -762,6 +765,29 @@ def test_qa_command_failure_returns_to_developer(settings, snapshot, monkeypatch
         1,
     )
     assert "QA command failures" in engine._task("run", task)["error"]
+
+
+def test_string_false_qa_verdict_cannot_publish(settings, snapshot, monkeypatch):
+    data, _ = snapshot
+    github = FakeGitHub(settings, data)
+
+    class InvalidQA(FakeAgent):
+        def run(self, role, prompt, cwd, editable=False):
+            if role == "reviewer":
+                return {"approved": True, "findings": []}
+            if role == "qa":
+                return decode_result(role, {"approved": "false", "gaps": []})
+            return super().run(role, prompt, cwd, editable)
+
+    engine = Engine(replace(settings, max_review_cycles=1), github=github, agent_factory=InvalidQA)
+    monkeypatch.setattr(engine, "_diff", lambda _: "diff")
+    monkeypatch.setattr(engine, "_checks", lambda *a: [{"passed": True, "command": "pytest"}])
+    store = Store(settings.state_dir)
+    store.start("run")
+    task = Assignment(12, "Task 12", "contract", "release:Beta", frozenset(), 1)
+    assert "invalid verdict schema" in engine._task("run", task)["error"]
+    assert github.created == []
+    assert github.transitions[-1][1] == "blocked"
 
 
 def test_worktree_failure_and_changed_pr_head(settings, snapshot):

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import selectors
 import subprocess
 import time
@@ -18,20 +19,16 @@ class AgentError(RuntimeError):
 
 
 def decode_result(role: str, raw: object) -> dict:
-    """Accept one JSON object, optionally wrapped in a complete Markdown fence."""
+    """Accept one JSON object or one final fenced object after a short preface."""
     if isinstance(raw, dict):
         decoded = raw
     else:
         if not isinstance(raw, str):
             raise AgentError(f"{role} returned no JSON object")
         payload = raw.strip()
-        lines = payload.splitlines()
-        if (
-            len(lines) >= 3
-            and lines[0].strip().lower() in {"```json", "```"}
-            and lines[-1].strip() == "```"
-        ):
-            payload = "\n".join(lines[1:-1]).strip()
+        fence = re.fullmatch(r"(?s)(?:[^`]*?\n)?```(?:json)?\s*\n(.*?)\n```", payload)
+        if fence:
+            payload = fence.group(1).strip()
         try:
             decoded = json.loads(payload)
         except json.JSONDecodeError:
@@ -48,6 +45,14 @@ def decode_result(role: str, raw: object) -> dict:
             or not reason.strip()
         ):
             raise AgentError("planner returned an invalid selection schema")
+    if role == "reviewer" and (
+        type(decoded.get("approved")) is not bool or not isinstance(decoded.get("findings"), list)
+    ):
+        raise AgentError("reviewer returned an invalid verdict schema")
+    if role == "qa" and (
+        type(decoded.get("approved")) is not bool or not isinstance(decoded.get("gaps"), list)
+    ):
+        raise AgentError("qa returned an invalid verdict schema")
     return decoded
 
 
