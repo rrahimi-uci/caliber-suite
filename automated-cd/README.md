@@ -190,9 +190,12 @@ Project Done after a verified merge.
 
 - The Actions log shows the plan and monitor results. For a blocked run, dispatch
   the GitHub workflow with `diagnose_state=true` to print a bounded summary of
-  the latest task from the encrypted state. It reports a fixed failure code,
-  review/QA counts, and whether a PR or head was pushed; model text and command
-  output remain in the encrypted artifact. Diagnosis needs `AUTOCD_STATE_KEY`
+  the latest run and any task claimed within that run from the encrypted state.
+  It reports fixed failure
+  codes, the day's claim count, review/QA counts, and whether a PR or head was
+  pushed. An early run failure is visible even when no new task was claimed;
+  model text and command output remain in the encrypted artifact. Diagnosis
+  needs `AUTOCD_STATE_KEY`
   but does not need the model or Project token. It does not claim tasks or upload
   a new state artifact, and cannot be combined with `retry_issue`.
 - For a private incident investigation, temporarily add repository secret
