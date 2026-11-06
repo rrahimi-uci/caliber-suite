@@ -74,10 +74,18 @@ PostgreSQL scenario and other container-backed gates run in PR CI without the
 coordinator secrets. Add SDK, UI, migration, packaging or other affected
 checks to the issue list when they can run without host Docker access.
 The default `checks.setup` builds the full CALIBER test environment inside
-each new worktree; plan runner time and install time accordingly. The GitHub
+each new worktree and seeds pip because `ci-local.sh` installs SDK/plugin
+dependencies through `python -m pip`. Plan runner time and install time
+accordingly. Before review, the coordinator synchronizes generated docs for
+changed docs/backend sources and includes the generated files in the candidate.
+QA repeats the strict docs sync and rejects any further candidate change.
+Generated site files require UI parity as well as docs validation. The GitHub
 runner provides Docker/PostgreSQL to its separate PR CI jobs. A
 `ci-local.sh` SKIP is treated as an unexecuted required gate even if the
 script exits zero.
+Issue #821 also runs the backend core check because its migration is outside
+the coordinator's standard source-path fallback; PostgreSQL migration parity
+remains a required check on its PR.
 Each command executes with an argument vector, never through a shell; shell
 operators are rejected. For changed production Python files, the orchestrator
 uses a configured coverage command or runs the full backend suite with coverage.

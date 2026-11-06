@@ -36,13 +36,16 @@ max_output_tokens = 0
 [checks]
 # Commands run in each isolated task worktree. Add task-specific commands via
 # issue_checks below; no command is silently skipped after it is selected.
-setup = ["uv venv caliber/.venv --python 3.11", "uv pip install --python caliber/.venv/bin/python -e caliber[dev,postgres,ingest,ocr,llm,knowledge,dspy,knowledge-local,memory]"]
+setup = ["uv venv --seed caliber/.venv --python 3.11", "caliber/.venv/bin/python -m pip --version", "uv pip install --python caliber/.venv/bin/python -e caliber[dev,postgres,ingest,ocr,llm,knowledge,dspy,knowledge-local,memory]"]
 base = ["git diff --check", "node .agents/bin/check.mjs", "scripts/ci-local.sh docs-validation lint type-check test"]
 # This repository's gate ledger fails when an applicable required job was
 # skipped. Branch protection currently does not enumerate all policy gates.
 required = ["Gate execution ledger"]
 
 [issue_checks]
+# The verification provenance task adds an Alembic migration, which is outside
+# the standard source-path fallback. Full PostgreSQL parity runs in PR CI.
+"821" = ["scripts/ci-local.sh backend-core"]
 # "123" = ["python -m pytest path/to/affected/tests -q"]
 
 [issue_paths]

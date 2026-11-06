@@ -1,3 +1,4 @@
+import shlex
 from dataclasses import replace
 from pathlib import Path
 
@@ -12,6 +13,10 @@ def test_defaults_and_environment(settings):
     assert load().daily_done_target == 6
     assert load().max_tasks_per_run == 6
     assert load().auto_merge is True
+    setup = load().setup_commands
+    assert "--seed" in shlex.split(setup[0])
+    assert shlex.split(setup[1]) == ["caliber/.venv/bin/python", "-m", "pip", "--version"]
+    assert load().issue_checks[821] == ("scripts/ci-local.sh backend-core",)
     assert settings.provider == "claude_cli"
     assert settings.max_workers == 2
     changed = load(environ={"AUTOCD_ENABLED": "true", "AUTOCD_DAILY_TIME": "23:30"})
