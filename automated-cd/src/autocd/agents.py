@@ -86,7 +86,16 @@ class ClaudeAgent:
                         elif isinstance(raw, dict):
                             result = raw
                     elif message.get("type") in {"assistant", "user"}:
-                        self.event("agent_progress", {"role": role, "kind": message["type"]})
+                        blocks = message.get("message", {}).get("content", [])
+                        update = " ".join(
+                            block.get("text", "")
+                            for block in blocks
+                            if isinstance(block, dict) and block.get("type") == "text"
+                        )
+                        self.event(
+                            "agent_progress",
+                            {"role": role, "kind": message["type"], "update": update[:500]},
+                        )
             if process.wait(timeout=5) != 0 or result is None:
                 raise AgentError(
                     f"{role} failed (exit {process.returncode}): {''.join(errors)[-500:]}"

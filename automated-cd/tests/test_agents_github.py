@@ -56,6 +56,21 @@ def test_claude_agent_stream_variants_and_timeout(settings, tmp_path: Path, monk
         "reviewer", "test", tmp_path
     ) == {"text": "plain text"}
     assert "agent_progress" in events
+    progress = []
+    message = {
+        "type": "assistant",
+        "message": {"content": [{"type": "text", "text": "Working on tests"}]},
+    }
+    _fake_cli(
+        tmp_path, "echo '" + json.dumps(message) + '\'; echo \'{"type":"result","result":{}}\''
+    )
+    ClaudeAgent(settings, lambda kind, detail: progress.append((kind, detail))).run(
+        "reviewer", "test", tmp_path
+    )
+    assert any(
+        kind == "agent_progress" and detail["update"] == "Working on tests"
+        for kind, detail in progress
+    )
     _fake_cli(tmp_path, 'echo \'{"type":"result","result":{"ok":true}}\'')
     assert ClaudeAgent(settings, lambda *a: None).run("qa", "test", tmp_path) == {"ok": True}
     _fake_cli(tmp_path, 'echo \'{"type":"result","is_error":true}\'')

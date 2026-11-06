@@ -105,7 +105,7 @@ model self-review.
 
 ## Recovery and troubleshooting
 
-- `caliber-autocd status` shows unfinished tasks. Inspect the SQLite `events`
+- `caliber-autocd status` shows recent tasks, including blocked tasks. Inspect the SQLite `events`
   table for ordered decisions, commands, review cycles and errors.
 - For `blocked_after_interruption`, inspect the retained worktree, branch,
   Project claim and remote PR before restarting. Never delete the lock or

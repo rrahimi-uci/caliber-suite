@@ -207,6 +207,9 @@ class Engine:
                         "migrations",
                         "documentation",
                         "deployment",
+                        "tests_suggested",
+                        "tests_run",
+                        "remaining_work",
                     )
                     if not str(developer.get(key, "")).strip()
                 ]
@@ -476,6 +479,8 @@ Validation commands and results:
 Review cycle {cycle}: {json.dumps(review, sort_keys=True)}
 
 QA verdict: {json.dumps(qa, sort_keys=True)}
+
+Developer remaining work at handoff: {developer.get("remaining_work", "Unspecified")}
 
 ## Risks and follow-up
 

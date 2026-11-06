@@ -21,6 +21,8 @@ def test_store_transitions_and_schedule_dedup(tmp_path: Path):
     assert [row["issue"] for row in store.pending()] == [12]
     store.phase("run1", 12, "ready")
     assert not store.pending()
+    assert [row["issue"] for row in store.tasks()] == [12]
+    assert not store.tasks(limit=0)
     store.finish("run1")
     kinds = [row["kind"] for row in store.db.execute("SELECT kind FROM events ORDER BY id")]
     assert kinds == [

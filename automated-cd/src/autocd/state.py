@@ -105,6 +105,9 @@ class Store:
             self.db.execute("SELECT * FROM tasks WHERE phase NOT IN ('ready','blocked','failed')")
         )
 
+    def tasks(self, limit: int = 100) -> list[sqlite3.Row]:
+        return list(self.db.execute("SELECT * FROM tasks ORDER BY rowid DESC LIMIT ?", (limit,)))
+
     def phase_started(self, run: str, issue: int, phase: str) -> datetime | None:
         rows = self.db.execute(
             "SELECT at,detail FROM events WHERE run_id=? AND issue=? AND kind='phase' ORDER BY id DESC",

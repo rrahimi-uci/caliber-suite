@@ -19,7 +19,7 @@ def main() -> None:
     settings = load(args.config)
     if args.action == "status":
         store = Store(settings.state_dir)
-        result = [dict(row) for row in store.pending()]
+        result = [dict(row) for row in store.tasks()]
     elif args.action == "plan":
         from .planner import assign, eligible
 

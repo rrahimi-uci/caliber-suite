@@ -103,6 +103,9 @@ class FakeAgent:
                 "migrations": "None",
                 "documentation": "Updated task docs",
                 "deployment": "No deployment",
+                "tests_suggested": "Run contract tests",
+                "tests_run": "Contract tests passed",
+                "remaining_work": "None",
                 "blocker": None,
             }
         if role == "reviewer":
