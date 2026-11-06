@@ -496,7 +496,7 @@ class Engine:
 
     @staticmethod
     def _standard_check_path(path: str) -> bool:
-        if path in {"README.md", "CONTRIBUTING.md"}:
+        if path in {"README.md", "CONTRIBUTING.md", "ARCHITECTURE.md"}:
             return True
         if path.startswith(("docs/", "caliber/docs/")) and path.endswith((".md", ".rst")):
             return True

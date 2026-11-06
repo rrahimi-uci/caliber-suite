@@ -535,6 +535,21 @@ def test_checks_use_standard_fallback_or_fail_missing_executable(settings, tmp_p
     )
     assert not unsupported[0]["passed"] and "Issue-specific" in unsupported[0]["output"]
     assert Engine._standard_check_path("docs/guide.md")
+    assert Engine._standard_check_path("ARCHITECTURE.md")
+    assert (
+        Engine(replace(settings, base_checks=(), issue_checks={}))._checks(
+            821, tmp_path, ["ARCHITECTURE.md"]
+        )
+        == []
+    )
+    assert not Engine._standard_check_path("nested/ARCHITECTURE.md")
+    assert not Engine._standard_check_path("SECURITY.md")
+    assert not Engine._standard_check_path("CLAUDE.md")
+    for policy_path in ("SECURITY.md", "CLAUDE.md"):
+        blocked = Engine(replace(settings, base_checks=(), issue_checks={}))._checks(
+            821, tmp_path, [policy_path]
+        )
+        assert not blocked[0]["passed"] and "Issue-specific" in blocked[0]["output"]
     assert not Engine._standard_check_path("sdk/python/client.py")
 
 
