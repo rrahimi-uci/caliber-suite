@@ -42,7 +42,7 @@ jobs:
             rm "$AUTOCD_STATE_DIR/workflow.sqlite3"
             gh run download "$prior_run" --repo "$GITHUB_REPOSITORY" --name caliber-autocd-state --dir "$AUTOCD_STATE_DIR"
           else
-            previous=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow automated-cd-run.yml --limit 100 --json databaseId --jq "[.[] | select(.databaseId != $GITHUB_RUN_ID)] | length")
+            previous=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow automated-cd-run.yml --branch main --limit 100 --json databaseId --jq "[.[] | select(.databaseId != $GITHUB_RUN_ID)] | length")
             if [ "$previous" -gt 0 ]; then
               echo 'Prior execution exists but no state artifact is available; manual reconciliation is required'
               exit 1
