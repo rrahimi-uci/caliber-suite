@@ -235,6 +235,8 @@ class Engine:
                     {"changed": changed, "summary": str(developer.get("summary", ""))[:1000]},
                 )
                 store.phase(run, task.issue, "reviewing")
+                evidence = self._checks(task.issue, worktree)
+                store.event(run, task.issue, "qa_commands", evidence)
                 review = agent.run(
                     "reviewer",
                     json.dumps(
@@ -243,8 +245,9 @@ class Engine:
                             "contract": task.body,
                             "changed": changed,
                             "diff": self._diff(worktree),
+                            "commands": evidence,
                             "cycle": cycle,
-                            "instruction": "Review the complete diff, relevant runtime paths and tests.",
+                            "instruction": "Review the complete diff, relevant runtime paths, tests, and local CI evidence.",
                         }
                     ),
                     worktree,
@@ -253,12 +256,10 @@ class Engine:
                 if not review.get("approved") or review.get("findings"):
                     feedback = "Review findings: " + json.dumps(review.get("findings", []))
                     continue
-                store.phase(run, task.issue, "qa")
-                evidence = self._checks(task.issue, worktree)
-                store.event(run, task.issue, "qa_commands", evidence)
                 if any(not entry["passed"] for entry in evidence):
                     feedback = "QA command failures: " + json.dumps(evidence)
                     continue
+                store.phase(run, task.issue, "qa")
                 qa = agent.run(
                     "qa",
                     json.dumps(

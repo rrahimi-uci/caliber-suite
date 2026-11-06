@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import sys
 from dataclasses import replace
 from datetime import UTC, datetime
@@ -109,6 +110,7 @@ class FakeAgent:
                 "blocker": None,
             }
         if role == "reviewer":
+            assert "commands" in json.loads(prompt)
             self.review_count += 1
             if self.review_count == 1:
                 return {"approved": False, "findings": [{"detail": "Missing edge case"}]}
