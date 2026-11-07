@@ -173,6 +173,11 @@ window.DOCS_DATA = {
           "newtab": false
         },
         {
+          "href": "m-69-automated-cd.html",
+          "label": "Automated CD architecture",
+          "newtab": false
+        },
+        {
           "href": "m-55-developer-troubleshooting.html",
           "label": "Developer troubleshooting",
           "newtab": false
@@ -1526,6 +1531,36 @@ window.DOCS_DATA = {
         "cd",
         "automation",
         "docs"
+      ],
+      "newtab": false,
+      "nav_hidden": false
+    },
+    {
+      "href": "m-69-automated-cd.html",
+      "label": "Automated CD architecture",
+      "section": "Build & integrate",
+      "section_id": "build",
+      "summary": "The GitHub-hosted coordinator architecture for Project #3 task selection, isolated implementation, evidence, review, QA, guarded merge and encrypted recovery state.",
+      "audience": [
+        "developer",
+        "operator",
+        "architect",
+        "evaluator"
+      ],
+      "doc_type": "reference",
+      "prerequisites": [
+        "A checkout of the CALIBER repository",
+        "Access to GitHub Actions and Project #3 for operational changes"
+      ],
+      "stability": "internal",
+      "reviewed_on": "2026-11-06",
+      "version_applicability": "Current CALIBER automated-cd implementation; budget contract follows PR #1204",
+      "tags": [
+        "automated-cd",
+        "github-actions",
+        "project-3",
+        "quality-gates",
+        "agent-workflow"
       ],
       "newtab": false,
       "nav_hidden": false

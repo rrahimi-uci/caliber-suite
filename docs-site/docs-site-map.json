@@ -277,6 +277,16 @@
       "nav_order": 70
     },
     {
+      "href": "m-69-automated-cd.html",
+      "label": "Automated CD architecture",
+      "section": "build",
+      "nav_order": 75,
+      "doc_type": "reference",
+      "audience": ["developer", "operator", "architect", "evaluator"],
+      "summary": "The GitHub-hosted coordinator architecture for Project #3 task selection, isolated implementation, evidence, review, QA, guarded merge and encrypted recovery state.",
+      "prerequisites": ["A CALIBER repository checkout", "GitHub Actions and Project #3 access"]
+    },
+    {
       "href": "m-55-developer-troubleshooting.html",
       "label": "Developer troubleshooting",
       "section": "build",
