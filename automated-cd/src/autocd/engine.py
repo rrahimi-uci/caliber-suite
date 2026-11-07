@@ -147,7 +147,8 @@ class Engine:
         scheduled_retries = {}
         if retry_issue is not None:
             previous = retryable_previous(retry_issue)
-            if previous is None or retry_issue not in {task.issue for task in candidates}:
+            retry_task = next((task for task in candidates if task.issue == retry_issue), None)
+            if previous is None or retry_task is None or retry_task.readiness != "Ready":
                 raise RuntimeError(
                     "Retry requires a blocked pre-PR attempt, absent remote branch, and a freshly Ready unclaimed Project task"
                 )
@@ -162,7 +163,7 @@ class Engine:
                 if task.issue not in blocked or task.issue in attempted_today:
                     continue
                 previous = retryable_previous(task.issue)
-                if previous is None or previous["phase"] != "blocked":
+                if previous is None or previous["phase"] != "blocked" or task.readiness != "Ready":
                     continue
                 blocked_at = store.phase_started(previous["run_id"], task.issue, "blocked")
                 if blocked_at is not None and self.github.has_ready_reconciliation(
@@ -200,6 +201,8 @@ class Engine:
                                 "issue": t.issue,
                                 "title": t.title,
                                 "priority": t.priority,
+                                "execution_order": t.execution_order,
+                                "readiness": t.readiness,
                                 "paths": sorted(t.paths),
                                 "target": t.target,
                             }
@@ -259,6 +262,7 @@ class Engine:
         store.finish(run)
         return {
             "run": run,
+            "status": "planned" if selected else "no_executable_tasks",
             "recovered": recovered,
             "results": results,
             "eligible": len(candidates),
@@ -310,6 +314,26 @@ class Engine:
         with audit_commands(lambda kind, detail: store.event(run, task.issue, kind, detail)):
             return self._task_with_store(run, task, store, retry_branch)
 
+    def _ensure_ready(self, task: Assignment) -> None:
+        """Promote a dependency-ready Planned task through the governed Project transition."""
+        if task.readiness != "Planned":
+            return
+        order = (
+            str(task.execution_order)
+            if task.execution_order is not None
+            else "not assigned; using priority/issue fallback"
+        )
+        self.github.transition(
+            task.target,
+            task.issue,
+            "ready",
+            {
+                "evidence": [
+                    f"Scheduler selected the earliest executable task at execution order {order}; all inspected native blockers are CLOSED/COMPLETED."
+                ]
+            },
+        )
+
     def _run_agent(
         self,
         store: Store,
@@ -359,6 +383,7 @@ class Engine:
             with self.mutation_lock:
                 if retry_branch and self.github.remote_branch_exists(retry_branch):
                     raise RuntimeError("Previously blocked branch appeared remotely before retry")
+                self._ensure_ready(task)
                 branch, worktree = self.github.prepare_worktree(task.issue, run)
                 store.add_task(run, task.issue, task.target, branch, worktree)
                 claim_actor = self.github.login()

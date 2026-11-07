@@ -407,6 +407,39 @@ def test_ready_task_uses_standard_checks_without_issue_override(settings, snapsh
     assert result["results"] == [{"issue": 12, "status": "queued"}]
 
 
+def test_planned_executable_task_is_promoted_through_ready_transition(settings, snapshot):
+    data, _ = snapshot
+    data["items"][0]["fields"]["Readiness"] = "Planned"
+    github = FakeGitHub(settings, data)
+    engine = Engine(settings, github=github, agent_factory=FakeAgent)
+    task = Assignment(
+        12,
+        "Task 12",
+        "contract",
+        "release:Beta",
+        frozenset({"src/task.py"}),
+        1,
+        1000,
+        "Planned",
+    )
+
+    engine._ensure_ready(task)
+
+    assert github.transitions[0][0:2] == (12, "ready")
+    assert "execution order 1000" in github.transitions[0][2]["evidence"][0]
+
+
+def test_run_reports_when_no_executable_tasks_exist(settings, snapshot):
+    data, item = snapshot
+    data["items"] = [item(12, fields={"Readiness": "Blocked"})]
+    engine = Engine(settings, github=FakeGitHub(settings, data), agent_factory=FakeAgent)
+    result = engine.run()
+
+    assert result["status"] == "no_executable_tasks"
+    assert result["eligible"] == 0
+    assert result["selected"] == []
+
+
 def test_prior_blocked_issue_is_excluded_from_future_run(settings, snapshot):
     data, _ = snapshot
     store = Store(settings.state_dir)

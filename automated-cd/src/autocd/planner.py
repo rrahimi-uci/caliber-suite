@@ -15,6 +15,8 @@ class Assignment:
     target: str
     paths: frozenset[str]
     priority: int
+    execution_order: int | None = None
+    readiness: str = "Ready"
 
 
 def _target(item: dict) -> str | None:
@@ -23,6 +25,18 @@ def _target(item: dict) -> str | None:
         return "release:" + fields["Release"]
     if issue.get("milestone", {}).get("number"):
         return "milestone:#" + str(issue["milestone"]["number"])
+    return None
+
+
+def _execution_order(item: dict) -> int | None:
+    """Read the numeric Project order, preserving a deterministic fallback for missing data."""
+    value = item["fields"].get("Execution order")
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value if value >= 0 else None
+    if isinstance(value, float) and value.is_integer() and value >= 0:
+        return int(value)
     return None
 
 
@@ -106,7 +120,7 @@ def eligible(
         fields = item["fields"]
         if issue["state"] != "OPEN" or fields.get("Status") != "Todo":
             continue
-        if fields.get("Readiness") != "Ready" or fields.get("Item type") != "Task":
+        if fields.get("Readiness") not in {"Planned", "Ready"} or fields.get("Item type") != "Task":
             continue
         if allowlist and issue["number"] not in allowlist:
             continue
@@ -125,13 +139,33 @@ def eligible(
         target = _target(item)
         if not target:
             continue
-        priority = {"P0": 0, "P1": 1, "P2": 2, "P3": 3}.get(fields.get("Priority"), 4)
+        priority = {"P0": 0, "P1": 1, "P2": 2, "P3": 3}.get(fields.get("Priority"))
+        if priority is None:
+            continue
+        execution_order = _execution_order(item)
         # Only coordinator-reviewed explicit ownership can permit parallel edits.
         paths = (pathmap or {}).get(issue["number"], frozenset())
         result.append(
-            Assignment(issue["number"], issue["title"], issue["body"], target, paths, priority)
+            Assignment(
+                issue["number"],
+                issue["title"],
+                issue["body"],
+                target,
+                paths,
+                priority,
+                execution_order,
+                fields["Readiness"],
+            )
         )
-    return sorted(result, key=lambda task: (task.priority, task.issue))
+    return sorted(
+        result,
+        key=lambda task: (
+            task.execution_order is None,
+            task.execution_order if task.execution_order is not None else 0,
+            task.priority,
+            task.issue,
+        ),
+    )
 
 
 def _conflict(a: frozenset[str], b: frozenset[str]) -> bool:
@@ -145,6 +179,15 @@ def _conflict(a: frozenset[str], b: frozenset[str]) -> bool:
 
 
 def assign(candidates: list[Assignment], workers: int, limit: int) -> list[Assignment]:
+    if not candidates or limit <= 0:
+        return []
+    ordered = [task for task in candidates if task.execution_order is not None]
+    if ordered:
+        earliest = min(task.execution_order for task in ordered)
+        candidates = [task for task in candidates if task.execution_order == earliest]
+    # `eligible()` already orders candidates by priority and issue within an order
+    # bucket. Preserve that order here so an unknown ownership path remains the
+    # conservative first choice when callers provide an explicit candidate order.
     selected: list[Assignment] = []
     for task in candidates:
         if len(selected) >= limit:

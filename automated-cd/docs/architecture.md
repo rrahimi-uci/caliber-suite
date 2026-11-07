@@ -64,7 +64,10 @@ published PR. It marks the task blocked in Project with the exact failed or
 skipped checks, requested changes, or CI timeout, and leaves the PR open for
 the developer to address in the same branch. A subsequent version can add a
 guarded PR revision loop with explicit head and review invalidation checks.
-The daily six-Task target is measured from verified merged/Done issues, and
-selection is limited by Ready work, protected-path rules, a six-attempt daily
-cap, path ownership and current-base checks. No release or production action is part of
+The daily ten-Task target is measured from verified merged/Done issues. Selection
+reads Project `Execution order`, accepts only executable Todo Tasks whose native
+`blockedBy` dependencies are CLOSED/COMPLETED, promotes Planned work through the
+governed Ready transition, and then claims the earliest executable order bucket.
+Protected-path rules, a ten-attempt daily cap, path ownership and current-base
+checks still constrain throughput. No release or production action is part of
 this workflow.

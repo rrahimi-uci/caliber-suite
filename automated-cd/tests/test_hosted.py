@@ -288,7 +288,7 @@ def test_measured_manual_trial_allows_five_new_attempts_after_daily_cap(
 
         def _daily_done(self, snapshot, label, day):
             # Human merges can put more Done tasks in Project than the normal
-            # six-attempt cap recorded in coordinator state.
+            # ten-attempt cap recorded in coordinator state.
             return list(range(7))
 
         def run(self, *, scheduled, retry_issue=None, exclude_issues=frozenset()):
@@ -305,11 +305,11 @@ def test_measured_manual_trial_allows_five_new_attempts_after_daily_cap(
     monkeypatch.setenv("AUTOCD_RETRY_ISSUE", "821")
     hosted.run_hosted("manual", max_seconds=120, poll_seconds=10)
     assert len(calls) == 5
-    assert [chosen.max_tasks_per_run for chosen in initialized] == [6, 11]
+    assert [chosen.max_tasks_per_run for chosen in initialized] == [10, 11]
     assert initialized[-1].daily_done_target == 12
     assert calls[0][:2] == (False, 821)
     assert calls[1] == (False, None, frozenset({821}))
-    assert settings.max_tasks_per_run == 6
+    assert settings.max_tasks_per_run == 10
 
 
 def test_measured_trial_rejects_schedule_and_oversized_input(monkeypatch):

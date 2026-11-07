@@ -44,6 +44,7 @@ def snapshot():
             "Human input": "None pending",
             "Priority": "P1",
             "Release": "Beta",
+            "Execution order": 1000,
         }
         fields.update(overrides.pop("fields", {}))
         return {

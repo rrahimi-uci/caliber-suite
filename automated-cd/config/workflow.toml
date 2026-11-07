@@ -8,11 +8,12 @@ timezone = "America/Los_Angeles"
 project_view_number = 0
 # Counts completed Project Task issues across releases with a merged closing
 # PR and Project Done on the configured local day.
-daily_done_target = 6
+daily_done_target = 10
 # Maximum new task attempts per Pacific calendar day, including manual runs.
-max_tasks_per_run = 6
+max_tasks_per_run = 10
 max_workers = 2
-auto_merge = true
+# PRs remain open for owner review; automation never merges them.
+auto_merge = false
 max_review_cycles = 3
 agent_timeout_seconds = 3600
 stall_seconds = 900
@@ -22,7 +23,7 @@ ci_timeout_seconds = 43200
 allow_overlapping_runs = false
 # GitHub-hosted runner sets this to an unprivileged account for model and QA work.
 worker_user = ""
-# Empty means any eligible Ready task. Set to issue numbers to restrict unattended work.
+# Empty means any eligible executable task. Set to issue numbers to restrict unattended work.
 issue_allowlist = []
 
 [model]
