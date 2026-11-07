@@ -11,7 +11,7 @@ The [repository README](../README.md) introduces CALIBER; the
 | New user | [Choose your path](start/choose-your-path.md) | [Five-minute quickstart](start/five-minute-quickstart.md), [user guides](use/) |
 | Decision-maker / product reviewer | [Product overview](start/decision-maker-overview.md) | [PRD](product/prd.md), [competitive analysis](product/competitive-analysis.md) |
 | Architect | [Architecture overview](../ARCHITECTURE.md) | [Reader guide](architecture/index.md), [refinement loop](architecture/refinement-loop.md), [scalability assessment and proposal](architecture/scalability-arch.md) |
-| Developer / integrator | [SDK or REST API](build/sdk-vs-rest-api.md) | [SDK guide](sdk/guide.md), [API overview](api/overview.md), [cookbooks](../docs-site/cookbooks/README.md) |
+| Developer / integrator | [SDK or REST API](build/sdk-vs-rest-api.md) | [SDK guide](sdk/guide.md), [API overview](api/overview.md), [automated CD architecture](Automation-cd.md), [cookbooks](../docs-site/cookbooks/README.md) |
 | Operator | [Local bring-up](operate/local-bring-up.md) | [Runbook](operate/runbook.md), [recovery runbook](operate/recovery-runbook.md) |
 | UX contributor | [UX analysis](ux/ux-analysis-report.md) | [Version-management specification](ux/version-management-ux-spec.md), [UX evidence](ux/) |
 | Researcher / evaluator | [Autonomous enterprise](research/autonomous-enterprise.md) | [Supporting evidence](research/autonomous-enterprise-evidence/README.md), [evaluation architecture](14-evaluation/architecture.md) |

@@ -12,6 +12,7 @@ import tempfile
 import threading
 import uuid
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from dataclasses import replace
 from datetime import UTC, date, datetime, time
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -31,6 +32,8 @@ class Engine:
         self.github = github or GitHub(settings)
         self.agent_factory = agent_factory
         self.mutation_lock = threading.Lock()
+        self.model_lock = threading.Lock()
+        self._agent_cache: dict[tuple[str, int | None], object] = {}
 
     def due_date(self, now: datetime | None = None) -> str | None:
         local = (now or datetime.now(ZoneInfo(self.settings.timezone))).astimezone(
@@ -185,10 +188,10 @@ class Engine:
             min(remaining_attempts, remaining),
         )
         if selected:
-            agent = self.agent_factory(
-                self.settings, lambda kind, detail: store.event(run, None, kind, detail)
-            )
-            plan = agent.run(
+            plan = self._run_agent(
+                store,
+                run,
+                None,
                 "planner",
                 json.dumps(
                     {
@@ -307,6 +310,47 @@ class Engine:
         with audit_commands(lambda kind, detail: store.event(run, task.issue, kind, detail)):
             return self._task_with_store(run, task, store, retry_branch)
 
+    def _run_agent(
+        self,
+        store: Store,
+        run: str,
+        issue: int | None,
+        role: str,
+        prompt: str,
+        cwd: Path,
+        *,
+        editable: bool = False,
+    ) -> dict:
+        """Run one model call under the Pacific-day aggregate spend guard."""
+        with self.model_lock:
+            day = datetime.now(ZoneInfo(self.settings.timezone)).date()
+            midnight = datetime.combine(day, time.min, ZoneInfo(self.settings.timezone))
+            spent, complete = store.model_spend_since(midnight)
+            if self.settings.daily_budget_usd > 0:
+                if not complete:
+                    raise RuntimeError("Daily Claude spend cannot be verified; stopping safely")
+                remaining = self.settings.daily_budget_usd - spent
+                if remaining <= 0:
+                    raise RuntimeError(
+                        f"Daily Claude budget exhausted (${self.settings.daily_budget_usd:.2f})"
+                    )
+                call_budget = remaining
+                if self.settings.max_budget_usd > 0:
+                    call_budget = min(call_budget, self.settings.max_budget_usd)
+            else:
+                call_budget = self.settings.max_budget_usd
+            key = (run, issue)
+            agent = self._agent_cache.get(key)
+            if agent is None:
+                settings = replace(self.settings, max_budget_usd=call_budget)
+                agent = self.agent_factory(
+                    settings, lambda kind, detail: store.event(run, issue, kind, detail)
+                )
+                self._agent_cache[key] = agent
+            elif hasattr(agent, "settings"):
+                agent.settings = replace(agent.settings, max_budget_usd=call_budget)
+            return agent.run(role, prompt, cwd, editable=editable)
+
     def _task_with_store(
         self, run: str, task: Assignment, store: Store, retry_branch: str | None = None
     ) -> dict:
@@ -336,13 +380,13 @@ class Engine:
                 )
             self._setup(worktree, store, run, task.issue)
             feedback = ""
-            agent = self.agent_factory(
-                self.settings, lambda kind, detail: store.event(run, task.issue, kind, detail)
-            )
             for _ in range(self.settings.max_review_cycles):
                 cycle = store.cycle(run, task.issue)
                 store.phase(run, task.issue, "developing")
-                developer = agent.run(
+                developer = self._run_agent(
+                    store,
+                    run,
+                    task.issue,
                     "developer",
                     json.dumps(
                         {
@@ -410,7 +454,10 @@ class Engine:
                     )
                 reviewed_patch = candidate_patch
                 review_view = self._review_view(worktree, changed, reviewed_patch)
-                review = agent.run(
+                review = self._run_agent(
+                    store,
+                    run,
+                    task.issue,
                     "reviewer",
                     json.dumps(
                         {
@@ -433,7 +480,10 @@ class Engine:
                     feedback = "QA command failures: " + json.dumps(evidence)
                     continue
                 store.phase(run, task.issue, "qa")
-                qa = agent.run(
+                qa = self._run_agent(
+                    store,
+                    run,
+                    task.issue,
                     "qa",
                     json.dumps(
                         {

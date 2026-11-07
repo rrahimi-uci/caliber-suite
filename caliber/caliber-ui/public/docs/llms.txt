@@ -42,6 +42,7 @@ The pages below are the published architecture, workflow, and strategy documenta
 - [REST API overview](m-26-rest-api-overview.md): Where the management API lives, when to integrate at the HTTP layer, and where the served OpenAPI documents fit.
 - [Authentication and conventions](m-27-rest-api-auth.md): Bearer authentication, trusted-header deployments, project scoping, CSRF, envelopes, pagination, request ids, and error shapes.
 - [CI/CD automation](m-54-ci-cd-automation.md): The repository-grounded automation path for CALIBER development: docs generation, focused contract tests, and the human-review boundaries that remain deliberate.
+- [Automated CD architecture](m-69-automated-cd.md): The GitHub-hosted coordinator architecture for Project #3 task selection, isolated implementation, evidence, review, QA, guarded merge and encrypted recovery state.
 - [Developer troubleshooting](m-55-developer-troubleshooting.md): The first-pass diagnosis path for CALIBER SDK and REST integrations: auth, project scoping, CSRF, uploads, waiters, and workflow invocation.
 
 ## Operate CALIBER

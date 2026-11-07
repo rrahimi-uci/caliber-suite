@@ -5,6 +5,7 @@ from __future__ import annotations
 import contextlib
 import fcntl
 import json
+import math
 import os
 import sqlite3
 from collections.abc import Iterator
@@ -161,6 +162,27 @@ class Store:
                 (instant.astimezone(UTC).isoformat(),),
             ).fetchone()[0]
         )
+
+    def model_spend_since(self, instant: datetime) -> tuple[float, bool]:
+        """Return reported model spend and whether every call has a known cost."""
+        rows = self.db.execute(
+            "SELECT kind,detail FROM events WHERE at>=? AND kind IN ('agent_started','agent_usage') ORDER BY id",
+            (instant.astimezone(UTC).isoformat(),),
+        )
+        started = reported = 0
+        total = 0.0
+        complete = True
+        for row in rows:
+            if row["kind"] == "agent_started":
+                started += 1
+                continue
+            cost = json.loads(row["detail"]).get("cost_usd")
+            if type(cost) not in {int, float} or not math.isfinite(cost) or cost < 0:
+                complete = False
+                continue
+            reported += 1
+            total += float(cost)
+        return total, complete and started == reported
 
     def tasks(self, limit: int = 100) -> list[sqlite3.Row]:
         return list(self.db.execute("SELECT * FROM tasks ORDER BY rowid DESC LIMIT ?", (limit,)))
