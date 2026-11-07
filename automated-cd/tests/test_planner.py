@@ -3,7 +3,7 @@ import pytest
 from autocd.planner import Assignment, assign, completed_today, eligible, view_label
 
 
-def test_ready_eligibility_and_dependency_policy(snapshot):
+def test_executable_eligibility_and_dependency_policy(snapshot):
     data, item = snapshot
     data["items"] += [
         item(15, issue={"blockedBy": [{"state": "CLOSED", "stateReason": "NOT_PLANNED"}]}),
@@ -20,8 +20,9 @@ def test_ready_eligibility_and_dependency_policy(snapshot):
         item(26, issue={"repository": "other/repo"}),
     ]
     tasks = eligible(data, pathmap={12: frozenset({"src/a.py"})})
-    assert [task.issue for task in tasks] == [12, 13, 14, 18]
+    assert [task.issue for task in tasks] == [12, 13, 14, 18, 21]
     assert tasks[0].paths == frozenset({"src/a.py"})
+    assert tasks[-1].readiness == "Planned"
     assert [task.issue for task in eligible(data, allowlist=(18,))] == [18]
 
 
@@ -33,6 +34,45 @@ def test_assign_serializes_unknown_and_overlapping_paths():
     assert [t.issue for t in assign(candidates, 4, 4)] == [1, 2]
     assert [t.issue for t in assign([task(4, set()), *candidates], 4, 4)] == [4]
     assert [t.issue for t in assign(candidates, 1, 4)] == [1, 2]
+
+
+def test_assign_uses_the_earliest_execution_order_bucket():
+    def task(number, order, paths, priority=1):
+        return Assignment(
+            number,
+            str(number),
+            "",
+            "release:Beta",
+            frozenset(paths),
+            priority,
+            order,
+        )
+
+    candidates = [
+        task(10, 1000, {"src/10"}, priority=0),
+        task(20, 1000, {"src/20"}, priority=1),
+        task(30, 3000, {"src/30"}, priority=0),
+    ]
+    assert [t.issue for t in assign(candidates, 4, 4)] == [10, 20]
+
+
+def test_missing_execution_order_is_a_fallback_after_ordered_work(snapshot):
+    data, item = snapshot
+    data["items"] = [
+        item(12, fields={"Execution order": None, "Priority": "P0"}),
+        item(13, fields={"Execution order": 2000, "Priority": "P3"}),
+    ]
+    tasks = eligible(data)
+    assert [task.issue for task in tasks] == [13, 12]
+    assert [task.issue for task in assign(tasks, 1, 4)] == [13]
+
+    data["items"] = [item(12, fields={"Execution order": None, "Priority": "P0"})]
+    assert [task.issue for task in assign(eligible(data), 1, 4)] == [12]
+
+    data["items"] = [item(12, fields={"Execution order": 2000.0})]
+    assert eligible(data)[0].execution_order == 2000
+    data["items"] = [item(12, fields={"Execution order": True})]
+    assert eligible(data)[0].execution_order is None
 
 
 def test_milestone_target_and_priority(snapshot):

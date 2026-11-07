@@ -1,20 +1,19 @@
 # CALIBER automated engineering workflow
 
 This is a coordinator for the complete CALIBER Project #3, including Beta,
-Pilot and Preview work. It reads the live Project and selects eligible Ready tasks,
-claims them, runs bounded model roles in isolated Git worktrees, records review
-and QA cycles, and opens draft pull requests. After exact-head required CI,
-review, mergeability and current-base checks pass, it can merge the PR, verify
-the merge commit on `main`, close the issue as Completed, and reconcile Project
-Status/Readiness to Done. It never deploys or bypasses GitHub protection.
+Pilot and Preview work. It reads the live Project, orders executable tasks by
+`Execution order`, verifies completed native dependencies, promotes a Planned
+task through the governed Ready transition when its start gates pass, claims it,
+runs bounded model roles in an isolated Git worktree, records review and QA
+cycles, and opens a draft pull request. It never merges or deploys, and never
+bypasses GitHub protection.
 
-The initial `daily_done_target` is **6**. This measures merged, Completed Task
+The initial `daily_done_target` is **10**. This measures merged, Completed Task
 issues in Project Done across releases on the configured local day;
-opened PRs and model approvals do not count. A target is not a guarantee: the
-2026-11-05 live Project has two open Ready Tasks. One proposes protected CI
-workflow edits and cannot auto-merge; the other requires migration and coverage
-evidence before it can merge. The Preview 1 view has no Ready Tasks. Counting uses
-the complete Project snapshot plus issue closure time and merged closing-PR evidence.
+opened PRs and model approvals do not count. A target is not a guarantee: tasks
+still require explicit start decisions, complete dependencies, review, QA, CI and
+owner merge. Counting uses the complete Project snapshot plus issue closure time
+and merged closing-PR evidence.
 
 GitHub Actions starts the workflow at 4:00 AM `America/Los_Angeles` on a hosted
 runner. A manual `workflow_dispatch` starts an extra run from GitHub. The runner
@@ -40,7 +39,7 @@ use fakes and make no model or GitHub calls.
    use an admin-wide token.
 2. Review `config/workflow.toml`. Project scope `0` covers the whole Project;
    a positive `project_view_number` restricts work to one supported release-label
-   view. The checked-in schedule is 4:00 AM Pacific and the daily Done target is six.
+   view. The checked-in schedule is 4:00 AM Pacific and the daily Done target is ten.
 3. Add issue-specific commands under `issue_checks` when the issue requires
    checks beyond the full backend suite and required PR CI. Add `issue_paths`
    only for reviewed, disjoint ownership that permits parallel task execution.
@@ -50,7 +49,7 @@ use fakes and make no model or GitHub calls.
    require explicit issue-specific commands; the coordinator fails QA if they
    are absent. Root `ARCHITECTURE.md` uses the standard docs checks; other root
    Markdown files still require explicit checks unless already allowlisted.
-   The checked-in `max_tasks_per_run=6` also caps daily
+   The checked-in `max_tasks_per_run=10` also caps daily
    attempts across scheduled and manual runs, so failed attempts reduce that
    day's possible Done count.
    Claude calls currently have no per-call dollar cap for scheduled and manual
@@ -126,12 +125,12 @@ still available for diagnosis without task or Project mutation, but production
 starts in GitHub.
 For a measured owner-only manual trial, set `trial_tasks` from 1 through 5.
 This permits that many **additional attempts** even if the Pacific-day normal
-six-attempt cap was already used; it does not change the next scheduled run's
+ten-attempt cap was already used; it does not change the next scheduled run's
 cap or guarantee that the attempts finish as Done. Its temporary effective
 Done ceiling is derived from the live completed count so earlier completions
 cannot shorten the requested measurement. Set `retry_issue` as well
 to start with one reconciled blocked pre-PR task, then refill from the live
-Ready Project backlog. The workflow logs a bounded report of coordinator
+executable Project backlog. The workflow logs a bounded report of coordinator
 elapsed time, claimed and completed tasks, Claude call counts, and Claude's
 reported dollar estimate. A missing call cost makes the per-Done average
 unknown, rather than treating it as zero. The report includes failed attempts
@@ -193,14 +192,11 @@ the target when several PRs overlap.
 
 After review and QA pass, the coordinator commits and pushes the task branch,
 opens a draft PR using the repository's exact template headings, requests
-GitHub Copilot when available, and waits for required CI. With `auto_merge=true`,
-an owner review request is not required. GitHub branch protection can still
-require an eligible independent approval; the coordinator waits for it. Once
-all gates pass, the coordinator marks the PR ready, rereads the exact candidate
-and gates, and merges on a subsequent tick. A model self-review is never
-represented as an independent GitHub approval. Set `auto_merge=false` to keep
-the PR open for owner merge; the coordinator still observes it and reconciles
-Project Done after a verified merge.
+GitHub Copilot and the owner when available, and waits for required CI. The
+checked-in configuration keeps `auto_merge=false`, so the PR remains open for
+owner review and merge. A model self-review is never represented as an
+independent GitHub approval; the coordinator still observes the PR and
+reconciles Project Done only after a verified owner merge.
 
 ## Recovery and troubleshooting
 

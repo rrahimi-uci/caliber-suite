@@ -10,9 +10,9 @@ from autocd.config import load
 def test_defaults_and_environment(settings):
     assert load().project_view_number == 0
     assert load().daily_time == "04:00"
-    assert load().daily_done_target == 6
-    assert load().max_tasks_per_run == 6
-    assert load().auto_merge is True
+    assert load().daily_done_target == 10
+    assert load().max_tasks_per_run == 10
+    assert load().auto_merge is False
     setup = load().setup_commands
     assert "--seed" in shlex.split(setup[0])
     assert shlex.split(setup[1]) == ["caliber/.venv/bin/python", "-m", "pip", "--version"]
