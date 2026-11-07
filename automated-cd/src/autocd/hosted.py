@@ -6,9 +6,15 @@ import json
 import os
 import sys
 import time
+from dataclasses import replace
+from datetime import UTC, datetime
+from datetime import time as day_time
+from zoneinfo import ZoneInfo
 
 from .config import load
 from .engine import Engine
+from .planner import view_label
+from .state import Store
 
 
 def _public_result(value: dict) -> dict:
@@ -44,8 +50,36 @@ def run_hosted(mode: str, *, max_seconds: int = 18_000, poll_seconds: int = 60) 
     if retry_raw and (mode != "manual" or not retry_raw.isdecimal() or int(retry_raw) <= 0):
         raise ValueError("AUTOCD_RETRY_ISSUE must be a positive issue number on a manual run")
     retry_issue = int(retry_raw) if retry_raw else None
-    engine = Engine(load())
-    max_attempts = engine.settings.max_tasks_per_run
+    trial_raw = os.environ.get("AUTOCD_TRIAL_TASKS", "0").strip()
+    if not trial_raw.isdecimal() or not 0 <= int(trial_raw) <= 5:
+        raise ValueError("AUTOCD_TRIAL_TASKS must be an integer from 0 through 5")
+    trial_tasks = int(trial_raw)
+    if trial_tasks and mode != "manual":
+        raise ValueError("A measured task trial requires manual GitHub dispatch")
+    settings = load()
+    engine = Engine(settings)
+    if trial_tasks:
+        day = datetime.now(ZoneInfo(settings.timezone)).date()
+        midnight = datetime.combine(
+            day,
+            day_time.min,
+            ZoneInfo(settings.timezone),
+        )
+        store = Store(settings.state_dir)
+        try:
+            prior_attempts = store.attempt_count_since(midnight.astimezone(UTC))
+        finally:
+            store.db.close()
+        snapshot = engine.github.snapshot()
+        label = view_label(snapshot, settings.project_view_number)
+        done_today = len(engine._daily_done(snapshot, label, day.isoformat()))
+        settings = replace(
+            settings,
+            max_tasks_per_run=prior_attempts + trial_tasks,
+            daily_done_target=max(settings.daily_done_target, done_today + trial_tasks),
+        )
+        engine = Engine(settings)
+    max_attempts = trial_tasks or settings.max_tasks_per_run
     deadline = time.monotonic() + max_seconds
     blocked: list[dict] = []
     pr_errors: set[int] = set()
@@ -76,7 +110,7 @@ def run_hosted(mode: str, *, max_seconds: int = 18_000, poll_seconds: int = 60) 
     print(json.dumps({"start": _public_result(result)}, sort_keys=True), flush=True)
     record(result)
     attempted = set(result.get("selected", []))
-    can_refill = retry_issue is None and (
+    can_refill = (retry_issue is None or trial_tasks > 0) and (
         bool(attempted) or result.get("status") == "waiting_on_published_prs"
     )
     while True:

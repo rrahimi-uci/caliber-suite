@@ -1,8 +1,10 @@
 import runpy
+from pathlib import Path
 
 import pytest
 
 from autocd import hosted
+from autocd.state import Store
 
 
 def test_hosted_starts_and_monitors_until_clear(monkeypatch, capsys):
@@ -259,3 +261,61 @@ def test_hosted_retry_never_refills_unrelated_tasks(monkeypatch):
     monkeypatch.setenv("AUTOCD_RETRY_ISSUE", "821")
     hosted.run_hosted("manual", max_seconds=120, poll_seconds=10)
     assert calls == [(False, 821)]
+
+
+def test_measured_manual_trial_allows_five_new_attempts_after_daily_cap(
+    settings, tmp_path: Path, monkeypatch
+):
+    store = Store(settings.state_dir)
+    for index in range(6):
+        run = f"prior-{index}"
+        store.start(run)
+        store.add_task(run, 100 + index, "release:Beta", f"prior/{index}", tmp_path)
+        if index < 2:
+            store.phase(run, 100 + index, "done")
+    store.db.close()
+    calls = []
+    initialized = []
+
+    class FakeEngine:
+        def __init__(self, chosen):
+            self.settings = chosen
+            self.github = self
+            initialized.append(chosen)
+
+        def snapshot(self):
+            return {"view": {"number": 0, "filter": ""}}
+
+        def _daily_done(self, snapshot, label, day):
+            # Human merges can put more Done tasks in Project than the normal
+            # six-attempt cap recorded in coordinator state.
+            return list(range(7))
+
+        def run(self, *, scheduled, retry_issue=None, exclude_issues=frozenset()):
+            calls.append((scheduled, retry_issue, exclude_issues))
+            return {"selected": [821 if len(calls) == 1 else 520 + len(calls)]}
+
+        def monitor(self):
+            return {"pending": 0}
+
+    monkeypatch.setattr(hosted, "load", lambda: settings)
+    monkeypatch.setattr(hosted, "Engine", FakeEngine)
+    monkeypatch.setattr(hosted.time, "monotonic", lambda: 0)
+    monkeypatch.setenv("AUTOCD_TRIAL_TASKS", "5")
+    monkeypatch.setenv("AUTOCD_RETRY_ISSUE", "821")
+    hosted.run_hosted("manual", max_seconds=120, poll_seconds=10)
+    assert len(calls) == 5
+    assert [chosen.max_tasks_per_run for chosen in initialized] == [6, 11]
+    assert initialized[-1].daily_done_target == 12
+    assert calls[0][:2] == (False, 821)
+    assert calls[1] == (False, None, frozenset({821}))
+    assert settings.max_tasks_per_run == 6
+
+
+def test_measured_trial_rejects_schedule_and_oversized_input(monkeypatch):
+    monkeypatch.setenv("AUTOCD_TRIAL_TASKS", "5")
+    with pytest.raises(ValueError, match="manual GitHub dispatch"):
+        hosted.run_hosted("schedule")
+    monkeypatch.setenv("AUTOCD_TRIAL_TASKS", "6")
+    with pytest.raises(ValueError, match="0 through 5"):
+        hosted.run_hosted("manual")

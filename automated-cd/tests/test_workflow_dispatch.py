@@ -37,6 +37,39 @@ def test_dispatch_guard_rejects_incident_misfires(steps, diagnose, export, issue
         "AUTOCD_EXPORT": export,
         "AUTOCD_INCIDENT_ISSUE": issue,
         "AUTOCD_RETRY_ISSUE": retry,
+        "AUTOCD_TRIAL_TASKS": "0",
+    }
+    result = subprocess.run(
+        ["bash", "-e", "-c", script], check=False, env=environment, capture_output=True
+    )
+    assert (result.returncode == 0) is accepted
+
+
+@pytest.mark.parametrize(
+    ("trial", "event", "actor", "triggering_actor", "diagnose", "accepted"),
+    [
+        ("5", "workflow_dispatch", "rrahimi-uci", "rrahimi-uci", "false", True),
+        ("5", "schedule", "rrahimi-uci", "rrahimi-uci", "false", False),
+        ("5", "workflow_dispatch", "another-user", "another-user", "false", False),
+        ("5", "workflow_dispatch", "rrahimi-uci", "another-user", "false", False),
+        ("5", "workflow_dispatch", "rrahimi-uci", "rrahimi-uci", "true", False),
+        ("6", "workflow_dispatch", "rrahimi-uci", "rrahimi-uci", "false", False),
+        ("word", "workflow_dispatch", "rrahimi-uci", "rrahimi-uci", "false", False),
+    ],
+)
+def test_dispatch_guard_bounds_manual_trial(
+    steps, trial, event, actor, triggering_actor, diagnose, accepted
+):
+    script = steps["Validate incident dispatch inputs"]["run"]
+    environment = os.environ | {
+        "AUTOCD_TRIAL_TASKS": trial,
+        "GITHUB_EVENT_NAME": event,
+        "GITHUB_ACTOR": actor,
+        "GITHUB_TRIGGERING_ACTOR": triggering_actor,
+        "AUTOCD_DIAGNOSE": diagnose,
+        "AUTOCD_EXPORT": "false",
+        "AUTOCD_INCIDENT_ISSUE": "",
+        "AUTOCD_RETRY_ISSUE": "",
     }
     result = subprocess.run(
         ["bash", "-e", "-c", script], check=False, env=environment, capture_output=True

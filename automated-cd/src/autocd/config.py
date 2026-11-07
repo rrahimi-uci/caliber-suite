@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import os
 import re
 import tomllib
@@ -139,6 +140,8 @@ def load(path: Path | None = None, *, environ: dict[str, str] | None = None) -> 
         raise ValueError("Only the claude_cli provider is currently implemented")
     if settings.reasoning not in {"low", "medium", "high", "xhigh", "max"}:
         raise ValueError("Unsupported reasoning level")
+    if not math.isfinite(settings.max_budget_usd) or settings.max_budget_usd < 0:
+        raise ValueError("max_budget_usd must be finite and nonnegative; zero is uncapped")
     # Claude Code CLI has no stable temperature or output-token flags. Fail closed.
     if settings.temperature != "default" or settings.max_output_tokens:
         raise ValueError("Claude CLI cannot enforce temperature or output-token limits")

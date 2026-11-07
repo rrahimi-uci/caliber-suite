@@ -10,6 +10,11 @@ on:
         description: 'Blocked issue number after Project claim and remote branch reconciliation'
         required: false
         type: string
+      trial_tasks:
+        description: 'Owner-only manual trial: up to five new task attempts today'
+        required: false
+        type: number
+        default: 0
       diagnose_state:
         description: 'Read a bounded diagnostic from the latest encrypted state; execute no tasks'
         required: false
@@ -65,7 +70,12 @@ jobs:
           AUTOCD_EXPORT: ${{ inputs.export_incident || false }}
           AUTOCD_INCIDENT_ISSUE: ${{ inputs.incident_issue || '' }}
           AUTOCD_RETRY_ISSUE: ${{ inputs.retry_issue || '' }}
+          AUTOCD_TRIAL_TASKS: ${{ inputs.trial_tasks || 0 }}
         run: |
+          case "$AUTOCD_TRIAL_TASKS" in 0|1|2|3|4|5) ;; *) echo 'trial_tasks must be 0 through 5'; exit 1 ;; esac
+          if [ "$AUTOCD_TRIAL_TASKS" != 0 ] && { [ "$GITHUB_EVENT_NAME" != workflow_dispatch ] || [ "$GITHUB_ACTOR" != rrahimi-uci ] || [ "$GITHUB_TRIGGERING_ACTOR" != rrahimi-uci ] || [ "$AUTOCD_DIAGNOSE" = true ]; }; then
+            echo 'Measured task trial requires an owner manual execution'; exit 1
+          fi
           if [ -n "$AUTOCD_INCIDENT_ISSUE" ] && { [ "$AUTOCD_DIAGNOSE" != true ] || [ "$AUTOCD_EXPORT" != true ]; }; then
             echo 'incident_issue requires diagnosis and incident export'; exit 1
           fi
@@ -211,7 +221,11 @@ jobs:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           AUTOCD_RUN_MODE: ${{ github.event_name == 'schedule' && 'schedule' || 'manual' }}
           AUTOCD_RETRY_ISSUE: ${{ inputs.retry_issue || '' }}
+          AUTOCD_TRIAL_TASKS: ${{ inputs.trial_tasks || 0 }}
         run: timeout --signal=TERM --kill-after=2m 300m python -m autocd.hosted
+      - name: Report measured task time and Claude spend
+        if: ${{ always() && steps.restore.outcome == 'success' && inputs.diagnose_state != true }}
+        run: python -m autocd.usage_report
       - name: Encrypt coordinator state
         if: ${{ always() && steps.restore.outcome == 'success' && inputs.diagnose_state != true && inputs.export_incident != true }}
         env:

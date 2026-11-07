@@ -23,15 +23,17 @@ def _fake_cli(tmp_path: Path, body: str) -> Path:
 def test_claude_agent_read_only_and_json_result(settings, tmp_path: Path, monkeypatch):
     _fake_cli(
         tmp_path,
-        'printf \'%s\\n\' \'{"type":"result","result":"{\\"approved\\":true,\\"gaps\\":[]}"}\'',
+        'printf \'%s\\n\' \'{"type":"result","total_cost_usd":0.42,"result":"{\\"approved\\":true,\\"gaps\\":[]}"}\'',
     )
     monkeypatch.setenv("PATH", str(tmp_path) + os.pathsep + os.environ["PATH"])
     events = []
-    result = ClaudeAgent(settings, lambda kind, detail: events.append(kind)).run(
+    result = ClaudeAgent(settings, lambda kind, detail: events.append((kind, detail))).run(
         "qa", "test", tmp_path
     )
     assert result == {"approved": True, "gaps": []}
-    assert events == ["agent_started", "agent_finished"]
+    assert [kind for kind, _ in events] == ["agent_started", "agent_usage", "agent_finished"]
+    assert events[1][1]["cost_usd"] == 0.42
+    assert events[1][1]["elapsed_seconds"] >= 0
     assert "Never merge" in role_prompt("qa")
     with pytest.raises(ValueError):
         role_prompt("merge")
@@ -112,6 +114,22 @@ def test_issue_text_is_a_user_prompt_not_a_system_instruction(
     assert "Never merge" in system and "untrusted issue text" not in system
     assert args[-1] == "untrusted issue text"
     assert "blockReadsOutsideWorkingDirectories" in args[args.index("--settings") + 1]
+    assert "--max-budget-usd" not in args
+
+
+def test_positive_model_budget_adds_claude_flag(settings, tmp_path: Path, monkeypatch):
+    args_file = tmp_path / "arguments.json"
+    cli = tmp_path / "claude"
+    cli.write_text(
+        "#!/usr/bin/env python3\nimport json,sys\n"
+        f"open({str(args_file)!r}, 'w').write(json.dumps(sys.argv[1:]))\n"
+        'print(\'{"type":"result","result":{"approved":true,"gaps":[]}}\')\n'
+    )
+    cli.chmod(0o700)
+    monkeypatch.setenv("PATH", str(tmp_path) + os.pathsep + os.environ["PATH"])
+    ClaudeAgent(replace(settings, max_budget_usd=10), lambda *a: None).run("qa", "test", tmp_path)
+    args = json.loads(args_file.read_text())
+    assert args[args.index("--max-budget-usd") + 1] == "10"
 
 
 def test_untrusted_subprocess_environments_strip_coordinator_credentials(monkeypatch):

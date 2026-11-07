@@ -31,7 +31,8 @@ provider = "claude_cli"
 # specific model ID here after verifying that it is available in the host account.
 name = "sonnet"
 reasoning = "high"
-max_budget_usd = 10.0
+# 0 leaves Claude uncapped while measured task costs are established.
+max_budget_usd = 0.0
 temperature = "default"
 max_output_tokens = 0
 
