@@ -223,6 +223,9 @@ jobs:
           AUTOCD_RETRY_ISSUE: ${{ inputs.retry_issue || '' }}
           AUTOCD_TRIAL_TASKS: ${{ inputs.trial_tasks || 0 }}
         run: timeout --signal=TERM --kill-after=2m 300m python -m autocd.hosted
+      - name: Report bounded failure diagnostic
+        if: ${{ failure() && steps.restore.outcome == 'success' && inputs.diagnose_state != true }}
+        run: python -m autocd.diagnostics
       - name: Report measured task time and Claude spend
         if: ${{ always() && steps.restore.outcome == 'success' && inputs.diagnose_state != true }}
         run: python -m autocd.usage_report

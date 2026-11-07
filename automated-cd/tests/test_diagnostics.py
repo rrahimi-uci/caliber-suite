@@ -56,11 +56,27 @@ def test_run_diagnostic_reports_pre_task_failure_without_private_reason(
     }
     assert "SECRET" not in json.dumps(result)
     assert latest_diagnostic(store.path, latest_run_only=True) == {"status": "no_tasks"}
+    assert latest_diagnostic(store.path) == {
+        "issue": 821,
+        "phase": "blocked",
+        "failure_code": "other",
+        "cycles": 0,
+        "has_pr": False,
+        "has_pushed_head": False,
+    }
     monkeypatch.setenv("AUTOCD_STATE_DIR", str(tmp_path))
     monkeypatch.setenv("AUTOCD_TIMEZONE", "America/Los_Angeles")
     main()
     printed = capsys.readouterr().out
-    assert json.loads(printed) == {"status": "no_tasks", "run": result}
+    assert json.loads(printed) == {
+        "issue": 821,
+        "phase": "blocked",
+        "failure_code": "other",
+        "cycles": 0,
+        "has_pr": False,
+        "has_pushed_head": False,
+        "run": result,
+    }
     assert "SECRET" not in printed
 
 

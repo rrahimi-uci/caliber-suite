@@ -83,7 +83,12 @@ def latest_run_diagnostic(path: Path, timezone: str) -> dict:
 
 
 def latest_diagnostic(path: Path, *, latest_run_only: bool = False) -> dict:
-    """Return fixed task labels; optionally constrain them to the newest run."""
+    """Return fixed task labels; optionally constrain them to the newest run.
+
+    A hosted attempt can create a follow-up reconciliation/refill run with no
+    task row after a task is blocked.  The default diagnostic must still show
+    that task rather than returning ``no_tasks`` for the empty follow-up run.
+    """
     with closing(sqlite3.connect(f"file:{path}?mode=ro", uri=True)) as db:
         db.row_factory = sqlite3.Row
         task = db.execute(
@@ -153,7 +158,10 @@ def latest_diagnostic(path: Path, *, latest_run_only: bool = False) -> dict:
 
 def main() -> None:
     path = Path(os.environ["AUTOCD_STATE_DIR"]) / "workflow.sqlite3"
-    result = latest_diagnostic(path, latest_run_only=True)
+    # Prefer the newest task across the durable state.  The hosted runner may
+    # record an empty monitor/refill run after a blocked task, and limiting the
+    # lookup to that run would hide the actionable failure classification.
+    result = latest_diagnostic(path)
     result["run"] = latest_run_diagnostic(
         path, os.environ.get("AUTOCD_TIMEZONE", "America/Los_Angeles")
     )
