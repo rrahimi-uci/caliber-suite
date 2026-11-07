@@ -79,6 +79,10 @@ def test_dispatch_guard_bounds_manual_trial(
 
 def test_failed_restore_cannot_publish_placeholder_state(steps):
     assert steps["Restore coordinator state"]["id"] == "restore"
+    diagnostic = steps["Report bounded failure diagnostic"]
+    assert "failure()" in diagnostic["if"]
+    assert "steps.restore.outcome == 'success'" in diagnostic["if"]
+    assert diagnostic["run"] == "python -m autocd.diagnostics"
     for name in ("Encrypt coordinator state", "Save coordinator state"):
         condition = steps[name]["if"]
         assert "always()" in condition
