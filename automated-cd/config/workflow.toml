@@ -31,8 +31,11 @@ provider = "claude_cli"
 # specific model ID here after verifying that it is available in the host account.
 name = "sonnet"
 reasoning = "high"
-# 0 leaves Claude uncapped while measured task costs are established.
+# Per-call override; zero lets the daily cap determine each call's remaining budget.
 max_budget_usd = 0.0
+# Pacific-calendar-day cap across planner, developer, reviewer and QA calls.
+# Zero disables the aggregate cap.
+daily_budget_usd = 30.0
 temperature = "default"
 max_output_tokens = 0
 

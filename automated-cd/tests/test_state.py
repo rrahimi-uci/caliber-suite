@@ -87,6 +87,18 @@ def test_attempts_use_claim_time_across_midnight(tmp_path: Path):
     assert store.attempt_count_since(after_start) == 1
 
 
+def test_model_spend_requires_a_reported_cost_for_every_call(tmp_path: Path):
+    store = Store(tmp_path)
+    since = datetime.now(UTC) - timedelta(minutes=1)
+    assert store.start("run")
+    store.event("run", None, "agent_started", {"role": "planner"})
+    store.event("run", None, "agent_usage", {"role": "planner", "cost_usd": 1.25})
+    assert store.model_spend_since(since) == (1.25, True)
+    store.event("run", None, "agent_started", {"role": "developer"})
+    store.event("run", None, "agent_usage", {"role": "developer", "cost_usd": None})
+    assert store.model_spend_since(since) == (1.25, False)
+
+
 def test_task_and_claim_event_are_atomic(tmp_path: Path):
     store = Store(tmp_path)
     assert store.start("run")

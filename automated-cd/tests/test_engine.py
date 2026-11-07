@@ -358,6 +358,44 @@ def test_due_date_uses_configured_timezone(settings):
     assert engine.due_date(datetime(2026, 11, 5, 12, 0, tzinfo=UTC)) == "2026-11-05"
 
 
+def test_model_call_uses_remaining_daily_budget(settings, tmp_path):
+    settings = replace(settings, daily_budget_usd=30, max_budget_usd=0)
+    store = Store(settings.state_dir)
+    assert store.start("run")
+    store.event("run", None, "agent_started", {"role": "planner"})
+    store.event("run", None, "agent_usage", {"role": "planner", "cost_usd": 29.25})
+    budgets = []
+
+    class CapturingAgent:
+        def __init__(self, call_settings, event):
+            budgets.append(call_settings.max_budget_usd)
+
+        def run(self, role, prompt, cwd, editable=False):
+            return {"selected": [], "reason": "budget test"}
+
+    Engine(settings, agent_factory=CapturingAgent)._run_agent(
+        store, "run", None, "planner", "{}", tmp_path
+    )
+    assert budgets == [0.75]
+
+
+@pytest.mark.parametrize(
+    ("cost", "message"),
+    [
+        (30, "Daily Claude budget exhausted"),
+        (None, "Daily Claude spend cannot be verified"),
+    ],
+)
+def test_model_call_stops_when_daily_budget_is_not_safe(settings, cost, message, tmp_path):
+    settings = replace(settings, daily_budget_usd=30, max_budget_usd=0)
+    store = Store(settings.state_dir)
+    assert store.start("run")
+    store.event("run", None, "agent_started", {"role": "planner"})
+    store.event("run", None, "agent_usage", {"role": "planner", "cost_usd": cost})
+    with pytest.raises(RuntimeError, match=message):
+        Engine(settings)._run_agent(store, "run", None, "planner", "{}", tmp_path)
+
+
 def test_ready_task_uses_standard_checks_without_issue_override(settings, snapshot):
     data, _ = snapshot
     settings = replace(settings, issue_checks={})

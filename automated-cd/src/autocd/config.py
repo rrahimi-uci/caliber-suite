@@ -38,6 +38,7 @@ class Settings:
     model: str
     reasoning: str
     max_budget_usd: float
+    daily_budget_usd: float
     temperature: str
     max_output_tokens: int
     base_checks: tuple[str, ...]
@@ -107,6 +108,7 @@ def load(path: Path | None = None, *, environ: dict[str, str] | None = None) -> 
         model=str(value("model", model["name"])),
         reasoning=str(value("effort", model["reasoning"])),
         max_budget_usd=float(value("max_budget_usd", model["max_budget_usd"])),
+        daily_budget_usd=float(value("daily_budget_usd", model.get("daily_budget_usd", 0))),
         temperature=str(value("temperature", model.get("temperature", "default"))),
         max_output_tokens=int(value("max_output_tokens", model.get("max_output_tokens", 0))),
         base_checks=tuple(checks["base"]),
@@ -142,6 +144,8 @@ def load(path: Path | None = None, *, environ: dict[str, str] | None = None) -> 
         raise ValueError("Unsupported reasoning level")
     if not math.isfinite(settings.max_budget_usd) or settings.max_budget_usd < 0:
         raise ValueError("max_budget_usd must be finite and nonnegative; zero is uncapped")
+    if not math.isfinite(settings.daily_budget_usd) or settings.daily_budget_usd < 0:
+        raise ValueError("daily_budget_usd must be finite and nonnegative; zero is uncapped")
     # Claude Code CLI has no stable temperature or output-token flags. Fail closed.
     if settings.temperature != "default" or settings.max_output_tokens:
         raise ValueError("Claude CLI cannot enforce temperature or output-token limits")
