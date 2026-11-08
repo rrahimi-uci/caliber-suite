@@ -142,7 +142,13 @@ _EXPECTED_COUNTS = {
     # direct look; it is written and read only by the consumer that owns it.
     # +1 (`B07.1a`): CaliberApprovedContextSource has a required project_id and no visibility tier -- project_only,
     # confirmed by direct look; it is read and written only by `caliber.context.sources`, never listed through a route.
-    SCOPING_PROJECT_ONLY: 29,
+    # +1 (evidence archives): CaliberEvidenceArchive has a required project_id and no
+    # visibility or owner column; the archive is a project-scoped locator whose
+    # authorization-scope digest is part of its uniqueness key. Confirmed by direct look.
+    # +1 (replay observations): CaliberStepObservation has a nullable project_id and a
+    # principal column but no visibility tier; reads are scoped by project and principal in
+    # `replay.observations._scoped_row`. Confirmed by direct look.
+    SCOPING_PROJECT_ONLY: 31,
 }
 
 

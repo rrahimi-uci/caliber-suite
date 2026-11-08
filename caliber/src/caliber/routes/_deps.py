@@ -292,24 +292,26 @@ def scoped_child_or_404(
     visibility has already passed, so a non-member still sees 404. Read routes leave it
     ``None``. A parent with no project (a personal resource) has no role to check.
     """
+    # One message for every "not visible" outcome. When the caller asked for the id to be
+    # redacted, a missing row, an orphan and a forbidden parent must all omit it: redacting
+    # only the forbidden case would let a caller tell "forbidden" from "does not exist"
+    # by whether the id is echoed, which is the disclosure this helper exists to prevent.
+    not_found = (
+        f"{child_label} not found" if redact_hidden_id else f"{child_label} {child_id!r} not found"
+    )
     row = session.get(child, child_id)
     if row is None:
-        raise HTTPException(status_code=404, detail=f"{child_label} {child_id!r} not found")
+        raise HTTPException(status_code=404, detail=not_found)
     parent_id = getattr(row, parent_id_attr, None)
     if not parent_id:
-        raise HTTPException(status_code=404, detail=f"{child_label} {child_id!r} not found")
+        raise HTTPException(status_code=404, detail=not_found)
     from caliber.auth import resolve_identity  # noqa: PLC0415 - avoids an import cycle
     from caliber.db.scoping import get_visible  # noqa: PLC0415
 
     identity = resolve_identity(request)
     parent = get_visible(session, parent_model, parent_pk, parent_id, identity)
     if parent is None:
-        detail = (
-            f"{child_label} not found"
-            if redact_hidden_id
-            else f"{child_label} {child_id!r} not found"
-        )
-        raise HTTPException(status_code=404, detail=detail)
+        raise HTTPException(status_code=404, detail=not_found)
     if action is not None:
         from caliber.resource_access import require_project_access_if_scoped  # noqa: PLC0415
 

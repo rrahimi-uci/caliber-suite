@@ -242,6 +242,13 @@ def test_an_orphaned_child_fails_closed(client: TestClient, db_session: Session)
 
     response = client.get(f"{PREFIX}/workflow-versions/WFV-ORPHAN")
     assert response.status_code == 404, response.text
+    # And it must read exactly like an id that never existed: a different message (for
+    # example one that echoes the id) would tell a caller the orphan row is real.
+    missing = client.get(f"{PREFIX}/workflow-versions/WFV-NEVER-EXISTED")
+    assert missing.status_code == 404
+    assert response.json()["detail"].replace("WFV-ORPHAN", "X") == missing.json()["detail"].replace(
+        "WFV-NEVER-EXISTED", "X"
+    )
 
 
 def test_a_foreign_workflows_versions_cannot_be_listed_or_created(
