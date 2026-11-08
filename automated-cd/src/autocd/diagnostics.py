@@ -4,11 +4,51 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sqlite3
 from contextlib import closing
 from datetime import UTC, datetime, time
 from pathlib import Path
 from zoneinfo import ZoneInfo
+
+# Failures raised by the Claude CLI wrapper, keyed by the phrase after the role name.
+_AGENT_FAILURES = re.compile(
+    r"(?:planner|developer|reviewer|qa) "
+    r"(?:(could not start)|(timed out)|(stalled)|(failed \(exit)|(emitted an oversized)"
+    r"|(returned ))"
+)
+_AGENT_FAILURE_CODES = (
+    "agent_start_failed",
+    "agent_timeout",
+    "agent_stalled",
+    "agent_exit",
+    "agent_output_oversized",
+    "agent_output",
+)
+_OTHER_PREFIXES = (
+    ("Daily Claude spend cannot be verified", "budget_unverifiable"),
+    ("Daily Claude budget exhausted", "budget_exhausted"),
+    ("Setup failed:", "setup_failed"),
+    ("Documentation sync failed", "docs_sync_failed"),
+    ("Source diff exceeds", "diff_too_large"),
+    ("Candidate diff exceeds", "diff_too_large"),
+    ("Interrupted before PR", "interrupted"),
+)
+
+
+def _unclassified(value: str) -> str:
+    """Name the failures that previously all collapsed into ``other``.
+
+    Specific legacy codes are matched first by the callers so existing labels keep
+    their meaning; this only refines what would otherwise be reported as ``other``.
+    """
+    match = _AGENT_FAILURES.match(value)
+    if match:
+        return _AGENT_FAILURE_CODES[(match.lastindex or 1) - 1]
+    for prefix, code in _OTHER_PREFIXES:
+        if value.startswith(prefix):
+            return code
+    return "other"
 
 
 def failure_code(value: str | None) -> str:
@@ -29,7 +69,7 @@ def failure_code(value: str | None) -> str:
     ):
         if value.startswith(prefix):
             return code
-    return "other"
+    return _unclassified(value)
 
 
 def run_failure_code(value: str | None) -> str:
@@ -50,7 +90,7 @@ def run_failure_code(value: str | None) -> str:
     ):
         if value.startswith(prefix):
             return code
-    return "other"
+    return _unclassified(value)
 
 
 def latest_run_diagnostic(path: Path, timezone: str) -> dict:

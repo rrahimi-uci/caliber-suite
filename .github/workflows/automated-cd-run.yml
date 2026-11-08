@@ -189,6 +189,9 @@ jobs:
             claude --version
             uv venv "$1/venv" --python 3.11
           ' sh "$AUTOCD_WORKTREE_DIR/smoke"
+          # Reviewer prompts exceed Linux's 128 KiB single-argument limit, so the
+          # worker sudo path must carry large prompts on stdin before any model spend.
+          head -c 400000 /dev/zero | sudo -E -H -u autocdqa -- env PATH="$PATH" sh -c 'test "$(wc -c)" -ge 400000'
       - name: Verify Project access
         if: ${{ inputs.diagnose_state != true }}
         env:

@@ -76,6 +76,36 @@ jobs:
           if sudo -u autocdqa -- cat "$AUTOCD_STATE_DIR/marker"; then
             echo 'Worker read private coordinator state'; exit 1
           fi
+      - name: Smoke test a large model prompt through the isolated worker
+        env:
+          AUTOCD_REPO_ROOT: ${{ github.workspace }}
+          AUTOCD_STATE_DIR: ${{ runner.temp }}/private-autocd-state
+          AUTOCD_WORKTREE_DIR: /tmp/autocd-smoke-worktrees-${{ github.run_id }}
+          AUTOCD_WORKER_USER: autocdqa
+        run: |
+          # Linux rejects any single argument of 128 KiB or more with E2BIG, so a
+          # large reviewer diff must reach the CLI on stdin through sudo.
+          fakebin=$(mktemp -d /tmp/autocd-fakebin-XXXXXX)
+          chmod 755 "$fakebin"
+          cat > "$fakebin/claude" <<'SH'
+          #!/bin/sh
+          bytes=$(wc -c)
+          [ "$bytes" -ge 400000 ] || { echo "stdin carried $bytes bytes" >&2; exit 3; }
+          printf '%s\n' '{"type":"result","total_cost_usd":0,"result":{"approved":true,"findings":[]}}'
+          SH
+          chmod 755 "$fakebin/claude"
+          PATH="$fakebin:$PATH" python - <<'PY'
+          import os, tempfile
+          from pathlib import Path
+          from autocd.agents import ClaudeAgent
+          from autocd.config import load
+          settings = load()
+          assert settings.worker_user == 'autocdqa', settings.worker_user
+          with tempfile.TemporaryDirectory(dir='/tmp') as cwd:
+              os.chmod(cwd, 0o755)
+              result = ClaudeAgent(settings, lambda *a: None).run('reviewer', 'x' * 400_000, Path(cwd))
+          assert result == {'approved': True, 'findings': []}, result
+          PY
       - name: Build and inspect wheel
         run: |
           python -m build automated-cd --outdir /tmp/autocd-dist
