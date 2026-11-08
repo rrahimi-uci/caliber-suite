@@ -345,7 +345,8 @@ def test_the_postgresql_parity_lists_match_and_run_the_alpha_seed_tests() -> Non
     in_ci = re.findall(r"tests/[A-Za-z0-9_]+\.py", run)
 
     script = SCRIPT.read_text()
-    function = script[script.index("job_migration_parity_postgres() {") :]
+    # The file list lives in a helper shared by the Docker and external-server paths.
+    function = script[script.index("run_migration_parity_tests() {") :]
     function = function[: function.index("\n}\n")]
     locally = re.findall(r"tests/[A-Za-z0-9_]+\.py", function)
 
