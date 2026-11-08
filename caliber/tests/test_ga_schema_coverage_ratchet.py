@@ -61,7 +61,17 @@ _GA_MODULES = (
 #: value, or a second definition of a contract that lives elsewhere and would
 #: drift from it. Modelling them means modelling those modules' outputs, which
 #: is its own change rather than part of formalizing the route layer.
-_BASELINE = 8
+#:
+#: 8 -> 9 (reference-profile source redaction): ``_profile_safe_model_response`` in
+#: ``workflow_versions.py`` is one shared call site, used by get/compile/publish. It
+#: serializes an already schema-validated model (``WorkflowVersionSchema`` or
+#: ``WorkflowCompileSchema``) and only removes the ``generated_python`` key, recursively,
+#: because that executable source must never appear in a reference-profile response.
+#: Outside the reference profile the same routes still return the typed model through
+#: ``envelope_response``, so the published contract is unchanged. Typing the redacted
+#: variant would mean a second copy of those schemas that could drift from them. It is
+#: one site, not a new unmodelled payload.
+_BASELINE = 9
 
 
 def _unmodelled_returns() -> list[str]:

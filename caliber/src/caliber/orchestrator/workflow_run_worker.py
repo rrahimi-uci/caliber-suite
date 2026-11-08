@@ -7,6 +7,7 @@ import json
 import logging
 import threading
 import time
+from collections.abc import Mapping
 from contextlib import suppress
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
@@ -1886,13 +1887,28 @@ class WorkflowRunWorker:
             # worker.  The runtime already emits model/read observation events, but keeping this
             # callback optional means direct preview/export callers remain unchanged; admitted
             # persisted runs must retain the observations that the public replay endpoint consumes.
-            plan.observation_recorder = ObservationRecorder(
+            observation_recorder = ObservationRecorder(
                 session=session,
                 backend=build_backend(self._config.workflow_storage),
                 workflow_run_id=run.workflow_run_id,
                 project_id=run.project_id,
                 principal=str(run.created_by or "@workflow-run-worker"),
             )
+
+            def _record_observation(event: Mapping[str, Any]) -> Any:
+                # An observation is immutable evidence of what a step did, so it is committed as
+                # soon as it is recorded, like the node/step events above. Left flushed but
+                # uncommitted, the insert holds the database's write lock across the rest of the
+                # agent turn; on SQLite (one writer) the turn's own session-memory save, which
+                # commits on a separate connection, then waits out the busy timeout and fails the
+                # run with "database is locked". It also keeps the index row alive when a node is
+                # retried: the stored bytes are write-once, so a rolled-back row would leave an
+                # object with no index and the retry would raise an observation conflict.
+                record = observation_recorder(event)
+                session.commit()
+                return record
+
+            plan.observation_recorder = _record_observation
             # At-most-once external effects. This is the only execution path that
             # can be *restarted*: an expired lease resets the run to ``queued`` and,
             # without a wait/approval checkpoint, execution begins again from the
@@ -2283,7 +2299,9 @@ class WorkflowRunWorker:
                     session,
                     row,
                     result,
-                    observation_recorder=plan.observation_recorder,
+                    # The uncommitted recorder: acceptance evaluates inside a savepoint, which a
+                    # commit would end.
+                    observation_recorder=observation_recorder,
                 )
                 return
             self._mark_failed(
