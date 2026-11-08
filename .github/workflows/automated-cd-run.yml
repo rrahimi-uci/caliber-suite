@@ -43,7 +43,28 @@ jobs:
     if: github.repository == 'rrahimi-uci/caliber-suite' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 330
+    # A real PostgreSQL for task QA. The unprivileged worker has no Docker access (that
+    # would be root-equivalent), so it reaches this server over localhost instead. The
+    # container lives only for this run and its credentials are throwaway.
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: caliber
+          POSTGRES_PASSWORD: caliber
+          POSTGRES_DB: caliber_autocd_admin
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U caliber"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     env:
+      # Read only by scripts/ci-local.sh's PostgreSQL jobs. Do not name it
+      # CALIBER_TEST_POSTGRES_URL: that would switch on the PostgreSQL cases of every
+      # QA command, including the full coverage suite.
+      CALIBER_CI_LOCAL_POSTGRES_URL: postgresql+psycopg://caliber:caliber@localhost:5432/caliber_autocd_admin
       AUTOCD_REPO_ROOT: ${{ github.workspace }}
       AUTOCD_STATE_DIR: /tmp/caliber-autocd-state-${{ github.run_id }}
       AUTOCD_WORKTREE_DIR: /tmp/caliber-autocd-worktrees-${{ github.run_id }}

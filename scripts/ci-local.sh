@@ -33,6 +33,13 @@
 # job (SKIPPED when absent). Several jobs create and reuse their own virtualenvs under the package
 # directories, install packages with pip (network access), and the UI jobs run `npm ci`.
 #
+# PostgreSQL jobs (migration-parity-postgres, egi-scenarios-postgres) start a Docker container by
+# default. Set CALIBER_CI_LOCAL_POSTGRES_URL to an admin connection string for a server that is
+# already running (for example a GitHub Actions service container, where the unprivileged worker
+# has no Docker access) and they use it instead; each test still creates and drops its own
+# uniquely named database there. It is deliberately not CALIBER_TEST_POSTGRES_URL, which would
+# make every other job run its PostgreSQL-parametrized cases too.
+#
 # Exit status: 0 when every job that ran passed, 1 when a job failed, 2 for an unknown job name or
 # option. Every job runs regardless, so one failure does not hide the rest — the point is a full
 # picture, which is what CI gives you.
@@ -181,6 +188,44 @@ job_backend_core_install() {
   "$VENV_PY" -m pip install -q -e "$PLUGIN_SDK_DIR" || return 1
 }
 
+# Run the migration-parity PostgreSQL cases against the admin connection URL in $1.
+run_migration_parity_tests() {
+  CALIBER_TEST_POSTGRES_URL="$1" "$VENV_PY" -m pytest \
+    tests/test_migrations.py \
+    tests/test_routes_verification_queue.py \
+    tests/test_workspace_revision_allocation_concurrency.py \
+    tests/test_profile.py \
+    tests/test_run_manifest.py \
+    tests/test_run_grants.py \
+    tests/test_policy_decisions.py \
+    tests/test_execution_owner.py \
+    tests/test_trace_experiment_ownership.py \
+    tests/test_event_outbox.py \
+    tests/test_event_inbox.py \
+    tests/test_effect_proposals.py \
+    tests/test_agent_step_contract.py \
+    tests/test_effect_records.py \
+    tests/test_effect_receipts.py \
+    tests/test_causal_links.py \
+    tests/test_approval_binding.py \
+    tests/test_approval_supersession.py \
+    tests/test_run_settlement.py \
+    tests/test_routes_system_effects.py \
+    tests/test_effect_reconcile.py \
+    tests/test_effect_http_reconcile.py \
+    tests/test_effect_in_flight.py \
+    tests/test_effect_reconciler_loop.py \
+    tests/test_effect_operator_reconcile.py \
+    tests/test_registered_tool_dispatch.py \
+    tests/test_openapi_governed_dispatch.py \
+    tests/test_mcp_governed_dispatch.py \
+    tests/test_context_sources.py \
+    tests/test_context_manifest.py \
+    tests/test_workspace_release_evaluator.py \
+    tests/test_upgrade_from_alpha.py \
+    -k postgresql --no-cov -q
+}
+
 # The PostgreSQL half of tests/test_migrations.py's and
 # tests/test_workspace_revision_allocation_concurrency.py's dialect coverage (see
 # tests/dialect_helpers.py and that latter file's module docstring). job_test_smoke
@@ -193,6 +238,11 @@ job_backend_core_install() {
 # CI's "Migration parity (PostgreSQL)" job does with a service container.
 job_migration_parity_postgres() {
   cd "$CALIBER_DIR" || return 1
+  # An already-provisioned server (the hosted automation's service container) replaces Docker.
+  if [ -n "${CALIBER_CI_LOCAL_POSTGRES_URL:-}" ]; then
+    run_migration_parity_tests "$CALIBER_CI_LOCAL_POSTGRES_URL"
+    return $?
+  fi
   command -v docker >/dev/null 2>&1 || {
     SKIP_REASON="docker is unavailable; CI still runs the PostgreSQL migration parity job"
     return "$EXIT_SKIPPED"
@@ -221,39 +271,7 @@ job_migration_parity_postgres() {
     yellow "postgres container did not become ready within 30s"
     status=1
   else
-    CALIBER_TEST_POSTGRES_URL="postgresql+psycopg://caliber:caliber@localhost:${port}/caliber_migration_admin" \
-      "$VENV_PY" -m pytest tests/test_migrations.py \
-        tests/test_workspace_revision_allocation_concurrency.py \
-        tests/test_profile.py \
-        tests/test_run_manifest.py \
-        tests/test_run_grants.py \
-        tests/test_policy_decisions.py \
-        tests/test_execution_owner.py \
-        tests/test_trace_experiment_ownership.py \
-        tests/test_event_outbox.py \
-        tests/test_event_inbox.py \
-        tests/test_effect_proposals.py \
-        tests/test_agent_step_contract.py \
-        tests/test_effect_records.py \
-        tests/test_effect_receipts.py \
-        tests/test_causal_links.py \
-        tests/test_approval_binding.py \
-        tests/test_approval_supersession.py \
-        tests/test_run_settlement.py \
-        tests/test_routes_system_effects.py \
-        tests/test_effect_reconcile.py \
-        tests/test_effect_http_reconcile.py \
-        tests/test_effect_in_flight.py \
-        tests/test_effect_reconciler_loop.py \
-        tests/test_effect_operator_reconcile.py \
-        tests/test_registered_tool_dispatch.py \
-        tests/test_openapi_governed_dispatch.py \
-        tests/test_mcp_governed_dispatch.py \
-        tests/test_context_sources.py \
-        tests/test_context_manifest.py \
-        tests/test_workspace_release_evaluator.py \
-        tests/test_upgrade_from_alpha.py \
-        -k postgresql --no-cov -q
+    run_migration_parity_tests "postgresql+psycopg://caliber:caliber@localhost:${port}/caliber_migration_admin"
     status=$?
   fi
   docker rm -f "$container" >/dev/null 2>&1
@@ -265,6 +283,11 @@ job_migration_parity_postgres() {
 # connection pattern as job_migration_parity_postgres, on its own container and port.
 job_egi_scenarios_postgres() {
   cd "$CALIBER_DIR" || return 1
+  if [ -n "${CALIBER_CI_LOCAL_POSTGRES_URL:-}" ]; then
+    CALIBER_TEST_POSTGRES_URL="$CALIBER_CI_LOCAL_POSTGRES_URL" \
+      "$VENV_PY" -m pytest tests/egi_scenarios --no-cov -q
+    return $?
+  fi
   command -v docker >/dev/null 2>&1 || {
     SKIP_REASON="docker is unavailable; CI still runs the EGI scenarios (PostgreSQL) job"
     return "$EXIT_SKIPPED"

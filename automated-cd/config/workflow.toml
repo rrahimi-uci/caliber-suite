@@ -53,6 +53,9 @@ required = ["Gate execution ledger"]
 # The verification provenance task adds an Alembic migration, which is outside
 # the standard source-path fallback. Full PostgreSQL parity runs in PR CI.
 "821" = ["caliber/.venv/bin/python -m pytest caliber/tests/test_routes_verification_queue.py caliber/tests/test_migrations.py --no-cov -q", "scripts/ci-local.sh backend-core"]
+# The D5 recovery audit must run its PostgreSQL barrier scenarios. The hosted job provides a
+# PostgreSQL service container (CALIBER_CI_LOCAL_POSTGRES_URL) that these jobs use without Docker.
+"1144" = ["scripts/ci-local.sh egi-scenarios-postgres migration-parity-postgres"]
 # "123" = ["python -m pytest path/to/affected/tests -q"]
 
 [issue_paths]

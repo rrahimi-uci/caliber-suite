@@ -178,7 +178,16 @@ The hosted runner creates an unprivileged Unix user for model, setup and local
 QA subprocesses. They run without the Project token and cannot read the
 coordinator user's process environment. Claude Code 2.1.314 or newer is
 required so file tools remain inside the working directory. Docker-backed
-checks run as separate PR CI jobs without coordinator credentials.
+checks run as separate PR CI jobs without coordinator credentials. The worker
+has no Docker access, because that would be root-equivalent and defeat the isolation.
+The hosted job instead starts a throwaway `pgvector/pgvector:pg16` service container
+and exports `CALIBER_CI_LOCAL_POSTGRES_URL` (localhost, throwaway credentials, gone
+when the run ends). `scripts/ci-local.sh egi-scenarios-postgres` and
+`migration-parity-postgres` use it instead of starting Docker, and each test creates and
+drops its own uniquely named database, so concurrent tasks do not collide. The variable
+is deliberately not `CALIBER_TEST_POSTGRES_URL`, which would enable the PostgreSQL cases
+of every QA command, including the full coverage suite. Issue-specific QA such as #1144
+lists these jobs under `[issue_checks]`.
 The Python coordinator alone runs Git and GitHub commands. Configured issue
 paths enforce ownership when supplied; tasks without explicit path ownership
 run serially. The reviewer receives the complete source diff up to 250,000
