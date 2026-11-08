@@ -24,6 +24,30 @@ def test_failure_codes_never_echo_private_text():
     assert failure_code("Developer produced no changed files SECRET") == "no_changes"
     assert failure_code("Claim did not persist SECRET") == "claim_failure"
     assert failure_code("unexpected SECRET") == "other"
+    # Failures that used to collapse into "other" are named without echoing text.
+    for text, code in (
+        ("reviewer could not start: E2BIG", "agent_start_failed"),
+        ("reviewer timed out", "agent_timeout"),
+        ("developer stalled without output", "agent_stalled"),
+        ("qa failed (exit 3): SECRET", "agent_exit"),
+        ("reviewer emitted an oversized stream line", "agent_output_oversized"),
+        ("developer returned invalid JSON", "agent_output"),
+        ("Daily Claude spend cannot be verified; stopping safely", "budget_unverifiable"),
+        ("Daily Claude budget exhausted ($30.00)", "budget_exhausted"),
+        ("Setup failed: uv pip install SECRET (exit 1)", "setup_failed"),
+        ("Documentation sync failed (exit 1)", "docs_sync_failed"),
+        ("Source diff exceeds reviewer context limit; split task", "diff_too_large"),
+        ("Candidate diff exceeds integrity comparison limit; split task", "diff_too_large"),
+        ("Interrupted before PR; inspect worktree", "interrupted"),
+    ):
+        assert failure_code(text) == code
+        assert run_failure_code(text) == code
+        assert "SECRET" not in code
+    # Established labels keep precedence over the broader agent classification.
+    assert failure_code("reviewer returned an error") == "reviewer_output"
+    assert run_failure_code("planner timed out") == "planner_timeout"
+    assert run_failure_code("planner stalled without output") == "planner_stall"
+    assert run_failure_code("planner failed (exit 1): SECRET") == "planner_error"
     assert run_failure_code(None) == "none"
     assert (
         run_failure_code("Explicit retry was not selected by planner or daily attempt cap SECRET")

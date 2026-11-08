@@ -133,7 +133,11 @@ to start with one reconciled blocked pre-PR task, then refill from the live
 executable Project backlog. The workflow logs a bounded report of coordinator
 elapsed time, claimed and completed tasks, Claude call counts, and Claude's
 reported dollar estimate. A missing call cost makes the per-Done average
-unknown, rather than treating it as zero. The report includes failed attempts
+unknown, rather than treating it as zero. The one exception is a Claude process
+that could not be spawned at all: it cannot have spent anything, so it is recorded
+as a zero-cost call. A call that started and was killed (stall or timeout) keeps an
+unknown cost, and the Pacific-day spend guard then stops further model calls that
+day with `budget_unverifiable` instead of guessing. The report includes failed attempts
 and planner spend; invoice charges may differ from Claude's estimate. No
 prompts, review findings, or raw model output are printed in the report.
 The preflight plan reads restored state: `eligible` and `selected` exclude
@@ -166,7 +170,9 @@ serialize cooperating writers; another clone or human remains a remote race. The
 the Project after each claim and stops if the claim is not visible.
 
 The model roles receive no Bash tool. Untrusted issue/task text is passed as a
-user prompt, below the trusted role policy. Developers may use file reading/editing
+user prompt, below the trusted role policy. The prompt is written to the Claude
+CLI's standard input, never as a command-line argument: Linux rejects any single
+argument of 128 KiB or more (`E2BIG`), and a reviewer prompt can carry a 250 KB diff. Developers may use file reading/editing
 tools in their task worktree; Planner, Reviewer and QA receive read-only tools.
 The hosted runner creates an unprivileged Unix user for model, setup and local
 QA subprocesses. They run without the Project token and cannot read the
@@ -206,7 +212,12 @@ reconciles Project Done only after a verified owner merge.
   It reports fixed failure
   codes, the day's claim count, review/QA counts, and whether a PR or head was
   pushed. An early run failure is visible even when no new task was claimed;
-  model text and command output remain in the encrypted artifact. Diagnosis
+  model text and command output remain in the encrypted artifact. Beyond the
+  role-specific codes, `agent_start_failed`, `agent_timeout`, `agent_stalled`,
+  `agent_exit`, `agent_output_oversized`, `agent_output`, `budget_unverifiable`,
+  `budget_exhausted`, `setup_failed`, `docs_sync_failed`, `diff_too_large` and
+  `interrupted` name failures that were previously all reported as `other`.
+  Diagnosis
   needs `AUTOCD_STATE_KEY`
   but does not need the model or Project token. It does not claim tasks or upload
   a new state artifact, and cannot be combined with `retry_issue`.

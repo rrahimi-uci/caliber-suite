@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import errno
 import json
 import math
 import os
 import re
 import selectors
 import subprocess
+import threading
 import time
 from importlib.resources import files
 from pathlib import Path
@@ -72,6 +74,26 @@ def worker_args(user: str, args: list[str]) -> list[str]:
     return ["sudo", "-E", "-H", "-u", user, "--", "env", f"PATH={os.environ['PATH']}", *args]
 
 
+def _feed_prompt(stream, payload: bytes) -> None:
+    """Write the whole prompt to the CLI's stdin, then close it.
+
+    Prompts carry up to hundreds of kilobytes of diff. Passing one as a command-line
+    argument fails on Linux with E2BIG at 128 KiB per argument, so it travels on stdin.
+    A thread keeps a full pipe from blocking the coordinator's output loop.
+    """
+    try:
+        view = memoryview(payload)
+        while view:
+            view = view[os.write(stream.fileno(), view) :]
+    except OSError:
+        pass  # The child exited early; its exit status or output reports the failure.
+    finally:
+        try:
+            stream.close()
+        except OSError:
+            pass
+
+
 class ClaudeAgent:
     def __init__(self, settings: Settings, event):
         self.settings = settings
@@ -103,19 +125,35 @@ class ClaudeAgent:
             *budget_args,
             "--append-system-prompt",
             role_prompt(role),
-            prompt,
         ]
         if self.settings.worker_user:
             args = worker_args(self.settings.worker_user, args)
         self.event("agent_started", {"role": role, "model": self.settings.model, "cwd": str(cwd)})
-        process = subprocess.Popen(
-            args,
-            cwd=cwd,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            bufsize=0,
-            env=untrusted_env(model=True),
+        try:
+            process = subprocess.Popen(
+                args,
+                cwd=cwd,
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                bufsize=0,
+                env=untrusted_env(model=True),
+            )
+        except OSError as error:
+            # The process never existed, so no model spend is possible. Record
+            # that exact fact: the daily spend guard otherwise treats a started
+            # call without a cost as unverifiable and halts every later call.
+            self.event(
+                "agent_usage",
+                {"role": role, "cost_usd": 0.0, "elapsed_seconds": 0.0, "spawn_failed": True},
+            )
+            # Name the errno (for example E2BIG) but never the OS message or path.
+            reason = errno.errorcode.get(error.errno or 0, type(error).__name__)
+            raise AgentError(f"{role} could not start: {reason}") from None
+        feeder = threading.Thread(
+            target=_feed_prompt, args=(process.stdin, prompt.encode()), daemon=True
         )
+        feeder.start()
         selector = selectors.DefaultSelector()
         assert process.stdout and process.stderr
         selector.register(process.stdout, selectors.EVENT_READ)
@@ -199,6 +237,8 @@ class ClaudeAgent:
             process.wait()
             raise
         finally:
+            # The child is gone or has exited, so a blocked write ends with EPIPE.
+            feeder.join(timeout=5)
             selector.close()
 
 

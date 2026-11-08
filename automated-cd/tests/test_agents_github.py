@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import shlex
@@ -9,8 +10,16 @@ from pathlib import Path
 
 import pytest
 
-from autocd.agents import AgentError, ClaudeAgent, decode_result, role_prompt, untrusted_env
+from autocd.agents import (
+    AgentError,
+    ClaudeAgent,
+    _feed_prompt,
+    decode_result,
+    role_prompt,
+    untrusted_env,
+)
 from autocd.github import CommandError, GitHub, audit_commands, command
+from autocd.state import Store
 
 
 def _fake_cli(tmp_path: Path, body: str) -> Path:
@@ -94,27 +103,135 @@ def test_planner_requires_explicit_selection_and_reason():
             decode_result("planner", raw)
 
 
+def _recording_cli(tmp_path: Path, record: Path) -> None:
+    """A fake CLI that records its argv and the exact bytes it received on stdin."""
+    cli = tmp_path / "claude"
+    cli.write_text(
+        "#!/usr/bin/env python3\nimport hashlib,json,sys\n"
+        "data = sys.stdin.buffer.read()\n"
+        f"open({str(record)!r}, 'w').write(json.dumps({{'args': sys.argv[1:], "
+        "'stdin_bytes': len(data), 'stdin_sha256': hashlib.sha256(data).hexdigest()}))\n"
+        'print(\'{"type":"result","total_cost_usd":0.1,'
+        '"result":{"approved":true,"findings":[]}}\')\n'
+    )
+    cli.chmod(0o700)
+
+
 def test_issue_text_is_a_user_prompt_not_a_system_instruction(
     settings, tmp_path: Path, monkeypatch
 ):
-    cli = tmp_path / "claude"
-    args_file = tmp_path / "arguments.json"
-    cli.write_text(
-        "#!/usr/bin/env python3\nimport json,sys\n"
-        f"open({str(args_file)!r}, 'w').write(json.dumps(sys.argv[1:]))\n"
-        'print(\'{"type":"result","result":{}}\')\n'
-    )
-    cli.chmod(0o700)
+    record = tmp_path / "arguments.json"
+    _recording_cli(tmp_path, record)
     monkeypatch.setenv("PATH", str(tmp_path) + os.pathsep + os.environ["PATH"])
     ClaudeAgent(settings, lambda *a: None).run(
         "developer", "untrusted issue text", tmp_path, editable=True
     )
-    args = json.loads(args_file.read_text())
+    seen = json.loads(record.read_text())
+    args = seen["args"]
     system = args[args.index("--append-system-prompt") + 1]
     assert "Never merge" in system and "untrusted issue text" not in system
-    assert args[-1] == "untrusted issue text"
+    # The user prompt is delivered on stdin, never as a command-line argument.
+    assert "untrusted issue text" not in args
+    assert seen["stdin_bytes"] == len(b"untrusted issue text")
+    assert seen["stdin_sha256"] == hashlib.sha256(b"untrusted issue text").hexdigest()
     assert "blockReadsOutsideWorkingDirectories" in args[args.index("--settings") + 1]
     assert "--max-budget-usd" not in args
+
+
+def test_prompt_larger_than_linux_argument_limit_is_delivered_intact(
+    settings, tmp_path: Path, monkeypatch
+):
+    """Regression: a 250 KB reviewer diff failed to spawn with E2BIG on Linux (128 KiB/arg)."""
+    record = tmp_path / "arguments.json"
+    _recording_cli(tmp_path, record)
+    monkeypatch.setenv("PATH", str(tmp_path) + os.pathsep + os.environ["PATH"])
+    prompt = json.dumps({"diff": "+" + "x" * 400_000 + "\u00e9\n"})
+    assert len(prompt.encode()) > 400_000
+    result = ClaudeAgent(settings, lambda *a: None).run("reviewer", prompt, tmp_path)
+    assert result == {"approved": True, "findings": []}
+    seen = json.loads(record.read_text())
+    assert max(len(arg.encode()) for arg in seen["args"]) < 100_000
+    assert seen["stdin_bytes"] == len(prompt.encode())
+    assert seen["stdin_sha256"] == hashlib.sha256(prompt.encode()).hexdigest()
+
+
+def test_large_prompt_does_not_hang_or_mask_a_cli_that_never_reads_stdin(
+    settings, tmp_path: Path, monkeypatch
+):
+    monkeypatch.setenv("PATH", str(tmp_path) + os.pathsep + os.environ["PATH"])
+    prompt = "x" * 500_000
+    _fake_cli(tmp_path, "echo bad >&2; exit 2")
+    with pytest.raises(AgentError, match=r"failed \(exit 2\)"):
+        ClaudeAgent(settings, lambda *a: None).run("reviewer", prompt, tmp_path)
+    _fake_cli(tmp_path, 'echo \'{"type":"result","result":{"approved":true,"findings":[]}}\'')
+    assert ClaudeAgent(settings, lambda *a: None).run("reviewer", prompt, tmp_path) == {
+        "approved": True,
+        "findings": [],
+    }
+
+
+def test_prompt_feeder_survives_a_closed_reader_and_a_failing_close():
+    """The feeder thread must never raise: the child's exit status reports failures."""
+    read_end, write_end = os.pipe()
+    os.close(read_end)  # Writing now fails with EPIPE, as when the CLI exits early.
+
+    class Stream:
+        closed = False
+
+        def fileno(self):
+            return write_end
+
+        def close(self):
+            self.closed = True
+            raise OSError("close failed")
+
+    stream = Stream()
+    try:
+        _feed_prompt(stream, b"x" * 1024)
+    finally:
+        os.close(write_end)
+    assert stream.closed
+
+
+def test_spawn_failure_is_reported_as_zero_spend_so_the_daily_guard_stays_usable(
+    settings, tmp_path: Path, monkeypatch
+):
+    store = Store(settings.state_dir)
+    store.start("run")
+
+    def refuse(*args, **kwargs):
+        raise OSError(7, "Argument list too long")
+
+    monkeypatch.setattr("autocd.agents.subprocess.Popen", refuse)
+    events = []
+
+    def record(kind, detail):
+        events.append((kind, detail))
+        store.event("run", 12, kind, detail)
+
+    with pytest.raises(AgentError, match="reviewer could not start: E2BIG$") as raised:
+        ClaudeAgent(settings, record).run("reviewer", "prompt", tmp_path)
+    assert "Argument list too long" not in str(raised.value)
+    assert [kind for kind, _ in events] == ["agent_started", "agent_usage"]
+    assert events[1][1]["cost_usd"] == 0.0 and events[1][1]["spawn_failed"] is True
+    epoch = datetime(1970, 1, 1, tzinfo=UTC)
+    assert store.model_spend_since(epoch) == (0.0, True)
+
+
+def test_killed_call_without_a_reported_cost_keeps_spend_unverifiable(
+    settings, tmp_path: Path, monkeypatch
+):
+    """A stalled call may have spent money, so the guard must still stop safely."""
+    store = Store(settings.state_dir)
+    store.start("run")
+    _fake_cli(tmp_path, "sleep 2")
+    monkeypatch.setenv("PATH", str(tmp_path) + os.pathsep + os.environ["PATH"])
+    with pytest.raises(AgentError, match="stalled"):
+        ClaudeAgent(
+            replace(settings, stall_seconds=1, agent_timeout_seconds=3),
+            lambda kind, detail: store.event("run", 12, kind, detail),
+        ).run("reviewer", "prompt", tmp_path)
+    assert store.model_spend_since(datetime(1970, 1, 1, tzinfo=UTC)) == (0.0, False)
 
 
 def test_positive_model_budget_adds_claude_flag(settings, tmp_path: Path, monkeypatch):
