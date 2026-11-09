@@ -761,7 +761,10 @@ def test_commit_works_without_any_git_identity(settings, tmp_path: Path, monkeyp
 def test_reviewer_requests_record_unavailable(settings, tmp_path: Path, monkeypatch):
     github = GitHub(settings)
 
+    calls = []
+
     def capture(args, cwd, **kwargs):
+        calls.append(args)
         if args[-1] == "owner":
             raise CommandError("cannot request author")
         return ""
@@ -774,7 +777,10 @@ def test_reviewer_requests_record_unavailable(settings, tmp_path: Path, monkeypa
     )
     status = github.request_reviewers(tmp_path, 88, "owner")
     assert status["owner"].startswith("unavailable")
-    assert status["copilot"] == "not confirmed by GitHub"
+    assert status["copilot"] == "automatic: repository ruleset"
+    # The ruleset already reviews every PR; a manual request would duplicate its cost.
+    assert all("@copilot" not in args for args in calls)
+    assert [args[-1] for args in calls] == ["owner"]
 
 
 def test_reviewer_requests_use_observed_review_state(settings, tmp_path: Path, monkeypatch):
@@ -795,6 +801,18 @@ def test_reviewer_requests_use_observed_review_state(settings, tmp_path: Path, m
     }
     auto = github.request_reviewers(tmp_path, 88, None)
     assert auto["owner"] == "not requested: automatic merge is enabled"
+    monkeypatch.setattr(
+        github,
+        "pr_state",
+        lambda pr: {
+            "author": {"login": "worker"},
+            "reviewRequests": [{"login": "Copilot"}],
+            "latestReviews": [],
+        },
+    )
+    assert github.request_reviewers(tmp_path, 88, None)["copilot"] == (
+        "requested by repository ruleset"
+    )
 
 
 def test_review_thread_pagination(settings, monkeypatch):
