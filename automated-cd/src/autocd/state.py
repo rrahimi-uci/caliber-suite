@@ -135,6 +135,15 @@ class Store:
             self.db.execute("SELECT * FROM tasks WHERE phase NOT IN ('done','blocked','failed')")
         )
 
+    def active(self) -> list[sqlite3.Row]:
+        """Pending tasks that still need automation, excluding PRs awaiting the owner.
+
+        With automatic merge disabled a verified PR waits in ``ready`` until the owner
+        merges it. Each tick still reconciles it, but it must not stop the next task:
+        otherwise one unmerged PR halts the whole daily pipeline.
+        """
+        return [row for row in self.pending() if row["phase"] != "ready"]
+
     def blocked_issues(self) -> frozenset[int]:
         """Never replay an ambiguous or failed task merely because Project is Ready."""
         return frozenset(

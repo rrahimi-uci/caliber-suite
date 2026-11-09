@@ -70,7 +70,11 @@ class Engine:
         with exclusive(self.settings.state_dir, self.settings.allow_overlapping_runs):
             store = Store(self.settings.state_dir)
             recovered = self._recover(store)
-            return {"recovered": recovered, "pending": len(store.pending())}
+            return {
+                "recovered": recovered,
+                "pending": len(store.active()),
+                "awaiting_owner": len(store.pending()) - len(store.active()),
+            }
 
     def _run_locked(
         self, *, scheduled: bool, exclude_issues: frozenset[int], retry_issue: int | None
@@ -82,7 +86,7 @@ class Engine:
             # Reconcile existing PRs on every minute-level tick, even after
             # today's scheduled development run has already started.
             recovered = self._recover(store)
-            if store.pending():
+            if store.active():
                 if retry_issue is not None:
                     raise RuntimeError(
                         "Cannot retry while a published PR is pending reconciliation"

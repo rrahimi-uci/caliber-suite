@@ -50,7 +50,7 @@ def main() -> None:
                 attempts_left = max(
                     0, settings.max_tasks_per_run - store.attempt_count_since(midnight)
                 )
-                pending_tasks = len(store.pending())
+                pending_tasks = len(store.active())
             finally:
                 store.db.close()
         candidates = [task for task in ready if task.issue not in blocked | attempted]
