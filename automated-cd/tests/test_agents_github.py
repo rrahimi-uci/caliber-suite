@@ -343,6 +343,18 @@ def test_claude_agent_stream_variants_and_timeout(settings, tmp_path: Path, monk
     _fake_cli(tmp_path, 'echo \'{"type":"result","is_error":true}\'')
     with pytest.raises(AgentError, match="returned an error"):
         ClaudeAgent(settings, lambda *a: None).run("qa", "test", tmp_path)
+    # The CLI's machine-readable result subtype names the cause; free text never does.
+    _fake_cli(tmp_path, 'echo \'{"type":"result","is_error":true,"subtype":"error_max_turns"}\'')
+    with pytest.raises(AgentError) as raised:
+        ClaudeAgent(settings, lambda *a: None).run("developer", "test", tmp_path)
+    assert str(raised.value) == "developer returned an error (error_max_turns)"
+    _fake_cli(
+        tmp_path,
+        'echo \'{"type":"result","is_error":true,"subtype":"SECRET model text","result":"SECRET"}\'',
+    )
+    with pytest.raises(AgentError) as raised:
+        ClaudeAgent(settings, lambda *a: None).run("developer", "test", tmp_path)
+    assert str(raised.value) == "developer returned an error"
     _fake_cli(tmp_path, "sleep 2")
     with pytest.raises(AgentError, match="timed out"):
         ClaudeAgent(
