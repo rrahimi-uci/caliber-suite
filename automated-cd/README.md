@@ -174,6 +174,9 @@ user prompt, below the trusted role policy. The prompt is written to the Claude
 CLI's standard input, never as a command-line argument: Linux rejects any single
 argument of 128 KiB or more (`E2BIG`), and a reviewer prompt can carry a 250 KB diff. Developers may use file reading/editing
 tools in their task worktree; Planner, Reviewer and QA receive read-only tools.
+Each role's answer contract is passed as `--json-schema`, so the CLI returns a
+validated `structured_output` object instead of relying on the model's final
+free text; the coordinator still re-checks that object against the role schema.
 The hosted runner creates an unprivileged Unix user for model, setup and local
 QA subprocesses. They run without the Project token and cannot read the
 coordinator user's process environment. Claude Code 2.1.314 or newer is

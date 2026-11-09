@@ -11,6 +11,7 @@ from pathlib import Path
 import pytest
 
 from autocd.agents import (
+    ROLE_SCHEMAS,
     AgentError,
     ClaudeAgent,
     _feed_prompt,
@@ -136,6 +137,69 @@ def test_issue_text_is_a_user_prompt_not_a_system_instruction(
     assert seen["stdin_sha256"] == hashlib.sha256(b"untrusted issue text").hexdigest()
     assert "blockReadsOutsideWorkingDirectories" in args[args.index("--settings") + 1]
     assert "--max-budget-usd" not in args
+    # The CLI enforces the role's output contract instead of trusting free text.
+    assert json.loads(args[args.index("--json-schema") + 1]) == ROLE_SCHEMAS["developer"]
+
+
+@pytest.mark.parametrize("role", sorted(ROLE_SCHEMAS))
+def test_every_role_sends_a_schema_its_decoder_accepts(settings, tmp_path, monkeypatch, role):
+    schema = ROLE_SCHEMAS[role]
+    sample = {
+        "planner": {"selected": [1181], "reason": "Ready"},
+        "developer": {
+            **{key: "x" for key in schema["required"] if key != "blocker"},
+            "blocker": None,
+        },
+        "reviewer": {"approved": True, "findings": []},
+        "qa": {"approved": True, "gaps": []},
+    }[role]
+    record = tmp_path / "arguments.json"
+    cli = tmp_path / "claude"
+    message = json.dumps({"type": "result", "result": "", "structured_output": sample})
+    cli.write_text(
+        "#!/usr/bin/env python3\nimport json,sys\nsys.stdin.read()\n"
+        f"open({str(record)!r}, 'w').write(json.dumps(sys.argv[1:]))\n"
+        f"print({message!r})\n"
+    )
+    cli.chmod(0o700)
+    monkeypatch.setenv("PATH", str(tmp_path) + os.pathsep + os.environ["PATH"])
+    result = ClaudeAgent(settings, lambda *a: None).run(
+        role, "test", tmp_path, editable=role == "developer"
+    )
+    assert result == sample
+    args = json.loads(record.read_text())
+    assert json.loads(args[args.index("--json-schema") + 1]) == schema
+    assert set(schema["required"]) <= set(schema["properties"])
+
+
+def test_structured_output_wins_over_a_prose_result(settings, tmp_path: Path, monkeypatch):
+    """Regression: a developer that ended a 15-minute session in prose lost the attempt."""
+    handoff: dict[str, str | None] = {key: "done" for key in ROLE_SCHEMAS["developer"]["required"]}
+    handoff["blocker"] = None
+    message = json.dumps(
+        {
+            "type": "result",
+            "subtype": "success",
+            "total_cost_usd": 3.2,
+            "result": "I implemented `the SSE guard` and here is a long explanation...",
+            "structured_output": handoff,
+        }
+    )
+    _fake_cli(tmp_path, "printf '%s\\n' " + shlex.quote(message))
+    monkeypatch.setenv("PATH", str(tmp_path) + os.pathsep + os.environ["PATH"])
+    agent = ClaudeAgent(settings, lambda *a: None)
+    assert agent.run("developer", "test", tmp_path, editable=True) == handoff
+    # A structured answer that breaks the role contract is still rejected.
+    bad = json.dumps(
+        {"type": "result", "result": "", "structured_output": {"approved": "yes", "gaps": []}}
+    )
+    _fake_cli(tmp_path, "printf '%s\\n' " + shlex.quote(bad))
+    with pytest.raises(AgentError, match="verdict schema"):
+        agent.run("qa", "test", tmp_path)
+    # Without structured output the text result is still decoded as before.
+    text = json.dumps({"type": "result", "result": '{"approved":true,"gaps":[]}'})
+    _fake_cli(tmp_path, "printf '%s\\n' " + shlex.quote(text))
+    assert agent.run("qa", "test", tmp_path) == {"approved": True, "gaps": []}
 
 
 def test_prompt_larger_than_linux_argument_limit_is_delivered_intact(
