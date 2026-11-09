@@ -756,12 +756,27 @@ class Engine:
             and "scripts/ci-local.sh test" not in commands
         ):
             commands.append("scripts/ci-local.sh test")
-        automatic_coverage = (
-            "caliber/.venv/bin/python -m pytest caliber/tests -n 4 --dist loadgroup "
-            "--cov=caliber --cov-branch -q"
-        )
+        automatic_coverage = None
+        uncovered_modules: list[str] = []
         if changed_python and not any(self._coverage_command(item) for item in issue_commands):
-            commands.append(automatic_coverage)
+            tests, uncovered_modules = self._coverage_tests(worktree, changed)
+            automatic_coverage = shlex.join(
+                [
+                    "caliber/.venv/bin/python",
+                    "-m",
+                    "pytest",
+                    *(tests if tests is not None else ["caliber/tests"]),
+                    "-n",
+                    "4",
+                    "--dist",
+                    "loadgroup",
+                    "--cov=caliber",
+                    "--cov-branch",
+                    "-q",
+                ]
+            )
+            if not uncovered_modules:
+                commands.append(automatic_coverage)
         results = []
         for item in commands:
             args = shlex.split(item)
@@ -824,7 +839,72 @@ class Engine:
                 results.append({"command": item, "passed": False, "output": str(error)[:500]})
             if not results[-1]["passed"]:
                 break
+        if uncovered_modules and all(row["passed"] for row in results):
+            results.append(
+                {
+                    "command": "changed-module coverage",
+                    "passed": False,
+                    "output": "No backend test references the changed production module(s): "
+                    + ", ".join(uncovered_modules)
+                    + ". Add focused tests under caliber/tests that import them.",
+                }
+            )
         return results
+
+    @staticmethod
+    def _coverage_tests(worktree: Path, changed: list[str]) -> tuple[list[str] | None, list[str]]:
+        """Select the backend tests that exercise the changed production modules.
+
+        The full backend suite takes over two hours on a hosted runner, longer than one
+        QA command may run, so measuring changed-file coverage with it made every
+        backend task time out. Coverage from a subset can only be lower than from the
+        full suite, so a pass here is still a true >95% pass. Returns ``(None, [])``
+        when a changed file is outside ``caliber/src`` (keep the full suite), and, when no
+        test references any changed module, those modules so the developer adds tests.
+        """
+        production = [
+            path
+            for path in changed
+            if path.endswith(".py")
+            and "tests" not in Path(path).parts
+            and not Path(path).name.startswith("test_")
+            and (worktree / path).is_file()
+        ]
+        if any(not path.startswith("caliber/src/caliber/") for path in production):
+            return None, []
+        selected = {
+            path
+            for path in changed
+            if path.startswith("caliber/tests/")
+            and Path(path).name.startswith("test_")
+            and path.endswith(".py")
+            and (worktree / path).is_file()
+        }
+        tests = sorted((worktree / "caliber/tests").rglob("test_*.py"))
+        texts = {test: test.read_text(errors="replace") for test in tests}
+        for path in production:
+            parts = Path(path).relative_to("caliber/src").with_suffix("").parts
+            if parts[-1] == "__init__":
+                parts = parts[:-1]
+            dotted = ".".join(parts)
+            parent, _, name = dotted.rpartition(".")
+            reference = re.compile(
+                rf"\b{re.escape(dotted)}\b"
+                + (
+                    rf"|from\s+{re.escape(parent)}\s+import\s+"
+                    rf"(?:[^\n(]*\b{re.escape(name)}\b|\([^)]*\b{re.escape(name)}\b)"
+                    if parent
+                    else ""
+                )
+            )
+            selected |= {
+                str(test.relative_to(worktree))
+                for test, text in texts.items()
+                if reference.search(text)
+            }
+        # A module no selected test reaches still fails the per-file coverage gate below,
+        # with its own measured percentage; only an empty selection needs a separate hint.
+        return sorted(selected), [] if selected else production
 
     @staticmethod
     def _coverage_evidence(report: Path, worktree: Path, changed: list[str]) -> dict:

@@ -103,7 +103,16 @@ with `AUTOCD_QA_COMMAND_TIMEOUT_SECONDS`; timeout evidence records the duration
 without exposing the isolated worker's command line.
 Each command executes with an argument vector, never through a shell; shell
 operators are rejected. For changed production Python files, the orchestrator
-uses a configured coverage command or runs the full backend suite with coverage.
+uses a configured coverage command or, by default, runs with coverage the backend
+tests that reference a changed `caliber/src/caliber` module (dotted import or
+`from package import module`) plus any changed test file. The full backend suite
+takes over two hours on a hosted runner, longer than one QA command may run, so
+it is used only when changed production Python lies outside `caliber/src`.
+Coverage measured from a subset can only be lower than from the full suite, so
+the gate is not weakened; when no test references the changed modules, QA fails
+and asks the developer for focused tests. Unrelated-test regressions are caught by
+the PR CI backend jobs (smoke, core journeys, PostgreSQL) and by the main-only full
+backend suite, not by this pre-PR command.
 It emits a fresh coverage JSON report and requires greater than
 95% measured line-plus-branch coverage for each changed production Python
 file; a command covering only unrelated files fails. QA must also inspect
