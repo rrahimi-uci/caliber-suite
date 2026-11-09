@@ -25,6 +25,7 @@ def _public_result(value: dict) -> dict:
             "run",
             "status",
             "pending",
+            "awaiting_owner",
             "eligible",
             "configured",
             "selected",

@@ -1058,6 +1058,33 @@ def test_hosted_monitor_reconciles_without_starting_conflicting_work(settings, s
     assert not store.db.execute("SELECT 1 FROM runs WHERE schedule_date IS NOT NULL").fetchone()
 
 
+def test_pr_awaiting_owner_merge_does_not_stop_the_next_task(settings, snapshot, monkeypatch):
+    """Regression: with auto_merge off, one unmerged PR blocked every later daily run."""
+    data, _ = snapshot
+    enabled = replace(settings, enabled=True, auto_merge=False)
+    github = FakeGitHub(enabled, data)
+    engine = Engine(enabled, github=github, agent_factory=FakeAgent)
+    store = Store(settings.state_dir)
+    store.start("old")
+    store.add_task("old", 99, "release:Beta", "autocd/99", settings.state_dir / "old-worktree")
+    store.head("old", 99, "f" * 40)
+    store.pr("old", 99, 88)
+    store.phase("old", 99, "ready")
+    checked = []
+    monkeypatch.setattr(
+        engine,
+        "_check_pr",
+        lambda store, run, issue, pr: checked.append(pr) or {"issue": issue, "status": "ready"},
+    )
+    monkeypatch.setattr(engine, "_task", lambda run, task: {"issue": task.issue})
+    monkeypatch.setattr(engine, "due_date", lambda: "2026-11-10")
+    result = engine.run(scheduled=True)
+    assert result["results"] == [{"issue": 12}]
+    assert checked == [88]  # The waiting PR is still reconciled on the same tick.
+    status = engine.monitor()
+    assert status["pending"] == 0 and status["awaiting_owner"] == 1
+
+
 def test_cron_tick_reports_busy_during_active_run(settings, snapshot):
     data, _ = snapshot
     engine = Engine(replace(settings, enabled=True), github=FakeGitHub(settings, data))

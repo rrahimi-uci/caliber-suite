@@ -146,7 +146,8 @@ reflects the daily cap. `requires_explicit_retry` identifies Ready issues that
 need a guarded manual dispatch with `retry_issue` after claim/branch/PR
 reconciliation. The plan never authorizes a retry by itself.
 If `pending_tasks` is nonzero, the plan conservatively selects nothing until
-the execution engine reconciles those tasks. The plan does not perform that
+the execution engine reconciles those tasks. A verified PR that only awaits the
+owner's merge (`ready`) is not counted there. The plan does not perform that
 recovery step.
 
 ## State and safety
@@ -211,7 +212,11 @@ GitHub Copilot and the owner when available, and waits for required CI. The
 checked-in configuration keeps `auto_merge=false`, so the PR remains open for
 owner review and merge. A model self-review is never represented as an
 independent GitHub approval; the coordinator still observes the PR and
-reconciles Project Done only after a verified owner merge.
+reconciles Project Done only after a verified owner merge. Once its required
+CI has passed and the PR is marked ready, it no longer blocks new work: later
+runs keep reconciling it on every tick while selecting further eligible tasks,
+so one unmerged PR does not stop the daily pipeline. The monitor reports these
+as `awaiting_owner`.
 
 ## Recovery and troubleshooting
 
