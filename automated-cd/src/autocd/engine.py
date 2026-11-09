@@ -23,6 +23,27 @@ from .github import GitHub, audit_commands, command, pr_ready
 from .planner import Assignment, assign, completed_today, eligible, view_label
 from .state import LockBusyError, Store, exclusive
 
+# Strips trailing spaces/tabs and surplus final blank lines from changed UTF-8 text files,
+# the two things ``git diff --check`` rejects that a shell-less developer cannot see.
+_WHITESPACE_SCRIPT = """
+import sys
+from pathlib import Path
+for name in sys.argv[1:]:
+    path = Path(name)
+    data = path.read_bytes()
+    if b"\\0" in data:
+        continue
+    try:
+        text = data.decode("utf-8")
+    except UnicodeDecodeError:
+        continue
+    lines = [line.rstrip(" \\t") for line in text.split("\\n")]
+    fixed = "\\n".join(lines).rstrip("\\n")
+    fixed = fixed + "\\n" if fixed else ""
+    if fixed != text:
+        path.write_text(fixed, encoding="utf-8")
+"""
+
 
 class Engine:
     def __init__(
@@ -460,6 +481,9 @@ class Engine:
                 if not changed:
                     raise RuntimeError("Developer produced no changed files")
                 self._validate_task_paths(changed, task.paths)
+                self._normalize(worktree, changed, store, run, task.issue)
+                changed = self.github.changed(worktree)
+                self._validate_task_paths(changed, task.paths)
                 if any(self._docs_source_path(path) for path in changed):
                     self._sync_generated_docs(worktree, store, run, task.issue)
                     changed = self.github.changed(worktree)
@@ -710,6 +734,63 @@ class Engine:
                     or name in {"docs-nav.js", "search-index.json", "llms.txt"}
                 )
         return False
+
+    def _normalize(
+        self, worktree: Path, changed: list[str], store: Store, run: str, issue: int
+    ) -> None:
+        """Apply the repository's mechanical formatting before the candidate is reviewed.
+
+        The developer role has no shell, so it cannot run the formatter or see what
+        ``git diff --check`` and ``ruff format --check`` would reject. Those failures are
+        deterministic and cost a whole review cycle each, so the coordinator fixes them
+        the same way a developer's editor would. Lint errors that ruff cannot fix and
+        every other check still go to review unchanged.
+        """
+        targets = [
+            path
+            for path in changed
+            if not self._generated_docs_path(path) and (worktree / path).is_file()
+        ]
+        python = [
+            path.removeprefix("caliber/")
+            for path in targets
+            if path.startswith("caliber/") and path.endswith(".py")
+        ]
+        steps: list[tuple[str, list[str], Path]] = []
+        interpreter = worktree / "caliber/.venv/bin/python"
+        if python and interpreter.exists():
+            ruff = [str(interpreter), "-m", "ruff"]
+            caliber = worktree / "caliber"
+            steps.append(("ruff-fix", [*ruff, "check", "--fix", "--quiet", *python], caliber))
+            steps.append(("ruff-format", [*ruff, "format", "--quiet", *python], caliber))
+        if targets:
+            runner = str(interpreter) if interpreter.exists() else "python3"
+            script = [runner, "-I", "-c", _WHITESPACE_SCRIPT, *targets]
+            steps.append(("whitespace", script, worktree))
+        results = []
+        for label, args, cwd in steps:
+            try:
+                proc = subprocess.run(
+                    self._as_worker(args),
+                    cwd=cwd,
+                    text=True,
+                    capture_output=True,
+                    check=False,
+                    timeout=300,
+                    env=untrusted_env(),
+                )
+            except (OSError, subprocess.TimeoutExpired) as error:
+                results.append({"step": label, "error": str(error)[:300]})
+                continue
+            results.append(
+                {
+                    "step": label,
+                    "exit_code": proc.returncode,
+                    "output": (proc.stdout + proc.stderr)[-500:],
+                }
+            )
+        if results:
+            store.event(run, issue, "normalize", {"steps": results})
 
     def _sync_generated_docs(self, worktree: Path, store: Store, run: str, issue: int) -> None:
         """Generate canonical served docs before the candidate is reviewed."""

@@ -1817,3 +1817,101 @@ def test_generated_review_manifest_rejects_symlink_and_directory(settings, tmp_p
     generated.rmdir()
     view = engine._review_view(tmp_path, ["docs-site/search-index.json"], "small diff")
     assert view["generated_artifacts"] == [{"path": "docs-site/search-index.json", "deleted": True}]
+
+
+def _git(worktree: Path, *args: str) -> subprocess.CompletedProcess:
+    return subprocess.run(
+        ["git", "-c", "user.name=t", "-c", "user.email=t@example.com", *args],
+        cwd=worktree,
+        capture_output=True,
+        text=True,
+        errors="replace",
+        check=False,
+    )
+
+
+def test_normalize_fixes_what_git_diff_check_and_ruff_format_reject(settings, tmp_path):
+    worktree = tmp_path / "wt"
+    (worktree / "caliber/src/caliber").mkdir(parents=True)
+    (worktree / "docs").mkdir()
+    (worktree / "docs-site").mkdir()
+    venv = worktree / "caliber/.venv/bin"
+    venv.mkdir(parents=True)
+    (venv / "python").write_text(f'#!/bin/sh\nexec "{sys.executable}" "$@"\n')
+    (venv / "python").chmod(0o755)
+    (worktree / ".gitignore").write_text("caliber/.venv/\n")
+    module = worktree / "caliber/src/caliber/mod.py"
+    note = worktree / "docs/note.md"
+    generated = worktree / "docs-site/m-page.md"
+    binary = worktree / "docs/blob.md"
+    latin = worktree / "docs/latin.md"
+    for path in (module, note, generated, binary, latin):
+        path.write_text("x = 1\n" if path.suffix == ".py" else "base\n")
+    assert _git(worktree, "init", "-q").returncode == 0
+    _git(worktree, "add", "-A")
+    assert _git(worktree, "commit", "-q", "-m", "base").returncode == 0
+    module.write_text("import os\nx = {'a':1,   'b':2}   \n\n\n")
+    note.write_text("title  \nline\t\n\n\n")
+    generated.write_text("generated  \n")
+    binary.write_bytes(b"a \x00 \n")
+    latin.write_bytes(b"caf\xe9  \n")
+    changed = [
+        "caliber/src/caliber/mod.py",
+        "docs/note.md",
+        "docs-site/m-page.md",
+        "docs/blob.md",
+        "docs/latin.md",
+        "docs/deleted.md",
+    ]
+    assert _git(worktree, "diff", "--check").returncode != 0
+    store = Store(settings.state_dir)
+    store.start("run")
+    Engine(settings, github=object())._normalize(worktree, changed, store, "run", 12)
+    assert module.read_text() == 'x = {"a": 1, "b": 2}\n'
+    assert note.read_text() == "title\nline\n"
+    assert generated.read_text() == "generated  \n"
+    assert binary.read_bytes() == b"a \x00 \n"
+    assert latin.read_bytes() == b"caf\xe9  \n"
+    diff = _git(worktree, "diff", "--check", "--", "caliber", "docs/note.md")
+    assert diff.returncode == 0, diff.stdout
+    (detail,) = [
+        json.loads(row[0])
+        for row in store.db.execute("SELECT detail FROM events WHERE kind='normalize'")
+    ]
+    assert [step["step"] for step in detail["steps"]] == ["ruff-fix", "ruff-format", "whitespace"]
+    assert all(step["exit_code"] == 0 for step in detail["steps"])
+
+
+def test_normalize_without_a_backend_venv_still_fixes_whitespace(settings, tmp_path):
+    worktree = tmp_path / "wt"
+    (worktree / "caliber/src").mkdir(parents=True)
+    module = worktree / "caliber/src/mod.py"
+    module.write_text("x=1   \n")
+    empty = worktree / "empty.md"
+    empty.write_text("\n\n")
+    store = Store(settings.state_dir)
+    store.start("run")
+    engine = Engine(settings, github=object())
+    engine._normalize(worktree, ["caliber/src/mod.py", "empty.md"], store, "run", 12)
+    assert module.read_text() == "x=1\n"
+    assert empty.read_text() == ""
+    engine._normalize(worktree, ["missing.md"], store, "run", 12)
+    rows = list(store.db.execute("SELECT detail FROM events WHERE kind='normalize'"))
+    assert len(rows) == 1
+
+
+def test_normalize_records_a_step_that_cannot_start(settings, tmp_path, monkeypatch):
+    worktree = tmp_path / "wt"
+    worktree.mkdir()
+    (worktree / "a.md").write_text("a  \n")
+
+    def boom(*args, **kwargs):
+        raise subprocess.TimeoutExpired("python3", 300)
+
+    monkeypatch.setattr(subprocess, "run", boom)
+    store = Store(settings.state_dir)
+    store.start("run")
+    Engine(settings, github=object())._normalize(worktree, ["a.md"], store, "run", 12)
+    (row,) = store.db.execute("SELECT detail FROM events WHERE kind='normalize'")
+    assert json.loads(row[0])["steps"][0]["step"] == "whitespace"
+    assert "timed out" in json.loads(row[0])["steps"][0]["error"]

@@ -87,7 +87,13 @@ checks to the issue list when they can run without host Docker access.
 The default `checks.setup` builds the full CALIBER test environment inside
 each new worktree and seeds pip because `ci-local.sh` installs SDK/plugin
 dependencies through `python -m pip`. Plan runner time and install time
-accordingly. Before review, the coordinator synchronizes generated docs for
+accordingly. The developer role has no shell, so before checks and review the
+coordinator applies the repository's mechanical formatting to the changed files
+as the isolated worker: `ruff check --fix` and `ruff format` on changed
+`caliber/` Python, then removal of trailing spaces/tabs and surplus final blank
+lines from changed UTF-8 text (generated docs, binary and non-UTF-8 files are
+left alone). Results are recorded as a private `normalize` event; ruff errors it
+cannot fix still fail `lint`. Before review, the coordinator synchronizes generated docs for
 changed docs/backend sources and includes the generated files in the candidate.
 QA repeats the strict docs sync and rejects any further candidate change.
 Generated site files require UI parity as well as docs validation. The GitHub
