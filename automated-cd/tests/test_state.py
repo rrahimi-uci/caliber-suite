@@ -21,8 +21,11 @@ def test_store_transitions_and_schedule_dedup(tmp_path: Path):
     assert store.phase_started("run1", 12, "ci_wait") is not None
     assert store.phase_started("run1", 12, "nonexistent") is None
     assert [row["issue"] for row in store.pending()] == [12]
+    assert [row["issue"] for row in store.active()] == [12]
     store.phase("run1", 12, "ready")
     assert [row["issue"] for row in store.pending()] == [12]
+    # A PR awaiting the owner's merge is still reconciled but no longer blocks new work.
+    assert not store.active()
     store.phase("run1", 12, "done")
     assert not store.pending()
     assert [row["issue"] for row in store.tasks()] == [12]

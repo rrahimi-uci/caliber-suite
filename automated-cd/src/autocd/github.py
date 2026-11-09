@@ -305,10 +305,32 @@ class GitHub:
         )
         if staged_patch != reviewed_patch:
             raise CommandError("Staged candidate differs from reviewed patch; rerun review/QA")
-        command(["git", "commit", "-m", f"feat(autocd): implement issue #{issue}"], worktree)
-        head = command(["git", "rev-parse", "HEAD"], worktree).strip()
+        head = self.commit(worktree, issue)
         command(["git", "push", "-u", "origin", branch], worktree, timeout=180)
         return head
+
+    def commit(self, worktree: Path, issue: int) -> str:
+        """Commit the staged candidate under an explicit identity.
+
+        A GitHub-hosted runner has no git user.name/user.email, so a bare ``git commit``
+        stops with "Author identity unknown" after the whole review/QA cycle has passed.
+        The commit is attributed to the repository owner whose token pushes it.
+        """
+        owner = self.settings.repository.split("/", 1)[0]
+        command(
+            [
+                "git",
+                "-c",
+                "user.name=Caliber Automated CD",
+                "-c",
+                f"user.email={owner}@users.noreply.github.com",
+                "commit",
+                "-m",
+                f"feat(autocd): implement issue #{issue}",
+            ],
+            worktree,
+        )
+        return command(["git", "rev-parse", "HEAD"], worktree).strip()
 
     def create_pr(self, worktree: Path, title: str, body: str) -> int:
         with tempfile.NamedTemporaryFile("w", suffix=".md", delete=True) as file:
@@ -338,8 +360,11 @@ class GitHub:
         return int(match.group(1))
 
     def request_reviewers(self, worktree: Path, pr: int, owner: str | None) -> dict[str, str]:
-        status = {}
-        reviewers = ([("owner", owner)] if owner else []) + [("copilot", "@copilot")]
+        # Copilot is not requested here: the repository's copilot_code_review ruleset
+        # already reviews every PR against main, drafts included, and a manual request
+        # only duplicates that review and its cost. Its review is still observed below.
+        status = {"copilot": "automatic: repository ruleset"}
+        reviewers = [("owner", owner)] if owner else []
         if not owner:
             status["owner"] = "not requested: automatic merge is enabled"
         for label, reviewer in reviewers:
@@ -373,11 +398,8 @@ class GitHub:
             status["owner"] = "not confirmed by GitHub"
         if any("copilot" in login.lower() for login in reviews):
             status["copilot"] = "reviewed"
-        elif (
-            not any("copilot" in login.lower() for login in requests)
-            and status["copilot"] == "requested"
-        ):
-            status["copilot"] = "not confirmed by GitHub"
+        elif any("copilot" in login.lower() for login in requests):
+            status["copilot"] = "requested by repository ruleset"
         return status
 
     def record_reviewers(self, pr: int, status: dict[str, str]) -> None:
