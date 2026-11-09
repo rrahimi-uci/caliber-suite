@@ -783,10 +783,52 @@ def test_changed_handles_spaced_paths_and_commit_rejects_unreviewed_bytes(settin
         github.commit_and_push(tmp_path, "test-branch", 12, reviewed_patch, ["file with space.py"])
 
 
+def test_commit_works_without_any_git_identity(settings, tmp_path: Path, monkeypatch):
+    """Regression: hosted runners have no user.name/user.email, so a bare commit fails."""
+    import subprocess
+
+    home = tmp_path / "home"
+    home.mkdir()
+    for key in (
+        "GIT_AUTHOR_NAME",
+        "GIT_AUTHOR_EMAIL",
+        "GIT_COMMITTER_NAME",
+        "GIT_COMMITTER_EMAIL",
+        "EMAIL",
+    ):
+        monkeypatch.delenv(key, raising=False)
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(home))
+    monkeypatch.setenv("GIT_CONFIG_NOSYSTEM", "1")
+    monkeypatch.setenv("GIT_CONFIG_GLOBAL", str(home / "none"))
+    repo = tmp_path / "repo"
+    repo.mkdir()
+
+    def git(*args, check=True):
+        return subprocess.run(["git", *args], cwd=repo, capture_output=True, text=True, check=check)
+
+    git("init", "-q")
+    (repo / "task.py").write_text("value = 1\n")
+    git("add", "--all")
+    # Premise: with no identity a plain commit is refused, as on a GitHub runner.
+    git("config", "user.useConfigOnly", "true")
+    assert git("commit", "-qm", "bare", check=False).returncode != 0
+    head = GitHub(settings).commit(repo, 1181)
+    assert git("rev-parse", "HEAD").stdout.strip() == head
+    author = git("log", "-1", "--format=%an <%ae>|%s").stdout.strip()
+    owner = settings.repository.split("/", 1)[0]
+    assert author == (
+        f"Caliber Automated CD <{owner}@users.noreply.github.com>|feat(autocd): implement issue #1181"
+    )
+
+
 def test_reviewer_requests_record_unavailable(settings, tmp_path: Path, monkeypatch):
     github = GitHub(settings)
 
+    calls = []
+
     def capture(args, cwd, **kwargs):
+        calls.append(args)
         if args[-1] == "owner":
             raise CommandError("cannot request author")
         return ""
@@ -799,7 +841,10 @@ def test_reviewer_requests_record_unavailable(settings, tmp_path: Path, monkeypa
     )
     status = github.request_reviewers(tmp_path, 88, "owner")
     assert status["owner"].startswith("unavailable")
-    assert status["copilot"] == "not confirmed by GitHub"
+    assert status["copilot"] == "automatic: repository ruleset"
+    # The ruleset already reviews every PR; a manual request would duplicate its cost.
+    assert all("@copilot" not in args for args in calls)
+    assert [args[-1] for args in calls] == ["owner"]
 
 
 def test_reviewer_requests_use_observed_review_state(settings, tmp_path: Path, monkeypatch):
@@ -820,6 +865,18 @@ def test_reviewer_requests_use_observed_review_state(settings, tmp_path: Path, m
     }
     auto = github.request_reviewers(tmp_path, 88, None)
     assert auto["owner"] == "not requested: automatic merge is enabled"
+    monkeypatch.setattr(
+        github,
+        "pr_state",
+        lambda pr: {
+            "author": {"login": "worker"},
+            "reviewRequests": [{"login": "Copilot"}],
+            "latestReviews": [],
+        },
+    )
+    assert github.request_reviewers(tmp_path, 88, None)["copilot"] == (
+        "requested by repository ruleset"
+    )
 
 
 def test_review_thread_pagination(settings, monkeypatch):

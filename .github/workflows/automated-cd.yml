@@ -61,6 +61,18 @@ jobs:
           worktree=$(cat /tmp/autocd-smoke-worktree)
           sudo -E -H -u autocdqa -- env PATH="$PATH" sh -c 'test "$HOME" = /home/autocdqa && test -w "$1" && git -C "$1" diff --check && printf "smoke\n" > "$1/worker-created.txt"' sh "$worktree"
           git -C "$worktree" status --short | grep -q worker-created.txt
+          # The coordinator must be able to commit a worker-written candidate on a runner
+          # that has no git identity configured; this was never exercised before a real PR.
+          git config --get user.email || echo 'Runner has no git identity configured'
+          git -C "$worktree" add worker-created.txt
+          python - "$worktree" <<'PY'
+          import sys
+          from pathlib import Path
+          from autocd.config import load
+          from autocd.github import GitHub
+          print('Committed', GitHub(load()).commit(Path(sys.argv[1]), 999999))
+          PY
+          git -C "$worktree" log -1 --format='%an <%ae>' | grep -q '^Caliber Automated CD <'
           report_dir=$(mktemp -d)
           chmod 733 "$report_dir"
           sudo -E -H -u autocdqa -- env PATH="$PATH" sh -c '
