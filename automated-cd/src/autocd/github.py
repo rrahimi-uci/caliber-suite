@@ -305,10 +305,32 @@ class GitHub:
         )
         if staged_patch != reviewed_patch:
             raise CommandError("Staged candidate differs from reviewed patch; rerun review/QA")
-        command(["git", "commit", "-m", f"feat(autocd): implement issue #{issue}"], worktree)
-        head = command(["git", "rev-parse", "HEAD"], worktree).strip()
+        head = self.commit(worktree, issue)
         command(["git", "push", "-u", "origin", branch], worktree, timeout=180)
         return head
+
+    def commit(self, worktree: Path, issue: int) -> str:
+        """Commit the staged candidate under an explicit identity.
+
+        A GitHub-hosted runner has no git user.name/user.email, so a bare ``git commit``
+        stops with "Author identity unknown" after the whole review/QA cycle has passed.
+        The commit is attributed to the repository owner whose token pushes it.
+        """
+        owner = self.settings.repository.split("/", 1)[0]
+        command(
+            [
+                "git",
+                "-c",
+                "user.name=Caliber Automated CD",
+                "-c",
+                f"user.email={owner}@users.noreply.github.com",
+                "commit",
+                "-m",
+                f"feat(autocd): implement issue #{issue}",
+            ],
+            worktree,
+        )
+        return command(["git", "rev-parse", "HEAD"], worktree).strip()
 
     def create_pr(self, worktree: Path, title: str, body: str) -> int:
         with tempfile.NamedTemporaryFile("w", suffix=".md", delete=True) as file:
