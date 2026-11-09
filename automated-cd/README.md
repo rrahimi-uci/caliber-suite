@@ -253,6 +253,23 @@ as `awaiting_owner`.
   needs `AUTOCD_STATE_KEY`
   but does not need the model or Project token. It does not claim tasks or upload
   a new state artifact, and cannot be combined with `retry_issue`.
+- The diagnosis also prints a `trail` with one entry per development cycle of
+  that attempt: whether the developer handoff was incomplete, the first failing
+  QA command by fixed label (`diff-check`, `agents-check`, `ci-local:<jobs>`,
+  `coverage`, `coverage-selection`, `affected-component`, `other`) with a
+  coordinator-owned reason (`timeout`, `coverage_threshold`, `coverage_missing`,
+  `coverage_invalid`, `parity_skipped`, `no_selected_tests`, `issue_qa_missing`,
+  `invalid_command`, or `exit_<code>`), the failed `ci-local` job names, and
+  review/QA counts by P0–P3 severity and blocking status. It never prints
+  command output, finding text, or file paths, so a `review_qa_exhausted`
+  attempt can be read without an incident export.
+- A review cycle sends the candidate back when the reviewer does not approve,
+  any blocking finding remains, or a selected QA command failed. P0–P2 findings
+  always block; only a P3 finding the reviewer marks `blocking: false` is
+  carried to the PR body for the owner instead. The next developer prompt
+  receives the blocking findings together with the coordinator's own failing
+  command rows (bounded output tail), because the developer role has no shell;
+  the next reviewer receives the same feedback so it rechecks earlier findings.
 - For a private incident investigation, temporarily add repository secret
   `AUTOCD_DIAG_KEY` containing a separate base64-encoded 32-byte key, then
   dispatch with `diagnose_state=true`, `export_incident=true`, and

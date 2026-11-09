@@ -496,17 +496,29 @@ class Engine:
                             **review_view,
                             "commands": evidence,
                             "cycle": cycle,
+                            "previous_feedback": feedback,
                             "instruction": "Review the full source diff, relevant runtime paths, tests, and local CI evidence. Generated artifacts omitted from the inline diff are listed with exact hashes and sizes; inspect their paths with Read when needed and verify their generator and QA evidence.",
                         }
                     ),
                     worktree,
                 )
                 store.event(run, task.issue, "review_cycle", {"cycle": cycle, "result": review})
-                if not review.get("approved") or review.get("findings"):
-                    feedback = "Review findings: " + json.dumps(review.get("findings", []))
-                    continue
-                if any(not entry["passed"] for entry in evidence):
-                    feedback = "QA command failures: " + json.dumps(evidence)
+                failed_checks = [entry for entry in evidence if not entry["passed"]]
+                blocking = self._blocking_findings(review.get("findings"))
+                if review.get("approved") is not True or blocking or failed_checks:
+                    # The developer has no shell, so hand back the coordinator's own failing
+                    # command output alongside the findings instead of only the reviewer's
+                    # paraphrase of it.
+                    parts = []
+                    if review.get("approved") is not True or blocking:
+                        listed = review.get("findings")
+                        parts.append(
+                            "Review findings: "
+                            + json.dumps(blocking or (listed if isinstance(listed, list) else []))
+                        )
+                    if failed_checks:
+                        parts.append("QA command failures: " + json.dumps(failed_checks))
+                    feedback = "\n\n".join(parts)
                     continue
                 store.phase(run, task.issue, "qa")
                 qa = self._run_agent(
@@ -1005,6 +1017,26 @@ class Engine:
             except ValueError:
                 return False
         return False
+
+    @staticmethod
+    def _blocking_findings(findings: object) -> list:
+        """Return the findings that must be fixed before the candidate can be published.
+
+        Only an explicit P3 improvement the reviewer marked non-blocking is let through;
+        it stays in the PR body for the owner. Anything else, including a finding in an
+        older or malformed shape, blocks.
+        """
+        if not isinstance(findings, list):
+            return [findings]
+        return [
+            item
+            for item in findings
+            if not (
+                isinstance(item, dict)
+                and item.get("severity") == "P3"
+                and item.get("blocking") is False
+            )
+        ]
 
     @staticmethod
     def _pr_body(

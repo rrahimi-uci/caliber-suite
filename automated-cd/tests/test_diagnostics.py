@@ -151,8 +151,147 @@ def test_latest_diagnostic_emits_bounded_structured_summary(tmp_path, monkeypatc
         "review": {"approved": False, "finding_count": 1},
         "qa": {"approved": False, "finding_count": 1},
         "commands": {"total": 2, "failed": 1},
+        "trail": [
+            {
+                "handoff_gap": False,
+                "checks": {"ran": 2, "failed": [{"check": "other", "reason": "failed"}]},
+                "review": {
+                    "approved": False,
+                    "finding_count": 1,
+                    "severity": {"unrated": 1},
+                    "blocking": 1,
+                },
+                "qa": {
+                    "approved": False,
+                    "finding_count": 1,
+                    "severity": {"unrated": 1},
+                    "blocking": 1,
+                },
+            }
+        ],
         "run": {"phase": "running", "failure_code": "none", "claims_today": 1},
     }
+
+
+def test_cycle_trail_names_each_cycle_without_private_text(tmp_path):
+    store = Store(tmp_path)
+    store.start("run")
+    store.add_task("run", 7, "Pilot", "branch", tmp_path / "worktree")
+    store.event("run", 7, "handoff_gap", {"missing": ["SECRET"]})
+    store.event("run", 7, "developer_result", {"changed": ["SECRET.py"], "summary": "SECRET"})
+    store.event(
+        "run",
+        7,
+        "qa_commands",
+        [
+            {"command": "git diff --check", "passed": True},
+            {"command": "node .agents/bin/check.mjs", "passed": True},
+            {
+                "command": "scripts/ci-local.sh docs-validation lint test-smoke SECRET;",
+                "passed": False,
+                "exit_code": 1,
+                "output": "SECRET\nFAIL  test-smoke  3s\nFAIL  SECRET\nPASS  lint 1s",
+            },
+        ],
+    )
+    store.event(
+        "run",
+        7,
+        "review_cycle",
+        {
+            "cycle": 2,
+            "result": {
+                "approved": False,
+                "findings": [
+                    {"severity": "P1", "blocking": True, "detail": "SECRET"},
+                    {"severity": "P3", "blocking": False, "detail": "SECRET"},
+                    {"severity": "SECRET"},
+                ],
+            },
+        },
+    )
+    store.event("run", 7, "developer_result", {"changed": [], "summary": ""})
+    store.event(
+        "run",
+        7,
+        "qa_commands",
+        [
+            {
+                "command": "caliber/.venv/bin/python -m pytest caliber/tests/test_x.py --cov=caliber",
+                "passed": False,
+                "output": "SECRET\nCoverage for caliber/src/caliber/x.py is not greater than 95%",
+            }
+        ],
+    )
+    store.event("run", 7, "review_cycle", {"cycle": 3, "result": {"findings": "SECRET"}})
+    store.event("run", 7, "qa_verdict", {"approved": True, "gaps": []})
+    trail = latest_diagnostic(store.path)["trail"]
+    assert trail == [
+        {"handoff_gap": True},
+        {
+            "handoff_gap": False,
+            "checks": {
+                "ran": 3,
+                "failed": [
+                    {
+                        "check": "ci-local:docs-validation+lint+test-smoke",
+                        "reason": "exit_1",
+                        "jobs": ["test-smoke"],
+                    }
+                ],
+            },
+            "review": {
+                "approved": False,
+                "finding_count": 3,
+                "severity": {"P1": 1, "P3": 1, "unrated": 1},
+                "blocking": 2,
+            },
+        },
+        {
+            "handoff_gap": False,
+            "checks": {"ran": 1, "failed": [{"check": "coverage", "reason": "coverage_threshold"}]},
+            "review": {"approved": False, "finding_count": -1},
+            "qa": {"approved": True, "finding_count": 0, "severity": {}, "blocking": 0},
+        },
+    ]
+    assert "SECRET" not in json.dumps(trail)
+
+
+def test_check_labels_and_reasons_are_fixed():
+    from autocd.diagnostics import check_failure, check_label
+
+    assert check_label(None) == "other"
+    assert check_label("changed-module coverage") == "coverage-selection"
+    assert check_label("affected-component checks") == "affected-component"
+    assert check_label("make SECRET") == "other"
+    for output, reason in (
+        ("QA command timed out after 7200 seconds", "timeout"),
+        ("Coverage JSON missing", "coverage_missing"),
+        ("Invalid coverage JSON: KeyError", "coverage_invalid"),
+        ("x\nRequired CI parity job was skipped", "parity_skipped"),
+        (
+            "No backend test references the changed production module(s): SECRET",
+            "no_selected_tests",
+        ),
+        ("Issue-specific QA commands are required for: SECRET", "issue_qa_missing"),
+        ("Invalid command", "invalid_command"),
+    ):
+        assert check_failure({"command": "x", "output": output})["reason"] == reason
+    assert check_failure({"command": "x", "exit_code": 9999, "output": 3})["reason"] == "failed"
+    assert check_failure({"command": "scripts/ci-local.sh lint", "output": "SECRET"}) == {
+        "check": "ci-local:lint",
+        "reason": "failed",
+    }
+
+
+def test_cycle_trail_tolerates_events_before_a_developer_result(tmp_path):
+    store = Store(tmp_path)
+    store.start("run")
+    store.add_task("run", 7, "Pilot", "branch", tmp_path / "worktree")
+    store.event("run", 7, "qa_commands", [{"command": "git diff --check", "passed": True}])
+    assert latest_diagnostic(store.path)["trail"] == [
+        {"handoff_gap": False, "checks": {"ran": 1, "failed": []}}
+    ]
 
 
 def test_diagnostic_unknown_phase_and_malformed_verdicts(tmp_path):
