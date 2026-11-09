@@ -27,7 +27,9 @@ def test_workflow_provides_a_postgres_service_the_worker_reaches_over_localhost(
     assert service["image"] == "pgvector/pgvector:pg16"  # migration 0060 needs pgvector
     assert service["ports"] == ["5432:5432"]
     assert service["env"]["POSTGRES_USER"] == "caliber"
-    assert "pg_isready" in service["options"]
+    # Probe the database that exists: without -d, pg_isready connects to a database named
+    # after the user and floods the server log with `database "caliber" does not exist`.
+    assert f'pg_isready -U caliber -d {service["env"]["POSTGRES_DB"]}"' in service["options"]
     assert job["env"]["CALIBER_CI_LOCAL_POSTGRES_URL"] == URL
     # The URL names the service's own user, password and database.
     assert f"caliber:{service['env']['POSTGRES_PASSWORD']}@localhost:5432/" in URL

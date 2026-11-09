@@ -21,6 +21,19 @@ class AgentError(RuntimeError):
     pass
 
 
+# The CLI's result subtype ("error_max_turns", "error_during_execution", ...) is a fixed
+# machine token, never model text. Anything else is dropped so a failure message built
+# from it can still be classified and published without exposing private output.
+_RESULT_SUBTYPE = re.compile(r"error_[a-z_]{1,40}")
+
+
+def _error_detail(message: dict) -> str:
+    subtype = message.get("subtype")
+    if isinstance(subtype, str) and _RESULT_SUBTYPE.fullmatch(subtype):
+        return f" ({subtype})"
+    return ""
+
+
 def decode_result(role: str, raw: object) -> dict:
     """Accept one JSON object or one final fenced object after a short preface."""
     if isinstance(raw, dict):
@@ -213,7 +226,9 @@ class ClaudeAgent:
                             )
                             raw = message.get("result")
                             if message.get("is_error"):
-                                raise AgentError(f"{role} returned an error")
+                                raise AgentError(
+                                    f"{role} returned an error{_error_detail(message)}"
+                                )
                             result = decode_result(role, raw)
                         elif message.get("type") in {"assistant", "user"}:
                             blocks = message.get("message", {}).get("content", [])

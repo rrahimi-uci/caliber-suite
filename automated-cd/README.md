@@ -223,9 +223,13 @@ reconciles Project Done only after a verified owner merge.
   pushed. An early run failure is visible even when no new task was claimed;
   model text and command output remain in the encrypted artifact. Beyond the
   role-specific codes, `agent_start_failed`, `agent_timeout`, `agent_stalled`,
-  `agent_exit`, `agent_output_oversized`, `agent_output`, `budget_unverifiable`,
+  `agent_exit`, `agent_output_oversized`, `budget_unverifiable`,
   `budget_exhausted`, `setup_failed`, `docs_sync_failed`, `diff_too_large` and
   `interrupted` name failures that were previously all reported as `other`.
+  A model call that ends without a usable result reports one of `agent_error`
+  (the CLI flagged an error), `agent_error_<subtype>` with the CLI's fixed result
+  subtype such as `agent_error_max_turns` or `agent_error_during_execution`,
+  `agent_output_not_json`, `agent_output_schema`, or the catch-all `agent_output`.
   Diagnosis
   needs `AUTOCD_STATE_KEY`
   but does not need the model or Project token. It does not claim tasks or upload

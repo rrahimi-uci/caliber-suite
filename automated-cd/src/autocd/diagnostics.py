@@ -11,19 +11,24 @@ from datetime import UTC, datetime, time
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-# Failures raised by the Claude CLI wrapper, keyed by the phrase after the role name.
-_AGENT_FAILURES = re.compile(
-    r"(?:planner|developer|reviewer|qa) "
-    r"(?:(could not start)|(timed out)|(stalled)|(failed \(exit)|(emitted an oversized)"
-    r"|(returned ))"
-)
-_AGENT_FAILURE_CODES = (
-    "agent_start_failed",
-    "agent_timeout",
-    "agent_stalled",
-    "agent_exit",
-    "agent_output_oversized",
-    "agent_output",
+# Failures raised by the Claude CLI wrapper, keyed by the phrase after the role name. The
+# first match wins, so each specific phrase precedes the broader "returned " catch-all.
+_ROLE = r"(?:planner|developer|reviewer|qa) "
+_AGENT_FAILURES = (
+    (re.compile(_ROLE + r"could not start"), "agent_start_failed"),
+    (re.compile(_ROLE + r"timed out"), "agent_timeout"),
+    (re.compile(_ROLE + r"stalled"), "agent_stalled"),
+    (re.compile(_ROLE + r"failed \(exit"), "agent_exit"),
+    (re.compile(_ROLE + r"emitted an oversized"), "agent_output_oversized"),
+    # The CLI reported is_error; the wrapper appends its fixed result subtype when it has one.
+    (re.compile(_ROLE + r"returned an error \((error_[a-z_]{1,40})\)"), None),
+    (re.compile(_ROLE + r"returned an error"), "agent_error"),
+    (
+        re.compile(_ROLE + r"returned (?:no JSON object|invalid JSON|a non-object JSON value)"),
+        "agent_output_not_json",
+    ),
+    (re.compile(_ROLE + r"returned an invalid [a-z ]+ schema"), "agent_output_schema"),
+    (re.compile(_ROLE + r"returned "), "agent_output"),
 )
 _OTHER_PREFIXES = (
     ("Daily Claude spend cannot be verified", "budget_unverifiable"),
@@ -42,9 +47,10 @@ def _unclassified(value: str) -> str:
     Specific legacy codes are matched first by the callers so existing labels keep
     their meaning; this only refines what would otherwise be reported as ``other``.
     """
-    match = _AGENT_FAILURES.match(value)
-    if match:
-        return _AGENT_FAILURE_CODES[(match.lastindex or 1) - 1]
+    for pattern, code in _AGENT_FAILURES:
+        match = pattern.match(value)
+        if match:
+            return code or f"agent_{match.group(1)}"
     for prefix, code in _OTHER_PREFIXES:
         if value.startswith(prefix):
             return code
