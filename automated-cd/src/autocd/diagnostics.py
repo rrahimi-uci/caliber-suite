@@ -99,6 +99,113 @@ def run_failure_code(value: str | None) -> str:
     return _unclassified(value)
 
 
+_JOB = re.compile(r"[a-z][a-z0-9-]{0,30}")
+# Fixed phrases the coordinator itself appends to a failing command row. Command output
+# from the repository or a model is never matched or echoed.
+_CHECK_REASONS = (
+    ("QA command timed out", "timeout"),
+    ("is not greater than 95%", "coverage_threshold"),
+    ("Coverage JSON missing", "coverage_missing"),
+    ("Invalid coverage JSON", "coverage_invalid"),
+    ("Required CI parity job was skipped", "parity_skipped"),
+    ("No backend test references", "no_selected_tests"),
+    ("Issue-specific QA commands are required", "issue_qa_missing"),
+    ("Invalid command", "invalid_command"),
+)
+
+
+def check_label(command: object) -> str:
+    """Name a configured QA command by a fixed label."""
+    if not isinstance(command, str):
+        return "other"
+    if command.startswith("git diff --check"):
+        return "diff-check"
+    if ".agents/bin/check.mjs" in command:
+        return "agents-check"
+    if "ci-local.sh" in command:
+        jobs = [token for token in command.split()[1:] if _JOB.fullmatch(token)]
+        return "ci-local:" + "+".join(jobs[:8])
+    if "pytest" in command and "--cov" in command:
+        return "coverage"
+    if command == "changed-module coverage":
+        return "coverage-selection"
+    if command == "affected-component checks":
+        return "affected-component"
+    return "other"
+
+
+def check_failure(row: dict) -> dict:
+    """Describe one failing command row by label and coordinator-owned reason only."""
+    command = row.get("command")
+    raw_output = row.get("output")
+    output = raw_output if isinstance(raw_output, str) else ""
+    reason = next((code for phrase, code in _CHECK_REASONS if phrase in output), None)
+    if reason is None:
+        code = row.get("exit_code")
+        reason = f"exit_{code}" if type(code) is int and -255 <= code <= 255 else "failed"
+    failure: dict[str, object] = {"check": check_label(command), "reason": reason}
+    if isinstance(command, str) and "ci-local.sh" in command:
+        requested = {token for token in command.split()[1:] if _JOB.fullmatch(token)}
+        failed = sorted(
+            job
+            for job in re.findall(r"^FAIL\s+([a-z][a-z0-9-]{0,30})\b", output, re.MULTILINE)
+            if job in requested
+        )
+        if failed:
+            failure["jobs"] = failed
+    return failure
+
+
+def _verdict(items: object, approved: object) -> dict:
+    summary: dict = {
+        "approved": approved is True,
+        "finding_count": len(items) if isinstance(items, list) else -1,
+    }
+    if isinstance(items, list):
+        severity: dict[str, int] = {}
+        blocking = 0
+        for item in items:
+            level = item.get("severity") if isinstance(item, dict) else None
+            key = level if level in {"P0", "P1", "P2", "P3"} else "unrated"
+            severity[key] = severity.get(key, 0) + 1
+            if not (isinstance(item, dict) and level == "P3" and item.get("blocking") is False):
+                blocking += 1
+        summary["severity"] = severity
+        summary["blocking"] = blocking
+    return summary
+
+
+def cycle_trail(db: sqlite3.Connection, run_id: str, issue: int) -> list[dict]:
+    """Summarize each review cycle of one attempt with fixed labels and counts."""
+    trail: list[dict] = []
+    rows = db.execute(
+        "SELECT kind, detail FROM events WHERE run_id=? AND issue=? AND kind IN "
+        "('handoff_gap', 'developer_result', 'qa_commands', 'review_cycle', 'qa_verdict') "
+        "ORDER BY id",
+        (run_id, issue),
+    ).fetchall()
+    for row in rows:
+        kind = row["kind"]
+        detail = json.loads(row["detail"])
+        if kind in {"handoff_gap", "developer_result"}:
+            trail.append({"handoff_gap": kind == "handoff_gap"})
+            continue
+        if not trail:
+            trail.append({"handoff_gap": False})
+        entry = trail[-1]
+        if kind == "qa_commands" and isinstance(detail, list):
+            rows_ = [item for item in detail if isinstance(item, dict)]
+            failed = [check_failure(item) for item in rows_ if item.get("passed") is False]
+            entry["checks"] = {"ran": len(rows_), "failed": failed}
+        elif kind == "review_cycle" and isinstance(detail, dict):
+            raw = detail.get("result")
+            result = raw if isinstance(raw, dict) else {}
+            entry["review"] = _verdict(result.get("findings"), result.get("approved"))
+        elif kind == "qa_verdict" and isinstance(detail, dict):
+            entry["qa"] = _verdict(detail.get("gaps"), detail.get("approved"))
+    return trail[-10:]
+
+
 def latest_run_diagnostic(path: Path, timezone: str) -> dict:
     """Report a fixed run label and today's claim count, never raw event text."""
     midnight = datetime.combine(
@@ -199,6 +306,9 @@ def latest_diagnostic(path: Path, *, latest_run_only: bool = False) -> dict:
                 if isinstance(commands, list)
                 else -1,
             }
+        trail = cycle_trail(db, task["run_id"], task["issue"])
+        if trail:
+            result["trail"] = trail
         return result
 
 

@@ -1329,6 +1329,116 @@ def test_qa_command_failure_returns_to_developer(settings, snapshot, monkeypatch
     assert "QA command failures" in engine._task("run", task)["error"]
 
 
+def test_failed_checks_and_findings_reach_the_developer_together(settings, snapshot, monkeypatch):
+    data, _ = snapshot
+    settings = replace(settings, max_review_cycles=2)
+    github = FakeGitHub(settings, data)
+    prompts: dict[str, list[dict]] = {"developer": [], "reviewer": []}
+
+    class Recording(FakeAgent):
+        def run(self, role, prompt, cwd, editable=False):
+            if role in prompts:
+                prompts[role].append(json.loads(prompt))
+            if role == "reviewer":
+                return {
+                    "approved": False,
+                    "findings": [{"severity": "P1", "blocking": True, "detail": "edge"}],
+                }
+            return super().run(role, prompt, cwd, editable)
+
+    engine = Engine(settings, github=github, agent_factory=Recording)
+    monkeypatch.setattr(engine, "_diff", lambda _: "diff")
+    monkeypatch.setattr(
+        engine,
+        "_checks",
+        lambda *a: [
+            {"passed": True, "command": "git diff --check", "output": ""},
+            {"passed": False, "command": "pytest", "output": "E assert 1 == 2"},
+        ],
+    )
+    Store(settings.state_dir).start("run")
+    task = Assignment(
+        12,
+        "Task 12",
+        "contract",
+        "release:Beta",
+        frozenset({"src/task.py", "tests/test_task.py"}),
+        1,
+    )
+    assert "did not pass" in engine._task("run", task)["error"]
+    second = prompts["developer"][1]["previous_feedback"]
+    assert "Review findings" in second and '"edge"' in second
+    assert "QA command failures" in second and "E assert 1 == 2" in second
+    assert "git diff --check" not in second
+    assert prompts["reviewer"][0]["previous_feedback"] == ""
+    assert prompts["reviewer"][1]["previous_feedback"] == second
+
+
+def test_non_blocking_p3_findings_do_not_send_the_candidate_back(settings, snapshot, monkeypatch):
+    data, _ = snapshot
+    settings = replace(settings, max_review_cycles=1)
+    github = FakeGitHub(settings, data)
+    note = {"severity": "P3", "blocking": False, "title": "Naming", "detail": "rename helper"}
+
+    class NoteOnly(FakeAgent):
+        def run(self, role, prompt, cwd, editable=False):
+            if role == "reviewer":
+                return {"approved": True, "findings": [note]}
+            return super().run(role, prompt, cwd, editable)
+
+    FakeAgent.calls = []
+    engine = Engine(settings, github=github, agent_factory=NoteOnly)
+    monkeypatch.setattr(engine, "_diff", lambda _: "diff")
+    monkeypatch.setattr(
+        engine, "_checks", lambda *a: [{"passed": True, "command": "pytest --cov", "output": ""}]
+    )
+    assert engine.run()["results"][0]["status"] == "waiting_for_ci_or_review"
+    assert "rename helper" in github.created[0][1]
+
+
+def test_only_explicit_non_blocking_p3_findings_pass():
+    blocking = Engine._blocking_findings
+    p3 = {"severity": "P3", "blocking": False}
+    assert blocking([p3]) == []
+    assert blocking([{"severity": "P3", "blocking": True}]) == [
+        {"severity": "P3", "blocking": True}
+    ]
+    assert blocking([{"severity": "P2", "blocking": False}]) == [
+        {"severity": "P2", "blocking": False}
+    ]
+    assert blocking([{"severity": "P3"}]) == [{"severity": "P3"}]
+    assert blocking(["legacy text", p3]) == ["legacy text"]
+    assert blocking("SECRET") == ["SECRET"]
+    assert blocking(None) == [None]
+
+
+def test_unapproved_review_without_findings_still_returns(settings, snapshot, monkeypatch):
+    data, _ = snapshot
+    settings = replace(settings, max_review_cycles=1)
+    github = FakeGitHub(settings, data)
+
+    class Unapproved(FakeAgent):
+        def run(self, role, prompt, cwd, editable=False):
+            if role == "reviewer":
+                return {"approved": False, "findings": [{"severity": "P3", "blocking": False}]}
+            return super().run(role, prompt, cwd, editable)
+
+    engine = Engine(settings, github=github, agent_factory=Unapproved)
+    monkeypatch.setattr(engine, "_diff", lambda _: "diff")
+    monkeypatch.setattr(engine, "_checks", lambda *a: [{"passed": True, "command": "pytest"}])
+    Store(settings.state_dir).start("run")
+    task = Assignment(
+        12,
+        "Task 12",
+        "contract",
+        "release:Beta",
+        frozenset({"src/task.py", "tests/test_task.py"}),
+        1,
+    )
+    error = engine._task("run", task)["error"]
+    assert "Review findings" in error and "P3" in error
+
+
 def test_string_false_qa_verdict_cannot_publish(settings, snapshot, monkeypatch):
     data, _ = snapshot
     github = FakeGitHub(settings, data)

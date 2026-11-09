@@ -70,7 +70,22 @@ ROLE_SCHEMAS: dict[str, dict] = {
     },
     "reviewer": {
         "type": "object",
-        "properties": {"approved": {"type": "boolean"}, "findings": {"type": "array"}},
+        "properties": {
+            "approved": {"type": "boolean"},
+            "findings": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "severity": {"enum": ["P0", "P1", "P2", "P3"]},
+                        "blocking": {"type": "boolean"},
+                        "title": _TEXT,
+                        "detail": _TEXT,
+                    },
+                    "required": ["severity", "blocking", "title", "detail"],
+                },
+            },
+        },
         "required": ["approved", "findings"],
     },
     "qa": {
