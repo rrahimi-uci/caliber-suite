@@ -338,8 +338,11 @@ class GitHub:
         return int(match.group(1))
 
     def request_reviewers(self, worktree: Path, pr: int, owner: str | None) -> dict[str, str]:
-        status = {}
-        reviewers = ([("owner", owner)] if owner else []) + [("copilot", "@copilot")]
+        # Copilot is not requested here: the repository's copilot_code_review ruleset
+        # already reviews every PR against main, drafts included, and a manual request
+        # only duplicates that review and its cost. Its review is still observed below.
+        status = {"copilot": "automatic: repository ruleset"}
+        reviewers = [("owner", owner)] if owner else []
         if not owner:
             status["owner"] = "not requested: automatic merge is enabled"
         for label, reviewer in reviewers:
@@ -373,11 +376,8 @@ class GitHub:
             status["owner"] = "not confirmed by GitHub"
         if any("copilot" in login.lower() for login in reviews):
             status["copilot"] = "reviewed"
-        elif (
-            not any("copilot" in login.lower() for login in requests)
-            and status["copilot"] == "requested"
-        ):
-            status["copilot"] = "not confirmed by GitHub"
+        elif any("copilot" in login.lower() for login in requests):
+            status["copilot"] = "requested by repository ruleset"
         return status
 
     def record_reviewers(self, pr: int, status: dict[str, str]) -> None:

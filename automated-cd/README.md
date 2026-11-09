@@ -207,7 +207,9 @@ the target when several PRs overlap.
 
 After review and QA pass, the coordinator commits and pushes the task branch,
 opens a draft PR using the repository's exact template headings, requests
-GitHub Copilot and the owner when available, and waits for required CI. The
+the owner's review when GitHub allows it, and waits for required CI. Copilot is
+not requested: the repository's Copilot code-review ruleset already reviews
+every PR against `main` (drafts and pushes included); its review is recorded. The
 checked-in configuration keeps `auto_merge=false`, so the PR remains open for
 owner review and merge. A model self-review is never represented as an
 independent GitHub approval; the coordinator still observes the PR and
