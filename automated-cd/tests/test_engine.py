@@ -922,12 +922,95 @@ def test_standard_coverage_fallback_measures_changed_python(settings, tmp_path, 
 
     monkeypatch.setattr("autocd.engine.subprocess.run", run)
     engine = Engine(replace(settings, base_checks=(), issue_checks={}))
+    tests = tmp_path / "caliber/tests"
+    tests.mkdir(parents=True)
+    (tests / "test_example.py").write_text("from caliber.example import answer\n")
+    (tests / "test_other.py").write_text("import caliber.examples_unrelated\n")
     rows = engine._checks(821, tmp_path, ["caliber/src/caliber/example.py"])
     assert len(rows) == 1 and rows[0]["passed"]
-    assert "caliber/tests" in seen[0]
+    # Only the tests that reference the changed module run, never the two-hour suite.
+    assert "caliber/tests/test_example.py" in seen[0]
+    assert "caliber/tests" not in seen[0] and "caliber/tests/test_other.py" not in seen[0]
     assert seen[0][seen[0].index("-n") + 1] == "4"
     assert seen[0][seen[0].index("--dist") + 1] == "loadgroup"
     assert "caliber/src/caliber/example.py=100.00%" in rows[0]["coverage"]
+
+
+def test_changed_module_test_selection(tmp_path):
+    src = tmp_path / "caliber/src/caliber/api"
+    src.mkdir(parents=True)
+    (src / "__init__.py").write_text("")
+    (src / "sse.py").write_text("x = 1\n")
+    (tmp_path / "caliber/src/caliber/other.py").write_text("y = 1\n")
+    tests = tmp_path / "caliber/tests/api"
+    tests.mkdir(parents=True)
+    (tests / "test_dotted.py").write_text("import caliber.api.sse as s\n")
+    (tests / "test_from.py").write_text("from caliber.api import sse\n")
+    (tests / "test_paren.py").write_text("from caliber.api import (\n    other,\n    sse,\n)\n")
+    (tests / "test_prefix_only.py").write_text("import caliber.api.sse_extra\n")
+    (tests / "test_unrelated.py").write_text("from caliber.api import ssex\n")
+    (tests / "test_package.py").write_text("import caliber.api\n")
+    selected, missing = Engine._coverage_tests(tmp_path, ["caliber/src/caliber/api/sse.py"])
+    assert missing == []
+    assert selected == [
+        "caliber/tests/api/test_dotted.py",
+        "caliber/tests/api/test_from.py",
+        "caliber/tests/api/test_paren.py",
+    ]
+    # A package __init__ maps to the package name; changed tests are always included.
+    (tests / "test_new.py").write_text("assert True\n")
+    selected, missing = Engine._coverage_tests(
+        tmp_path, ["caliber/src/caliber/api/__init__.py", "caliber/tests/api/test_new.py"]
+    )
+    assert "caliber/tests/api/test_package.py" in selected
+    assert "caliber/tests/api/test_new.py" in selected and missing == []
+    # No test references the module: report it instead of running an empty selection.
+    assert Engine._coverage_tests(tmp_path, ["caliber/src/caliber/other.py"])[1] == [
+        "caliber/src/caliber/other.py"
+    ]
+    # Production Python outside caliber/src keeps the full-suite behaviour.
+    (tmp_path / "scripts").mkdir()
+    (tmp_path / "scripts/tool.py").write_text("")
+    assert Engine._coverage_tests(tmp_path, ["scripts/tool.py"]) == (None, [])
+
+
+def test_missing_module_tests_fail_with_actionable_feedback(settings, tmp_path, monkeypatch):
+    path = tmp_path / "caliber/src/caliber/lonely.py"
+    path.parent.mkdir(parents=True)
+    path.write_text("z = 1\n")
+    (tmp_path / "caliber/tests").mkdir(parents=True)
+    calls = []
+    monkeypatch.setattr(
+        "autocd.engine.subprocess.run",
+        lambda args, **kwargs: calls.append(args) or subprocess.CompletedProcess(args, 0, "", ""),
+    )
+    engine = Engine(replace(settings, base_checks=("git diff --check",), issue_checks={}))
+    rows = engine._checks(821, tmp_path, ["caliber/src/caliber/lonely.py"])
+    assert [row["passed"] for row in rows] == [True, False]
+    assert "caliber/src/caliber/lonely.py" in rows[-1]["output"]
+    assert calls == [["git", "diff", "--check"]]
+    # A failing base check is reported first; the coverage hint is not added on top.
+    monkeypatch.setattr(
+        "autocd.engine.subprocess.run",
+        lambda args, **kwargs: subprocess.CompletedProcess(args, 1, "", "bad"),
+    )
+    rows = engine._checks(821, tmp_path, ["caliber/src/caliber/lonely.py"])
+    assert len(rows) == 1 and not rows[0]["passed"]
+
+
+def test_full_suite_fallback_for_python_outside_the_backend_package(
+    settings, tmp_path, monkeypatch
+):
+    (tmp_path / "sdk").mkdir()
+    (tmp_path / "sdk/client.py").write_text("")
+    seen = []
+    monkeypatch.setattr(
+        "autocd.engine.subprocess.run",
+        lambda args, **kwargs: seen.append(args) or subprocess.CompletedProcess(args, 0, "", ""),
+    )
+    engine = Engine(replace(settings, base_checks=(), issue_checks={821: ("git diff --check",)}))
+    engine._checks(821, tmp_path, ["sdk/client.py"])
+    assert any("caliber/tests" in args for args in seen)
 
 
 def test_setup_verifies_even_existing_venv_and_records_failure(
