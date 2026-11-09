@@ -34,6 +34,53 @@ def _error_detail(message: dict) -> str:
     return ""
 
 
+_TEXT = {"type": "string", "minLength": 1}
+_DEVELOPER_FIELDS = (
+    "summary",
+    "decisions",
+    "risks",
+    "compatibility",
+    "migrations",
+    "documentation",
+    "deployment",
+    "tests_suggested",
+    "tests_run",
+    "remaining_work",
+)
+
+# Passed to the CLI as --json-schema. The CLI then delivers the role's final answer through
+# a validated structured-output tool call instead of free text, so a model that ends a long
+# session with prose can no longer lose the whole attempt. decode_result still re-checks it.
+ROLE_SCHEMAS: dict[str, dict] = {
+    "planner": {
+        "type": "object",
+        "properties": {
+            "selected": {"type": "array", "items": {"type": "integer", "minimum": 1}},
+            "reason": _TEXT,
+        },
+        "required": ["selected", "reason"],
+    },
+    "developer": {
+        "type": "object",
+        "properties": {
+            **{key: _TEXT for key in _DEVELOPER_FIELDS},
+            "blocker": {"type": ["string", "null"]},
+        },
+        "required": [*_DEVELOPER_FIELDS, "blocker"],
+    },
+    "reviewer": {
+        "type": "object",
+        "properties": {"approved": {"type": "boolean"}, "findings": {"type": "array"}},
+        "required": ["approved", "findings"],
+    },
+    "qa": {
+        "type": "object",
+        "properties": {"approved": {"type": "boolean"}, "gaps": {"type": "array"}},
+        "required": ["approved", "gaps"],
+    },
+}
+
+
 def decode_result(role: str, raw: object) -> dict:
     """Accept one JSON object or one final fenced object after a short preface."""
     if isinstance(raw, dict):
@@ -136,6 +183,8 @@ class ClaudeAgent:
             "--effort",
             self.settings.reasoning,
             *budget_args,
+            "--json-schema",
+            json.dumps(ROLE_SCHEMAS[role], sort_keys=True),
             "--append-system-prompt",
             role_prompt(role),
         ]
@@ -224,7 +273,12 @@ class ClaudeAgent:
                                     "elapsed_seconds": round(time.monotonic() - started, 3),
                                 },
                             )
-                            raw = message.get("result")
+                            structured = message.get("structured_output")
+                            raw = (
+                                structured
+                                if isinstance(structured, dict)
+                                else message.get("result")
+                            )
                             if message.get("is_error"):
                                 raise AgentError(
                                     f"{role} returned an error{_error_detail(message)}"
