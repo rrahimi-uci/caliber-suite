@@ -1,73 +1,138 @@
 # Architecture and failure semantics
 
-The coordinator is a small state machine around the canonical `.agents`
-framework. The existing GitHub adapter supplies a paginated, validated
-Project snapshot. The Project and linked issues remain authoritative; the
-SQLite database records execution evidence and never becomes a second backlog.
+The coordinator runs CALIBER's daily automated development pipeline: it takes
+executable Project tasks and delivers each one as a CI-green pull request for the
+owner to review and merge. It is a small state machine around the canonical
+`.agents` framework. The Project and linked issues are the authoritative
+backlog; the encrypted SQLite state only records execution evidence and never
+becomes a second backlog. It never merges a PR, deploys or bypasses branch
+protection.
+
+## Daily process
 
 ```mermaid
-flowchart LR
-  GitHub[GitHub Actions 04:00 Pacific or dispatch] --> Restore[restore SQLite artifact]
-  Restore --> Lock[runner lock]
-  Lock --> Snapshot[Project snapshot and repository overview]
-  Snapshot --> Plan[eligibility, path conflicts, Planner]
-  Plan --> Claim[isolated worktree and Project claim]
-  Claim --> Dev[Developer]
-  Dev --> Local[local tests and CI parity]
-  Local --> Review[read-only Reviewer with evidence]
-  Review -->|findings| Dev
-  Review --> QA[standard and issue-specific commands, QA]
-  QA -->|gaps| Dev
-  QA --> PR[draft PR and Copilot request]
-  PR --> Checks[exact-head CI, review and thread checks]
-  Checks -->|clean and current base| Merge[guarded GitHub merge]
-  Merge --> Done[verify main, close issue, Project Done]
-  Done --> Save[save SQLite artifact]
+flowchart TD
+  Cron[04:00 America/Los_Angeles schedule, or owner dispatch] --> Restore[restore encrypted SQLite state]
+  Restore --> Reconcile[reconcile published PRs; auto-return clean pre-PR blocks to Ready]
+  Reconcile --> Plan[eligible tasks by Execution order and path conflicts; Planner picks]
+  Plan --> Claim[Project claim, isolated worktree, setup venv]
+  Claim --> Dev[Developer edits task-owned files]
+  Dev --> Norm[normalize: ruff fix and format, whitespace, generated docs sync]
+  Norm --> Gates[run every gate as the isolated worker]
+  Gates -->|any gate fails and fix attempts remain| Dev
+  Gates --> Review[read-only Reviewer: severity-rated findings]
+  Review -->|blocking finding or failing gate, cycles remain| Dev
+  Review --> QA[QA verifies acceptance and coverage evidence]
+  QA -->|gaps, cycles remain| Dev
+  QA --> PR[commit reviewed patch, push, draft PR]
+  PR --> CI[exact-head required CI; Copilot reviews via ruleset]
+  CI -->|green| Ready[mark ready for the owner]
+  CI -->|failed, skipped or stalled| Blocked[blocked with the PR left open]
+  Ready --> Merge[owner merges]
+  Merge --> Done[verify merge on main, close issue, Project Done]
+  Done --> Save[seal and upload state]
 ```
 
+The hosted job refills: after a task finishes or blocks, it plans again until
+the daily Done target, the backlog, the daily attempt cap, the Claude budget or
+the runner time limit is reached. A PR waiting only for the owner's merge does
+not hold up new tasks.
+
+## Development loop
+
+The developer role has no shell. This is deliberate: its Claude process holds the
+model API key, and any command or test it could run would execute as the same
+user and could read that key. So the coordinator runs every check, as the
+isolated `autocdqa` worker with a keyless environment, and hands the results back.
+
+- **Normalize.** Before any check, the coordinator applies mechanical formatting
+  to the changed files: `ruff check --fix` and `ruff format` on changed Python,
+  plus trailing-whitespace and final-newline cleanup. It then synchronizes
+  generated docs. Review sees the normalized candidate.
+- **Gates.** Every gate runs, even after one fails:
+  - the affected-component check;
+  - `git diff --check`;
+  - the `.agents` checks;
+  - `scripts/ci-local.sh docs-validation lint type-check test-smoke`;
+  - any issue-specific commands;
+  - >95% line-plus-branch coverage of each changed production module, measured
+    by the backend tests that import it.
+
+  Output is captured as one chronological stream. For `ci-local`, the evidence
+  keeps the summary plus the end of each failing job's own output.
+- **Fix loop.** When a gate fails, its rows go straight back to the developer,
+  up to `max_fix_attempts` times (default 2), without a reviewer call.
+- **Review cycle.** Only a passing candidate, or one still failing after its fix
+  attempts, reaches the reviewer. Reviewer findings carry P0–P3 severity and a
+  `blocking` flag. P0–P2 always block; a P3 marked non-blocking goes into the PR
+  body for the owner. Blocking findings and failing rows go back to the developer
+  together. There are at most `max_review_cycles` cycles (default 3).
+- **QA** verifies the acceptance and coverage evidence, then the coordinator
+  commits exactly the reviewed patch under an explicit git identity.
+
+## Delivery and completion
+
+- **Draft PR.** The coordinator opens a draft PR using the repository template.
+  It requests the owner as reviewer (GitHub refuses author self-requests). It
+  never requests Copilot: the `copilot_code_review` ruleset reviews drafts
+  automatically.
+- **Ready for the owner.** With `auto_merge = false`, the PR is marked ready
+  once exact-head required checks pass and it is mergeable. Unresolved Copilot
+  threads do not keep it in draft; the owner reads them before merging.
+- **Blocked PRs.** Failed or skipped required checks, requested changes, or CI
+  silent past `ci_timeout_seconds` block the task, with the PR left open. The
+  coordinator does not push follow-up commits to a published PR.
+- **Done.** After the owner merges, the coordinator verifies the merge commit on
+  `main`, closes the issue as completed, and moves the Project item to Done.
+  Only these verified merges count toward `daily_done_target`.
+
+## Recovery
+
 Task phases are `claimed`, `developing`, `reviewing`, `qa`, `pr_open`,
-`ci_wait`, `ready`, `merged_unreconciled`, `done`, and `blocked`. Every transition
-writes an event. `ci_wait`, `ready` and `merged_unreconciled` are checked again
-after process loss; other phases may have
-unobserved file, branch or remote writes and therefore require reconciliation.
-Read-only Project snapshots and checks may be retried by the operator. The
-scheduled date has a unique SQLite constraint, preventing two successful
-scheduled dispatch runs for one local day on one restored state database. A failed
-planning read releases that reservation for the next run. GitHub Actions
-concurrency serializes runs; the SQLite lock is runner-local. State artifacts
-persist PR reconciliation across hosted runners, while interrupted pre-PR
-worktrees cannot be replayed safely and are blocked for inspection.
+`ci_wait`, `ready`, `merged_unreconciled`, `done` and `blocked`. Every
+transition writes an event. `ci_wait`, `ready` and `merged_unreconciled` are
+safely rechecked after process loss. Earlier phases may have unobserved remote
+writes, so an interruption there blocks the task.
 
-Eligibility requires an open Task, Todo/Ready, resolved start decisions,
-completed native blockers, no existing owner or open closing PR, and a
-resolvable release or milestone target. The Planner can choose only from the
-deterministically eligible, nonconflicting set. Standard checks and full backend
-coverage run for changed production Python files; issue-specific commands add
-to that gate. UI, SDK, shell, and configuration changes without explicit
-issue checks fail closed. The coordinator
-claims through `.agents/bin/engineering.mjs transition` dry run and apply,
-then rereads the Project. Unknown owned paths serialize execution. The
-coordinator's thread lock serializes shared GitHub mutations even when model
-work runs concurrently.
+A blocked attempt that published nothing (no pushed head, no PR, branch absent
+remotely) can be returned to Ready on a later Pacific day by the scheduled run
+itself. It also has to meet these conditions:
 
-The Claude Code CLI is the implemented provider. `model` and `reasoning`
-are configurable; the default Sonnet alias uses the runner's current Sonnet.
-Pin Sonnet 5.5's official model identifier when that model becomes
-available and the account can use it. The CLI exposes a per-invocation budget; it does not expose
-stable temperature or output-token limits, so non-default values for those
-settings fail configuration validation. This prevents a false claim of
-enforced controls. Provider expansion must add a tested adapter rather than
-silently ignoring controls.
+- it is still Blocked in Project, with no foreign assignee and no open PR;
+- its failure code says a fresh attempt could succeed;
+- it has been auto-returned fewer than `max_auto_retries` times (default 2).
 
-The implementation deliberately does not auto-fix failing CI on an already
-published PR. It marks the task blocked in Project with the exact failed or
-skipped checks, requested changes, or CI timeout, and leaves the PR open for
-the developer to address in the same branch. A subsequent version can add a
-guarded PR revision loop with explicit head and review invalidation checks.
-The daily ten-Task target is measured from verified merged/Done issues. Selection
-reads Project `Execution order`, accepts only executable Todo Tasks whose native
-`blockedBy` dependencies are CLOSED/COMPLETED, promotes Planned work through the
-governed Ready transition, and then claims the earliest executable order bucket.
-Protected-path rules, a ten-attempt daily cap, path ownership and current-base
-checks still constrain throughput. No release or production action is part of
-this workflow.
+The coordinator then releases its own claim and applies the helper's Ready
+transition with verification evidence. Developer blockers, scope or
+protected-path violations, interruptions and unclassified failures still need a
+human. The owner can always reconcile by hand and dispatch `retry_issue`.
+
+## Controls
+
+- **Budget.** A Pacific-day aggregate Claude spend guard (`daily_budget_usd`).
+  Each call's CLI budget is capped at what remains. A started call with no
+  reported cost stops further calls that day (`budget_unverifiable`).
+- **Isolation.** Model roles and every QA command run as the unprivileged
+  `autocdqa` user, in a per-task worktree, without coordinator credentials. The
+  coordinator's state directory is unreadable to the worker. Prompts travel on
+  stdin.
+- **Scope.** The developer may change only the issue's owned paths. Coordinator
+  and policy paths (`.github/workflows/`, `.agents/`, `automated-cd/`,
+  `scripts/ci-local.sh`) are off limits to tasks.
+- **Observability.** A failed run prints a bounded public diagnostic. It shows a
+  fixed failure code and a per-turn `trail`: fix attempt, failing gate label,
+  coordinator-owned reason, failed `ci-local` jobs, and review/QA counts by
+  severity. Command output, findings and file paths stay in the encrypted
+  state. `diagnose_state` and the temporary incident export read them without
+  running tasks.
+
+## Known limits and next steps
+
+- **Developer tooling.** Letting the developer run checks itself would need a
+  second, keyless worker user to execute them. Until then, the fix loop is the
+  only way it gets check feedback.
+- **Published PRs.** There is no revision loop for a PR whose CI fails after
+  publication. That still needs a human or a future guarded revision loop.
+- **Throughput.** Throughput is bounded by the executable backlog. Native
+  `blockedBy` dependencies decide what can start; Planned tasks are promoted
+  automatically once their dependencies close.

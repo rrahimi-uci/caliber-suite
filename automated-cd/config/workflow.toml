@@ -18,6 +18,10 @@ max_review_cycles = 3
 # Extra developer turns per review cycle when coordinator checks fail. The developer
 # has no shell, so failing gates go straight back to it before any reviewer call.
 max_fix_attempts = 2
+# Scheduled runs return a cleanly blocked pre-PR task (no head, PR or remote
+# branch; not a developer blocker or scope violation) to Ready on a later Pacific
+# day, at most this many times per issue. Zero keeps manual reconciliation only.
+max_auto_retries = 2
 agent_timeout_seconds = 3600
 stall_seconds = 900
 # The full changed-code coverage suite can exceed one hour on hosted runners.

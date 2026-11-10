@@ -30,6 +30,7 @@ def test_defaults_and_environment(settings):
     assert settings.max_workers == 2
     assert load().max_fix_attempts == 2
     assert load(environ={"AUTOCD_MAX_FIX_ATTEMPTS": "0"}).max_fix_attempts == 0
+    assert load().max_auto_retries == 2
     changed = load(environ={"AUTOCD_ENABLED": "true", "AUTOCD_DAILY_TIME": "23:30"})
     assert changed.enabled and changed.daily_time == "23:30"
     assert load(environ={"AUTOCD_ENABLED": "false"}).enabled is False
@@ -42,6 +43,7 @@ def test_defaults_and_environment(settings):
         {"AUTOCD_DAILY_TIME": "25:00"},
         {"AUTOCD_MAX_FIX_ATTEMPTS": "-1"},
         {"AUTOCD_MAX_FIX_ATTEMPTS": "11"},
+        {"AUTOCD_MAX_AUTO_RETRIES": "6"},
         {"AUTOCD_TIMEZONE": "No/Such_Zone"},
         {"AUTOCD_REPOSITORY": "invalid"},
         {"AUTOCD_BASE_BRANCH": "main;evil"},

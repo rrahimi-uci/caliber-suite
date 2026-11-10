@@ -19,6 +19,7 @@ from zoneinfo import ZoneInfo
 
 from .agents import ClaudeAgent, untrusted_env, worker_args
 from .config import Settings
+from .diagnostics import failure_code
 from .github import GitHub, audit_commands, command, pr_ready
 from .planner import Assignment, assign, completed_today, eligible, view_label
 from .state import LockBusyError, Store, exclusive
@@ -46,6 +47,25 @@ for name in sys.argv[1:]:
     if fixed != text:
         path.write_text(fixed, encoding="utf-8")
 """
+
+
+# Failures a fresh attempt can plausibly fix. A developer blocker, scope or protected-path
+# violation, interruption or an unclassified failure still needs a human.
+_AUTO_RETRY_CODES = {
+    "review_qa_exhausted",
+    "issue_qa_missing",
+    "no_changes",
+    "setup_failed",
+    "docs_sync_failed",
+    "budget_exhausted",
+    "budget_unverifiable",
+}
+
+
+def _auto_retryable(code: str) -> bool:
+    return code in _AUTO_RETRY_CODES or code.startswith(
+        ("agent_", "reviewer_", "qa_output", "qa_error")
+    )
 
 
 class Engine:
@@ -149,13 +169,20 @@ class Engine:
             date.fromisoformat(day), time.min, ZoneInfo(self.settings.timezone)
         )
         attempted_today = store.attempted_since(midnight)
+        branches = {branch["name"] for page in overview["branches"] for branch in page}
+        if (
+            schedule_day is not None
+            and self.settings.max_auto_retries > 0
+            and self._auto_reconcile(store, run, snapshot, branches, midnight)
+        ):
+            with audit_commands(lambda kind, detail: store.event(run, None, kind, detail)):
+                snapshot = self.github.snapshot()
         candidates = eligible(
             snapshot,
             allowlist=self.settings.issue_allowlist,
             pathmap=self.settings.issue_paths,
             scope_label=label,
         )
-        branches = {branch["name"] for page in overview["branches"] for branch in page}
 
         def retryable_previous(issue: int):
             previous = store.latest_task(issue)
@@ -361,6 +388,86 @@ class Engine:
                 ]
             },
         )
+
+    def _auto_reconcile(
+        self,
+        store: Store,
+        run: str,
+        snapshot: dict,
+        branches: set[str],
+        midnight: datetime,
+    ) -> list[int]:
+        """Return cleanly blocked pre-PR tasks to Ready on a later Pacific day.
+
+        This is the manual reconciliation the owner otherwise performs: verify the
+        attempt published nothing (no head, PR or remote branch), drop the
+        coordinator's own claim, and apply a reviewed Ready transition through the
+        repository helper. Only failures a fresh attempt can plausibly fix qualify,
+        and each issue gets at most ``max_auto_retries`` automatic returns.
+        """
+        owner = self.settings.repository.split("/", 1)[0]
+        items = {item["issue"]["number"]: item for item in snapshot["items"] if item.get("issue")}
+        reconciled = []
+        for issue in sorted(store.blocked_issues()):
+            previous = store.latest_task(issue)
+            if (
+                previous is None
+                or previous["phase"] != "blocked"
+                or previous["pr"] is not None
+                or previous["head"] is not None
+                or not previous["branch"]
+                or previous["branch"] in branches
+            ):
+                continue
+            code = failure_code(previous["failure"])
+            if not _auto_retryable(code):
+                continue
+            blocked_at = store.phase_started(previous["run_id"], issue, "blocked")
+            if blocked_at is None or blocked_at >= midnight:
+                continue
+            if store.event_count(issue, "auto_reconciled") >= self.settings.max_auto_retries:
+                continue
+            item = items.get(issue)
+            if item is None:
+                continue
+            fields, details = item["fields"], item["issue"]
+            assignees = details.get("assignees") or []
+            if (
+                details.get("state") != "OPEN"
+                or fields.get("Readiness") != "Blocked"
+                or any(login != owner for login in assignees)
+                or any(pr.get("state") == "OPEN" for pr in details.get("prs") or [])
+            ):
+                continue
+            try:
+                if assignees or fields.get("Status") != "Todo":
+                    self.github.release_claim(snapshot, issue, owner)
+                self.github.transition(
+                    previous["target"],
+                    issue,
+                    "ready",
+                    {
+                        "evidence": [
+                            (
+                                "Automatic next-day reconciliation of blocked attempt "
+                                f"{previous['run_id'][:8]} (failure_code {code}). Verified by "
+                                "the coordinator: no pushed head, no PR, remote branch "
+                                f"{previous['branch']} absent, claim released."
+                            )
+                        ]
+                    },
+                )
+            except Exception as error:  # noqa: BLE001 - leave the task blocked for a human
+                store.event(run, issue, "auto_reconcile_error", str(error)[:500])
+                continue
+            store.event(
+                run,
+                issue,
+                "auto_reconciled",
+                {"prior_run": previous["run_id"], "failure_code": code},
+            )
+            reconciled.append(issue)
+        return reconciled
 
     def _run_agent(
         self,
