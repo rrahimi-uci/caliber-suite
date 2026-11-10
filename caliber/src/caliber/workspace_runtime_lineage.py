@@ -128,13 +128,15 @@ def _eligibility(
             reasons.append("environment_current_release_mismatch")
         if environment.operation_state != "idle":
             reasons.append(f"environment_operation_state={environment.operation_state}")
-    elif consumer_kind == "provider_operation":
-        # The operation service writes the pending pointer after inserting its
-        # operation and lineage.  Strict validation later requires the pointer
-        # to name this operation, fencing stale workers without making prepare
-        # depend on mutation order.
-        if environment.pending_operation_id not in {None, consumer_id}:
-            reasons.append("environment_owned_by_another_operation")
+    # The operation service writes the pending pointer after inserting its
+    # operation and lineage.  Strict validation later requires the pointer
+    # to name this operation, fencing stale workers without making prepare
+    # depend on mutation order.
+    elif consumer_kind == "provider_operation" and environment.pending_operation_id not in {
+        None,
+        consumer_id,
+    }:
+        reasons.append("environment_owned_by_another_operation")
     return (
         ("eligible", "release, revision, and environment coordinates are bound")
         if not reasons
