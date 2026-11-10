@@ -27,7 +27,7 @@ def test_hosted_starts_and_monitors_until_clear(monkeypatch, capsys):
     monkeypatch.setattr(hosted, "Engine", FakeEngine)
     monkeypatch.setattr(hosted.time, "monotonic", lambda: 0)
     monkeypatch.setattr(hosted.time, "sleep", lambda seconds: events.append(("sleep", seconds)))
-    hosted.run_hosted("schedule", max_seconds=120, poll_seconds=10)
+    hosted.run_hosted("schedule", max_seconds=120, poll_seconds=10, refill_seconds=0)
     assert events == ["init", ("run", True), "monitor", ("sleep", 10), "monitor"]
     assert '"pending": 0' in capsys.readouterr().out
 
@@ -47,7 +47,7 @@ def test_hosted_manual_deadline_and_invalid_mode(monkeypatch, capsys):
     monkeypatch.setattr(hosted, "load", lambda: type("Settings", (), {"max_tasks_per_run": 6})())
     monkeypatch.setattr(hosted, "Engine", FakeEngine)
     monkeypatch.setattr(hosted.time, "monotonic", lambda: 0)
-    hosted.run_hosted("manual", max_seconds=10, poll_seconds=10)
+    hosted.run_hosted("manual", max_seconds=10, poll_seconds=10, refill_seconds=0)
     assert "will resume" in capsys.readouterr().out
     with pytest.raises(ValueError, match="AUTOCD_RUN_MODE"):
         hosted.run_hosted("invalid")
@@ -60,7 +60,7 @@ def test_hosted_refills_after_pr_reconciliation_without_retrying_issue(monkeypat
         def __init__(self, settings):
             self.settings = settings
 
-        def run(self, *, scheduled, exclude_issues=frozenset()):
+        def run(self, *, scheduled, exclude_issues=frozenset(), auto_retry=False):
             calls.append((scheduled, exclude_issues))
             if scheduled:
                 return {"selected": [12], "remaining_to_target": 6}
@@ -74,7 +74,7 @@ def test_hosted_refills_after_pr_reconciliation_without_retrying_issue(monkeypat
     monkeypatch.setattr(hosted, "load", lambda: type("Settings", (), {"max_tasks_per_run": 6})())
     monkeypatch.setattr(hosted, "Engine", FakeEngine)
     monkeypatch.setattr(hosted.time, "monotonic", lambda: 0)
-    hosted.run_hosted("schedule", max_seconds=120, poll_seconds=10)
+    hosted.run_hosted("schedule", max_seconds=120, poll_seconds=10, refill_seconds=0)
     assert calls == [
         (True, frozenset()),
         (False, frozenset({12})),
@@ -128,7 +128,7 @@ def test_hosted_fails_after_blocked_task_but_still_monitors(monkeypatch):
         def __init__(self, settings):
             self.settings = settings
 
-        def run(self, *, scheduled, exclude_issues=frozenset()):
+        def run(self, *, scheduled, exclude_issues=frozenset(), auto_retry=False):
             calls.append((scheduled, exclude_issues))
             if scheduled:
                 return {"selected": [821], "results": [{"issue": 821, "status": "blocked"}]}
@@ -142,7 +142,7 @@ def test_hosted_fails_after_blocked_task_but_still_monitors(monkeypatch):
     monkeypatch.setattr(hosted, "Engine", FakeEngine)
     monkeypatch.setattr(hosted.time, "monotonic", lambda: 0)
     with pytest.raises(RuntimeError, match="blocked issues: \\[821\\]"):
-        hosted.run_hosted("schedule", max_seconds=120, poll_seconds=10)
+        hosted.run_hosted("schedule", max_seconds=120, poll_seconds=10, refill_seconds=0)
     assert calls == [(True, frozenset()), "monitor", (False, frozenset({821}))]
 
 
@@ -151,7 +151,7 @@ def test_hosted_fails_on_blocked_recovery(monkeypatch):
         def __init__(self, settings):
             self.settings = settings
 
-        def run(self, *, scheduled, exclude_issues=frozenset()):
+        def run(self, *, scheduled, exclude_issues=frozenset(), auto_retry=False):
             if not scheduled:
                 return {"selected": []}
             return {"status": "waiting_on_published_prs", "recovered": []}
@@ -163,7 +163,7 @@ def test_hosted_fails_on_blocked_recovery(monkeypatch):
     monkeypatch.setattr(hosted, "Engine", FakeEngine)
     monkeypatch.setattr(hosted.time, "monotonic", lambda: 0)
     with pytest.raises(RuntimeError, match="blocked issues: \\[1110\\]"):
-        hosted.run_hosted("schedule", max_seconds=120, poll_seconds=10)
+        hosted.run_hosted("schedule", max_seconds=120, poll_seconds=10, refill_seconds=0)
 
 
 def test_hosted_logs_hide_untrusted_errors(monkeypatch, capsys):
@@ -173,7 +173,7 @@ def test_hosted_logs_hide_untrusted_errors(monkeypatch, capsys):
         def __init__(self, settings):
             self.settings = settings
 
-        def run(self, *, scheduled, exclude_issues=frozenset()):
+        def run(self, *, scheduled, exclude_issues=frozenset(), auto_retry=False):
             if scheduled:
                 return {
                     "selected": [821],
@@ -188,7 +188,7 @@ def test_hosted_logs_hide_untrusted_errors(monkeypatch, capsys):
     monkeypatch.setattr(hosted, "Engine", FakeEngine)
     monkeypatch.setattr(hosted.time, "monotonic", lambda: 0)
     with pytest.raises(RuntimeError, match="blocked issues"):
-        hosted.run_hosted("schedule", max_seconds=120, poll_seconds=10)
+        hosted.run_hosted("schedule", max_seconds=120, poll_seconds=10, refill_seconds=0)
     assert secret not in capsys.readouterr().out
 
 
@@ -197,7 +197,7 @@ def test_hosted_fails_when_pr_checks_remain_unverifiable(monkeypatch):
         def __init__(self, settings):
             self.settings = settings
 
-        def run(self, *, scheduled, exclude_issues=frozenset()):
+        def run(self, *, scheduled, exclude_issues=frozenset(), auto_retry=False):
             return (
                 {"status": "waiting_on_published_prs", "recovered": []}
                 if scheduled
@@ -211,7 +211,7 @@ def test_hosted_fails_when_pr_checks_remain_unverifiable(monkeypatch):
     monkeypatch.setattr(hosted, "Engine", FakeEngine)
     monkeypatch.setattr(hosted.time, "monotonic", lambda: 0)
     with pytest.raises(RuntimeError, match="checks could not be verified"):
-        hosted.run_hosted("schedule", max_seconds=10, poll_seconds=10)
+        hosted.run_hosted("schedule", max_seconds=10, poll_seconds=10, refill_seconds=0)
 
 
 def test_hosted_manual_retry_passes_only_explicit_issue(monkeypatch):
@@ -232,13 +232,13 @@ def test_hosted_manual_retry_passes_only_explicit_issue(monkeypatch):
     monkeypatch.setattr(hosted, "Engine", FakeEngine)
     monkeypatch.setattr(hosted.time, "monotonic", lambda: 0)
     monkeypatch.setenv("AUTOCD_RETRY_ISSUE", "821")
-    hosted.run_hosted("manual", max_seconds=120, poll_seconds=10)
+    hosted.run_hosted("manual", max_seconds=120, poll_seconds=10, refill_seconds=0)
     assert seen == [(False, 821)]
     with pytest.raises(ValueError, match="positive issue number"):
-        hosted.run_hosted("schedule", max_seconds=120, poll_seconds=10)
+        hosted.run_hosted("schedule", max_seconds=120, poll_seconds=10, refill_seconds=0)
     monkeypatch.setenv("AUTOCD_RETRY_ISSUE", "nonsense")
     with pytest.raises(ValueError, match="positive issue number"):
-        hosted.run_hosted("manual", max_seconds=120, poll_seconds=10)
+        hosted.run_hosted("manual", max_seconds=120, poll_seconds=10, refill_seconds=0)
 
 
 def test_hosted_retry_never_refills_unrelated_tasks(monkeypatch):
@@ -259,7 +259,7 @@ def test_hosted_retry_never_refills_unrelated_tasks(monkeypatch):
     monkeypatch.setattr(hosted, "Engine", FakeEngine)
     monkeypatch.setattr(hosted.time, "monotonic", lambda: 0)
     monkeypatch.setenv("AUTOCD_RETRY_ISSUE", "821")
-    hosted.run_hosted("manual", max_seconds=120, poll_seconds=10)
+    hosted.run_hosted("manual", max_seconds=120, poll_seconds=10, refill_seconds=0)
     assert calls == [(False, 821)]
 
 
@@ -291,7 +291,7 @@ def test_measured_manual_trial_allows_five_new_attempts_after_daily_cap(
             # ten-attempt cap recorded in coordinator state.
             return list(range(7))
 
-        def run(self, *, scheduled, retry_issue=None, exclude_issues=frozenset()):
+        def run(self, *, scheduled, retry_issue=None, exclude_issues=frozenset(), auto_retry=False):
             calls.append((scheduled, retry_issue, exclude_issues))
             return {"selected": [821 if len(calls) == 1 else 520 + len(calls)]}
 
@@ -303,7 +303,7 @@ def test_measured_manual_trial_allows_five_new_attempts_after_daily_cap(
     monkeypatch.setattr(hosted.time, "monotonic", lambda: 0)
     monkeypatch.setenv("AUTOCD_TRIAL_TASKS", "5")
     monkeypatch.setenv("AUTOCD_RETRY_ISSUE", "821")
-    hosted.run_hosted("manual", max_seconds=120, poll_seconds=10)
+    hosted.run_hosted("manual", max_seconds=120, poll_seconds=10, refill_seconds=0)
     assert len(calls) == 5
     assert [chosen.max_tasks_per_run for chosen in initialized] == [10, 11]
     assert initialized[-1].daily_done_target == 12
@@ -319,3 +319,29 @@ def test_measured_trial_rejects_schedule_and_oversized_input(monkeypatch):
     monkeypatch.setenv("AUTOCD_TRIAL_TASKS", "6")
     with pytest.raises(ValueError, match="0 through 5"):
         hosted.run_hosted("manual")
+
+
+def test_hosted_refill_needs_a_full_task_budget_and_keeps_scheduled_retries(monkeypatch):
+    calls = []
+
+    class FakeEngine:
+        def __init__(self, settings):
+            self.settings = settings
+
+        def run(self, *, scheduled, exclude_issues=frozenset(), auto_retry=False):
+            calls.append((scheduled, auto_retry))
+            return {"selected": [12] if scheduled else []}
+
+        def monitor(self):
+            return {"pending": 0}
+
+    monkeypatch.setattr(hosted, "load", lambda: type("Settings", (), {"max_tasks_per_run": 6})())
+    monkeypatch.setattr(hosted, "Engine", FakeEngine)
+    clock = iter([0, 0, 0, 0, 0, 0])
+    monkeypatch.setattr(hosted.time, "monotonic", lambda: next(clock, 0))
+    hosted.run_hosted("schedule", max_seconds=1000, poll_seconds=10, refill_seconds=500)
+    assert calls == [(True, False), (False, True)]
+    calls.clear()
+    # Less than a task's budget left: no new batch is started.
+    hosted.run_hosted("schedule", max_seconds=1000, poll_seconds=10, refill_seconds=2000)
+    assert calls == [(True, False)]

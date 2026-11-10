@@ -958,6 +958,22 @@ def test_required_check_rollup_fails_missing_skipped_and_pending(settings, monke
         88, {"files": [{"path": "automated-cd/src/autocd/engine.py"}], "statusCheckRollup": []}
     )
     assert any(row == {"name": "Automated CD tests", "state": "MISSING"} for row in own_change)
+    # "no checks reported" (CI never ran for this head) leaves every required check
+    # MISSING instead of an error that would hold the PR in ci_wait forever.
     monkeypatch.setattr("autocd.github.command", lambda *a, **k: "")
-    with pytest.raises(CommandError, match="no JSON"):
-        github.required_checks(88, {"statusCheckRollup": []})
+    empty = github.required_checks(88, {"statusCheckRollup": []})
+    assert {row["state"] for row in empty} == {"MISSING"}
+    # Branch-protection rows from gh use raw states; they are normalized.
+    raw = json.dumps(
+        [
+            {"name": "a", "state": "SUCCESS"},
+            {"name": "b", "state": "FAILURE"},
+            {"name": "c", "state": "SKIPPED"},
+            {"name": "d", "state": "IN_PROGRESS"},
+            {"name": "e", "state": "CANCELLED"},
+        ]
+    )
+    monkeypatch.setattr("autocd.github.command", lambda *a, **k: raw)
+    plain = replace(settings, required_checks=())
+    rows = {row["name"]: row["state"] for row in GitHub(plain).required_checks(88, {})}
+    assert rows == {"a": "PASS", "b": "FAIL", "c": "SKIPPING", "d": "PENDING", "e": "FAIL"}

@@ -45,6 +45,9 @@ max_budget_usd = 0.0
 # Pacific-calendar-day cap across planner, developer, reviewer and QA calls.
 # Zero disables the aggregate cap.
 daily_budget_usd = 30.0
+# A call killed by a stall or timeout reports no cost. Count it at this estimate
+# instead of stopping all calls for the day. Zero restores the strict stop.
+unknown_call_cost_usd = 3.0
 temperature = "default"
 max_output_tokens = 0
 

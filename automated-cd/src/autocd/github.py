@@ -326,7 +326,8 @@ class GitHub:
             ["git", "ls-files", "--modified", "--others", "--exclude-standard", "-z"],
             worktree,
         )
-        staged = command(["git", "diff", "--cached", "--name-only", "-z"], worktree)
+        # --no-renames: a staged rename must list both paths, as the reviewed list does.
+        staged = command(["git", "diff", "--cached", "--no-renames", "--name-only", "-z"], worktree)
         return sorted(set(output.split("\0") + staged.split("\0")) - {""})
 
     def commit_and_push(
@@ -613,11 +614,14 @@ class GitHub:
                 "name,state",
             ],
             self.root,
-            allowed_exit_codes=(0, 8),  # gh pr checks uses 8 while checks are pending.
+            # 8 while checks are pending; 1 with "no checks reported" when CI never ran
+            # for this head (path filters). Missing required checks then read MISSING.
+            allowed_exit_codes=(0, 1, 8),
         )
-        if not output.strip():
-            raise CommandError("Required-check inventory returned no JSON")
-        branch_required = json.loads(output)
+        branch_required = [
+            {"name": row["name"], "state": _check_state(row.get("state"))}
+            for row in (json.loads(output) if output.strip() else [])
+        ]
         rollup = {}
         for entry in state.get("statusCheckRollup", []):
             name = entry.get("name") or entry.get("context")
@@ -675,6 +679,18 @@ class GitHub:
             if not page["pageInfo"]["hasNextPage"]:
                 return count
             cursor = page["pageInfo"]["endCursor"]
+
+
+def _check_state(raw: object) -> str:
+    """Normalize gh check states to the coordinator's PASS/FAIL/SKIPPING/PENDING."""
+    value = str(raw or "").upper()
+    if value in {"SUCCESS", "PASS"}:
+        return "PASS"
+    if value in {"FAILURE", "FAIL", "ERROR", "CANCELLED", "TIMED_OUT", "ACTION_REQUIRED"}:
+        return "FAIL"
+    if value in {"SKIPPED", "SKIPPING", "NEUTRAL"}:
+        return "SKIPPING"
+    return "PENDING"
 
 
 def pr_ready(

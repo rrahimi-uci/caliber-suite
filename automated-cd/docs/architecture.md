@@ -135,6 +135,15 @@ human. The owner can always reconcile by hand and dispatch `retry_issue`.
   state. `diagnose_state` and the temporary incident export read them without
   running tasks.
 
+## Publication safeguards
+
+- After `gh pr create`, nothing blocks the task except CI, review or a timeout.
+  Project and reviewer bookkeeping is retried idempotently.
+- An owner merge reaches Done even after an owner push or a blocked state.
+- `pr_check_error` and "no checks reported" are bounded by `ci_timeout_seconds`.
+- Refill batches start only with a worst-case task's time left before the
+  280-minute deadline.
+
 ## Known limits and next steps
 
 - **Developer tooling.** Letting the developer run checks itself would need a
