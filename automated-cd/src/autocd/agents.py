@@ -384,6 +384,8 @@ def _codex_error(message: dict) -> str:
         nested = None
     if isinstance(nested, dict) and isinstance(nested.get("error"), dict):
         text = str(nested["error"].get("message") or text)
+    # Provider errors echo a masked key ("sk-proj-****abcd"); drop even that.
+    text = re.sub(r"\b(?:sk|rk|pk)-[A-Za-z0-9_*.-]+", "[redacted-key]", text)
     return " ".join(text.split())[:300]
 
 

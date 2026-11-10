@@ -282,4 +282,7 @@ def test_codex_error_text_extraction():
     )
     assert _codex_error({"error": {"message": json.dumps({"error": "flat"})}}).startswith("{")
     assert _codex_error({"message": 3}) == ""
+    assert _codex_error({"message": "401 Incorrect API key provided: sk-proj-****abcd. Find"}) == (
+        "401 Incorrect API key provided: [redacted-key] Find"
+    )
     assert len(_codex_error({"message": "x" * 1000})) == 300
