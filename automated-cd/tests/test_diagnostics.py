@@ -15,8 +15,12 @@ def test_failure_codes_never_echo_private_text():
     assert failure_code(None) == "none"
     assert failure_code("Developer blocker: SECRET") == "developer_blocker"
     assert failure_code("Review/QA did not pass within 3 cycles: SECRET") == "review_qa_exhausted"
-    assert failure_code("reviewer returned invalid JSON SECRET") == "reviewer_output"
-    assert failure_code("qa returned an invalid verdict SECRET") == "qa_output"
+    assert failure_code("reviewer returned invalid JSON SECRET") == "reviewer_output_not_json"
+    assert failure_code("qa returned an invalid verdict schema SECRET") == "qa_output_schema"
+    assert failure_code("qa returned something else SECRET") == "qa_output"
+    assert (
+        failure_code("reviewer returned an error (error_max_turns)") == "reviewer_error_max_turns"
+    )
     assert failure_code("Issue-specific QA commands are required SECRET") == "issue_qa_missing"
     assert failure_code("Developer changed a path SECRET") == "scope_violation"
     assert failure_code("Unattended merge cannot change SECRET") == "protected_path"
@@ -53,7 +57,7 @@ def test_failure_codes_never_echo_private_text():
         assert run_failure_code(text) == code
         assert "SECRET" not in code
     # Established labels keep precedence over the broader agent classification.
-    assert failure_code("reviewer returned an error") == "reviewer_output"
+    assert failure_code("reviewer returned an error") == "reviewer_error"
     assert run_failure_code("planner timed out") == "planner_timeout"
     assert run_failure_code("planner stalled without output") == "planner_stall"
     assert run_failure_code("planner failed (exit 1): SECRET") == "planner_error"

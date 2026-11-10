@@ -267,6 +267,10 @@ as `awaiting_owner`.
   (the CLI flagged an error), `agent_error_<subtype>` with the CLI's fixed result
   subtype such as `agent_error_max_turns` or `agent_error_during_execution`,
   `agent_output_not_json`, `agent_output_schema`, or the catch-all `agent_output`.
+  For the reviewer and QA roles the label keeps the role and names how the call
+  ended: `reviewer_error`, `reviewer_error_<subtype>`, `reviewer_output_not_json`,
+  `reviewer_output_schema` (and the `qa_` equivalents), or `reviewer_output` /
+  `qa_output` when nothing more specific matches.
   Diagnosis
   needs `AUTOCD_STATE_KEY`
   but does not need the model or Project token. It does not claim tasks or upload
