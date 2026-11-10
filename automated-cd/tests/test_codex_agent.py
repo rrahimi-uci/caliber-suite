@@ -118,14 +118,19 @@ def test_codex_developer_gets_a_writable_sandbox(settings, tmp_path, monkeypatch
 
 
 def test_codex_request_rejected_before_output_bills_nothing(settings, tmp_path, monkeypatch):
+    api_error = json.dumps(
+        {"type": "error", "status": 400, "error": {"message": "The model requires a newer Codex."}}
+    )
     body = _events(
         {"type": "turn.started"},
-        {"type": "error", "message": "model requires a newer version"},
-        {"type": "turn.failed", "error": {"message": "400"}},
+        {"type": "item.completed", "item": {"type": "error", "message": "config warning"}},
+        {"type": "error", "message": api_error},
+        {"type": "turn.failed", "error": {"message": api_error}},
     )
     body += "\nexit 1"
     error, events = _run(settings, tmp_path, monkeypatch, body)
-    assert isinstance(error, AgentError) and str(error) == "reviewer returned an error"
+    assert isinstance(error, AgentError)
+    assert str(error) == "reviewer returned an error: The model requires a newer Codex."
     usage = [detail for kind, detail in events if kind == "agent_usage"]
     assert usage[0]["cost_usd"] == 0.0
 
@@ -136,7 +141,7 @@ def test_codex_failure_after_model_output_has_unknown_cost(settings, tmp_path, m
         {"type": "turn.failed", "error": {"message": "context exceeded"}},
     )
     error, events = _run(settings, tmp_path, monkeypatch, body)
-    assert str(error) == "reviewer returned an error"
+    assert str(error) == "reviewer returned an error: context exceeded"
     assert next(d for k, d in events if k == "agent_usage")["cost_usd"] is None
 
 
@@ -266,3 +271,15 @@ def test_provider_selection_and_credential_hygiene(settings, monkeypatch):
     values = credential_values()
     assert "pppppppppppppppppppp" in values and "gggggggggggggggggggg" in values
     assert "short" not in values
+
+
+def test_codex_error_text_extraction():
+    from autocd.agents import _codex_error
+
+    assert _codex_error({"message": "plain   text\nmore"}) == "plain text more"
+    assert _codex_error({"error": {"message": json.dumps({"error": {"message": "inner"}})}}) == (
+        "inner"
+    )
+    assert _codex_error({"error": {"message": json.dumps({"error": "flat"})}}).startswith("{")
+    assert _codex_error({"message": 3}) == ""
+    assert len(_codex_error({"message": "x" * 1000})) == 300

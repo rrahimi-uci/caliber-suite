@@ -372,6 +372,21 @@ def strict_schema(schema: object) -> object:
     return schema
 
 
+def _codex_error(message: dict) -> str:
+    """Extract the provider's error text (an API or CLI message, not model output)."""
+    error = message.get("error")
+    text = error.get("message") if isinstance(error, dict) else message.get("message")
+    if not isinstance(text, str):
+        return ""
+    try:
+        nested = json.loads(text)
+    except ValueError:
+        nested = None
+    if isinstance(nested, dict) and isinstance(nested.get("error"), dict):
+        text = str(nested["error"].get("message") or text)
+    return " ".join(text.split())[:300]
+
+
 class CodexAgent:
     """Run one role through ``codex exec`` with an enforced output schema.
 
@@ -482,6 +497,7 @@ class CodexAgent:
         final: str | None = None
         completed = False
         active = False
+        reason = ""
         failure: str | None = None
         errors: list[str] = []
         try:
@@ -549,7 +565,13 @@ class CodexAgent:
                             )
                         elif kind in {"turn.failed", "error"}:
                             failure = kind
-                        if kind == "item.completed":
+                            reason = _codex_error(message) or reason
+                        if kind == "item.completed" and item.get("type") in {
+                            "agent_message",
+                            "command_execution",
+                            "file_change",
+                            "reasoning",
+                        }:
                             active = True
             returncode = process.wait(timeout=5)
             if failure == "turn.failed" or (failure and not completed):
@@ -565,7 +587,7 @@ class CodexAgent:
                             "elapsed_seconds": round(time.monotonic() - started, 3),
                         },
                     )
-                raise AgentError(f"{role} returned an error")
+                raise AgentError(f"{role} returned an error" + (f": {reason}" if reason else ""))
             if returncode != 0 or not completed or final is None:
                 raise AgentError(f"{role} failed (exit {returncode}): {''.join(errors)[-500:]}")
             result = decode_result(role, final)
