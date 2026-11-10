@@ -155,6 +155,66 @@ jobs:
               result = CodexAgent(settings, lambda *a: None).run('reviewer', 'x' * 400_000, Path(cwd))
           assert result == {'approved': True, 'findings': []}, result
           PY
+      - name: Smoke test the real Codex CLI as the isolated worker
+        # One tiny live call (well under one cent) proves the hosted path the daily
+        # run depends on: Codex install, API-key auth via CODEX_API_KEY, sudo to the
+        # worker, the Linux sandbox, and schema-constrained output. Skipped when the
+        # secret is unavailable (forks).
+        if: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository }}
+        env:
+          AUTOCD_REPO_ROOT: ${{ github.workspace }}
+          AUTOCD_STATE_DIR: ${{ runner.temp }}/private-autocd-state
+          AUTOCD_WORKTREE_DIR: /tmp/autocd-smoke-worktrees-${{ github.run_id }}
+          AUTOCD_WORKER_USER: autocdqa
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          test -n "$OPENAI_API_KEY" || { echo 'OPENAI_API_KEY unavailable; skipping'; exit 0; }
+          # Codex sandboxes model commands with bubblewrap. Use the distribution bwrap
+          # with Ubuntu's bwrap-userns-restrict AppArmor profile (OpenAI's documented
+          # setup for 24.04): the profile grants user namespaces to bwrap alone, so the
+          # system-wide restriction stays on. Without it every sandboxed command fails
+          # ("bwrap: loopback: Failed RTM_NEWADDR: Operation not permitted").
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq bubblewrap apparmor-profiles apparmor-utils >/dev/null
+          sudo install -m 0644 /usr/share/apparmor/extra-profiles/bwrap-userns-restrict /etc/apparmor.d/bwrap-userns-restrict
+          sudo apparmor_parser -r /etc/apparmor.d/bwrap-userns-restrict
+          npm install --global @openai/codex >/dev/null
+          codex --version
+          work=$(mktemp -d /tmp/autocd-codex-live-XXXXXX)
+          chmod 755 "$work"
+          printf 'def add(a, b):\n    return a - b\n' > "$work/mod.py"
+          chmod 644 "$work/mod.py"
+          python - "$work" <<'PY'
+          import sys
+          from dataclasses import replace
+          from pathlib import Path
+          from autocd.agents import AgentError, CodexAgent
+          from autocd.config import load
+          settings = replace(load(), provider='codex_cli', reasoning='low', agent_timeout_seconds=600, stall_seconds=300)
+          assert settings.worker_user == 'autocdqa'
+          events = []
+          agent = CodexAgent(settings, lambda kind, detail: events.append((kind, detail)))
+          try:
+              result = agent.run(
+                  'reviewer',
+                  'Run `cat mod.py` in your shell, then review it: add() must return a + b.',
+                  Path(sys.argv[1]),
+              )
+          except AgentError as error:
+              print('CODEX FAILED:', error)
+              for kind, detail in events:
+                  print(kind, str(detail)[:400])
+              raise SystemExit(1)
+          print('verdict:', result)
+          print('usage:', [d for k, d in events if k == 'agent_usage'])
+          commands = [d for k, d in events if k == 'agent_progress']
+          print('commands:', commands)
+          assert isinstance(result.get('approved'), bool) and isinstance(result.get('findings'), list)
+          # The model reads files through its shell, so the sandbox must run commands.
+          assert commands, 'the model ran no sandboxed command'
+          assert 'bwrap' not in str(result), 'the Codex sandbox failed to start'
+          assert result['approved'] is False and result['findings'], 'the planted bug was missed'
+          PY
       - name: Build and inspect wheel
         run: |
           python -m build automated-cd --outdir /tmp/autocd-dist
