@@ -1979,3 +1979,38 @@ def test_checks_merge_streams_so_the_ci_local_summary_survives(
     assert "FAIL  type-check" in row["output"]
     assert "Incompatible types" in row["output"]
     assert "\x1b[" not in row["output"]
+
+
+def _published(settings, store: Store) -> None:
+    store.start("run")
+    store.add_task("run", 12, "release:Beta", "branch", settings.state_dir / "w")
+    store.head("run", 12, "f" * 40)
+    store.pr("run", 12, 88)
+    store.phase("run", 12, "ci_wait")
+
+
+def test_unresolved_threads_do_not_keep_an_owner_pr_in_draft(settings, snapshot, monkeypatch):
+    data, _ = snapshot
+    github = FakeGitHub(settings, data)
+    github.required_checks = lambda pr, state: [{"name": "CI", "state": "PASS"}]
+    github.unresolved_threads = lambda pr: 3
+    github.mark_ready_body = lambda pr, checks: None
+    monkeypatch.setattr("autocd.engine.command", lambda args, cwd: None)
+    store = Store(settings.state_dir)
+    _published(settings, store)
+    result = Engine(settings, github=github)._check_pr(store, "run", 12, 88)
+    assert result["status"] == "ready_for_owner"
+    assert store.task("run", 12)["phase"] == "ready"
+
+
+def test_automatic_merge_still_waits_on_unresolved_threads(settings, snapshot):
+    data, _ = snapshot
+    auto = replace(settings, auto_merge=True)
+    github = FakeGitHub(auto, data)
+    github.required_checks = lambda pr, state: [{"name": "CI", "state": "PASS"}]
+    github.unresolved_threads = lambda pr: 1
+    store = Store(auto.state_dir)
+    _published(auto, store)
+    result = Engine(auto, github=github)._check_pr(store, "run", 12, 88)
+    assert result["status"] not in {"ready_for_owner", "waiting_for_merge"}
+    assert store.task("run", 12)["phase"] == "ci_wait"
