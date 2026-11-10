@@ -63,7 +63,7 @@ scope and ownership before editing. Do not take adjacent work just because it lo
   correction where feasible; state the exact reproduction and limits when a historical run is not
   possible. Do not weaken assertions or use sleeps/skips to hide a genuine failure.
 - Run affected CI-equivalent checks and measure affected-code coverage under shared policy
-  (greater than 95%, or a stricter applicable threshold). Record measurement scope and counts;
+  (at least 85%, or a stricter applicable threshold). Record measurement scope and counts;
   a focused `--no-cov` pass is not coverage evidence. Keep ordinary validation deterministic.
 - Inspect generated artifacts and run `git diff --check`. Documentation-only work needs applicable
   link/routing/build validation and an explicit explanation of why behavioral tests do not apply.

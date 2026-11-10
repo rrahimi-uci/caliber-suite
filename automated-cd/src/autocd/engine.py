@@ -17,7 +17,7 @@ from datetime import UTC, date, datetime, time
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-from .agents import ClaudeAgent, untrusted_env, worker_args
+from .agents import credential_values, make_agent, untrusted_env, worker_args
 from .config import Settings
 from .diagnostics import failure_code
 from .github import GitHub, audit_commands, command, pr_ready
@@ -70,7 +70,7 @@ def _auto_retryable(code: str) -> bool:
 
 class Engine:
     def __init__(
-        self, settings: Settings, *, github: GitHub | None = None, agent_factory=ClaudeAgent
+        self, settings: Settings, *, github: GitHub | None = None, agent_factory=make_agent
     ):
         self.settings = settings
         self.github = github or GitHub(settings)
@@ -95,6 +95,7 @@ class Engine:
         scheduled: bool = False,
         exclude_issues: frozenset[int] = frozenset(),
         retry_issue: int | None = None,
+        auto_retry: bool = False,
     ) -> dict:
         if retry_issue is not None and (
             scheduled or type(retry_issue) is not int or retry_issue <= 0
@@ -102,7 +103,10 @@ class Engine:
             raise ValueError("A retry issue must be a positive number in a manual run")
         try:
             return self._run_locked(
-                scheduled=scheduled, exclude_issues=exclude_issues, retry_issue=retry_issue
+                scheduled=scheduled,
+                exclude_issues=exclude_issues,
+                retry_issue=retry_issue,
+                auto_retry=auto_retry,
             )
         except LockBusyError:
             if scheduled:
@@ -121,7 +125,12 @@ class Engine:
             }
 
     def _run_locked(
-        self, *, scheduled: bool, exclude_issues: frozenset[int], retry_issue: int | None
+        self,
+        *,
+        scheduled: bool,
+        exclude_issues: frozenset[int],
+        retry_issue: int | None,
+        auto_retry: bool = False,
     ) -> dict:
         with exclusive(self.settings.state_dir, self.settings.allow_overlapping_runs):
             store = Store(self.settings.state_dir)
@@ -130,6 +139,7 @@ class Engine:
             # Reconcile existing PRs on every minute-level tick, even after
             # today's scheduled development run has already started.
             recovered = self._recover(store)
+            recovered.extend(self._recover_merged_blocked(store))
             if store.active():
                 if retry_issue is not None:
                     raise RuntimeError(
@@ -144,7 +154,7 @@ class Engine:
                 return {"status": "already_started"}
             try:
                 return self._execute_run(
-                    store, run, schedule_day, recovered, exclude_issues, retry_issue
+                    store, run, schedule_day, recovered, exclude_issues, retry_issue, auto_retry
                 )
             except Exception as error:
                 store.fail(run, str(error)[:500])
@@ -158,7 +168,10 @@ class Engine:
         recovered: list[dict],
         exclude_issues: frozenset[int],
         retry_issue: int | None,
+        auto_retry: bool = False,
     ) -> dict:
+        # A scheduled run's refill batches keep the day's automatic retries.
+        reconcile_day = schedule_day is not None or auto_retry
         with audit_commands(lambda kind, detail: store.event(run, None, kind, detail)):
             snapshot = self.github.snapshot()
             overview = self.github.overview()
@@ -171,7 +184,7 @@ class Engine:
         attempted_today = store.attempted_since(midnight)
         branches = {branch["name"] for page in overview["branches"] for branch in page}
         if (
-            schedule_day is not None
+            reconcile_day
             and self.settings.max_auto_retries > 0
             and self._auto_reconcile(store, run, snapshot, branches, midnight)
         ):
@@ -210,7 +223,7 @@ class Engine:
             candidates = [task for task in candidates if task.issue == retry_issue]
             retry_branches[retry_issue] = previous["branch"]
             store.event(run, retry_issue, "retry_authorized", {"prior_run": previous["run_id"]})
-        elif schedule_day is not None:
+        elif reconcile_day:
             # A reviewed Todo/Ready Project transition can authorize a pre-PR
             # blocked task on the next Pacific day. Never replay a same-day
             # attempt, a published head/PR, or a branch that reappeared remotely.
@@ -355,13 +368,45 @@ class Engine:
             else:
                 # A killed edit/commit may have left side effects. Retain its
                 # worktree and audit trail for reconciliation; do not replay it.
-                store.phase(
-                    task["run_id"],
-                    task["issue"],
-                    "blocked",
-                    failure="Interrupted before PR; inspect worktree and remote state before retry",
-                )
+                reason = "Interrupted before PR; inspect worktree and remote state before retry"
+                store.phase(task["run_id"], task["issue"], "blocked", failure=reason)
+                # Keep Project truthful: the claim otherwise stays In Progress forever.
+                try:
+                    with self.mutation_lock:
+                        self.github.transition(
+                            task["target"], task["issue"], "blocked", {"reason": reason}
+                        )
+                except Exception as error:  # noqa: BLE001 - local block remains durable
+                    store.event(
+                        task["run_id"], task["issue"], "remote_block_error", str(error)[:500]
+                    )
                 results.append({"issue": task["issue"], "status": "blocked_after_interruption"})
+        return results
+
+    def _recover_merged_blocked(self, store: Store) -> list[dict]:
+        """Complete a blocked task whose PR the owner fixed and merged anyway.
+
+        CI failures, requested changes or an owner push block a published task, but
+        the owner may still merge its PR; that merge must reach Project Done.
+        """
+        results = []
+        for task in store.blocked_with_pr():
+            try:
+                state = self.github.pr_state(task["pr"])
+            except Exception as error:  # noqa: BLE001 - checked again on the next run
+                store.event(task["run_id"], task["issue"], "pr_check_error", str(error)[:500])
+                continue
+            if state.get("state") == "MERGED":
+                with audit_commands(
+                    lambda kind, detail, run_id=task["run_id"], issue_id=task["issue"]: store.event(
+                        run_id, issue_id, kind, detail
+                    )
+                ):
+                    results.append(
+                        self._reconcile_merged(
+                            store, task["run_id"], task["issue"], task["pr"], state
+                        )
+                    )
         return results
 
     def _task(self, run: str, task: Assignment, retry_branch: str | None = None) -> dict:
@@ -485,6 +530,14 @@ class Engine:
             day = datetime.now(ZoneInfo(self.settings.timezone)).date()
             midnight = datetime.combine(day, time.min, ZoneInfo(self.settings.timezone))
             spent, complete = store.model_spend_since(midnight)
+            if not complete and self.settings.unknown_call_cost_usd > 0:
+                # A call killed for a stall or timeout reports no cost. Charging it a
+                # conservative estimate keeps the guard honest without stopping every
+                # later call that day.
+                spent += self.settings.unknown_call_cost_usd * store.unknown_cost_calls_since(
+                    midnight
+                )
+                complete = True
             if self.settings.daily_budget_usd > 0:
                 if not complete:
                     raise RuntimeError("Daily Claude spend cannot be verified; stopping safely")
@@ -696,6 +749,10 @@ class Engine:
                 if not qa.get("approved") or qa.get("gaps"):
                     feedback = "QA gaps: " + json.dumps(qa.get("gaps", []))
                     continue
+                if any(secret in reviewed_patch for secret in credential_values()):
+                    # A model that could read a coordinator credential must never get
+                    # it into a pushed commit; nothing has been published yet.
+                    raise RuntimeError("Candidate contains a coordinator credential; not published")
                 store.phase(run, task.issue, "pr_open")
                 with self.mutation_lock:
                     head = self.github.commit_and_push(
@@ -709,24 +766,18 @@ class Engine:
                         worktree, f"feat: implement #{task.issue} — {task.title}", body
                     )
                 store.pr(run, task.issue, pr)
-                with self.mutation_lock:
-                    self.github.transition(
-                        task.target,
-                        task.issue,
-                        "review",
-                        {
-                            "evidence": [
-                                f"PR #{pr} at {head}; review cycle {cycle}; QA commands passed"
-                            ]
-                        },
-                    )
-                    reviewer_owner = (
-                        None if self.settings.auto_merge else self.settings.repository.split("/")[0]
-                    )
-                    reviewers = self.github.request_reviewers(worktree, pr, reviewer_owner)
-                    self.github.record_reviewers(pr, reviewers)
-                store.event(run, task.issue, "reviewer_requests", reviewers)
+                # The PR exists now: from here on the task is only ever waited on,
+                # never blocked for bookkeeping. Project/reviewer writes are retried
+                # by _check_pr until they succeed (GitHub links a new PR to its issue
+                # asynchronously, and transient API errors happen).
                 store.phase(run, task.issue, "ci_wait")
+                store.event(
+                    run,
+                    task.issue,
+                    "publish_evidence",
+                    {"evidence": f"PR #{pr} at {head}; review cycle {cycle}; QA commands passed"},
+                )
+                self._post_pr_bookkeeping(store, run, task.issue, pr)
                 return self._check_pr(store, run, task.issue, pr)
             raise RuntimeError(
                 f"Review/QA did not pass within {self.settings.max_review_cycles} cycles: {feedback[:800]}"
@@ -824,7 +875,18 @@ class Engine:
             raise RuntimeError(
                 "Unattended merge cannot change workflow or policy files: " + ", ".join(protected)
             )
-        if owned and any(not self._in_owned_paths(path, owned) for path in changed):
+        workflows = [path for path in changed if path.startswith(".github/workflows/")]
+        if workflows:
+            # The coordinator's token has no `workflow` scope, so GitHub would reject
+            # the push only after the whole review and QA spend.
+            raise RuntimeError(
+                "Developer changed a path the coordinator cannot publish: " + ", ".join(workflows)
+            )
+        # Generated served docs follow from an owned docs/backend source change.
+        if owned and any(
+            not self._in_owned_paths(path, owned) and not self._generated_docs_path(path)
+            for path in changed
+        ):
             raise RuntimeError("Developer changed a path outside the reviewed task ownership")
 
     @staticmethod
@@ -984,7 +1046,10 @@ class Engine:
             commands.append("scripts/ci-local.sh test")
         automatic_coverage = None
         uncovered_modules: list[str] = []
-        if changed_python and not any(self._coverage_command(item) for item in issue_commands):
+        threshold = self.settings.coverage_threshold
+        if changed_python and not any(
+            self._coverage_command(item, threshold) for item in issue_commands
+        ):
             tests, uncovered_modules = self._coverage_tests(worktree, changed)
             automatic_coverage = shlex.join(
                 [
@@ -996,8 +1061,11 @@ class Engine:
                     "4",
                     "--dist",
                     "loadgroup",
-                    "--cov=caliber",
+                    # Measure only the package, and print no terminal table: the
+                    # coordinator reads the JSON and reports the exact shortfall.
+                    "--cov=caliber/src/caliber",
                     "--cov-branch",
+                    "--cov-report=",
                     "-q",
                 ]
             )
@@ -1013,7 +1081,9 @@ class Engine:
                     if self.settings.worker_user:
                         os.chmod(directory, 0o733)
                     coverage_path = Path(directory) / "coverage.json"
-                    coverage_check = self._coverage_command(item) or item == automatic_coverage
+                    coverage_check = (
+                        self._coverage_command(item, threshold) or item == automatic_coverage
+                    )
                     invocation = (
                         [*args, f"--cov-report=json:{coverage_path}"] if coverage_check else args
                     )
@@ -1030,7 +1100,7 @@ class Engine:
                         env=untrusted_env(),
                     )
                     coverage = (
-                        self._coverage_evidence(coverage_path, worktree, changed)
+                        self._coverage_evidence(coverage_path, worktree, changed, threshold)
                         if coverage_check
                         else None
                     )
@@ -1086,7 +1156,7 @@ class Engine:
         The full backend suite takes over two hours on a hosted runner, longer than one
         QA command may run, so measuring changed-file coverage with it made every
         backend task time out. Coverage from a subset can only be lower than from the
-        full suite, so a pass here is still a true >95% pass. Returns ``(None, [])``
+        full suite, so a pass here is still a true threshold pass. Returns ``(None, [])``
         when a changed file is outside ``caliber/src`` (keep the full suite), and, when no
         test references any changed module, those modules so the developer adds tests.
         """
@@ -1168,7 +1238,9 @@ class Engine:
         return "\n\n".join(parts)[-8000:]
 
     @staticmethod
-    def _coverage_evidence(report: Path, worktree: Path, changed: list[str]) -> dict:
+    def _coverage_evidence(
+        report: Path, worktree: Path, changed: list[str], threshold: float = 95.0
+    ) -> dict:
         if not report.is_file():
             return {"passed": False, "summary": None, "reason": "Coverage JSON missing"}
         try:
@@ -1176,11 +1248,10 @@ class Engine:
             # coverage.py's JSON report keeps per-file counts under "summary"; only
             # "totals" is flat. Reading the file rows flat raised KeyError for every
             # real report, so each changed module failed as "Invalid coverage JSON".
+            raw = {(worktree / path).resolve(): entry for path, entry in data["files"].items()}
             files = {
-                (worktree / path).resolve(): row.get("summary", row)
-                if isinstance(row, dict)
-                else row
-                for path, row in data["files"].items()
+                path: entry.get("summary", entry) if isinstance(entry, dict) else entry
+                for path, entry in raw.items()
             }
             affected = [
                 (worktree / path).resolve()
@@ -1188,20 +1259,31 @@ class Engine:
                 if path.endswith(".py")
                 and "tests" not in Path(path).parts
                 and not Path(path).name.startswith("test_")
+                # CI's coverage config omits migrations; so does this gate.
+                and not path.startswith("caliber/src/caliber/db/migrations/")
                 and (worktree / path).is_file()
             ]
             measured = {path: files[path] for path in affected}
             totals = data["totals"]
             coverage_rows = {str(path.relative_to(worktree)): row for path, row in measured.items()}
-            for name, row in coverage_rows.items():
+            shortfalls = []
+            for path, row in measured.items():
                 denominator = row["num_statements"] + row.get("num_branches", 0)
                 numerator = row["covered_lines"] + row.get("covered_branches", 0)
-                if not denominator or numerator / denominator <= 0.95:
-                    return {
-                        "passed": False,
-                        "summary": None,
-                        "reason": f"Coverage for {name} is not greater than 95%",
-                    }
+                if not denominator or 100 * numerator / denominator < threshold:
+                    entry = raw[path] if isinstance(raw[path], dict) else {}
+                    lines = entry.get("missing_lines") or []
+                    branches = entry.get("missing_branches") or []
+                    percent = 100 * numerator / denominator if denominator else 0.0
+                    # Say by how much and where, so a developer without a shell knows
+                    # which lines and branches its tests still need to reach.
+                    shortfalls.append(
+                        f"Coverage for {path.relative_to(worktree)} is {percent:.2f}%, below "
+                        f"the {threshold:g}% threshold; missing lines {lines[:60]}; "
+                        f"missing branches {branches[:30]}"
+                    )
+            if shortfalls:
+                return {"passed": False, "summary": None, "reason": "\n".join(shortfalls)}
             return {
                 "passed": True,
                 "summary": ", ".join(
@@ -1250,7 +1332,7 @@ class Engine:
         return worker_args(self.settings.worker_user, args)
 
     @staticmethod
-    def _coverage_command(item: str) -> bool:
+    def _coverage_command(item: str, threshold: float = 95.0) -> bool:
         try:
             args = shlex.split(item)
         except ValueError:
@@ -1270,7 +1352,7 @@ class Engine:
             else:
                 continue
             try:
-                return float(value) >= 95
+                return float(value) >= threshold
             except ValueError:
                 return False
         return False
@@ -1367,11 +1449,62 @@ The coordinator verifies the exact head, branch protection, merge commit on main
 - [x] Reviewer status is reported accurately; model self-review is not independent GitHub approval.
 """
 
+    def _post_pr_bookkeeping(self, store: Store, run: str, issue: int, pr: int) -> bool:
+        """Move the Project item to In Review and record reviewers, once, retrying later.
+
+        Returns True when both writes are recorded. A failure is logged and left for
+        the next ``_check_pr`` tick; it never blocks a published PR.
+        """
+        done = {
+            json.loads(row["detail"]).get("step")
+            for row in store.db.execute(
+                "SELECT detail FROM events WHERE run_id=? AND issue=? AND kind='post_pr_step'",
+                (run, issue),
+            )
+        }
+        if {"review", "reviewers"} <= done:
+            return True
+        task = store.task(run, issue)
+        evidence_row = store.db.execute(
+            "SELECT detail FROM events WHERE run_id=? AND issue=? AND kind='publish_evidence' "
+            "ORDER BY id DESC LIMIT 1",
+            (run, issue),
+        ).fetchone()
+        evidence = (
+            json.loads(evidence_row["detail"])["evidence"]
+            if evidence_row
+            else f"PR #{pr} at {task['head']}; QA commands passed"
+        )
+        try:
+            with self.mutation_lock:
+                if "review" not in done:
+                    self.github.transition(
+                        task["target"], issue, "review", {"evidence": [evidence]}
+                    )
+                    store.event(run, issue, "post_pr_step", {"step": "review"})
+                if "reviewers" not in done:
+                    owner = (
+                        None if self.settings.auto_merge else self.settings.repository.split("/")[0]
+                    )
+                    reviewers = self.github.request_reviewers(self.settings.root, pr, owner)
+                    self.github.record_reviewers(pr, reviewers)
+                    store.event(run, issue, "reviewer_requests", reviewers)
+                    store.event(run, issue, "post_pr_step", {"step": "reviewers"})
+        except Exception as error:  # noqa: BLE001 - retried on the next PR check
+            store.event(run, issue, "post_pr_error", str(error)[:500])
+            return False
+        return True
+
     def _check_pr(self, store: Store, run: str, issue: int, pr: int) -> dict:
         try:
             state = self.github.pr_state(pr)
             task = store.task(run, issue)
             expected = task["head"]
+            if state.get("state") == "MERGED":
+                # The owner may have pushed a fix to the branch before merging; a
+                # verified merge on main completes the task whatever the head is.
+                return self._reconcile_merged(store, run, issue, pr, state)
+            self._post_pr_bookkeeping(store, run, issue, pr)
             if (
                 not expected
                 or state["headRefOid"] != expected
@@ -1385,8 +1518,6 @@ The coordinator verifies the exact head, branch protection, merge commit on main
                     failure="PR head or branch changed after review/QA; revalidate the new candidate",
                 )
                 return {"issue": issue, "status": "blocked_changed_head", "pr": state["url"]}
-            if state.get("state") == "MERGED":
-                return self._reconcile_merged(store, run, issue, pr, state)
             if state.get("state") != "OPEN":
                 store.phase(run, issue, "blocked", failure="PR closed without a verified merge")
                 return {"issue": issue, "status": "blocked_closed_pr", "pr": state["url"]}
@@ -1527,6 +1658,20 @@ The coordinator verifies the exact head, branch protection, merge commit on main
             }
         except Exception as error:  # noqa: BLE001 - preserve PR wait state and diagnostics
             store.event(run, issue, "pr_check_error", str(error)[:500])
+            # An error that never clears must not hold the PR in ci_wait forever:
+            # ci_wait counts as active work and would stop every later task.
+            phase = store.task(run, issue)["phase"]
+            started = store.phase_started(run, issue, phase)
+            if (
+                phase in {"ci_wait", "merged_unreconciled"}
+                and started
+                and (datetime.now(UTC) - started).total_seconds() > self.settings.ci_timeout_seconds
+            ):
+                reason = (
+                    f"PR #{pr} could not be checked for {self.settings.ci_timeout_seconds} seconds"
+                )
+                store.phase(run, issue, "blocked", failure=reason)
+                return {"issue": issue, "status": "blocked_pr_check_error"}
             return {"issue": issue, "status": "pr_check_error", "error": str(error)[:500]}
 
     def _reconcile_merged(self, store: Store, run: str, issue: int, pr: int, state: dict) -> dict:

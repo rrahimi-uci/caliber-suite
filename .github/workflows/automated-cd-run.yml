@@ -124,6 +124,17 @@ jobs:
           if not match or tuple(map(int, match.groups())) < (2, 1, 314):
               raise SystemExit('Claude Code >=2.1.314 is required for working-directory file-tool restrictions')
           PY
+      - name: Install Codex CLI
+        if: ${{ inputs.diagnose_state != true }}
+        run: |
+          npm install --global @openai/codex
+          python - <<'PY'
+          import re, subprocess
+          raw = subprocess.check_output(['codex', '--version'], text=True)
+          match = re.search(r'(\d+)\.(\d+)\.(\d+)', raw)
+          if not match or tuple(map(int, match.groups())) < (0, 167, 0):
+              raise SystemExit('Codex CLI >=0.167.0 is required for gpt-5.6-luna')
+          PY
       - name: Require state key
         env:
           AUTOCD_STATE_KEY: ${{ secrets.AUTOCD_STATE_KEY }}
@@ -133,9 +144,15 @@ jobs:
         env:
           AUTOCD_GH_TOKEN: ${{ secrets.AUTOCD_GH_TOKEN }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         run: |
           test -n "$AUTOCD_GH_TOKEN" || { echo 'AUTOCD_GH_TOKEN secret is required'; exit 1; }
-          test -n "$ANTHROPIC_API_KEY" || { echo 'ANTHROPIC_API_KEY secret is required'; exit 1; }
+          provider=$(python -c 'from autocd.config import load; print(load().provider)')
+          case "$provider" in
+            codex_cli) test -n "$OPENAI_API_KEY" || { echo 'OPENAI_API_KEY secret is required'; exit 1; } ;;
+            claude_cli) test -n "$ANTHROPIC_API_KEY" || { echo 'ANTHROPIC_API_KEY secret is required'; exit 1; } ;;
+            *) echo "Unknown model provider"; exit 1 ;;
+          esac
       - name: Restore coordinator state
         id: restore
         env:
@@ -206,8 +223,9 @@ jobs:
           sudo chown autocdqa:autocdqa "$AUTOCD_WORKTREE_DIR/smoke"
           sudo -E -H -u autocdqa -- env PATH="$PATH" sh -c '
             test "$HOME" = /home/autocdqa
-            command -v uv && command -v claude && command -v python3.11
+            command -v uv && command -v claude && command -v codex && command -v python3.11
             claude --version
+            codex --version
             uv venv "$1/venv" --python 3.11
           ' sh "$AUTOCD_WORKTREE_DIR/smoke"
           # Reviewer prompts exceed Linux's 128 KiB single-argument limit, so the
@@ -243,6 +261,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.AUTOCD_GH_TOKEN }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           AUTOCD_RUN_MODE: ${{ github.event_name == 'schedule' && 'schedule' || 'manual' }}
           AUTOCD_RETRY_ISSUE: ${{ inputs.retry_issue || '' }}
           AUTOCD_TRIAL_TASKS: ${{ inputs.trial_tasks || 0 }}

@@ -254,30 +254,40 @@ def test_docs_sync_is_included_before_qa_and_review(settings, snapshot, monkeypa
     assert github.created
 
 
-def test_generated_docs_still_obey_reviewed_path_ownership(settings, snapshot, monkeypatch):
+def test_generated_docs_follow_owned_sources_but_other_paths_do_not(
+    settings, snapshot, monkeypatch
+):
     data, _ = snapshot
     settings = replace(settings, issue_paths={12: frozenset({"docs/api/reference.md"})})
     github = FakeGitHub(settings, data)
-    generated = False
+    generated: list[str] = []
 
     def changed(worktree):
-        return ["docs/api/reference.md"] + (
-            ["docs-site/m-29-rest-api-reference.html"] if generated else []
-        )
+        return ["docs/api/reference.md", *generated]
 
     github.changed = changed
     engine = Engine(settings, github=github, agent_factory=FakeAgent)
 
     def sync(worktree, store, run, issue):
-        nonlocal generated
-        generated = True
+        generated.append("docs-site/m-29-rest-api-reference.html")
 
+    checked = []
     monkeypatch.setattr(engine, "_sync_generated_docs", sync)
-    monkeypatch.setattr(engine, "_checks", lambda *args: pytest.fail("QA must not run"))
-    result = engine.run()
-    assert result["results"][0]["status"] == "blocked"
-    assert "outside the reviewed task ownership" in result["results"][0]["error"]
-    assert github.created == []
+    monkeypatch.setattr(engine, "_diff", lambda _: "diff")
+    monkeypatch.setattr(
+        engine,
+        "_checks",
+        lambda issue, worktree, paths: (
+            checked.append(paths) or [{"command": "x", "passed": True, "output": ""}]
+        ),
+    )
+    assert engine.run()["results"][0]["status"] == "waiting_for_ci_or_review"
+    assert checked[0] == ["docs/api/reference.md", "docs-site/m-29-rest-api-reference.html"]
+    # A non-generated path outside ownership is still refused, as is a workflow file.
+    with pytest.raises(RuntimeError, match="outside the reviewed task ownership"):
+        engine._validate_task_paths(["docs/other.md"], frozenset({"docs/api/reference.md"}))
+    with pytest.raises(RuntimeError, match="cannot publish: .github/workflows/ci.yml"):
+        engine._validate_task_paths([".github/workflows/ci.yml"], frozenset())
 
 
 def test_qa_patch_mutation_blocks_before_review(settings, snapshot, monkeypatch):
@@ -387,13 +397,43 @@ def test_model_call_uses_remaining_daily_budget(settings, tmp_path):
     ],
 )
 def test_model_call_stops_when_daily_budget_is_not_safe(settings, cost, message, tmp_path):
-    settings = replace(settings, daily_budget_usd=30, max_budget_usd=0)
+    settings = replace(settings, daily_budget_usd=30, max_budget_usd=0, unknown_call_cost_usd=0)
     store = Store(settings.state_dir)
     assert store.start("run")
     store.event("run", None, "agent_started", {"role": "planner"})
     store.event("run", None, "agent_usage", {"role": "planner", "cost_usd": cost})
     with pytest.raises(RuntimeError, match=message):
         Engine(settings)._run_agent(store, "run", None, "planner", "{}", tmp_path)
+
+
+def test_unknown_cost_calls_are_charged_an_estimate_instead_of_stopping_the_day(settings, tmp_path):
+    settings = replace(settings, daily_budget_usd=30, max_budget_usd=0, unknown_call_cost_usd=3)
+    store = Store(settings.state_dir)
+    assert store.start("run")
+    for cost in (None, 1.5):
+        store.event("run", None, "agent_started", {"role": "developer"})
+        store.event("run", None, "agent_usage", {"role": "developer", "cost_usd": cost})
+    store.event("run", None, "agent_started", {"role": "reviewer"})  # killed, no usage
+    budgets = []
+
+    class Capture:
+        def __init__(self, call_settings, event):
+            budgets.append(call_settings.max_budget_usd)
+
+        def run(self, role, prompt, cwd, editable=False):
+            return {"selected": [], "reason": "ok"}
+
+    Engine(settings, agent_factory=Capture)._run_agent(
+        store, "run", None, "planner", "{}", tmp_path
+    )
+    # 30 - (1.5 known + 2 unknown x 3) = 22.5 left for this call.
+    assert budgets == [22.5]
+    for _ in range(8):
+        store.event("run", None, "agent_started", {"role": "developer"})
+    with pytest.raises(RuntimeError, match="budget exhausted"):
+        Engine(settings, agent_factory=Capture)._run_agent(
+            store, "run2", None, "planner", "{}", tmp_path
+        )
 
 
 def test_ready_task_uses_standard_checks_without_issue_override(settings, snapshot):
@@ -798,12 +838,14 @@ def test_coverage_command_rejects_weak_or_malformed_gates():
     assert Engine._coverage_command("python -m pytest tests --cov=app --cov-fail-under=95")
     assert Engine._coverage_command("pytest tests --cov app --cov-fail-under 96")
     assert not Engine._coverage_command("pytest tests --cov=app --cov-fail-under=94")
+    assert Engine._coverage_command("pytest tests --cov=app --cov-fail-under=85", 85)
+    assert not Engine._coverage_command("pytest tests --cov=app --cov-fail-under=84", 85)
     assert not Engine._coverage_command("python -m pytest tests --cov=app")
     assert not Engine._coverage_command("echo pytest --cov=app --cov-fail-under=oops")
     assert not Engine._coverage_command("pytest 'unterminated")
 
 
-def test_coverage_requires_each_changed_production_file_over_95_percent(tmp_path: Path):
+def test_coverage_requires_each_changed_production_file_to_meet_the_threshold(tmp_path: Path):
     source = tmp_path / "src" / "changed.py"
     source.parent.mkdir()
     source.write_text("x = 1\n")
@@ -813,21 +855,24 @@ def test_coverage_requires_each_changed_production_file_over_95_percent(tmp_path
             {
                 "totals": {"num_statements": 1000, "covered_lines": 990},
                 "files": {
-                    "src/changed.py": {"num_statements": 100, "covered_lines": 95},
+                    "src/changed.py": {"num_statements": 100, "covered_lines": 84},
                     "src/unrelated.py": {"num_statements": 900, "covered_lines": 895},
                 },
             }
         )
     )
-    evidence = Engine._coverage_evidence(report, tmp_path, ["src/changed.py"])
+    evidence = Engine._coverage_evidence(report, tmp_path, ["src/changed.py"], 85)
     assert not evidence["passed"] and "changed.py" in evidence["reason"]
+    assert "below the 85% threshold" in evidence["reason"]
     data = json.loads(report.read_text())
     data["files"].pop("src/changed.py")
     report.write_text(json.dumps(data))
-    assert not Engine._coverage_evidence(report, tmp_path, ["src/changed.py"])["passed"]
-    data["files"]["src/changed.py"] = {"num_statements": 100, "covered_lines": 96}
+    assert not Engine._coverage_evidence(report, tmp_path, ["src/changed.py"], 85)["passed"]
+    data["files"]["src/changed.py"] = {"num_statements": 100, "covered_lines": 85}
     report.write_text(json.dumps(data))
-    assert Engine._coverage_evidence(report, tmp_path, ["src/changed.py"])["passed"]
+    assert Engine._coverage_evidence(report, tmp_path, ["src/changed.py"], 85)["passed"]
+    # The default keeps the stricter historical gate for callers that pass none.
+    assert not Engine._coverage_evidence(report, tmp_path, ["src/changed.py"])["passed"]
 
 
 def test_checks_use_standard_fallback_or_fail_missing_executable(settings, tmp_path: Path):
@@ -2066,7 +2111,15 @@ def test_coverage_evidence_reads_a_real_coverage_py_report(tmp_path: Path):
         check=False,
     )
     weak = Engine._coverage_evidence(report, tmp_path, ["caliber/src/pkg/mod.py"])
-    assert not weak["passed"] and "not greater than 95%" in weak["reason"]
+    assert not weak["passed"] and "below the 95% threshold" in weak["reason"]
+    assert "missing lines [4]" in weak["reason"] and "missing branches [[2, 4]]" in weak["reason"]
+    migration = tmp_path / "caliber/src/caliber/db/migrations/0001_x.py"
+    migration.parent.mkdir(parents=True)
+    migration.write_text("x = 1\n")
+    skipped = Engine._coverage_evidence(
+        report, tmp_path, ["caliber/src/caliber/db/migrations/0001_x.py"]
+    )
+    assert skipped["passed"], skipped
 
 
 class _FixLoopAgent(FakeAgent):
@@ -2399,3 +2452,172 @@ def test_release_claim_unassigns_and_resets_status(settings, monkeypatch):
     ]
     with pytest.raises(CommandError):
         GitHub(settings).release_claim({**snap, "items": []}, 12, "rrahimi-uci")
+
+
+def test_candidate_containing_a_coordinator_credential_is_never_published(
+    settings, snapshot, monkeypatch
+):
+    data, _ = snapshot
+    settings = replace(settings, max_review_cycles=1)
+    github = FakeGitHub(settings, data)
+    pushed = []
+    github.commit_and_push = lambda *a: pushed.append(a) or "f" * 40
+
+    class Approve(FakeAgent):
+        def run(self, role, prompt, cwd, editable=False):
+            if role == "reviewer":
+                return {"approved": True, "findings": []}
+            return super().run(role, prompt, cwd, editable)
+
+    monkeypatch.setenv("OPENAI_API_KEY", "ssssssssssssssssssss")
+    engine = Engine(settings, github=github, agent_factory=Approve)
+    monkeypatch.setattr(engine, "_diff", lambda _: "+ key = 'ssssssssssssssssssss'")
+    monkeypatch.setattr(
+        engine, "_checks", lambda *a: [{"command": "pytest", "passed": True, "output": ""}]
+    )
+    Store(settings.state_dir).start("run")
+    task = Assignment(
+        12,
+        "Task 12",
+        "contract",
+        "release:Beta",
+        frozenset({"src/task.py", "tests/test_task.py"}),
+        1,
+    )
+    error = engine._task("run", task)["error"]
+    assert error == "Candidate contains a coordinator credential; not published"
+    assert pushed == [] and github.created == []
+
+
+def _published_task(settings, store, phase="ci_wait"):
+    store.start("run")
+    store.add_task("run", 12, "release:Beta", "branch", settings.state_dir / "w")
+    store.head("run", 12, "f" * 40)
+    store.pr("run", 12, 88)
+    store.phase("run", 12, phase)
+
+
+def test_post_pr_bookkeeping_failure_never_blocks_and_is_retried(settings, snapshot):
+    data, _ = snapshot
+    github = FakeGitHub(settings, data)
+    attempts = []
+
+    def flaky(target, issue, phase, payload):
+        attempts.append(phase)
+        if len(attempts) == 1:
+            raise RuntimeError("PR not linked yet")
+        github.transitions.append((issue, phase, payload))
+
+    github.transition = flaky
+    engine = Engine(settings, github=github)
+    store = Store(settings.state_dir)
+    _published_task(settings, store)
+    store.event("run", 12, "publish_evidence", {"evidence": "PR #88 at fff; QA passed"})
+    assert engine._post_pr_bookkeeping(store, "run", 12, 88) is False
+    assert store.task("run", 12)["phase"] == "ci_wait"
+    assert store.db.execute("SELECT 1 FROM events WHERE kind='post_pr_error'").fetchone()
+    # The next PR check retries and completes both steps exactly once.
+    engine._check_pr(store, "run", 12, 88)
+    assert github.transitions[-1][1] == "review"
+    assert github.transitions[-1][2] == {"evidence": ["PR #88 at fff; QA passed"]}
+    assert github.reviewers == [(88, "rrahimi-uci")]
+    assert engine._post_pr_bookkeeping(store, "run", 12, 88) is True
+    assert attempts == ["review", "review"] and len(github.reviewers) == 1
+
+
+def test_post_pr_bookkeeping_without_recorded_evidence(settings, snapshot):
+    data, _ = snapshot
+    github = FakeGitHub(settings, data)
+    store = Store(settings.state_dir)
+    _published_task(settings, store)
+    assert Engine(settings, github=github)._post_pr_bookkeeping(store, "run", 12, 88)
+    assert "PR #88 at " in github.transitions[-1][2]["evidence"][0]
+
+
+def test_merged_pr_completes_even_after_the_owner_changed_the_head(settings, snapshot):
+    data, _ = snapshot
+    github = FakeGitHub(settings, data)
+    github.pr_status = "MERGED"
+    reconciled = []
+    engine = Engine(settings, github=github)
+    engine._reconcile_merged = lambda store, run, issue, pr, state: (
+        reconciled.append(pr) or {"issue": issue, "status": "done"}
+    )
+    store = Store(settings.state_dir)
+    _published_task(settings, store)
+    store.head("run", 12, "a" * 40)  # the owner pushed a fix before merging
+    assert engine._check_pr(store, "run", 12, 88)["status"] == "done"
+    assert reconciled == [88]
+
+
+def test_persistent_pr_check_error_times_out_instead_of_stalling(settings, snapshot, monkeypatch):
+    data, _ = snapshot
+    settings = replace(settings, ci_timeout_seconds=60)
+    github = FakeGitHub(settings, data)
+
+    def broken(pr):
+        raise RuntimeError("HTTP 504")
+
+    github.pr_state = broken
+    engine = Engine(settings, github=github)
+    store = Store(settings.state_dir)
+    _published_task(settings, store)
+    assert engine._check_pr(store, "run", 12, 88)["status"] == "pr_check_error"
+    assert store.task("run", 12)["phase"] == "ci_wait"
+    from datetime import timedelta
+
+    monkeypatch.setattr(
+        store, "phase_started", lambda *a: datetime.now(UTC) - timedelta(seconds=120)
+    )
+    assert engine._check_pr(store, "run", 12, 88)["status"] == "blocked_pr_check_error"
+    assert store.task("run", 12)["phase"] == "blocked"
+    assert store.active() == []
+
+
+def test_interrupted_task_is_marked_blocked_in_project_too(settings, snapshot):
+    data, _ = snapshot
+    github = FakeGitHub(settings, data)
+    engine = Engine(settings, github=github)
+    store = Store(settings.state_dir)
+    store.start("run")
+    store.add_task("run", 12, "release:Beta", "branch", settings.state_dir / "w")
+    store.phase("run", 12, "developing")
+    assert engine._recover(store) == [{"issue": 12, "status": "blocked_after_interruption"}]
+    assert github.transitions[-1][:2] == (12, "blocked")
+
+    def refuse(*a):
+        raise RuntimeError("helper refused")
+
+    github.transition = refuse
+    store.start("run2")
+    store.add_task("run2", 13, "release:Beta", "branch2", settings.state_dir / "w2")
+    store.phase("run2", 13, "qa")
+    engine._recover(store)
+    assert store.db.execute("SELECT 1 FROM events WHERE kind='remote_block_error'").fetchone()
+
+
+def test_blocked_task_whose_pr_the_owner_merged_reaches_done(settings, snapshot):
+    data, _ = snapshot
+    github = FakeGitHub(settings, data)
+    engine = Engine(settings, github=github)
+    done = []
+    engine._reconcile_merged = lambda store, run, issue, pr, state: (
+        done.append((run, issue, pr)) or {"issue": issue, "status": "done"}
+    )
+    store = Store(settings.state_dir)
+    _published_task(settings, store, phase="blocked")
+    assert engine._recover_merged_blocked(store) == []  # still open: left alone
+    github.pr_status = "MERGED"
+    assert engine._recover_merged_blocked(store) == [{"issue": 12, "status": "done"}]
+    assert done == [("run", 12, 88)]
+
+    def broken(pr):
+        raise RuntimeError("HTTP 502")
+
+    github.pr_state = broken
+    assert engine._recover_merged_blocked(store) == []
+    assert store.db.execute("SELECT 1 FROM events WHERE kind='pr_check_error'").fetchone()
+    # A newer attempt for the issue supersedes the old blocked one.
+    store.start("run2")
+    store.add_task("run2", 12, "release:Beta", "branch2", settings.state_dir / "w2")
+    assert store.blocked_with_pr() == []

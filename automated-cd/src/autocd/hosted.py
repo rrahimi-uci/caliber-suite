@@ -44,7 +44,19 @@ def _public_result(value: dict) -> dict:
     return safe
 
 
-def run_hosted(mode: str, *, max_seconds: int = 18_000, poll_seconds: int = 60) -> None:
+def run_hosted(
+    mode: str,
+    *,
+    max_seconds: int = 16_800,
+    poll_seconds: int = 60,
+    refill_seconds: int = 10_800,
+) -> None:
+    """Start, monitor and refill within the job's time.
+
+    ``max_seconds`` (280 min) stays below the workflow's 300-minute step timeout,
+    and a new batch starts only with ``refill_seconds`` (3 h, a worst-case task)
+    left, so a task is never killed mid-flight by the runner.
+    """
     if mode not in {"schedule", "manual"}:
         raise ValueError("AUTOCD_RUN_MODE must be schedule or manual")
     retry_raw = os.environ.get("AUTOCD_RETRY_ISSUE", "").strip()
@@ -122,11 +134,14 @@ def run_hosted(mode: str, *, max_seconds: int = 18_000, poll_seconds: int = 60) 
             if (
                 not can_refill
                 or len(attempted) >= max_attempts
-                or time.monotonic() + poll_seconds >= deadline
+                or time.monotonic() + max(poll_seconds, refill_seconds) >= deadline
             ):
                 finish()
                 return
-            result = engine.run(scheduled=False, exclude_issues=frozenset(attempted))
+            refill_options: dict = {"scheduled": False, "exclude_issues": frozenset(attempted)}
+            if mode == "schedule":
+                refill_options["auto_retry"] = True
+            result = engine.run(**refill_options)
             print(json.dumps({"refill": _public_result(result)}, sort_keys=True), flush=True)
             record(result)
             selected = set(result.get("selected", []))

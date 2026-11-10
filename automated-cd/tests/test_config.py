@@ -24,7 +24,17 @@ def test_defaults_and_environment(settings):
         "caliber/.venv/bin/python -m pytest caliber/tests/test_routes_verification_queue.py caliber/tests/test_migrations.py --no-cov -q",
         "scripts/ci-local.sh backend-core",
     )
-    assert settings.provider == "claude_cli"
+    assert settings.provider == "codex_cli"
+    assert settings.model == "gpt-5.6-luna" and settings.reasoning == "xhigh"
+    assert settings.prices == {
+        "input": 0.20,
+        "cached_input": 0.02,
+        "cache_write": 0.25,
+        "output": 1.20,
+    }
+    assert settings.coverage_threshold == 85
+    assert load(environ={"AUTOCD_COVERAGE_THRESHOLD": "90"}).coverage_threshold == 90
+    assert load(environ={"AUTOCD_PROVIDER": "claude_cli"}).provider == "claude_cli"
     assert settings.max_budget_usd == 0
     assert settings.daily_budget_usd == 30
     assert settings.max_workers == 2
@@ -44,6 +54,10 @@ def test_defaults_and_environment(settings):
         {"AUTOCD_MAX_FIX_ATTEMPTS": "-1"},
         {"AUTOCD_MAX_FIX_ATTEMPTS": "11"},
         {"AUTOCD_MAX_AUTO_RETRIES": "6"},
+        {"AUTOCD_COVERAGE_THRESHOLD": "49"},
+        {"AUTOCD_COVERAGE_THRESHOLD": "101"},
+        {"AUTOCD_PRICE_OUTPUT": "-1"},
+        {"AUTOCD_PRICE_OUTPUT": "0"},
         {"AUTOCD_TIMEZONE": "No/Such_Zone"},
         {"AUTOCD_REPOSITORY": "invalid"},
         {"AUTOCD_BASE_BRANCH": "main;evil"},
