@@ -2469,9 +2469,9 @@ def test_candidate_containing_a_coordinator_credential_is_never_published(
                 return {"approved": True, "findings": []}
             return super().run(role, prompt, cwd, editable)
 
-    monkeypatch.setenv("OPENAI_API_KEY", "sk-fake-livesecret0123456789")
+    monkeypatch.setenv("OPENAI_API_KEY", "ssssssssssssssssssss")
     engine = Engine(settings, github=github, agent_factory=Approve)
-    monkeypatch.setattr(engine, "_diff", lambda _: "+ key = 'sk-fake-livesecret0123456789'")
+    monkeypatch.setattr(engine, "_diff", lambda _: "+ key = 'ssssssssssssssssssss'")
     monkeypatch.setattr(
         engine, "_checks", lambda *a: [{"command": "pytest", "passed": True, "output": ""}]
     )
