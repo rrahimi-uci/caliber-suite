@@ -798,12 +798,14 @@ def test_coverage_command_rejects_weak_or_malformed_gates():
     assert Engine._coverage_command("python -m pytest tests --cov=app --cov-fail-under=95")
     assert Engine._coverage_command("pytest tests --cov app --cov-fail-under 96")
     assert not Engine._coverage_command("pytest tests --cov=app --cov-fail-under=94")
+    assert Engine._coverage_command("pytest tests --cov=app --cov-fail-under=85", 85)
+    assert not Engine._coverage_command("pytest tests --cov=app --cov-fail-under=84", 85)
     assert not Engine._coverage_command("python -m pytest tests --cov=app")
     assert not Engine._coverage_command("echo pytest --cov=app --cov-fail-under=oops")
     assert not Engine._coverage_command("pytest 'unterminated")
 
 
-def test_coverage_requires_each_changed_production_file_over_95_percent(tmp_path: Path):
+def test_coverage_requires_each_changed_production_file_to_meet_the_threshold(tmp_path: Path):
     source = tmp_path / "src" / "changed.py"
     source.parent.mkdir()
     source.write_text("x = 1\n")
@@ -813,21 +815,24 @@ def test_coverage_requires_each_changed_production_file_over_95_percent(tmp_path
             {
                 "totals": {"num_statements": 1000, "covered_lines": 990},
                 "files": {
-                    "src/changed.py": {"num_statements": 100, "covered_lines": 95},
+                    "src/changed.py": {"num_statements": 100, "covered_lines": 84},
                     "src/unrelated.py": {"num_statements": 900, "covered_lines": 895},
                 },
             }
         )
     )
-    evidence = Engine._coverage_evidence(report, tmp_path, ["src/changed.py"])
+    evidence = Engine._coverage_evidence(report, tmp_path, ["src/changed.py"], 85)
     assert not evidence["passed"] and "changed.py" in evidence["reason"]
+    assert "below the 85% threshold" in evidence["reason"]
     data = json.loads(report.read_text())
     data["files"].pop("src/changed.py")
     report.write_text(json.dumps(data))
-    assert not Engine._coverage_evidence(report, tmp_path, ["src/changed.py"])["passed"]
-    data["files"]["src/changed.py"] = {"num_statements": 100, "covered_lines": 96}
+    assert not Engine._coverage_evidence(report, tmp_path, ["src/changed.py"], 85)["passed"]
+    data["files"]["src/changed.py"] = {"num_statements": 100, "covered_lines": 85}
     report.write_text(json.dumps(data))
-    assert Engine._coverage_evidence(report, tmp_path, ["src/changed.py"])["passed"]
+    assert Engine._coverage_evidence(report, tmp_path, ["src/changed.py"], 85)["passed"]
+    # The default keeps the stricter historical gate for callers that pass none.
+    assert not Engine._coverage_evidence(report, tmp_path, ["src/changed.py"])["passed"]
 
 
 def test_checks_use_standard_fallback_or_fail_missing_executable(settings, tmp_path: Path):
@@ -2066,7 +2071,15 @@ def test_coverage_evidence_reads_a_real_coverage_py_report(tmp_path: Path):
         check=False,
     )
     weak = Engine._coverage_evidence(report, tmp_path, ["caliber/src/pkg/mod.py"])
-    assert not weak["passed"] and "not greater than 95%" in weak["reason"]
+    assert not weak["passed"] and "below the 95% threshold" in weak["reason"]
+    assert "missing lines [4]" in weak["reason"] and "missing branches [[2, 4]]" in weak["reason"]
+    migration = tmp_path / "caliber/src/caliber/db/migrations/0001_x.py"
+    migration.parent.mkdir(parents=True)
+    migration.write_text("x = 1\n")
+    skipped = Engine._coverage_evidence(
+        report, tmp_path, ["caliber/src/caliber/db/migrations/0001_x.py"]
+    )
+    assert skipped["passed"], skipped
 
 
 class _FixLoopAgent(FakeAgent):
@@ -2399,3 +2412,38 @@ def test_release_claim_unassigns_and_resets_status(settings, monkeypatch):
     ]
     with pytest.raises(CommandError):
         GitHub(settings).release_claim({**snap, "items": []}, 12, "rrahimi-uci")
+
+
+def test_candidate_containing_a_coordinator_credential_is_never_published(
+    settings, snapshot, monkeypatch
+):
+    data, _ = snapshot
+    settings = replace(settings, max_review_cycles=1)
+    github = FakeGitHub(settings, data)
+    pushed = []
+    github.commit_and_push = lambda *a: pushed.append(a) or "f" * 40
+
+    class Approve(FakeAgent):
+        def run(self, role, prompt, cwd, editable=False):
+            if role == "reviewer":
+                return {"approved": True, "findings": []}
+            return super().run(role, prompt, cwd, editable)
+
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-live-secret-value-0123456789")
+    engine = Engine(settings, github=github, agent_factory=Approve)
+    monkeypatch.setattr(engine, "_diff", lambda _: "+ key = 'sk-live-secret-value-0123456789'")
+    monkeypatch.setattr(
+        engine, "_checks", lambda *a: [{"command": "pytest", "passed": True, "output": ""}]
+    )
+    Store(settings.state_dir).start("run")
+    task = Assignment(
+        12,
+        "Task 12",
+        "contract",
+        "release:Beta",
+        frozenset({"src/task.py", "tests/test_task.py"}),
+        1,
+    )
+    error = engine._task("run", task)["error"]
+    assert error == "Candidate contains a coordinator credential; not published"
+    assert pushed == [] and github.created == []

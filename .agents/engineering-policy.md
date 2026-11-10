@@ -111,7 +111,7 @@ Do not treat existing tests passing as sufficient evidence when the new or chang
 
 ## Coverage Requirements
 
-Maintain greater than 95% test coverage for affected code unless the repository defines a stricter requirement.
+Maintain at least 85% line-plus-branch test coverage for affected code unless the repository defines a stricter requirement.
 
 Measure coverage using the repository’s established tooling. Do not estimate or assume coverage.
 

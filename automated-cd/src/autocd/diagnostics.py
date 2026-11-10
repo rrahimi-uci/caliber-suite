@@ -111,6 +111,7 @@ _JOB = re.compile(r"[a-z][a-z0-9-]{0,30}")
 _CHECK_REASONS = (
     ("QA command timed out", "timeout"),
     ("is not greater than 95%", "coverage_threshold"),
+    ("% threshold", "coverage_threshold"),
     ("Coverage JSON missing", "coverage_missing"),
     ("Invalid coverage JSON", "coverage_invalid"),
     ("Required CI parity job was skipped", "parity_skipped"),

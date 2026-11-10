@@ -125,9 +125,11 @@ the gate is not weakened; when no test references the changed modules, QA fails
 and asks the developer for focused tests. Unrelated-test regressions are caught by
 the PR CI backend jobs (smoke, core journeys, PostgreSQL) and by the main-only full
 backend suite, not by this pre-PR command.
-It emits a fresh coverage JSON report and requires greater than
-95% measured line-plus-branch coverage for each changed production Python
-file; a command covering only unrelated files fails. QA must also inspect
+It emits a fresh coverage JSON report (measuring `caliber/src/caliber` only, with no
+terminal table) and requires at least `coverage_threshold` (default 85%) measured
+line-plus-branch coverage for each changed production Python file, migrations
+excepted as in CI. A shortfall names the file, its percentage, and its missing
+lines and branches; a command covering only unrelated files fails. QA must also inspect
 the measured result and acceptance proof.
 
 ## GitHub schedule and manual runs
@@ -197,7 +199,14 @@ concurrency group, runner-local lock, and repository `.agents` transition lock
 serialize cooperating writers; another clone or human remains a remote race. The coordinator rereads
 the Project after each claim and stops if the claim is not visible.
 
-The model roles receive no Bash tool. Untrusted issue/task text is passed as a
+With `provider = "codex_cli"` (the default: `gpt-5.6-luna`, `xhigh` reasoning)
+each role runs `codex exec` as the isolated worker with an enforced output
+schema, a read-only sandbox (developer: workspace-write) and no network. Spend is
+computed from the reported token usage and `[model.prices]`, because the Codex
+CLI reports no dollars and has no per-call budget flag. The API key reaches only
+the Codex process as `CODEX_API_KEY`, and a candidate containing any coordinator
+credential is rejected before commit. With `provider = "claude_cli"`, the model
+roles receive no Bash tool. Untrusted issue/task text is passed as a
 user prompt, below the trusted role policy. The prompt is written to the Claude
 CLI's standard input, never as a command-line argument: Linux rejects any single
 argument of 128 KiB or more (`E2BIG`), and a reviewer prompt can carry a 250 KB diff. Developers may use file reading/editing

@@ -34,16 +34,23 @@ flowchart TD
 ```
 
 The hosted job refills: after a task finishes or blocks, it plans again until
-the daily Done target, the backlog, the daily attempt cap, the Claude budget or
+the daily Done target, the backlog, the daily attempt cap, the model budget or
 the runner time limit is reached. A PR waiting only for the owner's merge does
 not hold up new tasks.
 
 ## Development loop
 
-The developer role has no shell. This is deliberate: its Claude process holds the
-model API key, and any command or test it could run would execute as the same
-user and could read that key. So the coordinator runs every check, as the
-isolated `autocdqa` worker with a keyless environment, and hands the results back.
+Model roles run through the Codex CLI by default (`gpt-5.6-luna`, `xhigh`
+reasoning). Codex sandboxes every command the model runs: read-only for the
+planner, reviewer and QA, workspace-write for the developer, and no network for
+any of them. That lets the developer run focused tests, ruff and mypy before it
+hands off. The API key is passed only to the Codex process as `CODEX_API_KEY`.
+Before anything is committed, the coordinator rejects a candidate that contains
+any coordinator credential, so a key read inside the sandbox cannot leave through
+a pushed commit. The coordinator still runs every check itself, as the isolated
+`autocdqa` worker with a keyless environment, and hands the results back. With
+the Claude Code provider, the developer has no shell, and that loop is its only
+feedback.
 
 - **Normalize.** Before any check, the coordinator applies mechanical formatting
   to the changed files: `ruff check --fix` and `ruff format` on changed Python,
@@ -55,7 +62,8 @@ isolated `autocdqa` worker with a keyless environment, and hands the results bac
   - the `.agents` checks;
   - `scripts/ci-local.sh docs-validation lint type-check test-smoke`;
   - any issue-specific commands;
-  - >95% line-plus-branch coverage of each changed production module, measured
+  - at least `coverage_threshold` (85%) line-plus-branch coverage of each changed
+    production module (missing lines and branches reported), measured
     by the backend tests that import it.
 
   Output is captured as one chronological stream. For `ci-local`, the evidence
@@ -109,8 +117,9 @@ human. The owner can always reconcile by hand and dispatch `retry_issue`.
 
 ## Controls
 
-- **Budget.** A Pacific-day aggregate Claude spend guard (`daily_budget_usd`).
-  Each call's CLI budget is capped at what remains. A started call with no
+- **Budget.** A Pacific-day aggregate model spend guard (`daily_budget_usd`); Codex spend is computed from token usage and `[model.prices]`.
+  It is checked before every call (Claude Code calls are also capped at what
+  remains; Codex has no per-call cap). A started call with no
   reported cost stops further calls that day (`budget_unverifiable`).
 - **Isolation.** Model roles and every QA command run as the unprivileged
   `autocdqa` user, in a per-task worktree, without coordinator credentials. The

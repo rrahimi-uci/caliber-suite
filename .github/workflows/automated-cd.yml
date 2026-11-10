@@ -118,6 +118,43 @@ jobs:
               result = ClaudeAgent(settings, lambda *a: None).run('reviewer', 'x' * 400_000, Path(cwd))
           assert result == {'approved': True, 'findings': []}, result
           PY
+      - name: Smoke test a large Codex prompt through the isolated worker
+        env:
+          AUTOCD_REPO_ROOT: ${{ github.workspace }}
+          AUTOCD_STATE_DIR: ${{ runner.temp }}/private-autocd-state
+          AUTOCD_WORKTREE_DIR: /tmp/autocd-smoke-worktrees-${{ github.run_id }}
+          AUTOCD_WORKER_USER: autocdqa
+          OPENAI_API_KEY: sk-smoke-not-a-real-key-0000
+        run: |
+          # The Codex adapter must reach the worker over sudo with the prompt on stdin,
+          # a worker-readable output schema, and the key only as CODEX_API_KEY.
+          fakebin=$(mktemp -d /tmp/autocd-fakebin-XXXXXX)
+          chmod 755 "$fakebin"
+          cat > "$fakebin/codex" <<'SH'
+          #!/bin/sh
+          bytes=$(wc -c)
+          [ "$bytes" -ge 400000 ] || { echo "stdin carried $bytes bytes" >&2; exit 3; }
+          [ "$(id -un)" = autocdqa ] || { echo "not the worker" >&2; exit 4; }
+          [ -n "$CODEX_API_KEY" ] && [ -z "$OPENAI_API_KEY" ] || { echo "key handling" >&2; exit 5; }
+          schema=$(printf '%s\n' "$@" | sed -n '/^--output-schema$/{n;p}')
+          test -r "$schema" || { echo "schema unreadable" >&2; exit 6; }
+          printf '%s\n' '{"type":"item.completed","item":{"type":"agent_message","text":"{\"approved\":true,\"findings\":[]}"}}'
+          printf '%s\n' '{"type":"turn.completed","usage":{"input_tokens":10,"cached_input_tokens":0,"output_tokens":5}}'
+          SH
+          chmod 755 "$fakebin/codex"
+          PATH="$fakebin:$PATH" python - <<'PY'
+          import os, tempfile
+          from dataclasses import replace
+          from pathlib import Path
+          from autocd.agents import CodexAgent
+          from autocd.config import load
+          settings = replace(load(), provider='codex_cli')
+          assert settings.worker_user == 'autocdqa', settings.worker_user
+          with tempfile.TemporaryDirectory(dir='/tmp') as cwd:
+              os.chmod(cwd, 0o755)
+              result = CodexAgent(settings, lambda *a: None).run('reviewer', 'x' * 400_000, Path(cwd))
+          assert result == {'approved': True, 'findings': []}, result
+          PY
       - name: Build and inspect wheel
         run: |
           python -m build automated-cd --outdir /tmp/autocd-dist

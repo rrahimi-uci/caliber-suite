@@ -34,12 +34,13 @@ worker_user = ""
 issue_allowlist = []
 
 [model]
-provider = "claude_cli"
-# The Sonnet alias selects the installed Claude Code CLI's current Sonnet. Pin a
-# specific model ID here after verifying that it is available in the host account.
-name = "sonnet"
-reasoning = "high"
-# Per-call override; zero lets the daily cap determine each call's remaining budget.
+# codex_cli runs `codex exec` with OPENAI_API_KEY; claude_cli runs Claude Code.
+provider = "codex_cli"
+name = "gpt-5.6-luna"
+# GPT-5.6 Luna accepts none, low, medium, high, xhigh and max.
+reasoning = "xhigh"
+# Claude Code only: per-call cap; zero lets the daily cap bound each call. Codex
+# has no per-call budget flag, so its spend is checked before every call.
 max_budget_usd = 0.0
 # Pacific-calendar-day cap across planner, developer, reviewer and QA calls.
 # Zero disables the aggregate cap.
@@ -47,7 +48,19 @@ daily_budget_usd = 30.0
 temperature = "default"
 max_output_tokens = 0
 
+[model.prices]
+# USD per million tokens, used to turn Codex token usage into spend for the daily
+# guard. gpt-5.6-luna standard short-context rates (developers.openai.com/api/docs/pricing,
+# 2026-11-10); prompts above 272K input tokens bill higher, so the guard is a floor.
+input = 0.20
+cached_input = 0.02
+cache_write = 0.25
+output = 1.20
+
 [checks]
+# Minimum line-plus-branch coverage (%) of each changed production Python module,
+# measured by the backend tests that import it.
+coverage_threshold = 85
 # Commands run in each isolated task worktree. Add task-specific commands via
 # issue_checks below; no command is silently skipped after it is selected.
 setup = ["uv venv --seed caliber/.venv --python 3.11", "caliber/.venv/bin/python -m pip --version", "uv pip install --python caliber/.venv/bin/python -e caliber[dev,postgres,ingest,ocr,llm,knowledge,dspy,knowledge-local,memory]"]
@@ -63,6 +76,8 @@ required = ["Gate execution ledger"]
 # The D5 recovery audit must run its PostgreSQL barrier scenarios. The hosted job provides a
 # PostgreSQL service container (CALIBER_CI_LOCAL_POSTGRES_URL) that these jobs use without Docker.
 "1144" = ["scripts/ci-local.sh egi-scenarios-postgres migration-parity-postgres"]
+# #1181 requires executed (not skipped) PostgreSQL EGI scenario evidence.
+"1181" = ["scripts/ci-local.sh egi-scenarios-postgres"]
 # "123" = ["python -m pytest path/to/affected/tests -q"]
 
 [issue_paths]

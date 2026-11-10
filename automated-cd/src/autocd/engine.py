@@ -17,7 +17,7 @@ from datetime import UTC, date, datetime, time
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-from .agents import ClaudeAgent, untrusted_env, worker_args
+from .agents import credential_values, make_agent, untrusted_env, worker_args
 from .config import Settings
 from .diagnostics import failure_code
 from .github import GitHub, audit_commands, command, pr_ready
@@ -70,7 +70,7 @@ def _auto_retryable(code: str) -> bool:
 
 class Engine:
     def __init__(
-        self, settings: Settings, *, github: GitHub | None = None, agent_factory=ClaudeAgent
+        self, settings: Settings, *, github: GitHub | None = None, agent_factory=make_agent
     ):
         self.settings = settings
         self.github = github or GitHub(settings)
@@ -696,6 +696,10 @@ class Engine:
                 if not qa.get("approved") or qa.get("gaps"):
                     feedback = "QA gaps: " + json.dumps(qa.get("gaps", []))
                     continue
+                if any(secret in reviewed_patch for secret in credential_values()):
+                    # A model that could read a coordinator credential must never get
+                    # it into a pushed commit; nothing has been published yet.
+                    raise RuntimeError("Candidate contains a coordinator credential; not published")
                 store.phase(run, task.issue, "pr_open")
                 with self.mutation_lock:
                     head = self.github.commit_and_push(
@@ -984,7 +988,10 @@ class Engine:
             commands.append("scripts/ci-local.sh test")
         automatic_coverage = None
         uncovered_modules: list[str] = []
-        if changed_python and not any(self._coverage_command(item) for item in issue_commands):
+        threshold = self.settings.coverage_threshold
+        if changed_python and not any(
+            self._coverage_command(item, threshold) for item in issue_commands
+        ):
             tests, uncovered_modules = self._coverage_tests(worktree, changed)
             automatic_coverage = shlex.join(
                 [
@@ -996,8 +1003,11 @@ class Engine:
                     "4",
                     "--dist",
                     "loadgroup",
-                    "--cov=caliber",
+                    # Measure only the package, and print no terminal table: the
+                    # coordinator reads the JSON and reports the exact shortfall.
+                    "--cov=caliber/src/caliber",
                     "--cov-branch",
+                    "--cov-report=",
                     "-q",
                 ]
             )
@@ -1013,7 +1023,9 @@ class Engine:
                     if self.settings.worker_user:
                         os.chmod(directory, 0o733)
                     coverage_path = Path(directory) / "coverage.json"
-                    coverage_check = self._coverage_command(item) or item == automatic_coverage
+                    coverage_check = (
+                        self._coverage_command(item, threshold) or item == automatic_coverage
+                    )
                     invocation = (
                         [*args, f"--cov-report=json:{coverage_path}"] if coverage_check else args
                     )
@@ -1030,7 +1042,7 @@ class Engine:
                         env=untrusted_env(),
                     )
                     coverage = (
-                        self._coverage_evidence(coverage_path, worktree, changed)
+                        self._coverage_evidence(coverage_path, worktree, changed, threshold)
                         if coverage_check
                         else None
                     )
@@ -1086,7 +1098,7 @@ class Engine:
         The full backend suite takes over two hours on a hosted runner, longer than one
         QA command may run, so measuring changed-file coverage with it made every
         backend task time out. Coverage from a subset can only be lower than from the
-        full suite, so a pass here is still a true >95% pass. Returns ``(None, [])``
+        full suite, so a pass here is still a true threshold pass. Returns ``(None, [])``
         when a changed file is outside ``caliber/src`` (keep the full suite), and, when no
         test references any changed module, those modules so the developer adds tests.
         """
@@ -1168,7 +1180,9 @@ class Engine:
         return "\n\n".join(parts)[-8000:]
 
     @staticmethod
-    def _coverage_evidence(report: Path, worktree: Path, changed: list[str]) -> dict:
+    def _coverage_evidence(
+        report: Path, worktree: Path, changed: list[str], threshold: float = 95.0
+    ) -> dict:
         if not report.is_file():
             return {"passed": False, "summary": None, "reason": "Coverage JSON missing"}
         try:
@@ -1176,11 +1190,10 @@ class Engine:
             # coverage.py's JSON report keeps per-file counts under "summary"; only
             # "totals" is flat. Reading the file rows flat raised KeyError for every
             # real report, so each changed module failed as "Invalid coverage JSON".
+            raw = {(worktree / path).resolve(): entry for path, entry in data["files"].items()}
             files = {
-                (worktree / path).resolve(): row.get("summary", row)
-                if isinstance(row, dict)
-                else row
-                for path, row in data["files"].items()
+                path: entry.get("summary", entry) if isinstance(entry, dict) else entry
+                for path, entry in raw.items()
             }
             affected = [
                 (worktree / path).resolve()
@@ -1188,20 +1201,31 @@ class Engine:
                 if path.endswith(".py")
                 and "tests" not in Path(path).parts
                 and not Path(path).name.startswith("test_")
+                # CI's coverage config omits migrations; so does this gate.
+                and not path.startswith("caliber/src/caliber/db/migrations/")
                 and (worktree / path).is_file()
             ]
             measured = {path: files[path] for path in affected}
             totals = data["totals"]
             coverage_rows = {str(path.relative_to(worktree)): row for path, row in measured.items()}
-            for name, row in coverage_rows.items():
+            shortfalls = []
+            for path, row in measured.items():
                 denominator = row["num_statements"] + row.get("num_branches", 0)
                 numerator = row["covered_lines"] + row.get("covered_branches", 0)
-                if not denominator or numerator / denominator <= 0.95:
-                    return {
-                        "passed": False,
-                        "summary": None,
-                        "reason": f"Coverage for {name} is not greater than 95%",
-                    }
+                if not denominator or 100 * numerator / denominator < threshold:
+                    entry = raw[path] if isinstance(raw[path], dict) else {}
+                    lines = entry.get("missing_lines") or []
+                    branches = entry.get("missing_branches") or []
+                    percent = 100 * numerator / denominator if denominator else 0.0
+                    # Say by how much and where, so a developer without a shell knows
+                    # which lines and branches its tests still need to reach.
+                    shortfalls.append(
+                        f"Coverage for {path.relative_to(worktree)} is {percent:.2f}%, below "
+                        f"the {threshold:g}% threshold; missing lines {lines[:60]}; "
+                        f"missing branches {branches[:30]}"
+                    )
+            if shortfalls:
+                return {"passed": False, "summary": None, "reason": "\n".join(shortfalls)}
             return {
                 "passed": True,
                 "summary": ", ".join(
@@ -1250,7 +1274,7 @@ class Engine:
         return worker_args(self.settings.worker_user, args)
 
     @staticmethod
-    def _coverage_command(item: str) -> bool:
+    def _coverage_command(item: str, threshold: float = 95.0) -> bool:
         try:
             args = shlex.split(item)
         except ValueError:
@@ -1270,7 +1294,7 @@ class Engine:
             else:
                 continue
             try:
-                return float(value) >= 95
+                return float(value) >= threshold
             except ValueError:
                 return False
         return False
