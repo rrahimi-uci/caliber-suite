@@ -1043,7 +1043,15 @@ class Engine:
             return {"passed": False, "summary": None, "reason": "Coverage JSON missing"}
         try:
             data = json.loads(report.read_text())
-            files = {(worktree / path).resolve(): row for path, row in data["files"].items()}
+            # coverage.py's JSON report keeps per-file counts under "summary"; only
+            # "totals" is flat. Reading the file rows flat raised KeyError for every
+            # real report, so each changed module failed as "Invalid coverage JSON".
+            files = {
+                (worktree / path).resolve(): row.get("summary", row)
+                if isinstance(row, dict)
+                else row
+                for path, row in data["files"].items()
+            }
             affected = [
                 (worktree / path).resolve()
                 for path in changed

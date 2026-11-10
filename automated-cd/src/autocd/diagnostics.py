@@ -61,11 +61,17 @@ def failure_code(value: str | None) -> str:
     """Classify a private failure without printing model or command output."""
     if not value:
         return "none"
+    for role in ("reviewer", "qa"):
+        if value.startswith(f"{role} returned"):
+            # Keep the role in the label but name which way the call ended, e.g.
+            # reviewer_error_max_turns or reviewer_output_schema.
+            refined = _unclassified(value)
+            if refined.startswith(("agent_error", "agent_output_")):
+                return role + "_" + refined.removeprefix("agent_")
+            return f"{role}_output"
     for prefix, code in (
         ("Developer blocker:", "developer_blocker"),
         ("Review/QA did not pass within", "review_qa_exhausted"),
-        ("reviewer returned", "reviewer_output"),
-        ("qa returned", "qa_output"),
         ("Issue-specific QA commands", "issue_qa_missing"),
         ("Developer changed a path", "scope_violation"),
         ("Unattended merge cannot change", "protected_path"),

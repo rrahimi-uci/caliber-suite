@@ -2014,3 +2014,56 @@ def test_automatic_merge_still_waits_on_unresolved_threads(settings, snapshot):
     result = Engine(auto, github=github)._check_pr(store, "run", 12, 88)
     assert result["status"] not in {"ready_for_owner", "waiting_for_merge"}
     assert store.task("run", 12)["phase"] == "ci_wait"
+
+
+def test_coverage_evidence_reads_a_real_coverage_py_report(tmp_path: Path):
+    package = tmp_path / "caliber/src/pkg"
+    package.mkdir(parents=True)
+    (package / "__init__.py").write_text("")
+    (package / "mod.py").write_text(
+        "def value(flag):\n    if flag:\n        return 1\n    return 2\n"
+    )
+    tests = tmp_path / "caliber/tests"
+    tests.mkdir()
+    (tests / "test_mod.py").write_text(
+        "from pkg.mod import value\n\n\ndef test_value():\n"
+        "    assert value(True) == 1\n    assert value(False) == 2\n"
+    )
+    report = tmp_path / "coverage.json"
+    proc = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "pytest",
+            "caliber/tests/test_mod.py",
+            "--cov=pkg",
+            "--cov-branch",
+            f"--cov-report=json:{report}",
+            "-q",
+            "-p",
+            "no:cacheprovider",
+        ],
+        cwd=tmp_path,
+        env={**__import__("os").environ, "PYTHONPATH": str(tmp_path / "caliber/src")},
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    raw = json.loads(report.read_text())
+    assert all("summary" in row for row in raw["files"].values())
+    evidence = Engine._coverage_evidence(report, tmp_path, ["caliber/src/pkg/mod.py"])
+    assert evidence["passed"], evidence
+    assert "caliber/src/pkg/mod.py=100.00%" in evidence["summary"]
+    (tests / "test_mod.py").write_text(
+        "from pkg.mod import value\n\n\ndef test_value():\n    assert value(True) == 1\n"
+    )
+    subprocess.run(
+        proc.args,
+        cwd=tmp_path,
+        env={**__import__("os").environ, "PYTHONPATH": str(tmp_path / "caliber/src")},
+        capture_output=True,
+        check=False,
+    )
+    weak = Engine._coverage_evidence(report, tmp_path, ["caliber/src/pkg/mod.py"])
+    assert not weak["passed"] and "not greater than 95%" in weak["reason"]
