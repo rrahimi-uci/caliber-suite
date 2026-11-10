@@ -292,6 +292,17 @@ as `awaiting_owner`.
   receives the blocking findings together with the coordinator's own failing
   command rows (bounded output tail), because the developer role has no shell;
   the next reviewer receives the same feedback so it rechecks earlier findings.
+- Inside each review cycle the coordinator runs a fix loop. After every developer
+  handoff it runs **every** gate: the affected-component check, base checks,
+  issue checks, and changed-module coverage. A failing gate no longer stops the
+  later ones. While any gate fails, the failures and their output go straight back
+  to the developer (`fix_attempt` 1..`max_fix_attempts`, default 2) without a
+  reviewer call. Only a passing candidate, or one still failing after the last
+  fix attempt, reaches the reviewer and uses up the cycle. The developer has no
+  shell, so this loop is how it gets local-CI feedback. The `trail` diagnostic
+  shows one entry per developer turn, with its `fix_attempt`. Worst case per task
+  is `max_review_cycles × (max_fix_attempts + 1)` developer calls plus one reviewer
+  call per cycle, all inside the daily Claude budget.
 - For a private incident investigation, temporarily add repository secret
   `AUTOCD_DIAG_KEY` containing a separate base64-encoded 32-byte key, then
   dispatch with `diagnose_state=true`, `export_incident=true`, and

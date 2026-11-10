@@ -2067,3 +2067,132 @@ def test_coverage_evidence_reads_a_real_coverage_py_report(tmp_path: Path):
     )
     weak = Engine._coverage_evidence(report, tmp_path, ["caliber/src/pkg/mod.py"])
     assert not weak["passed"] and "not greater than 95%" in weak["reason"]
+
+
+class _FixLoopAgent(FakeAgent):
+    prompts: ClassVar[list[tuple[str, dict]]] = []
+
+    def run(self, role, prompt, cwd, editable=False):
+        if role in {"developer", "reviewer"}:
+            self.prompts.append((role, json.loads(prompt)))
+        if role == "reviewer":
+            return {"approved": True, "findings": []}
+        return super().run(role, prompt, cwd, editable)
+
+
+def _fix_loop_engine(settings, snapshot, monkeypatch, results):
+    data, _ = snapshot
+    github = FakeGitHub(settings, data)
+    _FixLoopAgent.prompts = []
+    _FixLoopAgent.calls = []
+    engine = Engine(settings, github=github, agent_factory=_FixLoopAgent)
+    monkeypatch.setattr(engine, "_diff", lambda _: "diff")
+    rounds = iter(results)
+    monkeypatch.setattr(engine, "_checks", lambda *a: next(rounds))
+    return engine, github
+
+
+def test_failing_checks_return_to_the_developer_before_any_review(settings, snapshot, monkeypatch):
+    settings = replace(settings, max_fix_attempts=3, max_review_cycles=1)
+    lint = {"command": "scripts/ci-local.sh lint", "passed": False, "output": "E501"}
+    cov = {"command": "pytest --cov", "passed": False, "output": "Coverage for x is not greater"}
+    ok = [{"command": "pytest --cov", "passed": True, "output": "100%"}]
+    engine, github = _fix_loop_engine(settings, snapshot, monkeypatch, [[lint, cov], ok])
+    result = engine.run()
+    assert result["results"][0]["status"] == "waiting_for_ci_or_review"
+    roles = [role for role, _ in _FixLoopAgent.prompts]
+    assert roles == ["developer", "developer", "reviewer"]
+    second = _FixLoopAgent.prompts[1][1]
+    assert second["fix_attempt"] == 1 and second["review_cycle"] == 1
+    assert "E501" in second["previous_feedback"] and "not greater" in second["previous_feedback"]
+    assert second["instruction"].startswith("Fix every failing coordinator check")
+    # The reviewer rechecks what the cycle started from, not the fixed check output.
+    assert _FixLoopAgent.prompts[2][1]["previous_feedback"] == ""
+    assert github.created
+
+
+def test_fix_attempts_are_bounded_then_the_reviewer_sees_the_failure(
+    settings, snapshot, monkeypatch
+):
+    settings = replace(settings, max_fix_attempts=2, max_review_cycles=1)
+    bad = [{"command": "scripts/ci-local.sh lint", "passed": False, "output": "E501"}]
+    engine, github = _fix_loop_engine(settings, snapshot, monkeypatch, [bad, bad, bad])
+    Store(settings.state_dir).start("run")
+    task = Assignment(
+        12,
+        "Task 12",
+        "contract",
+        "release:Beta",
+        frozenset({"src/task.py", "tests/test_task.py"}),
+        1,
+    )
+    assert "QA command failures" in engine._task("run", task)["error"]
+    roles = [role for role, _ in _FixLoopAgent.prompts]
+    assert roles == ["developer", "developer", "developer", "reviewer"]
+    assert [p["fix_attempt"] for r, p in _FixLoopAgent.prompts if r == "developer"] == [0, 1, 2]
+    assert not github.created
+    store = Store(settings.state_dir)
+    attempts = [
+        json.loads(row[0])["fix_attempt"]
+        for row in store.db.execute("SELECT detail FROM events WHERE kind='developer_result'")
+    ]
+    assert attempts == [0, 1, 2]
+    assert store.task("run", 12)["cycles"] == 1
+
+
+def test_handoff_gap_on_the_last_fix_attempt_skips_review(settings, snapshot, monkeypatch):
+    settings = replace(settings, max_fix_attempts=1, max_review_cycles=1)
+    data, _ = snapshot
+    github = FakeGitHub(settings, data)
+    turns = iter([False, True])
+    calls: list[str] = []
+
+    class Gappy(FakeAgent):
+        def run(self, role, prompt, cwd, editable=False):
+            calls.append(role)
+            result = super().run(role, prompt, cwd, editable)
+            if role == "developer" and next(turns):
+                result = {**result, "risks": ""}
+            return result
+
+    engine = Engine(settings, github=github, agent_factory=Gappy)
+    monkeypatch.setattr(engine, "_diff", lambda _: "diff")
+    monkeypatch.setattr(
+        engine, "_checks", lambda *a: [{"command": "pytest", "passed": False, "output": "x"}]
+    )
+    Store(settings.state_dir).start("run")
+    task = Assignment(
+        12,
+        "Task 12",
+        "contract",
+        "release:Beta",
+        frozenset({"src/task.py", "tests/test_task.py"}),
+        1,
+    )
+    assert "omitted required PR context" in engine._task("run", task)["error"]
+    assert calls == ["developer", "developer"]
+
+
+def test_checks_keep_running_after_a_failing_gate(settings, tmp_path: Path, monkeypatch):
+    ran = []
+
+    class Proc:
+        def __init__(self, code):
+            self.returncode = code
+            self.stdout = "out"
+            self.stderr = None
+
+    def fake_run(args, **kwargs):
+        ran.append(args)
+        return Proc(1 if args[0] == "first" else 0)
+
+    monkeypatch.setattr("autocd.engine.subprocess.run", fake_run)
+    engine = Engine(replace(settings, base_checks=("first gate", "second gate"), issue_checks={}))
+    rows = engine._checks(12, tmp_path, ["notes/unsupported.txt"])
+    assert [row["command"] for row in rows] == [
+        "affected-component checks",
+        "first gate",
+        "second gate",
+    ]
+    assert [row["passed"] for row in rows] == [False, False, True]
+    assert [args[0] for args in ran] == ["first", "second"]

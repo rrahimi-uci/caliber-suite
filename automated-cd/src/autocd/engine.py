@@ -435,79 +435,100 @@ class Engine:
             feedback = ""
             for _ in range(self.settings.max_review_cycles):
                 cycle = store.cycle(run, task.issue)
-                store.phase(run, task.issue, "developing")
-                developer = self._run_agent(
-                    store,
-                    run,
-                    task.issue,
-                    "developer",
-                    json.dumps(
-                        {
-                            "issue": task.issue,
-                            "title": task.title,
-                            "contract": task.body,
-                            "target": task.target,
-                            "branch": branch,
-                            "review_cycle": cycle,
-                            "previous_feedback": feedback,
-                            "instruction": "Implement the complete issue contract; edit only this worktree.",
-                        }
-                    ),
-                    worktree,
-                    editable=True,
-                )
-                if developer.get("blocker"):
-                    raise RuntimeError(f"Developer blocker: {str(developer['blocker'])[:500]}")
-                missing = [
-                    key
-                    for key in (
-                        "summary",
-                        "decisions",
-                        "risks",
-                        "compatibility",
-                        "migrations",
-                        "documentation",
-                        "deployment",
-                        "tests_suggested",
-                        "tests_run",
-                        "remaining_work",
+                # What this cycle set out to fix; the reviewer rechecks it.
+                cycle_feedback = feedback
+                evidence: list[dict] | None = None
+                # Fix loop: the developer has no shell, so the coordinator runs every
+                # gate and hands failures straight back. Only a candidate whose gates
+                # pass (or whose fix attempts ran out) costs a reviewer call and a cycle.
+                for attempt in range(self.settings.max_fix_attempts + 1):
+                    store.phase(run, task.issue, "developing")
+                    developer = self._run_agent(
+                        store,
+                        run,
+                        task.issue,
+                        "developer",
+                        json.dumps(
+                            {
+                                "issue": task.issue,
+                                "title": task.title,
+                                "contract": task.body,
+                                "target": task.target,
+                                "branch": branch,
+                                "review_cycle": cycle,
+                                "fix_attempt": attempt,
+                                "previous_feedback": feedback,
+                                "instruction": "Implement the complete issue contract; edit only this worktree."
+                                if attempt == 0
+                                else "Fix every failing coordinator check in previous_feedback; keep the contract complete.",
+                            }
+                        ),
+                        worktree,
+                        editable=True,
                     )
-                    if not str(developer.get(key, "")).strip()
-                ]
-                if missing:
-                    feedback = "Developer handoff omitted required PR context: " + ", ".join(
-                        missing
-                    )
-                    store.event(run, task.issue, "handoff_gap", {"missing": missing})
-                    continue
-                changed = self.github.changed(worktree)
-                if not changed:
-                    raise RuntimeError("Developer produced no changed files")
-                self._validate_task_paths(changed, task.paths)
-                self._normalize(worktree, changed, store, run, task.issue)
-                changed = self.github.changed(worktree)
-                self._validate_task_paths(changed, task.paths)
-                if any(self._docs_source_path(path) for path in changed):
-                    self._sync_generated_docs(worktree, store, run, task.issue)
+                    if developer.get("blocker"):
+                        raise RuntimeError(f"Developer blocker: {str(developer['blocker'])[:500]}")
+                    missing = [
+                        key
+                        for key in (
+                            "summary",
+                            "decisions",
+                            "risks",
+                            "compatibility",
+                            "migrations",
+                            "documentation",
+                            "deployment",
+                            "tests_suggested",
+                            "tests_run",
+                            "remaining_work",
+                        )
+                        if not str(developer.get(key, "")).strip()
+                    ]
+                    if missing:
+                        feedback = "Developer handoff omitted required PR context: " + ", ".join(
+                            missing
+                        )
+                        store.event(run, task.issue, "handoff_gap", {"missing": missing})
+                        evidence = None
+                        continue
+                    changed = self.github.changed(worktree)
+                    if not changed:
+                        raise RuntimeError("Developer produced no changed files")
+                    self._validate_task_paths(changed, task.paths)
+                    self._normalize(worktree, changed, store, run, task.issue)
                     changed = self.github.changed(worktree)
                     self._validate_task_paths(changed, task.paths)
-                store.event(
-                    run,
-                    task.issue,
-                    "developer_result",
-                    {"changed": changed, "summary": str(developer.get("summary", ""))[:1000]},
-                )
-                store.phase(run, task.issue, "reviewing")
-                candidate_patch = self._diff(worktree)
-                evidence = self._checks(task.issue, worktree, changed)
-                store.event(run, task.issue, "qa_commands", evidence)
-                if (
-                    self.github.changed(worktree) != changed
-                    or self._diff(worktree) != candidate_patch
-                ):
-                    raise RuntimeError(
-                        "QA commands changed the candidate; rerun development and review"
+                    if any(self._docs_source_path(path) for path in changed):
+                        self._sync_generated_docs(worktree, store, run, task.issue)
+                        changed = self.github.changed(worktree)
+                        self._validate_task_paths(changed, task.paths)
+                    store.event(
+                        run,
+                        task.issue,
+                        "developer_result",
+                        {
+                            "changed": changed,
+                            "summary": str(developer.get("summary", ""))[:1000],
+                            "fix_attempt": attempt,
+                        },
                     )
+                    store.phase(run, task.issue, "reviewing")
+                    candidate_patch = self._diff(worktree)
+                    evidence = self._checks(task.issue, worktree, changed)
+                    store.event(run, task.issue, "qa_commands", evidence)
+                    if (
+                        self.github.changed(worktree) != changed
+                        or self._diff(worktree) != candidate_patch
+                    ):
+                        raise RuntimeError(
+                            "QA commands changed the candidate; rerun development and review"
+                        )
+                    failed_checks = [entry for entry in evidence if not entry["passed"]]
+                    if not failed_checks:
+                        break
+                    feedback = "QA command failures: " + json.dumps(failed_checks)
+                if evidence is None:
+                    continue
                 reviewed_patch = candidate_patch
                 review_view = self._review_view(worktree, changed, reviewed_patch)
                 review = self._run_agent(
@@ -523,7 +544,7 @@ class Engine:
                             **review_view,
                             "commands": evidence,
                             "cycle": cycle,
-                            "previous_feedback": feedback,
+                            "previous_feedback": cycle_feedback,
                             "instruction": "Review the full source diff, relevant runtime paths, tests, and local CI evidence. Generated artifacts omitted from the inline diff are listed with exact hashes and sizes; inspect their paths with Read when needed and verify their generator and QA evidence.",
                         }
                     ),
@@ -822,15 +843,17 @@ class Engine:
     def _checks(self, issue: int, worktree: Path, changed: list[str]) -> list[dict]:
         issue_commands = self.settings.issue_checks.get(issue, ())
         unsupported = [path for path in changed if not self._standard_check_path(path)]
+        results: list[dict] = []
         if unsupported and not issue_commands:
-            return [
+            # Reported with every other gate so one fix attempt sees all failures.
+            results.append(
                 {
                     "command": "affected-component checks",
                     "passed": False,
                     "output": "Issue-specific QA commands are required for: "
                     + ", ".join(unsupported),
                 }
-            ]
+            )
         commands = [*self.settings.base_checks, *issue_commands]
         if any(self._generated_docs_path(path) for path in changed):
             ui_check = "scripts/ci-local.sh ui"
@@ -873,7 +896,6 @@ class Engine:
             )
             if not uncovered_modules:
                 commands.append(automatic_coverage)
-        results = []
         for item in commands:
             args = shlex.split(item)
             if not args or any(token in {";", "&&", "|", ">"} for token in args):
@@ -935,8 +957,9 @@ class Engine:
                 )
             except OSError as error:
                 results.append({"command": item, "passed": False, "output": str(error)[:500]})
-            if not results[-1]["passed"]:
-                break
+            # Every gate runs even after one fails: the developer gets one turn per
+            # coordinator check round, so stopping early hid the next failure for a
+            # whole cycle.
         if uncovered_modules and all(row["passed"] for row in results):
             results.append(
                 {

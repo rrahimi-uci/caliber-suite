@@ -214,7 +214,7 @@ def test_cycle_trail_names_each_cycle_without_private_text(tmp_path):
             },
         },
     )
-    store.event("run", 7, "developer_result", {"changed": [], "summary": ""})
+    store.event("run", 7, "developer_result", {"changed": [], "summary": "", "fix_attempt": 1})
     store.event(
         "run",
         7,
@@ -253,6 +253,7 @@ def test_cycle_trail_names_each_cycle_without_private_text(tmp_path):
         },
         {
             "handoff_gap": False,
+            "fix_attempt": 1,
             "checks": {"ran": 1, "failed": [{"check": "coverage", "reason": "coverage_threshold"}]},
             "review": {"approved": False, "finding_count": -1},
             "qa": {"approved": True, "finding_count": 0, "severity": {}, "blocking": 0},
