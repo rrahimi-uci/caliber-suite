@@ -1915,3 +1915,67 @@ def test_normalize_records_a_step_that_cannot_start(settings, tmp_path, monkeypa
     (row,) = store.db.execute("SELECT detail FROM events WHERE kind='normalize'")
     assert json.loads(row[0])["steps"][0]["step"] == "whitespace"
     assert "timed out" in json.loads(row[0])["steps"][0]["error"]
+
+
+def _ci_local_transcript() -> str:
+    bold = "\x1b[1m{}\x1b[0m"
+    return "\n".join(
+        [
+            bold.format("── docs-validation ─────────────"),
+            "docs ok",
+            bold.format("── type-check ─────────────"),
+            "src/caliber/routes/events_stream.py:42: error: Incompatible types",
+            "Found 1 error in 1 file",
+            "\x1b[31m✗ type-check (31s)\x1b[0m",
+            bold.format("── test-smoke ─────────────"),
+            *["noise " * 20] * 200,
+            bold.format("── summary ─────────────"),
+            "PASS  docs-validation  80s",
+            "FAIL  type-check  31s",
+            "PASS  test-smoke  70s",
+            "",
+            "\x1b[31mlocal CI FAILED\x1b[0m",
+        ]
+    )
+
+
+def test_ci_local_output_keeps_summary_and_failing_job_section():
+    from autocd.engine import _ANSI
+
+    text = _ANSI.sub("", _ci_local_transcript())
+    output = Engine._check_output(["scripts/ci-local.sh", "type-check"], text)
+    assert output.startswith("── summary\nPASS  docs-validation")
+    assert "FAIL  type-check" in output
+    assert "events_stream.py:42: error: Incompatible types" in output
+    assert "noise" not in output
+    # Without a summary, or for other commands, the plain tail is kept.
+    assert Engine._check_output(["scripts/ci-local.sh"], "x" * 5000) == "x" * 3000
+    assert Engine._check_output(["pytest"], text) == text[-3000:]
+    # A FAIL line whose section is missing still reports the summary.
+    assert Engine._check_output(["scripts/ci-local.sh"], "── summary ──\nFAIL  ghost  1s") == (
+        "── summary\nFAIL  ghost  1s"
+    )
+
+
+def test_checks_merge_streams_so_the_ci_local_summary_survives(
+    settings, tmp_path: Path, monkeypatch
+):
+    scripts = tmp_path / "scripts"
+    scripts.mkdir()
+    transcript = tmp_path / "transcript.txt"
+    transcript.write_text(_ci_local_transcript())
+    script = scripts / "ci-local.sh"
+    # Noise on stderr after the summary on stdout: appending stderr last used to bury it.
+    script.write_text(
+        "#!/bin/sh\n"
+        f'cat "{transcript}"\n'
+        "i=0; while [ $i -lt 300 ]; do echo 'pip warning noise' >&2; i=$((i+1)); done\n"
+        "exit 1\n"
+    )
+    script.chmod(0o755)
+    engine = Engine(replace(settings, base_checks=("scripts/ci-local.sh type-check",)))
+    row = engine._checks(12, tmp_path, [])[0]
+    assert row["passed"] is False and row["exit_code"] == 1
+    assert "FAIL  type-check" in row["output"]
+    assert "Incompatible types" in row["output"]
+    assert "\x1b[" not in row["output"]

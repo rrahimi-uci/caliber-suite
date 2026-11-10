@@ -107,6 +107,12 @@ two-session verification transition test from `test_routes_verification_queue.py
 The default per-command local QA timeout is 7,200 seconds and is configurable
 with `AUTOCD_QA_COMMAND_TIMEOUT_SECONDS`; timeout evidence records the duration
 without exposing the isolated worker's command line.
+Each command's stdout and stderr are captured as one chronological stream with
+terminal colour codes removed. Most commands keep the last 3,000 characters.
+`ci-local.sh` runs every requested job and prints its summary last, so its
+evidence is the summary plus the last 3,000 characters of each failing job's own
+section (8,000 characters at most). That is what the reviewer and the next
+developer cycle receive.
 Each command executes with an argument vector, never through a shell; shell
 operators are rejected. For changed production Python files, the orchestrator
 uses a configured coverage command or, by default, runs with coverage the backend
