@@ -140,8 +140,22 @@ jobs:
       - name: Install ruff
         # Pinned (not ">=0.5") so the format check is deterministic — ruff's
         # formatter output shifts between releases, which is what let the repo
-        # drift out of "formatted" while CI was dormant.
-        run: uv pip install --system "ruff==0.17.3"
+        # drift out of "formatted" while CI was dormant. The pin is read from the
+        # dev extra in caliber/pyproject.toml so a Dependabot bump there cannot
+        # leave CI on an older ruff that passes code the dev/worktree ruff rejects.
+        run: |
+          ruff_pin=$(python - <<'PY'
+          import tomllib
+          with open("caliber/pyproject.toml", "rb") as handle:
+              dev = tomllib.load(handle)["project"]["optional-dependencies"]["dev"]
+          pins = [item for item in dev if item.replace(" ", "").startswith("ruff==")]
+          if len(pins) != 1:
+              raise SystemExit(f"expected one exact ruff pin in the dev extra, found {pins}")
+          print(pins[0].replace(" ", ""))
+          PY
+          )
+          echo "Installing $ruff_pin"
+          uv pip install --system "$ruff_pin"
       - name: ruff check
         run: ruff check .
       - name: ruff format --check
