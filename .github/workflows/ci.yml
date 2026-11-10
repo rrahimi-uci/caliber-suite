@@ -146,7 +146,7 @@ jobs:
         run: |
           ruff_pin=$(python - <<'PY'
           import tomllib
-          with open("caliber/pyproject.toml", "rb") as handle:
+          with open("pyproject.toml", "rb") as handle:  # job runs in caliber/
               dev = tomllib.load(handle)["project"]["optional-dependencies"]["dev"]
           pins = [item for item in dev if item.replace(" ", "").startswith("ruff==")]
           if len(pins) != 1:
