@@ -169,6 +169,15 @@ jobs:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         run: |
           test -n "$OPENAI_API_KEY" || { echo 'OPENAI_API_KEY unavailable; skipping'; exit 0; }
+          # Codex sandboxes model commands with bubblewrap. Use the distribution bwrap
+          # with Ubuntu's bwrap-userns-restrict AppArmor profile (OpenAI's documented
+          # setup for 24.04): the profile grants user namespaces to bwrap alone, so the
+          # system-wide restriction stays on. Without it every sandboxed command fails
+          # ("bwrap: loopback: Failed RTM_NEWADDR: Operation not permitted").
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq bubblewrap apparmor-profiles apparmor-utils >/dev/null
+          sudo install -m 0644 /usr/share/apparmor/extra-profiles/bwrap-userns-restrict /etc/apparmor.d/bwrap-userns-restrict
+          sudo apparmor_parser -r /etc/apparmor.d/bwrap-userns-restrict
           npm install --global @openai/codex >/dev/null
           codex --version
           work=$(mktemp -d /tmp/autocd-codex-live-XXXXXX)
@@ -198,8 +207,13 @@ jobs:
               raise SystemExit(1)
           print('verdict:', result)
           print('usage:', [d for k, d in events if k == 'agent_usage'])
-          print('commands:', [d for k, d in events if k == 'agent_progress'])
+          commands = [d for k, d in events if k == 'agent_progress']
+          print('commands:', commands)
           assert isinstance(result.get('approved'), bool) and isinstance(result.get('findings'), list)
+          # The model reads files through its shell, so the sandbox must run commands.
+          assert commands, 'the model ran no sandboxed command'
+          assert 'bwrap' not in str(result), 'the Codex sandbox failed to start'
+          assert result['approved'] is False and result['findings'], 'the planted bug was missed'
           PY
       - name: Build and inspect wheel
         run: |

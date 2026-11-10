@@ -202,6 +202,15 @@ jobs:
       - name: Create isolated task user
         if: ${{ inputs.diagnose_state != true }}
         run: |
+          # Codex sandboxes model commands with bubblewrap. Use the distribution bwrap
+          # with Ubuntu's bwrap-userns-restrict AppArmor profile (OpenAI's documented
+          # setup for 24.04): the profile grants user namespaces to bwrap alone, so the
+          # system-wide restriction stays on. Without it every sandboxed command fails
+          # ("bwrap: loopback: Failed RTM_NEWADDR: Operation not permitted").
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq bubblewrap apparmor-profiles apparmor-utils >/dev/null
+          sudo install -m 0644 /usr/share/apparmor/extra-profiles/bwrap-userns-restrict /etc/apparmor.d/bwrap-userns-restrict
+          sudo apparmor_parser -r /etc/apparmor.d/bwrap-userns-restrict
           sudo useradd --create-home --shell /bin/bash autocdqa
           path="$GITHUB_WORKSPACE"
           sudo chmod o+rx "$path"
