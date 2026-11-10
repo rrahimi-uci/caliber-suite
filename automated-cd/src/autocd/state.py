@@ -151,6 +151,16 @@ class Store:
             ).fetchone()[0]
         )
 
+    def blocked_with_pr(self) -> list[sqlite3.Row]:
+        """Each issue's latest attempt when it is blocked with a published PR."""
+        return [
+            row
+            for row in self.db.execute(
+                "SELECT * FROM tasks t WHERE phase='blocked' AND pr IS NOT NULL AND rowid="
+                "(SELECT MAX(rowid) FROM tasks WHERE issue=t.issue)"
+            )
+        ]
+
     def blocked_issues(self) -> frozenset[int]:
         """Never replay an ambiguous or failed task merely because Project is Ready."""
         return frozenset(
@@ -199,6 +209,22 @@ class Store:
             reported += 1
             total += float(cost)
         return total, complete and started == reported
+
+    def unknown_cost_calls_since(self, instant: datetime) -> int:
+        """Count started model calls with no usable reported cost."""
+        rows = self.db.execute(
+            "SELECT kind,detail FROM events WHERE at>=? AND kind IN ('agent_started','agent_usage') ORDER BY id",
+            (instant.astimezone(UTC).isoformat(),),
+        )
+        started = known = 0
+        for row in rows:
+            if row["kind"] == "agent_started":
+                started += 1
+                continue
+            cost = json.loads(row["detail"]).get("cost_usd")
+            if type(cost) in {int, float} and math.isfinite(cost) and cost >= 0:
+                known += 1
+        return max(0, started - known)
 
     def tasks(self, limit: int = 100) -> list[sqlite3.Row]:
         return list(self.db.execute("SELECT * FROM tasks ORDER BY rowid DESC LIMIT ?", (limit,)))

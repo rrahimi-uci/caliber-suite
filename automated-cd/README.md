@@ -261,6 +261,28 @@ as `awaiting_owner`.
 
 ## Recovery and troubleshooting
 
+Publication and run-time safeguards:
+
+- **PR bookkeeping is retried, never blocking.** Once a PR exists, the task waits
+  in `ci_wait`. The Project `review` transition and the reviewer requests are
+  retried on each PR check until both succeed (`post_pr_step` events). GitHub
+  links a new PR to its issue asynchronously, and transient API errors happen.
+- **An owner merge always completes the task.** It counts whatever the head is
+  (for example, after an owner fix commit). Each run also checks blocked tasks
+  that have a PR and moves a merged one to Done.
+- **A PR check that keeps failing gets blocked.** That includes "no checks
+  reported" when CI never ran for a head. The task is blocked after
+  `ci_timeout_seconds`, so it cannot hold the pipeline in `ci_wait` forever.
+- **Interrupted tasks are shown as Blocked in Project,** not left In Progress.
+- **Runner time.** The hosted loop stops at 280 minutes, below the 300-minute
+  step timeout, and starts a new batch only with 3 hours left. Scheduled refill
+  batches keep the day's automatic retries.
+- **Calls with no reported cost.** A call killed by a stall or timeout counts at
+  `unknown_call_cost_usd` (default $3) toward the daily budget, rather than
+  stopping every later call that day.
+- **Workflow files.** Changes to `.github/workflows/` are refused before review,
+  because the coordinator's token cannot push them.
+
 - The Actions log shows the plan and monitor results. For a blocked run, dispatch
   the GitHub workflow with `diagnose_state=true` to print a bounded summary of
   the latest run and any task claimed within that run from the encrypted state.

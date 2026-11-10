@@ -43,6 +43,7 @@ class Settings:
     daily_budget_usd: float
     temperature: str
     prices: dict
+    unknown_call_cost_usd: float
     coverage_threshold: float
     max_output_tokens: int
     base_checks: tuple[str, ...]
@@ -120,6 +121,9 @@ def load(path: Path | None = None, *, environ: dict[str, str] | None = None) -> 
             key: float(value(f"price_{key}", model.get("prices", {}).get(key, 0.0)))
             for key in ("input", "cached_input", "cache_write", "output")
         },
+        unknown_call_cost_usd=float(
+            value("unknown_call_cost_usd", model.get("unknown_call_cost_usd", 0.0))
+        ),
         coverage_threshold=float(value("coverage_threshold", checks.get("coverage_threshold", 95))),
         max_output_tokens=int(value("max_output_tokens", model.get("max_output_tokens", 0))),
         base_checks=tuple(checks["base"]),
@@ -155,6 +159,8 @@ def load(path: Path | None = None, *, environ: dict[str, str] | None = None) -> 
         raise ValueError("CI timeout must be at least one minute")
     if settings.provider not in {"claude_cli", "codex_cli"}:
         raise ValueError("Only the claude_cli and codex_cli providers are implemented")
+    if not math.isfinite(settings.unknown_call_cost_usd) or settings.unknown_call_cost_usd < 0:
+        raise ValueError("unknown_call_cost_usd must be finite and nonnegative")
     if any(not math.isfinite(price) or price < 0 for price in settings.prices.values()):
         raise ValueError("model prices must be finite and nonnegative")
     if settings.provider == "codex_cli" and not settings.prices["output"]:
