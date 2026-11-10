@@ -56,8 +56,8 @@ def _run(settings, tmp_path, monkeypatch, body, role="reviewer", editable=False)
 def test_codex_agent_returns_the_last_schema_message_and_costs_tokens(
     settings, tmp_path, monkeypatch
 ):
-    monkeypatch.setenv("OPENAI_API_KEY", "sk-test-openai-key-123456")
-    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test-anthropic-key-123456")
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test-openaikey123456")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test-anthropickey123456")
     record = tmp_path / "record"
     body = (
         f'printf "%s\\n" "$@" > {record}; env > {record}.env; wc -c > {record}.stdin\n'
@@ -89,7 +89,7 @@ def test_codex_agent_returns_the_last_schema_message_and_costs_tokens(
     assert args[args.index("--sandbox") + 1] == "read-only"
     assert args[-2] == "-"
     env = (tmp_path / "record.env").read_text()
-    assert "CODEX_API_KEY=sk-test-openai-key-123456" in env
+    assert "CODEX_API_KEY=sk-test-openaikey123456" in env
     assert "OPENAI_API_KEY" not in env and "ANTHROPIC_API_KEY" not in env
     assert int((tmp_path / "record.stdin").read_text().strip()) > 300_000
     usage = [detail for kind, detail in events if kind == "agent_usage"]
@@ -257,12 +257,12 @@ def test_strict_schema_meets_structured_output_rules():
 def test_provider_selection_and_credential_hygiene(settings, monkeypatch):
     assert isinstance(make_agent(replace(settings, provider="codex_cli"), None), CodexAgent)
     assert isinstance(make_agent(replace(settings, provider="claude_cli"), None), ClaudeAgent)
-    monkeypatch.setenv("OPENAI_API_KEY", "sk-openai-0123456789")
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test-openai0123456789")
     monkeypatch.setenv("CODEX_API_KEY", "short")
-    monkeypatch.setenv("GH_TOKEN", "ghp_0123456789abcdef")
+    monkeypatch.setenv("GH_TOKEN", "sk-fake-ghtoken0123456789")
     env = untrusted_env()
     assert "OPENAI_API_KEY" not in env and "CODEX_API_KEY" not in env and "GH_TOKEN" not in env
-    assert untrusted_env(model=True)["OPENAI_API_KEY"] == "sk-openai-0123456789"
+    assert untrusted_env(model=True)["OPENAI_API_KEY"] == "sk-test-openai0123456789"
     values = credential_values()
-    assert "sk-openai-0123456789" in values and "ghp_0123456789abcdef" in values
+    assert "sk-test-openai0123456789" in values and "sk-fake-ghtoken0123456789" in values
     assert "short" not in values

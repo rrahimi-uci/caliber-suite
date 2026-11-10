@@ -39,3 +39,9 @@ ea409ed0d262c80b085d1f1ef681bde3af8ad1a4:caliber/tests/egi_scenarios/test_v02_un
 # commit renames it to an `sk-fake-` placeholder that .gitleaks.toml already allowlists by content; this entry silences only the
 # already-pushed commit, which cannot be rewritten (force-push is blocked).
 fd6e4416797a7ab280fd177abde5b031aee2de60:caliber/tests/mcp_fakes.py:generic-api-key:32
+# #1225 (Codex provider): fake keys in automated-cd/tests/test_codex_agent.py that exercise the credential
+# hygiene and leak guard. The follow-up commit renames them to `sk-test-`/`sk-fake-` placeholders that
+# .gitleaks.toml allowlists by content; these entries silence only the already-pushed commit, which
+# cannot be rewritten (force-push is blocked).
+ef45a752e097686c7141d61de7e61aed1172d2fc:automated-cd/tests/test_codex_agent.py:generic-api-key:60
+ef45a752e097686c7141d61de7e61aed1172d2fc:automated-cd/tests/test_codex_agent.py:generic-api-key:262
