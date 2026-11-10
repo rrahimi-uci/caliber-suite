@@ -186,7 +186,13 @@ audit data that may include sensitive snippets, not candidate patches.
 Interruption during editing, review, QA or PR creation blocks that task for
 manual reconciliation; the coordinator does not replay an ambiguous write.
 An interrupted `ci_wait` phase rechecks the exact PR head, required checks,
-mergeability and unresolved review threads on the next invocation. The Actions
+mergeability and unresolved review threads on the next invocation. With
+`auto_merge = false`, unresolved threads do not hold a PR in draft. Copilot
+reviews drafts automatically, and the owner reads every thread before merging,
+so the PR is marked ready once the required checks pass. Otherwise a single
+Copilot comment would keep it active in `ci_wait` until `ci_timeout_seconds`
+(12 hours) and stop every later task. Automatic merge still requires zero
+unresolved threads. The Actions
 concurrency group, runner-local lock, and repository `.agents` transition lock
 serialize cooperating writers; another clone or human remains a remote race. The coordinator rereads
 the Project after each claim and stops if the claim is not visible.

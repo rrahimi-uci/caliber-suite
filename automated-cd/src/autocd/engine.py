@@ -1262,8 +1262,16 @@ The coordinator verifies the exact head, branch protection, merge commit on main
             author = state.get("author", {}).get("login", "")
             checks = self.github.required_checks(pr, state)
             unresolved = self.github.unresolved_threads(pr)
+            # Without automatic merge the owner is the merge gate and reads every thread
+            # (Copilot reviews drafts automatically); an unresolved thread must not keep
+            # the PR in draft and stall the pipeline. Automatic merge still requires zero.
             ready, reasons = pr_ready(
-                state, checks, unresolved, owner, author, require_owner=not self.settings.auto_merge
+                state,
+                checks,
+                unresolved if self.settings.auto_merge else 0,
+                owner,
+                author,
+                require_owner=not self.settings.auto_merge,
             )
             store.event(
                 run,
