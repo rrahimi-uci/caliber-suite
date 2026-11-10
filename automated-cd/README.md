@@ -328,6 +328,25 @@ as `awaiting_owner`.
   blocked event, and no claim on the new day. The worker rechecks the old branch
   before creating its worktree. A task left Blocked in Project, or a stale Ready
   field left by failed claim/block writes, is never replayed automatically.
+- Scheduled runs perform that reconciliation themselves for qualifying tasks,
+  at most `max_auto_retries` times per issue (default 2; `0` disables it). A
+  task qualifies only when all of these hold:
+  - its latest attempt is blocked with no pushed head and no PR, and the branch
+    is absent remotely;
+  - it was blocked on an earlier Pacific day;
+  - its Project item is still Blocked, with no open PR and no assignee other than
+    the repository owner;
+  - its failure code is one a fresh attempt can fix: `review_qa_exhausted`,
+    `issue_qa_missing`, `no_changes`, `setup_failed`, `docs_sync_failed`, a
+    budget code, or an `agent_*`, `reviewer_*` or `qa_*` call failure.
+
+  The coordinator releases its own claim (removes the owner assignee and sets
+  Status to Todo). It then applies the helper's `ready` transition with
+  verification evidence, which posts the owner-authored Ready comment the normal
+  retry path requires, and records `auto_reconciled`. Developer blockers, scope
+  or protected-path violations, interruptions and unclassified failures still
+  need a human. A refused write is recorded as `auto_reconcile_error`, and the
+  task stays blocked. Manual runs never auto-reconcile.
 - For `waiting_for_ci_or_review` or `waiting_for_merge`, the hosted monitor or
   next scheduled/manual run rechecks the PR. A
   required skipped, pending or failed check is not a pass.

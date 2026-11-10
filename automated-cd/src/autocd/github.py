@@ -193,6 +193,51 @@ class GitHub:
             for comment in page
         )
 
+    def release_claim(self, snapshot: dict, issue: int, owner: str) -> None:
+        """Undo the coordinator's own claim so a reviewed Ready transition can apply.
+
+        Mirrors the manual reconciliation: drop the owner assignee and move Status
+        from In Progress back to Todo. Callers verify the attempt is pre-PR first.
+        """
+        item = next(
+            (i for i in snapshot["items"] if (i.get("issue") or {}).get("number") == issue), None
+        )
+        status = next((f for f in snapshot["fields"] if f.get("name") == "Status"), None)
+        todo = next(
+            (o["id"] for o in (status or {}).get("options", []) if o.get("name") == "Todo"), None
+        )
+        if item is None or status is None or todo is None:
+            raise CommandError("Project item or Status/Todo field is unavailable")
+        command(
+            [
+                "gh",
+                "issue",
+                "edit",
+                str(issue),
+                "--repo",
+                self.settings.repository,
+                "--remove-assignee",
+                owner,
+            ],
+            self.root,
+        )
+        command(
+            [
+                "gh",
+                "project",
+                "item-edit",
+                "--project-id",
+                snapshot["project"]["id"],
+                "--id",
+                item["id"],
+                "--field-id",
+                status["id"],
+                "--single-select-option-id",
+                todo,
+            ],
+            self.root,
+        )
+
     def transition(self, target: str, issue: int, phase: str, payload: dict) -> None:
         with tempfile.NamedTemporaryFile("w", suffix=".json", delete=True) as file:
             json.dump(payload, file)

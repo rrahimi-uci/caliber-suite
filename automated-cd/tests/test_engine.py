@@ -2196,3 +2196,206 @@ def test_checks_keep_running_after_a_failing_gate(settings, tmp_path: Path, monk
     ]
     assert [row["passed"] for row in rows] == [False, False, True]
     assert [args[0] for args in ran] == ["first", "second"]
+
+
+class _ReconcileGitHub(FakeGitHub):
+    def __init__(self, settings, data):
+        super().__init__(settings, data)
+        self.released = []
+        self.fail_transition = False
+
+    def release_claim(self, snapshot, issue, owner):
+        self.released.append((issue, owner))
+
+    def transition(self, target, issue, phase, payload):
+        if self.fail_transition and phase == "ready":
+            raise RuntimeError("helper refused SECRET")
+        super().transition(target, issue, phase, payload)
+
+
+def _blocked_yesterday(
+    store: Store, issue: int = 12, failure: str = "Review/QA did not pass within 3 cycles: x"
+):
+    store.start("prior")
+    store.add_task("prior", issue, "release:Beta", "autocd/issue-12-prior", store.path.parent / "w")
+    store.phase("prior", issue, "blocked", failure=failure)
+    with sqlite3.connect(store.path) as db:
+        db.execute("UPDATE events SET at='2000-01-01T00:00:00+00:00' WHERE run_id='prior'")
+
+
+def _claimed(data, issue=12, **issue_fields):
+    item = next(i for i in data["items"] if i["issue"]["number"] == issue)
+    item["fields"].update({"Status": "In Progress", "Readiness": "Blocked"})
+    item["issue"].update({"assignees": ["rrahimi-uci"], **issue_fields})
+    return item
+
+
+def _midnight(settings):
+    day = datetime.now(ZoneInfo(settings.timezone)).date()
+    from datetime import time as day_time
+
+    return datetime.combine(day, day_time.min, ZoneInfo(settings.timezone))
+
+
+def test_auto_reconcile_returns_a_clean_pre_pr_block_to_ready(settings, snapshot):
+    data, _ = snapshot
+    _claimed(data)
+    store = Store(settings.state_dir)
+    _blocked_yesterday(store)
+    github = _ReconcileGitHub(settings, data)
+    engine = Engine(replace(settings, max_auto_retries=2), github=github)
+    store.start("run")
+    assert engine._auto_reconcile(store, "run", data, set(), _midnight(settings)) == [12]
+    assert github.released == [(12, "rrahimi-uci")]
+    issue, phase, payload = github.transitions[-1]
+    assert (issue, phase) == (12, "ready")
+    assert "review_qa_exhausted" in payload["evidence"][0]
+    assert "autocd/issue-12-prior" in payload["evidence"][0]
+    assert store.event_count(12, "auto_reconciled") == 1
+    # The cap stops a hopeless task from being retried every day.
+    engine2 = Engine(replace(settings, max_auto_retries=1), github=github)
+    assert engine2._auto_reconcile(store, "run", data, set(), _midnight(settings)) == []
+
+
+@pytest.mark.parametrize(
+    "case",
+    [
+        "developer_blocker",
+        "unclassified",
+        "pushed_head",
+        "published_pr",
+        "remote_branch",
+        "blocked_today",
+        "other_assignee",
+        "open_pr",
+        "not_blocked_in_project",
+        "missing_item",
+    ],
+)
+def test_auto_reconcile_leaves_ambiguous_or_human_blocks_alone(settings, snapshot, case):
+    data, _ = snapshot
+    item = _claimed(data)
+    store = Store(settings.state_dir)
+    failure = {
+        "developer_blocker": "Developer blocker: needs profiling",
+        "unclassified": "something unexpected",
+    }.get(case, "Review/QA did not pass within 3 cycles: x")
+    _blocked_yesterday(store, failure=failure)
+    branches: set[str] = set()
+    if case == "pushed_head":
+        store.head("prior", 12, "a" * 40)
+    elif case == "published_pr":
+        store.pr("prior", 12, 5)
+    elif case == "remote_branch":
+        branches = {"autocd/issue-12-prior"}
+    elif case == "blocked_today":
+        store.phase("prior", 12, "blocked", failure=failure)
+    elif case == "other_assignee":
+        item["issue"]["assignees"] = ["someone-else"]
+    elif case == "open_pr":
+        item["issue"]["prs"] = [{"state": "OPEN"}]
+    elif case == "not_blocked_in_project":
+        item["fields"]["Readiness"] = "Ready"
+    elif case == "missing_item":
+        data["items"] = [i for i in data["items"] if i["issue"]["number"] != 12]
+    github = _ReconcileGitHub(settings, data)
+    engine = Engine(replace(settings, max_auto_retries=2), github=github)
+    store.start("run")
+    assert engine._auto_reconcile(store, "run", data, branches, _midnight(settings)) == []
+    assert github.released == [] and github.transitions == []
+
+
+def test_auto_reconcile_records_a_refused_transition_and_keeps_going(settings, snapshot):
+    data, _ = snapshot
+    _claimed(data)
+    store = Store(settings.state_dir)
+    _blocked_yesterday(store)
+    github = _ReconcileGitHub(settings, data)
+    github.fail_transition = True
+    engine = Engine(replace(settings, max_auto_retries=2), github=github)
+    store.start("run")
+    assert engine._auto_reconcile(store, "run", data, set(), _midnight(settings)) == []
+    row = store.db.execute("SELECT detail FROM events WHERE kind='auto_reconcile_error'").fetchone()
+    assert "helper refused" in row[0]
+    assert store.event_count(12, "auto_reconciled") == 0
+
+
+def test_auto_reconcile_skips_release_when_claim_already_cleared(settings, snapshot):
+    data, _ = snapshot
+    item = _claimed(data)
+    item["issue"]["assignees"] = []
+    item["fields"]["Status"] = "Todo"
+    store = Store(settings.state_dir)
+    _blocked_yesterday(store, failure="reviewer returned an error (error_max_turns)")
+    github = _ReconcileGitHub(settings, data)
+    engine = Engine(replace(settings, max_auto_retries=2), github=github)
+    store.start("run")
+    assert engine._auto_reconcile(store, "run", data, set(), _midnight(settings)) == [12]
+    assert github.released == []
+
+
+def test_scheduled_run_auto_reconciles_then_retries_the_task(settings, snapshot, monkeypatch):
+    data, _ = snapshot
+    settings = replace(settings, enabled=True, max_auto_retries=2)
+    store = Store(settings.state_dir)
+    _blocked_yesterday(store)
+    github = _ReconcileGitHub(settings, data)
+    reconciled = []
+
+    def reconcile(store_, run, snap, branches, midnight):
+        reconciled.append(run)
+        github.ready_reconciled = True
+        return [12]
+
+    engine = Engine(settings, github=github, agent_factory=FakeAgent)
+    monkeypatch.setattr(engine, "_auto_reconcile", reconcile)
+    monkeypatch.setattr(
+        engine, "due_date", lambda: datetime.now(ZoneInfo(settings.timezone)).date().isoformat()
+    )
+    launched = []
+    monkeypatch.setattr(
+        engine,
+        "_task",
+        lambda run, task, retry_branch=None: (
+            launched.append((task.issue, retry_branch)),
+            {"issue": task.issue, "status": "queued"},
+        )[1],
+    )
+    result = engine.run(scheduled=True)
+    assert reconciled and result["selected"] == [12]
+    assert launched == [(12, "autocd/issue-12-prior")]
+    # Manual runs never auto-reconcile.
+    reconciled.clear()
+    engine.run()
+    assert reconciled == []
+
+
+def test_release_claim_unassigns_and_resets_status(settings, monkeypatch):
+    from autocd.github import CommandError, GitHub
+
+    calls = []
+    monkeypatch.setattr("autocd.github.command", lambda args, cwd, **k: calls.append(args) or "")
+    snap = {
+        "project": {"id": "PVT_1"},
+        "fields": [
+            {"id": "F_status", "name": "Status", "options": [{"id": "opt_todo", "name": "Todo"}]}
+        ],
+        "items": [{"id": "ITEM_12", "issue": {"number": 12}}],
+    }
+    GitHub(settings).release_claim(snap, 12, "rrahimi-uci")
+    assert calls[0][:3] == ["gh", "issue", "edit"] and calls[0][-1] == "rrahimi-uci"
+    assert calls[1] == [
+        "gh",
+        "project",
+        "item-edit",
+        "--project-id",
+        "PVT_1",
+        "--id",
+        "ITEM_12",
+        "--field-id",
+        "F_status",
+        "--single-select-option-id",
+        "opt_todo",
+    ]
+    with pytest.raises(CommandError):
+        GitHub(settings).release_claim({**snap, "items": []}, 12, "rrahimi-uci")

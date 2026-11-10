@@ -144,6 +144,13 @@ class Store:
         """
         return [row for row in self.pending() if row["phase"] != "ready"]
 
+    def event_count(self, issue: int, kind: str) -> int:
+        return int(
+            self.db.execute(
+                "SELECT COUNT(*) FROM events WHERE issue=? AND kind=?", (issue, kind)
+            ).fetchone()[0]
+        )
+
     def blocked_issues(self) -> frozenset[int]:
         """Never replay an ambiguous or failed task merely because Project is Ready."""
         return frozenset(

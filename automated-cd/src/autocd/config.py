@@ -28,6 +28,7 @@ class Settings:
     auto_merge: bool
     max_review_cycles: int
     max_fix_attempts: int
+    max_auto_retries: int
     agent_timeout_seconds: int
     stall_seconds: int
     qa_command_timeout_seconds: int
@@ -93,6 +94,7 @@ def load(path: Path | None = None, *, environ: dict[str, str] | None = None) -> 
         auto_merge=_bool(value("auto_merge", workflow["auto_merge"])),
         max_review_cycles=int(value("max_review_cycles", workflow["max_review_cycles"])),
         max_fix_attempts=int(value("max_fix_attempts", workflow.get("max_fix_attempts", 0))),
+        max_auto_retries=int(value("max_auto_retries", workflow.get("max_auto_retries", 0))),
         agent_timeout_seconds=int(
             value("agent_timeout_seconds", workflow["agent_timeout_seconds"])
         ),
@@ -136,6 +138,8 @@ def load(path: Path | None = None, *, environ: dict[str, str] | None = None) -> 
         raise ValueError("worker, task and review limits must be positive")
     if not 0 <= settings.max_fix_attempts <= 10:
         raise ValueError("max_fix_attempts must be between 0 and 10")
+    if not 0 <= settings.max_auto_retries <= 5:
+        raise ValueError("max_auto_retries must be between 0 and 5")
     if settings.stall_seconds < 1 or settings.agent_timeout_seconds <= settings.stall_seconds:
         raise ValueError("agent timeout must exceed stall timeout")
     if not 60 <= settings.qa_command_timeout_seconds <= 14400:
