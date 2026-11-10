@@ -194,7 +194,11 @@ def cycle_trail(db: sqlite3.Connection, run_id: str, issue: int) -> list[dict]:
         kind = row["kind"]
         detail = json.loads(row["detail"])
         if kind in {"handoff_gap", "developer_result"}:
-            trail.append({"handoff_gap": kind == "handoff_gap"})
+            entry = {"handoff_gap": kind == "handoff_gap"}
+            attempt = detail.get("fix_attempt") if isinstance(detail, dict) else None
+            if type(attempt) is int and 0 <= attempt <= 10:
+                entry["fix_attempt"] = attempt
+            trail.append(entry)
             continue
         if not trail:
             trail.append({"handoff_gap": False})

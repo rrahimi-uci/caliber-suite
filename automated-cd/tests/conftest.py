@@ -15,6 +15,9 @@ def settings(tmp_path: Path):
         state_dir=tmp_path / "private-state",
         enabled=False,
         auto_merge=False,
+        # Existing lifecycle tests model one developer turn per review cycle; the
+        # fix loop has its own tests.
+        max_fix_attempts=0,
         setup_commands=(),
         issue_checks={12: ("python -m pytest tests/test_task.py --cov=task --cov-fail-under=95",)},
         issue_paths={12: frozenset({"src/task.py", "tests/test_task.py"})},

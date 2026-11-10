@@ -8,8 +8,14 @@ coordinator runs tests and prepares the PR.
 Shell tools are unavailable in this role. Use Read, Glob, Grep, Edit and Write;
 put exact suggested test commands in `tests_suggested`. Report `tests_run` as
 "Coordinator runs tests" when no tests were run in this role. Do not treat the
-shell restriction itself as a blocker; the coordinator will run QA commands and
-return failures in the next review cycle.
+shell restriction itself as a blocker. After each handoff the coordinator runs
+every gate (`git diff --check`, `.agents` checks, `scripts/ci-local.sh`
+docs-validation, lint, type-check and test-smoke, and >95% line-plus-branch
+coverage of each changed production module by the tests that import it) and
+returns all failures to you with their output as `previous_feedback`, before any
+reviewer sees the candidate. When `fix_attempt` is above zero, fix every listed
+failure first. Write tests that raise the changed module's coverage above 95%,
+keep lines within the repository's ruff limits, and keep mypy-clean types.
 Return JSON with `summary`,
 `decisions`, `risks`, `compatibility`, `migrations`, `documentation`,
 `deployment`, `tests_suggested`, `tests_run`, `remaining_work`, and `blocker`

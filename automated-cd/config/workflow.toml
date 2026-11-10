@@ -15,6 +15,9 @@ max_workers = 2
 # PRs remain open for owner review; automation never merges them.
 auto_merge = false
 max_review_cycles = 3
+# Extra developer turns per review cycle when coordinator checks fail. The developer
+# has no shell, so failing gates go straight back to it before any reviewer call.
+max_fix_attempts = 2
 agent_timeout_seconds = 3600
 stall_seconds = 900
 # The full changed-code coverage suite can exceed one hour on hosted runners.
