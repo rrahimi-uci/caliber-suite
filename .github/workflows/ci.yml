@@ -1426,6 +1426,11 @@ jobs:
           # artifact storage was unavailable. The scan's exit code is the
           # signal we actually gate on.
           GITLEAKS_ENABLE_UPLOAD_ARTIFACT: "false"
+          # Pin the scanner to the version .gitleaks.toml is written for. Unpinned, the
+          # action installed 8.24.3, which predates the `[[allowlists]]` table, so the
+          # repo's `sk-test-`/`sk-fake-` content allowlist was silently ignored in CI
+          # while local scans (8.30.1) honoured it.
+          GITLEAKS_VERSION: "8.30.1"
 
   # The EGI scenarios (caliber/tests/egi_scenarios/, V01-V35) act on a real CALIBER app on the reference
   # profile, a real downstream system of record and, for recovery claims, real processes killed at named
