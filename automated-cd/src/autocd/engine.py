@@ -23,6 +23,9 @@ from .github import GitHub, audit_commands, command, pr_ready
 from .planner import Assignment, assign, completed_today, eligible, view_label
 from .state import LockBusyError, Store, exclusive
 
+# Terminal colour codes in check output; stripped so labels and summaries parse.
+_ANSI = re.compile(r"\x1b\[[0-9;]*m")
+
 # Strips trailing spaces/tabs and surplus final blank lines from changed UTF-8 text files,
 # the two things ``git diff --check`` rejects that a shell-less developer cannot see.
 _WHITESPACE_SCRIPT = """
@@ -889,7 +892,10 @@ class Engine:
                         self._as_worker(invocation),
                         cwd=worktree,
                         text=True,
-                        capture_output=True,
+                        stdout=subprocess.PIPE,
+                        # One chronological stream: with stderr appended after stdout,
+                        # the kept tail was stderr noise and lost ci-local's summary.
+                        stderr=subprocess.STDOUT,
                         check=False,
                         timeout=self.settings.qa_command_timeout_seconds,
                         env=untrusted_env(),
@@ -899,17 +905,16 @@ class Engine:
                         if coverage_check
                         else None
                     )
+                full = _ANSI.sub("", (proc.stdout or "") + (proc.stderr or ""))
                 results.append(
                     {
                         "command": item,
                         "passed": proc.returncode == 0,
                         "exit_code": proc.returncode,
-                        "output": (proc.stdout + proc.stderr)[-3000:],
+                        "output": self._check_output(args, full),
                     }
                 )
-                if args[0].endswith("ci-local.sh") and re.search(
-                    r"^SKIP\s", proc.stdout + proc.stderr, re.MULTILINE
-                ):
+                if args[0].endswith("ci-local.sh") and re.search(r"^SKIP\s", full, re.MULTILINE):
                     results[-1]["passed"] = False
                     results[-1]["output"] += "\nRequired CI parity job was skipped"
                 if coverage_check:
@@ -998,6 +1003,39 @@ class Engine:
         # A module no selected test reaches still fails the per-file coverage gate below,
         # with its own measured percentage; only an empty selection needs a separate hint.
         return sorted(selected), [] if selected else production
+
+    @staticmethod
+    def _check_output(args: list[str], text: str) -> str:
+        """Keep the part of a command's output that explains its result.
+
+        ``ci-local.sh`` runs every requested job and prints a summary last, so a plain
+        tail shows the last job's noise rather than the job that failed. For it, keep
+        the summary plus the end of each failing job's own section.
+        """
+        if not args or not args[0].endswith("ci-local.sh"):
+            return text[-3000:]
+        sections: dict[str, str] = {}
+        current = None
+        lines: list[str] = []
+        for line in text.splitlines():
+            header = re.fullmatch(r"── (\S+) ─+", line.strip())
+            if header:
+                if current:
+                    sections[current] = "\n".join(lines)
+                current, lines = header.group(1), []
+            elif current:
+                lines.append(line)
+        if current:
+            sections[current] = "\n".join(lines)
+        summary = sections.pop("summary", None)
+        if summary is None:
+            return text[-3000:]
+        failed = re.findall(r"^FAIL\s+(\S+)", summary, re.MULTILINE)
+        parts = [f"── summary\n{summary.strip()[:1500]}"]
+        for job in failed:
+            if job in sections:
+                parts.append(f"── {job} (end of output)\n{sections[job].strip()[-3000:]}")
+        return "\n\n".join(parts)[-8000:]
 
     @staticmethod
     def _coverage_evidence(report: Path, worktree: Path, changed: list[str]) -> dict:
