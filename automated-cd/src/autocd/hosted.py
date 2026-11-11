@@ -110,6 +110,31 @@ def run_hosted(
                     pr_errors.discard(issue)
 
     def finish() -> None:
+        if trial_tasks and len(attempted) < trial_tasks:
+            # A manual trial is an explicit end-to-end measurement request. Do
+            # not let a clean no-op (or a short refill caused by an exhausted
+            # Project backlog) look like a successful five-task trial. The
+            # report contains only issue numbers and counts; task details remain
+            # in the encrypted state/diagnostic path.
+            print(
+                json.dumps(
+                    {
+                        "trial": {
+                            "attempted": len(attempted),
+                            "requested": trial_tasks,
+                            "selected": sorted(attempted),
+                            "status": "shortfall",
+                        }
+                    },
+                    sort_keys=True,
+                ),
+                flush=True,
+            )
+            if not blocked and not pr_errors:
+                raise RuntimeError(
+                    f"Manual trial requested {trial_tasks} task attempts but selected "
+                    f"{len(attempted)}"
+                )
         if blocked:
             issues = sorted({item.get("issue") for item in blocked if item.get("issue")})
             raise RuntimeError(f"Automated CD blocked issues: {issues}; inspect state artifact")

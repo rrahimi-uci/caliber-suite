@@ -167,6 +167,10 @@ unknown cost, and the Pacific-day spend guard then stops further model calls tha
 day with `budget_unverifiable` instead of guessing. The report includes failed attempts
 and planner spend; invoice charges may differ from Claude's estimate. No
 prompts, review findings, or raw model output are printed in the report.
+The trial is strict about its measurement contract: if fewer than the requested
+number of task attempts are executable after Project filtering and refill, the
+manual workflow fails with a bounded `trial` shortfall record. A no-op trial is
+not reported as end-to-end success. Scheduled no-work runs remain clean no-ops.
 The preflight plan reads restored state: `eligible` and `selected` exclude
 prior blocked issues and today's attempted issues, and `remaining_attempts`
 reflects the daily cap. `requires_explicit_retry` identifies Ready issues that
