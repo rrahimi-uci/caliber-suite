@@ -43,7 +43,11 @@ use fakes and make no model or GitHub calls.
 3. Add issue-specific commands under `issue_checks` when the issue requires
    checks beyond the full backend suite and required PR CI. Add `issue_paths`
    only for reviewed, disjoint ownership that permits parallel task execution.
-   Without path ownership, tasks run serially. Changes to `.github`, `.agents`,
+   Hosted and scheduled execution requires a valid, non-empty
+   `caliber-engineering-meta` `owned_paths` marker by default; an explicit
+   `issue_paths` entry is an accepted coordinator override. Tasks without a
+   bounded machine-readable scope remain out of unattended execution until they
+   are prepared for it. Changes to `.github`, `.agents`,
    `automated-cd`, and other policy files stop before an unattended PR merge.
    UI, SDK, shell, configuration and other unsupported component changes
    require explicit issue-specific commands; the coordinator fails QA if they
@@ -229,8 +233,9 @@ is deliberately not `CALIBER_TEST_POSTGRES_URL`, which would enable the PostgreS
 of every QA command, including the full coverage suite. Issue-specific QA such as #1144
 lists these jobs under `[issue_checks]`.
 The Python coordinator alone runs Git and GitHub commands. Configured issue
-paths enforce ownership when supplied; tasks without explicit path ownership
-run serially. The reviewer receives the complete source diff up to 250,000
+paths and validated issue metadata enforce ownership; when the hosted ownership
+requirement is disabled, tasks without explicit path ownership still run serially.
+The reviewer receives the complete source diff up to 250,000
 characters. If generated docs make the full patch larger, the reviewer receives their exact
 paths, byte sizes and SHA-256 hashes and can inspect the files with read-only
 tools; strict docs and UI checks validate generation. QA and staging still

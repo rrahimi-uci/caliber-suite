@@ -195,6 +195,7 @@ class Engine:
             allowlist=self.settings.issue_allowlist,
             pathmap=self.settings.issue_paths,
             scope_label=label,
+            require_owned_paths=self.settings.require_owned_paths,
         )
 
         def retryable_previous(issue: int):

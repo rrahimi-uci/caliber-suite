@@ -1,6 +1,12 @@
+import json
+
 import pytest
 
 from autocd.planner import Assignment, assign, completed_today, eligible, view_label
+
+
+def _metadata(paths):
+    return f'<!-- caliber-engineering-meta:{json.dumps({"owned_paths": paths})} -->'
 
 
 def test_executable_eligibility_and_dependency_policy(snapshot):
@@ -24,6 +30,35 @@ def test_executable_eligibility_and_dependency_policy(snapshot):
     assert tasks[0].paths == frozenset({"src/a.py"})
     assert tasks[-1].readiness == "Planned"
     assert [task.issue for task in eligible(data, allowlist=(18,))] == [18]
+
+
+def test_hosted_eligibility_requires_valid_declared_ownership(snapshot):
+    data, item = snapshot
+    data["items"] = [
+        item(12, issue={"body": _metadata(["src/task.py", "tests/test_task.py"])}),
+        item(13, issue={"body": "an audit with no machine-readable scope"}),
+        item(14, issue={"body": _metadata([])}),
+        item(15, issue={"body": _metadata(["../outside"])}),
+    ]
+
+    tasks = eligible(data, require_owned_paths=True)
+
+    assert [task.issue for task in tasks] == [12]
+    assert tasks[0].paths == frozenset({"src/task.py", "tests/test_task.py"})
+
+
+def test_configured_issue_paths_override_missing_issue_metadata(snapshot):
+    data, item = snapshot
+    data["items"] = [item(12, issue={"body": "legacy task without metadata"})]
+
+    tasks = eligible(
+        data,
+        pathmap={12: frozenset({"src/task.py"})},
+        require_owned_paths=True,
+    )
+
+    assert [task.issue for task in tasks] == [12]
+    assert tasks[0].paths == frozenset({"src/task.py"})
 
 
 def test_assign_serializes_unknown_and_overlapping_paths():

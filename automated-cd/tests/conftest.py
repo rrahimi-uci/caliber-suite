@@ -15,6 +15,7 @@ def settings(tmp_path: Path):
         state_dir=tmp_path / "private-state",
         enabled=False,
         auto_merge=False,
+        require_owned_paths=False,
         # Existing lifecycle tests model one developer turn per review cycle; the
         # fix loop has its own tests.
         max_fix_attempts=0,

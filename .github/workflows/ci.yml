@@ -402,6 +402,10 @@ jobs:
         run: |
           uv pip install --system -e sdk/caliber-sdk
           uv pip install --system -e sdk/caliber-plugin-sdk
+      - name: Verify CI configuration parity contracts
+        run: >-
+          pytest tests/test_ci_local_parity.py::test_the_ruff_pin_in_ci_matches_the_one_developers_install
+          --no-cov -q
       - name: Run backend smoke tests
         run: >-
           pytest

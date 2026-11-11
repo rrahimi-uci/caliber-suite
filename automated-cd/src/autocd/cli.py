@@ -36,6 +36,7 @@ def main() -> None:
             allowlist=settings.issue_allowlist,
             pathmap=settings.issue_paths,
             scope_label=label,
+            require_owned_paths=settings.require_owned_paths,
         )
         blocked: frozenset[int] = frozenset()
         attempted: frozenset[int] = frozenset()
