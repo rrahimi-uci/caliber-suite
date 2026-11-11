@@ -241,6 +241,36 @@ def test_hosted_manual_retry_passes_only_explicit_issue(monkeypatch):
         hosted.run_hosted("manual", max_seconds=120, poll_seconds=10, refill_seconds=0)
 
 
+def test_manual_trial_fails_when_project_has_fewer_tasks(settings, monkeypatch, capsys):
+    class FakeEngine:
+        def __init__(self, settings):
+            self.settings = settings
+            self.github = self
+
+        def snapshot(self):
+            return {"view": {"number": 0, "filter": ""}}
+
+        def _daily_done(self, snapshot, label, day):
+            return []
+
+        def run(self, *, scheduled):
+            assert not scheduled
+            return {"status": "no_executable_tasks", "selected": []}
+
+        def monitor(self):
+            return {"pending": 0}
+
+    monkeypatch.setattr(hosted, "load", lambda: settings)
+    monkeypatch.setattr(hosted, "Engine", FakeEngine)
+    monkeypatch.setenv("AUTOCD_TRIAL_TASKS", "5")
+    monkeypatch.delenv("AUTOCD_RETRY_ISSUE", raising=False)
+
+    with pytest.raises(RuntimeError, match="requested 5 task attempts but selected 0"):
+        hosted.run_hosted("manual", max_seconds=120, poll_seconds=10, refill_seconds=0)
+
+    assert '"status": "shortfall"' in capsys.readouterr().out
+
+
 def test_hosted_retry_never_refills_unrelated_tasks(monkeypatch):
     calls = []
 
