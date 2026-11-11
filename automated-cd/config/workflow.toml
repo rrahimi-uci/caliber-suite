@@ -30,6 +30,10 @@ ci_timeout_seconds = 43200
 allow_overlapping_runs = false
 # GitHub-hosted runner sets this to an unprivileged account for model and QA work.
 worker_user = ""
+# Hosted and scheduled execution only selects tasks with a validated, non-empty
+# caliber-engineering-meta owned_paths marker (or an explicit issue_paths override).
+# This keeps broad audits and unscoped tasks out of unattended model attempts.
+require_owned_paths = true
 # Empty means any eligible executable task. Set to issue numbers to restrict unattended work.
 issue_allowlist = []
 

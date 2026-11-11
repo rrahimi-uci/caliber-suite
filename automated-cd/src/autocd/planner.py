@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+import re
 from dataclasses import dataclass
 from datetime import datetime
 from zoneinfo import ZoneInfo
@@ -17,6 +19,47 @@ class Assignment:
     priority: int
     execution_order: int | None = None
     readiness: str = "Ready"
+
+
+_ENGINEERING_META = re.compile(r"<!--\s*caliber-engineering-meta:(.*?)\s*-->", re.DOTALL)
+
+
+def declared_owned_paths(item: dict) -> frozenset[str] | None:
+    """Return validated issue ownership metadata, or None when it is unusable.
+
+    The issue helper writes this marker when a task is created. Hosted execution
+    must not infer a writable scope from prose: missing, duplicated, malformed or
+    unsafe metadata is treated as unknown ownership.
+    """
+    body = (item.get("issue") or {}).get("body")
+    if not isinstance(body, str):
+        return None
+    matches = _ENGINEERING_META.findall(body)
+    if len(matches) != 1:
+        return None
+    try:
+        metadata = json.loads(matches[0])
+    except json.JSONDecodeError:
+        return None
+    paths = metadata.get("owned_paths") if isinstance(metadata, dict) else None
+    if not isinstance(paths, list) or not paths:
+        return None
+    validated: set[str] = set()
+    for path in paths:
+        if (
+            not isinstance(path, str)
+            or not path
+            or path != path.strip()
+            or path.startswith("/")
+            or "\\" in path
+            or ":" in path
+            or "\x00" in path
+            or "//" in path
+            or any(part in {".", ".."} for part in path.split("/"))
+        ):
+            return None
+        validated.add(path)
+    return frozenset(validated)
 
 
 def _target(item: dict) -> str | None:
@@ -108,6 +151,7 @@ def eligible(
     allowlist: tuple[int, ...] = (),
     pathmap: dict[int, frozenset[str]] | None = None,
     scope_label: str | None = None,
+    require_owned_paths: bool = False,
 ) -> list[Assignment]:
     repository = snapshot["repository"]["nameWithOwner"]
     result = []
@@ -143,8 +187,19 @@ def eligible(
         if priority is None:
             continue
         execution_order = _execution_order(item)
-        # Only coordinator-reviewed explicit ownership can permit parallel edits.
-        paths = (pathmap or {}).get(issue["number"], frozenset())
+        # Configured paths are an explicit coordinator override. Otherwise use the
+        # validated issue marker. Hosted execution enables require_owned_paths so a
+        # broad audit cannot consume a daily model attempt without a bounded scope.
+        configured_paths = (pathmap or {}).get(issue["number"], frozenset())
+        declared_paths = declared_owned_paths(item)
+        if configured_paths:
+            paths = configured_paths
+        elif declared_paths is not None:
+            paths = declared_paths
+        elif require_owned_paths:
+            continue
+        else:
+            paths = frozenset()
         result.append(
             Assignment(
                 issue["number"],

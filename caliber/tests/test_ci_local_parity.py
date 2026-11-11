@@ -224,12 +224,18 @@ def test_the_ruff_pin_in_ci_matches_the_one_developers_install() -> None:
     the least useful possible signal -- and it happened: a local ruff 0.16.1
     disagreed with CI's 0.15.20 on three files nobody had edited.
 
-    Both pins are asserted equal so bumping one alone is a test failure rather
-    than a confusing CI failure later.
+    CI reads the exact pin from the same dev extra rather than duplicating a
+    version literal in YAML. The workflow contract is asserted so replacing the
+    extraction with an unpinned install is still caught before merge.
     """
     workflow = (REPO_ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
-    ci_pins = re.findall(r'ruff==([0-9][^"\'\s]*)', workflow)
-    assert ci_pins, "the CI lint job no longer pins ruff to an exact version"
+    lint_start = workflow.index("\n  lint:")
+    lint_end = workflow.index("\n  sdk:", lint_start)
+    lint_job = workflow[lint_start:lint_end]
+    assert 'with open("pyproject.toml", "rb")' in lint_job
+    assert 'startswith("ruff==")' in lint_job
+    assert "if len(pins) != 1" in lint_job
+    assert 'uv pip install --system "$ruff_pin"' in lint_job
 
     pyproject = (REPO_ROOT / "caliber" / "pyproject.toml").read_text(encoding="utf-8")
     dev_pins = re.findall(r'"ruff==([0-9][^"]*)"', pyproject)
@@ -238,10 +244,7 @@ def test_the_ruff_pin_in_ci_matches_the_one_developers_install() -> None:
         "be free to resolve a version whose formatter disagrees with CI's"
     )
 
-    assert set(ci_pins) == set(dev_pins), (
-        f"ruff pin drifted: CI installs {sorted(set(ci_pins))}, "
-        f"dev extras install {sorted(set(dev_pins))}"
-    )
+    assert len(set(dev_pins)) == 1, f"dev extras contain multiple Ruff pins: {dev_pins}"
 
 
 def test_the_local_sdk_venvs_target_the_python_ci_uses() -> None:

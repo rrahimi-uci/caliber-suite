@@ -38,6 +38,8 @@ def test_defaults_and_environment(settings):
     assert settings.max_budget_usd == 0
     assert settings.daily_budget_usd == 30
     assert settings.max_workers == 2
+    assert load().require_owned_paths is True
+    assert load(environ={"AUTOCD_REQUIRE_OWNED_PATHS": "false"}).require_owned_paths is False
     assert load().max_fix_attempts == 2
     assert load(environ={"AUTOCD_MAX_FIX_ATTEMPTS": "0"}).max_fix_attempts == 0
     assert load().max_auto_retries == 2

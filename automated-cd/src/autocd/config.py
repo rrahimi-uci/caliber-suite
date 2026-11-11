@@ -35,6 +35,7 @@ class Settings:
     ci_timeout_seconds: int
     allow_overlapping_runs: bool
     worker_user: str
+    require_owned_paths: bool
     issue_allowlist: tuple[int, ...]
     provider: str
     model: str
@@ -110,6 +111,9 @@ def load(path: Path | None = None, *, environ: dict[str, str] | None = None) -> 
             value("allow_overlapping_runs", workflow["allow_overlapping_runs"])
         ),
         worker_user=str(value("worker_user", workflow.get("worker_user", ""))),
+        require_owned_paths=_bool(
+            value("require_owned_paths", workflow.get("require_owned_paths", False))
+        ),
         issue_allowlist=tuple(int(n) for n in workflow.get("issue_allowlist", [])),
         provider=str(value("provider", model["provider"])),
         model=str(value("model", model["name"])),
