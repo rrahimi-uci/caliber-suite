@@ -6,7 +6,7 @@ from autocd.planner import Assignment, assign, completed_today, eligible, view_l
 
 
 def _metadata(paths):
-    return f'<!-- caliber-engineering-meta:{json.dumps({"owned_paths": paths})} -->'
+    return f"<!-- caliber-engineering-meta:{json.dumps({'owned_paths': paths})} -->"
 
 
 def test_executable_eligibility_and_dependency_policy(snapshot):
