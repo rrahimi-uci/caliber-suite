@@ -34,6 +34,13 @@ status if any task blocks, while still uploading its state artifact. Unreviewed
 candidate source is not uploaded to public Actions artifacts. Ordinary tests
 use fakes and make no model or GitHub calls.
 
+The validation workflow always runs fake-provider isolation and schema-constrained
+adapter smoke tests. Its optional live Codex smoke is enabled only when the repository
+variable `AUTOCD_LIVE_MODEL_SMOKE=true` is set; provider quota or billing state must
+not turn deterministic repository validation red. The scheduled execution workflow
+still performs its normal credential and provider preflight before spending on task
+work.
+
 ## Setup
 
 1. Add repository Actions secrets `ANTHROPIC_API_KEY`, `AUTOCD_GH_TOKEN`,
