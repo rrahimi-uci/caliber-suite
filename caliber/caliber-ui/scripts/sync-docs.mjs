@@ -93,6 +93,11 @@ const SITE_FILES = readdirSync(DOCS_SITE).filter(
     /^m-.*\.md$/.test(f),
 );
 
+// Some generated Markdown pages intentionally link to a small, human-readable
+// verification record below docs-site/. The top-level page sync does not copy
+// nested cookbook assets, so keep this published link valid in both UI copies.
+const STATIC_SITE_FILES = ["cookbooks/FIRST-USER-VERIFICATION.md"];
+
 // HTML pages reference the shared UI-root images one level up.
 function rewriteHtml(html) {
   return html
@@ -137,6 +142,21 @@ for (const target of DESTINATIONS) {
     const current = existsSync(dest) ? readFileSync(dest, "utf8") : null;
     if (current !== out) {
       writeTextAtomic(dest, out);
+      written++;
+    }
+  }
+  for (const file of STATIC_SITE_FILES) {
+    const src = resolve(DOCS_SITE, file);
+    if (!existsSync(src)) {
+      if (STRICT) throw new Error(`[sync-docs] required static site file ${file} not found`);
+      continue;
+    }
+    const dest = resolve(target.dir, file);
+    mkdirSync(dirname(dest), { recursive: true });
+    const contents = readFileSync(src, "utf8");
+    const current = existsSync(dest) ? readFileSync(dest, "utf8") : null;
+    if (current !== contents) {
+      writeTextAtomic(dest, contents);
       written++;
     }
   }

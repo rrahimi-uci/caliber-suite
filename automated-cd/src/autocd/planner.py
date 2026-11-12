@@ -21,6 +21,27 @@ class Assignment:
     readiness: str = "Ready"
 
 
+@dataclass(frozen=True)
+class DecisionCandidate:
+    """A start-gated task that can receive a read-only decision packet.
+
+    This deliberately does not contain writable paths. A decision analyst may inspect
+    the repository and prepare options, but it cannot claim, edit, transition, approve,
+    publish, or merge the task. Native dependencies must still be complete so the
+    packet describes a decision that could actually unblock the next governed step.
+    """
+
+    issue: int
+    title: str
+    body: str
+    target: str
+    priority: int
+    execution_order: int | None
+    readiness: str
+    human_input: str
+    dependencies: tuple[int, ...]
+
+
 _ENGINEERING_META = re.compile(r"<!--\s*caliber-engineering-meta:(.*?)\s*-->", re.DOTALL)
 
 
@@ -210,6 +231,81 @@ def eligible(
                 priority,
                 execution_order,
                 fields["Readiness"],
+            )
+        )
+    return sorted(
+        result,
+        key=lambda task: (
+            task.execution_order is None,
+            task.execution_order if task.execution_order is not None else 0,
+            task.priority,
+            task.issue,
+        ),
+    )
+
+
+def decision_candidates(
+    snapshot: dict,
+    *,
+    scope_label: str | None = None,
+) -> list[DecisionCandidate]:
+    """Find dependency-clear tasks whose only start blocker is an explicit decision.
+
+    The scheduler must not silently convert a model recommendation into an approval.
+    These candidates are therefore kept separate from :func:`eligible`: they receive
+    a bounded, read-only proposal and remain in their governed Project state until the
+    owner records the required decision.
+    """
+    repository = snapshot["repository"]["nameWithOwner"]
+    result: list[DecisionCandidate] = []
+    for item in snapshot["items"]:
+        issue = item.get("issue")
+        if not issue or item.get("isArchived") or issue.get("repository") != repository:
+            continue
+        if scope_label and scope_label not in issue.get("labels", []):
+            continue
+        fields = item["fields"]
+        if issue.get("state") != "OPEN":
+            continue
+        if fields.get("Status") != "Todo" or fields.get("Item type") != "Task":
+            continue
+        if fields.get("Readiness") not in {"Planned", "Ready", "Needs input"}:
+            continue
+        if issue.get("assignees") or any(pr.get("state") == "OPEN" for pr in issue.get("prs", [])):
+            continue
+        human = fields.get("Human input") or "Not assessed"
+        gates = [part.strip() for part in human.split(",")]
+        if human == "None pending" or not any(gate.endswith(": start") for gate in gates):
+            continue
+        dependencies = tuple(
+            sorted(
+                int(dep["number"])
+                for dep in issue.get("blockedBy", [])
+                if type(dep.get("number")) is int
+            )
+        )
+        if any(
+            dep.get("state") != "CLOSED" or dep.get("stateReason") != "COMPLETED"
+            for dep in issue.get("blockedBy", [])
+        ):
+            continue
+        target = _target(item)
+        if not target:
+            continue
+        priority = {"P0": 0, "P1": 1, "P2": 2, "P3": 3}.get(fields.get("Priority"))
+        if priority is None:
+            continue
+        result.append(
+            DecisionCandidate(
+                issue=issue["number"],
+                title=issue["title"],
+                body=issue.get("body") or "",
+                target=target,
+                priority=priority,
+                execution_order=_execution_order(item),
+                readiness=fields["Readiness"],
+                human_input=human,
+                dependencies=dependencies,
             )
         )
     return sorted(

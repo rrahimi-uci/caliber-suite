@@ -21,7 +21,15 @@ from .agents import credential_values, make_agent, untrusted_env, worker_args
 from .config import Settings
 from .diagnostics import failure_code
 from .github import GitHub, audit_commands, command, pr_ready
-from .planner import Assignment, assign, completed_today, eligible, view_label
+from .planner import (
+    Assignment,
+    DecisionCandidate,
+    assign,
+    completed_today,
+    decision_candidates,
+    eligible,
+    view_label,
+)
 from .state import LockBusyError, Store, exclusive
 
 # Terminal colour codes in check output; stripped so labels and summaries parse.
@@ -190,6 +198,8 @@ class Engine:
         ):
             with audit_commands(lambda kind, detail: store.event(run, None, kind, detail)):
                 snapshot = self.github.snapshot()
+        proposal_candidates = decision_candidates(snapshot, scope_label=label)
+        decision_proposals = self._run_decision_proposals(store, run, proposal_candidates)
         candidates = eligible(
             snapshot,
             allowlist=self.settings.issue_allowlist,
@@ -328,20 +338,135 @@ class Engine:
             with audit_commands(lambda kind, detail: store.event(run, None, kind, detail)):
                 done = self._daily_done(self.github.snapshot(), label, day)
             remaining = max(0, self.settings.daily_done_target - len(done))
+        proposal_errors = [
+            item for item in decision_proposals if item.get("status") == "proposal_error"
+        ]
+        if selected:
+            status = "planned_with_decision_proposal_errors" if proposal_errors else "planned"
+        elif proposal_errors:
+            status = "decision_proposal_error"
+        elif decision_proposals:
+            status = "decision_proposals_ready"
+        else:
+            status = "no_executable_tasks"
         store.finish(run)
         return {
             "run": run,
-            "status": "planned" if selected else "no_executable_tasks",
+            "status": status,
             "recovered": recovered,
             "results": results,
             "eligible": len(candidates),
             "configured": len(configured),
             "selected": [task.issue for task in selected],
+            "decision_candidates": [task.issue for task in proposal_candidates],
+            "decision_proposals": decision_proposals,
             "view": snapshot["view"],
             "daily_done_target": self.settings.daily_done_target,
             "done_today": done,
             "remaining_to_target": remaining,
         }
+
+    @staticmethod
+    def _decision_fingerprint(candidate: DecisionCandidate) -> str:
+        payload = {
+            "issue": candidate.issue,
+            "title": candidate.title,
+            "body": candidate.body,
+            "target": candidate.target,
+            "priority": candidate.priority,
+            "execution_order": candidate.execution_order,
+            "readiness": candidate.readiness,
+            "human_input": candidate.human_input,
+            "dependencies": candidate.dependencies,
+        }
+        return hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()
+
+    @staticmethod
+    def _decision_gate(human_input: str) -> str:
+        gates = [
+            part.strip()
+            for part in human_input.split(",")
+            if re.fullmatch(r"[A-Za-z][A-Za-z0-9_-]{0,20}\s*:\s*start", part.strip())
+        ]
+        return ", ".join(gates[:4]) if gates else "explicit start gate"
+
+    def _run_decision_proposals(
+        self,
+        store: Store,
+        run: str,
+        candidates: list[DecisionCandidate],
+    ) -> list[dict]:
+        """Prepare bounded decision packets without changing governed task state."""
+        summaries: list[dict] = []
+        limit = self.settings.max_decision_proposals_per_run
+        for candidate in candidates[:limit]:
+            fingerprint = self._decision_fingerprint(candidate)
+            if store.has_event_fingerprint(candidate.issue, "decision_proposal", fingerprint):
+                continue
+            prompt = json.dumps(
+                {
+                    "repository": self.settings.repository,
+                    "issue": candidate.issue,
+                    "title": candidate.title,
+                    "body": candidate.body,
+                    "target": candidate.target,
+                    "priority": candidate.priority,
+                    "execution_order": candidate.execution_order,
+                    "readiness": candidate.readiness,
+                    "human_input": candidate.human_input,
+                    "dependencies": candidate.dependencies,
+                },
+                sort_keys=True,
+            )
+            try:
+                packet = self._run_agent(
+                    store,
+                    run,
+                    candidate.issue,
+                    "decision",
+                    prompt,
+                    self.settings.root,
+                    editable=False,
+                )
+            except Exception as error:  # noqa: BLE001 - bounded public code is recorded below
+                code = failure_code(str(error))
+                store.event(
+                    run,
+                    candidate.issue,
+                    "decision_proposal_error",
+                    {
+                        "fingerprint": fingerprint,
+                        "gate": self._decision_gate(candidate.human_input),
+                        "failure_code": code,
+                    },
+                )
+                summaries.append(
+                    {
+                        "issue": candidate.issue,
+                        "status": "proposal_error",
+                        "gate": self._decision_gate(candidate.human_input),
+                    }
+                )
+                continue
+            store.event(
+                run,
+                candidate.issue,
+                "decision_proposal",
+                {
+                    "fingerprint": fingerprint,
+                    "gate": self._decision_gate(candidate.human_input),
+                    "packet": packet,
+                },
+            )
+            summaries.append(
+                {
+                    "issue": candidate.issue,
+                    "status": "proposal_ready",
+                    "gate": self._decision_gate(candidate.human_input),
+                    "option_count": len(packet["options"]),
+                }
+            )
+        return summaries
 
     def _daily_done(self, snapshot: dict, label: str, day: str) -> list[int]:
         midnight = datetime.combine(

@@ -15,6 +15,16 @@ still require explicit start decisions, complete dependencies, review, QA, CI an
 owner merge. Counting uses the complete Project snapshot plus issue closure time
 and merged closing-PR evidence.
 
+When a dependency-clear Task is held only by an explicit `: start` decision, a
+scheduled run prepares a bounded, read-only decision packet instead of reporting a
+misleading empty backlog. The packet records the concrete question, alternatives,
+evidence still needed, safe offline analysis, and work that must remain blocked. It is
+stored in the encrypted state artifact and summarized in hosted diagnostics. The agent
+cannot approve the gate, change Project fields, claim the issue, edit code, open a PR,
+merge, or deploy. Acceptance-only work remains executable when its other gates pass;
+native dependencies, missing ownership metadata, and broad audits remain blocked until
+they are resolved or decomposed into bounded issue contracts.
+
 GitHub Actions starts the workflow at 4:00 AM `America/Los_Angeles` on a hosted
 runner. A manual `workflow_dispatch` starts an extra run from GitHub. The runner
 saves SQLite state as an Actions artifact so published PRs can be reconciled
@@ -23,6 +33,13 @@ before PR creation is blocked for inspection. The run reports a failed Actions
 status if any task blocks, while still uploading its state artifact. Unreviewed
 candidate source is not uploaded to public Actions artifacts. Ordinary tests
 use fakes and make no model or GitHub calls.
+
+The validation workflow always runs fake-provider isolation and schema-constrained
+adapter smoke tests. Its optional live Codex smoke is enabled only when the repository
+variable `AUTOCD_LIVE_MODEL_SMOKE=true` is set; provider quota or billing state must
+not turn deterministic repository validation red. The scheduled execution workflow
+still performs its normal credential and provider preflight before spending on task
+work.
 
 ## Setup
 
@@ -56,6 +73,8 @@ use fakes and make no model or GitHub calls.
    The checked-in `max_tasks_per_run=10` also caps daily
    attempts across scheduled and manual runs, so failed attempts reduce that
    day's possible Done count.
+   `max_decision_proposals_per_run` separately bounds read-only decision analysis; it
+   never counts a proposal as a task attempt or as an approval.
    Claude calls currently have no per-call dollar cap for scheduled and manual
    runs while task spend is being measured. This does not change the normal
    task-attempt or five-hour execution bounds.
@@ -165,7 +184,7 @@ that could not be spawned at all: it cannot have spent anything, so it is record
 as a zero-cost call. A call that started and was killed (stall or timeout) keeps an
 unknown cost, and the Pacific-day spend guard then stops further model calls that
 day with `budget_unverifiable` instead of guessing. The report includes failed attempts
-and planner spend; invoice charges may differ from Claude's estimate. No
+and planner/decision spend; invoice charges may differ from Claude's estimate. No
 prompts, review findings, or raw model output are printed in the report.
 The trial is strict about its measurement contract: if fewer than the requested
 number of task attempts are executable after Project filtering and refill, the
@@ -176,6 +195,9 @@ prior blocked issues and today's attempted issues, and `remaining_attempts`
 reflects the daily cap. `requires_explicit_retry` identifies Ready issues that
 need a guarded manual dispatch with `retry_issue` after claim/branch/PR
 reconciliation. The plan never authorizes a retry by itself.
+The same read-only plan reports dependency-clear `decision_candidates`; scheduled
+execution prepares at most the configured number of decision packets for them. A
+packet is evidence for the owner, not a Project transition or a release decision.
 If `pending_tasks` is nonzero, the plan conservatively selects nothing until
 the execution engine reconciles those tasks. A verified PR that only awaits the
 owner's merge (`ready`) is not counted there. The plan does not perform that
@@ -218,7 +240,8 @@ roles receive no Bash tool. Untrusted issue/task text is passed as a
 user prompt, below the trusted role policy. The prompt is written to the Claude
 CLI's standard input, never as a command-line argument: Linux rejects any single
 argument of 128 KiB or more (`E2BIG`), and a reviewer prompt can carry a 250 KB diff. Developers may use file reading/editing
-tools in their task worktree; Planner, Reviewer and QA receive read-only tools.
+tools in their task worktree; Planner, Decision Analyst, Reviewer and QA receive
+read-only tools.
 Each role's answer contract is passed as `--json-schema`, so the CLI returns a
 validated `structured_output` object instead of relying on the model's final
 free text; the coordinator still re-checks that object against the role schema.

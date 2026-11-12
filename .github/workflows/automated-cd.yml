@@ -158,9 +158,10 @@ jobs:
       - name: Smoke test the real Codex CLI as the isolated worker
         # One tiny live call (well under one cent) proves the hosted path the daily
         # run depends on: Codex install, API-key auth via CODEX_API_KEY, sudo to the
-        # worker, the Linux sandbox, and schema-constrained output. Skipped when the
-        # secret is unavailable (forks).
-        if: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository }}
+        # worker, the Linux sandbox, and schema-constrained output. It is explicitly
+        # opt-in because provider quota/billing is external state, not a deterministic
+        # repository gate. The fake-Codex isolation smoke above remains mandatory.
+        if: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && vars.AUTOCD_LIVE_MODEL_SMOKE == 'true' }}
         env:
           AUTOCD_REPO_ROOT: ${{ github.workspace }}
           AUTOCD_STATE_DIR: ${{ runner.temp }}/private-autocd-state
@@ -224,7 +225,7 @@ jobs:
           wheel = next(Path('/tmp/autocd-dist').glob('*.whl'))
           with ZipFile(wheel) as archive:
               names = set(archive.namelist())
-          required = {f'autocd/prompts/{role}.md' for role in ('planner', 'developer', 'reviewer', 'qa')}
+          required = {f'autocd/prompts/{role}.md' for role in ('planner', 'decision', 'developer', 'reviewer', 'qa')}
           if not required.issubset(names):
               raise SystemExit(f'wheel missing prompts: {sorted(required - names)}')
           PY

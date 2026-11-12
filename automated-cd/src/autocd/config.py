@@ -29,6 +29,7 @@ class Settings:
     max_review_cycles: int
     max_fix_attempts: int
     max_auto_retries: int
+    max_decision_proposals_per_run: int
     agent_timeout_seconds: int
     stall_seconds: int
     qa_command_timeout_seconds: int
@@ -99,6 +100,12 @@ def load(path: Path | None = None, *, environ: dict[str, str] | None = None) -> 
         max_review_cycles=int(value("max_review_cycles", workflow["max_review_cycles"])),
         max_fix_attempts=int(value("max_fix_attempts", workflow.get("max_fix_attempts", 0))),
         max_auto_retries=int(value("max_auto_retries", workflow.get("max_auto_retries", 0))),
+        max_decision_proposals_per_run=int(
+            value(
+                "max_decision_proposals_per_run",
+                workflow.get("max_decision_proposals_per_run", 0),
+            )
+        ),
         agent_timeout_seconds=int(
             value("agent_timeout_seconds", workflow["agent_timeout_seconds"])
         ),
@@ -155,6 +162,8 @@ def load(path: Path | None = None, *, environ: dict[str, str] | None = None) -> 
         raise ValueError("max_fix_attempts must be between 0 and 10")
     if not 0 <= settings.max_auto_retries <= 5:
         raise ValueError("max_auto_retries must be between 0 and 5")
+    if not 0 <= settings.max_decision_proposals_per_run <= 10:
+        raise ValueError("max_decision_proposals_per_run must be between 0 and 10")
     if settings.stall_seconds < 1 or settings.agent_timeout_seconds <= settings.stall_seconds:
         raise ValueError("agent timeout must exceed stall timeout")
     if not 60 <= settings.qa_command_timeout_seconds <= 14400:

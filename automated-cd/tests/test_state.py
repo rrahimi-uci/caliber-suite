@@ -44,6 +44,16 @@ def test_store_transitions_and_schedule_dedup(tmp_path: Path):
     ]
 
 
+def test_event_fingerprint_deduplicates_same_input_only(tmp_path: Path):
+    store = Store(tmp_path)
+    assert store.start("run")
+    store.event("run", 821, "decision_proposal", {"fingerprint": "same"})
+    store.event("run", 821, "decision_proposal", {"fingerprint": "other"})
+    assert store.has_event_fingerprint(821, "decision_proposal", "same")
+    assert store.has_event_fingerprint(821, "decision_proposal", "other")
+    assert not store.has_event_fingerprint(821, "decision_proposal", "missing")
+
+
 def test_local_lock_rejects_overlap(tmp_path: Path):
     with exclusive(tmp_path), pytest.raises(RuntimeError, match="local lock"), exclusive(tmp_path):
         pass

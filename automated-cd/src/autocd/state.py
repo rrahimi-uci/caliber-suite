@@ -151,6 +151,21 @@ class Store:
             ).fetchone()[0]
         )
 
+    def has_event_fingerprint(self, issue: int, kind: str, fingerprint: str) -> bool:
+        """Return whether an issue already has an event with this stable input hash."""
+        rows = self.db.execute(
+            "SELECT detail FROM events WHERE issue=? AND kind=? ORDER BY id DESC",
+            (issue, kind),
+        )
+        for row in rows:
+            try:
+                detail = json.loads(row["detail"])
+            except (TypeError, json.JSONDecodeError):
+                continue
+            if isinstance(detail, dict) and detail.get("fingerprint") == fingerprint:
+                return True
+        return False
+
     def blocked_with_pr(self) -> list[sqlite3.Row]:
         """Each issue's latest attempt when it is blocked with a published PR."""
         return [

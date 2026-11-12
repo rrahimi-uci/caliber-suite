@@ -63,7 +63,10 @@ test('Codex and Claude entry points and adapters route to shared policy without 
 });
 
 test('framework documentation local links exist and stay within the repository', () => {
-  const files = [...markdownFiles(resolve(root, '.agents')), ...markdownFiles(resolve(root, '.claude')),
+  // Agent worktrees under .claude/worktrees are independent checkouts and may
+  // legitimately be at an older revision. They are not framework documentation
+  // and must not make the canonical checkout's link gate nondeterministic.
+  const files = [...markdownFiles(resolve(root, '.agents')), ...markdownFiles(resolve(root, '.claude/commands')),
     resolve(root, 'AGENTS.md'), resolve(root, 'CLAUDE.md')];
   let count = 0;
   for (const file of files) {
