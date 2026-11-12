@@ -22,6 +22,9 @@ max_fix_attempts = 2
 # branch; not a developer blocker or scope violation) to Ready on a later Pacific
 # day, at most this many times per issue. Zero keeps manual reconciliation only.
 max_auto_retries = 2
+# Read-only decision packets make start-gated work actionable without granting
+# an agent authority to approve the gate. Keep the per-run budget bounded.
+max_decision_proposals_per_run = 2
 agent_timeout_seconds = 3600
 stall_seconds = 900
 # The full changed-code coverage suite can exceed one hour on hosted runners.
@@ -46,7 +49,7 @@ reasoning = "xhigh"
 # Claude Code only: per-call cap; zero lets the daily cap bound each call. Codex
 # has no per-call budget flag, so its spend is checked before every call.
 max_budget_usd = 0.0
-# Pacific-calendar-day cap across planner, developer, reviewer and QA calls.
+# Pacific-calendar-day cap across planner, decision, developer, reviewer and QA calls.
 # Zero disables the aggregate cap.
 daily_budget_usd = 30.0
 # A call killed by a stall or timeout reports no cost. Count it at this estimate

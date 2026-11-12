@@ -104,6 +104,45 @@ def test_planner_requires_explicit_selection_and_reason():
             decode_result("planner", raw)
 
 
+def test_decision_requires_distinct_options_and_known_recommendation():
+    valid = {
+        "gate": "H17: start",
+        "question": "Choose a scope",
+        "options": [
+            {
+                "id": "a",
+                "label": "A",
+                "summary": "A",
+                "impact": "A",
+                "reversible": True,
+            },
+            {
+                "id": "b",
+                "label": "B",
+                "summary": "B",
+                "impact": "B",
+                "reversible": False,
+            },
+        ],
+        "recommendation": "a",
+        "rationale": "The evidence supports A.",
+        "safe_offline_work": [],
+        "blocked_work": ["Implementation"],
+        "evidence_needed": ["Owner decision"],
+        "risks": ["Unknown"],
+    }
+    assert decode_result("decision", valid) == valid
+    for recommendation, ids in (("missing", ["a", "b"]), ("a", ["a", "a"])):
+        invalid = dict(valid)
+        invalid["recommendation"] = recommendation
+        invalid["options"] = [
+            dict(valid["options"][0], id=ids[0]),
+            dict(valid["options"][1], id=ids[1]),
+        ]
+        with pytest.raises(AgentError, match="proposal schema"):
+            decode_result("decision", invalid)
+
+
 def _recording_cli(tmp_path: Path, record: Path) -> None:
     """A fake CLI that records its argv and the exact bytes it received on stdin."""
     cli = tmp_path / "claude"
@@ -146,6 +185,32 @@ def test_every_role_sends_a_schema_its_decoder_accepts(settings, tmp_path, monke
     schema = ROLE_SCHEMAS[role]
     sample = {
         "planner": {"selected": [1181], "reason": "Ready"},
+        "decision": {
+            "gate": "H17: start",
+            "question": "Choose the supported profile scope",
+            "options": [
+                {
+                    "id": "bounded",
+                    "label": "Bounded scope",
+                    "summary": "Keep the task within the tested profile",
+                    "impact": "Lower delivery risk",
+                    "reversible": True,
+                },
+                {
+                    "id": "defer",
+                    "label": "Defer",
+                    "summary": "Wait for more evidence",
+                    "impact": "Preserves the current safety boundary",
+                    "reversible": True,
+                },
+            ],
+            "recommendation": "bounded",
+            "rationale": "The repository evidence supports only the bounded scope.",
+            "safe_offline_work": ["Inventory the current implementation."],
+            "blocked_work": ["Do not change the release contract."],
+            "evidence_needed": ["Owner decision on the supported scope."],
+            "risks": ["The broader option is not evidenced."],
+        },
         "developer": {
             **{key: "x" for key in schema["required"] if key != "blocker"},
             "blocker": None,

@@ -2,7 +2,14 @@ import json
 
 import pytest
 
-from autocd.planner import Assignment, assign, completed_today, eligible, view_label
+from autocd.planner import (
+    Assignment,
+    assign,
+    completed_today,
+    decision_candidates,
+    eligible,
+    view_label,
+)
 
 
 def _metadata(paths):
@@ -45,6 +52,24 @@ def test_hosted_eligibility_requires_valid_declared_ownership(snapshot):
 
     assert [task.issue for task in tasks] == [12]
     assert tasks[0].paths == frozenset({"src/task.py", "tests/test_task.py"})
+
+
+def test_decision_candidates_require_start_gate_and_closed_dependencies(snapshot):
+    data, item = snapshot
+    data["items"] = [
+        item(30, fields={"Human input": "H17: start", "Readiness": "Planned"}),
+        item(31, fields={"Human input": "H18: acceptance"}),
+        item(
+            32,
+            fields={"Human input": "H19: start"},
+            issue={"blockedBy": [{"number": 999, "state": "OPEN", "stateReason": None}]},
+        ),
+        item(33, fields={"Human input": "None pending"}),
+    ]
+    candidates = decision_candidates(data)
+    assert [candidate.issue for candidate in candidates] == [30]
+    assert candidates[0].human_input == "H17: start"
+    assert candidates[0].dependencies == ()
 
 
 def test_configured_issue_paths_override_missing_issue_metadata(snapshot):

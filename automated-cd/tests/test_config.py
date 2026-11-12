@@ -43,6 +43,7 @@ def test_defaults_and_environment(settings):
     assert load().max_fix_attempts == 2
     assert load(environ={"AUTOCD_MAX_FIX_ATTEMPTS": "0"}).max_fix_attempts == 0
     assert load().max_auto_retries == 2
+    assert load().max_decision_proposals_per_run == 2
     changed = load(environ={"AUTOCD_ENABLED": "true", "AUTOCD_DAILY_TIME": "23:30"})
     assert changed.enabled and changed.daily_time == "23:30"
     assert load(environ={"AUTOCD_ENABLED": "false"}).enabled is False
@@ -56,6 +57,8 @@ def test_defaults_and_environment(settings):
         {"AUTOCD_MAX_FIX_ATTEMPTS": "-1"},
         {"AUTOCD_MAX_FIX_ATTEMPTS": "11"},
         {"AUTOCD_MAX_AUTO_RETRIES": "6"},
+        {"AUTOCD_MAX_DECISION_PROPOSALS_PER_RUN": "-1"},
+        {"AUTOCD_MAX_DECISION_PROPOSALS_PER_RUN": "11"},
         {"AUTOCD_COVERAGE_THRESHOLD": "49"},
         {"AUTOCD_COVERAGE_THRESHOLD": "101"},
         {"AUTOCD_PRICE_OUTPUT": "-1"},

@@ -117,6 +117,33 @@ def test_run_diagnostic_reports_pre_task_failure_without_private_reason(
     assert "SECRET" not in printed
 
 
+def test_decision_diagnostic_exposes_metadata_without_model_prose(tmp_path):
+    store = Store(tmp_path)
+    store.start("run")
+    store.event(
+        "run",
+        1086,
+        "decision_proposal",
+        {
+            "fingerprint": "a" * 64,
+            "gate": "H04: start",
+            "packet": {
+                "options": [{"id": "a"}, {"id": "b"}],
+                "recommendation": "a",
+                "rationale": "SECRET model text",
+            },
+        },
+    )
+    result = latest_diagnostic(store.path)
+    assert result == {
+        "status": "no_tasks",
+        "decision_proposals": [
+            {"issue": 1086, "status": "proposal_ready", "gate": "H04: start", "option_count": 2}
+        ],
+    }
+    assert "SECRET" not in json.dumps(result)
+
+
 def test_latest_diagnostic_emits_bounded_structured_summary(tmp_path, monkeypatch, capsys):
     directory = tmp_path / "state"
     store = Store(directory)

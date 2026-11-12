@@ -139,6 +139,33 @@ class FakeAgent:
         self.event("fake_agent", {"role": role})
         if role == "planner":
             return {"selected": [12], "reason": "eligible"}
+        if role == "decision":
+            return {
+                "gate": "H17: start",
+                "question": "Choose the supported scope",
+                "options": [
+                    {
+                        "id": "bounded",
+                        "label": "Bounded",
+                        "summary": "Use the tested scope",
+                        "impact": "Lower risk",
+                        "reversible": True,
+                    },
+                    {
+                        "id": "defer",
+                        "label": "Defer",
+                        "summary": "Wait for evidence",
+                        "impact": "No contract change",
+                        "reversible": True,
+                    },
+                ],
+                "recommendation": "bounded",
+                "rationale": "Only the bounded scope is evidenced.",
+                "safe_offline_work": ["Inspect the current routes."],
+                "blocked_work": ["Do not change the contract."],
+                "evidence_needed": ["An owner decision."],
+                "risks": ["The broader scope is unverified."],
+            }
         if role == "developer":
             return {
                 "summary": "Implemented contract",
@@ -162,6 +189,34 @@ class FakeAgent:
         if role == "qa":
             return {"approved": True, "gaps": []}
         raise AssertionError(role)
+
+
+def test_engine_prepares_and_deduplicates_read_only_decision_proposals(settings, snapshot):
+    data, item = snapshot
+    data["items"] = [item(17, fields={"Human input": "H17: start", "Readiness": "Planned"})]
+    github = FakeGitHub(settings, data)
+    FakeAgent.calls = []
+    engine = Engine(settings, github=github, agent_factory=FakeAgent)
+
+    first = engine.run()
+    assert first["status"] == "decision_proposals_ready"
+    assert first["decision_candidates"] == [17]
+    assert first["decision_proposals"] == [
+        {"issue": 17, "status": "proposal_ready", "gate": "H17: start", "option_count": 2}
+    ]
+    assert github.transitions == []
+    assert FakeAgent.calls == [("decision", False)]
+
+    second = engine.run()
+    assert second["status"] == "no_executable_tasks"
+    assert second["decision_candidates"] == [17]
+    assert second["decision_proposals"] == []
+    assert FakeAgent.calls == [("decision", False)]
+    store = Store(settings.state_dir)
+    try:
+        assert store.event_count(17, "decision_proposal") == 1
+    finally:
+        store.db.close()
 
 
 def test_engine_review_qa_pr_lifecycle(settings, snapshot, monkeypatch):

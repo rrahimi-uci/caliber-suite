@@ -13,7 +13,7 @@ from zoneinfo import ZoneInfo
 
 # Failures raised by the Claude CLI wrapper, keyed by the phrase after the role name. The
 # first match wins, so each specific phrase precedes the broader "returned " catch-all.
-_ROLE = r"(?:planner|developer|reviewer|qa) "
+_ROLE = r"(?:planner|decision|developer|reviewer|qa) "
 _AGENT_FAILURES = (
     (re.compile(_ROLE + r"could not start"), "agent_start_failed"),
     (re.compile(_ROLE + r"timed out"), "agent_timeout"),
@@ -217,6 +217,54 @@ def cycle_trail(db: sqlite3.Connection, run_id: str, issue: int) -> list[dict]:
     return trail[-10:]
 
 
+def decision_summaries(db: sqlite3.Connection, limit: int = 10) -> list[dict]:
+    """Expose only coordinator-owned decision metadata, never model prose."""
+    rows = db.execute(
+        "SELECT issue,kind,detail FROM events "
+        "WHERE issue IS NOT NULL AND kind IN ('decision_proposal', 'decision_proposal_error') "
+        "ORDER BY id DESC LIMIT ?",
+        (limit * 2,),
+    )
+    summaries: list[dict] = []
+    seen: set[int] = set()
+    for row in rows:
+        issue = row["issue"]
+        if type(issue) is not int or issue in seen:
+            continue
+        seen.add(issue)
+        try:
+            detail = json.loads(row["detail"])
+        except (TypeError, json.JSONDecodeError):
+            detail = {}
+        gate = detail.get("gate") if isinstance(detail, dict) else None
+        if not isinstance(gate, str) or len(gate) > 100:
+            gate = "explicit start gate"
+        if row["kind"] == "decision_proposal":
+            packet = detail.get("packet", {}) if isinstance(detail, dict) else {}
+            options = packet.get("options") if isinstance(packet, dict) else None
+            summaries.append(
+                {
+                    "issue": issue,
+                    "status": "proposal_ready",
+                    "gate": gate,
+                    "option_count": len(options) if isinstance(options, list) else 0,
+                }
+            )
+        else:
+            code = detail.get("failure_code") if isinstance(detail, dict) else None
+            summaries.append(
+                {
+                    "issue": issue,
+                    "status": "proposal_error",
+                    "gate": gate,
+                    "failure_code": code if isinstance(code, str) else "other",
+                }
+            )
+        if len(summaries) >= limit:
+            break
+    return summaries
+
+
 def latest_run_diagnostic(path: Path, timezone: str) -> dict:
     """Report a fixed run label and today's claim count, never raw event text."""
     midnight = datetime.combine(
@@ -265,8 +313,12 @@ def latest_diagnostic(path: Path, *, latest_run_only: bool = False) -> dict:
             )
             + "ORDER BY rowid DESC LIMIT 1"
         ).fetchone()
+        proposals = decision_summaries(db)
         if task is None:
-            return {"status": "no_tasks"}
+            result = {"status": "no_tasks"}
+            if proposals:
+                result["decision_proposals"] = proposals
+            return result
         result = {
             "issue": task["issue"],
             "phase": task["phase"]
@@ -320,6 +372,8 @@ def latest_diagnostic(path: Path, *, latest_run_only: bool = False) -> dict:
         trail = cycle_trail(db, task["run_id"], task["issue"])
         if trail:
             result["trail"] = trail
+        if proposals:
+            result["decision_proposals"] = proposals
         return result
 
 

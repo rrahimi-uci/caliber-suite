@@ -29,6 +29,7 @@ def _public_result(value: dict) -> dict:
             "eligible",
             "configured",
             "selected",
+            "decision_candidates",
             "daily_done_target",
             "done_today",
             "remaining_to_target",
@@ -41,6 +42,16 @@ def _public_result(value: dict) -> dict:
                 {field: item[field] for field in ("issue", "status") if field in item}
                 for item in value[key]
             ]
+    if "decision_proposals" in value:
+        safe["decision_proposals"] = [
+            {
+                field: item[field]
+                for field in ("issue", "status", "gate", "option_count", "failure_code")
+                if field in item
+            }
+            for item in value["decision_proposals"]
+            if isinstance(item, dict)
+        ]
     return safe
 
 
@@ -90,14 +101,26 @@ def run_hosted(
             settings,
             max_tasks_per_run=prior_attempts + trial_tasks,
             daily_done_target=max(settings.daily_done_target, done_today + trial_tasks),
+            # A measured task trial is reserved for task attempts. Decision
+            # packets are read-only and must not consume that end-to-end budget.
+            max_decision_proposals_per_run=0,
         )
         engine = Engine(settings)
     max_attempts = trial_tasks or settings.max_tasks_per_run
     deadline = time.monotonic() + max_seconds
     blocked: list[dict] = []
     pr_errors: set[int] = set()
+    decision_errors: set[int] = set()
 
     def record(value: dict) -> None:
+        for proposal in value.get("decision_proposals", []):
+            if not isinstance(proposal, dict) or type(proposal.get("issue")) is not int:
+                continue
+            issue = proposal["issue"]
+            if proposal.get("status") == "proposal_error":
+                decision_errors.add(issue)
+            elif proposal.get("status") == "proposal_ready":
+                decision_errors.discard(issue)
         for item in [*value.get("results", []), *value.get("recovered", [])]:
             status = str(item.get("status", ""))
             issue = item.get("issue")
@@ -140,6 +163,11 @@ def run_hosted(
             raise RuntimeError(f"Automated CD blocked issues: {issues}; inspect state artifact")
         if pr_errors:
             raise RuntimeError(f"Automated CD PR checks could not be verified: {sorted(pr_errors)}")
+        if decision_errors:
+            raise RuntimeError(
+                "Automated CD decision proposals could not be generated: "
+                f"{sorted(decision_errors)}; inspect state artifact"
+            )
 
     initial_options = {"scheduled": mode == "schedule"}
     if retry_issue is not None:

@@ -224,7 +224,7 @@ jobs:
           wheel = next(Path('/tmp/autocd-dist').glob('*.whl'))
           with ZipFile(wheel) as archive:
               names = set(archive.namelist())
-          required = {f'autocd/prompts/{role}.md' for role in ('planner', 'developer', 'reviewer', 'qa')}
+          required = {f'autocd/prompts/{role}.md' for role in ('planner', 'decision', 'developer', 'reviewer', 'qa')}
           if not required.issubset(names):
               raise SystemExit(f'wheel missing prompts: {sorted(required - names)}')
           PY

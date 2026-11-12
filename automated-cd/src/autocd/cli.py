@@ -23,7 +23,7 @@ def main() -> None:
         store = Store(settings.state_dir)
         result = [dict(row) for row in store.tasks()]
     elif args.action == "plan":
-        from .planner import assign, eligible, view_label
+        from .planner import assign, decision_candidates, eligible, view_label
 
         engine = Engine(settings)
         snapshot = engine.github.snapshot()
@@ -55,6 +55,7 @@ def main() -> None:
             finally:
                 store.db.close()
         candidates = [task for task in ready if task.issue not in blocked | attempted]
+        decisions = decision_candidates(snapshot, scope_label=label)
         configured = [task for task in candidates if task.issue in settings.issue_checks]
         remaining = max(0, settings.daily_done_target - len(done))
         selected = (
@@ -68,6 +69,7 @@ def main() -> None:
             "done_today": done,
             "remaining_to_target": remaining,
             "eligible": [task.issue for task in candidates],
+            "decision_candidates": [task.issue for task in decisions],
             "requires_explicit_retry": sorted(
                 task.issue for task in ready if task.issue in blocked
             ),
