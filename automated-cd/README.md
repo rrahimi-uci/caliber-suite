@@ -430,4 +430,5 @@ Publication and run-time safeguards:
 
 The state artifact may contain private issue content or source. Limit Actions
 artifact access under the repository's security policy.
-See [architecture and failure semantics](docs/architecture.md).
+See the detailed [Automation-CD architecture](architecture.md). The previous
+`docs/architecture.md` path remains as a compatibility pointer.
