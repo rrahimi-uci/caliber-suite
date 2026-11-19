@@ -19,6 +19,8 @@
 #   MLFLOW_PORT         host port for MLflow. Unset: 5000, or the next free port if 5000 is busy.
 #   CALIBER_PORT        host port for CALIBER (default 5001).
 #   MLFLOW_GATEWAY_PORT host port for the MLflow AI Gateway (default 5002).
+#   COMPOSE_PROJECT_NAME optional Compose project name. Set it to the project that
+#                       owns an existing stack when you need to reuse its volumes.
 #   START_TIMEOUT       seconds to wait for CALIBER to answer after the containers start (default 600).
 #   CALIBER_WORKFLOW_RUN_EVENT_BACKEND   nats (default) or database / in_process; redis is not
 #                       supported by deploy/. The values can also be set in .env or deploy/.env.
@@ -110,6 +112,74 @@ COMPOSE_BASE=(docker compose ${ENV_ARGS[@]+"${ENV_ARGS[@]}"} -f deploy/compose.y
 COMPOSE=("${COMPOSE_BASE[@]}" "${PROFILE_ARGS[@]}")
 ENV_DISPLAY=""
 if [[ ${#ENV_ARGS[@]} -gt 0 ]]; then ENV_DISPLAY="${ENV_ARGS[*]} "; fi
+
+# The bundled Compose files use fixed container names so the documented
+# `docker exec` and backup commands stay stable. A developer can therefore
+# accidentally create a conflicting container by starting one of the
+# component files directly (for example, deploy/minio/compose.yaml). Detect
+# that before starting NATS or recreating any app containers. Compose would
+# otherwise partially mutate the stack and only then report an opaque name
+# conflict from the daemon.
+COMPOSE_PROJECT="${COMPOSE_PROJECT_NAME:-}"
+if [[ -z "$COMPOSE_PROJECT" ]]; then
+  COMPOSE_PROJECT="$(resolve_env_value COMPOSE_PROJECT_NAME)"
+fi
+COMPOSE_PROJECT="${COMPOSE_PROJECT:-caliber-infra}"
+
+check_foreign_fixed_name_containers() {
+  local container owner
+  local conflicts=""
+  local conflict_names=""
+  local first_foreign_project=""
+  local fixed_containers=(
+    caliber
+    caliber-adminer
+    caliber-age-viewer
+    caliber-mcp-postgres
+    caliber-minio
+    caliber-minio-init
+    caliber-mlflow
+    caliber-mlflow-gateway
+    caliber-nats
+  )
+
+  for container in "${fixed_containers[@]}"; do
+    docker inspect "$container" >/dev/null 2>&1 || continue
+    owner="$(docker inspect \
+      --format '{{ index .Config.Labels "com.docker.compose.project" }}' \
+      "$container" 2>/dev/null || true)"
+    if [[ -z "$owner" ]]; then
+      owner="a non-Compose container"
+    fi
+    [[ "$owner" == "$COMPOSE_PROJECT" ]] && continue
+
+    conflicts="${conflicts}  - ${container} (owner: ${owner})
+"
+    if [[ -z "$conflict_names" ]]; then
+      conflict_names="$container"
+    else
+      conflict_names="${conflict_names} ${container}"
+    fi
+    if [[ -z "$first_foreign_project" && "$owner" != "a non-Compose container" ]]; then
+      first_foreign_project="$owner"
+    fi
+  done
+
+  [[ -z "$conflicts" ]] && return 0
+
+  printf 'start.sh: cannot start because fixed-name containers belong to another project:\n%s' "$conflicts" >&2
+  echo "  expected Compose project: ${COMPOSE_PROJECT}" >&2
+  if [[ -n "$first_foreign_project" ]]; then
+    echo "  To reuse that project's data, stop this project's partial stack first, then run:" >&2
+    echo "    ./stop.sh" >&2
+    echo "    COMPOSE_PROJECT_NAME=${first_foreign_project} ./start.sh" >&2
+  fi
+  echo "  After confirming they are stale, remove only the listed containers (named volumes are not removed), then retry:" >&2
+  echo "    docker rm -f ${conflict_names}" >&2
+  fail "resolve the container ownership conflict before starting the suite."
+}
+
+check_foreign_fixed_name_containers
 
 echo "starting caliber-suite (containers)..."
 # Ensure the selected shared event bus is up before the app tier starts.
