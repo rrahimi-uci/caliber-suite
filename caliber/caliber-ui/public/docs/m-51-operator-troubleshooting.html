@@ -101,6 +101,12 @@
 <p>If the stack still fails to start cleanly, check:</p>
 <ul><li>port ownership</li><li><code>deploy/.env</code> and <code>.env</code></li><li>provider and storage settings</li></ul>
 <p><code>scripts/verify-compose-stack.sh</code> builds and boots the documented stack from the example environment and prints container logs on failure; it is a quick way to tell a local configuration problem from a repository one.</p>
+<h3 id="fixed-container-name-conflict">Fixed container-name conflict<a class="anchor" href="#fixed-container-name-conflict" aria-hidden="true" tabindex="-1">#</a></h3>
+<p>The bundled stack uses stable container names for local <code>docker exec</code> and backup commands. If a component was started directly, Docker may report that a name such as <code>/caliber-minio</code> is already in use. <code>start.sh</code> detects this before it recreates any services and prints the owning Compose project.</p>
+<p>To reuse the existing project's data, stop the partial bundled stack and start with that project name:</p>
+<pre class="language-bash"><code class="language-bash">./stop.sh
+COMPOSE_PROJECT_NAME=caliber-minio ./start.sh</code></pre>
+<p>Alternatively, remove only the conflicting containers and keep their named volumes, using the exact <code>docker rm -f</code> command printed by <code>start.sh</code>, then run <code>./start.sh</code> again. Do not use <code>down -v</code> or <code>make infra-reset</code> unless deleting local data is intentional.</p>
 <h2 id="3-the-gateway-reports-unreachable">3. The gateway reports unreachable<a class="anchor" href="#3-the-gateway-reports-unreachable" aria-hidden="true" tabindex="-1">#</a></h2>
 <p>An unreachable LLM gateway is more often a startup failure than a network one. The MLflow AI Gateway validates every endpoint before it serves any of them, so one unresolved <code>$VAR</code> placeholder can stop the whole server.</p>
 <p>Check, in this order:</p>

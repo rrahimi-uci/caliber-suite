@@ -45,6 +45,23 @@ If the stack still fails to start cleanly, check:
 and prints container logs on failure; it is a quick way to tell a local configuration problem from a
 repository one.
 
+### Fixed container-name conflict
+
+The bundled stack uses stable container names for local `docker exec` and backup commands. If a
+component was started directly, Docker may report that a name such as `/caliber-minio` is already in
+use. `start.sh` detects this before it recreates any services and prints the owning Compose project.
+
+To reuse the existing project's data, stop the partial bundled stack and start with that project name:
+
+```bash
+./stop.sh
+COMPOSE_PROJECT_NAME=caliber-minio ./start.sh
+```
+
+Alternatively, remove only the conflicting containers and keep their named volumes, using the exact
+`docker rm -f` command printed by `start.sh`, then run `./start.sh` again. Do not use `down -v` or
+`make infra-reset` unless deleting local data is intentional.
+
 ## 3. The gateway reports unreachable
 
 An unreachable LLM gateway is more often a startup failure than a network one.
