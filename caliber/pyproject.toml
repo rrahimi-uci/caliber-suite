@@ -92,7 +92,7 @@ dev = [
     # reads this exact version, so local venvs, Automated CD worktrees and CI
     # all lint with the same ruff. ``>=0.5`` let a developer's venv run a newer
     # ruff whose formatter disagrees with CI's on files nobody touched.
-    "ruff==0.17.5",
+    "ruff==0.17.6",
     "mypy>=1.10",
     "pre-commit>=3.7",
     "build>=1.2",                 # local package parity with the CI distribution job
